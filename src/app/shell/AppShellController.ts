@@ -88,5 +88,11 @@ export class AppShellController {
     for (const panel of this.panels) {
       panel.hidden = panel.dataset.tabPanel !== tabId;
     }
+
+    document.dispatchEvent(
+      new CustomEvent("app-tab-change", {
+        detail: { tabId },
+      }),
+    );
   }
 }

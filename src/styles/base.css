@@ -1,0 +1,134 @@
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "PingFang SC", "Noto Sans SC", "Helvetica Neue", system-ui, -apple-system, "Segoe UI",
+    Roboto, "Microsoft YaHei", sans-serif;
+  background: var(--oio-page-bg);
+  color: var(--oio-text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3.5rem;
+}
+
+.oio-header {
+  margin-bottom: 1.65rem;
+}
+
+.oio-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.oio-brand {
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  margin: 0;
+  color: var(--oio-text);
+  flex: 1;
+  min-width: 0;
+}
+
+.oio-brand-oio {
+  color: var(--oio-accent);
+}
+
+
+textarea {
+  width: 100%;
+  padding: 0.9rem 1.05rem;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  border: 1px solid var(--oio-border);
+  border-radius: var(--oio-radius-control);
+  background: var(--oio-surface-inset);
+  color: var(--oio-text);
+  resize: vertical;
+  min-height: 180px;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: var(--oio-accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.22);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-top: 1rem;
+}
+
+.primary {
+  padding: 0.62rem 1.35rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--oio-radius-control);
+  cursor: pointer;
+  background: var(--oio-accent);
+  color: #fff;
+  box-shadow: none;
+  transition:
+    background 0.15s ease,
+    filter 0.15s ease;
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--oio-accent-hover);
+  filter: none;
+}
+
+.primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.status {
+  font-size: 0.8125rem;
+  color: var(--oio-text-secondary);
+}
+
+
+.secondary {
+  padding: 0.55rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: 1px solid var(--oio-border);
+  border-radius: var(--oio-radius-control);
+  cursor: pointer;
+  background: var(--oio-surface-2);
+  color: var(--oio-text);
+}
+
+.secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

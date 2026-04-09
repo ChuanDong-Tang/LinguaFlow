@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-Hans">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <main class="wrap oio-app app-shell-ready" data-active-tab="today-summary">
+    <main class="wrap oio-app app-shell-ready" data-active-tab="oio-chat">
       <div class="app-shell">
         <button type="button" class="app-mobile-overlay" id="app-mobile-overlay" aria-label="关闭菜单"></button>
         <aside class="app-sidebar" id="app-sidebar">
@@ -17,37 +17,31 @@
             </div>
           </header>
 
-          <nav class="app-nav" aria-label="功能导航">
+          <nav class="app-nav" aria-label="Feature navigation">
             <div class="app-nav-group">
               <div class="app-nav-list">
-                <button type="button" class="app-nav-btn is-active" data-tab-target="today-summary" aria-controls="tab-panel-today-summary" aria-current="page">
+                <button type="button" class="app-nav-btn" data-tab-target="daily-capture" aria-controls="tab-panel-daily-capture" aria-current="false">
                   <span class="app-nav-btn-main">
                     <span class="app-nav-btn-icon" aria-hidden="true">◫</span>
-                    <span class="app-nav-btn-label">今日总结</span>
+                    <span class="app-nav-btn-label">Daily Capture</span>
                   </span>
                 </button>
                 <button type="button" class="app-nav-btn" data-tab-target="rewrite" aria-controls="tab-panel-rewrite">
                   <span class="app-nav-btn-main">
                     <span class="app-nav-btn-icon" aria-hidden="true">✎</span>
-                    <span class="app-nav-btn-label">英文改写</span>
+                    <span class="app-nav-btn-label">OIO</span>
                   </span>
                 </button>
-                <button type="button" class="app-nav-btn" data-tab-target="player" aria-controls="tab-panel-player">
+                <button type="button" class="app-nav-btn" data-tab-target="oio-chat" aria-controls="tab-panel-oio-chat">
                   <span class="app-nav-btn-main">
-                    <span class="app-nav-btn-icon" aria-hidden="true">▷</span>
-                    <span class="app-nav-btn-label">分段播放器</span>
-                  </span>
-                </button>
-                <button type="button" class="app-nav-btn" data-tab-target="curious-baby" aria-controls="tab-panel-curious-baby">
-                  <span class="app-nav-btn-main">
-                    <span class="app-nav-btn-icon" aria-hidden="true">◌</span>
-                    <span class="app-nav-btn-label">好奇宝宝</span>
+                    <span class="app-nav-btn-icon" aria-hidden="true">✦</span>
+                    <span class="app-nav-btn-label">OIO Chat</span>
                   </span>
                 </button>
                 <button type="button" class="app-nav-btn" data-tab-target="super-dict" aria-controls="tab-panel-super-dict">
                   <span class="app-nav-btn-main">
                     <span class="app-nav-btn-icon" aria-hidden="true">⌕</span>
-                    <span class="app-nav-btn-label">超级词典</span>
+                    <span class="app-nav-btn-label">Super Dict</span>
                   </span>
                 </button>
               </div>
@@ -58,156 +52,340 @@
         <div class="app-workspace">
           <div class="app-mobile-bar">
             <button type="button" class="app-mobile-menu-btn" id="app-mobile-menu-btn" aria-expanded="false" aria-controls="app-sidebar">
-              菜单
+              Menu
             </button>
-            <strong class="app-mobile-title" id="app-mobile-title">英文改写</strong>
+            <strong class="app-mobile-title" id="app-mobile-title">OIO Chat</strong>
           </div>
-          <section class="app-tab-panel app-tab-panel--placeholder" id="tab-panel-today-summary" data-tab-panel="today-summary">
-            <section class="workspace-hero workspace-hero--placeholder">
-              <span class="workspace-hero-kicker">今日总结</span>
-              <h2 class="workspace-hero-title">今日学习总结</h2>
-              <p class="workspace-hero-copy">把当天的改写、查词与播放器练习收束成一张可回看的学习卡片。这里会是你每天结束学习时最适合回顾的地方。</p>
-            </section>
+          <section class="app-tab-panel app-tab-panel--placeholder" id="tab-panel-daily-capture" data-tab-panel="daily-capture" hidden>
             <section class="workspace-card module-card module-card--overview">
-              <div class="module-card-head">
-                <h3 class="module-card-title">回看入口</h3>
-                <p class="module-card-note">默认先看最近记录，只有在跨天追溯时再展开完整月历。</p>
-              </div>
-              <div class="module-overview-grid">
-                <div class="module-overview-main">
-                  <div class="module-date-toolbar">
-                    <div class="module-date-mode" aria-label="日期范围">
-                      <button type="button" class="module-date-mode-btn is-active" disabled>今天</button>
-                      <button type="button" class="module-date-mode-btn" disabled>本周</button>
-                      <button type="button" class="module-date-mode-btn" disabled>本月</button>
-                    </div>
-                    <div class="module-date-meta">
-                      <span class="module-date-meta-label">当前焦点</span>
-                      <strong class="module-date-meta-value">2026 / 04 / 09</strong>
-                    </div>
-                  </div>
-                  <div class="module-date-summary">
-                    <div class="module-date-summary-card is-primary">
-                      <span class="module-date-summary-kicker">记录状态</span>
-                      <strong class="module-date-summary-value">优先回看最近学习摘要</strong>
-                    </div>
-                    <div class="module-date-summary-card">
-                      <span class="module-date-summary-kicker">默认展示</span>
-                      <strong class="module-date-summary-value">当日列表 + 本周趋势</strong>
-                    </div>
-                  </div>
-                </div>
-                <div class="module-overview-aside">
-                  <span class="module-overview-kicker">布局策略</span>
-                  <strong class="module-overview-title">先看内容，再决定要不要按日期深挖</strong>
-                  <p class="module-overview-copy">总结页更适合把当天产出直接铺出来，月历改成二级入口，避免一打开就被大面积时间面板抢走注意力。</p>
-                </div>
+              <div class="workspace-hero workspace-hero--placeholder daily-capture-hero">
+                <span class="workspace-hero-kicker">Daily Capture</span>
+                <h2 class="workspace-hero-title">One card per day.</h2>
+                <p class="workspace-hero-copy">Refine lines in OIO Chat, collect them into one daily card, and come back later when you want to practice.</p>
               </div>
             </section>
-            <div class="module-body-grid">
-              <section class="workspace-card module-card">
+            <div class="daily-capture-layout">
+              <section class="workspace-card module-card module-card--calendar-inline">
                 <div class="module-card-head">
-                  <h3 class="module-card-title">当日总结记录</h3>
-                  <p class="module-card-note">默认展示最近摘要；需要跨天回看时，再从上面的轻量时间入口切换范围。</p>
+                  <div>
+                    <h3 class="module-card-title">Calendar</h3>
+                    <p class="module-card-note">Pick a day and review what you saved.</p>
+                  </div>
+                  <div class="daily-capture-calendar-actions">
+                    <button type="button" class="secondary" data-daily-capture-prev>Previous</button>
+                    <button type="button" class="secondary" data-daily-capture-next>Next</button>
+                  </div>
                 </div>
-                <div class="module-history-list module-history-list--empty">
-                  <p class="module-empty-title">当前还没有接入记录</p>
-                  <p class="module-empty-copy">等本地记录中心接好后，这里会按日期展示总结卡片与对应学习摘要。</p>
+                <div class="daily-capture-calendar">
+                  <div class="daily-capture-calendar-top">
+                    <strong class="daily-capture-calendar-caption" data-daily-capture-caption></strong>
+                  </div>
+                  <div class="daily-capture-calendar-dow">
+                    <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                  </div>
+                  <div class="daily-capture-calendar-grid" data-daily-capture-grid></div>
                 </div>
               </section>
               <section class="workspace-card module-card">
                 <div class="module-card-head">
-                  <h3 class="module-card-title">总结卡片区</h3>
-                  <p class="module-card-note">真正要看的内容放在右侧主工作区，避免被筛选器和时间视图挤压。</p>
+                  <div>
+                    <h3 class="module-card-title">Capture Detail</h3>
+                    <p class="module-card-note">Every day keeps one card. New refinements are appended to the same day.</p>
+                  </div>
                 </div>
-                <div class="module-task-panel">
-                  <div class="module-task-hero">
-                    <span class="module-task-kicker">主任务</span>
-                    <strong class="module-task-title">把当天学习内容整理成一张可回看的总结卡</strong>
-                    <p class="module-task-copy">这里后续适合承载学习摘要、关键句、查词收获和播放器练习表现，而不是继续放一个重复的日历。</p>
-                  </div>
-                  <div class="module-placeholder-stack">
-                    <div class="module-placeholder-bar module-placeholder-bar--lg"></div>
-                    <div class="module-placeholder-bar"></div>
-                    <div class="module-placeholder-bar module-placeholder-bar--short"></div>
-                  </div>
+                <div class="daily-capture-detail" data-daily-capture-detail></div>
+                <div class="daily-capture-footer">
+                  <button type="button" class="primary" data-daily-capture-practice>Start Practice</button>
                 </div>
               </section>
+            </div>
+            <dialog class="daily-capture-practice-dialog" data-daily-capture-practice-dialog>
+              <div class="daily-capture-practice-panel">
+                <div class="daily-capture-practice-head">
+                  <div>
+                    <h3 class="daily-capture-practice-title">Practice</h3>
+                    <p class="daily-capture-practice-copy">Hide a few words from the better line, then fill them back in.</p>
+                  </div>
+                  <button type="button" class="history-jump-btn-cancel" data-practice-close>Close</button>
+                </div>
+                <div class="daily-capture-practice-block">
+                  <span class="daily-capture-practice-label">Wrong line</span>
+                  <p class="daily-capture-practice-quote" data-practice-wrong></p>
+                </div>
+                <div class="daily-capture-practice-block">
+                  <span class="daily-capture-practice-label">Pick words to hide</span>
+                  <div class="daily-capture-practice-select" data-practice-select></div>
+                </div>
+                <div class="daily-capture-practice-block">
+                  <span class="daily-capture-practice-label">Fill the blanks</span>
+                  <div class="daily-capture-practice-inputs" data-practice-inputs></div>
+                </div>
+                <p class="daily-capture-practice-status" data-practice-status></p>
+                <div class="daily-capture-practice-actions">
+                  <button type="button" class="primary" data-practice-start>Start Fill Blanks</button>
+                  <button type="button" class="secondary" data-practice-check hidden>Check</button>
+                  <button type="button" class="secondary" data-practice-next hidden>Next</button>
+                </div>
+              </div>
+            </dialog>
+          </section>
+
+          <section class="app-tab-panel app-tab-panel--placeholder" id="tab-panel-oio-chat" data-tab-panel="oio-chat" hidden>
+            <section class="workspace-card module-card module-card--overview">
+              <div class="workspace-hero workspace-hero--placeholder oio-chat-hero">
+                <span class="workspace-hero-kicker">OIO Chat</span>
+                <h2 class="workspace-hero-title">Talk first. Refine later.</h2>
+              </div>
+            </section>
+            <div class="oio-chat-layout">
+              <section class="workspace-card module-card">
+                <div class="oio-chat-feed" data-oio-chat-feed></div>
+                <form class="oio-chat-composer" data-oio-chat-form>
+                  <label class="sr-only" for="oio-chat-input">Chat input</label>
+                  <textarea id="oio-chat-input" class="oio-chat-input" rows="5" spellcheck="false" placeholder="Say it in English. Ask a question, describe your day, or test a sentence." data-oio-chat-input></textarea>
+                  <div class="oio-chat-composer-footer">
+                    <span class="oio-chat-meta" data-oio-chat-meta>0/320 characters · 0/20 turns</span>
+                    <div class="oio-chat-actions">
+                      <button type="button" class="secondary" data-oio-chat-clear>Clear</button>
+                      <button type="submit" class="primary" data-oio-chat-submit>Send</button>
+                    </div>
+                  </div>
+                  <p class="oio-chat-status" data-oio-chat-status></p>
+                </form>
+              </section>
+              <aside class="workspace-card module-card oio-chat-aside">
+                <div class="module-card-head">
+                  <div>
+                    <h3 class="module-card-title">Today</h3>
+                  </div>
+                </div>
+                <div class="oio-chat-side-stack">
+                  <article class="oio-chat-stat-card">
+                    <span class="oio-chat-stat-kicker">Daily capture</span>
+                    <strong class="oio-chat-stat-value" data-oio-chat-capture-count>0 saved today</strong>
+                  </article>
+                </div>
+              </aside>
             </div>
           </section>
 
           <section class="app-tab-panel app-tab-panel--rewrite" id="tab-panel-rewrite" data-tab-panel="rewrite" hidden>
-            <section class="workspace-hero workspace-hero--placeholder">
-              <span class="workspace-hero-kicker">英文改写</span>
-              <h2 class="workspace-hero-title">英文改写</h2>
-            </section>
-            <section class="workspace-card module-card module-card--overview">
-              <div class="module-card-head">
-                <h3 class="module-card-title">按日期查看</h3>
-              </div>
-              <div class="rewrite-date-entry">
-                <div class="rewrite-date-entry-main">
-                  <span class="rewrite-date-entry-kicker">当前日期</span>
-                  <strong class="rewrite-date-entry-value" data-rewrite-selected-date>今天</strong>
-                  <span class="rewrite-date-entry-meta" data-rewrite-summary-meta>0 条记录 · 0 天</span>
+            <section class="workspace-card module-card module-card--overview module-card--oio-overview">
+              <div class="oio-overview-strip">
+                <div class="oio-overview-brand">
+                  <span class="oio-overview-kicker">OIO</span>
+                  <h2 class="oio-overview-title">OIO 工作台</h2>
+                  <p class="oio-overview-copy">把改写输入、AI 输出、记录回看和旧练习区收进同一页，先把主工作台结构做顺。</p>
                 </div>
-                <button type="button" class="secondary" data-rewrite-open-calendar>打开日历</button>
+                <div class="rewrite-date-entry">
+                  <div class="rewrite-date-entry-main">
+                    <span class="rewrite-date-entry-kicker">当前日期</span>
+                    <strong class="rewrite-date-entry-value" data-rewrite-selected-date>今天</strong>
+                    <span class="rewrite-date-entry-meta" data-rewrite-summary-meta>0 条记录 · 0 天</span>
+                  </div>
+                  <button type="button" class="secondary" data-rewrite-open-calendar>打开日历</button>
+                </div>
               </div>
             </section>
-            <div class="module-body-grid module-body-grid--rewrite" data-rewrite-workbench>
-              <section class="workspace-card module-card module-card--rewrite-history">
+            <div class="oio-workbench" data-rewrite-workbench>
+              <aside class="workspace-card module-card module-card--rewrite-history">
                 <div class="module-card-head">
-                  <h3 class="module-card-title">当日改写记录</h3>
+                  <div>
+                    <h3 class="module-card-title">改写记录</h3>
+                    <p class="module-card-note">中间列保留最近记录，点开后直接切换右侧工作内容。</p>
+                  </div>
                 </div>
                 <div class="rewrite-history-list" data-rewrite-history-list></div>
                 <div class="rewrite-history-empty" data-rewrite-history-empty hidden>
                   这一天还没有记录。
                 </div>
-              </section>
-              <section class="workspace-card module-card module-card--rewrite-editor">
-                <div class="module-card-head">
-                  <h3 class="module-card-title" data-rewrite-date-label>今天</h3>
+                <div class="oio-history-footer">
+                  <button type="button" class="secondary oio-history-summary-btn" disabled>总结今日</button>
                 </div>
-                <div class="rewrite-editor-layout">
-                  <section class="rewrite-editor-composer">
-                    <strong class="rewrite-editor-title" data-rewrite-task-title>输入</strong>
-                    <div class="rewrite-textarea-wrap">
-                      <button type="button" class="rewrite-voice-btn" data-rewrite-voice aria-label="语音输入">
-                        <span class="rewrite-voice-btn-icon" aria-hidden="true">
-                          <svg viewBox="0 0 24 24" class="rewrite-voice-svg">
-                            <path d="M12 15.2a3.2 3.2 0 0 0 3.2-3.2V7.2a3.2 3.2 0 1 0-6.4 0V12a3.2 3.2 0 0 0 3.2 3.2Z" />
-                            <path d="M18.4 12a.9.9 0 1 1 1.8 0A8.2 8.2 0 0 1 13 20.1V22a1 1 0 1 1-2 0v-1.9A8.2 8.2 0 0 1 3.8 12a.9.9 0 1 1 1.8 0 6.4 6.4 0 1 0 12.8 0Z" />
-                          </svg>
-                        </span>
-                      </button>
-                      <textarea id="rewrite-source-text" class="rewrite-textarea rewrite-textarea--with-voice" rows="10" spellcheck="false" data-rewrite-source-input></textarea>
-                    </div>
-                    <p class="rewrite-inline-meta" data-rewrite-inline-meta></p>
-                    <div class="rewrite-actions">
-                      <button type="button" class="primary" data-rewrite-submit>开始改写</button>
-                      <button type="button" class="secondary" data-rewrite-clear>清空</button>
-                    </div>
-                  </section>
-                  <section class="rewrite-editor-preview">
-                    <div class="rewrite-preview-card">
-                      <div class="rewrite-preview-head">
-                        <strong class="rewrite-preview-title" data-rewrite-source-title>原文</strong>
+              </aside>
+              <div class="oio-main-stack">
+                <div class="oio-top-grid">
+                  <section class="workspace-card module-card module-card--oio-input">
+                    <div class="module-card-head">
+                      <div>
+                        <h3 class="module-card-title" data-rewrite-task-title>用户输入</h3>
+                        <p class="module-card-note">在这里输入你想润色或改写的英文内容。</p>
                       </div>
-                      <div class="rewrite-preview-body" data-rewrite-source-preview></div>
                     </div>
-                    <div class="rewrite-preview-card rewrite-preview-card--accent">
-                      <div class="rewrite-preview-head">
-                        <strong class="rewrite-preview-title" data-rewrite-result-title>改写结果</strong>
+                    <div class="rewrite-editor-composer">
+                      <div class="rewrite-textarea-wrap">
+                        <button type="button" class="rewrite-voice-btn" data-rewrite-voice aria-label="语音输入">
+                          <span class="rewrite-voice-btn-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" class="rewrite-voice-svg">
+                              <path d="M12 15.2a3.2 3.2 0 0 0 3.2-3.2V7.2a3.2 3.2 0 1 0-6.4 0V12a3.2 3.2 0 0 0 3.2 3.2Z" />
+                              <path d="M18.4 12a.9.9 0 1 1 1.8 0A8.2 8.2 0 0 1 13 20.1V22a1 1 0 1 1-2 0v-1.9A8.2 8.2 0 0 1 3.8 12a.9.9 0 1 1 1.8 0 6.4 6.4 0 1 0 12.8 0Z" />
+                            </svg>
+                          </span>
+                        </button>
+                        <textarea
+                          id="rewrite-source-text"
+                          class="rewrite-textarea rewrite-textarea--with-voice"
+                          rows="10"
+                          spellcheck="false"
+                          placeholder="在这里输入英文句子、段落或需要润色的草稿..."
+                          data-rewrite-source-input
+                        ></textarea>
                       </div>
-                      <div class="rewrite-preview-body" data-rewrite-result-preview></div>
-                      <div class="rewrite-keyphrases" data-rewrite-keyphrases hidden>
-                        <span class="rewrite-keyphrases-label">重点短语</span>
-                        <div class="rewrite-keyphrases-list" data-rewrite-keyphrases-list></div>
+                      <p class="rewrite-inline-meta" data-rewrite-inline-meta></p>
+                      <div class="rewrite-actions">
+                        <button type="button" class="primary" data-rewrite-submit>开始改写</button>
+                        <button type="button" class="secondary" data-rewrite-clear>清空</button>
                       </div>
                     </div>
                   </section>
+                  <section class="workspace-card module-card module-card--oio-output">
+                    <div class="module-card-head">
+                      <div>
+                        <h3 class="module-card-title">AI 输出</h3>
+                        <p class="module-card-note">改写结果会直接显示在这里，重点短语继续保留。</p>
+                      </div>
+                    </div>
+                    <div class="oio-output-stack">
+                      <div class="rewrite-preview-card rewrite-preview-card--soft rewrite-preview-card--source">
+                        <div class="rewrite-preview-head">
+                          <strong class="rewrite-preview-title" data-rewrite-source-title>输入预览</strong>
+                        </div>
+                        <div class="rewrite-preview-body is-placeholder" data-rewrite-source-preview></div>
+                      </div>
+                      <div class="rewrite-preview-card rewrite-preview-card--accent rewrite-preview-card--result">
+                        <div class="rewrite-preview-head">
+                          <strong class="rewrite-preview-title" data-rewrite-result-title>AI 输出</strong>
+                        </div>
+                        <div class="rewrite-preview-body" data-rewrite-result-preview></div>
+                        <div class="rewrite-keyphrases" data-rewrite-keyphrases hidden>
+                          <span class="rewrite-keyphrases-label">重点短语</span>
+                          <div class="rewrite-keyphrases-list" data-rewrite-keyphrases-list></div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
                 </div>
-              </section>
+                <section class="workspace-card module-card module-card--oio-practice">
+                  <div class="module-card-head">
+                    <div>
+                      <h3 class="module-card-title">练习区</h3>
+                      <p class="module-card-note">分段播放器已经并入 OIO。历史、导入、生成和练习都放进这里，不再单独保留播放器页面。</p>
+                    </div>
+                  </div>
+                  <div class="oio-practice-layout">
+                    <div class="oio-practice-sidebar">
+                      <section class="oio-panel oio-panel--history history-section" id="history-section">
+                        <div class="history-collapse-row">
+                          <button type="button" class="history-collapse-head" id="history-collapse-btn" aria-expanded="true" aria-controls="history-collapsible">
+                            <span class="history-collapse-title" id="history-heading">我的音频</span>
+                            <span class="history-collapse-chevron" aria-hidden="true">▼</span>
+                          </button>
+                          <div class="history-collapse-actions">
+                            <input type="file" id="import-files-input" class="oio-import-file-native" multiple accept=".json,application/json,audio/*,.wav,.mp3,.webm,.ogg,.m4a,.aac,.flac" tabindex="-1" />
+                            <button type="button" id="history-import-btn" class="secondary history-head-btn">导入文件</button>
+                            <div class="oio-help-anchor">
+                              <button type="button" class="oio-help-btn" aria-label="导入文件说明" data-oio-help>?</button>
+                              <div class="oio-help-popover"><p class="oio-help-text">支持<strong>单包</strong>或<strong>批量</strong>：每个练习包需一个 <code>.json</code> 与一条音频，且<strong>主文件名相同</strong>（扩展名除外）。</p></div>
+                            </div>
+                            <button type="button" id="history-export-btn" class="secondary history-head-btn">下载文件</button>
+                            <div class="oio-help-anchor oio-help-anchor--history">
+                              <button type="button" class="oio-help-btn" aria-label="我的音频说明" data-oio-help>?</button>
+                              <div class="oio-help-popover"><p class="oio-help-text">保存在本机 IndexedDB，生成成功会自动新增一条；支持按日期查看、下载和删除。</p></div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="history-collapsible" id="history-collapsible">
+                          <div class="history-magic-card" id="history-magic-card">
+                            <div class="history-magic-top">
+                              <div class="history-magic-top-left">
+                                <span class="history-context-label" id="history-context-label"></span>
+                                <button type="button" class="history-quick-jump secondary" id="history-quick-jump-btn">快速跳转</button>
+                              </div>
+                              <select id="history-granularity" class="history-granularity-select" aria-label="历史视图">
+                                <option value="today">今日</option>
+                                <option value="week">本周</option>
+                                <option value="month" selected>本月</option>
+                                <option value="all">全部历史</option>
+                              </select>
+                            </div>
+                            <div id="history-nav-root" class="history-nav-root"></div>
+                            <div id="history-entries-root" class="history-entries-root"></div>
+                          </div>
+                        </div>
+                      </section>
+                      <section class="oio-panel oio-panel--input" aria-labelledby="sec-input">
+                        <div class="oio-panel-head">
+                          <h2 id="sec-input" class="oio-section-title">练习素材输入</h2>
+                          <div class="oio-help-anchor">
+                            <button type="button" class="oio-help-btn" aria-label="输入区说明" data-oio-help>?</button>
+                            <div class="oio-help-popover">
+                              <p class="oio-help-text">请粘贴<strong>英文</strong>文本。首次使用需从 Hugging Face 下载模型至本机；若本机 GPU 可用，合成会更快。</p>
+                            </div>
+                          </div>
+                        </div>
+                        <label class="sr-only" for="text">英文文本</label>
+                        <textarea id="text" rows="8" placeholder="在此粘贴英文文本…" spellcheck="false"></textarea>
+                        <div class="voice-picker-row">
+                          <span class="voice-picker-label" id="voice-picker-label">选择音色</span>
+                          <div class="voice-combobox" id="voice-combobox">
+                            <button type="button" class="voice-combobox-trigger" id="voice-combobox-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="voice-combobox-list">
+                              <span class="voice-combobox-value" id="voice-combobox-value">女 · nova</span>
+                              <span class="voice-combobox-chevron" aria-hidden="true">▼</span>
+                            </button>
+                            <div class="voice-combobox-list" id="voice-combobox-list" role="listbox" tabindex="-1" hidden aria-labelledby="voice-picker-label"></div>
+                          </div>
+                        </div>
+                        <div class="row oio-actions-row">
+                          <button type="button" id="generate" class="primary">生成音频与字幕</button>
+                          <button type="button" id="clear-input" class="secondary clear-input-btn">清空</button>
+                        </div>
+                        <div class="oio-status-row">
+                          <span id="status" class="status" aria-live="polite"></span>
+                        </div>
+                      </section>
+                    </div>
+                    <section class="oio-panel subs oio-practice-panel" id="subs-section">
+                      <div class="oio-panel-head">
+                        <h2 class="oio-section-title subs-title">练习</h2>
+                        <div class="oio-help-anchor">
+                          <button type="button" class="oio-help-btn" aria-label="字幕与练习模式说明" data-oio-help>?</button>
+                          <div class="oio-help-popover oio-help-popover--wide">
+                            <p class="oio-help-text">按「完整句子」切分。<strong>字幕</strong>：显示原句、可点句跳转。<strong>听写</strong>、<strong>创建填空</strong>、<strong>填空练习</strong>等模式仍保留。</p>
+                          </div>
+                        </div>
+                      </div>
+                      <audio id="player" class="player oio-audio-native" playsinline></audio>
+                      <div class="transport-bar transport-bar--in-subs" id="transport-bar">
+                        <div class="custom-player" id="custom-player">
+                          <button type="button" id="player-play-btn" class="player-play-btn" aria-label="播放"><span class="player-play-icon" aria-hidden="true">▶</span></button>
+                          <span class="player-time" id="player-time-display">0:00 / 0:00</span>
+                          <div class="player-progress-wrap"><input type="range" id="player-seek" class="player-seek" min="0" max="1000" value="0" step="1" aria-label="播放进度" /></div>
+                          <div class="player-ctl-block"><span class="player-ctl-label">倍速</span><select id="player-rate" class="player-rate-select" aria-label="播放倍速"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>
+                          <div class="player-ctl-block"><span class="player-ctl-label">单句循环</span><label class="player-switch"><input type="checkbox" id="loop-sentence" aria-label="单句循环" /><span class="player-switch-slider" aria-hidden="true"></span></label></div>
+                          <div class="player-ctl-block"><span class="player-ctl-label">整篇循环</span><label class="player-switch"><input type="checkbox" id="loop-whole" aria-label="整篇循环" /><span class="player-switch-slider" aria-hidden="true"></span></label></div>
+                          <button type="button" id="player-prev-cue" class="player-nav-btn">上一句</button>
+                          <button type="button" id="player-next-cue" class="player-nav-btn">下一句</button>
+                        </div>
+                      </div>
+                      <div class="practice-mode-bar" id="practice-mode-bar" hidden>
+                        <span class="practice-mode-intro">模式</span>
+                        <div class="practice-mode-btns">
+                          <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="subtitles">字幕</button>
+                          <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="dictation">听写</button>
+                          <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="proofread">创建填空</button>
+                          <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="fillblank">填空练习</button>
+                        </div>
+                      </div>
+                      <div id="subtitles-scroll" class="subtitles-scroll" aria-label="与音频同步的字幕"><div id="subtitles-list" class="subtitles-list"></div></div>
+                      <div class="proofread-bar practice-actions-bar" id="practice-actions-bar" hidden aria-label="与当前模式对应的操作">
+                        <button type="button" id="proofread-save-btn" class="secondary" hidden>确认创建</button>
+                        <button type="button" id="fillblank-check-btn" class="secondary" hidden>检查填空</button>
+                        <button type="button" id="fillblank-save-states-btn" class="secondary" hidden>更新填空状态</button>
+                      </div>
+                    </section>
+                  </div>
+                </section>
+              </div>
             </div>
             <dialog class="rewrite-calendar-dialog" data-rewrite-calendar-dialog>
               <div class="rewrite-calendar-panel">
@@ -239,270 +417,147 @@
             </dialog>
           </section>
 
-          <section class="app-tab-panel app-tab-panel--player" id="tab-panel-player" data-tab-panel="player" hidden>
-            <section class="workspace-hero workspace-hero--player">
-              <span class="workspace-hero-kicker">分段播放器</span>
-              <h2 class="workspace-hero-title">分段播放器</h2>
-            </section>
-            <div class="player-module-stack">
-              <section class="oio-panel oio-panel--history history-section" id="history-section">
-                <div class="history-collapse-row">
-                  <button type="button" class="history-collapse-head" id="history-collapse-btn" aria-expanded="true" aria-controls="history-collapsible">
-                    <span class="history-collapse-title" id="history-heading">我的音频</span>
-                    <span class="history-collapse-chevron" aria-hidden="true">▼</span>
-                  </button>
-                  <div class="history-collapse-actions">
-                    <input type="file" id="import-files-input" class="oio-import-file-native" multiple accept=".json,application/json,audio/*,.wav,.mp3,.webm,.ogg,.m4a,.aac,.flac" tabindex="-1" />
-                    <button type="button" id="history-import-btn" class="secondary history-head-btn">导入文件</button>
-                    <div class="oio-help-anchor">
-                      <button type="button" class="oio-help-btn" aria-label="导入文件说明" data-oio-help>?</button>
-                      <div class="oio-help-popover"><p class="oio-help-text">支持<strong>单包</strong>或<strong>批量</strong>：每个练习包需一个 <code>.json</code> 与一条音频，且<strong>主文件名相同</strong>（扩展名除外）。</p></div>
-                    </div>
-                    <button type="button" id="history-export-btn" class="secondary history-head-btn">下载文件</button>
-                    <div class="oio-help-anchor oio-help-anchor--history">
-                      <button type="button" class="oio-help-btn" aria-label="我的音频说明" data-oio-help>?</button>
-                      <div class="oio-help-popover"><p class="oio-help-text">保存在本机 IndexedDB，生成成功会自动新增一条；支持按日期查看、下载和删除。</p></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="history-collapsible" id="history-collapsible">
-                  <div class="history-magic-card" id="history-magic-card">
-                    <div class="history-magic-top">
-                      <div class="history-magic-top-left">
-                        <span class="history-context-label" id="history-context-label"></span>
-                        <button type="button" class="history-quick-jump secondary" id="history-quick-jump-btn">快速跳转</button>
-                      </div>
-                      <select id="history-granularity" class="history-granularity-select" aria-label="历史视图">
-                        <option value="today">今日</option>
-                        <option value="week">本周</option>
-                        <option value="month" selected>本月</option>
-                        <option value="all">全部历史</option>
-                      </select>
-                    </div>
-                    <div id="history-nav-root" class="history-nav-root"></div>
-                    <div id="history-entries-root" class="history-entries-root"></div>
-                  </div>
-                </div>
-              </section>
-              <section class="oio-panel oio-panel--input" aria-labelledby="sec-input">
-                <div class="oio-panel-head">
-                  <h2 id="sec-input" class="oio-section-title">输入文本</h2>
-                  <div class="oio-help-anchor">
-                    <button type="button" class="oio-help-btn" aria-label="输入区说明" data-oio-help>?</button>
-                    <div class="oio-help-popover">
-                      <p class="oio-help-text">请粘贴<strong>英文</strong>文本。首次使用需从 Hugging Face 下载模型至本机；若本机 GPU 可用，合成会更快。</p>
-                    </div>
-                  </div>
-                </div>
-                <label class="sr-only" for="text">英文文本</label>
-                <textarea id="text" rows="8" placeholder="在此粘贴英文文本…" spellcheck="false"></textarea>
-                <div class="voice-picker-row">
-                  <span class="voice-picker-label" id="voice-picker-label">选择音色</span>
-                  <div class="voice-combobox" id="voice-combobox">
-                    <button type="button" class="voice-combobox-trigger" id="voice-combobox-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="voice-combobox-list">
-                      <span class="voice-combobox-value" id="voice-combobox-value">女 · nova</span>
-                      <span class="voice-combobox-chevron" aria-hidden="true">▼</span>
-                    </button>
-                    <div class="voice-combobox-list" id="voice-combobox-list" role="listbox" tabindex="-1" hidden aria-labelledby="voice-picker-label"></div>
-                  </div>
-                </div>
-                <div class="row oio-actions-row">
-                  <button type="button" id="generate" class="primary">生成音频与字幕</button>
-                  <button type="button" id="clear-input" class="secondary clear-input-btn">清空</button>
-                </div>
-                <div class="oio-status-row">
-                  <span id="status" class="status" aria-live="polite"></span>
-                </div>
-              </section>
-
-              <section class="oio-panel subs" id="subs-section">
-                <div class="oio-panel-head">
-                  <h2 class="oio-section-title subs-title">练习</h2>
-                  <div class="oio-help-anchor">
-                    <button type="button" class="oio-help-btn" aria-label="字幕与练习模式说明" data-oio-help>?</button>
-                    <div class="oio-help-popover oio-help-popover--wide">
-                      <p class="oio-help-text">按「完整句子」切分。<strong>字幕</strong>：显示原句、可点句跳转。<strong>听写</strong>、<strong>创建填空</strong>、<strong>填空练习</strong>等模式仍保留。</p>
-                    </div>
-                  </div>
-                </div>
-                <audio id="player" class="player oio-audio-native" playsinline></audio>
-                <div class="transport-bar transport-bar--in-subs" id="transport-bar">
-                  <div class="custom-player" id="custom-player">
-                    <button type="button" id="player-play-btn" class="player-play-btn" aria-label="播放"><span class="player-play-icon" aria-hidden="true">▶</span></button>
-                    <span class="player-time" id="player-time-display">0:00 / 0:00</span>
-                    <div class="player-progress-wrap"><input type="range" id="player-seek" class="player-seek" min="0" max="1000" value="0" step="1" aria-label="播放进度" /></div>
-                    <div class="player-ctl-block"><span class="player-ctl-label">倍速</span><select id="player-rate" class="player-rate-select" aria-label="播放倍速"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>
-                    <div class="player-ctl-block"><span class="player-ctl-label">单句循环</span><label class="player-switch"><input type="checkbox" id="loop-sentence" aria-label="单句循环" /><span class="player-switch-slider" aria-hidden="true"></span></label></div>
-                    <div class="player-ctl-block"><span class="player-ctl-label">整篇循环</span><label class="player-switch"><input type="checkbox" id="loop-whole" aria-label="整篇循环" /><span class="player-switch-slider" aria-hidden="true"></span></label></div>
-                    <button type="button" id="player-prev-cue" class="player-nav-btn">上一句</button>
-                    <button type="button" id="player-next-cue" class="player-nav-btn">下一句</button>
-                  </div>
-                </div>
-                <div class="practice-mode-bar" id="practice-mode-bar" hidden>
-                  <span class="practice-mode-intro">模式</span>
-                  <div class="practice-mode-btns">
-                    <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="subtitles">字幕</button>
-                    <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="dictation">听写</button>
-                    <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="proofread">创建填空</button>
-                    <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="fillblank">填空练习</button>
-                  </div>
-                </div>
-                <div id="subtitles-scroll" class="subtitles-scroll" aria-label="与音频同步的字幕"><div id="subtitles-list" class="subtitles-list"></div></div>
-                <div class="proofread-bar practice-actions-bar" id="practice-actions-bar" hidden aria-label="与当前模式对应的操作">
-                  <button type="button" id="proofread-save-btn" class="secondary" hidden>确认创建</button>
-                  <button type="button" id="fillblank-check-btn" class="secondary" hidden>检查填空</button>
-                  <button type="button" id="fillblank-save-states-btn" class="secondary" hidden>更新填空状态</button>
-                </div>
-              </section>
-            </div>
-
-            <dialog id="history-jump-dialog" class="history-jump-dialog">
-                <div class="history-jump-panel">
-                  <h3 class="history-jump-title">选择日期</h3>
-                  <p class="history-jump-lead">输入 <strong>yyyy / mm / dd</strong>（与月视图、下载筛选使用同一本地日期）。</p>
-                  <div class="history-jump-input-row"><label class="history-jump-input-wrap" for="history-jump-text"><input type="text" id="history-jump-text" class="history-jump-text" placeholder="yyyy / mm / dd" inputmode="numeric" autocomplete="off" spellcheck="false" /><span class="history-jump-input-icon" aria-hidden="true">📅</span></label></div>
-                  <div class="history-jump-actions"><button type="button" class="history-jump-btn-cancel" id="history-jump-cancel">取消</button><button type="button" class="primary" id="history-jump-confirm">确定</button></div>
-                </div>
-            </dialog>
-
-            <dialog id="history-export-dialog" class="history-export-dialog">
-                <div class="history-export-panel">
-                  <h3 class="history-export-title">下载文件</h3>
-                  <p class="history-export-lead">按<strong>保存日期</strong>筛选列表，勾选需要的条目；仅打包选中项的 JSON 与音频。</p>
-                  <div class="history-export-filters">
-                    <label class="history-export-date-label"><span>开始</span><input type="date" id="history-export-from" class="history-export-date" /></label>
-                    <label class="history-export-date-label"><span>结束</span><input type="date" id="history-export-to" class="history-export-date" /></label>
-                    <button type="button" class="secondary history-export-apply" id="history-export-apply-range">应用区间</button>
-                    <button type="button" class="secondary history-export-clear-range" id="history-export-clear-range">清除区间</button>
-                  </div>
-                  <div class="history-export-toolbar"><label class="history-export-select-all-label"><input type="checkbox" id="history-export-select-all" /><span>全选当前列表</span></label><span id="history-export-count" class="history-export-count" aria-live="polite"></span></div>
-                  <div id="history-export-list" class="history-export-list" role="group" aria-label="可下载条目"></div>
-                  <div class="history-export-actions"><button type="button" class="history-jump-btn-cancel" id="history-export-cancel">取消</button><button type="button" class="primary" id="history-export-confirm">下载选中 ZIP</button></div>
-                </div>
-            </dialog>
-
-            <dialog id="oio-import-success-dialog" class="oio-import-success-dialog"><div class="oio-import-success-panel"><h3 class="oio-import-success-title">导入成功</h3><p id="oio-import-success-body" class="oio-import-success-body"></p><button type="button" class="primary oio-import-success-ok" id="oio-import-success-ok">好的</button></div></dialog>
-            <dialog id="oio-import-report-dialog" class="oio-import-success-dialog"><div class="oio-import-success-panel"><h3 id="oio-import-report-title" class="oio-import-success-title">导入结果</h3><p id="oio-import-report-body" class="oio-import-success-body"></p><button type="button" class="primary oio-import-success-ok" id="oio-import-report-ok">好的</button></div></dialog>
-            <dialog id="fillblank-update-done-dialog" class="oio-import-success-dialog"><div class="oio-import-success-panel"><h3 class="oio-import-success-title">更新完成</h3><p id="fillblank-update-done-body" class="oio-import-success-body"></p><button type="button" class="primary oio-import-success-ok" id="fillblank-update-done-ok">好的</button></div></dialog>
-          </section>
-
-          <section class="app-tab-panel app-tab-panel--placeholder" id="tab-panel-curious-baby" data-tab-panel="curious-baby" hidden>
-            <section class="workspace-hero workspace-hero--placeholder">
-              <span class="workspace-hero-kicker">好奇宝宝</span>
-              <h2 class="workspace-hero-title">好奇宝宝</h2>
-              <p class="workspace-hero-copy">这个标签页先保留产品位置与统一历史框架，具体能力后续再定义。先把入口和日期视图占住。</p>
-            </section>
-            <section class="workspace-card module-card module-card--overview">
-              <div class="module-card-head">
-                <h3 class="module-card-title">历史入口</h3>
-                <p class="module-card-note">这个模块能力还没定，先不要让大日历把页面重心抢走。</p>
+          <dialog id="history-jump-dialog" class="history-jump-dialog">
+              <div class="history-jump-panel">
+                <h3 class="history-jump-title">选择日期</h3>
+                <p class="history-jump-lead">输入 <strong>yyyy / mm / dd</strong>（与月视图、下载筛选使用同一本地日期）。</p>
+                <div class="history-jump-input-row"><label class="history-jump-input-wrap" for="history-jump-text"><input type="text" id="history-jump-text" class="history-jump-text" placeholder="yyyy / mm / dd" inputmode="numeric" autocomplete="off" spellcheck="false" /><span class="history-jump-input-icon" aria-hidden="true">📅</span></label></div>
+                <div class="history-jump-actions"><button type="button" class="history-jump-btn-cancel" id="history-jump-cancel">取消</button><button type="button" class="primary" id="history-jump-confirm">确定</button></div>
               </div>
-              <div class="module-overview-grid">
-                <div class="module-overview-main">
-                  <div class="module-date-toolbar">
-                    <div class="module-date-mode" aria-label="日期范围">
-                      <button type="button" class="module-date-mode-btn is-active" disabled>今天</button>
-                      <button type="button" class="module-date-mode-btn" disabled>本周</button>
-                      <button type="button" class="module-date-mode-btn" disabled>本月</button>
-                    </div>
-                    <div class="module-date-meta">
-                      <span class="module-date-meta-label">当前焦点</span>
-                      <strong class="module-date-meta-value">2026 / 04 / 09</strong>
-                    </div>
-                  </div>
-                  <div class="module-date-summary">
-                    <div class="module-date-summary-card is-primary">
-                      <span class="module-date-summary-kicker">当前阶段</span>
-                      <strong class="module-date-summary-value">先验证需求，再决定时间维度</strong>
-                    </div>
-                    <div class="module-date-summary-card">
-                      <span class="module-date-summary-kicker">推荐视图</span>
-                      <strong class="module-date-summary-value">最近记录列表优先</strong>
-                    </div>
-                  </div>
+          </dialog>
+
+          <dialog id="history-export-dialog" class="history-export-dialog">
+              <div class="history-export-panel">
+                <h3 class="history-export-title">下载文件</h3>
+                <p class="history-export-lead">按<strong>保存日期</strong>筛选列表，勾选需要的条目；仅打包选中项的 JSON 与音频。</p>
+                <div class="history-export-filters">
+                  <label class="history-export-date-label"><span>开始</span><input type="date" id="history-export-from" class="history-export-date" /></label>
+                  <label class="history-export-date-label"><span>结束</span><input type="date" id="history-export-to" class="history-export-date" /></label>
+                  <button type="button" class="secondary history-export-apply" id="history-export-apply-range">应用区间</button>
+                  <button type="button" class="secondary history-export-clear-range" id="history-export-clear-range">清除区间</button>
                 </div>
-                <div class="module-overview-aside">
-                  <span class="module-overview-kicker">布局策略</span>
-                  <strong class="module-overview-title">功能未定义时，时间控件应该更克制</strong>
-                  <p class="module-overview-copy">先把“最近做了什么”和“下一步要做什么”放清楚，比提前铺完整月历更有信息价值。</p>
-                </div>
+                <div class="history-export-toolbar"><label class="history-export-select-all-label"><input type="checkbox" id="history-export-select-all" /><span>全选当前列表</span></label><span id="history-export-count" class="history-export-count" aria-live="polite"></span></div>
+                <div id="history-export-list" class="history-export-list" role="group" aria-label="可下载条目"></div>
+                <div class="history-export-actions"><button type="button" class="history-jump-btn-cancel" id="history-export-cancel">取消</button><button type="button" class="primary" id="history-export-confirm">下载选中 ZIP</button></div>
               </div>
-            </section>
-            <div class="module-body-grid">
-              <section class="workspace-card module-card">
-                <div class="module-card-head"><h3 class="module-card-title">当日探索记录</h3><p class="module-card-note">这里会显示所选日期下的探索记录列表，点开后回到详情。</p></div>
-                <div class="module-history-list module-history-list--empty"><p class="module-empty-title">当前还没有接入记录</p><p class="module-empty-copy">等功能定义清楚后，这里会按日期展示探索记录。</p></div>
-              </section>
-              <section class="workspace-card module-card">
-                <div class="module-card-head"><h3 class="module-card-title">功能预留区</h3><p class="module-card-note">这里先保留产品位置，不急着填入未定义能力。</p></div>
-                <div class="module-task-panel">
-                  <div class="module-task-hero">
-                    <span class="module-task-kicker">主任务</span>
-                    <strong class="module-task-title">先把模块定位说清楚，再决定是否需要时间轴</strong>
-                    <p class="module-task-copy">如果未来这个模块更多是即时探索或问答，时间记录可能只需要最近历史，不一定需要完整月历。</p>
-                  </div>
-                  <div class="module-placeholder-stack"><div class="module-placeholder-bar module-placeholder-bar--lg"></div><div class="module-placeholder-bar"></div></div>
-                </div>
-              </section>
-            </div>
-          </section>
+          </dialog>
+
+          <dialog id="oio-import-success-dialog" class="oio-import-success-dialog"><div class="oio-import-success-panel"><h3 class="oio-import-success-title">导入成功</h3><p id="oio-import-success-body" class="oio-import-success-body"></p><button type="button" class="primary oio-import-success-ok" id="oio-import-success-ok">好的</button></div></dialog>
+          <dialog id="oio-import-report-dialog" class="oio-import-success-dialog"><div class="oio-import-success-panel"><h3 id="oio-import-report-title" class="oio-import-success-title">导入结果</h3><p id="oio-import-report-body" class="oio-import-success-body"></p><button type="button" class="primary oio-import-success-ok" id="oio-import-report-ok">好的</button></div></dialog>
+          <dialog id="fillblank-update-done-dialog" class="oio-import-success-dialog"><div class="oio-import-success-panel"><h3 class="oio-import-success-title">更新完成</h3><p id="fillblank-update-done-body" class="oio-import-success-body"></p><button type="button" class="primary oio-import-success-ok" id="fillblank-update-done-ok">好的</button></div></dialog>
 
           <section class="app-tab-panel app-tab-panel--placeholder" id="tab-panel-super-dict" data-tab-panel="super-dict" hidden>
-            <section class="workspace-hero workspace-hero--placeholder">
-              <span class="workspace-hero-kicker">超级词典</span>
-              <h2 class="workspace-hero-title">超级词典</h2>
-              <p class="workspace-hero-copy">词典页会承载查词、缓存命中和历史回看。当前先把日历、记录列表和功能区骨架搭出来。</p>
-            </section>
-            <section class="workspace-card module-card module-card--overview">
-              <div class="module-card-head">
-                <h3 class="module-card-title">历史入口</h3>
-                <p class="module-card-note">查词更接近“快速检索 + 最近命中回看”，不必默认展开整月。</p>
-              </div>
-              <div class="module-overview-grid">
-                <div class="module-overview-main">
-                  <div class="module-date-toolbar">
-                    <div class="module-date-mode" aria-label="日期范围">
-                      <button type="button" class="module-date-mode-btn is-active" disabled>今天</button>
-                      <button type="button" class="module-date-mode-btn" disabled>本周</button>
-                      <button type="button" class="module-date-mode-btn" disabled>本月</button>
-                    </div>
-                    <div class="module-date-meta">
-                      <span class="module-date-meta-label">当前焦点</span>
-                      <strong class="module-date-meta-value">2026 / 04 / 09</strong>
-                    </div>
-                  </div>
-                  <div class="module-date-summary">
-                    <div class="module-date-summary-card is-primary">
-                      <span class="module-date-summary-kicker">主视图</span>
-                      <strong class="module-date-summary-value">最近查词与缓存命中</strong>
-                    </div>
-                    <div class="module-date-summary-card">
-                      <span class="module-date-summary-kicker">时间入口</span>
-                      <strong class="module-date-summary-value">按需回看，不必常驻</strong>
-                    </div>
-                  </div>
-                </div>
-                <div class="module-overview-aside">
-                  <span class="module-overview-kicker">布局策略</span>
-                  <strong class="module-overview-title">词典的主角应该是搜索和结果，不是日期格子</strong>
-                  <p class="module-overview-copy">用户通常是先查词，再顺手回看最近查过什么。历史可以做成短列表或抽屉，只有做复盘时才需要更完整的时间维度。</p>
+            <section class="workspace-card module-card module-card--overview module-card--super-dict-overview">
+              <div class="super-dict-overview-head">
+                <div>
+                  <span class="workspace-hero-kicker">超级词典</span>
+                  <h2 class="workspace-hero-title">超级词典</h2>
                 </div>
               </div>
             </section>
-            <div class="module-body-grid">
-              <section class="workspace-card module-card">
-                <div class="module-card-head"><h3 class="module-card-title">当日查词记录</h3><p class="module-card-note">这里会显示所选日期下的查词列表，点开后恢复词条详情。</p></div>
-                <div class="module-history-list module-history-list--empty"><p class="module-empty-title">当前还没有接入记录</p><p class="module-empty-copy">等本地记录中心接好后，这里会按日期展示超级词典查询记录。</p></div>
+            <div class="super-dict-layout">
+              <section class="workspace-card module-card module-card--super-dict-search">
+                <form class="super-dict-search-form" data-super-dict-form>
+                  <label class="sr-only" for="super-dict-input">查询词条</label>
+                  <div class="super-dict-search-row">
+                    <div class="super-dict-search-input-wrap">
+                      <input
+                        id="super-dict-input"
+                        class="super-dict-search-input"
+                        type="text"
+                        placeholder=""
+                        autocomplete="off"
+                        spellcheck="false"
+                        data-super-dict-input
+                      />
+                      <div class="super-dict-history-dropdown" data-super-dict-history-panel hidden>
+                        <div class="super-dict-history-list" data-super-dict-history></div>
+                      </div>
+                    </div>
+                  </div>
+                </form>
               </section>
-              <section class="workspace-card module-card">
-                <div class="module-card-head"><h3 class="module-card-title">词典查询区</h3><p class="module-card-note">功能区会在骨架稳定后逐个模块接入。</p></div>
-                <div class="module-task-panel">
-                  <div class="module-task-hero">
-                    <span class="module-task-kicker">主任务</span>
-                    <strong class="module-task-title">输入词条、看释义、顺手回顾最近查询</strong>
-                    <p class="module-task-copy">词典页后续更适合做搜索框、结果卡、最近查询短列表的组合，历史月历作为高级回看能力即可。</p>
+              <section class="workspace-card module-card module-card--super-dict-links">
+                <div class="module-card-head">
+                  <div>
+                    <h3 class="module-card-title">常用词典</h3>
                   </div>
-                  <div class="module-placeholder-stack"><div class="module-placeholder-bar module-placeholder-bar--lg"></div><div class="module-placeholder-bar"></div></div>
+                </div>
+                <div class="super-dict-link-grid">
+                  <a class="super-dict-link-card super-dict-link-card--cambridge" href="https://dictionary.cambridge.org/" target="_blank" rel="noreferrer" data-super-dict-link="cambridge">
+                    <span class="super-dict-link-icon" aria-hidden="true">C</span>
+                    <span class="super-dict-link-copy">
+                      <strong>Cambridge</strong>
+                      <span>剑桥词典</span>
+                    </span>
+                  </a>
+                  <a class="super-dict-link-card super-dict-link-card--oxford" href="https://www.oxfordlearnersdictionaries.com/" target="_blank" rel="noreferrer" data-super-dict-link="oxford">
+                    <span class="super-dict-link-icon" aria-hidden="true">O</span>
+                    <span class="super-dict-link-copy">
+                      <strong>Oxford</strong>
+                      <span>牛津学习者词典</span>
+                    </span>
+                  </a>
+                  <a class="super-dict-link-card super-dict-link-card--longman" href="https://www.ldoceonline.com/" target="_blank" rel="noreferrer" data-super-dict-link="longman">
+                    <span class="super-dict-link-icon" aria-hidden="true">L</span>
+                    <span class="super-dict-link-copy">
+                      <strong>Longman</strong>
+                      <span>朗文当代高级英语词典</span>
+                    </span>
+                  </a>
+                  <a class="super-dict-link-card super-dict-link-card--collins" href="https://www.collinsdictionary.com/" target="_blank" rel="noreferrer" data-super-dict-link="collins">
+                    <span class="super-dict-link-icon" aria-hidden="true">Co</span>
+                    <span class="super-dict-link-copy">
+                      <strong>Collins</strong>
+                      <span>柯林斯词典</span>
+                    </span>
+                  </a>
+                </div>
+              </section>
+              <section class="workspace-card module-card module-card--super-dict-images">
+                <div class="module-card-head">
+                  <div>
+                    <h3 class="module-card-title">图片联想</h3>
+                  </div>
+                </div>
+                <div class="super-dict-link-grid super-dict-link-grid--images">
+                  <a class="super-dict-link-card super-dict-link-card--google" href="https://www.google.com/search?tbm=isch" target="_blank" rel="noreferrer" data-super-dict-link="google-images">
+                    <span class="super-dict-link-icon" aria-hidden="true">G</span>
+                    <span class="super-dict-link-copy">
+                      <strong>Google Images</strong>
+                      <span>谷歌搜图</span>
+                    </span>
+                  </a>
+                  <a class="super-dict-link-card super-dict-link-card--bing" href="https://www.bing.com/images" target="_blank" rel="noreferrer" data-super-dict-link="bing-images">
+                    <span class="super-dict-link-icon" aria-hidden="true">B</span>
+                    <span class="super-dict-link-copy">
+                      <strong>Bing Images</strong>
+                      <span>Bing 图片</span>
+                    </span>
+                  </a>
+                  <a class="super-dict-link-card super-dict-link-card--baidu" href="https://image.baidu.com/" target="_blank" rel="noreferrer" data-super-dict-link="baidu-images">
+                    <span class="super-dict-link-icon" aria-hidden="true">百</span>
+                    <span class="super-dict-link-copy">
+                      <strong>Baidu Images</strong>
+                      <span>百度图片</span>
+                    </span>
+                  </a>
+                </div>
+              </section>
+              <section class="workspace-card module-card module-card--super-dict-youglish">
+                <div class="module-card-head">
+                  <div>
+                    <h3 class="module-card-title">YouGlish</h3>
+                  </div>
+                </div>
+                <div class="super-dict-link-grid super-dict-link-grid--solo">
+                  <a class="super-dict-link-card super-dict-link-card--youglish" href="https://youglish.com/" target="_blank" rel="noreferrer" data-super-dict-link="youglish">
+                    <span class="super-dict-link-icon" aria-hidden="true">Y</span>
+                    <span class="super-dict-link-copy">
+                      <strong>YouGlish</strong>
+                      <span>发音和语境</span>
+                    </span>
+                  </a>
                 </div>
               </section>
             </div>

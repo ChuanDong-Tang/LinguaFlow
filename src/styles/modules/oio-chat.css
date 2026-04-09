@@ -1,0 +1,218 @@
+.oio-chat-layout,
+.daily-capture-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 0.75fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.oio-chat-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(13rem, 15rem);
+}
+
+.oio-chat-hero,
+.daily-capture-hero {
+  width: 100%;
+}
+
+.oio-chat-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-height: 34rem;
+  max-height: 34rem;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+  padding-right: 0.3rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.oio-chat-feed::-webkit-scrollbar {
+  width: 10px;
+}
+
+.oio-chat-feed::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.oio-chat-feed::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: padding-box;
+}
+
+.oio-chat-feed::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+  background-clip: padding-box;
+}
+
+.chat-empty-kicker,
+.oio-chat-stat-kicker,
+.daily-capture-card-kicker,
+.daily-capture-entry-label,
+.daily-capture-empty-kicker,
+.daily-capture-practice-label {
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.daily-capture-empty-title,
+.daily-capture-card-title,
+.daily-capture-practice-title {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #fff;
+}
+
+.daily-capture-empty-copy,
+.daily-capture-practice-copy,
+.daily-capture-practice-status {
+  margin: 0;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.chat-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.05rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chat-bubble--user {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.chat-bubble--assistant {
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.12), rgba(255, 255, 255, 0.03));
+  border-color: rgba(127, 184, 255, 0.22);
+}
+
+.chat-bubble-role {
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.chat-bubble-text,
+.chat-assistant-copy,
+.daily-capture-entry-copy,
+.daily-capture-practice-quote {
+  margin: 0;
+  line-height: 1.75;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.chat-assistant-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.chat-assistant-label {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.chat-highlight-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.chat-highlight-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.85rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(127, 184, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.chat-assistant-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.oio-chat-side-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.oio-chat-aside {
+  position: sticky;
+  top: 1rem;
+}
+
+.oio-chat-stat-card {
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.oio-chat-stat-value {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1.05rem;
+  color: #fff;
+}
+
+.oio-chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-top: auto;
+}
+
+.oio-chat-input {
+  width: 100%;
+  min-height: 8rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 18px;
+  background: rgba(10, 12, 16, 0.62);
+  color: #fff;
+  font: inherit;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.oio-chat-input:focus {
+  outline: none;
+  border-color: rgba(127, 184, 255, 0.56);
+  box-shadow: 0 0 0 3px rgba(64, 149, 255, 0.12);
+}
+
+.oio-chat-composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.oio-chat-meta,
+.oio-chat-status {
+  margin: 0;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.oio-chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}

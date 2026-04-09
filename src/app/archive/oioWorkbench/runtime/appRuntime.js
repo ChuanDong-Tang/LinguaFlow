@@ -7,8 +7,8 @@ import { HistoryController as d } from "./HistoryController.js";
 import { HistoryExportController as _e } from "./HistoryExportController.js";
 import { ImportExportController as f } from "./ImportExportController.js";
 import { PEEK_MS as m, EXPORT_SCHEMA_VERSION as h, HISTORY_COLLAPSE_KEY as ee } from "./constants.js";
-import { saveSession as Re, listSessions as Be, getSession as Ve, deleteSession as He } from "../historyIdb.js";
-import { toLocalDateKeyFromSaved as ie, savedAtIsoForImportedBasename as oe } from "./dateUtils.js";
+import { saveSession as Re, listSessions as Be, getSession as Ve, deleteSession as He } from "../../../../historyIdb.js";
+import { toLocalDateKeyFromSaved as ie, savedAtIsoForImportedBasename as oe } from "../../../dateUtils.js";
 import {
   splitSentences as ge,
   tokenizeWords as xe,

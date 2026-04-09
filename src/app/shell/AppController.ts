@@ -1,13 +1,20 @@
 export class AppController {
   async init() {
-    const [{ AppShellController }, { RewriteWorkbenchController }] = await Promise.all([
+    const [{ AppShellController }, { RewriteWorkbenchController, initOioWorkbenchArchiveRuntime }, { SuperDictController }, { OioChatController }, { DailyCaptureController }] = await Promise.all([
       import("./AppShellController"),
-      import("./RewriteWorkbenchController"),
+      import("../archive/oioWorkbench"),
+      import("../modules/superDict/SuperDictController"),
+      import("../modules/oioChat/OioChatController"),
+      import("../modules/dailyCapture/DailyCaptureController"),
     ]);
     new AppShellController().init();
-    await new RewriteWorkbenchController().init();
+    await Promise.all([
+      new RewriteWorkbenchController().init(),
+      new SuperDictController().init(),
+      new OioChatController().init(),
+      new DailyCaptureController().init(),
+    ]);
 
-    // 现有播放器运行时暂时保留，先挂进新的页面壳子里。
-    await import("../appRuntime.js");
+    await initOioWorkbenchArchiveRuntime();
   }
 }

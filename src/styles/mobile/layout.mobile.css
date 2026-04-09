@@ -1,0 +1,132 @@
+@media (max-width: 980px) {
+  .wrap.oio-app.app-shell-ready {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .app-shell {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 50;
+    width: min(18rem, 82vw);
+    height: 100vh;
+    min-height: 100vh;
+    padding: 1rem 0.85rem;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    overflow-y: auto;
+  }
+
+  .oio-app.is-mobile-nav-open .app-sidebar {
+    transform: translateX(0);
+  }
+
+  .app-mobile-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    border: none;
+    background: rgba(5, 8, 14, 0.5);
+    backdrop-filter: blur(2px);
+  }
+
+  .oio-app.is-mobile-nav-open .app-mobile-overlay {
+    display: block;
+  }
+
+  .app-nav-list {
+    flex-direction: column;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .app-nav-btn {
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+
+  .app-workspace {
+    padding: 0.85rem 0.85rem 1.2rem;
+  }
+
+  .app-mobile-bar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.85rem;
+    padding: 0.45rem 0;
+    background: rgba(17, 19, 24, 0.92);
+    backdrop-filter: blur(10px);
+  }
+
+  .app-mobile-menu-btn {
+    padding: 0.65rem 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    color: #fff;
+    font: inherit;
+  }
+
+  .app-mobile-title {
+    font-size: 0.96rem;
+    color: #fff;
+  }
+
+  .workspace-hero {
+    padding: 1rem 1.05rem;
+    border-radius: 20px;
+  }
+
+  .workspace-hero-title {
+    font-size: clamp(1.45rem, 4.6vw, 1.9rem);
+  }
+
+  .workspace-hero-copy {
+    font-size: 0.92rem;
+  }
+
+  .module-body-grid,
+  .module-body-grid--rewrite,
+  .module-overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-workspace {
+    padding: 0.72rem 0.72rem 1rem;
+  }
+
+  .workspace-hero {
+    padding: 0.95rem;
+    border-radius: 18px;
+  }
+
+  .module-card {
+    padding: 0.92rem 0.95rem;
+    border-radius: 18px;
+  }
+
+  .module-card--overview,
+  .module-card--calendar,
+  .module-card--calendar-inline {
+    margin-bottom: 0.85rem;
+  }
+
+  .module-card-head {
+    gap: 0.35rem;
+  }
+}

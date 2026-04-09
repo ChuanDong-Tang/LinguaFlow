@@ -1,5 +1,5 @@
 ﻿import { EXPORT_SCHEMA_VERSION, FILL_BLANK_TIER_LABEL_ZH } from "./constants.js";
-import { toLocalDateKeyFromSaved } from "./dateUtils.js";
+import { toLocalDateKeyFromSaved } from "../../../dateUtils.js";
 
 /** @param {number} percent 已取整 0–100 */
 export function fillBlankAccuracyTierFromPercent(percent) {

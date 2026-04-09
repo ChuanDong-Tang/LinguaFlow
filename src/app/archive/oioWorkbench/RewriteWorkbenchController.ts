@@ -1,5 +1,5 @@
-import { listRewriteRecords, saveRewriteRecord } from "../../historyIdb.js";
-import { addMonthsClamp, dateToLocalKey, formatKeyToSlashDisplay } from "../dateUtils.js";
+import { listRewriteRecords, saveRewriteRecord } from "../../../historyIdb.js";
+import { addMonthsClamp, dateToLocalKey, formatKeyToSlashDisplay } from "../../dateUtils.js";
 import { RewriteApiError, requestRewrite } from "./rewriteApi";
 
 interface SpeechRecognitionAlternative {
@@ -302,14 +302,14 @@ export class RewriteWorkbenchController {
       this.updateSelectionState(null);
       this.syncSourcePreview(currentText);
       if (this.resultTitleEl) {
-        this.resultTitleEl.textContent = "改写结果";
+        this.resultTitleEl.textContent = "AI 输出";
       }
       if (this.resultPreviewEl) {
         //this.resultPreviewEl.textContent = "点击“开始改写”";
       }
       this.renderKeyPhrases([]);
       if (this.taskTitleEl) {
-        this.taskTitleEl.textContent = "输入";
+        this.taskTitleEl.textContent = "用户输入";
       }
       if (this.inlineMetaEl) {
         this.inlineMetaEl.textContent = currentText.trim() ? `${countWords(currentText)} 词` : "";
@@ -338,7 +338,7 @@ export class RewriteWorkbenchController {
       this.pending = true;
       this.updateActionState();
       if (this.resultTitleEl) {
-        this.resultTitleEl.textContent = "改写结果";
+        this.resultTitleEl.textContent = "AI 输出";
       }
       if (this.resultPreviewEl) {
         this.resultPreviewEl.textContent = "改写中...";
@@ -376,7 +376,7 @@ export class RewriteWorkbenchController {
         this.draftMode = true;
         this.updateSelectionState(null);
         if (this.resultTitleEl) {
-          this.resultTitleEl.textContent = "改写失败";
+          this.resultTitleEl.textContent = "AI 输出";
         }
         if (this.resultPreviewEl) {
           this.resultPreviewEl.textContent = message;
@@ -581,14 +581,14 @@ export class RewriteWorkbenchController {
     this.renderHistoryList();
     this.updateSelectionState(record.id);
     if (this.taskTitleEl) {
-      this.taskTitleEl.textContent = "输入";
+      this.taskTitleEl.textContent = "用户输入";
     }
     if (this.sourceTitleEl) {
-      this.sourceTitleEl.textContent = "原文";
+      this.sourceTitleEl.textContent = "输入预览";
     }
     this.syncSourcePreview(record.sourceText);
     if (this.resultTitleEl) {
-      this.resultTitleEl.textContent = "改写结果";
+      this.resultTitleEl.textContent = "AI 输出";
     }
     if (this.resultPreviewEl) {
       this.resultPreviewEl.textContent = record.rewrittenText;
@@ -614,17 +614,17 @@ export class RewriteWorkbenchController {
     this.renderHistoryList();
     this.updateSelectionState(null);
     if (this.taskTitleEl) {
-      this.taskTitleEl.textContent = "输入";
+      this.taskTitleEl.textContent = "用户输入";
     }
     if (this.sourceInputEl) {
       this.sourceInputEl.value = "";
     }
     if (this.sourceTitleEl) {
-      this.sourceTitleEl.textContent = "原文";
+      this.sourceTitleEl.textContent = "输入预览";
     }
     this.syncSourcePreview("");
     if (this.resultTitleEl) {
-      this.resultTitleEl.textContent = "改写结果";
+      this.resultTitleEl.textContent = "AI 输出";
     }
     if (this.resultPreviewEl) {
       this.resultPreviewEl.textContent = "";
