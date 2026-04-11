@@ -1,7 +1,7 @@
-import { getAppConfig } from "../core/appConfig.js";
-import { readJsonBody, sendJson } from "../core/http.js";
-import { activateManualSubscription } from "../services/access.js";
-import { requireAdminRequest } from "../services/admin.js";
+import { getAppConfig } from "../../server/core/appConfig.js";
+import { readJsonBody, sendJson } from "../../server/core/http.js";
+import { activateManualSubscription } from "../../server/services/access.js";
+import { requireAdminRequest } from "../../server/services/admin.js";
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") {

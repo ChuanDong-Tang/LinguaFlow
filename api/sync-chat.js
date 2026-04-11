@@ -1,7 +1,7 @@
-import { sendJson, readJsonBody } from "./core/http.js";
-import { authenticateClerkRequest } from "./core/auth.js";
-import { getViewerAccessByClerkUserId } from "./services/access.js";
-import { getSupabaseAdmin } from "./infrastructure/supabase.js";
+import { sendJson, readJsonBody } from "../server/core/http.js";
+import { authenticateClerkRequest } from "../server/core/auth.js";
+import { getViewerAccessByClerkUserId } from "../server/services/access.js";
+import { getSupabaseAdmin } from "../server/infrastructure/supabase.js";
 
 const DOC_TYPE = "chat_sessions";
 

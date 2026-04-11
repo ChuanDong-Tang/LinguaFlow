@@ -1,6 +1,6 @@
-import { authenticateClerkRequest } from "./core/auth.js";
-import { sendJson } from "./core/http.js";
-import { getRewriteUsageSnapshotByClerkUserId } from "./services/rewriteUsage.js";
+import { authenticateClerkRequest } from "../server/core/auth.js";
+import { sendJson } from "../server/core/http.js";
+import { getRewriteUsageSnapshotByClerkUserId } from "../server/services/rewriteUsage.js";
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") {

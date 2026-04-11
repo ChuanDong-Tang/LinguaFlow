@@ -1,7 +1,7 @@
-import { getAppConfig } from "./core/appConfig.js";
-import { authenticateClerkRequest } from "./core/auth.js";
-import { sendJson } from "./core/http.js";
-import { createAnonymousViewerAccess, getViewerAccessByClerkUserId } from "./services/access.js";
+import { getAppConfig } from "../server/core/appConfig.js";
+import { authenticateClerkRequest } from "../server/core/auth.js";
+import { sendJson } from "../server/core/http.js";
+import { createAnonymousViewerAccess, getViewerAccessByClerkUserId } from "../server/services/access.js";
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") {

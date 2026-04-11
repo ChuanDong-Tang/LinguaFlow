@@ -1,5 +1,5 @@
-import { sendJson, readJsonBody } from "./core/http.js";
-import { getRewriteConfig } from "./services/rewriteConfig.js";
+import { sendJson, readJsonBody } from "../server/core/http.js";
+import { getRewriteConfig } from "../server/services/rewriteConfig.js";
 import {
   buildOioChatAskUserPrompt,
   buildOioChatRewriteUserPrompt,
@@ -11,9 +11,9 @@ import {
   OIO_CHAT_PRACTICE_FEEDBACK_SYSTEM_PROMPT,
   OIO_CHAT_PRACTICE_QUESTION_SYSTEM_PROMPT,
   REWRITE_SYSTEM_PROMPT,
-} from "./services/rewritePrompt.js";
-import { findBlockedPattern, looksLikePromptInjection } from "./services/rewriteSecurity.js";
-import { getRewriteAccessContext, recordSuccessfulRewriteUsage } from "./services/rewriteUsage.js";
+} from "../server/services/rewritePrompt.js";
+import { findBlockedPattern, looksLikePromptInjection } from "../server/services/rewriteSecurity.js";
+import { getRewriteAccessContext, recordSuccessfulRewriteUsage } from "../server/services/rewriteUsage.js";
 
 function createError(code, message, status) {
   return {
