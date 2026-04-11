@@ -93,6 +93,8 @@ export const zhCN: typeof en = {
   "oio_chat.practice_locked": "练习会话已锁定，请从 Daily Capture 重新进入。",
   "oio_chat.practice_finished_closed": "练习已完成，本会话已关闭。",
   "oio_chat.reply_failed": "这次回复没能完成。",
+  "oio_chat.login_required": "请先登录再和 OIO 对话。Free 方案每天 3 次回复。",
+  "oio_chat.login_required_unavailable": "当前未配置登录能力，聊天暂不可用。",
   "oio_chat.history_empty": "还没有会话记录。",
   "oio_chat.history_title": "历史记录",
   "oio_chat.turns": "轮",

@@ -1,4 +1,3 @@
-import { getAppConfig } from "../core/appConfig.js";
 import { authenticateClerkRequest } from "../core/auth.js";
 import { getViewerAccessByClerkUserId } from "./access.js";
 import { getSupabaseAdmin } from "../infrastructure/supabase.js";
@@ -9,6 +8,7 @@ function parseIntegerHeader(value) {
 }
 
 const REWRITE_USAGE_DOC_TYPE = "rewrite_usage_daily";
+const FREE_DAILY_REPLY_LIMIT = 3;
 const PRO_DAILY_REPLY_LIMIT = 20;
 
 function toUtcDateKey(date = new Date()) {
@@ -46,13 +46,13 @@ export async function getRewriteUsageSnapshotByClerkUserId(clerkUserId) {
   const viewer = await getViewerAccessByClerkUserId(clerkUserId);
   const hasPro = viewer.entitlements.some((item) => item.active && item.code === "pro_access");
   const appUserId = viewer.profile?.appUserId ?? "";
-  if (!hasPro || !appUserId) return null;
+  if (!appUserId) return null;
 
   const dateKey = toUtcDateKey();
   const usage = await readDailyCount(appUserId, dateKey);
   return {
     daily_used: Math.max(0, Number(usage.count) || 0),
-    daily_limit: PRO_DAILY_REPLY_LIMIT,
+    daily_limit: hasPro ? PRO_DAILY_REPLY_LIMIT : FREE_DAILY_REPLY_LIMIT,
   };
 }
 
@@ -77,8 +77,7 @@ async function writeDailyCount(appUserId, payload, dateKey, count) {
 }
 
 export async function getRewriteAccessContext(req, config, mode = "rewrite") {
-  const appConfig = getAppConfig();
-  const auth = await authenticateClerkRequest(req, { requireAuth: config.requireUserId });
+  const auth = await authenticateClerkRequest(req, { requireAuth: true });
   if (!auth.ok) {
     return {
       ok: false,
@@ -95,7 +94,7 @@ export async function getRewriteAccessContext(req, config, mode = "rewrite") {
   };
 
   const authenticatedUserId = auth.clerkUserId;
-  if (config.requireUserId && !authenticatedUserId) {
+  if (!authenticatedUserId) {
     return {
       ok: false,
       code: "UNAUTHORIZED",
@@ -103,37 +102,41 @@ export async function getRewriteAccessContext(req, config, mode = "rewrite") {
     };
   }
 
-  let quota = null;
-  if (authenticatedUserId) {
-    const viewer = await getViewerAccessByClerkUserId(authenticatedUserId);
-    const hasPro = viewer.entitlements.some((item) => item.active && item.code === "pro_access");
-    const appUserId = viewer.profile?.appUserId ?? "";
-    if (hasPro && appUserId) {
-      const dateKey = toUtcDateKey();
-      const usage = await readDailyCount(appUserId, dateKey);
-      if (usage.count >= PRO_DAILY_REPLY_LIMIT) {
-        return {
-          ok: false,
-          status: 429,
-          code: "DAILY_LIMIT_REACHED",
-          message: `Daily AI reply limit reached (${PRO_DAILY_REPLY_LIMIT}).`,
-        };
-      }
-      quota = {
-        mode,
-        appUserId,
-        dateKey,
-        count: usage.count,
-        payload: usage.payload,
-        limit: PRO_DAILY_REPLY_LIMIT,
-      };
-    }
+  const viewer = await getViewerAccessByClerkUserId(authenticatedUserId);
+  const hasPro = viewer.entitlements.some((item) => item.active && item.code === "pro_access");
+  const appUserId = viewer.profile?.appUserId ?? "";
+  if (!appUserId) {
+    return {
+      ok: false,
+      status: 403,
+      code: "PROFILE_REQUIRED",
+      message: "Could not resolve user profile for usage tracking.",
+    };
   }
+  const limit = hasPro ? PRO_DAILY_REPLY_LIMIT : FREE_DAILY_REPLY_LIMIT;
+  const dateKey = toUtcDateKey();
+  const dailyUsage = await readDailyCount(appUserId, dateKey);
+  if (dailyUsage.count >= limit) {
+    return {
+      ok: false,
+      status: 429,
+      code: "DAILY_LIMIT_REACHED",
+      message: `Daily AI reply limit reached (${limit}).`,
+    };
+  }
+  const quota = {
+    mode,
+    appUserId,
+    dateKey,
+    count: dailyUsage.count,
+    payload: dailyUsage.payload,
+    limit,
+  };
 
   return {
     ok: true,
     actor: {
-      userId: authenticatedUserId || (appConfig.allowAnonymousRewrite ? "anonymous" : "guest"),
+      userId: authenticatedUserId,
       usage,
       clerkUserId: authenticatedUserId,
       quota,

@@ -10,6 +10,7 @@ import { getAccessRepository } from "../../infrastructure/repositories";
 import { getI18n, t } from "../../i18n/i18n";
 import { RewriteApiError } from "../../services/rewrite/rewriteClient";
 import { getBrowserTtsService, splitTextForSpeech } from "../../services/tts/browserTtsService";
+import { getAuthService } from "../../services/auth/authService";
 import { saveTurnToDailyCapture } from "./oioChatCapture";
 import { createChatSession, deleteChatSession, listChatSessions, saveChatSession, type OioChatSession } from "./oioChatStore";
 import { type ChatTurn, type OioChatMode } from "./oioChatTypes";
@@ -256,6 +257,7 @@ export class OioChatController {
 
     const sourceText = this.inputEl.value.trim();
     if (!sourceText) return;
+    if (!this.ensureSignedInBeforeChat()) return;
 
     let session = this.activeSession;
     if (!session) {
@@ -328,6 +330,24 @@ export class OioChatController {
       this.updateMeta();
       this.feedEl?.scrollTo({ top: this.feedEl.scrollHeight });
     }
+  }
+
+  private ensureSignedInBeforeChat(): boolean {
+    const authSnapshot = getAuthService().getSnapshot();
+    if (authSnapshot.status === "signed_in") return true;
+
+    if (authSnapshot.status === "loading") {
+      this.setStatus(t("account.checking_session"));
+      return false;
+    }
+    if (authSnapshot.status === "disabled") {
+      this.setStatus(t("oio_chat.login_required_unavailable"));
+      return false;
+    }
+
+    this.setStatus(t("oio_chat.login_required"));
+    void getAuthService().openSignIn();
+    return false;
   }
 
   private toAssistantTurn(sourceText: string, reply: ChatReply): ChatTurn {

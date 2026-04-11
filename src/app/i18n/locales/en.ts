@@ -91,6 +91,8 @@ export const en = {
   "oio_chat.practice_locked": "Practice session is locked. Start a new one from Daily Capture.",
   "oio_chat.practice_finished_closed": "Practice finished. This chat is now closed.",
   "oio_chat.reply_failed": "I could not finish that reply.",
+  "oio_chat.login_required": "Sign in to chat with OIO. Free plan includes 3 replies per day.",
+  "oio_chat.login_required_unavailable": "Sign-in is not configured right now, so chat is unavailable.",
   "oio_chat.history_empty": "No conversations yet.",
   "oio_chat.history_title": "History",
   "oio_chat.turns": "turns",
