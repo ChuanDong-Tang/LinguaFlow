@@ -59,7 +59,7 @@ export const zhCN: typeof en = {
   "subscription.days_left": "天剩余",
   "subscription.upgrade_cta": "开通 Pro",
   "subscription.renew_cta": "续费 Pro",
-  "subscription.manual_note": "当前为人工开通。",
+  "subscription.manual_note": "云端存储对话记录和每日卡片。",
   "subscription.badge_free": "Free",
   "subscription.badge_pro": "Pro",
   "subscription.sheet_kicker": "人工开通",

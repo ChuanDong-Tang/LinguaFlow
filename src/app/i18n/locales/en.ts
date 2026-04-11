@@ -57,7 +57,7 @@ export const en = {
   "subscription.days_left": "days left",
   "subscription.upgrade_cta": "Activate Pro",
   "subscription.renew_cta": "Renew Pro",
-  "subscription.manual_note": "Currently activated manually.",
+  "subscription.manual_note": "Cloud sync for chat history and daily cards.",
   "subscription.badge_free": "Free",
   "subscription.badge_pro": "Pro",
   "subscription.sheet_kicker": "Manual activation",
