@@ -1,8 +1,8 @@
 import { getCaptureNaturalVersion, type CaptureKeyPhraseSource } from "../../domain/capture";
 import { dateToLocalKey } from "../../dateUtils.js";
-import { pushCaptureRecords } from "../../services/cloud/cloudSyncService";
+import { pushCaptureRecord } from "../../services/cloud/cloudSyncService";
 import { emitDailyCaptureUpdated } from "../dailyCapture/dailyCaptureEvents";
-import { getCaptureRecord, listCaptureRecords, saveCaptureRecord } from "../dailyCapture/dailyCaptureStore";
+import { getCaptureRecord, saveCaptureRecord } from "../dailyCapture/dailyCaptureStore";
 import { type ChatTurn } from "./oioChatTypes";
 
 export async function saveTurnToDailyCapture(turn: ChatTurn, dateKey = dateToLocalKey(new Date())): Promise<"saved" | "duplicate"> {
@@ -43,8 +43,7 @@ export async function saveTurnToDailyCapture(turn: ChatTurn, dateKey = dateToLoc
   ];
 
   await saveCaptureRecord(current);
-  const records = await listCaptureRecords();
-  void pushCaptureRecords(records);
+  void pushCaptureRecord(current);
   emitDailyCaptureUpdated(dateKey);
   return "saved";
 }

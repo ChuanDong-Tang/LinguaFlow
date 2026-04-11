@@ -5,7 +5,7 @@ import { oioChatConfig } from "../../services/chat/chatConfig";
 import { createChatReply, toChatErrorMessage, type ChatReply } from "../../services/chat/chatService";
 import { fetchChatUsageSnapshot } from "../../services/chat/chatUsageService";
 import { generatePracticeFeedback } from "../../services/chat/practiceService";
-import { pullChatSessions, pushChatSessions } from "../../services/cloud/cloudSyncService";
+import { pullChatSessions, pullMoreChatSessions, pushChatSessions } from "../../services/cloud/cloudSyncService";
 import { getAccessRepository } from "../../infrastructure/repositories";
 import { getI18n, t } from "../../i18n/i18n";
 import { RewriteApiError } from "../../services/rewrite/rewriteClient";
@@ -51,6 +51,9 @@ export class OioChatController {
   private speechRecognitionActive = false;
   private usageDailyUsed: number | null = null;
   private usageDailyLimit: number = oioChatConfig.maxDailyTurns;
+  private cloudHasMore = false;
+  private cloudNextBefore: string | null = null;
+  private loadingMoreHistory = false;
   private static readonly usageStorageKey = "oio-chat-usage-v1";
   private static readonly collapseStorageKey = "oio-chat-history-collapsed-v1";
 
@@ -98,7 +101,9 @@ export class OioChatController {
 
   private async syncSessionsFromCloud(): Promise<void> {
     try {
-      await pullChatSessions();
+      const result = await pullChatSessions();
+      this.cloudHasMore = !!result?.hasMore;
+      this.cloudNextBefore = result?.nextBefore ?? null;
       await this.loadSessions();
       this.renderModeState();
       this.renderHistory();
@@ -106,6 +111,8 @@ export class OioChatController {
       this.updateMeta();
       void this.syncUsageFromServer();
     } catch {
+      this.cloudHasMore = false;
+      this.cloudNextBefore = null;
       // ignore cloud sync failures
     }
   }
@@ -151,6 +158,12 @@ export class OioChatController {
 
     this.historyEl?.addEventListener("click", async (event) => {
       const target = event.target as HTMLElement | null;
+
+      const loadMoreBtn = target?.closest<HTMLButtonElement>("[data-chat-history-load-more]");
+      if (loadMoreBtn) {
+        void this.loadMoreHistoryFromCloud();
+        return;
+      }
 
       const dateToggle = target?.closest<HTMLButtonElement>("[data-chat-date-toggle]");
       if (dateToggle) {
@@ -395,7 +408,7 @@ export class OioChatController {
       </div>
     `;
 
-    this.historyEl.innerHTML = header + Array.from(groups.entries())
+    const groupsHtml = Array.from(groups.entries())
       .sort((left, right) => right[0].localeCompare(left[0]))
       .map(([dateKey, sessions]) => {
         const isCollapsed = this.collapsedDateKeys.has(dateKey);
@@ -434,6 +447,37 @@ export class OioChatController {
       `;
       })
       .join("");
+    const loadMoreHtml = this.cloudHasMore
+      ? `
+        <div class="oio-chat-history-more">
+          <button type="button" class="secondary" data-chat-history-load-more ${this.loadingMoreHistory ? "disabled" : ""}>
+            ${escapeHtml(this.loadingMoreHistory ? t("common.loading") : t("oio_chat.history_load_more"))}
+          </button>
+        </div>
+      `
+      : "";
+    this.historyEl.innerHTML = header + groupsHtml + loadMoreHtml;
+  }
+
+  private async loadMoreHistoryFromCloud(): Promise<void> {
+    if (this.loadingMoreHistory) return;
+    if (!this.cloudHasMore || !this.cloudNextBefore) return;
+    this.loadingMoreHistory = true;
+    this.renderHistory();
+    try {
+      const result = await pullMoreChatSessions(this.cloudNextBefore);
+      if (!result) return;
+      this.cloudHasMore = result.hasMore;
+      this.cloudNextBefore = result.nextBefore;
+      await this.loadSessions();
+      this.renderFeed();
+      this.updateMeta();
+    } catch {
+      // ignore load-more failures
+    } finally {
+      this.loadingMoreHistory = false;
+      this.renderHistory();
+    }
   }
 
   private renderFeed(): void {

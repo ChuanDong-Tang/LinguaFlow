@@ -1,12 +1,13 @@
 import { getAccessRepository } from "../../infrastructure/repositories";
 import { getAuthService } from "../auth/authService";
-import { listCaptureRecords, saveCaptureRecord } from "../../modules/dailyCapture/dailyCaptureStore";
+import { saveCaptureRecord } from "../../modules/dailyCapture/dailyCaptureStore";
 import { listChatSessions, overwriteChatSessions } from "../../modules/oioChat/oioChatStore";
 import { type DailyCaptureRecord } from "../../domain/capture";
 import { type OioChatSession } from "../../modules/oioChat/oioChatStore";
 
 const SYNC_ACCESS_CACHE_MS = 60_000;
 const CLOUD_SYNC_TIMEOUT_MS = 12_000;
+const CHAT_PAGE_SIZE = 50;
 let cachedCanSync: { actorKey: string; value: boolean; expiresAt: number } | null = null;
 let canSyncInFlight: Promise<boolean> | null = null;
 let canSyncInFlightActorKey = "";
@@ -76,8 +77,10 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   }
 }
 
-export async function pullChatSessions(): Promise<OioChatSession[] | null> {
-  const payload = await fetchJson<{ sessions: OioChatSession[] }>("/api/sync-chat");
+export async function pullChatSessions(): Promise<{ sessions: OioChatSession[]; hasMore: boolean; nextBefore: string | null } | null> {
+  const payload = await fetchJson<{ sessions: OioChatSession[]; has_more?: boolean; next_before?: string | null }>(
+    `/api/sync-chat?limit=${CHAT_PAGE_SIZE}`,
+  );
   const remote = Array.isArray(payload.sessions) ? payload.sessions : [];
   const local = await listChatSessions();
   if (!remote.length) {
@@ -87,14 +90,38 @@ export async function pullChatSessions(): Promise<OioChatSession[] | null> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessions: local }),
       });
-      return local;
+      return { sessions: local, hasMore: false, nextBefore: null };
     }
-    return [];
+    return { sessions: [], hasMore: false, nextBefore: null };
   }
 
   const merged = mergeChatSessions(local, remote);
   await overwriteChatSessions(merged);
-  return merged;
+  return {
+    sessions: merged,
+    hasMore: payload.has_more === true,
+    nextBefore: typeof payload.next_before === "string" && payload.next_before.trim() ? payload.next_before : null,
+  };
+}
+
+export interface ChatPageResult {
+  hasMore: boolean;
+  nextBefore: string | null;
+}
+
+export async function pullMoreChatSessions(before: string): Promise<ChatPageResult | null> {
+  if (!before?.trim()) return null;
+  const payload = await fetchJson<{ sessions: OioChatSession[]; has_more?: boolean; next_before?: string | null }>(
+    `/api/sync-chat?limit=${CHAT_PAGE_SIZE}&before=${encodeURIComponent(before)}`,
+  );
+  const remote = Array.isArray(payload.sessions) ? payload.sessions : [];
+  const local = await listChatSessions();
+  const merged = mergeChatSessions(local, remote);
+  await overwriteChatSessions(merged);
+  return {
+    hasMore: payload.has_more === true,
+    nextBefore: typeof payload.next_before === "string" && payload.next_before.trim() ? payload.next_before : null,
+  };
 }
 
 export async function pushChatSessions(sessions: OioChatSession[]): Promise<void> {
@@ -109,37 +136,49 @@ export async function pushChatSessions(sessions: OioChatSession[]): Promise<void
   }
 }
 
-export async function pullCaptureRecords(): Promise<DailyCaptureRecord[] | null> {
-  if (!(await canSync())) return null;
-  const payload = await fetchJson<{ records: DailyCaptureRecord[] }>("/api/sync-capture");
-  const remote = Array.isArray(payload.records) ? payload.records : [];
-  const local = await listCaptureRecords();
-  if (!remote.length) {
-    if (local.length > 0) {
-      await fetchJson("/api/sync-capture", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ records: local }),
-      });
-      return local;
-    }
-    return [];
-  }
-
-  const merged = mergeCaptureRecords(local, remote);
-  for (const record of merged) {
-    await saveCaptureRecord(record);
-  }
-  return merged;
+export interface CaptureDaySummary {
+  dateKey: string;
+  cardCount: number;
+  updatedAt: string;
 }
 
-export async function pushCaptureRecords(records: DailyCaptureRecord[]): Promise<void> {
+export async function pullCaptureIndex(): Promise<CaptureDaySummary[] | null> {
+  if (!(await canSync())) return null;
+  const payload = await fetchJson<{ index?: Array<{ dateKey?: string; cardCount?: number; updatedAt?: string }> }>(
+    "/api/sync-capture?view=index",
+  );
+  const index = Array.isArray(payload.index) ? payload.index : [];
+  return index
+    .map((item) => ({
+      dateKey: typeof item.dateKey === "string" ? item.dateKey : "",
+      cardCount: Number(item.cardCount) || 0,
+      updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : "",
+    }))
+    .filter((item) => !!item.dateKey);
+}
+
+export async function pullCaptureRecordByDate(dateKey: string): Promise<DailyCaptureRecord | null> {
+  if (!(await canSync())) return null;
+  const normalizedDateKey = dateKey.trim();
+  if (!normalizedDateKey) return null;
+  const payload = await fetchJson<{ record?: DailyCaptureRecord | null }>(
+    `/api/sync-capture?date=${encodeURIComponent(normalizedDateKey)}`,
+  );
+  const record = payload.record;
+  if (!record || typeof record !== "object" || record.dateKey !== normalizedDateKey) {
+    return null;
+  }
+  await saveCaptureRecord(record);
+  return record;
+}
+
+export async function pushCaptureRecord(record: DailyCaptureRecord): Promise<void> {
   try {
     if (!(await canSync())) return;
     await fetchJson("/api/sync-capture", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ records }),
+      body: JSON.stringify({ record }),
     });
   } catch {
     // ignore cloud sync failures
@@ -162,18 +201,4 @@ function mergeChatSessions(local: OioChatSession[], remote: OioChatSession[]): O
     }
   }
   return Array.from(map.values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-}
-
-function mergeCaptureRecords(local: DailyCaptureRecord[], remote: DailyCaptureRecord[]): DailyCaptureRecord[] {
-  const map = new Map<string, DailyCaptureRecord>();
-  for (const record of local) {
-    map.set(record.dateKey, record);
-  }
-  for (const record of remote) {
-    const existing = map.get(record.dateKey);
-    if (!existing || existing.updatedAt < record.updatedAt) {
-      map.set(record.dateKey, record);
-    }
-  }
-  return Array.from(map.values()).sort((left, right) => right.dateKey.localeCompare(left.dateKey));
 }

@@ -97,6 +97,7 @@ export const zhCN: typeof en = {
   "oio_chat.login_required_unavailable": "当前未配置登录能力，聊天暂不可用。",
   "oio_chat.history_empty": "还没有会话记录。",
   "oio_chat.history_title": "历史记录",
+  "oio_chat.history_load_more": "加载更多",
   "oio_chat.turns": "轮",
   "oio_chat.delete_conversation_aria": "删除会话",
   "oio_chat.intro": "在 Rewrite 或 Ask 模式发起新对话，再把有用内容保存到 Daily Capture。",

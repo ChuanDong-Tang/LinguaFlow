@@ -2,7 +2,7 @@ import { getCaptureKeyPhrases, getCaptureNaturalVersion } from "../../domain/cap
 import { addMonthsClamp, dateToLocalKey, formatKeyToSlashDisplay } from "../../dateUtils.js";
 import { confirmDialog } from "../../shared/confirmDialog";
 import { escapeHtml } from "../../shared/html";
-import { pullCaptureRecords, pushCaptureRecords } from "../../services/cloud/cloudSyncService";
+import { pullCaptureIndex, pullCaptureRecordByDate, pushCaptureRecord } from "../../services/cloud/cloudSyncService";
 import { getI18n, t } from "../../i18n/i18n";
 import { onDailyCaptureUpdated } from "./dailyCaptureEvents";
 import { type CaptureItem, type DailyCaptureRecord, listCaptureRecords, saveCaptureRecord } from "./dailyCaptureStore";
@@ -27,6 +27,7 @@ export class DailyCaptureController {
   private selectedDateKey = dateToLocalKey(new Date());
   private dialogDateKey = "";
   private dialogItemIndex = 0;
+  private cloudCountByDate = new Map<string, number>();
 
   constructor({
     root = document.querySelector<HTMLElement>("#tab-panel-daily-capture"),
@@ -89,7 +90,7 @@ export class DailyCaptureController {
         if (!dateKey || dayBtn.disabled) return;
         this.selectedDateKey = dateKey;
         this.renderCalendar();
-        this.openDayDialog(dateKey);
+        void this.openDayDialog(dateKey);
         return;
       }
 
@@ -144,13 +145,14 @@ export class DailyCaptureController {
     document.addEventListener("app-tab-change", async (event) => {
       const detail = (event as CustomEvent<{ tabId?: string }>).detail;
       if (detail?.tabId !== "daily-capture") return;
-      await this.refreshFromStore();
+      await this.syncRecordsFromCloud();
     });
   }
 
   private async syncRecordsFromCloud(): Promise<void> {
     try {
-      await pullCaptureRecords();
+      const index = await pullCaptureIndex();
+      this.cloudCountByDate = new Map((index ?? []).map((item) => [item.dateKey, item.cardCount]));
       await this.loadRecords();
       this.renderCalendar();
       this.renderDayDialog();
@@ -196,6 +198,9 @@ export class DailyCaptureController {
     for (const record of this.records) {
       countMap.set(record.dateKey, Array.isArray(record.items) ? record.items.length : 0);
     }
+    for (const [dateKey, count] of this.cloudCountByDate.entries()) {
+      countMap.set(dateKey, Math.max(countMap.get(dateKey) ?? 0, count));
+    }
 
     const cells: string[] = [];
     for (let index = 0; index < 42; index += 1) {
@@ -222,7 +227,13 @@ export class DailyCaptureController {
     this.syncCalendarSelectors();
   }
 
-  private openDayDialog(dateKey: string): void {
+  private async openDayDialog(dateKey: string): Promise<void> {
+    const cloudCount = this.cloudCountByDate.get(dateKey) ?? 0;
+    if (cloudCount > 0 && !this.findRecord(dateKey)) {
+      await pullCaptureRecordByDate(dateKey);
+      await this.loadRecords();
+      this.renderCalendar();
+    }
     const record = this.findRecord(dateKey);
     if (!record?.items?.length) return;
     this.dialogDateKey = dateKey;
@@ -390,12 +401,14 @@ export class DailyCaptureController {
     if (!record) return;
     const nextItems = record.items.filter((item) => item.id !== itemId);
     if (nextItems.length === record.items.length) return;
-    await saveCaptureRecord({
+    const updatedRecord = {
       ...record,
       items: nextItems,
       updatedAt: new Date().toISOString(),
-    });
-    void pushCaptureRecords(await listCaptureRecords());
+    };
+    await saveCaptureRecord(updatedRecord);
+    this.cloudCountByDate.set(record.dateKey, nextItems.length);
+    void pushCaptureRecord(updatedRecord);
     await this.refreshFromStore(record.dateKey);
     if (!nextItems.length) {
       this.closeDayDialog();

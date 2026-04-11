@@ -95,6 +95,7 @@ export const en = {
   "oio_chat.login_required_unavailable": "Sign-in is not configured right now, so chat is unavailable.",
   "oio_chat.history_empty": "No conversations yet.",
   "oio_chat.history_title": "History",
+  "oio_chat.history_load_more": "Load more",
   "oio_chat.turns": "turns",
   "oio_chat.delete_conversation_aria": "Delete conversation",
   "oio_chat.intro": "Start a new conversation in Rewrite or Ask mode, then save useful parts into Daily Capture.",
