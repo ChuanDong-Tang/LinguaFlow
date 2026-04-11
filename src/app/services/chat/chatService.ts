@@ -1,44 +1,57 @@
-import { RewriteApiError, requestRewrite } from "../rewrite/rewriteClient";
+import { type OioChatMode } from "../../modules/oioChat/oioChatTypes";
+import { RewriteApiError, requestOioChat } from "../rewrite/rewriteClient";
 
 export interface ChatReply {
-  responseText: string;
-  correctedText: string;
-  note: string;
-  highlights: string[];
+  mode: OioChatMode;
+  naturalVersion: string;
+  answer?: string;
+  quickNote?: string;
+  keyPhrases: string[];
+  isAlreadyNatural?: boolean;
+  encouragement?: string;
+  usageDailyUsed?: number;
+  usageDailyLimit?: number;
 }
 
-function buildShortReply(text: string): string {
-  if (text.includes("?")) {
-    return "I get what you mean. Here is a smoother way to say it.";
-  }
-  return "I hear you. Here is a cleaner version you can keep using.";
-}
+export async function createChatReply(sourceText: string, mode: OioChatMode): Promise<ChatReply> {
+  const payload = await requestOioChat(sourceText, mode);
 
-function buildNote(sourceText: string, correctedText: string, highlights: string[]): string {
-  if (sourceText.trim() === correctedText.trim()) {
-    return "This already sounds natural. Keep the rhythm and phrasing.";
+  if (payload.mode === "ask") {
+    return {
+      mode,
+      naturalVersion: payload.natural_version.trim(),
+      answer: payload.answer.trim(),
+      keyPhrases: payload.key_phrases.slice(0, 4),
+      isAlreadyNatural: payload.is_already_natural,
+      encouragement: payload.encouragement.trim(),
+      usageDailyUsed: typeof payload.usage?.daily_used === "number" ? payload.usage.daily_used : undefined,
+      usageDailyLimit: typeof payload.usage?.daily_limit === "number" ? payload.usage.daily_limit : undefined,
+    };
   }
-  if (highlights.length) {
-    return `Keep an eye on: ${highlights.slice(0, 3).join(", ")}.`;
-  }
-  return "The corrected line is shorter and more natural in everyday English.";
-}
-
-export async function createChatReply(sourceText: string): Promise<ChatReply> {
-  const payload = await requestRewrite(sourceText);
-  const correctedText = payload.rewritten_text.trim();
-  const highlights = payload.key_phrases.slice(0, 4);
 
   return {
-    responseText: buildShortReply(sourceText),
-    correctedText,
-    note: buildNote(sourceText, correctedText, highlights),
-    highlights,
+    mode,
+    naturalVersion: payload.natural_version.trim(),
+    quickNote: payload.quick_note.trim(),
+    keyPhrases: payload.key_phrases.slice(0, 4),
+    isAlreadyNatural: payload.is_already_natural,
+    encouragement: payload.encouragement.trim(),
+    usageDailyUsed: typeof payload.usage?.daily_used === "number" ? payload.usage.daily_used : undefined,
+    usageDailyLimit: typeof payload.usage?.daily_limit === "number" ? payload.usage.daily_limit : undefined,
   };
 }
 
 export function toChatErrorMessage(error: unknown): string {
   if (error instanceof RewriteApiError) {
+    if (error.code === "REQUEST_TIMEOUT") {
+      return "The request timed out. Please try again.";
+    }
+    if (error.code === "NETWORK_ERROR") {
+      return "Network error. Please check your connection and retry.";
+    }
+    if (error.code === "MODEL_REQUEST_FAILED") {
+      return "The model request failed before a reply was returned. Please try again.";
+    }
     return error.message || "The chat reply failed.";
   }
   return "The chat reply failed.";

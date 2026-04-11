@@ -514,23 +514,27 @@ export class HistoryController {
     const s = this.getState();
     const y = s.year;
     const m = s.month;
-    if (contextLabel) contextLabel.textContent = `${y} 年 ${m + 1} 月`;
+    if (contextLabel) contextLabel.textContent = "练习日历";
 
-    const toolbar = document.createElement("div");
-    toolbar.className = "history-cal-toolbar";
+    const calendar = document.createElement("div");
+    calendar.className = "daily-capture-calendar history-calendar-shared";
+
+    const top = document.createElement("div");
+    top.className = "daily-capture-calendar-top";
+
+    const jump = document.createElement("div");
+    jump.className = "daily-capture-calendar-jump";
 
     const prevBtn = document.createElement("button");
     prevBtn.type = "button";
-    prevBtn.className = "secondary";
+    prevBtn.className = "secondary daily-capture-calendar-nav-arrow";
     prevBtn.dataset.historyMonthDelta = "-1";
-    prevBtn.textContent = "‹";
-
-    const mid = document.createElement("div");
-    mid.className = "history-cal-toolbar-mid";
+    prevBtn.setAttribute("aria-label", "Previous month");
+    prevBtn.textContent = "←";
 
     const yearSel = document.createElement("select");
-    yearSel.className = "history-cal-ym-sel history-cal-year-sel";
-    yearSel.setAttribute("aria-label", "年份");
+    yearSel.className = "history-cal-ym-sel history-cal-year-sel daily-capture-calendar-select";
+    yearSel.setAttribute("aria-label", "Year");
 
     const thisYear = new Date().getFullYear();
     for (let v = thisYear + 1; v >= thisYear - 20; v--) {
@@ -542,8 +546,8 @@ export class HistoryController {
     }
 
     const monthSel = document.createElement("select");
-    monthSel.className = "history-cal-ym-sel history-cal-month-sel";
-    monthSel.setAttribute("aria-label", "月份");
+    monthSel.className = "history-cal-ym-sel history-cal-month-sel daily-capture-calendar-select";
+    monthSel.setAttribute("aria-label", "Month");
     for (let v = 0; v < 12; v++) {
       const op = document.createElement("option");
       op.value = String(v + 1);
@@ -552,36 +556,40 @@ export class HistoryController {
       monthSel.appendChild(op);
     }
 
-    mid.appendChild(yearSel);
-    mid.appendChild(monthSel);
+    jump.appendChild(yearSel);
+    jump.appendChild(monthSel);
 
     const nextBtn = document.createElement("button");
     nextBtn.type = "button";
-    nextBtn.className = "secondary";
+    nextBtn.className = "secondary daily-capture-calendar-nav-arrow";
     nextBtn.dataset.historyMonthDelta = "1";
-    nextBtn.textContent = "›";
+    nextBtn.setAttribute("aria-label", "Next month");
+    nextBtn.textContent = "→";
 
-    toolbar.appendChild(prevBtn);
-    toolbar.appendChild(mid);
-    toolbar.appendChild(nextBtn);
-    navRoot.appendChild(toolbar);
+    const caption = document.createElement("strong");
+    caption.className = "daily-capture-calendar-caption";
+    caption.textContent = `${y} 年 ${m + 1} 月`;
+
+    top.appendChild(jump);
+    top.appendChild(caption);
+    calendar.appendChild(top);
 
     const dowRow = document.createElement("div");
-    dowRow.className = "history-cal-dow-row";
+    dowRow.className = "daily-capture-calendar-dow history-cal-dow-row";
     for (let i = 0; i < 7; i++) {
-      const cell = document.createElement("div");
+      const cell = document.createElement("span");
       cell.className = "history-cal-dow-cell";
       cell.textContent = WEEK_LABELS_MON[i];
       dowRow.appendChild(cell);
     }
-    navRoot.appendChild(dowRow);
+    calendar.appendChild(dowRow);
 
     let firstDow = new Date(y, m, 1).getDay();
     firstDow = firstDow === 0 ? 6 : firstDow - 1;
     const days = new Date(y, m + 1, 0).getDate();
 
     const grid = document.createElement("div");
-    grid.className = "history-cal-grid";
+    grid.className = "history-cal-grid daily-capture-calendar-grid";
 
     for (let i = 0; i < firstDow; i++) {
       const empty = document.createElement("div");
@@ -621,7 +629,15 @@ export class HistoryController {
       grid.appendChild(empty);
     }
 
-    navRoot.appendChild(grid);
+    calendar.appendChild(grid);
+
+    const nav = document.createElement("div");
+    nav.className = "daily-capture-calendar-nav";
+    nav.appendChild(prevBtn);
+    nav.appendChild(nextBtn);
+    calendar.appendChild(nav);
+
+    navRoot.appendChild(calendar);
   }
 
   renderAllNav(total) {
@@ -639,7 +655,7 @@ export class HistoryController {
     p.textContent =
       total === 0
         ? "暂无记录"
-        : `共 ${total} 条，见下方列表。打包下载请用标题栏「下载文件」。`;
+        : `共 ${total} 条，见下方列表。`;
 
     bar.appendChild(p);
     navRoot.appendChild(bar);

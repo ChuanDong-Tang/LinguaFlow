@@ -1,6 +1,4 @@
 import { getDomRefs as p } from "./domRefs.js";
-import { ModelController as r } from "./modelLoader.js";
-import { VoiceController as c } from "./voiceController.js";
 import { PlayerController as l } from "./PlayerController.js";
 import { PracticeController as u } from "./PracticeController.js";
 import { HistoryController as d } from "./HistoryController.js";
@@ -64,7 +62,6 @@ var {
     practiceModeBarEl: st,
     practiceActionsBar: ct,
     fillblankCheckBtn: lt,
-    fillblankSaveStatesBtn: ut,
     proofreadSaveBtn: dt,
     historyExportBtn: ft,
     historyExportDialog: pt,
@@ -144,20 +141,13 @@ var qt = `month`,
   V = [],
   H = -1,
   U = 0,
+  te = -1,
   Yt = new Map(),
   Xt = null;
 function W(e) {
   Xe && (Xe.textContent = e ?? ``);
 }
-var Zt = new c({
-  voiceComboboxEl: We,
-  voiceComboboxTrigger: Ge,
-  voiceComboboxValue: Ke,
-  voiceComboboxList: qe,
-});
-Zt.init();
-var Qt = new r({ setStatus: W }),
-  G = new l({
+var G = new l({
     playerEl: v,
     playerTimeDisplay: nt,
     playerSeekEl: rt,
@@ -227,10 +217,12 @@ function on() {
     if (!n) continue;
     let r = xe(z[t].text.trim()),
       i = [];
-    for (let e = 0; e < r.length; e++)
+    for (let e = 0; e < r.length; e++) {
+      if (!Se(r[e])) continue;
       n
         .querySelector(`.pr-word[data-si="${t}"][data-wi="${e}"]`)
         ?.classList.contains(`pr-word--selected`) && i.push(e);
+    }
     i.length && (e[String(t)] = i);
   }
   return e;
@@ -241,6 +233,7 @@ function cn(e) {
     if (!Number.isFinite(e) || !B[e]) continue;
     let r = Array.isArray(n) ? n : [];
     for (let t of r)
+      Se(xe(z[e].text.trim())[Number(t)] ?? ``) &&
       B[e]
         .querySelector(
           `.cue-proofread .pr-word[data-si="${e}"][data-wi="${t}"]`,
@@ -257,10 +250,22 @@ function ln(e, t) {
     },
     o = String(e),
     s = new Set(Array.isArray(t[o]) ? t[o] : []);
-  for (let e = 0; e < n.length; e++)
-    s.has(e)
-      ? (a(), r.push({ type: `blank`, answer: n[e], wordIndex: e }))
-      : i.push(n[e]);
+  for (let e = 0; e < n.length; e++) {
+    let t = n[e],
+      o = Se(t);
+    if (!s.has(e) || !o) {
+      i.push(t);
+      continue;
+    }
+    a();
+    let c = 0,
+      l = t.length;
+    for (; c < l && !/[A-Za-z0-9']/.test(t[c]); ) c += 1;
+    for (; l > c && !/[A-Za-z0-9']/.test(t[l - 1]); ) l -= 1;
+    let u = t.slice(0, c),
+      d = t.slice(l);
+    r.push({ type: `blank`, answer: o, wordIndex: e, prefix: u, suffix: d });
+  }
   return (a(), r);
 }
 function un() {
@@ -286,7 +291,7 @@ async function fn() {
       audioBlob: e,
     };
   try {
-    return (await Re(r), K.markSessionSaved(r.savedAt, r.id), await J(), t);
+    return (await Re(r), K.markSessionSaved(r.savedAt, r.id), await J({ scrollToId: !1 }), t);
   } catch (e) {
     return (console.error(e), null);
   }
@@ -340,11 +345,6 @@ function wn(e, t, n = F) {
     (l.className = `history-act-load`),
     (l.textContent = `载入`),
     (l.dataset.historyLoad = e.id));
-  let u = document.createElement(`button`);
-  ((u.type = `button`),
-    (u.className = `history-act-dl`),
-    (u.textContent = `下载`),
-    (u.dataset.historyDownload = e.id));
   let d = document.createElement(`button`);
   return (
     (d.type = `button`),
@@ -352,7 +352,6 @@ function wn(e, t, n = F) {
     (d.textContent = `删除`),
     (d.dataset.historyDelete = e.id),
     s.appendChild(l),
-    s.appendChild(u),
     s.appendChild(d),
     r.appendChild(i),
     r.appendChild(s),
@@ -418,7 +417,11 @@ function Ln(e, t) {
     let a = xe(String(t[n].text ?? ``).trim());
     for (let e of i) {
       let t = Number(e);
-      Number.isFinite(t) && t >= 0 && t < a.length && r.push(`${n}:${t}`);
+      Number.isFinite(t) &&
+        t >= 0 &&
+        t < a.length &&
+        Se(a[t]) &&
+        r.push(`${n}:${t}`);
     }
   }
   return r;
@@ -666,24 +669,6 @@ function Kn(e, t, { historySessionId: n = null } = {}) {
     !0
   );
 }
-async function qn(e) {
-  if (e.length === 0) throw Error(`没有生成任何音频片段`);
-  let n = e[0].sampling_rate,
-    r = e.reduce((e, t) => e + t.audio.length, 0),
-    i = new Float32Array(r),
-    a = 0;
-  for (let t of e) (i.set(t.audio, a), (a += t.audio.length));
-  let { RawAudio: o } = await t(
-    async () => {
-      let { RawAudio: e } = await import("@huggingface/transformers").then(
-        (e) => e.o,
-      );
-      return { RawAudio: e };
-    },
-    __vite__mapDeps([3, 2]),
-  );
-  return new o(i, n);
-}
 function isMobileGenerationClient() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ``);
 }
@@ -721,32 +706,72 @@ function splitTtsSentenceChunks(e, t) {
 function buildTtsChunkPlan(e, t) {
   return e.map((e) => ({ text: e, chunks: splitTtsSentenceChunks(e, t) }));
 }
-async function Jn(e, t, n, r) {
-  let i = isMobileGenerationClient(),
-    a = i ? 120 : 220,
-    o = i ? 1 : 3,
-    s = buildTtsChunkPlan(t, a),
-    c = s.reduce((e, t) => e + t.chunks.length, 0),
-    l = [],
-    u = [],
-    d = 0,
-    f = 0,
-    p = 0;
-  for (let h = 0; h < s.length; h++) {
-    let m = s[h],
-      C = d;
-    for (let b = 0; b < m.chunks.length; b++) {
-      let I = m.chunks[b],
-        T = c > s.length ? `，总进度 ${p + 1} / ${c}` : ``;
-      W(`正在合成语音…（${h + 1} / ${s.length} 句，第 ${b + 1} / ${m.chunks.length} 段${T}）`);
-      let E = await e.generate(I, { voice: n, speed: r });
-      f || (f = E.sampling_rate), (p += 1), (d += E.audio.length), l.push(E), p % o === 0 && (await yieldToMainThread());
-    }
-    let g = f ? C / f : 0,
-      y = f ? d / f : 0;
-    (u.push({ start: g, end: y, text: m.text }), await yieldToMainThread());
+function estimateCueDurationSec(e) {
+  let t = String(e || ``).trim();
+  if (!t) return 1.1;
+  let n = t.split(/\s+/).filter(Boolean).length;
+  if (!n) n = Math.max(1, Math.ceil(t.length / 6));
+  return Math.min(12, Math.max(1.1, n * 0.56));
+}
+function buildEstimatedCues(e) {
+  let t = 0;
+  return e.map((e) => {
+    let n = estimateCueDurationSec(e),
+      r = { start: t, end: t + n, text: e };
+    return (t += n), r;
+  });
+}
+function splitPracticeSentences(e) {
+  let t = ge(e);
+  if (Array.isArray(t) && t.length > 1) return t;
+  let n = String(e || ``)
+    .split(/\r?\n+/)
+    .map((e) => e.trim())
+    .filter(Boolean);
+  if (!n.length) return [];
+  let r = [];
+  for (let e of n) {
+    let t = e
+      .split(/(?<=[.!?…])\s+|(?<=[;；])\s+/g)
+      .map((e) => e.trim())
+      .filter(Boolean);
+    r.push(...(t.length ? t : [e]));
   }
-  return { merged: await qn(l), cues: u };
+  return r.length ? r : n;
+}
+function buildSilentWavBlob(e, t = 8e3) {
+  let n = Math.max(1, Math.ceil(Math.max(0.5, e) * t)),
+    r = new ArrayBuffer(44 + n),
+    i = new DataView(r),
+    a = 0;
+  function o(e) {
+    for (let t = 0; t < e.length; t++) i.setUint8(a++, e.charCodeAt(t));
+  }
+  return (
+    o(`RIFF`),
+    i.setUint32(a, 36 + n, !0),
+    (a += 4),
+    o(`WAVE`),
+    o(`fmt `),
+    i.setUint32(a, 16, !0),
+    (a += 4),
+    i.setUint16(a, 1, !0),
+    (a += 2),
+    i.setUint16(a, 1, !0),
+    (a += 2),
+    i.setUint32(a, t, !0),
+    (a += 4),
+    i.setUint32(a, t, !0),
+    (a += 4),
+    i.setUint16(a, 1, !0),
+    (a += 2),
+    i.setUint16(a, 8, !0),
+    (a += 2),
+    o(`data`),
+    i.setUint32(a, n, !0),
+    (a += 4),
+    new Blob([r], { type: `audio/wav` })
+  );
 }
 function Y(e) {
   let t = 0;
@@ -780,6 +805,50 @@ function Zn(e) {
 function Qn(e) {
   z[e] && (v.pause(), Zn(e));
 }
+function stopSpeechPlayback() {
+  (!window?.speechSynthesis || (window.speechSynthesis.cancel(), (te = -1)));
+}
+function pickSpeechVoice() {
+  if (!window?.speechSynthesis) return null;
+  let e = window.speechSynthesis.getVoices();
+  if (!e?.length) return null;
+  let t = [
+      `Google US English`,
+      `Samantha`,
+      `Microsoft Aria Online (Natural) - English (United States)`,
+      `Microsoft Jenny Online (Natural) - English (United States)`,
+      `Karen`,
+      `Moira`,
+      `Daniel`,
+      `Alex`,
+    ],
+    n = e.find((e) => t.includes(String(e.name || ``)));
+  if (n) return n;
+  let r = e.filter((e) => String(e.lang || ``).toLowerCase().startsWith(`en-us`));
+  if (r.length)
+    return r.sort((e, t) => String(e.name || ``).localeCompare(String(t.name || ``)))[0];
+  let i = e.filter((e) => String(e.lang || ``).toLowerCase().startsWith(`en`));
+  return i.length
+    ? i.sort((e, t) => String(e.name || ``).localeCompare(String(t.name || ``)))[0]
+    : e[0] || null;
+}
+function speakCue(e) {
+  if (!window?.speechSynthesis || !z[e]) return;
+  stopSpeechPlayback();
+  let t = new SpeechSynthesisUtterance(z[e].text || ``),
+    n = parseFloat(it?.value || `1`);
+  ((t.lang = `en-US`),
+    Number.isFinite(n) && (t.rate = Math.min(2, Math.max(0.5, n))),
+    (t.voice = pickSpeechVoice()),
+    (te = e),
+    (t.onend = () => {
+      te === e && (te = -1);
+    }),
+    (t.onerror = () => {
+      te === e && (te = -1);
+    }),
+    window.speechSynthesis.speak(t));
+}
 function $n(e) {
   if (!e) return null;
   let t = e.querySelectorAll(`.fb-slot`);
@@ -796,7 +865,18 @@ function nr() {
   G.goPrevCue();
 }
 function rr() {
-  G.togglePlayPause();
+  if (!v.src) return;
+  if (v.paused) {
+    v.play().catch(() => {});
+    return;
+  }
+  v.pause();
+}
+function playCueInline(e) {
+  if (!z[e]) return;
+  H = e;
+  for (let t = 0; t < B.length; t++) B[t].classList.toggle(`cue-row--active`, t === e);
+  speakCue(e);
 }
 function X() {
   G.syncPlayerTransport();
@@ -840,7 +920,6 @@ function or() {
     r = e && t === `fillblank`;
   (dt && (dt.hidden = !n),
     lt && (lt.hidden = !r),
-    ut && (ut.hidden = !r),
     (ct.hidden = !n && !r));
 }
 async function sr() {
@@ -853,7 +932,7 @@ async function sr() {
     : ((t.payload = Pn()),
       (t.savedAt = new Date().toISOString()),
       await Re(t),
-      await J(),
+      await J({ scrollToId: !1 }),
       { ok: !0, reason: `updated` });
 }
 async function cr(e) {
@@ -868,7 +947,7 @@ async function cr(e) {
       let e = await fn();
       e
         ? ((n = `new-history`),
-          (t = `已新建本地历史「${e}」并写入；之后可用「确认创建」或「更新填空状态」继续更新同一条。`))
+          (t = `已新建本地历史「${e}」并写入；之后继续练习并点「检查填空」即可更新同一条。`))
         : ((n = `page-only`),
           (t = `无法写入本地历史（可能无缓存音频）；当前内容仅保留在本页。`));
     } else
@@ -879,76 +958,15 @@ async function cr(e) {
   }
   return (W(`${e}${t}`), { outcome: n });
 }
-function lr() {
-  y.classList.remove(`oio-fillblank-reviewed`);
-}
-function ur(e) {
-  (kt && (kt.textContent = e), Ot?.showModal());
-}
-async function dr() {
-  if (D !== `fillblank` || !z.length) return;
-  (Wn(), Un());
-  let { outcome: e } = await cr(`已更新填空状态。`);
-  lr();
-  let t = ``;
-  ((t =
-    e === `history`
-      ? `已写入本地历史。已回到可作答状态；再点「检查填空」可校对，○ / ✕ / ✓ 仅在校对后出现。`
-      : e === `new-history`
-        ? `已新建本地历史并保存。已回到可作答状态，需要时再点「检查填空」。`
-        : e === `page-only`
-          ? `进度仅保留在本页，未写入本地历史。已回到可作答状态；请尽量关联历史或保留音频后再更新。`
-          : `保存异常，请看底部状态栏。已退出校对条，可继续在本页练习。`),
-    ur(t));
-}
 async function fr() {
-  D !== `proofread` ||
-    !z.length ||
-    (un(), Wt(O), Ht(O), (A = null), await cr(`已确认创建。`));
-}
-function pr(e) {
-  let t = e?.closest?.(`.fb-slot-wrap`);
-  if (!t) return;
-  let n = e.classList.contains(`fb-slot--ok`),
-    r = e.classList.contains(`fb-slot--wrong`),
-    i = !n && !r;
-  t.querySelectorAll(`.fb-state-btn`).forEach((e) => {
-    let t = e.dataset.fbState,
-      a = (t === `pending` && i) || (t === `wrong` && r) || (t === `ok` && n);
-    e.classList.toggle(`fb-state-btn--active`, !!a);
-  });
-}
-function mr(e, t) {
-  if (!e?.classList?.contains(`fb-slot`)) return;
-  let n = e.dataset.fbRevealed === `1`;
-  t === `pending`
-    ? ((e.readOnly = !1),
-      delete e.dataset.fbRevealed,
-      e.classList.remove(`fb-slot--revealed`),
-      e.classList.remove(`fb-slot--ok`, `fb-slot--wrong`),
-      n && (e.value = ``))
-    : t === `wrong`
-      ? ((e.readOnly = !1),
-        delete e.dataset.fbRevealed,
-        e.classList.remove(`fb-slot--revealed`),
-        e.classList.remove(`fb-slot--ok`),
-        e.classList.add(`fb-slot--wrong`),
-        n && (e.value = ``))
-      : t === `ok` &&
-        (e.classList.remove(`fb-slot--wrong`),
-        e.classList.add(`fb-slot--ok`),
-        (e.readOnly = !0),
-        (e.dataset.fbRevealed = `1`),
-        e.classList.add(`fb-slot--revealed`),
-        (e.value = e.dataset.answer ?? ``));
+  if (D !== `proofread` || !z.length) return;
+  (un(), Wt(O), Ht(O), (A = null), await cr(`已确认创建。`), br());
 }
 function hr() {
   (y.classList.add(`oio-fillblank-reviewed`),
     y.querySelectorAll(`.fb-slot`).forEach((e) => {
       if (e.dataset.fbRevealed === `1`) {
-        (e.classList.remove(`fb-slot--wrong`),
-          e.classList.add(`fb-slot--ok`),
-          pr(e));
+        (e.classList.remove(`fb-slot--wrong`), e.classList.add(`fb-slot--ok`));
         return;
       }
       e.classList.remove(`fb-slot--wrong`, `fb-slot--ok`);
@@ -958,8 +976,7 @@ function hr() {
         i = Ce(t);
       (r === `` || r !== i
         ? e.classList.add(`fb-slot--wrong`)
-        : e.classList.add(`fb-slot--ok`),
-        pr(e));
+        : e.classList.add(`fb-slot--ok`));
     }));
 }
 function gr(e) {
@@ -981,8 +998,6 @@ function _r() {
     let t = B[e]?.querySelector(`.cue-proofread`);
     if (!t) continue;
     t.replaceChildren();
-    let n = document.createElement(`div`);
-    ((n.className = `pr-user-line`), (n.textContent = V[e]?.value ?? ``));
     let r = document.createElement(`div`);
     ((r.className = `pr-ref-line`),
       xe(z[e].text.trim()).forEach((t, n) => {
@@ -991,10 +1006,12 @@ function _r() {
         ((i.className = `pr-word`),
           (i.dataset.si = String(e)),
           (i.dataset.wi = String(n)),
+          Se(t)
+            ? (i.dataset.blankable = `1`)
+            : i.classList.add(`pr-word--locked`),
           (i.textContent = t),
           r.appendChild(i));
       }),
-      t.appendChild(n),
       t.appendChild(r));
   }
 }
@@ -1040,48 +1057,45 @@ function vr(e, t) {
           : u === `wrong` && s.classList.add(`fb-slot--wrong`),
           s.addEventListener(`click`, (e) => e.stopPropagation()));
         let d = document.createElement(`span`);
+        t.prefix &&
+          (() => {
+            let e = document.createElement(`span`);
+            ((e.className = `fb-punct`), (e.textContent = t.prefix), o.appendChild(e));
+          })();
         ((d.className = `fb-slot-actions`),
           d.setAttribute(`role`, `group`),
-          d.setAttribute(`aria-label`, `手动标记本题状态`));
-        for (let { state: e, sym: t, title: n, kindClass: r } of [
-          {
-            state: `pending`,
-            sym: `○`,
-            title: `待练（蓝）`,
-            kindClass: `fb-state-btn--pending`,
-          },
-          {
-            state: `wrong`,
-            sym: `✕`,
-            title: `错误（红）`,
-            kindClass: `fb-state-btn--wrong`,
-          },
-          {
-            state: `ok`,
-            sym: `✓`,
-            title: `已掌握（绿）`,
-            kindClass: `fb-state-btn--ok`,
-          },
-        ]) {
-          let i = document.createElement(`button`);
-          ((i.type = `button`),
-            (i.className = `fb-state-btn ${r}`),
-            (i.dataset.fbState = e),
-            (i.textContent = t),
-            i.setAttribute(`aria-label`, n),
-            (i.title = n),
-            i.addEventListener(`mousedown`, (e) => {
-              e.stopPropagation();
-            }),
-            i.addEventListener(`click`, (e) => {
-              (e.preventDefault(),
-                e.stopPropagation(),
-                y.classList.contains(`oio-fillblank-reviewed`) &&
-                  (mr(s, i.dataset.fbState), pr(s)));
-            }),
-            d.appendChild(i));
-        }
-        (o.appendChild(s), o.appendChild(d), i.appendChild(o), pr(s));
+          d.setAttribute(`aria-label`, `填空帮助`));
+        let f = document.createElement(`button`);
+        ((f.type = `button`),
+          (f.className = `fb-help-btn`),
+          (f.textContent = `帮填`),
+          f.setAttribute(`aria-label`, `帮我填写这个单词`),
+          (f.title = `帮我填写这个单词`),
+          f.addEventListener(`mousedown`, (e) => {
+            e.stopPropagation();
+          }),
+          f.addEventListener(`click`, (e) => {
+            if (!y.classList.contains(`oio-fillblank-reviewed`)) return;
+            (e.preventDefault(),
+              e.stopPropagation(),
+              (s.value = s.dataset.answer ?? ``),
+              s.classList.remove(`fb-slot--wrong`),
+              s.classList.add(`fb-slot--ok`),
+              (s.readOnly = !1),
+              delete s.dataset.fbRevealed,
+              s.classList.remove(`fb-slot--revealed`),
+              Wn(),
+              Un());
+          }),
+          d.appendChild(f),
+          o.appendChild(s),
+          t.suffix &&
+            (() => {
+              let e = document.createElement(`span`);
+              ((e.className = `fb-punct`), (e.textContent = t.suffix), o.appendChild(e));
+            })(),
+          o.appendChild(d),
+          i.appendChild(o));
       }
     }),
     r.appendChild(i),
@@ -1151,11 +1165,13 @@ function Tr() {
       i = V[n],
       a = t.querySelector(`.cue-peek`),
       o = t.querySelector(`.cue-proofread`),
-      s = t.querySelector(`.cue-fillblank`);
+      s = t.querySelector(`.cue-fillblank`),
+      c = t.querySelector(`.cue-inline-play`);
     if (!e) {
       (r.classList.remove(`cue-reference--hidden`),
         i.classList.remove(`cue-input--visible`),
         a.classList.remove(`cue-peek--visible`),
+        c?.classList.remove(`cue-inline-play--hidden`),
         o?.classList.add(`cue-proofread--hidden`),
         s?.classList.add(`cue-fillblank--hidden`));
       return;
@@ -1163,8 +1179,10 @@ function Tr() {
     (r.classList.add(`cue-reference--hidden`),
       o?.classList.toggle(`cue-proofread--hidden`, D !== `proofread`),
       s?.classList.toggle(`cue-fillblank--hidden`, D !== `fillblank`));
-    let c = D === `dictation`;
-    i.classList.toggle(`cue-input--visible`, c);
+    let l = D === `dictation`,
+      u = D === `proofread`;
+    (i.classList.toggle(`cue-input--visible`, l),
+      c?.classList.toggle(`cue-inline-play--hidden`, u));
   }),
     e || Z(),
     or(),
@@ -1184,16 +1202,7 @@ function Or() {
   return $t ? $t.goPracticeDictation() : Sr();
 }
 function kr(e, t) {
-  if (D === `subtitles` || e < 0 || D === `fillblank`) return;
-  let n = document.activeElement;
-  if (n !== Ue && D === `dictation`) {
-    if (n?.classList?.contains(`cue-input`)) {
-      let r = n.closest(`.cue-row`),
-        i = r?.dataset.idx == null ? -1 : Number(r.dataset.idx);
-      if (i !== t && i !== e) return;
-    }
-    V[e]?.focus({ preventScroll: !0 });
-  }
+  return;
 }
 function Ar(e) {
   ((z = e),
@@ -1209,38 +1218,48 @@ function Ar(e) {
     e.forEach((e, t) => {
       let n = document.createElement(`div`);
       ((n.className = `cue-row`), (n.dataset.idx = String(t)));
-      let r = document.createElement(`p`);
-      ((r.className = `cue cue-reference`),
-        (r.textContent = e.text),
+      let r = document.createElement(`button`);
+      ((r.type = `button`),
+        (r.className = `cue-inline-play`),
+        r.setAttribute(`aria-label`, `播放第 ${t + 1} 句`),
+        (r.title = `播放本句`),
+        (r.textContent = `▶`),
         r.addEventListener(`click`, (e) => {
-          (e.stopPropagation(), D === `proofread` ? Qn(t) : er(t));
+          (e.stopPropagation(), playCueInline(t));
         }));
-      let i = document.createElement(`textarea`);
-      ((i.className = `cue-input`),
-        (i.rows = 2),
-        (i.placeholder = `第 ${t + 1} 句听写…`),
-        i.setAttribute(`aria-label`, `第 ${t + 1} 句听写`),
-        (i.spellcheck = !1),
-        i.addEventListener(`click`, (e) => e.stopPropagation()));
-      let a = document.createElement(`div`);
-      ((a.className = `cue-peek`), a.setAttribute(`aria-hidden`, `true`));
+      let i = document.createElement(`p`);
+      ((i.className = `cue cue-reference`),
+        (i.textContent = e.text),
+        i.addEventListener(`click`, (e) => {
+          (e.stopPropagation(), (H = t), B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t)));
+        }));
+      let a = document.createElement(`textarea`);
+      ((a.className = `cue-input`),
+        (a.rows = 2),
+        (a.placeholder = `第 ${t + 1} 句听写…`),
+        a.setAttribute(`aria-label`, `第 ${t + 1} 句听写`),
+        (a.spellcheck = !1),
+        a.addEventListener(`click`, (e) => e.stopPropagation()));
       let o = document.createElement(`div`);
-      o.className = `cue-proofread cue-proofread--hidden`;
+      ((o.className = `cue-peek`), o.setAttribute(`aria-hidden`, `true`));
       let s = document.createElement(`div`);
-      ((s.className = `cue-fillblank cue-fillblank--hidden`),
+      s.className = `cue-proofread cue-proofread--hidden`;
+      let c = document.createElement(`div`);
+      ((c.className = `cue-fillblank cue-fillblank--hidden`),
         n.appendChild(r),
         n.appendChild(i),
         n.appendChild(a),
         n.appendChild(o),
         n.appendChild(s),
+        n.appendChild(c),
         n.addEventListener(`click`, (e) => {
           D !== `subtitles` &&
-            (Gt(e)?.closest?.(`.fb-state-btn, .fb-slot-actions`) ||
-              (D === `proofread` ? Qn(t) : er(t)));
+            (Gt(e)?.closest?.(`.fb-slot-actions`) ||
+              ((H = t), B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t))));
         }),
         y.appendChild(n),
         B.push(n),
-        V.push(i));
+        V.push(a));
     }),
     (D = `subtitles`),
     Q());
@@ -1263,12 +1282,9 @@ function jr(e) {
       }
     }
   if (t !== H) {
-    let e = H;
     for (let e = 0; e < B.length; e++)
       B[e].classList.toggle(`cue-row--active`, e === t);
-    (t >= 0 && B[t].scrollIntoView({ block: `center`, behavior: `smooth` }),
-      kr(t, e),
-      (H = t));
+    (!v.paused && t >= 0 && speakCue(t), (H = t));
   }
 }
 (v.addEventListener(`timeupdate`, () => {
@@ -1302,7 +1318,7 @@ function jr(e) {
     (jr(v.currentTime), X());
   }),
   v.addEventListener(`pause`, () => {
-    X();
+    (stopSpeechPlayback(), X());
   }),
   v.addEventListener(`loadedmetadata`, () => {
     X();
@@ -1311,13 +1327,14 @@ function jr(e) {
     X();
   }),
   v.addEventListener(`ended`, () => {
-    X();
+    (stopSpeechPlayback(), X());
   }),
   v.addEventListener(`seeked`, () => {
     (b?.checked && z.length && (U = Y(v.currentTime)),
       D === `fillblank` && z.length && (I = Yn(v.currentTime)),
       (H = -1),
       jr(v.currentTime),
+      (v.paused || !z.length) && stopSpeechPlayback(),
       X());
   }),
   b?.addEventListener(`change`, () => {
@@ -1391,6 +1408,7 @@ function jr(e) {
   y.addEventListener(`click`, (e) => {
     let t = Gt(e)?.closest?.(`.pr-word`);
     !t ||
+      t.dataset.blankable !== `1` ||
       !y.contains(t) ||
       (e.stopPropagation(),
       t.classList.toggle(`pr-word--selected`),
@@ -1410,12 +1428,7 @@ async function Mr() {
       : `填空已校对。`,
   );
 }
-(ut?.addEventListener(`click`, () => {
-  dr().catch((e) => {
-    (console.error(e), W(`更新填空状态失败，请稍后再试。`));
-  });
-}),
-  dt?.addEventListener(`click`, () => {
+(dt?.addEventListener(`click`, () => {
     fr().catch((e) => {
       (console.error(e), W(`确认创建失败，请稍后再试。`));
     });
@@ -1533,7 +1546,8 @@ async function Mr() {
       W(`请先粘贴或输入英文文本。`);
       return;
     }
-    let t = ge(e);
+    let t = splitPracticeSentences(e);
+    t.length || (t = [e]);
     ((Je.disabled = !0),
       (z = []),
       (B = []),
@@ -1551,19 +1565,16 @@ async function Mr() {
       y.classList.remove(`oio-fillblank-reviewed`),
       (y.innerHTML = ``),
       v.pause(),
+      stopSpeechPlayback(),
       tn(),
       v.removeAttribute(`src`),
       v.load());
     try {
-      let { merged: e, cues: n } = await Jn(
-          await Qt.loadModel(),
-          t,
-          Zt.getSelectedVoiceId(),
-          1,
-        ),
-        r = e.toBlob();
-      ((Jt = r),
-        (R = URL.createObjectURL(r)),
+      let n = buildEstimatedCues(t),
+        r = n.length ? n[n.length - 1].end : 1,
+        e = buildSilentWavBlob(r + 0.4);
+      ((Jt = e),
+        (R = URL.createObjectURL(e)),
         (v.src = R),
         v.load(),
         Ar(n),
@@ -1571,8 +1582,8 @@ async function Mr() {
       let i = await fn();
       W(
         i
-          ? `完成。共 ${t.length} 句。已自动写入本地历史 ${i}。可在字幕区选「听写」等开始练习。`
-          : `完成。共 ${t.length} 句。本地历史未写入（请检查浏览器是否允许本站存储数据，或稍后重试生成）。可在字幕区选「听写」等开始练习。`,
+          ? `完成。共 ${t.length} 句。已自动写入本地历史 ${i}。播放音频时将使用浏览器语音（Web Speech）。`
+          : `完成。共 ${t.length} 句。本地历史未写入（请检查浏览器是否允许本站存储数据，或稍后重试生成）。播放音频时将使用浏览器语音（Web Speech）。`,
       );
     } catch (e) {
       (console.error(e),
@@ -1605,6 +1616,7 @@ async function Mr() {
       y.classList.remove(`oio-fillblank-reviewed`),
       (y.innerHTML = ``),
       v.pause(),
+      stopSpeechPlayback(),
       tn(),
       (Jt = null),
       v.removeAttribute(`src`),

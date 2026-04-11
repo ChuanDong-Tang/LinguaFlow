@@ -4,11 +4,6 @@
     gap: 0.85rem;
   }
 
-  .oio-chat-aside {
-    position: static;
-    order: 2;
-  }
-
   .oio-chat-feed {
     min-height: 26rem;
     max-height: none;
@@ -42,5 +37,9 @@
 
   .oio-chat-actions > button {
     flex: 1 1 0;
+  }
+
+  .oio-chat-actions > .oio-chat-voice-input-btn {
+    flex: 0 0 auto;
   }
 }

@@ -19,6 +19,8 @@
   flex-direction: column;
   gap: 0.9rem;
   min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   padding: 1rem 0.8rem;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   background:
@@ -42,6 +44,153 @@
   font-size: 1.9rem;
 }
 
+.app-account-dock {
+  position: relative;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.6rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.app-locale-switch {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.app-locale-btn {
+  min-height: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+}
+
+.app-locale-btn.is-active {
+  border-color: rgba(127, 184, 255, 0.3);
+  background: rgba(64, 149, 255, 0.14);
+  color: #fff;
+}
+
+.app-account-chip {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.app-account-chip:disabled {
+  cursor: default;
+}
+
+.app-account-chip:not(:disabled):hover,
+.app-account-chip.is-open {
+  border-color: rgba(127, 184, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.app-account-avatar {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.35), rgba(64, 149, 255, 0.14));
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.88rem;
+  font-weight: 700;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.app-account-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.app-account-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.app-account-title {
+  min-width: 0;
+  font-size: 0.88rem;
+  line-height: 1.2;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-account-note {
+  min-width: 0;
+  font-size: 0.74rem;
+  color: rgba(255, 255, 255, 0.56);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-account-action {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 2.5rem;
+  justify-content: center;
+}
+
+.app-account-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.75rem);
+  width: 12.5rem;
+  padding: 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(28, 31, 38, 0.98), rgba(18, 20, 25, 0.98));
+  box-shadow: 0 22px 42px rgba(0, 0, 0, 0.34);
+}
+
+.app-account-menu-item {
+  width: 100%;
+  min-height: 2.45rem;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--oio-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-account-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .app-shell-header .oio-help-anchor--header {
   margin-top: 0;
   align-self: flex-start;
@@ -52,6 +201,53 @@
   flex-direction: column;
   gap: 0.85rem;
   min-height: 0;
+  flex: 0 0 auto;
+}
+
+.app-sidebar-chat-history {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  flex: 1 1 auto;
+  overflow: hidden;
+  margin-top: 0.35rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.app-sidebar-chat-history-list {
+  min-height: 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  height: auto;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-right: 0.2rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.app-sidebar-chat-history-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.app-sidebar-chat-history-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-sidebar-chat-history-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: padding-box;
+}
+
+.app-sidebar-chat-history-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+  background-clip: padding-box;
 }
 
 .app-nav-group {

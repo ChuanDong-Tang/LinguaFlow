@@ -260,6 +260,33 @@
     linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03));
 }
 
+.super-dict-quick-add-fab {
+  position: absolute;
+  z-index: 120;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(127, 184, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(17, 22, 32, 0.94);
+  color: rgba(226, 240, 255, 0.95);
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+}
+
+.super-dict-quick-add-fab:hover {
+  background: rgba(64, 149, 255, 0.24);
+  border-color: rgba(127, 184, 255, 0.72);
+}
+
+.super-dict-quick-add-icon {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+}
+
 .super-dict-link-card--baidu {
   background:
     radial-gradient(circle at top right, rgba(52, 103, 235, 0.26), transparent 40%),

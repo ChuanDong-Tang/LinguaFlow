@@ -207,10 +207,7 @@ export class ImportExportController {
       });
     }
 
-    if (!btn || !input) {
-      console.error("[OIO Lab] 导入控件缺失：需要 #history-import-btn 与 #import-files-input");
-      return;
-    }
+    if (!btn || !input) return;
 
     btn.addEventListener("click", (ev) => {
       ev.preventDefault();

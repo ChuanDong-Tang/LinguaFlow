@@ -1,12 +1,19 @@
-import { getRewriteConfig } from "./_lib/rewriteConfig.js";
-import { buildRewriteUserPrompt, REWRITE_SYSTEM_PROMPT } from "./_lib/rewritePrompt.js";
-import { findBlockedPattern, looksLikePromptInjection } from "./_lib/rewriteSecurity.js";
-import { getRewriteAccessContext, recordSuccessfulRewriteUsage } from "./_lib/rewriteUsage.js";
-
-function sendJson(res, status, payload) {
-  res.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
-  res.send(JSON.stringify(payload));
-}
+import { sendJson, readJsonBody } from "./core/http.js";
+import { getRewriteConfig } from "./services/rewriteConfig.js";
+import {
+  buildOioChatAskUserPrompt,
+  buildOioChatRewriteUserPrompt,
+  buildOioChatPracticeFeedbackPrompt,
+  buildOioChatPracticeQuestionPrompt,
+  buildRewriteUserPrompt,
+  OIO_CHAT_ASK_SYSTEM_PROMPT,
+  OIO_CHAT_REWRITE_SYSTEM_PROMPT,
+  OIO_CHAT_PRACTICE_FEEDBACK_SYSTEM_PROMPT,
+  OIO_CHAT_PRACTICE_QUESTION_SYSTEM_PROMPT,
+  REWRITE_SYSTEM_PROMPT,
+} from "./services/rewritePrompt.js";
+import { findBlockedPattern, looksLikePromptInjection } from "./services/rewriteSecurity.js";
+import { getRewriteAccessContext, recordSuccessfulRewriteUsage } from "./services/rewriteUsage.js";
 
 function createError(code, message, status) {
   return {
@@ -63,21 +70,120 @@ function parseModelPayload(content, config) {
   };
 }
 
-async function readJsonBody(req) {
-  if (req.body && typeof req.body === "object") {
-    return req.body;
+function parseChatRewritePayload(content, config) {
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
   }
 
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(chunk);
-  }
+  if (parsed?.version !== "3" || parsed?.mode !== "rewrite") return null;
+  if (typeof parsed?.is_already_natural !== "boolean") return null;
+  if (typeof parsed?.encouragement !== "string") return null;
+  if (typeof parsed?.natural_version !== "string") return null;
+  if (typeof parsed?.quick_note !== "string" || !parsed.quick_note.trim()) return null;
 
-  if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const keyPhrases = normalizeKeyPhrases(parsed.key_phrases, config);
+  if (keyPhrases.length < 1 || keyPhrases.length > config.maxKeyPhrases) return null;
+
+    return {
+    version: "3",
+    mode: "rewrite",
+    is_already_natural: parsed.is_already_natural,
+    encouragement: parsed.encouragement.trim(),
+    natural_version: parsed.natural_version.trim(),
+    quick_note: parsed.quick_note.trim(),
+    key_phrases: keyPhrases,
+  };
 }
 
-async function callDeepSeek(text, config) {
+function parseAskPayload(content, config) {
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+
+  if (parsed?.version !== "3" || parsed?.mode !== "ask") return null;
+  if (typeof parsed?.is_already_natural !== "boolean") return null;
+  if (typeof parsed?.encouragement !== "string") return null;
+  if (typeof parsed?.natural_version !== "string") return null;
+  if (typeof parsed?.answer !== "string" || !parsed.answer.trim()) return null;
+
+  const keyPhrases = normalizeKeyPhrases(parsed.key_phrases, config);
+  if (keyPhrases.length < 1 || keyPhrases.length > config.maxKeyPhrases) return null;
+
+  return {
+    version: "3",
+    mode: "ask",
+    is_already_natural: parsed.is_already_natural,
+    encouragement: parsed.encouragement.trim(),
+    natural_version: parsed.natural_version.trim(),
+    answer: parsed.answer.trim(),
+    key_phrases: keyPhrases,
+  };
+}
+
+function parsePracticeQuestionPayload(content) {
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+
+  if (parsed?.version !== "1") return null;
+  if (typeof parsed?.question !== "string" || !parsed.question.trim()) return null;
+
+  return {
+    version: "1",
+    question: parsed.question.trim(),
+  };
+}
+
+function parsePracticeFeedbackPayload(content) {
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+
+  if (parsed?.version === "2") {
+    if (typeof parsed?.is_already_natural !== "boolean") return null;
+    if (typeof parsed?.rewritten_answer !== "string") return null;
+    if (typeof parsed?.feedback !== "string" || !parsed.feedback.trim()) return null;
+    return {
+      version: "2",
+      is_already_natural: parsed.is_already_natural,
+      rewritten_answer: parsed.rewritten_answer.trim(),
+      feedback: parsed.feedback.trim(),
+    };
+  }
+
+  if (parsed?.version !== "1") return null;
+  if (typeof parsed?.feedback !== "string" || !parsed.feedback.trim()) return null;
+
+  return {
+    version: "2",
+    is_already_natural: true,
+    rewritten_answer: "",
+    feedback: parsed.feedback.trim(),
+  };
+}
+
+function buildUsageSnapshot(access, charged = false) {
+  const quota = access?.actor?.quota;
+  if (!quota) return null;
+  return {
+    daily_used: Math.max(0, Number(quota.count) + (charged ? 1 : 0)),
+    daily_limit: Math.max(1, Number(quota.limit) || 20),
+  };
+}
+
+async function callDeepSeek(text, config, prompt) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.deepseekTimeoutMs);
 
@@ -92,8 +198,8 @@ async function callDeepSeek(text, config) {
         model: config.deepseekModel,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: REWRITE_SYSTEM_PROMPT },
-          { role: "user", content: buildRewriteUserPrompt(text) },
+          { role: "system", content: prompt.systemPrompt },
+          { role: "user", content: prompt.buildUserPrompt(text) },
         ],
       }),
       signal: controller.signal,
@@ -142,31 +248,60 @@ export default async function handler(req, res) {
   }
 
   const text = typeof body?.text === "string" ? body.text.trim() : "";
-  if (text.length < config.minInputChars) {
+  const mode = typeof body?.mode === "string" ? body.mode.trim() : "";
+  const practiceQuestion = typeof body?.question === "string" ? body.question.trim() : "";
+  const practiceAnswer = typeof body?.answer === "string" ? body.answer.trim() : "";
+  const practiceReference = typeof body?.reference_answer === "string" ? body.reference_answer.trim() : "";
+  const inputBundle = mode === "practice_question"
+    ? [practiceQuestion, practiceReference].filter(Boolean).join("\n")
+    : mode === "practice_feedback"
+      ? [practiceQuestion, practiceAnswer, practiceReference].filter(Boolean).join("\n")
+      : text;
+  const minRequired = mode === "practice_question" || mode === "practice_feedback"
+    ? 1
+    : config.minInputChars;
+  if (inputBundle.length < minRequired) {
     sendJson(res, 400, { error: { code: "INPUT_TOO_SHORT", message: "Please enter more text before rewriting." } });
     return;
   }
 
-  if (text.length > config.maxInputChars) {
+  if (inputBundle.length > config.maxInputChars) {
     sendJson(res, 400, { error: { code: "INPUT_TOO_LONG", message: `Input exceeds the ${config.maxInputChars}-character limit.` } });
     return;
   }
 
-  const access = await getRewriteAccessContext(req, config);
+  const access = await getRewriteAccessContext(req, config, mode);
   if (!access.ok) {
-    sendJson(res, 401, { error: { code: access.code, message: access.message } });
+    sendJson(res, access.status ?? 401, { error: { code: access.code, message: access.message } });
     return;
   }
 
-  const blockedInput = findBlockedPattern(text, config.inputBlocklist);
-  if (blockedInput || looksLikePromptInjection(text)) {
+  const blockedInput = findBlockedPattern(inputBundle, config.inputBlocklist);
+  if (blockedInput || looksLikePromptInjection(inputBundle)) {
     sendJson(res, 400, { error: { code: "UNSAFE_INPUT", message: "The input cannot be processed." } });
     return;
   }
 
   let rawContent = "";
   try {
-    rawContent = await callDeepSeek(text, config);
+    const prompt = mode === "ask"
+      ? { systemPrompt: OIO_CHAT_ASK_SYSTEM_PROMPT, buildUserPrompt: buildOioChatAskUserPrompt, input: text }
+      : mode === "rewrite"
+        ? { systemPrompt: OIO_CHAT_REWRITE_SYSTEM_PROMPT, buildUserPrompt: buildOioChatRewriteUserPrompt, input: text }
+        : mode === "practice_question"
+          ? {
+            systemPrompt: OIO_CHAT_PRACTICE_QUESTION_SYSTEM_PROMPT,
+            buildUserPrompt: buildOioChatPracticeQuestionPrompt,
+            input: { question: practiceQuestion, answer: practiceReference, naturalVersion: "" },
+          }
+          : mode === "practice_feedback"
+            ? {
+              systemPrompt: OIO_CHAT_PRACTICE_FEEDBACK_SYSTEM_PROMPT,
+              buildUserPrompt: buildOioChatPracticeFeedbackPrompt,
+              input: { question: practiceQuestion, answer: practiceAnswer, referenceAnswer: practiceReference },
+            }
+            : { systemPrompt: REWRITE_SYSTEM_PROMPT, buildUserPrompt: buildRewriteUserPrompt, input: text };
+    rawContent = await callDeepSeek(prompt.input, config, prompt);
   } catch (error) {
     console.error("[rewrite] DeepSeek request failed:", error);
     sendJson(res, 502, { error: { code: "MODEL_REQUEST_FAILED", message: "Rewrite request failed. Please try again." } });
@@ -179,17 +314,40 @@ export default async function handler(req, res) {
     return;
   }
 
-  const parsed = parseModelPayload(rawContent, config);
+  const parsed = mode === "ask"
+    ? parseAskPayload(rawContent, config)
+    : mode === "rewrite"
+      ? parseChatRewritePayload(rawContent, config)
+      : mode === "practice_question"
+        ? parsePracticeQuestionPayload(rawContent)
+        : mode === "practice_feedback"
+          ? parsePracticeFeedbackPayload(rawContent)
+          : parseModelPayload(rawContent, config);
   if (!parsed) {
     sendJson(res, 502, { error: { code: "INVALID_MODEL_RESPONSE", message: "The model response could not be validated." } });
     return;
   }
 
   await recordSuccessfulRewriteUsage(access, {
-    inputChars: text.length,
-    outputChars: parsed.rewritten_text.length,
-    keyPhraseCount: parsed.key_phrases.length,
+    inputChars: inputBundle.length,
+    outputChars:
+      mode === "ask"
+        ? parsed.natural_version.length + parsed.answer.length
+        : mode === "rewrite"
+          ? parsed.natural_version.length + parsed.quick_note.length
+          : mode === "practice_question"
+            ? parsed.question.length
+          : mode === "practice_feedback"
+              ? parsed.feedback.length + (parsed.rewritten_answer?.length ?? 0)
+              : parsed.rewritten_text.length,
+    keyPhraseCount:
+      mode === "practice_question" || mode === "practice_feedback"
+        ? 0
+        : parsed.key_phrases.length,
   });
 
-  sendJson(res, 200, parsed);
+  sendJson(res, 200, {
+    ...parsed,
+    usage: buildUsageSnapshot(access, true),
+  });
 }

@@ -1,6 +1,8 @@
 import { escapeHtml } from "../../shared/html";
+import { getI18n, t } from "../../i18n/i18n";
 import { buildLookupUrls, normalizeLookupQuery } from "./superDictLinks";
 import { deleteLookupHistory, listLookupHistory, saveLookupHistory, type SuperDictRecord, toViewDate } from "./superDictHistory";
+import { QUICK_ADD_EVENT } from "./SuperDictQuickAddController";
 
 export class SuperDictController {
   private readonly root: HTMLElement | null;
@@ -28,6 +30,9 @@ export class SuperDictController {
 
     this.applyLinks("");
     await this.loadHistory();
+    getI18n().subscribe(() => {
+      this.renderHistory();
+    });
     this.bindEvents();
   }
 
@@ -88,6 +93,18 @@ export class SuperDictController {
       const clickedInside = !!this.root?.contains(target);
       const clickedInput = !!(target instanceof Element && target.closest("[data-super-dict-form]"));
       if (clickedInside && clickedInput) return;
+      this.setHistoryOpen(false);
+    });
+
+    document.addEventListener(QUICK_ADD_EVENT, (event) => {
+      const detail = (event as CustomEvent<{ query?: string }>).detail;
+      const query = normalizeLookupQuery(detail?.query ?? "");
+      if (!query) return;
+      if (this.inputEl) {
+        this.inputEl.value = query;
+      }
+      this.applyLinks(query);
+      void this.saveHistory(query);
       this.setHistoryOpen(false);
     });
   }
@@ -152,8 +169,8 @@ export class SuperDictController {
               <button
                 type="button"
                 class="super-dict-history-delete"
-                aria-label="删除这条历史记录"
-                title="删除"
+                aria-label="${escapeHtml(t("super_dict.delete_history_item"))}"
+                title="${escapeHtml(t("super_dict.delete"))}"
                 data-super-dict-delete-id="${escapeHtml(record.id)}"
               >
                 <svg viewBox="0 0 24 24" class="super-dict-history-delete-icon" aria-hidden="true">

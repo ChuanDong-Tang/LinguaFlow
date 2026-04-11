@@ -1,13 +1,12 @@
-.oio-chat-layout,
 .daily-capture-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 0.75fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
 }
 
-.oio-chat-layout {
-  grid-template-columns: minmax(0, 1fr) minmax(13rem, 15rem);
+.module-card--calendar-main {
+  width: 100%;
 }
 
 .oio-chat-hero,
@@ -213,8 +212,7 @@
 
 .oio-chat-actions,
 .daily-capture-footer,
-.daily-capture-practice-actions,
-.daily-capture-calendar-actions {
+.daily-capture-practice-actions {
   display: flex;
   align-items: center;
   gap: 0.65rem;
@@ -228,13 +226,23 @@
 
 .daily-capture-calendar-top {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
 .daily-capture-calendar-caption {
   font-size: 1rem;
   color: #fff;
+  text-align: center;
+}
+
+.daily-capture-calendar-jump {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
 }
 
 .daily-capture-calendar-dow,
@@ -252,14 +260,64 @@
   color: rgba(255, 255, 255, 0.42);
 }
 
+.daily-capture-calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  margin-top: 0.35rem;
+}
+
+.daily-capture-calendar-nav-arrow {
+  min-width: 2.25rem;
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
+}
+
+.daily-capture-calendar-select {
+  min-height: 2.2rem;
+  min-width: 7rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(10, 12, 16, 0.72);
+  color: #fff;
+  font: inherit;
+}
+
+.daily-capture-calendar-select:focus {
+  outline: none;
+  border-color: rgba(127, 184, 255, 0.56);
+  box-shadow: 0 0 0 3px rgba(64, 149, 255, 0.12);
+}
+
 .daily-capture-day {
-  min-height: 2.85rem;
+  min-height: 3.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.04);
   color: rgba(255, 255, 255, 0.45);
   cursor: pointer;
   font: inherit;
+}
+
+.daily-capture-day-date {
+  font-size: 0.88rem;
+}
+
+.daily-capture-day-count {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.daily-capture-day.is-empty {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .daily-capture-day.is-marked {
@@ -278,8 +336,71 @@
   opacity: 0.38;
 }
 
+.daily-capture-day.is-empty .daily-capture-day-count {
+  color: rgba(255, 255, 255, 0.3);
+}
+
 .daily-capture-detail {
   min-height: 22rem;
+}
+
+.daily-capture-day-dialog {
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(20, 24, 32, 0.98);
+  color: #fff;
+  width: min(54rem, calc(100vw - 2rem));
+}
+
+.daily-capture-day-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.daily-capture-day-dialog-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem;
+}
+
+.daily-capture-day-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.daily-capture-day-dialog-title {
+  margin: 0;
+  font-size: 1.06rem;
+}
+
+.daily-capture-day-dialog-meta {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.daily-capture-day-dialog-body {
+  min-height: 14rem;
+}
+
+.daily-capture-day-dialog-empty {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.64);
+}
+
+.daily-capture-day-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.daily-capture-entry--dialog {
+  padding-top: 0;
+  border-top: none;
 }
 
 .daily-capture-empty,
@@ -335,9 +456,26 @@
   gap: 0.2rem;
 }
 
+.daily-capture-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
 .daily-capture-footer {
   margin-top: 0.9rem;
-  justify-content: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.daily-capture-practice-meta {
+  margin: 0;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.daily-capture-practice-meta--dialog {
+  margin-top: 0.3rem;
 }
 
 .daily-capture-practice-dialog {

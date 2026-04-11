@@ -1,3 +1,5 @@
+import { t } from "../i18n/i18n";
+
 export type AppTabId =
   | "daily-capture"
   | "rewrite"
@@ -15,52 +17,50 @@ export interface AppTabConfig {
   workspaceTitle?: string;
 }
 
-export const APP_TABS: AppTabConfig[] = [
-  {
-    id: "daily-capture",
-    label: "Daily Capture",
-    navHint: "Review today’s refinements and practice them later",
-    title: "Daily Capture",
-    description:
-      "Collect the most useful fixes from OIO Chat, keep one card per day, and return when you want to practice.",
-    calendarTitle: "Capture Calendar",
-    historyTitle: "Daily Capture",
-    workspaceTitle: "Capture Detail",
-  },
-  {
-    id: "rewrite",
-    label: "OIO",
-    navHint: "归档中的旧工作台，功能继续保留",
-    title: "OIO 工作台",
-    description:
-      "旧 OIO 工作台已归档到单独目录管理，但页面功能仍继续保留在当前应用中。",
-    calendarTitle: "OIO 日历",
-    historyTitle: "改写记录",
-    workspaceTitle: "OIO 工作区",
-  },
-  {
-    id: "oio-chat",
-    label: "OIO Chat",
-    navHint: "Talk, refine, and save better lines into Daily Capture",
-    title: "OIO Chat",
-    description:
-      "Use a lighter conversation flow, collect cleaner lines as you go, and leave the old OIO workspace untouched.",
-    calendarTitle: "Chat Activity",
-    historyTitle: "Chat Turns",
-    workspaceTitle: "Conversation",
-  },
-  {
-    id: "super-dict",
-    label: "Super Dict",
-    navHint: "Open dictionaries and image search tools quickly",
-    title: "Super Dict",
-    description:
-      "Keep this page as a light resource hub instead of a heavy in-page dictionary.",
-    calendarTitle: "Lookup Calendar",
-    historyTitle: "Lookup History",
-    workspaceTitle: "Lookup Links",
-  },
-];
+export function getAppTabs(): AppTabConfig[] {
+  return [
+    {
+      id: "daily-capture",
+      label: t("tab.daily_capture.label"),
+      navHint: t("tab.daily_capture.nav_hint"),
+      title: t("tab.daily_capture.title"),
+      description: t("tab.daily_capture.description"),
+      calendarTitle: t("tab.daily_capture.calendar_title"),
+      historyTitle: t("tab.daily_capture.history_title"),
+      workspaceTitle: t("tab.daily_capture.workspace_title"),
+    },
+    {
+      id: "rewrite",
+      label: t("tab.rewrite.label"),
+      navHint: t("tab.rewrite.nav_hint"),
+      title: t("tab.rewrite.title"),
+      description: t("tab.rewrite.description"),
+      calendarTitle: t("tab.rewrite.calendar_title"),
+      historyTitle: t("tab.rewrite.history_title"),
+      workspaceTitle: t("tab.rewrite.workspace_title"),
+    },
+    {
+      id: "oio-chat",
+      label: t("tab.oio_chat.label"),
+      navHint: t("tab.oio_chat.nav_hint"),
+      title: t("tab.oio_chat.title"),
+      description: t("tab.oio_chat.description"),
+      calendarTitle: t("tab.oio_chat.calendar_title"),
+      historyTitle: t("tab.oio_chat.history_title"),
+      workspaceTitle: t("tab.oio_chat.workspace_title"),
+    },
+    {
+      id: "super-dict",
+      label: t("tab.super_dict.label"),
+      navHint: t("tab.super_dict.nav_hint"),
+      title: t("tab.super_dict.title"),
+      description: t("tab.super_dict.description"),
+      calendarTitle: t("tab.super_dict.calendar_title"),
+      historyTitle: t("tab.super_dict.history_title"),
+      workspaceTitle: t("tab.super_dict.workspace_title"),
+    },
+  ];
+}
 
 export const DISABLED_TAB_IDS: AppTabId[] = [];
 

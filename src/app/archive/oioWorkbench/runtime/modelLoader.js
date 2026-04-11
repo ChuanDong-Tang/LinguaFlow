@@ -79,15 +79,7 @@ export class ModelController {
   }
 
   async configureWasmRuntime(profile) {
-    const { env } = await import("@huggingface/transformers");
-    const wasmEnv = env?.backends?.onnx?.wasm;
-    if (!wasmEnv) return;
-
-    wasmEnv.proxy = false;
-    wasmEnv.simd = profile.wasmSimdAvailable;
-
-    const maxThreads = profile.isMobile ? 1 : Math.min(profile.hardwareConcurrency, 4);
-    wasmEnv.numThreads = profile.threadsAvailable ? Math.max(1, maxThreads) : 1;
+    void profile;
   }
 
   describeAttempt(attempt, profile) {

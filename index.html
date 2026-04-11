@@ -47,6 +47,35 @@
               </div>
             </div>
           </nav>
+          <section class="app-sidebar-chat-history" data-oio-chat-rail hidden>
+            <div class="app-sidebar-chat-history-list" data-oio-chat-history></div>
+          </section>
+          <section class="app-account-dock" aria-label="Account">
+            <div class="app-locale-switch" aria-label="Language">
+              <button type="button" class="app-locale-btn is-active" data-locale-option="en">EN</button>
+              <button type="button" class="app-locale-btn" data-locale-option="zh-CN">中文</button>
+            </div>
+            <button
+              type="button"
+              class="app-account-chip"
+              data-auth-chip
+              aria-haspopup="menu"
+              aria-expanded="false"
+              disabled
+              hidden
+            >
+              <div class="app-account-avatar" data-auth-avatar aria-hidden="true">G</div>
+              <div class="app-account-meta">
+                <strong class="app-account-title" data-auth-label>Guest mode</strong>
+                <span class="app-account-note" data-auth-note>Local only</span>
+              </div>
+            </button>
+            <button type="button" class="secondary app-account-action" data-auth-action>Sign in</button>
+            <div class="app-account-menu" data-auth-menu hidden>
+              <button type="button" class="app-account-menu-item" data-auth-menu-subscription>Subscription</button>
+              <button type="button" class="app-account-menu-item" data-auth-menu-signout>Sign out</button>
+            </div>
+          </section>
         </aside>
 
         <div class="app-workspace">
@@ -59,72 +88,51 @@
           <section class="app-tab-panel app-tab-panel--placeholder" id="tab-panel-daily-capture" data-tab-panel="daily-capture" hidden>
             <section class="workspace-card module-card module-card--overview">
               <div class="workspace-hero workspace-hero--placeholder daily-capture-hero">
-                <span class="workspace-hero-kicker">Daily Capture</span>
-                <h2 class="workspace-hero-title">One card per day.</h2>
-                <p class="workspace-hero-copy">Refine lines in OIO Chat, collect them into one daily card, and come back later when you want to practice.</p>
+                <span class="workspace-hero-kicker" data-i18n-daily-hero-kicker>Daily Capture</span>
+                <h2 class="workspace-hero-title" data-i18n-daily-hero-title>One card per day.</h2>
+                <p class="workspace-hero-copy" data-i18n-daily-hero-copy>Refine lines in OIO Chat, collect them into one daily card, and come back later when you want to practice.</p>
               </div>
             </section>
             <div class="daily-capture-layout">
-              <section class="workspace-card module-card module-card--calendar-inline">
+              <section class="workspace-card module-card module-card--calendar-inline module-card--calendar-main">
                 <div class="module-card-head">
                   <div>
-                    <h3 class="module-card-title">Calendar</h3>
-                    <p class="module-card-note">Pick a day and review what you saved.</p>
-                  </div>
-                  <div class="daily-capture-calendar-actions">
-                    <button type="button" class="secondary" data-daily-capture-prev>Previous</button>
-                    <button type="button" class="secondary" data-daily-capture-next>Next</button>
+                    <h3 class="module-card-title" data-i18n-daily-calendar-title>Calendar</h3>
+                    <p class="module-card-note" data-i18n-daily-calendar-note>Pick a day and review what you saved.</p>
                   </div>
                 </div>
                 <div class="daily-capture-calendar">
                   <div class="daily-capture-calendar-top">
+                    <div class="daily-capture-calendar-jump">
+                      <select class="daily-capture-calendar-select" data-daily-capture-year aria-label="Year"></select>
+                      <select class="daily-capture-calendar-select" data-daily-capture-month aria-label="Month"></select>
+                    </div>
                     <strong class="daily-capture-calendar-caption" data-daily-capture-caption></strong>
                   </div>
                   <div class="daily-capture-calendar-dow">
                     <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
                   </div>
                   <div class="daily-capture-calendar-grid" data-daily-capture-grid></div>
-                </div>
-              </section>
-              <section class="workspace-card module-card">
-                <div class="module-card-head">
-                  <div>
-                    <h3 class="module-card-title">Capture Detail</h3>
-                    <p class="module-card-note">Every day keeps one card. New refinements are appended to the same day.</p>
+                  <div class="daily-capture-calendar-nav">
+                    <button type="button" class="secondary daily-capture-calendar-nav-arrow" data-daily-capture-prev aria-label="Previous month">←</button>
+                    <button type="button" class="secondary daily-capture-calendar-nav-arrow" data-daily-capture-next aria-label="Next month">→</button>
                   </div>
-                </div>
-                <div class="daily-capture-detail" data-daily-capture-detail></div>
-                <div class="daily-capture-footer">
-                  <button type="button" class="primary" data-daily-capture-practice>Start Practice</button>
                 </div>
               </section>
             </div>
-            <dialog class="daily-capture-practice-dialog" data-daily-capture-practice-dialog>
-              <div class="daily-capture-practice-panel">
-                <div class="daily-capture-practice-head">
+            <dialog class="daily-capture-day-dialog" data-daily-capture-day-dialog>
+              <div class="daily-capture-day-dialog-panel">
+                <div class="daily-capture-day-dialog-head">
                   <div>
-                    <h3 class="daily-capture-practice-title">Practice</h3>
-                    <p class="daily-capture-practice-copy">Hide a few words from the better line, then fill them back in.</p>
+                    <h3 class="daily-capture-day-dialog-title" data-daily-capture-day-title></h3>
+                    <p class="daily-capture-day-dialog-meta" data-daily-capture-day-meta></p>
                   </div>
-                  <button type="button" class="history-jump-btn-cancel" data-practice-close>Close</button>
+                  <button type="button" class="secondary" data-daily-capture-day-close>Close</button>
                 </div>
-                <div class="daily-capture-practice-block">
-                  <span class="daily-capture-practice-label">Wrong line</span>
-                  <p class="daily-capture-practice-quote" data-practice-wrong></p>
-                </div>
-                <div class="daily-capture-practice-block">
-                  <span class="daily-capture-practice-label">Pick words to hide</span>
-                  <div class="daily-capture-practice-select" data-practice-select></div>
-                </div>
-                <div class="daily-capture-practice-block">
-                  <span class="daily-capture-practice-label">Fill the blanks</span>
-                  <div class="daily-capture-practice-inputs" data-practice-inputs></div>
-                </div>
-                <p class="daily-capture-practice-status" data-practice-status></p>
-                <div class="daily-capture-practice-actions">
-                  <button type="button" class="primary" data-practice-start>Start Fill Blanks</button>
-                  <button type="button" class="secondary" data-practice-check hidden>Check</button>
-                  <button type="button" class="secondary" data-practice-next hidden>Next</button>
+                <div class="daily-capture-day-dialog-body" data-daily-capture-day-body></div>
+                <div class="daily-capture-day-dialog-actions">
+                  <button type="button" class="secondary" data-daily-capture-item-prev>Previous card</button>
+                  <button type="button" class="secondary" data-daily-capture-item-next>Next card</button>
                 </div>
               </div>
             </dialog>
@@ -134,38 +142,40 @@
             <section class="workspace-card module-card module-card--overview">
               <div class="workspace-hero workspace-hero--placeholder oio-chat-hero">
                 <span class="workspace-hero-kicker">OIO Chat</span>
-                <h2 class="workspace-hero-title">Talk first. Refine later.</h2>
+                <h2 class="workspace-hero-title">Chat</h2>
               </div>
             </section>
             <div class="oio-chat-layout">
-              <section class="workspace-card module-card">
+              <section class="workspace-card module-card oio-chat-main">
                 <div class="oio-chat-feed" data-oio-chat-feed></div>
                 <form class="oio-chat-composer" data-oio-chat-form>
+                  <div class="oio-chat-toolbar">
+                    <button type="button" class="secondary oio-chat-new-btn" data-oio-chat-new>New chat</button>
+                  </div>
+                  <div class="oio-chat-mode-switch" role="tablist" aria-label="Chat mode">
+                    <button type="button" class="oio-chat-mode-btn is-active" data-oio-chat-mode="rewrite" aria-pressed="true">Rewrite</button>
+                    <button type="button" class="oio-chat-mode-btn" data-oio-chat-mode="ask" aria-pressed="false">Ask</button>
+                  </div>
                   <label class="sr-only" for="oio-chat-input">Chat input</label>
                   <textarea id="oio-chat-input" class="oio-chat-input" rows="5" spellcheck="false" placeholder="Say it in English. Ask a question, describe your day, or test a sentence." data-oio-chat-input></textarea>
                   <div class="oio-chat-composer-footer">
-                    <span class="oio-chat-meta" data-oio-chat-meta>0/320 characters · 0/20 turns</span>
                     <div class="oio-chat-actions">
-                      <button type="button" class="secondary" data-oio-chat-clear>Clear</button>
                       <button type="submit" class="primary" data-oio-chat-submit>Send</button>
+                      <button type="button" class="secondary oio-chat-voice-input-btn" data-oio-chat-voice-input aria-label="Start voice input" title="Start voice input">
+                        <svg viewBox="0 0 24 24" class="oio-chat-voice-input-icon" aria-hidden="true">
+                          <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z" fill="currentColor"></path>
+                          <path d="M6 11a6 6 0 0 0 12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                          <path d="M12 17v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                          <path d="M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        </svg>
+                      </button>
+                      <button type="button" class="secondary" data-oio-chat-clear>Clear</button>
                     </div>
+                    <span class="oio-chat-meta" data-oio-chat-meta>0/320 characters · 0/20 turns</span>
                   </div>
                   <p class="oio-chat-status" data-oio-chat-status></p>
                 </form>
               </section>
-              <aside class="workspace-card module-card oio-chat-aside">
-                <div class="module-card-head">
-                  <div>
-                    <h3 class="module-card-title">Today</h3>
-                  </div>
-                </div>
-                <div class="oio-chat-side-stack">
-                  <article class="oio-chat-stat-card">
-                    <span class="oio-chat-stat-kicker">Daily capture</span>
-                    <strong class="oio-chat-stat-value" data-oio-chat-capture-count>0 saved today</strong>
-                  </article>
-                </div>
-              </aside>
             </div>
           </section>
 
@@ -174,247 +184,99 @@
               <div class="oio-overview-strip">
                 <div class="oio-overview-brand">
                   <span class="oio-overview-kicker">OIO</span>
-                  <h2 class="oio-overview-title">OIO 工作台</h2>
-                  <p class="oio-overview-copy">把改写输入、AI 输出、记录回看和旧练习区收进同一页，先把主工作台结构做顺。</p>
-                </div>
-                <div class="rewrite-date-entry">
-                  <div class="rewrite-date-entry-main">
-                    <span class="rewrite-date-entry-kicker">当前日期</span>
-                    <strong class="rewrite-date-entry-value" data-rewrite-selected-date>今天</strong>
-                    <span class="rewrite-date-entry-meta" data-rewrite-summary-meta>0 条记录 · 0 天</span>
-                  </div>
-                  <button type="button" class="secondary" data-rewrite-open-calendar>打开日历</button>
+                  <h2 class="oio-overview-title">OIO Practice</h2>
+                  <p class="oio-overview-copy">只保留练习区，练习素材输入放在最上面，其他改写与历史功能暂停。</p>
                 </div>
               </div>
             </section>
-            <div class="oio-workbench" data-rewrite-workbench>
-              <aside class="workspace-card module-card module-card--rewrite-history">
-                <div class="module-card-head">
-                  <div>
-                    <h3 class="module-card-title">改写记录</h3>
-                    <p class="module-card-note">中间列保留最近记录，点开后直接切换右侧工作内容。</p>
-                  </div>
+            <section class="workspace-card module-card module-card--oio-practice oio-practice-only">
+              <div class="module-card-head">
+                <div>
+                  <h3 class="module-card-title">练习区</h3>
+                  <p class="module-card-note">练习素材输入在最上面，下面是历史与练习面板。</p>
                 </div>
-                <div class="rewrite-history-list" data-rewrite-history-list></div>
-                <div class="rewrite-history-empty" data-rewrite-history-empty hidden>
-                  这一天还没有记录。
-                </div>
-                <div class="oio-history-footer">
-                  <button type="button" class="secondary oio-history-summary-btn" disabled>总结今日</button>
-                </div>
-              </aside>
-              <div class="oio-main-stack">
-                <div class="oio-top-grid">
-                  <section class="workspace-card module-card module-card--oio-input">
-                    <div class="module-card-head">
-                      <div>
-                        <h3 class="module-card-title" data-rewrite-task-title>用户输入</h3>
-                        <p class="module-card-note">在这里输入你想润色或改写的英文内容。</p>
+              </div>
+              <div class="oio-practice-layout oio-practice-layout--stack">
+                <section class="oio-panel oio-panel--history history-section" id="history-section">
+                  <div class="history-collapse-row">
+                    <button type="button" class="history-collapse-head" id="history-collapse-btn" aria-expanded="true" aria-controls="history-collapsible">
+                      <span class="history-collapse-title" id="history-heading">练习日历</span>
+                      <span class="history-collapse-chevron" aria-hidden="true">▼</span>
+                    </button>
+                    <div class="history-collapse-actions">
+                      <div class="oio-help-anchor oio-help-anchor--history">
+                        <button type="button" class="oio-help-btn" aria-label="练习日历说明" data-oio-help>?</button>
+                        <div class="oio-help-popover"><p class="oio-help-text">生成语音后会自动写入本机历史，可按日期查看并载入继续练习。</p></div>
                       </div>
-                    </div>
-                    <div class="rewrite-editor-composer">
-                      <div class="rewrite-textarea-wrap">
-                        <button type="button" class="rewrite-voice-btn" data-rewrite-voice aria-label="语音输入">
-                          <span class="rewrite-voice-btn-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" class="rewrite-voice-svg">
-                              <path d="M12 15.2a3.2 3.2 0 0 0 3.2-3.2V7.2a3.2 3.2 0 1 0-6.4 0V12a3.2 3.2 0 0 0 3.2 3.2Z" />
-                              <path d="M18.4 12a.9.9 0 1 1 1.8 0A8.2 8.2 0 0 1 13 20.1V22a1 1 0 1 1-2 0v-1.9A8.2 8.2 0 0 1 3.8 12a.9.9 0 1 1 1.8 0 6.4 6.4 0 1 0 12.8 0Z" />
-                            </svg>
-                          </span>
-                        </button>
-                        <textarea
-                          id="rewrite-source-text"
-                          class="rewrite-textarea rewrite-textarea--with-voice"
-                          rows="10"
-                          spellcheck="false"
-                          placeholder="在这里输入英文句子、段落或需要润色的草稿..."
-                          data-rewrite-source-input
-                        ></textarea>
-                      </div>
-                      <p class="rewrite-inline-meta" data-rewrite-inline-meta></p>
-                      <div class="rewrite-actions">
-                        <button type="button" class="primary" data-rewrite-submit>开始改写</button>
-                        <button type="button" class="secondary" data-rewrite-clear>清空</button>
-                      </div>
-                    </div>
-                  </section>
-                  <section class="workspace-card module-card module-card--oio-output">
-                    <div class="module-card-head">
-                      <div>
-                        <h3 class="module-card-title">AI 输出</h3>
-                        <p class="module-card-note">改写结果会直接显示在这里，重点短语继续保留。</p>
-                      </div>
-                    </div>
-                    <div class="oio-output-stack">
-                      <div class="rewrite-preview-card rewrite-preview-card--soft rewrite-preview-card--source">
-                        <div class="rewrite-preview-head">
-                          <strong class="rewrite-preview-title" data-rewrite-source-title>输入预览</strong>
-                        </div>
-                        <div class="rewrite-preview-body is-placeholder" data-rewrite-source-preview></div>
-                      </div>
-                      <div class="rewrite-preview-card rewrite-preview-card--accent rewrite-preview-card--result">
-                        <div class="rewrite-preview-head">
-                          <strong class="rewrite-preview-title" data-rewrite-result-title>AI 输出</strong>
-                        </div>
-                        <div class="rewrite-preview-body" data-rewrite-result-preview></div>
-                        <div class="rewrite-keyphrases" data-rewrite-keyphrases hidden>
-                          <span class="rewrite-keyphrases-label">重点短语</span>
-                          <div class="rewrite-keyphrases-list" data-rewrite-keyphrases-list></div>
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-                </div>
-                <section class="workspace-card module-card module-card--oio-practice">
-                  <div class="module-card-head">
-                    <div>
-                      <h3 class="module-card-title">练习区</h3>
-                      <p class="module-card-note">分段播放器已经并入 OIO。历史、导入、生成和练习都放进这里，不再单独保留播放器页面。</p>
                     </div>
                   </div>
-                  <div class="oio-practice-layout">
-                    <div class="oio-practice-sidebar">
-                      <section class="oio-panel oio-panel--history history-section" id="history-section">
-                        <div class="history-collapse-row">
-                          <button type="button" class="history-collapse-head" id="history-collapse-btn" aria-expanded="true" aria-controls="history-collapsible">
-                            <span class="history-collapse-title" id="history-heading">我的音频</span>
-                            <span class="history-collapse-chevron" aria-hidden="true">▼</span>
-                          </button>
-                          <div class="history-collapse-actions">
-                            <input type="file" id="import-files-input" class="oio-import-file-native" multiple accept=".json,application/json,audio/*,.wav,.mp3,.webm,.ogg,.m4a,.aac,.flac" tabindex="-1" />
-                            <button type="button" id="history-import-btn" class="secondary history-head-btn">导入文件</button>
-                            <div class="oio-help-anchor">
-                              <button type="button" class="oio-help-btn" aria-label="导入文件说明" data-oio-help>?</button>
-                              <div class="oio-help-popover"><p class="oio-help-text">支持<strong>单包</strong>或<strong>批量</strong>：每个练习包需一个 <code>.json</code> 与一条音频，且<strong>主文件名相同</strong>（扩展名除外）。</p></div>
-                            </div>
-                            <button type="button" id="history-export-btn" class="secondary history-head-btn">下载文件</button>
-                            <div class="oio-help-anchor oio-help-anchor--history">
-                              <button type="button" class="oio-help-btn" aria-label="我的音频说明" data-oio-help>?</button>
-                              <div class="oio-help-popover"><p class="oio-help-text">保存在本机 IndexedDB，生成成功会自动新增一条；支持按日期查看、下载和删除。</p></div>
-                            </div>
-                          </div>
+                  <div class="history-collapsible" id="history-collapsible">
+                    <div class="history-magic-card" id="history-magic-card">
+                      <div class="history-magic-top">
+                        <div class="history-magic-top-left">
+                          <span class="history-context-label" id="history-context-label"></span>
+                          <button type="button" class="history-quick-jump secondary" id="history-quick-jump-btn">快速跳转</button>
                         </div>
-                        <div class="history-collapsible" id="history-collapsible">
-                          <div class="history-magic-card" id="history-magic-card">
-                            <div class="history-magic-top">
-                              <div class="history-magic-top-left">
-                                <span class="history-context-label" id="history-context-label"></span>
-                                <button type="button" class="history-quick-jump secondary" id="history-quick-jump-btn">快速跳转</button>
-                              </div>
-                              <select id="history-granularity" class="history-granularity-select" aria-label="历史视图">
-                                <option value="today">今日</option>
-                                <option value="week">本周</option>
-                                <option value="month" selected>本月</option>
-                                <option value="all">全部历史</option>
-                              </select>
-                            </div>
-                            <div id="history-nav-root" class="history-nav-root"></div>
-                            <div id="history-entries-root" class="history-entries-root"></div>
-                          </div>
-                        </div>
-                      </section>
-                      <section class="oio-panel oio-panel--input" aria-labelledby="sec-input">
-                        <div class="oio-panel-head">
-                          <h2 id="sec-input" class="oio-section-title">练习素材输入</h2>
-                          <div class="oio-help-anchor">
-                            <button type="button" class="oio-help-btn" aria-label="输入区说明" data-oio-help>?</button>
-                            <div class="oio-help-popover">
-                              <p class="oio-help-text">请粘贴<strong>英文</strong>文本。首次使用需从 Hugging Face 下载模型至本机；若本机 GPU 可用，合成会更快。</p>
-                            </div>
-                          </div>
-                        </div>
-                        <label class="sr-only" for="text">英文文本</label>
-                        <textarea id="text" rows="8" placeholder="在此粘贴英文文本…" spellcheck="false"></textarea>
-                        <div class="voice-picker-row">
-                          <span class="voice-picker-label" id="voice-picker-label">选择音色</span>
-                          <div class="voice-combobox" id="voice-combobox">
-                            <button type="button" class="voice-combobox-trigger" id="voice-combobox-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="voice-combobox-list">
-                              <span class="voice-combobox-value" id="voice-combobox-value">女 · nova</span>
-                              <span class="voice-combobox-chevron" aria-hidden="true">▼</span>
-                            </button>
-                            <div class="voice-combobox-list" id="voice-combobox-list" role="listbox" tabindex="-1" hidden aria-labelledby="voice-picker-label"></div>
-                          </div>
-                        </div>
-                        <div class="row oio-actions-row">
-                          <button type="button" id="generate" class="primary">生成音频与字幕</button>
-                          <button type="button" id="clear-input" class="secondary clear-input-btn">清空</button>
-                        </div>
-                        <div class="oio-status-row">
-                          <span id="status" class="status" aria-live="polite"></span>
-                        </div>
-                      </section>
+                        <select id="history-granularity" class="history-granularity-select" aria-label="历史视图">
+                          <option value="today">今日</option>
+                          <option value="week">本周</option>
+                          <option value="month" selected>本月</option>
+                          <option value="all">全部历史</option>
+                        </select>
+                      </div>
+                      <div id="history-nav-root" class="history-nav-root"></div>
+                      <div id="history-entries-root" class="history-entries-root"></div>
                     </div>
-                    <section class="oio-panel subs oio-practice-panel" id="subs-section">
-                      <div class="oio-panel-head">
-                        <h2 class="oio-section-title subs-title">练习</h2>
-                        <div class="oio-help-anchor">
-                          <button type="button" class="oio-help-btn" aria-label="字幕与练习模式说明" data-oio-help>?</button>
-                          <div class="oio-help-popover oio-help-popover--wide">
-                            <p class="oio-help-text">按「完整句子」切分。<strong>字幕</strong>：显示原句、可点句跳转。<strong>听写</strong>、<strong>创建填空</strong>、<strong>填空练习</strong>等模式仍保留。</p>
-                          </div>
-                        </div>
+                  </div>
+                </section>
+                <section class="oio-panel oio-panel--input" aria-labelledby="sec-input">
+                  <div class="oio-panel-head">
+                    <h2 id="sec-input" class="oio-section-title">练习素材输入</h2>
+                    <div class="oio-help-anchor">
+                      <button type="button" class="oio-help-btn" aria-label="输入区说明" data-oio-help>?</button>
+                      <div class="oio-help-popover">
+                        <p class="oio-help-text">请粘贴<strong>英文</strong>文本。生成后按句播放，语音使用浏览器内置 Web Speech。</p>
                       </div>
-                      <audio id="player" class="player oio-audio-native" playsinline></audio>
-                      <div class="transport-bar transport-bar--in-subs" id="transport-bar">
-                        <div class="custom-player" id="custom-player">
-                          <button type="button" id="player-play-btn" class="player-play-btn" aria-label="播放"><span class="player-play-icon" aria-hidden="true">▶</span></button>
-                          <span class="player-time" id="player-time-display">0:00 / 0:00</span>
-                          <div class="player-progress-wrap"><input type="range" id="player-seek" class="player-seek" min="0" max="1000" value="0" step="1" aria-label="播放进度" /></div>
-                          <div class="player-ctl-block"><span class="player-ctl-label">倍速</span><select id="player-rate" class="player-rate-select" aria-label="播放倍速"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>
-                          <div class="player-ctl-block"><span class="player-ctl-label">单句循环</span><label class="player-switch"><input type="checkbox" id="loop-sentence" aria-label="单句循环" /><span class="player-switch-slider" aria-hidden="true"></span></label></div>
-                          <div class="player-ctl-block"><span class="player-ctl-label">整篇循环</span><label class="player-switch"><input type="checkbox" id="loop-whole" aria-label="整篇循环" /><span class="player-switch-slider" aria-hidden="true"></span></label></div>
-                          <button type="button" id="player-prev-cue" class="player-nav-btn">上一句</button>
-                          <button type="button" id="player-next-cue" class="player-nav-btn">下一句</button>
-                        </div>
+                    </div>
+                  </div>
+                  <label class="sr-only" for="text">英文文本</label>
+                  <textarea id="text" rows="8" placeholder="在此粘贴英文文本…" spellcheck="false"></textarea>
+                  <div class="row oio-actions-row">
+                    <button type="button" id="generate" class="primary">生成音频与字幕</button>
+                    <button type="button" id="clear-input" class="secondary clear-input-btn">清空</button>
+                  </div>
+                  <div class="oio-status-row">
+                    <span id="status" class="status" aria-live="polite"></span>
+                  </div>
+                </section>
+                <section class="oio-panel subs oio-practice-panel" id="subs-section">
+                  <div class="oio-panel-head">
+                    <h2 class="oio-section-title subs-title">练习</h2>
+                    <div class="oio-help-anchor">
+                      <button type="button" class="oio-help-btn" aria-label="字幕与练习模式说明" data-oio-help>?</button>
+                      <div class="oio-help-popover oio-help-popover--wide">
+                        <p class="oio-help-text">按「完整句子」切分。<strong>字幕</strong>：显示原句、可点句跳转。<strong>听写</strong>、<strong>创建填空</strong>、<strong>填空练习</strong>等模式仍保留。</p>
                       </div>
-                      <div class="practice-mode-bar" id="practice-mode-bar" hidden>
-                        <span class="practice-mode-intro">模式</span>
-                        <div class="practice-mode-btns">
-                          <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="subtitles">字幕</button>
-                          <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="dictation">听写</button>
-                          <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="proofread">创建填空</button>
-                          <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="fillblank">填空练习</button>
-                        </div>
-                      </div>
-                      <div id="subtitles-scroll" class="subtitles-scroll" aria-label="与音频同步的字幕"><div id="subtitles-list" class="subtitles-list"></div></div>
-                      <div class="proofread-bar practice-actions-bar" id="practice-actions-bar" hidden aria-label="与当前模式对应的操作">
-                        <button type="button" id="proofread-save-btn" class="secondary" hidden>确认创建</button>
-                        <button type="button" id="fillblank-check-btn" class="secondary" hidden>检查填空</button>
-                        <button type="button" id="fillblank-save-states-btn" class="secondary" hidden>更新填空状态</button>
-                      </div>
-                    </section>
+                    </div>
+                  </div>
+                  <audio id="player" class="player oio-audio-native" playsinline></audio>
+                  <div class="practice-mode-bar" id="practice-mode-bar" hidden>
+                    <span class="practice-mode-intro">模式</span>
+                    <div class="practice-mode-btns">
+                      <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="subtitles">字幕</button>
+                      <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="proofread">创建填空</button>
+                      <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="fillblank">填空练习</button>
+                      <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="dictation">听写</button>
+                    </div>
+                  </div>
+                  <div id="subtitles-scroll" class="subtitles-scroll" aria-label="与音频同步的字幕"><div id="subtitles-list" class="subtitles-list"></div></div>
+                  <div class="proofread-bar practice-actions-bar" id="practice-actions-bar" hidden aria-label="与当前模式对应的操作">
+                    <button type="button" id="proofread-save-btn" class="secondary" hidden>确认创建</button>
+                    <button type="button" id="fillblank-check-btn" class="secondary" hidden>检查填空</button>
                   </div>
                 </section>
               </div>
-            </div>
-            <dialog class="rewrite-calendar-dialog" data-rewrite-calendar-dialog>
-              <div class="rewrite-calendar-panel">
-                <div class="rewrite-calendar-panel-head">
-                  <div>
-                    <h3 class="rewrite-calendar-panel-title">选择日期</h3>
-                    <p class="rewrite-calendar-panel-copy">只有有改写记录的日期可以选择。</p>
-                  </div>
-                  <button type="button" class="history-jump-btn-cancel" data-rewrite-close-calendar>关闭</button>
-                </div>
-                <div class="module-date-toolbar">
-                  <div class="rewrite-calendar-selects">
-                    <select class="history-cal-ym-sel" aria-label="年份" data-rewrite-year-select></select>
-                    <select class="history-cal-ym-sel" aria-label="月份" data-rewrite-month-select></select>
-                  </div>
-                  <div class="module-date-meta">
-                    <span class="module-date-meta-label">当前日期</span>
-                    <strong class="module-date-meta-value" data-rewrite-selected-date-dialog>今天</strong>
-                  </div>
-                </div>
-                <div class="module-calendar-skeleton module-calendar-skeleton--compact">
-                  <div class="module-calendar-top">
-                    <strong class="module-calendar-caption" data-rewrite-calendar-caption></strong>
-                  </div>
-                  <div class="rewrite-calendar-dow" data-rewrite-calendar-dow></div>
-                  <div class="rewrite-calendar-grid" data-rewrite-calendar-grid></div>
-                </div>
-              </div>
-            </dialog>
+            </section>
           </section>
 
           <dialog id="history-jump-dialog" class="history-jump-dialog">
@@ -426,32 +288,13 @@
               </div>
           </dialog>
 
-          <dialog id="history-export-dialog" class="history-export-dialog">
-              <div class="history-export-panel">
-                <h3 class="history-export-title">下载文件</h3>
-                <p class="history-export-lead">按<strong>保存日期</strong>筛选列表，勾选需要的条目；仅打包选中项的 JSON 与音频。</p>
-                <div class="history-export-filters">
-                  <label class="history-export-date-label"><span>开始</span><input type="date" id="history-export-from" class="history-export-date" /></label>
-                  <label class="history-export-date-label"><span>结束</span><input type="date" id="history-export-to" class="history-export-date" /></label>
-                  <button type="button" class="secondary history-export-apply" id="history-export-apply-range">应用区间</button>
-                  <button type="button" class="secondary history-export-clear-range" id="history-export-clear-range">清除区间</button>
-                </div>
-                <div class="history-export-toolbar"><label class="history-export-select-all-label"><input type="checkbox" id="history-export-select-all" /><span>全选当前列表</span></label><span id="history-export-count" class="history-export-count" aria-live="polite"></span></div>
-                <div id="history-export-list" class="history-export-list" role="group" aria-label="可下载条目"></div>
-                <div class="history-export-actions"><button type="button" class="history-jump-btn-cancel" id="history-export-cancel">取消</button><button type="button" class="primary" id="history-export-confirm">下载选中 ZIP</button></div>
-              </div>
-          </dialog>
-
-          <dialog id="oio-import-success-dialog" class="oio-import-success-dialog"><div class="oio-import-success-panel"><h3 class="oio-import-success-title">导入成功</h3><p id="oio-import-success-body" class="oio-import-success-body"></p><button type="button" class="primary oio-import-success-ok" id="oio-import-success-ok">好的</button></div></dialog>
-          <dialog id="oio-import-report-dialog" class="oio-import-success-dialog"><div class="oio-import-success-panel"><h3 id="oio-import-report-title" class="oio-import-success-title">导入结果</h3><p id="oio-import-report-body" class="oio-import-success-body"></p><button type="button" class="primary oio-import-success-ok" id="oio-import-report-ok">好的</button></div></dialog>
-          <dialog id="fillblank-update-done-dialog" class="oio-import-success-dialog"><div class="oio-import-success-panel"><h3 class="oio-import-success-title">更新完成</h3><p id="fillblank-update-done-body" class="oio-import-success-body"></p><button type="button" class="primary oio-import-success-ok" id="fillblank-update-done-ok">好的</button></div></dialog>
-
           <section class="app-tab-panel app-tab-panel--placeholder" id="tab-panel-super-dict" data-tab-panel="super-dict" hidden>
             <section class="workspace-card module-card module-card--overview module-card--super-dict-overview">
               <div class="super-dict-overview-head">
                 <div>
-                  <span class="workspace-hero-kicker">超级词典</span>
-                  <h2 class="workspace-hero-title">超级词典</h2>
+                  <span class="workspace-hero-kicker" data-i18n-super-dict-hero-kicker>Super Dict</span>
+                  <h2 class="workspace-hero-title" data-i18n-super-dict-hero-title>Super Dict</h2>
+                  <p class="workspace-hero-copy" data-i18n-super-dict-hero-copy>Quick access to dictionaries, image search, and pronunciation context.</p>
                 </div>
               </div>
             </section>
@@ -565,6 +408,99 @@
         </div>
       </div>
     </main>
+    <dialog class="subscription-dialog" data-subscription-dialog>
+      <div class="subscription-dialog-panel">
+        <div class="subscription-dialog-head">
+          <div>
+            <span class="workspace-hero-kicker" data-subscription-hero-kicker>Membership</span>
+            <h2 class="subscription-dialog-title" data-subscription-hero-title>Free now. Pro when you need more.</h2>
+          </div>
+          <button type="button" class="history-jump-btn-cancel" data-subscription-close>Close</button>
+        </div>
+        <div class="subscription-current-row">
+          <p class="subscription-current-plan" data-subscription-current-plan>Current: Free</p>
+          <button type="button" class="secondary subscription-admin-trigger" data-subscription-admin-trigger hidden>Admin</button>
+        </div>
+        <div class="subscription-layout subscription-layout--dialog">
+          <article class="workspace-card module-card subscription-tier-card is-current" data-subscription-free-card>
+            <div class="subscription-tier-top">
+              <h3 class="subscription-tier-title" data-subscription-free-title>Free</h3>
+              <span class="subscription-tier-badge" data-subscription-free-badge>Current</span>
+            </div>
+            <p class="subscription-tier-copy" data-subscription-free-copy>3 practice items per day.</p>
+          </article>
+          <article class="workspace-card module-card subscription-tier-card subscription-tier-card--pro" data-subscription-pro-card>
+            <div class="subscription-tier-top">
+              <h3 class="subscription-tier-title" data-subscription-pro-title>Pro</h3>
+              <span class="subscription-tier-badge" data-subscription-pro-badge hidden></span>
+            </div>
+            <p class="subscription-tier-copy" data-subscription-pro-copy>20 practice items per day.</p>
+            <p class="subscription-tier-note" data-subscription-manual-note>Currently activated manually.</p>
+            <button type="button" class="primary subscription-contact-link" data-subscription-contact>Activate Pro</button>
+          </article>
+        </div>
+        <div class="subscription-activate-sheet" data-subscription-sheet hidden>
+          <div class="subscription-activate-card">
+            <div class="subscription-activate-head">
+              <div>
+                <span class="workspace-hero-kicker" data-subscription-sheet-kicker>Manual activation</span>
+                <h3 class="subscription-activate-title" data-subscription-sheet-title>Activate Pro</h3>
+              </div>
+              <button type="button" class="history-jump-btn-cancel" data-subscription-sheet-close>Close</button>
+            </div>
+            <div class="subscription-activate-grid">
+              <article class="subscription-activate-block">
+                <span class="subscription-activate-label" data-subscription-price-label>Price</span>
+                <p class="subscription-activate-copy" data-subscription-price-copy>RMB 30 / month</p>
+              </article>
+              <article class="subscription-activate-block">
+                <span class="subscription-activate-label" data-subscription-cn-label>China mainland</span>
+                <p class="subscription-activate-copy" data-subscription-cn-copy>WeChat Pay / Alipay</p>
+              </article>
+              <article class="subscription-activate-block">
+                <span class="subscription-activate-label" data-subscription-global-label>Global</span>
+                <p class="subscription-activate-copy" data-subscription-global-copy>Contact for current method</p>
+              </article>
+              <article class="subscription-activate-block">
+                <span class="subscription-activate-label" data-subscription-contact-label>Contact</span>
+                <p class="subscription-activate-copy" data-subscription-global-copy>OIO Team</p>
+              </article>
+            </div>
+            <p class="subscription-activate-footnote" data-subscription-sheet-note>Pay, then send me the receipt. I will activate Pro manually.</p>
+          </div>
+        </div>
+        <section class="subscription-admin-panel" data-subscription-admin-panel hidden>
+          <div class="subscription-admin-head">
+            <strong data-subscription-admin-title>Admin tools</strong>
+            <span class="subscription-admin-note" data-subscription-admin-note>Visible to admins only.</span>
+          </div>
+          <div class="subscription-admin-grid">
+            <label class="subscription-admin-field">
+              <span data-subscription-admin-user-label>Clerk user ID</span>
+              <input type="text" data-subscription-admin-user-id placeholder="user_..." />
+            </label>
+            <label class="subscription-admin-field">
+              <span data-subscription-admin-months-label>Months</span>
+              <input type="number" min="1" max="12" value="1" data-subscription-admin-months />
+            </label>
+          </div>
+          <div class="subscription-admin-actions">
+            <button type="button" class="primary" data-subscription-admin-submit>Activate Pro</button>
+            <p class="subscription-admin-status" data-subscription-admin-status></p>
+          </div>
+        </section>
+      </div>
+    </dialog>
+    <dialog class="oio-chat-delete-dialog" data-confirm-dialog>
+      <div class="oio-chat-delete-dialog-panel">
+        <h3 class="oio-chat-delete-dialog-title" data-confirm-title>Confirm action</h3>
+        <p class="oio-chat-delete-dialog-copy" data-confirm-copy>Are you sure?</p>
+        <div class="oio-chat-delete-dialog-actions">
+          <button type="button" class="secondary" data-confirm-cancel>Cancel</button>
+          <button type="button" class="primary" data-confirm-confirm>Confirm</button>
+        </div>
+      </div>
+    </dialog>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

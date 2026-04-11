@@ -1,5 +1,5 @@
 {
-  "name": "kokoro-tts-web",
+  "name": "linguaflow-web",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,8 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@clerk/backend": "^3.2.8",
+    "@clerk/clerk-js": "^6.6.0",
+    "@supabase/supabase-js": "^2.103.0",
     "jszip": "^3.10.1",
-    "kokoro-js": "^1.2.1",
     "vite": "^8.0.3"
   }
 }
