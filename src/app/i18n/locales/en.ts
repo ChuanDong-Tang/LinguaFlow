@@ -21,7 +21,7 @@ export const en = {
   "tab.daily_capture.calendar_title": "Capture Calendar",
   "tab.daily_capture.history_title": "Daily Capture",
   "tab.daily_capture.workspace_title": "Capture Detail",
-  "tab.rewrite.label": "OIO",
+  "tab.rewrite.label": "OIO Practice",
   "tab.rewrite.nav_hint": "Archived classic workspace remains available",
   "tab.rewrite.title": "OIO Workspace",
   "tab.rewrite.description": "The old OIO workspace is archived into a separate directory but remains available in this app.",

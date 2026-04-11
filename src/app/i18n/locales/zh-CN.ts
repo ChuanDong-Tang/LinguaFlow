@@ -23,7 +23,7 @@ export const zhCN: typeof en = {
   "tab.daily_capture.calendar_title": "记录日历",
   "tab.daily_capture.history_title": "每日记录",
   "tab.daily_capture.workspace_title": "记录详情",
-  "tab.rewrite.label": "OIO",
+  "tab.rewrite.label": "OIO Practice",
   "tab.rewrite.nav_hint": "归档的经典工作台仍可使用",
   "tab.rewrite.title": "OIO 工作台",
   "tab.rewrite.description": "旧 OIO 工作台已归档到独立目录，但仍可在当前应用继续使用。",

@@ -2,8 +2,8 @@ import { t } from "../i18n/i18n";
 
 export type AppTabId =
   | "daily-capture"
-  | "rewrite"
   | "oio-chat"
+  | "rewrite"
   | "super-dict";
 
 export interface AppTabConfig {
@@ -30,16 +30,6 @@ export function getAppTabs(): AppTabConfig[] {
       workspaceTitle: t("tab.daily_capture.workspace_title"),
     },
     {
-      id: "rewrite",
-      label: t("tab.rewrite.label"),
-      navHint: t("tab.rewrite.nav_hint"),
-      title: t("tab.rewrite.title"),
-      description: t("tab.rewrite.description"),
-      calendarTitle: t("tab.rewrite.calendar_title"),
-      historyTitle: t("tab.rewrite.history_title"),
-      workspaceTitle: t("tab.rewrite.workspace_title"),
-    },
-    {
       id: "oio-chat",
       label: t("tab.oio_chat.label"),
       navHint: t("tab.oio_chat.nav_hint"),
@@ -48,6 +38,16 @@ export function getAppTabs(): AppTabConfig[] {
       calendarTitle: t("tab.oio_chat.calendar_title"),
       historyTitle: t("tab.oio_chat.history_title"),
       workspaceTitle: t("tab.oio_chat.workspace_title"),
+    },
+    {
+      id: "rewrite",
+      label: t("tab.rewrite.label"),
+      navHint: t("tab.rewrite.nav_hint"),
+      title: t("tab.rewrite.title"),
+      description: t("tab.rewrite.description"),
+      calendarTitle: t("tab.rewrite.calendar_title"),
+      historyTitle: t("tab.rewrite.history_title"),
+      workspaceTitle: t("tab.rewrite.workspace_title"),
     },
     {
       id: "super-dict",
