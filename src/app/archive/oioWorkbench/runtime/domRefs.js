@@ -21,8 +21,13 @@
   const playerPrevBtn = document.getElementById("player-prev-cue");
   const playerNextBtn = document.getElementById("player-next-cue");
   const practiceModeBarEl = document.getElementById("practice-mode-bar");
+  const practicePagerEl = document.getElementById("practice-pager");
+  const practicePagePrevBtn = document.getElementById("practice-page-prev");
+  const practicePageNextBtn = document.getElementById("practice-page-next");
+  const practicePageIndicator = document.getElementById("practice-page-indicator");
   const practiceActionsBar = document.getElementById("practice-actions-bar");
   const fillblankCheckBtn = document.getElementById("fillblank-check-btn");
+  const dictationCheckBtn = document.getElementById("dictation-check-btn");
   const fillblankSaveStatesBtn = document.getElementById("fillblank-save-states-btn");
   const proofreadSaveBtn = document.getElementById("proofread-save-btn");
   const historyExportBtn = document.getElementById("history-export-btn");
@@ -83,8 +88,13 @@
     playerPrevBtn,
     playerNextBtn,
     practiceModeBarEl,
+    practicePagerEl,
+    practicePagePrevBtn,
+    practicePageNextBtn,
+    practicePageIndicator,
     practiceActionsBar,
     fillblankCheckBtn,
+    dictationCheckBtn,
     fillblankSaveStatesBtn,
     proofreadSaveBtn,
     historyExportBtn,

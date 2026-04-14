@@ -1875,6 +1875,24 @@ code {
   margin-bottom: 0.95rem;
 }
 
+.practice-global-audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0.55rem 0 0.75rem;
+}
+
+.practice-global-audio-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.practice-global-audio-label {
+  font-size: 0.76rem;
+  color: var(--oio-text-secondary);
+}
+
 .custom-player {
   display: flex;
   flex-wrap: wrap;
@@ -2113,6 +2131,27 @@ kbd {
   min-height: 3rem;
 }
 
+.practice-pager {
+  margin: 0 0 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+.practice-pager-btn {
+  min-width: 2.1rem;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.practice-pager-indicator {
+  min-width: 5.2rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--oio-text-secondary);
+}
+
 .cue-row {
   margin: 0;
   padding: 0.35rem 0.5rem;
@@ -2149,6 +2188,10 @@ kbd {
 
 .cue-row + .cue-row {
   margin-top: 0.35rem;
+}
+
+.cue-row.cue-row--paged-hidden {
+  display: none;
 }
 
 .cue-row--active {
@@ -2201,6 +2244,14 @@ kbd {
   outline: none;
   border-color: var(--oio-accent);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.22);
+}
+
+.cue-input.cue-input--ok {
+  border-color: rgba(67, 181, 129, 0.65);
+}
+
+.cue-input.cue-input--wrong {
+  border-color: rgba(235, 92, 92, 0.72);
 }
 
 .cue-input--visible {

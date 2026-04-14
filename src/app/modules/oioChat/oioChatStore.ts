@@ -14,6 +14,7 @@ export interface OioChatSession {
   practice?: {
     itemId: string;
     question: string;
+    targetPhrase?: string;
     referenceAnswer?: string;
     attempt: number;
   };
@@ -81,6 +82,7 @@ function normalizeSession(raw: unknown): OioChatSession | null {
     ? {
       itemId: practiceRaw.itemId,
       question: practiceRaw.question,
+      targetPhrase: typeof practiceRaw.targetPhrase === "string" ? practiceRaw.targetPhrase : undefined,
       referenceAnswer: typeof practiceRaw.referenceAnswer === "string" ? practiceRaw.referenceAnswer : undefined,
       attempt: typeof practiceRaw.attempt === "number" ? practiceRaw.attempt : 0,
     }

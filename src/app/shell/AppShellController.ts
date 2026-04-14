@@ -2,6 +2,15 @@ import { getAppTabs, DEFAULT_TAB_ID, isTabDisabled, type AppTabId } from "./appS
 import { getAccessRepository } from "../infrastructure/repositories";
 import { getAuthService, type AuthSnapshot } from "../services/auth/authService";
 import { getI18n, t, type Locale } from "../i18n/i18n";
+import {
+  TTS_DEBUG_EVENT,
+  type TtsDebugEventDetail,
+  getBrowserTtsService,
+  getSelectedKokoroVoiceId,
+  getSelectedTtsPlaybackSource,
+  listKokoroVoiceIds,
+  setSelectedKokoroVoiceId,
+} from "../services/tts/browserTtsService";
 
 export class AppShellController {
   private readonly root: Element | null;
@@ -29,8 +38,21 @@ export class AppShellController {
   private readonly superDictHeroKickerEl: HTMLElement | null;
   private readonly superDictHeroTitleEl: HTMLElement | null;
   private readonly superDictHeroCopyEl: HTMLElement | null;
+  private readonly ttsSettingsToggleEl: HTMLButtonElement | null;
+  private readonly ttsSettingsDialogEl: HTMLDialogElement | null;
+  private readonly ttsSettingsCloseEl: HTMLButtonElement | null;
+  private readonly ttsSourceOptionEls: HTMLButtonElement[] = [];
+  private readonly ttsKokoroOptionsEl: HTMLElement | null;
+  private readonly ttsVoiceListEl: HTMLElement | null;
+  private readonly ttsSwitchBlockEl: HTMLElement | null;
+  private readonly ttsSwitchStatusEl: HTMLElement | null;
+  private readonly ttsDebugDialogEl: HTMLDialogElement | null;
+  private readonly ttsDebugLogEl: HTMLElement | null;
+  private readonly ttsDebugCloseEl: HTMLButtonElement | null;
   private accessRequestId = 0;
   private authMenuOpen = false;
+  private ttsSettingsOpen = false;
+  private isAdminViewer = false;
   private authPlanKey: "free" | "pro" | null = null;
   private authPlanUserId: string | null = null;
   private lastAuthStatus: AuthSnapshot["status"] | null = null;
@@ -49,7 +71,7 @@ export class AppShellController {
     this.authMenuEl = this.root?.querySelector<HTMLElement>("[data-auth-menu]") ?? null;
     this.authMenuSubscriptionEl = this.root?.querySelector<HTMLButtonElement>("[data-auth-menu-subscription]") ?? null;
     this.authMenuSignOutEl = this.root?.querySelector<HTMLButtonElement>("[data-auth-menu-signout]") ?? null;
-    this.localeButtons = Array.from(this.root?.querySelectorAll<HTMLButtonElement>("[data-locale-option]") ?? []);
+    this.localeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-locale-option]"));
     this.dailyHeroKickerEl = this.root?.querySelector<HTMLElement>("[data-i18n-daily-hero-kicker]") ?? null;
     this.dailyHeroTitleEl = this.root?.querySelector<HTMLElement>("[data-i18n-daily-hero-title]") ?? null;
     this.dailyHeroCopyEl = this.root?.querySelector<HTMLElement>("[data-i18n-daily-hero-copy]") ?? null;
@@ -58,6 +80,17 @@ export class AppShellController {
     this.superDictHeroKickerEl = this.root?.querySelector<HTMLElement>("[data-i18n-super-dict-hero-kicker]") ?? null;
     this.superDictHeroTitleEl = this.root?.querySelector<HTMLElement>("[data-i18n-super-dict-hero-title]") ?? null;
     this.superDictHeroCopyEl = this.root?.querySelector<HTMLElement>("[data-i18n-super-dict-hero-copy]") ?? null;
+    this.ttsSettingsToggleEl = this.root?.querySelector<HTMLButtonElement>("[data-tts-settings-toggle]") ?? null;
+    this.ttsSettingsDialogEl = document.querySelector<HTMLDialogElement>("[data-tts-settings-dialog]");
+    this.ttsSettingsCloseEl = document.querySelector<HTMLButtonElement>("[data-tts-settings-close]");
+    this.ttsSourceOptionEls = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-tts-source-option]"));
+    this.ttsKokoroOptionsEl = document.querySelector<HTMLElement>("[data-tts-kokoro-options]");
+    this.ttsVoiceListEl = document.querySelector<HTMLElement>("[data-tts-voice-list]");
+    this.ttsSwitchBlockEl = document.querySelector<HTMLElement>("[data-tts-switch-block]");
+    this.ttsSwitchStatusEl = document.querySelector<HTMLElement>("[data-tts-switch-status]");
+    this.ttsDebugDialogEl = document.querySelector<HTMLDialogElement>("[data-tts-debug-dialog]");
+    this.ttsDebugLogEl = document.querySelector<HTMLElement>("[data-tts-debug-log]");
+    this.ttsDebugCloseEl = document.querySelector<HTMLButtonElement>("[data-tts-debug-close]");
   }
 
   async init(): Promise<void> {
@@ -70,7 +103,11 @@ export class AppShellController {
 
     this.syncDisabledTabs();
     this.applyStaticI18n();
+    this.renderTtsVoiceOptions();
     this.wireEvents();
+    this.syncTtsSourceOptions();
+    this.syncTtsVoiceOptions();
+    this.syncTtsKokoroOptionsVisibility();
     this.initLocaleSwitch();
     await this.initAuthPanel();
     const presetTab = this.root.getAttribute("data-active-tab") as AppTabId | null;
@@ -127,12 +164,81 @@ export class AppShellController {
       this.setAuthMenuOpen(false);
     });
 
+    this.ttsSettingsToggleEl?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.openTtsSettingsDialog();
+    });
+
+    this.ttsSettingsCloseEl?.addEventListener("click", () => {
+      this.closeTtsSettingsDialog();
+    });
+
+    this.ttsSettingsDialogEl?.addEventListener("cancel", () => {
+      this.closeTtsSettingsDialog();
+    });
+
+    for (const optionEl of this.ttsSourceOptionEls) {
+      optionEl.addEventListener("click", async () => {
+        const source = optionEl.dataset.ttsSourceOption?.trim() ?? "";
+        if (!source) return;
+        if (source === "kokoro") {
+          let ok = false;
+          await this.withTtsSwitchBlock("正在切换到 Kokoro 并预热模型...", async () => {
+            ok = await getBrowserTtsService().switchToKokoroWithWarmup(10_000);
+          });
+          if (!ok) {
+            window.alert("Kokoro 预热失败，已自动切回 Web Speech。");
+          }
+        } else {
+          getBrowserTtsService().setPlaybackSource("web");
+        }
+        this.syncTtsSourceOptions();
+        this.syncTtsKokoroOptionsVisibility();
+      });
+    }
+
+    this.ttsVoiceListEl?.addEventListener("click", async (event) => {
+      const target = event.target as HTMLElement | null;
+      const optionEl = target?.closest<HTMLButtonElement>("[data-tts-voice-option]");
+      if (!optionEl) return;
+      event.stopPropagation();
+      const voiceId = optionEl.dataset.ttsVoiceOption?.trim() ?? "";
+      if (!voiceId) return;
+      setSelectedKokoroVoiceId(voiceId);
+      if (getSelectedTtsPlaybackSource() === "kokoro") {
+        let ok = false;
+        await this.withTtsSwitchBlock("正在切换音色并预热模型...", async () => {
+          ok = await getBrowserTtsService().switchToKokoroWithWarmup(10_000);
+        });
+        if (!ok) {
+          window.alert("Kokoro 预热失败，已自动切回 Web Speech。");
+        }
+      }
+      this.syncTtsVoiceOptions();
+      this.syncTtsSourceOptions();
+      this.syncTtsKokoroOptionsVisibility();
+    });
+
     document.addEventListener("app-request-tab-change", (event) => {
       const detail = (event as CustomEvent<{ tabId?: AppTabId }>).detail;
       const tabId = detail?.tabId;
       if (!tabId) return;
       this.setActiveTab(tabId);
       this.setMobileNavOpen(false);
+    });
+
+    this.ttsDebugCloseEl?.addEventListener("click", () => {
+      this.ttsDebugDialogEl?.close();
+    });
+    this.ttsDebugDialogEl?.addEventListener("cancel", () => {
+      this.ttsDebugDialogEl?.close();
+    });
+    document.addEventListener(TTS_DEBUG_EVENT, (event) => {
+      const detail = (event as CustomEvent<TtsDebugEventDetail>)?.detail;
+      if (!detail || !this.isAdminViewer) return;
+      if (detail.level !== "error") return;
+      this.appendTtsDebugLog(detail);
+      this.openTtsDebugDialog();
     });
 
     for (const btn of this.navButtons) {
@@ -272,6 +378,7 @@ export class AppShellController {
     }
 
     if (snapshot.status === "disabled") {
+      this.isAdminViewer = false;
       this.authPlanKey = null;
       this.authPlanUserId = null;
       this.renderAvatar("O", null);
@@ -290,6 +397,7 @@ export class AppShellController {
     this.authActionEl.disabled = snapshot.status === "loading";
 
     if (snapshot.status === "loading") {
+      this.isAdminViewer = false;
       this.authPlanKey = null;
       this.authPlanUserId = null;
       this.renderAvatar("…", null);
@@ -306,6 +414,7 @@ export class AppShellController {
     }
 
     if (snapshot.status === "signed_out") {
+      this.isAdminViewer = false;
       this.authPlanKey = null;
       this.authPlanUserId = null;
       this.renderAvatar("G", null);
@@ -341,10 +450,12 @@ export class AppShellController {
       if (requestId !== this.accessRequestId) return;
 
       const hasPro = access.entitlements.some((item) => item.active && item.code === "pro_access");
+      this.isAdminViewer = !!access.profile?.isAdmin || !!access.permissions?.canManageSubscriptions;
       this.authPlanKey = hasPro ? "pro" : "free";
       this.authPlanUserId = userId;
       this.authNoteEl.textContent = this.getPlanLabel(this.authPlanKey);
     } catch {
+      this.isAdminViewer = false;
       if (requestId !== this.accessRequestId) return;
       if (this.authPlanKey) {
         this.authNoteEl.textContent = this.getPlanLabel(this.authPlanKey);
@@ -413,5 +524,114 @@ export class AppShellController {
     }
 
     this.authAvatarEl.textContent = fallback;
+  }
+
+  private syncTtsVoiceOptions(): void {
+    const selected = getSelectedKokoroVoiceId();
+    const optionEls = this.ttsVoiceListEl?.querySelectorAll<HTMLButtonElement>("[data-tts-voice-option]") ?? [];
+    for (const optionEl of optionEls) {
+      const active = optionEl.dataset.ttsVoiceOption === selected;
+      optionEl.setAttribute("aria-selected", active ? "true" : "false");
+      optionEl.classList.toggle("is-active", active);
+    }
+  }
+
+  private renderTtsVoiceOptions(): void {
+    if (!this.ttsVoiceListEl) return;
+    const voices = listKokoroVoiceIds();
+    const html = voices
+      .map((voiceId) => {
+        return `<button type="button" class="app-tts-voice-option" data-tts-voice-option="${voiceId}" role="option" aria-selected="false">${voiceId}</button>`;
+      })
+      .join("");
+    this.ttsVoiceListEl.innerHTML = html;
+  }
+
+  private syncTtsSourceOptions(): void {
+    const selected = getSelectedTtsPlaybackSource();
+    for (const optionEl of this.ttsSourceOptionEls) {
+      const active = optionEl.dataset.ttsSourceOption === selected;
+      optionEl.setAttribute("aria-pressed", active ? "true" : "false");
+      optionEl.classList.toggle("is-active", active);
+    }
+  }
+
+  private syncTtsKokoroOptionsVisibility(): void {
+    if (!this.ttsKokoroOptionsEl) return;
+    this.ttsKokoroOptionsEl.hidden = getSelectedTtsPlaybackSource() !== "kokoro";
+  }
+
+  private openTtsSettingsDialog(): void {
+    if (!this.ttsSettingsDialogEl) return;
+    this.syncTtsSourceOptions();
+    this.syncLocaleButtons(getI18n().getLocale());
+    this.syncTtsVoiceOptions();
+    this.syncTtsKokoroOptionsVisibility();
+    if (typeof this.ttsSettingsDialogEl.showModal === "function") {
+      if (!this.ttsSettingsDialogEl.open) this.ttsSettingsDialogEl.showModal();
+    } else {
+      this.ttsSettingsDialogEl.hidden = false;
+    }
+    this.ttsSettingsOpen = true;
+    if (this.ttsSettingsToggleEl) {
+      this.ttsSettingsToggleEl.classList.add("is-open");
+      this.ttsSettingsToggleEl.setAttribute("aria-expanded", "true");
+    }
+  }
+
+  private async withTtsSwitchBlock(message: string, work: () => Promise<void>): Promise<void> {
+    if (this.ttsSwitchStatusEl) {
+      this.ttsSwitchStatusEl.textContent = message;
+    }
+    if (this.ttsSwitchBlockEl) {
+      this.ttsSwitchBlockEl.hidden = false;
+    }
+    try {
+      await work();
+    } finally {
+      if (this.ttsSwitchBlockEl) {
+        this.ttsSwitchBlockEl.hidden = true;
+      }
+    }
+  }
+
+  private closeTtsSettingsDialog(): void {
+    this.ttsSettingsOpen = false;
+    if (this.ttsSettingsDialogEl?.open) {
+      this.ttsSettingsDialogEl.close();
+    } else if (this.ttsSettingsDialogEl) {
+      this.ttsSettingsDialogEl.hidden = true;
+    }
+    if (this.ttsSettingsToggleEl) {
+      this.ttsSettingsToggleEl.classList.remove("is-open");
+      this.ttsSettingsToggleEl.setAttribute("aria-expanded", "false");
+      this.ttsSettingsToggleEl.focus();
+    }
+  }
+
+  private openTtsDebugDialog(): void {
+    if (!this.ttsDebugDialogEl) return;
+    if (this.ttsDebugDialogEl.open) return;
+    if (typeof this.ttsDebugDialogEl.showModal === "function") {
+      this.ttsDebugDialogEl.showModal();
+    } else {
+      this.ttsDebugDialogEl.hidden = false;
+    }
+  }
+
+  private appendTtsDebugLog(detail: TtsDebugEventDetail): void {
+    if (!this.ttsDebugLogEl) return;
+    const ts = new Date(detail.at).toLocaleTimeString();
+    const stage = detail.stage || "unknown";
+    const message = detail.message || "Unknown error";
+    const meta = detail.meta ? ` ${JSON.stringify(detail.meta)}` : "";
+    const line = `[${ts}] [${stage}] ${message}${meta}`;
+    const current = this.ttsDebugLogEl.textContent?.trim() ?? "";
+    const lines = current ? current.split("\n") : [];
+    lines.push(line);
+    if (lines.length > 120) {
+      lines.splice(0, lines.length - 120);
+    }
+    this.ttsDebugLogEl.textContent = lines.join("\n");
   }
 }

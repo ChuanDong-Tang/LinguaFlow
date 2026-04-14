@@ -1,4 +1,5 @@
 import { authenticateClerkRequest } from "../core/auth.js";
+import { getAppConfig } from "../core/appConfig.js";
 import { getViewerAccessByClerkUserId } from "./access.js";
 import { getSupabaseAdmin } from "../infrastructure/supabase.js";
 
@@ -8,8 +9,6 @@ function parseIntegerHeader(value) {
 }
 
 const REWRITE_USAGE_DOC_TYPE = "rewrite_usage_daily";
-const FREE_DAILY_REPLY_LIMIT = 3;
-const PRO_DAILY_REPLY_LIMIT = 20;
 
 function toUtcDateKey(date = new Date()) {
   const year = date.getUTCFullYear();
@@ -43,6 +42,7 @@ async function readDailyCount(appUserId, dateKey) {
 export async function getRewriteUsageSnapshotByClerkUserId(clerkUserId) {
   if (!clerkUserId) return null;
 
+  const config = getAppConfig();
   const viewer = await getViewerAccessByClerkUserId(clerkUserId);
   const hasPro = viewer.entitlements.some((item) => item.active && item.code === "pro_access");
   const appUserId = viewer.profile?.appUserId ?? "";
@@ -52,7 +52,7 @@ export async function getRewriteUsageSnapshotByClerkUserId(clerkUserId) {
   const usage = await readDailyCount(appUserId, dateKey);
   return {
     daily_used: Math.max(0, Number(usage.count) || 0),
-    daily_limit: hasPro ? PRO_DAILY_REPLY_LIMIT : FREE_DAILY_REPLY_LIMIT,
+    daily_limit: hasPro ? config.proDailyReplyLimit : config.freeDailyReplyLimit,
   };
 }
 
@@ -113,7 +113,8 @@ export async function getRewriteAccessContext(req, config, mode = "rewrite") {
       message: "Could not resolve user profile for usage tracking.",
     };
   }
-  const limit = hasPro ? PRO_DAILY_REPLY_LIMIT : FREE_DAILY_REPLY_LIMIT;
+  const appConfig = getAppConfig();
+  const limit = hasPro ? appConfig.proDailyReplyLimit : appConfig.freeDailyReplyLimit;
   const dateKey = toUtcDateKey();
   const dailyUsage = await readDailyCount(appUserId, dateKey);
   if (dailyUsage.count >= limit) {

@@ -10,6 +10,11 @@ function parseCsv(value) {
     .filter(Boolean);
 }
 
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export function getAppConfig() {
   return {
     clerkSecretKey: process.env.CLERK_SECRET_KEY ?? "",
@@ -19,5 +24,7 @@ export function getAppConfig() {
     adminEmails: parseCsv(process.env.APP_ADMIN_EMAILS).map((item) => item.toLowerCase()),
     proPlanCode: process.env.APP_PRO_PLAN_CODE ?? "pro_monthly",
     allowAnonymousRewrite: parseBoolean(process.env.APP_ALLOW_ANONYMOUS_REWRITE, true),
+    freeDailyReplyLimit: parsePositiveInteger(process.env.APP_FREE_DAILY_REPLY_LIMIT, 3),
+    proDailyReplyLimit: parsePositiveInteger(process.env.APP_PRO_DAILY_REPLY_LIMIT, 20),
   };
 }

@@ -252,14 +252,20 @@ export default async function handler(req, res) {
   const practiceQuestion = typeof body?.question === "string" ? body.question.trim() : "";
   const practiceAnswer = typeof body?.answer === "string" ? body.answer.trim() : "";
   const practiceReference = typeof body?.reference_answer === "string" ? body.reference_answer.trim() : "";
+  const practiceContextText = typeof body?.context_text === "string" ? body.context_text.trim() : "";
+  const practiceTargetPhrase = typeof body?.target_phrase === "string" ? body.target_phrase.trim() : "";
   const inputBundle = mode === "practice_question"
-    ? [practiceQuestion, practiceReference].filter(Boolean).join("\n")
+    ? [practiceContextText, practiceTargetPhrase].filter(Boolean).join("\n")
     : mode === "practice_feedback"
-      ? [practiceQuestion, practiceAnswer, practiceReference].filter(Boolean).join("\n")
+      ? [practiceQuestion, practiceAnswer, practiceTargetPhrase, practiceReference].filter(Boolean).join("\n")
       : text;
   const minRequired = mode === "practice_question" || mode === "practice_feedback"
     ? 1
     : config.minInputChars;
+  if (mode === "practice_question" && !practiceTargetPhrase) {
+    sendJson(res, 400, { error: { code: "TARGET_PHRASE_REQUIRED", message: "A target phrase is required for practice." } });
+    return;
+  }
   if (inputBundle.length < minRequired) {
     sendJson(res, 400, { error: { code: "INPUT_TOO_SHORT", message: "Please enter more text before rewriting." } });
     return;
@@ -292,13 +298,13 @@ export default async function handler(req, res) {
           ? {
             systemPrompt: OIO_CHAT_PRACTICE_QUESTION_SYSTEM_PROMPT,
             buildUserPrompt: buildOioChatPracticeQuestionPrompt,
-            input: { question: practiceQuestion, answer: practiceReference, naturalVersion: "" },
+            input: { contextText: practiceContextText, targetPhrase: practiceTargetPhrase },
           }
           : mode === "practice_feedback"
             ? {
               systemPrompt: OIO_CHAT_PRACTICE_FEEDBACK_SYSTEM_PROMPT,
               buildUserPrompt: buildOioChatPracticeFeedbackPrompt,
-              input: { question: practiceQuestion, answer: practiceAnswer, referenceAnswer: practiceReference },
+              input: { question: practiceQuestion, answer: practiceAnswer, targetPhrase: practiceTargetPhrase, referenceAnswer: practiceReference },
             }
             : { systemPrompt: REWRITE_SYSTEM_PROMPT, buildUserPrompt: buildRewriteUserPrompt, input: text };
     rawContent = await callDeepSeek(prompt.input, config, prompt);

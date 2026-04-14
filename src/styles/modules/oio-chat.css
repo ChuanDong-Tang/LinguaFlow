@@ -141,6 +141,27 @@
   gap: 0.2rem;
 }
 
+.chat-thinking-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chat-thinking-spinner {
+  width: 0.95rem;
+  height: 0.95rem;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: rgba(127, 184, 255, 0.95);
+  border-radius: 50%;
+  animation: chat-thinking-spin 0.85s linear infinite;
+}
+
+@keyframes chat-thinking-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .chat-speak-lines {
   display: flex;
   flex-direction: column;
@@ -297,6 +318,8 @@
 .chat-assistant-actions {
   display: flex;
   justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .app-sidebar-chat-history-list .oio-chat-history-group {
@@ -318,6 +341,15 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.46);
+}
+
+.oio-chat-history-new-btn {
+  min-height: 1.75rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 9px;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .oio-chat-history-group {

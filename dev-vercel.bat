@@ -18,4 +18,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "    [System.Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim(), 'Process')" ^
   "  }" ^
   "};" ^
-  "npx vercel dev"
+  "npx vercel dev --listen 0.0.0.0:3000"

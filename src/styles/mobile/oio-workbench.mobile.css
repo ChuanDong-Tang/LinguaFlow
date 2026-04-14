@@ -82,6 +82,19 @@
     flex: 1 1 100%;
   }
 
+  .practice-global-audio-controls {
+    flex-wrap: wrap;
+    gap: 0.6rem 0.9rem;
+  }
+
+  .practice-pager {
+    justify-content: stretch;
+  }
+
+  .practice-pager-btn {
+    flex: 1 1 0;
+  }
+
   .voice-picker-row {
     flex-wrap: wrap;
     align-items: stretch;

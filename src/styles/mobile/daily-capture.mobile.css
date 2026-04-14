@@ -16,11 +16,18 @@
     flex: 1 1 100%;
   }
 
+  .daily-capture-head-title-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+  }
+
   .daily-capture-calendar-nav {
     flex-wrap: wrap;
   }
 
   .daily-capture-calendar-jump {
+    justify-content: stretch;
     flex-wrap: wrap;
   }
 

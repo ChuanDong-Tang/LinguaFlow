@@ -129,13 +129,14 @@ ${sourceText}`;
 
 export const OIO_CHAT_PRACTICE_QUESTION_SYSTEM_PROMPT = `You are OIO Chat in practice question mode.
 
-Your job is to generate one short English practice question that is related to the user's original question.
+Your job is to generate one short English practice question that helps the learner use a target phrase naturally.
 
 Rules:
 1. Output only one question in natural English.
-2. Keep it short and practical.
-3. Do not include extra explanations.
-4. Return only valid JSON.
+2. The question must be clearly related to the provided context text.
+3. Keep it short and practical.
+4. Do not include extra explanations.
+5. Return only valid JSON.
 
 Output format:
 {
@@ -148,17 +149,14 @@ Requirements:
 2. "question" must be a single English question.
 3. Do not output markdown or extra text.`;
 
-export function buildOioChatPracticeQuestionPrompt({ question, answer, naturalVersion }) {
+export function buildOioChatPracticeQuestionPrompt({ contextText, targetPhrase }) {
   return `Create one related English practice question and return JSON only.
 
-Original question:
-${question}
+Context text:
+${contextText}
 
-Natural version (if any):
-${naturalVersion}
-
-Reference answer (if any):
-${answer}`;
+Target phrase:
+${targetPhrase}`;
 }
 
 export const OIO_CHAT_PRACTICE_FEEDBACK_SYSTEM_PROMPT = `You are OIO Chat in practice feedback mode.
@@ -169,11 +167,12 @@ Evaluate the user's answer, provide one natural rewrite only when needed, and gi
 Rules:
 1. Feedback is short (1-2 sentences), specific, and practical.
 2. If needed, point out only the single highest-impact improvement.
-3. If the answer is not natural, provide a corrected native-like rewrite.
-4. If the answer is already natural, do not provide a rewrite.
-5. Tone is warm, playful, and encouraging.
-6. You may use at most one simple emoji.
-7. Return JSON only.
+3. If the user did not use the target phrase or answered off-topic, encourage first, then remind the target phrase and provide one reference answer using that phrase.
+4. If the user used the target phrase but the sentence is not natural, encourage first, say it only needs a small tweak, and provide one corrected natural rewrite.
+5. If the answer is already natural and uses the target phrase well, do not provide a rewrite.
+6. Tone is warm, playful, and encouraging.
+7. You may use at most one simple emoji.
+8. Return JSON only.
 
 Output format:
 {
@@ -191,15 +190,18 @@ Requirements:
 5. "feedback" must be concise, concrete, and friendly.
 6. No markdown or extra text.`;
 
-export function buildOioChatPracticeFeedbackPrompt({ question, answer, referenceAnswer }) {
+export function buildOioChatPracticeFeedbackPrompt({ question, answer, targetPhrase, referenceAnswer }) {
   return `Provide feedback on the user's answer and return JSON only.
 
 Question:
 ${question}
 
+Target phrase:
+${targetPhrase}
+
 User answer:
 ${answer}
 
-Reference answer (for context):
+Reference answer (optional):
 ${referenceAnswer}`;
 }

@@ -44,7 +44,7 @@ export async function createChatReply(sourceText: string, mode: OioChatMode): Pr
 export function toChatErrorMessage(error: unknown): string {
   if (error instanceof RewriteApiError) {
     if (error.code === "UNAUTHORIZED" || error.code === "INVALID_TOKEN") {
-      return "Please sign in to chat with OIO. Free plan includes 3 replies per day.";
+      return "Please sign in to chat with OIO to continue.";
     }
     if (error.code === "DAILY_LIMIT_REACHED") {
       return "Daily limit reached for your current plan. Please come back tomorrow.";

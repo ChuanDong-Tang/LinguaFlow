@@ -36,6 +36,12 @@ import {
   validFillBlankStateKeySetFromMap as Ut,
   eventTargetElement as Gt,
 } from "./runtimeUtils.js";
+import {
+  getBrowserTtsService as qn,
+  getSelectedTtsPlaybackSource as Jn,
+} from "../../../services/tts/browserTtsService";
+
+const LOCAL_HISTORY_ENABLED = false;
 
 var {
     textEl: Ue,
@@ -60,8 +66,13 @@ var {
     playerPrevBtn: at,
     playerNextBtn: ot,
     practiceModeBarEl: st,
+    practicePagerEl: ut,
+    practicePagePrevBtn: Ct2,
+    practicePageNextBtn: wt2,
+    practicePageIndicator: Tt2,
     practiceActionsBar: ct,
     fillblankCheckBtn: lt,
+    dictationCheckBtn: Et2,
     proofreadSaveBtn: dt,
     historyExportBtn: ft,
     historyExportDialog: pt,
@@ -139,9 +150,16 @@ var qt = `month`,
   z = [],
   B = [],
   V = [],
+  ue = [],
+  de = 0,
   H = -1,
   U = 0,
   te = -1,
+  lastPlayedCueIndex = -1,
+  practicePageIndex = 0,
+  speechLoopToken = 0,
+  speechLoopTimer = null,
+  practiceGenerateRunCount = 0,
   Yt = new Map(),
   Xt = null;
 function W(e) {
@@ -272,6 +290,7 @@ function un() {
   O = on();
 }
 async function fn() {
+  if (!LOCAL_HISTORY_ENABLED) return null;
   if (!z.length) return null;
   let e = Jt;
   if (!e && R)
@@ -298,6 +317,7 @@ async function fn() {
 }
 
 async function yn(e, t, n) {
+  if (!LOCAL_HISTORY_ENABLED) return { ok: !1, error: `当前版本已关闭本地历史。` };
   let r = ke(e);
   if (r) return { ok: !1, error: r };
   if (!(t instanceof Blob)) return { ok: !1, error: `音频文件无效。` };
@@ -805,49 +825,46 @@ function Zn(e) {
 function Qn(e) {
   z[e] && (v.pause(), Zn(e));
 }
-function stopSpeechPlayback() {
-  (!window?.speechSynthesis || (window.speechSynthesis.cancel(), (te = -1)));
+function clearSpeechLoopTimer() {
+  speechLoopTimer && (clearTimeout(speechLoopTimer), (speechLoopTimer = null));
 }
-function pickSpeechVoice() {
-  if (!window?.speechSynthesis) return null;
-  let e = window.speechSynthesis.getVoices();
-  if (!e?.length) return null;
-  let t = [
-      `Google US English`,
-      `Samantha`,
-      `Microsoft Aria Online (Natural) - English (United States)`,
-      `Microsoft Jenny Online (Natural) - English (United States)`,
-      `Karen`,
-      `Moira`,
-      `Daniel`,
-      `Alex`,
-    ],
-    n = e.find((e) => t.includes(String(e.name || ``)));
-  if (n) return n;
-  let r = e.filter((e) => String(e.lang || ``).toLowerCase().startsWith(`en-us`));
-  if (r.length)
-    return r.sort((e, t) => String(e.name || ``).localeCompare(String(t.name || ``)))[0];
-  let i = e.filter((e) => String(e.lang || ``).toLowerCase().startsWith(`en`));
-  return i.length
-    ? i.sort((e, t) => String(e.name || ``).localeCompare(String(t.name || ``)))[0]
-    : e[0] || null;
+function stopSpeechPlayback({ invalidateLoop: e = !0 } = {}) {
+  e && (speechLoopToken += 1);
+  clearSpeechLoopTimer();
+  qn().stop();
+  te = -1;
 }
-function speakCue(e) {
-  if (!window?.speechSynthesis || !z[e]) return;
-  stopSpeechPlayback();
-  let t = new SpeechSynthesisUtterance(z[e].text || ``),
-    n = parseFloat(it?.value || `1`);
-  ((t.lang = `en-US`),
-    Number.isFinite(n) && (t.rate = Math.min(2, Math.max(0.5, n))),
-    (t.voice = pickSpeechVoice()),
-    (te = e),
-    (t.onend = () => {
+function scheduleCueLoop(e, t) {
+  clearSpeechLoopTimer();
+  speechLoopTimer = setTimeout(() => {
+    if (!b?.checked || lastPlayedCueIndex < 0) return;
+    if (e !== speechLoopToken || lastPlayedCueIndex !== t) return;
+    speakCue(t, { fromLoop: !0, loopToken: e });
+  }, 120);
+}
+function speakCue(e, { fromLoop: t = !1, loopToken: n = null } = {}) {
+  if (!z[e]) return;
+  let r = parseFloat(it?.value || `1`);
+  qn().setPlaybackRate(Number.isFinite(r) ? r : 1);
+  t || (speechLoopToken += 1);
+  let i = n ?? speechLoopToken,
+    a = z[e].text || ``;
+  clearSpeechLoopTimer();
+  stopSpeechPlayback({ invalidateLoop: !1 });
+  te = e;
+  qn()
+    .speak(a)
+    .then((t) => {
+      t &&
+        b?.checked &&
+        lastPlayedCueIndex >= 0 &&
+        i === speechLoopToken &&
+        lastPlayedCueIndex === e &&
+        scheduleCueLoop(i, e);
+    })
+    .finally(() => {
       te === e && (te = -1);
-    }),
-    (t.onerror = () => {
-      te === e && (te = -1);
-    }),
-    window.speechSynthesis.speak(t));
+    });
 }
 function $n(e) {
   if (!e) return null;
@@ -856,13 +873,17 @@ function $n(e) {
   return t[0] ?? null;
 }
 function er(e) {
-  G.seekToCue(e);
+  Qn(e);
 }
 function tr() {
-  G.goNextCue();
+  if (!z.length || !v.src) return;
+  let e = Y(v.currentTime);
+  Qn(Math.min(z.length - 1, e + 1));
 }
 function nr() {
-  G.goPrevCue();
+  if (!z.length || !v.src) return;
+  let e = Y(v.currentTime);
+  Qn(Math.max(0, e - 1));
 }
 function rr() {
   if (!v.src) return;
@@ -874,9 +895,47 @@ function rr() {
 }
 function playCueInline(e) {
   if (!z[e]) return;
+  lastPlayedCueIndex = e;
+  practicePageIndex = ue[e] ?? e;
+  Rr();
   H = e;
   for (let t = 0; t < B.length; t++) B[t].classList.toggle(`cue-row--active`, t === e);
   speakCue(e);
+}
+function zr() {
+  if (!de) {
+    practicePageIndex = 0;
+    return;
+  }
+  practicePageIndex = Math.max(0, Math.min(de - 1, practicePageIndex));
+}
+function Jr(e) {
+  for (let t = 0; t < ue.length; t++) if ((ue[t] ?? 0) === e) return t;
+  return -1;
+}
+function Rr() {
+  zr();
+  let e = de > 0;
+  ut && (ut.hidden = !e);
+  if (Tt2) Tt2.textContent = e ? `${practicePageIndex + 1} / ${de}` : `0 / 0`;
+  Ct2 && (Ct2.disabled = !e || practicePageIndex <= 0);
+  wt2 && (wt2.disabled = !e || practicePageIndex >= de - 1);
+  for (let t = 0; t < B.length; t++)
+    B[t].classList.toggle(`cue-row--paged-hidden`, (ue[t] ?? 0) !== practicePageIndex);
+}
+function qr(e, { focusDictation: t = !1 } = {}) {
+  if (!de) return;
+  practicePageIndex = e;
+  Rr();
+  let n = Jr(practicePageIndex);
+  if (n < 0) return;
+  let r = B[n];
+  r?.scrollIntoView({ block: `nearest`, behavior: `smooth` });
+  if (D === `dictation`) {
+    (H = n),
+      B.forEach((e, t) => e.classList.toggle(`cue-row--active`, t === n)),
+      t && V[n]?.focus({ preventScroll: !0 });
+  }
 }
 function X() {
   G.syncPlayerTransport();
@@ -917,12 +976,15 @@ function or() {
     t = D;
   if (!ct) return;
   let n = e && t === `proofread`,
-    r = e && t === `fillblank`;
+    r = e && t === `fillblank`,
+    i = e && t === `dictation`;
   (dt && (dt.hidden = !n),
     lt && (lt.hidden = !r),
-    (ct.hidden = !n && !r));
+    Et2 && (Et2.hidden = !i),
+    (ct.hidden = !n && !r && !i));
 }
 async function sr() {
+  if (!LOCAL_HISTORY_ENABLED) return { ok: !1, reason: `disabled` };
   if (!z.length) return { ok: !1, reason: `no-cues` };
   let e = K.getCurrentHistoryEntryId();
   if (!e) return { ok: !1, reason: `no-active-id` };
@@ -936,6 +998,7 @@ async function sr() {
       { ok: !0, reason: `updated` });
 }
 async function cr(e) {
+  if (!LOCAL_HISTORY_ENABLED) return (W(e), { outcome: `page-only` });
   let t = ``,
     n = `error`;
   try {
@@ -1187,7 +1250,8 @@ function Tr() {
     e || Z(),
     or(),
     D !== `fillblank` && (I = -1),
-    st && ((st.hidden = !z.length), Er()));
+    st && ((st.hidden = !z.length), Er()),
+    Rr());
 }
 function Er() {
   return Cr();
@@ -1204,10 +1268,19 @@ function Or() {
 function kr(e, t) {
   return;
 }
-function Ar(e) {
+function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
+  let r = Array.isArray(t) && t.length === e.length ? t : e.map((e, t) => t),
+    i =
+      Number.isFinite(n) && n > 0
+        ? Math.max(1, Math.floor(n))
+        : (r.length ? Math.max(...r) + 1 : 0);
   ((z = e),
+    (ue = r),
+    (de = i),
     (H = -1),
     (U = 0),
+    (lastPlayedCueIndex = -1),
+    (practicePageIndex = 0),
     Z(),
     (k = {}),
     (A = null),
@@ -1231,7 +1304,11 @@ function Ar(e) {
       ((i.className = `cue cue-reference`),
         (i.textContent = e.text),
         i.addEventListener(`click`, (e) => {
-          (e.stopPropagation(), (H = t), B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t)));
+          (e.stopPropagation(),
+            (practicePageIndex = ue[t] ?? t),
+            Rr(),
+            (H = t),
+            B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t)));
         }));
       let a = document.createElement(`textarea`);
       ((a.className = `cue-input`),
@@ -1255,7 +1332,10 @@ function Ar(e) {
         n.addEventListener(`click`, (e) => {
           D !== `subtitles` &&
             (Gt(e)?.closest?.(`.fb-slot-actions`) ||
-              ((H = t), B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t))));
+              ((practicePageIndex = ue[t] ?? t),
+              Rr(),
+              (H = t),
+              B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t))));
         }),
         y.appendChild(n),
         B.push(n),
@@ -1284,19 +1364,12 @@ function jr(e) {
   if (t !== H) {
     for (let e = 0; e < B.length; e++)
       B[e].classList.toggle(`cue-row--active`, e === t);
-    (!v.paused && t >= 0 && speakCue(t), (H = t));
+    H = t;
   }
 }
 (v.addEventListener(`timeupdate`, () => {
   let e = v.currentTime,
     t = D === `fillblank`;
-  if (!t && b?.checked && z.length > 0 && U >= 0 && U < z.length) {
-    let t = z[U];
-    if (e >= t.end - 0.06) {
-      v.currentTime = t.start;
-      return;
-    }
-  }
   if (t && !v.paused && z.length > 0 && I >= 0 && I < z.length) {
     let t = z[I];
     if (t && e >= t.end - 0.06) {
@@ -1330,15 +1403,16 @@ function jr(e) {
     (stopSpeechPlayback(), X());
   }),
   v.addEventListener(`seeked`, () => {
-    (b?.checked && z.length && (U = Y(v.currentTime)),
-      D === `fillblank` && z.length && (I = Yn(v.currentTime)),
+    (D === `fillblank` && z.length && (I = Yn(v.currentTime)),
       (H = -1),
       jr(v.currentTime),
       (v.paused || !z.length) && stopSpeechPlayback(),
       X());
   }),
   b?.addEventListener(`change`, () => {
-    b?.checked && z.length && v.src && (U = Y(v.currentTime));
+    if (b?.checked) return;
+    speechLoopToken += 1;
+    clearSpeechLoopTimer();
   }),
   $e?.addEventListener(`change`, () => {
     v.loop = !!$e.checked;
@@ -1354,7 +1428,13 @@ function jr(e) {
   }),
   it?.addEventListener(`change`, () => {
     let e = parseFloat(it.value);
-    Number.isFinite(e) && (v.playbackRate = e);
+    Number.isFinite(e) && ((v.playbackRate = e), qn().setPlaybackRate(e));
+  }),
+  Ct2?.addEventListener(`click`, () => {
+    z.length && qr(practicePageIndex - 1, { focusDictation: D === `dictation` });
+  }),
+  wt2?.addEventListener(`click`, () => {
+    z.length && qr(practicePageIndex + 1, { focusDictation: D === `dictation` });
   }),
   rt?.addEventListener(`pointerdown`, () => {
     G.setSeekDragging(!0);
@@ -1418,6 +1498,9 @@ function jr(e) {
     Mr().catch((e) => {
       (console.error(e), W(`记录填空正确率失败，请稍后再试。`));
     });
+  }),
+  Et2?.addEventListener(`click`, () => {
+    Br();
   }));
 async function Mr() {
   (hr(), Wn(), Un());
@@ -1427,6 +1510,28 @@ async function Mr() {
       ? `填空已校对（${e.correctBlanks}/${e.totalBlanks}，${e.percent}%）。`
       : `填空已校对。`,
   );
+}
+function Hr(e) {
+  return xe(String(e || ``))
+    .map((e) => Se(e))
+    .filter(Boolean)
+    .join(` `);
+}
+function Br() {
+  if (D !== `dictation` || !z.length) return;
+  let e = 0;
+  for (let t = 0; t < z.length; t++) {
+    let n = V[t];
+    if (!n) continue;
+    let r = Hr(z[t]?.text || ``),
+      i = Hr(n.value || ``),
+      a = !!i && i === r;
+    (n.classList.toggle(`cue-input--ok`, a),
+      n.classList.toggle(`cue-input--wrong`, !a),
+      a && e++);
+  }
+  let t = Math.round((e / Math.max(1, z.length)) * 100);
+  W(`听写已检查（${e}/${z.length}，${t}%）。`);
 }
 (dt?.addEventListener(`click`, () => {
     fr().catch((e) => {
@@ -1445,8 +1550,10 @@ async function Mr() {
   }),
   y.addEventListener(`input`, (e) => {
     let t = e.target;
-    t?.classList?.contains(`fb-slot`) &&
-      (t.readOnly || t.classList.remove(`fb-slot--wrong`, `fb-slot--ok`));
+    (t?.classList?.contains(`fb-slot`) &&
+      (t.readOnly || t.classList.remove(`fb-slot--wrong`, `fb-slot--ok`)),
+      t?.classList?.contains(`cue-input`) &&
+        t.classList.remove(`cue-input--ok`, `cue-input--wrong`));
   }),
   y.addEventListener(`focusin`, (e) => {
     let t = e.target;
@@ -1456,6 +1563,7 @@ async function Mr() {
         let e = t.closest(`.cue-row`),
           n = e?.dataset.idx == null ? -1 : Number(e.dataset.idx);
         if (n < 0) return;
+        (practicePageIndex = ue[n] ?? n), Rr();
         n !== Y(v.currentTime) && Qn(n);
         return;
       }
@@ -1463,7 +1571,11 @@ async function Mr() {
         let e = t.closest(`.cue-row`),
           n = e?.dataset.idx == null ? -1 : Number(e.dataset.idx);
         if (n < 0) return;
-        n !== Y(v.currentTime) && er(n);
+        (practicePageIndex = ue[n] ?? n), Rr();
+        (H = n),
+          B.forEach((e, t) => {
+            e.classList.toggle(`cue-row--active`, t === n);
+          });
       }
     }
   }),
@@ -1472,15 +1584,6 @@ async function Mr() {
     let t = e.target?.classList?.contains(`cue-input`),
       n = e.target?.classList?.contains(`fb-slot`),
       r = D !== `subtitles`;
-    if (t && e.code === `Tab` && D === `dictation`) {
-      if (!z.length || !v.src) return;
-      (e.preventDefault(), e.stopPropagation());
-      let t = e.target.closest(`.cue-row`),
-        n = t?.dataset.idx == null ? -1 : Number(t.dataset.idx);
-      if (n < 0) return;
-      e.shiftKey ? n > 0 && er(n - 1) : n < z.length - 1 && er(n + 1);
-      return;
-    }
     if (n && e.code === `Tab` && D === `fillblank`) {
       if (!z.length || !v.src) return;
       (e.preventDefault(), e.stopPropagation());
@@ -1546,10 +1649,35 @@ async function Mr() {
       W(`请先粘贴或输入英文文本。`);
       return;
     }
-    let t = splitPracticeSentences(e);
-    t.length || (t = [e]);
+    let t2 = practiceGenerateRunCount <= 0;
+    practiceGenerateRunCount += 1;
+    W(t2 ? `正在生成练习（首次生成会稍慢，请稍等）...` : `正在生成练习...`);
+    let t = [],
+      n = [];
+    try {
+      n = JSON.parse(Ue.dataset.practiceCardChunks || `[]`);
+    } catch {
+      n = [];
+    }
+    let r = Array.isArray(n) && n.length > 0 ? n.map((e) => String(e || ``).trim()).filter(Boolean) : [e],
+      i = [],
+      a = [];
+    for (let e = 0; e < r.length; e++) {
+      let t = splitPracticeSentences(r[e]);
+      t.length || (t = [r[e]]);
+      for (let n of t) {
+        let t = String(n || ``).trim();
+        t && (i.push(t), a.push(e));
+      }
+    }
+    i.length || (i = splitPracticeSentences(e));
+    i.length || (i = [e]);
+    i.length !== a.length && (a = i.map((e, t) => t));
+    t = i;
     ((Je.disabled = !0),
       (z = []),
+      (ue = []),
+      (de = 0),
       (B = []),
       (V = []),
       (H = -1),
@@ -1570,20 +1698,19 @@ async function Mr() {
       v.removeAttribute(`src`),
       v.load());
     try {
-      let n = buildEstimatedCues(t),
-        r = n.length ? n[n.length - 1].end : 1,
-        e = buildSilentWavBlob(r + 0.4);
-      ((Jt = e),
-        (R = URL.createObjectURL(e)),
+      let o = buildEstimatedCues(t),
+        s = o.length ? o[o.length - 1].end : 1,
+        c = buildSilentWavBlob(s + 0.4);
+      ((Jt = c),
+        (R = URL.createObjectURL(c)),
         (v.src = R),
         v.load(),
-        Ar(n),
+        Ar(o, { cueCardIndexList: a, cardCount: Math.max(1, r.length) }),
         X());
-      let i = await fn();
+      await fn();
+      let l = Jn() === `kokoro` ? `Kokoro（失败时自动回退 Web Speech）` : `Web Speech`;
       W(
-        i
-          ? `完成。共 ${t.length} 句。已自动写入本地历史 ${i}。播放音频时将使用浏览器语音（Web Speech）。`
-          : `完成。共 ${t.length} 句。本地历史未写入（请检查浏览器是否允许本站存储数据，或稍后重试生成）。播放音频时将使用浏览器语音（Web Speech）。`,
+        `完成。共 ${r.length} 张卡片，${t.length} 句。点句播放将使用当前语音源：${l}。`,
       );
     } catch (e) {
       (console.error(e),
@@ -1593,13 +1720,17 @@ async function Mr() {
             : `生成失败，请打开控制台查看详情。`,
         ));
     } finally {
+      delete Ue.dataset.practiceCardChunks;
       Je.disabled = !1;
     }
   }),
   Ye?.addEventListener(`click`, () => {
     ((Ue.value = ``),
+      delete Ue.dataset.practiceCardChunks,
       W(``),
       (z = []),
+      (ue = []),
+      (de = 0),
       (B = []),
       (V = []),
       (H = -1),

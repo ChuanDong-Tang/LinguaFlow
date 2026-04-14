@@ -143,7 +143,7 @@ export async function listRewriteRecords() {
 }
 
 /**
- * @param {{ id: string, createdAt: string, query: string, title: string, summary: string, imageHints: string[] }} record
+ * @param {{ id: string, createdAt: string, query: string, title: string}} record
  */
 export async function saveSuperDictRecord(record) {
   const db = await openDb();

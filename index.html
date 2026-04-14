@@ -14,13 +14,23 @@
           <header class="oio-header app-shell-header">
             <div class="oio-header-top">
               <h1 class="oio-brand"><span class="oio-brand-oio">OIO</span> Lab</h1>
+              <button
+                type="button"
+                class="app-tts-settings-btn"
+                data-tts-settings-toggle
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="app-tts-settings-dialog"
+                aria-label="Voice settings"
+                title="Voice settings"
+              >
+                <svg viewBox="0 0 24 24" class="app-tts-settings-icon" aria-hidden="true">
+                  <path d="M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Zm9 3.2-2.02-.66a7.27 7.27 0 0 0-.58-1.4l.96-1.89a.8.8 0 0 0-.15-.93l-1.25-1.25a.8.8 0 0 0-.93-.15l-1.89.96c-.45-.24-.92-.43-1.4-.58L12.8 3a.8.8 0 0 0-.8-.6h-1.8a.8.8 0 0 0-.8.6l-.66 2.02c-.48.15-.95.34-1.4.58l-1.89-.96a.8.8 0 0 0-.93.15L3.27 6.04a.8.8 0 0 0-.15.93l.96 1.89c-.24.45-.43.92-.58 1.4L1.48 12a.8.8 0 0 0-.6.8v1.8a.8.8 0 0 0 .6.8l2.02.66c.15.48.34.95.58 1.4l-.96 1.89a.8.8 0 0 0 .15.93l1.25 1.25a.8.8 0 0 0 .93.15l1.89-.96c.45.24.92.43 1.4.58l.66 2.02a.8.8 0 0 0 .8.6H12a.8.8 0 0 0 .8-.6l.66-2.02c.48-.15.95-.34 1.4-.58l1.89.96a.8.8 0 0 0 .93-.15l1.25-1.25a.8.8 0 0 0 .15-.93l-.96-1.89c.24-.45.43-.92.58-1.4l2.02-.66a.8.8 0 0 0 .6-.8v-1.8a.8.8 0 0 0-.6-.8Z" fill="currentColor"></path>
+                </svg>
+              </button>
             </div>
           </header>
           <section class="app-account-dock" aria-label="Account">
-            <div class="app-locale-switch" aria-label="Language">
-              <button type="button" class="app-locale-btn is-active" data-locale-option="en">EN</button>
-              <button type="button" class="app-locale-btn" data-locale-option="zh-CN">中文</button>
-            </div>
             <button
               type="button"
               class="app-account-chip"
@@ -58,12 +68,6 @@
                     <span class="app-nav-btn-label">OIO Chat</span>
                   </span>
                 </button>
-                <button type="button" class="app-nav-btn" data-tab-target="rewrite" aria-controls="tab-panel-rewrite">
-                  <span class="app-nav-btn-main">
-                    <span class="app-nav-btn-icon" aria-hidden="true">✎</span>
-                    <span class="app-nav-btn-label">OIO Practice</span>
-                  </span>
-                </button>
                 <button type="button" class="app-nav-btn" data-tab-target="super-dict" aria-controls="tab-panel-super-dict">
                   <span class="app-nav-btn-main">
                     <span class="app-nav-btn-icon" aria-hidden="true">⌕</span>
@@ -96,18 +100,27 @@
             <div class="daily-capture-layout">
               <section class="workspace-card module-card module-card--calendar-inline module-card--calendar-main">
                 <div class="module-card-head">
-                  <div>
-                    <h3 class="module-card-title" data-i18n-daily-calendar-title>Calendar</h3>
+                  <div class="daily-capture-head-main">
+                    <div class="daily-capture-head-title-row">
+                      <h3 class="module-card-title" data-i18n-daily-calendar-title>Calendar</h3>
+                      <div class="daily-capture-calendar-jump">
+                        <select class="daily-capture-calendar-select" data-daily-capture-year aria-label="Year"></select>
+                        <select class="daily-capture-calendar-select" data-daily-capture-month aria-label="Month"></select>
+                      </div>
+                    </div>
                     <p class="module-card-note" data-i18n-daily-calendar-note>Pick a day and review what you saved.</p>
                   </div>
                 </div>
                 <div class="daily-capture-calendar">
                   <div class="daily-capture-calendar-top">
-                    <div class="daily-capture-calendar-jump">
-                      <select class="daily-capture-calendar-select" data-daily-capture-year aria-label="Year"></select>
-                      <select class="daily-capture-calendar-select" data-daily-capture-month aria-label="Month"></select>
-                    </div>
-                    <strong class="daily-capture-calendar-caption" data-daily-capture-caption></strong>
+                    <p class="daily-capture-calendar-selected-day" data-daily-capture-selected-day></p>
+                    <button
+                      type="button"
+                      class="secondary daily-capture-practice-selected-day-btn"
+                      data-daily-capture-practice-selected-day
+                    >
+                      Practice selected day
+                    </button>
                   </div>
                   <div class="daily-capture-calendar-dow">
                     <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
@@ -119,6 +132,7 @@
                   </div>
                 </div>
               </section>
+              <section class="workspace-card module-card module-card--daily-capture-practice-host" data-daily-capture-practice-host></section>
             </div>
             <dialog class="daily-capture-day-dialog" data-daily-capture-day-dialog>
               <div class="daily-capture-day-dialog-panel">
@@ -149,9 +163,6 @@
               <section class="workspace-card module-card oio-chat-main">
                 <div class="oio-chat-feed" data-oio-chat-feed></div>
                 <form class="oio-chat-composer" data-oio-chat-form>
-                  <div class="oio-chat-toolbar">
-                    <button type="button" class="secondary oio-chat-new-btn" data-oio-chat-new>New chat</button>
-                  </div>
                   <div class="oio-chat-mode-switch" role="tablist" aria-label="Chat mode">
                     <button type="button" class="oio-chat-mode-btn is-active" data-oio-chat-mode="rewrite" aria-pressed="true">Rewrite</button>
                     <button type="button" class="oio-chat-mode-btn" data-oio-chat-mode="ask" aria-pressed="false">Ask</button>
@@ -264,13 +275,37 @@
                     <span class="practice-mode-intro">模式</span>
                     <div class="practice-mode-btns">
                       <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="subtitles">字幕</button>
+                      <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="dictation">听写</button>
                       <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="proofread">创建填空</button>
                       <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="fillblank">填空练习</button>
-                      <button type="button" class="practice-mode-btn secondary" data-set-practice-mode="dictation">听写</button>
                     </div>
+                  </div>
+                  <div class="practice-global-audio-controls" aria-label="练习区播放设置">
+                    <label class="practice-global-audio-item" for="player-rate">
+                      <span class="practice-global-audio-label">倍速</span>
+                      <select id="player-rate" class="player-rate-select" aria-label="播放倍速">
+                        <option value="0.5">0.5x</option>
+                        <option value="0.75">0.75x</option>
+                        <option value="1" selected>1x</option>
+                        <option value="1.25">1.25x</option>
+                        <option value="1.5">1.5x</option>
+                        <option value="1.75">1.75x</option>
+                        <option value="2">2x</option>
+                      </select>
+                    </label>
+                    <label class="practice-global-audio-item" for="loop-sentence">
+                      <span class="practice-global-audio-label">循环当前句</span>
+                      <input type="checkbox" id="loop-sentence" />
+                    </label>
+                  </div>
+                  <div class="practice-pager" id="practice-pager" hidden>
+                    <button type="button" class="secondary practice-pager-btn" id="practice-page-prev" aria-label="上一句">←</button>
+                    <span class="practice-pager-indicator" id="practice-page-indicator">0 / 0</span>
+                    <button type="button" class="secondary practice-pager-btn" id="practice-page-next" aria-label="下一句">→</button>
                   </div>
                   <div id="subtitles-scroll" class="subtitles-scroll" aria-label="与音频同步的字幕"><div id="subtitles-list" class="subtitles-list"></div></div>
                   <div class="proofread-bar practice-actions-bar" id="practice-actions-bar" hidden aria-label="与当前模式对应的操作">
+                    <button type="button" id="dictation-check-btn" class="secondary" hidden>检查听写</button>
                     <button type="button" id="proofread-save-btn" class="secondary" hidden>确认创建</button>
                     <button type="button" id="fillblank-check-btn" class="secondary" hidden>检查填空</button>
                   </div>
@@ -501,6 +536,49 @@
         </div>
       </div>
     </dialog>
+    <dialog class="app-tts-settings-dialog" id="app-tts-settings-dialog" data-tts-settings-dialog>
+      <div class="app-tts-settings-dialog-panel">
+        <div class="app-tts-settings-dialog-head">
+          <h3 class="app-tts-settings-dialog-title">Speech Settings</h3>
+          <button type="button" class="secondary" data-tts-settings-close>Close</button>
+        </div>
+
+        <section class="app-tts-settings-section">
+          <p class="app-tts-settings-title">Playback Source</p>
+          <div class="app-tts-choice-grid" role="group" aria-label="Playback source">
+            <button type="button" class="app-tts-choice-btn" data-tts-source-option="kokoro" aria-pressed="false">Kokoro</button>
+            <button type="button" class="app-tts-choice-btn" data-tts-source-option="web" aria-pressed="false">Web Speech</button>
+          </div>
+        </section>
+
+        <section class="app-tts-settings-section">
+          <p class="app-tts-settings-title">App Language</p>
+          <div class="app-tts-choice-grid" role="group" aria-label="App language">
+            <button type="button" class="app-tts-choice-btn" data-locale-option="en" aria-pressed="false">English</button>
+            <button type="button" class="app-tts-choice-btn" data-locale-option="zh-CN" aria-pressed="false">中文</button>
+          </div>
+        </section>
+
+        <section class="app-tts-settings-section" data-tts-kokoro-options>
+          <p class="app-tts-settings-title">Kokoro Voice</p>
+          <div class="app-tts-voice-list" data-tts-voice-list role="listbox" aria-label="Kokoro voices"></div>
+        </section>
+      </div>
+    </dialog>
+    <dialog class="app-tts-debug-dialog" data-tts-debug-dialog>
+      <div class="app-tts-debug-dialog-panel">
+        <div class="app-tts-debug-dialog-head">
+          <h3 class="app-tts-debug-dialog-title">TTS Debug</h3>
+          <button type="button" class="secondary" data-tts-debug-close>Close</button>
+        </div>
+        <pre class="app-tts-debug-dialog-log" data-tts-debug-log></pre>
+      </div>
+    </dialog>
+    <div class="app-tts-switch-block" data-tts-switch-block hidden>
+      <div class="app-tts-switch-panel">
+        <p class="app-tts-switch-status" data-tts-switch-status>正在切换语音设置...</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

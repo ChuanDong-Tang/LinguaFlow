@@ -4,7 +4,7 @@ import { escapeHtml } from "../../shared/html";
 import { oioChatConfig } from "../../services/chat/chatConfig";
 import { createChatReply, toChatErrorMessage, type ChatReply } from "../../services/chat/chatService";
 import { fetchChatUsageSnapshot } from "../../services/chat/chatUsageService";
-import { generatePracticeFeedback } from "../../services/chat/practiceService";
+import { generatePracticeFeedback, generatePracticeQuestion } from "../../services/chat/practiceService";
 import { pullChatSessions, pullMoreChatSessions, pushChatSessions } from "../../services/cloud/cloudSyncService";
 import { getAccessRepository } from "../../infrastructure/repositories";
 import { getI18n, t } from "../../i18n/i18n";
@@ -15,7 +15,7 @@ import { saveTurnToDailyCapture } from "./oioChatCapture";
 import { createChatSession, deleteChatSession, listChatSessions, saveChatSession, type OioChatSession } from "./oioChatStore";
 import { type ChatTurn, type OioChatMode } from "./oioChatTypes";
 import { type CaptureItem } from "../dailyCapture/dailyCaptureStore";
-import { getCaptureNaturalVersion } from "../../domain/capture";
+import { getCaptureKeyPhrases, getCaptureNaturalVersion } from "../../domain/capture";
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -40,7 +40,6 @@ export class OioChatController {
   private readonly modeButtons: HTMLButtonElement[];
   private readonly metaEl: HTMLElement | null;
   private readonly statusEl: HTMLElement | null;
-  private readonly newChatEl: HTMLButtonElement | null;
   private sessions: OioChatSession[] = [];
   private activeSessionId = "";
   private activeMode: OioChatMode = "rewrite";
@@ -50,11 +49,12 @@ export class OioChatController {
   private speechRecognition: SpeechRecognitionLike | null = null;
   private speechRecognitionActive = false;
   private usageDailyUsed: number | null = null;
-  private usageDailyLimit: number = oioChatConfig.maxDailyTurns;
+  private usageDailyLimit: number | null = null;
   private cloudHasMore = false;
   private cloudNextBefore: string | null = null;
   private loadingMoreHistory = false;
-  private static readonly usageStorageKey = "oio-chat-usage-v1";
+  private pendingSessionIds = new Set<string>();
+  private pendingSessionModes = new Map<string, OioChatMode | "practice">();
   private static readonly collapseStorageKey = "oio-chat-history-collapsed-v1";
 
   constructor({
@@ -68,7 +68,6 @@ export class OioChatController {
     this.submitEl = root?.querySelector<HTMLButtonElement>("[data-oio-chat-submit]") ?? null;
     this.clearEl = root?.querySelector<HTMLButtonElement>("[data-oio-chat-clear]") ?? null;
     this.voiceInputEl = root?.querySelector<HTMLButtonElement>("[data-oio-chat-voice-input]") ?? null;
-    this.newChatEl = document.querySelector<HTMLButtonElement>("[data-oio-chat-new]");
     this.modeButtons = Array.from(root?.querySelectorAll<HTMLButtonElement>("[data-oio-chat-mode]") ?? []);
     this.metaEl = root?.querySelector<HTMLElement>("[data-oio-chat-meta]") ?? null;
     this.statusEl = root?.querySelector<HTMLElement>("[data-oio-chat-status]") ?? null;
@@ -79,7 +78,6 @@ export class OioChatController {
 
     this.loadCollapsedGroups();
     await this.loadSessions();
-    this.loadUsageFromStorage();
     this.renderModeState();
     this.renderHistory();
     this.renderFeed();
@@ -145,10 +143,6 @@ export class OioChatController {
       this.toggleSpeechInput();
     });
 
-    this.newChatEl?.addEventListener("click", async () => {
-      await this.startNewSession();
-    });
-
     this.modeButtons.forEach((button) => {
       button.addEventListener("click", () => {
         this.activeMode = button.dataset.oioChatMode === "ask" ? "ask" : "rewrite";
@@ -158,6 +152,12 @@ export class OioChatController {
 
     this.historyEl?.addEventListener("click", async (event) => {
       const target = event.target as HTMLElement | null;
+
+      const newChatBtn = target?.closest<HTMLButtonElement>("[data-oio-chat-new]");
+      if (newChatBtn) {
+        await this.startNewSession();
+        return;
+      }
 
       const loadMoreBtn = target?.closest<HTMLButtonElement>("[data-chat-history-load-more]");
       if (loadMoreBtn) {
@@ -201,7 +201,14 @@ export class OioChatController {
       const speakBtn = target?.closest<HTMLButtonElement>("[data-oio-chat-speak]");
       if (speakBtn) {
         const encodedText = speakBtn.dataset.oioChatSpeak?.trim() ?? "";
-        this.playEncodedText(encodedText);
+        await this.playEncodedText(encodedText);
+        return;
+      }
+      const practiceBtn = target?.closest<HTMLButtonElement>("[data-start-practice-turn-id]");
+      if (practiceBtn) {
+        const turnId = practiceBtn.dataset.startPracticeTurnId?.trim() ?? "";
+        if (!turnId) return;
+        await this.startPracticeFromTurn(turnId);
         return;
       }
       const captureBtn = target?.closest<HTMLButtonElement>("[data-refine-turn-id]");
@@ -267,6 +274,7 @@ export class OioChatController {
 
   private async sendMessage(): Promise<void> {
     if (!this.inputEl || !this.submitEl) return;
+    if (this.isActiveSessionPending()) return;
 
     const sourceText = this.inputEl.value.trim();
     if (!sourceText) return;
@@ -280,6 +288,11 @@ export class OioChatController {
     }
 
     if (session.kind === "practice" && session.practiceCompleted) {
+      this.setStatus(t("oio_chat.practice_finished_closed"));
+      return;
+    }
+    const waitingPracticeReply = this.isWaitingPracticeReply(session);
+    if (waitingPracticeReply && session.practiceCompleted) {
       this.setStatus(t("oio_chat.practice_finished_closed"));
       return;
     }
@@ -302,11 +315,11 @@ export class OioChatController {
     this.renderHistory();
     this.renderFeed();
     this.updateMeta();
-    this.setPending(true);
+    this.setSessionPending(session.id, true, session.kind === "practice" ? "practice" : this.activeMode);
 
     try {
       await this.persistSessionSafely(session, false);
-      if (session.kind === "practice") {
+      if (waitingPracticeReply) {
         await this.handlePracticeReply(session, sourceText);
       } else {
         const reply = await createChatReply(sourceText, this.activeMode);
@@ -336,7 +349,7 @@ export class OioChatController {
       await this.persistSessionSafely(session, true);
       void this.syncUsageFromServer();
     } finally {
-      this.setPending(false);
+      this.setSessionPending(session.id, false);
       this.renderModeState();
       this.renderHistory();
       this.renderFeed();
@@ -402,9 +415,11 @@ export class OioChatController {
       return;
     }
 
+    const isPractice = this.activeSession?.kind === "practice";
     const header = `
       <div class="oio-chat-history-head">
         <span class="oio-chat-history-head-label">${escapeHtml(t("oio_chat.history_title"))}</span>
+        <button type="button" class="secondary oio-chat-history-new-btn" data-oio-chat-new ${isPractice ? "disabled" : ""}>${escapeHtml(t("oio_chat.new_chat"))}</button>
       </div>
     `;
 
@@ -493,7 +508,7 @@ export class OioChatController {
       return;
     }
 
-    this.feedEl.innerHTML = session.turns
+    const turnsHtml = session.turns
       .map((turn) => {
         if (turn.role === "user") {
           return `
@@ -533,10 +548,20 @@ export class OioChatController {
           ? `<div class="chat-highlight-list">${turn.keyPhrases.map((item) => this.renderPhraseChip(item)).join("")}</div>`
           : "";
 
-        const actionBlock = turn.sourceText
+        const canStartPracticeNow = this.activeSession?.kind !== "practice"
+          && turn.mode === "rewrite"
+          && Array.isArray(turn.keyPhrases)
+          && turn.keyPhrases.length > 0;
+        const saveAction = turn.sourceText
           ? turn.capturedAt
-            ? `<div class="chat-assistant-actions"><button type="button" class="secondary" disabled>${escapeHtml(t("oio_chat.saved_to"))} ${escapeHtml(formatKeyToSlashDisplay(turn.capturedDateKey ?? this.activeSession?.dateKey ?? dateToLocalKey(new Date())))}</button></div>`
-            : `<div class="chat-assistant-actions"><button type="button" class="secondary" data-refine-turn-id="${escapeHtml(turn.id)}">${escapeHtml(t("oio_chat.save_to_daily_capture"))}</button></div>`
+            ? `<button type="button" class="secondary" disabled>${escapeHtml(t("oio_chat.saved_to"))} ${escapeHtml(formatKeyToSlashDisplay(turn.capturedDateKey ?? this.activeSession?.dateKey ?? dateToLocalKey(new Date())))}</button>`
+            : `<button type="button" class="secondary" data-refine-turn-id="${escapeHtml(turn.id)}">${escapeHtml(t("oio_chat.save_to_daily_capture"))}</button>`
+          : "";
+        const practiceAction = canStartPracticeNow
+          ? `<button type="button" class="secondary" data-start-practice-turn-id="${escapeHtml(turn.id)}">${escapeHtml(t("oio_chat.practice_now"))}</button>`
+          : "";
+        const actionBlock = saveAction || practiceAction
+          ? `<div class="chat-assistant-actions">${saveAction}${practiceAction}</div>`
           : "";
 
         const mainText = turn.text?.trim()
@@ -558,6 +583,18 @@ export class OioChatController {
         `;
       })
       .join("");
+    const pendingBubble = this.isSessionPending(session.id)
+      ? `
+        <article class="chat-bubble chat-bubble--assistant chat-bubble--thinking">
+          <span class="chat-bubble-role">OIO</span>
+          <div class="chat-thinking-row">
+            <span class="chat-thinking-spinner" aria-hidden="true"></span>
+            <span class="chat-assistant-copy">${escapeHtml(t("oio_chat.thinking"))}</span>
+          </div>
+        </article>
+      `
+      : "";
+    this.feedEl.innerHTML = turnsHtml + pendingBubble;
   }
 
   private renderAssistantSection(label: string, text: string): string {
@@ -623,7 +660,7 @@ export class OioChatController {
     `;
   }
 
-  private playEncodedText(encodedText: string): void {
+  private async playEncodedText(encodedText: string): Promise<void> {
     if (!encodedText) return;
     let decoded = "";
     try {
@@ -631,7 +668,7 @@ export class OioChatController {
     } catch {
       decoded = encodedText;
     }
-    const played = getBrowserTtsService().speak(decoded);
+    const played = await getBrowserTtsService().speak(decoded);
     if (!played) {
       this.setStatus(t("oio_chat.voice_playback_unavailable"));
     }
@@ -744,13 +781,14 @@ export class OioChatController {
     if (!this.metaEl || !this.inputEl) return;
     const used = this.usageDailyUsed;
     const limit = this.usageDailyLimit;
-    const usageText = used === null ? `--/${limit} ${t("oio_chat.today")}` : `${used}/${limit} ${t("oio_chat.today")}`;
+    const usedText = used === null ? "--" : String(used);
+    const limitText = limit === null ? "--" : String(limit);
+    const usageText = `${usedText}/${limitText} ${t("oio_chat.today")}`;
     this.metaEl.textContent = `${this.inputEl.value.length}/${oioChatConfig.maxInputChars} ${t("oio_chat.characters")} · ${usageText}`;
   }
 
   private renderModeState(): void {
     const isPractice = this.activeSession?.kind === "practice";
-    const isPracticeCompleted = !!(isPractice && this.activeSession?.practiceCompleted);
     this.root?.classList.toggle("is-practice-session", isPractice);
     this.modeButtons.forEach((button) => {
       const selected = (button.dataset.oioChatMode === "ask" ? "ask" : "rewrite") === this.activeMode;
@@ -758,53 +796,78 @@ export class OioChatController {
       button.setAttribute("aria-pressed", selected ? "true" : "false");
       button.disabled = isPractice;
     });
-    if (this.newChatEl) {
-      this.newChatEl.disabled = isPractice;
-    }
+    const newChatButtons = this.historyEl?.querySelectorAll<HTMLButtonElement>("[data-oio-chat-new]") ?? [];
+    newChatButtons.forEach((button) => {
+      button.disabled = isPractice;
+    });
 
     if (!this.inputEl) return;
     if (isPractice) {
-      this.inputEl.placeholder = isPracticeCompleted
+      this.inputEl.placeholder = this.activeSession?.practiceCompleted
         ? t("oio_chat.practice_placeholder_done")
         : t("oio_chat.practice_placeholder_once");
-      this.inputEl.disabled = isPracticeCompleted;
-      if (this.submitEl) {
-        this.submitEl.disabled = isPracticeCompleted;
-        if (isPracticeCompleted) {
-          this.submitEl.textContent = t("oio_chat.done");
-        } else if (!this.submitEl.textContent?.includes("Thinking")) {
-          this.submitEl.textContent = t("oio_chat.send");
-        }
-      }
+      this.updateComposerPendingState();
       return;
     }
-    if (this.inputEl) this.inputEl.disabled = false;
-    if (this.submitEl) this.submitEl.disabled = false;
     this.inputEl.placeholder = this.activeMode === "ask"
       ? t("oio_chat.ask_placeholder")
       : t("oio_chat.rewrite_placeholder");
+    this.updateComposerPendingState();
   }
 
-  private setPending(pending: boolean): void {
-    if (this.inputEl) {
-      this.inputEl.disabled = pending;
-    }
-    if (this.submitEl) {
-      this.submitEl.disabled = pending;
-      this.submitEl.textContent = pending ? t("oio_chat.thinking") : t("oio_chat.send");
-    }
+  private isSessionPending(sessionId: string): boolean {
+    return this.pendingSessionIds.has(sessionId);
+  }
+
+  private isActiveSessionPending(): boolean {
+    return !!this.activeSessionId && this.pendingSessionIds.has(this.activeSessionId);
+  }
+
+  private setSessionPending(sessionId: string, pending: boolean, pendingMode?: OioChatMode | "practice"): void {
+    if (!sessionId) return;
     if (pending) {
-      this.setStatus(
-        this.activeMode === "ask"
-          ? t("oio_chat.working_answer")
-          : t("oio_chat.working_natural"),
-      );
+      this.pendingSessionIds.add(sessionId);
+      this.pendingSessionModes.set(sessionId, pendingMode ?? "rewrite");
+    } else {
+      this.pendingSessionIds.delete(sessionId);
+      this.pendingSessionModes.delete(sessionId);
     }
-    if (pending && this.speechRecognitionActive) {
+    if (this.activeSessionId === sessionId) {
+      this.updateComposerPendingState();
+      this.renderFeed();
+      this.updateMeta();
+    }
+    if (pending && this.speechRecognitionActive && this.activeSessionId === sessionId) {
       this.speechRecognition?.stop();
       this.speechRecognitionActive = false;
     }
     this.updateVoiceInputState();
+  }
+
+  private updateComposerPendingState(): void {
+    const isPending = this.isActiveSessionPending();
+    const active = this.activeSession;
+    const isPracticeCompleted = !!(active?.kind === "practice" && active.practiceCompleted);
+    if (this.inputEl) {
+      this.inputEl.disabled = isPracticeCompleted || isPending;
+    }
+    if (this.submitEl) {
+      this.submitEl.disabled = isPracticeCompleted || isPending;
+      this.submitEl.textContent = isPracticeCompleted ? t("oio_chat.done") : isPending ? t("oio_chat.thinking") : t("oio_chat.send");
+    }
+    if (isPending && active?.id) {
+      const pendingMode = this.pendingSessionModes.get(active.id);
+      this.setStatus(
+        pendingMode === "ask"
+          ? t("oio_chat.working_answer")
+          : t("oio_chat.working_natural"),
+      );
+      return;
+    }
+    const currentStatus = this.statusEl?.textContent ?? "";
+    if (currentStatus === t("oio_chat.working_answer") || currentStatus === t("oio_chat.working_natural")) {
+      this.setStatus("");
+    }
   }
 
   private setStatus(message: string): void {
@@ -814,31 +877,156 @@ export class OioChatController {
   }
 
   private async startPracticeSession(item: CaptureItem): Promise<void> {
-    if (item.mode !== "ask") return;
-    const baseQuestion = (getCaptureNaturalVersion(item) || item.sourceText).trim();
-    const referenceAnswer = item.answer?.trim() ?? "";
-    const question = baseQuestion;
-
-    const session = createChatSession();
-    session.kind = "practice";
-    session.practice = {
+    const contextText = (getCaptureNaturalVersion(item) || item.answer || item.sourceText).trim();
+    const targetPhrase = (getCaptureKeyPhrases(item)[0] ?? "").trim();
+    if (!contextText) {
+      this.setStatus(t("oio_chat.practice_context_missing"));
+      return;
+    }
+    if (!targetPhrase) {
+      this.setStatus(t("oio_chat.practice_target_missing"));
+      return;
+    }
+    await this.openPracticeSession({
       itemId: item.id,
+      contextText,
+      targetPhrase,
+      referenceAnswer: item.answer?.trim() ?? "",
+      titleSeed: contextText,
+      entry: "card",
+    });
+  }
+
+  private async startPracticeFromTurn(turnId: string): Promise<void> {
+    const session = this.activeSession;
+    if (!session || session.kind === "practice") return;
+    const turn = session.turns.find((item) => item.id === turnId && item.role === "assistant");
+    if (!turn) return;
+    const contextText = (turn.naturalVersion || turn.answer || turn.text || turn.sourceText || "").trim();
+    const targetPhrase = (Array.isArray(turn.keyPhrases) ? turn.keyPhrases[0] : "").trim();
+    if (!contextText) {
+      this.setStatus(t("oio_chat.practice_context_missing"));
+      return;
+    }
+    if (!targetPhrase) {
+      this.setStatus(t("oio_chat.practice_target_missing"));
+      return;
+    }
+    await this.openPracticeSession({
+      itemId: turn.id,
+      contextText,
+      targetPhrase,
+      referenceAnswer: turn.naturalVersion || turn.answer || "",
+      titleSeed: turn.sourceText || contextText,
+      entry: "inline",
+    });
+  }
+
+  private async openPracticeSession({
+    itemId,
+    contextText,
+    targetPhrase,
+    referenceAnswer,
+    titleSeed,
+    entry,
+  }: {
+    itemId: string;
+    contextText: string;
+    targetPhrase: string;
+    referenceAnswer?: string;
+    titleSeed: string;
+    entry: "card" | "inline";
+  }): Promise<void> {
+    const session = entry === "card"
+      ? (() => {
+        const created = createChatSession();
+        created.kind = "practice";
+        created.practice = {
+          itemId,
+          question: "",
+          targetPhrase,
+          referenceAnswer: referenceAnswer?.trim() || undefined,
+          attempt: 0,
+        };
+        created.title = `${t("oio_chat.practice_title_prefix")}: ${this.buildSessionTitle(titleSeed)}`;
+        return created;
+      })()
+      : this.activeSession;
+    if (!session) return;
+
+    if (entry === "inline") {
+      session.practice = {
+        itemId,
+        question: "",
+        targetPhrase,
+        referenceAnswer: referenceAnswer?.trim() || undefined,
+        attempt: 0,
+      };
+      session.practiceCompleted = false;
+    } else {
+      this.sessions = [session, ...this.sessions];
+      this.activeSessionId = session.id;
+      this.activeMode = "ask";
+      this.renderModeState();
+      this.renderHistory();
+      this.renderFeed();
+      this.updateMeta();
+    }
+
+    this.setSessionPending(session.id, true, "practice");
+    await this.persistSessionSafely(session, true);
+
+    let questionResult: Awaited<ReturnType<typeof generatePracticeQuestion>>;
+    try {
+      questionResult = await generatePracticeQuestion({ contextText, targetPhrase });
+    } catch (error) {
+      this.setSessionPending(session.id, false);
+      if (entry === "inline") {
+        session.practice = undefined;
+        session.practiceCompleted = undefined;
+        session.updatedAt = new Date().toISOString();
+        await this.persistSessionSafely(session, true);
+      } else {
+        await deleteChatSession(session.id);
+        this.sessions = this.sessions.filter((item) => item.id !== session.id);
+        if (this.activeSessionId === session.id) {
+          this.activeSessionId = this.sessions[0]?.id ?? "";
+        }
+      }
+      this.setStatus(toChatErrorMessage(error));
+      this.renderModeState();
+      this.renderHistory();
+      this.renderFeed();
+      this.updateMeta();
+      return;
+    }
+    this.applyUsageSnapshot(questionResult.usageDailyUsed, questionResult.usageDailyLimit);
+    const question = questionResult.question.trim();
+    if (!question) {
+      this.setSessionPending(session.id, false);
+      this.setStatus(t("oio_chat.reply_failed"));
+      return;
+    }
+
+    session.practice = {
+      ...(session.practice ?? {
+        itemId,
+        targetPhrase,
+        referenceAnswer: referenceAnswer?.trim() || undefined,
+        attempt: 0,
+      }),
       question,
-      referenceAnswer,
-      attempt: 0,
     };
-    session.title = `${t("oio_chat.practice_title_prefix")}: ${this.buildSessionTitle(baseQuestion)}`;
-    this.activeMode = "ask";
     session.turns.push({
       id: `assistant-question-${Date.now()}`,
       role: "assistant",
-      text: question,
+      text: `${question}\n${this.buildPracticeTryUsingLine(targetPhrase)}`,
+      keyPhrases: [targetPhrase],
       practiceKind: "question",
       occurredAt: new Date().toISOString(),
     });
-
-    this.sessions = [session, ...this.sessions];
-    this.activeSessionId = session.id;
+    session.updatedAt = new Date().toISOString();
+    this.setSessionPending(session.id, false);
     this.setStatus("");
     await this.persistSessionSafely(session, true);
     this.renderModeState();
@@ -848,10 +1036,16 @@ export class OioChatController {
     this.inputEl?.focus();
   }
 
+  private buildPracticeTryUsingLine(targetPhrase: string): string {
+    return `Try using "${targetPhrase}".`;
+  }
+
   private async handlePracticeReply(session: OioChatSession, answer: string): Promise<void> {
     const question = session.practice?.question ?? session.turns.find((turn) => turn.practiceKind === "question")?.text ?? "";
+    const targetPhrase = session.practice?.targetPhrase?.trim()
+      || (session.turns.find((turn) => turn.practiceKind === "question")?.keyPhrases?.[0] ?? "").trim();
     const referenceAnswer = session.practice?.referenceAnswer ?? "";
-    const feedbackResult = await generatePracticeFeedback({ question, answer, referenceAnswer });
+    const feedbackResult = await generatePracticeFeedback({ question, answer, targetPhrase, referenceAnswer });
     this.applyUsageSnapshot(feedbackResult.usageDailyUsed, feedbackResult.usageDailyLimit);
     session.turns.push({
       id: `assistant-feedback-${Date.now()}`,
@@ -864,11 +1058,24 @@ export class OioChatController {
       practiceKind: "feedback",
       occurredAt: new Date().toISOString(),
     });
+    if (session.practice) {
+      session.practice.attempt = (session.practice.attempt ?? 0) + 1;
+    }
     session.practiceCompleted = true;
+    if (session.kind !== "practice") {
+      session.practice = undefined;
+      session.practiceCompleted = undefined;
+    }
     session.updatedAt = new Date().toISOString();
     this.setStatus(t("oio_chat.practice_complete"));
     await this.persistSessionSafely(session, true);
     this.renderModeState();
+  }
+
+  private isWaitingPracticeReply(session: OioChatSession): boolean {
+    if (!session.practice || session.practiceCompleted) return false;
+    const latestAssistant = [...session.turns].reverse().find((turn) => turn.role === "assistant");
+    return latestAssistant?.practiceKind === "question";
   }
 
   private async persistSession(session: OioChatSession, pushCloud = true): Promise<void> {
@@ -997,45 +1204,11 @@ export class OioChatController {
   }
 
   private applyUsageSnapshot(used?: number, limit?: number): void {
-    let updated = false;
     if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
       this.usageDailyLimit = limit;
-      updated = true;
     }
     if (typeof used === "number" && Number.isFinite(used) && used >= 0) {
       this.usageDailyUsed = used;
-      updated = true;
-    }
-    if (updated) {
-      this.persistUsageToStorage();
-    }
-  }
-
-  private loadUsageFromStorage(): void {
-    if (typeof localStorage === "undefined") return;
-    try {
-      const raw = localStorage.getItem(OioChatController.usageStorageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { used?: number; limit?: number } | null;
-      this.applyUsageSnapshot(parsed?.used, parsed?.limit);
-    } catch {
-      // ignore invalid cache
-    }
-  }
-
-  private persistUsageToStorage(): void {
-    if (typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem(
-        OioChatController.usageStorageKey,
-        JSON.stringify({
-          used: this.usageDailyUsed,
-          limit: this.usageDailyLimit,
-          savedAt: Date.now(),
-        }),
-      );
-    } catch {
-      // ignore storage failures
     }
   }
 
@@ -1046,7 +1219,7 @@ export class OioChatController {
       this.applyUsageSnapshot(snapshot.used, snapshot.limit);
       this.updateMeta();
     } catch {
-      // ignore sync failures; keep local cache for display
+      // ignore sync failures and keep current in-memory snapshot
     }
   }
 }
