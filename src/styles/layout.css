@@ -266,12 +266,31 @@
   border-radius: 14px;
   background: rgba(12, 15, 21, 0.98);
   color: #e8eefb;
+  display: grid;
+  justify-items: center;
+  gap: 0.72rem;
+}
+
+.app-tts-switch-spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-top-color: rgba(127, 184, 255, 0.95);
+  border-radius: 50%;
+  animation: app-tts-switch-spin 0.75s linear infinite;
+}
+
+@keyframes app-tts-switch-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .app-tts-switch-status {
   margin: 0;
   font-size: 0.88rem;
   letter-spacing: 0.01em;
+  text-align: center;
 }
 
 .app-account-dock {

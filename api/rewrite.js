@@ -107,10 +107,7 @@ function parseAskPayload(content, config) {
   }
 
   if (parsed?.version !== "3" || parsed?.mode !== "ask") return null;
-  if (typeof parsed?.is_already_natural !== "boolean") return null;
-  if (typeof parsed?.encouragement !== "string") return null;
-  if (typeof parsed?.natural_version !== "string") return null;
-  if (typeof parsed?.answer !== "string" || !parsed.answer.trim()) return null;
+  if (typeof parsed?.reply !== "string" || !parsed.reply.trim()) return null;
 
   const keyPhrases = normalizeKeyPhrases(parsed.key_phrases, config);
   if (keyPhrases.length < 1 || keyPhrases.length > config.maxKeyPhrases) return null;
@@ -118,10 +115,7 @@ function parseAskPayload(content, config) {
   return {
     version: "3",
     mode: "ask",
-    is_already_natural: parsed.is_already_natural,
-    encouragement: parsed.encouragement.trim(),
-    natural_version: parsed.natural_version.trim(),
-    answer: parsed.answer.trim(),
+    reply: parsed.reply.trim(),
     key_phrases: keyPhrases,
   };
 }
@@ -338,7 +332,7 @@ export default async function handler(req, res) {
     inputChars: inputBundle.length,
     outputChars:
       mode === "ask"
-        ? parsed.natural_version.length + parsed.answer.length
+        ? parsed.reply.length
         : mode === "rewrite"
           ? parsed.natural_version.length + parsed.quick_note.length
           : mode === "practice_question"

@@ -7,6 +7,7 @@ export interface ChatTurn {
   text: string;
   mode?: OioChatMode;
   naturalVersion?: string;
+  reply?: string;
   answer?: string;
   quickNote?: string;
   keyPhrases?: string[];

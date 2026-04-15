@@ -281,6 +281,7 @@
                     </div>
                   </div>
                   <div class="practice-global-audio-controls" aria-label="练习区播放设置">
+                    <button type="button" id="player-play-btn" class="secondary"><span class="player-play-icon" aria-hidden="true">▶</span> 播放 / 暂停</button>
                     <label class="practice-global-audio-item" for="player-rate">
                       <span class="practice-global-audio-label">倍速</span>
                       <select id="player-rate" class="player-rate-select" aria-label="播放倍速">
@@ -294,7 +295,7 @@
                       </select>
                     </label>
                     <label class="practice-global-audio-item" for="loop-sentence">
-                      <span class="practice-global-audio-label">循环当前句</span>
+                      <span class="practice-global-audio-label">循环</span>
                       <input type="checkbox" id="loop-sentence" />
                     </label>
                   </div>
@@ -576,6 +577,7 @@
     </dialog>
     <div class="app-tts-switch-block" data-tts-switch-block hidden>
       <div class="app-tts-switch-panel">
+        <span class="app-tts-switch-spinner" aria-hidden="true"></span>
         <p class="app-tts-switch-status" data-tts-switch-status>正在切换语音设置...</p>
       </div>
     </div>

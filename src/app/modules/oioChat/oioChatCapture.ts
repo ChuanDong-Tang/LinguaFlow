@@ -34,7 +34,7 @@ export async function saveTurnToDailyCapture(turn: ChatTurn, dateKey = dateToLoc
       sourceText: turn.sourceText ?? "",
       naturalVersion,
       correctedText: naturalVersion,
-      answer: turn.answer?.trim() ?? "",
+      answer: turn.reply?.trim() ?? turn.answer?.trim() ?? "",
       keyPhrases: Array.isArray(turn.keyPhrases) ? turn.keyPhrases.slice(0, 4) : [],
       keyPhraseSource,
       quickNote: turn.quickNote?.trim() ?? "",

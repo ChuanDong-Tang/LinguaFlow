@@ -4,6 +4,7 @@ import { RewriteApiError, requestOioChat } from "../rewrite/rewriteClient";
 export interface ChatReply {
   mode: OioChatMode;
   naturalVersion: string;
+  reply?: string;
   answer?: string;
   quickNote?: string;
   keyPhrases: string[];
@@ -19,11 +20,9 @@ export async function createChatReply(sourceText: string, mode: OioChatMode): Pr
   if (payload.mode === "ask") {
     return {
       mode,
-      naturalVersion: payload.natural_version.trim(),
-      answer: payload.answer.trim(),
+      naturalVersion: "",
+      reply: payload.reply.trim(),
       keyPhrases: payload.key_phrases.slice(0, 4),
-      isAlreadyNatural: payload.is_already_natural,
-      encouragement: payload.encouragement.trim(),
       usageDailyUsed: typeof payload.usage?.daily_used === "number" ? payload.usage.daily_used : undefined,
       usageDailyLimit: typeof payload.usage?.daily_limit === "number" ? payload.usage.daily_limit : undefined,
     };

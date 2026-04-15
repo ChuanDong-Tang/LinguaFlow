@@ -12,6 +12,8 @@ import {
   setSelectedKokoroVoiceId,
 } from "../services/tts/browserTtsService";
 
+const KOKORO_SWITCH_TIMEOUT_MS = 15_000;
+
 export class AppShellController {
   private readonly root: Element | null;
   private activeTabId: AppTabId = DEFAULT_TAB_ID;
@@ -56,6 +58,8 @@ export class AppShellController {
   private authPlanKey: "free" | "pro" | null = null;
   private authPlanUserId: string | null = null;
   private lastAuthStatus: AuthSnapshot["status"] | null = null;
+  private uiBlockCount = 0;
+  private uiBlockSafetyTimer: number | null = null;
 
   constructor({ root = document.querySelector(".oio-app") }: { root?: Element | null } = {}) {
     this.root = root;
@@ -182,12 +186,13 @@ export class AppShellController {
         const source = optionEl.dataset.ttsSourceOption?.trim() ?? "";
         if (!source) return;
         if (source === "kokoro") {
+          const voiceId = getSelectedKokoroVoiceId();
           let ok = false;
-          await this.withTtsSwitchBlock("正在切换到 Kokoro 并预热模型...", async () => {
-            ok = await getBrowserTtsService().switchToKokoroWithWarmup(10_000);
+          await this.withTtsSwitchBlock(`正在切换到 Kokoro（${voiceId}）并预热模型（最多 15 秒）...`, async () => {
+            ok = await getBrowserTtsService().switchToKokoroWithWarmup(KOKORO_SWITCH_TIMEOUT_MS);
           });
           if (!ok) {
-            window.alert("Kokoro 预热失败，已自动切回 Web Speech。");
+            window.alert("Kokoro 初始化失败（超过 15 秒或预热失败），已自动切回 Web Speech。");
           }
         } else {
           getBrowserTtsService().setPlaybackSource("web");
@@ -207,11 +212,11 @@ export class AppShellController {
       setSelectedKokoroVoiceId(voiceId);
       if (getSelectedTtsPlaybackSource() === "kokoro") {
         let ok = false;
-        await this.withTtsSwitchBlock("正在切换音色并预热模型...", async () => {
-          ok = await getBrowserTtsService().switchToKokoroWithWarmup(10_000);
+        await this.withTtsSwitchBlock(`正在切换 Kokoro 音色到 ${voiceId} 并预热模型（最多 15 秒）...`, async () => {
+          ok = await getBrowserTtsService().switchToKokoroWithWarmup(KOKORO_SWITCH_TIMEOUT_MS);
         });
         if (!ok) {
-          window.alert("Kokoro 预热失败，已自动切回 Web Speech。");
+          window.alert("Kokoro 初始化失败（超过 15 秒或预热失败），已自动切回 Web Speech。");
         }
       }
       this.syncTtsVoiceOptions();
@@ -225,6 +230,14 @@ export class AppShellController {
       if (!tabId) return;
       this.setActiveTab(tabId);
       this.setMobileNavOpen(false);
+    });
+
+    document.addEventListener("app-block-ui", (event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      this.showUiBlock(detail?.message || "正在处理中...");
+    });
+    document.addEventListener("app-unblock-ui", () => {
+      this.hideUiBlock();
     });
 
     this.ttsDebugCloseEl?.addEventListener("click", () => {
@@ -580,18 +593,64 @@ export class AppShellController {
   }
 
   private async withTtsSwitchBlock(message: string, work: () => Promise<void>): Promise<void> {
+    const shouldRestoreSettingsDialog = !!this.ttsSettingsDialogEl?.open;
+    if (shouldRestoreSettingsDialog) {
+      this.ttsSettingsOpen = false;
+      this.ttsSettingsDialogEl?.close();
+      if (this.ttsSettingsToggleEl) {
+        this.ttsSettingsToggleEl.classList.remove("is-open");
+        this.ttsSettingsToggleEl.setAttribute("aria-expanded", "false");
+      }
+    }
+    this.showUiBlock(message);
+    try {
+      await work();
+    } finally {
+      this.hideUiBlock();
+      if (shouldRestoreSettingsDialog) {
+        this.openTtsSettingsDialog();
+      }
+    }
+  }
+
+  private showUiBlock(message: string): void {
+    this.uiBlockCount += 1;
+    this.armUiBlockSafetyTimer();
     if (this.ttsSwitchStatusEl) {
       this.ttsSwitchStatusEl.textContent = message;
     }
     if (this.ttsSwitchBlockEl) {
       this.ttsSwitchBlockEl.hidden = false;
     }
-    try {
-      await work();
-    } finally {
+  }
+
+  private hideUiBlock(): void {
+    this.uiBlockCount = Math.max(0, this.uiBlockCount - 1);
+    if (this.uiBlockCount > 0) {
+      this.armUiBlockSafetyTimer();
+      return;
+    }
+    this.clearUiBlockSafetyTimer();
+    if (this.ttsSwitchBlockEl) {
+      this.ttsSwitchBlockEl.hidden = true;
+    }
+  }
+
+  private armUiBlockSafetyTimer(): void {
+    this.clearUiBlockSafetyTimer();
+    this.uiBlockSafetyTimer = window.setTimeout(() => {
+      this.uiBlockCount = 0;
+      this.uiBlockSafetyTimer = null;
       if (this.ttsSwitchBlockEl) {
         this.ttsSwitchBlockEl.hidden = true;
       }
+    }, 15_000);
+  }
+
+  private clearUiBlockSafetyTimer(): void {
+    if (this.uiBlockSafetyTimer !== null) {
+      window.clearTimeout(this.uiBlockSafetyTimer);
+      this.uiBlockSafetyTimer = null;
     }
   }
 

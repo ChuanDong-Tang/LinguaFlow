@@ -1,6 +1,7 @@
 import { dateToLocalKey, formatKeyToSlashDisplay } from "../../dateUtils.js";
 import { confirmDialog } from "../../shared/confirmDialog";
 import { escapeHtml } from "../../shared/html";
+import { renderTextWithKeyPhraseHighlight } from "../../shared/keyPhraseHighlight";
 import { oioChatConfig } from "../../services/chat/chatConfig";
 import { createChatReply, toChatErrorMessage, type ChatReply } from "../../services/chat/chatService";
 import { fetchChatUsageSnapshot } from "../../services/chat/chatUsageService";
@@ -21,7 +22,7 @@ interface SpeechRecognitionLike {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onresult: ((event: { resultIndex?: number; results: ArrayLike<{ 0?: { transcript?: string }; isFinal?: boolean }> }) => void) | null;
   onerror: ((event: { error?: string }) => void) | null;
   onend: (() => void) | null;
   start(): void;
@@ -48,6 +49,8 @@ export class OioChatController {
   private adminViewerResolved = false;
   private speechRecognition: SpeechRecognitionLike | null = null;
   private speechRecognitionActive = false;
+  private speechRecognitionRequested = false;
+  private speechRecognitionDraft = "";
   private usageDailyUsed: number | null = null;
   private usageDailyLimit: number | null = null;
   private cloudHasMore = false;
@@ -204,13 +207,6 @@ export class OioChatController {
         await this.playEncodedText(encodedText);
         return;
       }
-      const practiceBtn = target?.closest<HTMLButtonElement>("[data-start-practice-turn-id]");
-      if (practiceBtn) {
-        const turnId = practiceBtn.dataset.startPracticeTurnId?.trim() ?? "";
-        if (!turnId) return;
-        await this.startPracticeFromTurn(turnId);
-        return;
-      }
       const captureBtn = target?.closest<HTMLButtonElement>("[data-refine-turn-id]");
       if (!captureBtn) return;
       const turnId = captureBtn.dataset.refineTurnId?.trim() ?? "";
@@ -222,7 +218,9 @@ export class OioChatController {
       const detail = (event as CustomEvent<{ item?: CaptureItem }>).detail;
       const item = detail?.item;
       if (!item) return;
-      void this.startPracticeSession(item);
+      void this.withUiBlock("正在打开练习...", async () => {
+        await this.startPracticeSession(item);
+      });
     });
 
     document.addEventListener("app-auth-signed-in", () => {
@@ -384,6 +382,7 @@ export class OioChatController {
       mode: reply.mode,
       text: "",
       naturalVersion,
+      reply: reply.reply,
       answer: reply.answer,
       quickNote: reply.quickNote,
       keyPhrases: reply.keyPhrases,
@@ -520,19 +519,19 @@ export class OioChatController {
         }
 
         const naturalVersionBlock = turn.naturalVersion
-          ? this.renderAssistantSection(t("oio_chat.section_natural"), turn.naturalVersion)
+          ? this.renderAssistantSection(t("oio_chat.section_natural"), turn.naturalVersion, turn.keyPhrases)
           : "";
 
         const encouragementBlock = turn.encouragement
-          ? this.renderAssistantSection(t("oio_chat.section_encouragement"), turn.encouragement)
+          ? this.renderAssistantSection(t("oio_chat.section_encouragement"), turn.encouragement, turn.keyPhrases)
           : "";
 
-        const answerBlock = turn.answer
-          ? this.renderAssistantSection(t("oio_chat.section_answer"), turn.answer)
+        const answerBlock = (turn.reply || turn.answer)
+          ? this.renderAssistantSection(t("oio_chat.section_answer"), turn.reply || turn.answer || "", turn.keyPhrases)
           : "";
 
-        const quickNoteBlock = turn.quickNote
-          ? this.renderAssistantSection(t("oio_chat.section_quick_note"), turn.quickNote)
+        const quickNoteBlock = turn.mode !== "ask" && turn.quickNote
+          ? this.renderAssistantSection(t("oio_chat.section_quick_note"), turn.quickNote, turn.keyPhrases)
           : "";
 
         const adminDebugBlock = this.isAdminViewer && turn.adminDebug?.trim()
@@ -548,24 +547,17 @@ export class OioChatController {
           ? `<div class="chat-highlight-list">${turn.keyPhrases.map((item) => this.renderPhraseChip(item)).join("")}</div>`
           : "";
 
-        const canStartPracticeNow = this.activeSession?.kind !== "practice"
-          && turn.mode === "rewrite"
-          && Array.isArray(turn.keyPhrases)
-          && turn.keyPhrases.length > 0;
         const saveAction = turn.sourceText
           ? turn.capturedAt
             ? `<button type="button" class="secondary" disabled>${escapeHtml(t("oio_chat.saved_to"))} ${escapeHtml(formatKeyToSlashDisplay(turn.capturedDateKey ?? this.activeSession?.dateKey ?? dateToLocalKey(new Date())))}</button>`
             : `<button type="button" class="secondary" data-refine-turn-id="${escapeHtml(turn.id)}">${escapeHtml(t("oio_chat.save_to_daily_capture"))}</button>`
           : "";
-        const practiceAction = canStartPracticeNow
-          ? `<button type="button" class="secondary" data-start-practice-turn-id="${escapeHtml(turn.id)}">${escapeHtml(t("oio_chat.practice_now"))}</button>`
-          : "";
-        const actionBlock = saveAction || practiceAction
-          ? `<div class="chat-assistant-actions">${saveAction}${practiceAction}</div>`
+        const actionBlock = saveAction
+          ? `<div class="chat-assistant-actions">${saveAction}</div>`
           : "";
 
         const mainText = turn.text?.trim()
-          ? this.renderSpeakLines(turn.text, "chat-bubble-text")
+          ? this.renderSpeakLines(turn.text, "chat-bubble-text", turn.keyPhrases)
           : "";
 
         return `
@@ -597,28 +589,29 @@ export class OioChatController {
     this.feedEl.innerHTML = turnsHtml + pendingBubble;
   }
 
-  private renderAssistantSection(label: string, text: string): string {
+  private renderAssistantSection(label: string, text: string, keyPhrases?: string[]): string {
     return `
       <div class="chat-assistant-section">
         <span class="chat-assistant-label">${escapeHtml(label)}</span>
-        ${this.renderSpeakParagraph(text, "chat-assistant-copy")}
+        ${this.renderSpeakParagraph(text, "chat-assistant-copy", keyPhrases)}
       </div>
     `;
   }
 
-  private renderSpeakParagraph(text: string, textClassName: string): string {
+  private renderSpeakParagraph(text: string, textClassName: string, keyPhrases?: string[]): string {
     const content = text.trim();
     if (!content) return "";
     const encoded = escapeHtml(encodeURIComponent(content));
+    const highlighted = renderTextWithKeyPhraseHighlight(content, keyPhrases);
     return `
       <div class="chat-speak-line">
-        <p class="${textClassName}">${escapeHtml(content)}</p>
+        <p class="${textClassName}">${highlighted}</p>
         ${this.renderSpeakButton("data-oio-chat-speak", encoded)}
       </div>
     `;
   }
 
-  private renderSpeakLines(text: string, textClassName: string): string {
+  private renderSpeakLines(text: string, textClassName: string, keyPhrases?: string[]): string {
     const lines = splitTextForSpeech(text);
     if (!lines.length) return "";
     return `
@@ -626,9 +619,10 @@ export class OioChatController {
         ${lines
           .map((line) => {
             const encoded = escapeHtml(encodeURIComponent(line));
+            const highlighted = renderTextWithKeyPhraseHighlight(line, keyPhrases);
             return `
               <div class="chat-speak-line">
-                <p class="${textClassName}">${escapeHtml(line)}</p>
+                <p class="${textClassName}">${highlighted}</p>
                 ${this.renderSpeakButton("data-oio-chat-speak", encoded)}
               </div>
             `;
@@ -686,22 +680,47 @@ export class OioChatController {
 
     const recognition = new recognitionCtor();
     recognition.lang = "en-US";
-    recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? "";
-      if (!transcript || !this.inputEl) return;
-      this.inputEl.value = this.inputEl.value.trim() ? `${this.inputEl.value.trim()} ${transcript}` : transcript;
+      if (!this.inputEl) return;
+      const base = this.speechRecognitionDraft;
+      let finalChunk = "";
+      let interimChunk = "";
+      const start = typeof event.resultIndex === "number" ? event.resultIndex : 0;
+      for (let index = start; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result?.[0]?.transcript?.trim() ?? "";
+        if (!transcript) continue;
+        if (result.isFinal) {
+          finalChunk += `${transcript} `;
+        } else {
+          interimChunk += `${transcript} `;
+        }
+      }
+      if (finalChunk.trim()) {
+        this.speechRecognitionDraft = `${base} ${finalChunk}`.trim();
+      }
+      const merged = `${this.speechRecognitionDraft} ${interimChunk}`.trim();
+      this.inputEl.value = merged;
       this.updateMeta();
     };
     recognition.onerror = () => {
       this.speechRecognitionActive = false;
+      this.speechRecognitionRequested = false;
       this.updateVoiceInputState();
       this.setStatus(t("oio_chat.voice_input_failed"));
     };
     recognition.onend = () => {
       this.speechRecognitionActive = false;
       this.updateVoiceInputState();
+      if (this.speechRecognitionRequested) {
+        window.setTimeout(() => {
+          void this.startSpeechInput();
+        }, 120);
+        return;
+      }
+      this.setStatus(t("oio_chat.voice_input_stopped"));
     };
     this.speechRecognition = recognition;
   }
@@ -711,19 +730,29 @@ export class OioChatController {
       this.setStatus(t("oio_chat.voice_input_unavailable_browser"));
       return;
     }
-    if (this.speechRecognitionActive) {
+    if (this.speechRecognitionActive || this.speechRecognitionRequested) {
+      this.speechRecognitionRequested = false;
       this.speechRecognition.stop();
       this.speechRecognitionActive = false;
       this.updateVoiceInputState();
+      this.setStatus(t("oio_chat.voice_input_stopped"));
       return;
     }
+    void this.startSpeechInput();
+  }
+
+  private async startSpeechInput(): Promise<void> {
+    if (!this.speechRecognition) return;
     try {
+      this.speechRecognitionDraft = this.inputEl?.value?.trim() ?? "";
+      this.speechRecognitionRequested = true;
       this.speechRecognition.start();
       this.speechRecognitionActive = true;
       this.setStatus(t("oio_chat.listening"));
       this.updateVoiceInputState();
     } catch {
       this.speechRecognitionActive = false;
+      this.speechRecognitionRequested = false;
       this.updateVoiceInputState();
       this.setStatus(t("oio_chat.voice_input_start_failed"));
     }
@@ -735,12 +764,15 @@ export class OioChatController {
     this.voiceInputEl.disabled = !supported;
     this.voiceInputEl.classList.toggle("is-listening", this.speechRecognitionActive);
     this.voiceInputEl.innerHTML = `
-      <svg viewBox="0 0 24 24" class="oio-chat-voice-input-icon" aria-hidden="true">
-        <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z" fill="currentColor"></path>
-        <path d="M6 11a6 6 0 0 0 12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-        <path d="M12 17v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-        <path d="M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-      </svg>
+      <span class="oio-chat-voice-visual" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="oio-chat-voice-input-icon" aria-hidden="true">
+          <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z" fill="currentColor"></path>
+          <path d="M6 11a6 6 0 0 0 12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          <path d="M12 17v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          <path d="M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+        </svg>
+        <span class="oio-chat-voice-rings"><i></i><i></i><i></i></span>
+      </span>
     `;
     this.voiceInputEl.setAttribute(
       "aria-label",
@@ -838,6 +870,7 @@ export class OioChatController {
       this.updateMeta();
     }
     if (pending && this.speechRecognitionActive && this.activeSessionId === sessionId) {
+      this.speechRecognitionRequested = false;
       this.speechRecognition?.stop();
       this.speechRecognitionActive = false;
     }
@@ -876,6 +909,23 @@ export class OioChatController {
     }
   }
 
+  private async withUiBlock(message: string, work: () => Promise<void>): Promise<void> {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      document.dispatchEvent(new CustomEvent("app-unblock-ui"));
+    };
+    const timer = window.setTimeout(release, 8_000);
+    document.dispatchEvent(new CustomEvent("app-block-ui", { detail: { message } }));
+    try {
+      await work();
+    } finally {
+      window.clearTimeout(timer);
+      release();
+    }
+  }
+
   private async startPracticeSession(item: CaptureItem): Promise<void> {
     const contextText = (getCaptureNaturalVersion(item) || item.answer || item.sourceText).trim();
     const targetPhrase = (getCaptureKeyPhrases(item)[0] ?? "").trim();
@@ -894,31 +944,6 @@ export class OioChatController {
       referenceAnswer: item.answer?.trim() ?? "",
       titleSeed: contextText,
       entry: "card",
-    });
-  }
-
-  private async startPracticeFromTurn(turnId: string): Promise<void> {
-    const session = this.activeSession;
-    if (!session || session.kind === "practice") return;
-    const turn = session.turns.find((item) => item.id === turnId && item.role === "assistant");
-    if (!turn) return;
-    const contextText = (turn.naturalVersion || turn.answer || turn.text || turn.sourceText || "").trim();
-    const targetPhrase = (Array.isArray(turn.keyPhrases) ? turn.keyPhrases[0] : "").trim();
-    if (!contextText) {
-      this.setStatus(t("oio_chat.practice_context_missing"));
-      return;
-    }
-    if (!targetPhrase) {
-      this.setStatus(t("oio_chat.practice_target_missing"));
-      return;
-    }
-    await this.openPracticeSession({
-      itemId: turn.id,
-      contextText,
-      targetPhrase,
-      referenceAnswer: turn.naturalVersion || turn.answer || "",
-      titleSeed: turn.sourceText || contextText,
-      entry: "inline",
     });
   }
 

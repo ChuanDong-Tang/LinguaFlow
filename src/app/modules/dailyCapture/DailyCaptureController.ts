@@ -2,6 +2,7 @@ import { getCaptureKeyPhrases, getCaptureNaturalVersion } from "../../domain/cap
 import { addMonthsClamp, dateToLocalKey, formatKeyToSlashDisplay } from "../../dateUtils.js";
 import { confirmDialog } from "../../shared/confirmDialog";
 import { escapeHtml } from "../../shared/html";
+import { renderTextWithKeyPhraseHighlight } from "../../shared/keyPhraseHighlight";
 import { pullCaptureIndex, pullCaptureRecordByDate, pushCaptureRecord } from "../../services/cloud/cloudSyncService";
 import { getI18n, t } from "../../i18n/i18n";
 import { onDailyCaptureUpdated } from "./dailyCaptureEvents";
@@ -305,11 +306,11 @@ export class DailyCaptureController {
       <article class="daily-capture-entry daily-capture-entry--dialog">
         <div class="daily-capture-entry-block">
           <span class="daily-capture-entry-label">${item.mode === "ask" ? t("daily_capture.label_question") : t("daily_capture.label_original")}</span>
-          <p class="daily-capture-entry-copy">${escapeHtml(item.sourceText)}</p>
+          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(item.sourceText, getCaptureKeyPhrases(item))}</p>
         </div>
         <div class="daily-capture-entry-block">
           <span class="daily-capture-entry-label">${t("daily_capture.label_natural")}</span>
-          <p class="daily-capture-entry-copy">${escapeHtml(getCaptureNaturalVersion(item))}</p>
+          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(getCaptureNaturalVersion(item), getCaptureKeyPhrases(item))}</p>
         </div>
         <div class="daily-capture-entry-block">
           <span class="daily-capture-entry-label">${t("daily_capture.label_key_phrases")}</span>
@@ -338,7 +339,8 @@ export class DailyCaptureController {
 
   private launchOioPractice(item: CaptureItem): void {
     const practiceText = (getCaptureNaturalVersion(item) || item.sourceText).trim();
-    this.startPracticeWithText(practiceText, practiceText ? [practiceText] : undefined);
+    const keyPhrases = getCaptureKeyPhrases(item);
+    this.startPracticeWithText(practiceText, practiceText ? [practiceText] : undefined, keyPhrases.length ? [keyPhrases] : undefined);
   }
 
   private launchSelectedDayPractice(): void {
@@ -353,14 +355,16 @@ export class DailyCaptureController {
       .map((item) => getCaptureNaturalVersion(item) || item.sourceText)
       .map((text) => text.trim())
       .filter(Boolean);
-    this.startPracticeWithText(cardTexts.join("\n"), cardTexts);
+    const cardPhraseChunks = items.map((item) => getCaptureKeyPhrases(item));
+    this.startPracticeWithText(cardTexts.join("\n"), cardTexts, cardPhraseChunks);
   }
 
-  private startPracticeWithText(practiceText: string, cardChunks?: string[]): void {
+  private startPracticeWithText(practiceText: string, cardChunks?: string[], cardPhraseChunks?: string[][]): void {
     const text = practiceText.trim();
     if (!text) return;
     const inputEl = document.querySelector<HTMLTextAreaElement>("#text");
     const generateBtn = document.querySelector<HTMLButtonElement>("#generate");
+    document.dispatchEvent(new CustomEvent("app-block-ui", { detail: { message: "正在打开练习..." } }));
     if (inputEl) {
       inputEl.value = text;
       if (Array.isArray(cardChunks) && cardChunks.length > 0) {
@@ -368,10 +372,19 @@ export class DailyCaptureController {
       } else {
         delete inputEl.dataset.practiceCardChunks;
       }
+      if (Array.isArray(cardPhraseChunks) && cardPhraseChunks.length > 0) {
+        inputEl.dataset.practiceCardKeyPhrases = JSON.stringify(cardPhraseChunks);
+      } else {
+        delete inputEl.dataset.practiceCardKeyPhrases;
+      }
+      inputEl.dataset.practiceOpeningHint = "daily";
       inputEl.dispatchEvent(new Event("input", { bubbles: true }));
       inputEl.focus();
     }
     generateBtn?.click();
+    if (!generateBtn) {
+      document.dispatchEvent(new CustomEvent("app-unblock-ui"));
+    }
     const practiceSection = this.root?.querySelector<HTMLElement>("#subs-section");
     practiceSection?.scrollIntoView({ behavior: "smooth", block: "start" });
   }

@@ -151,6 +151,7 @@ var qt = `month`,
   B = [],
   V = [],
   ue = [],
+  pe = [],
   de = 0,
   H = -1,
   U = 0,
@@ -164,6 +165,57 @@ var qt = `month`,
   Xt = null;
 function W(e) {
   Xe && (Xe.textContent = e ?? ``);
+}
+function dn2(e) {
+  return String(e ?? ``).replace(/[&<>"']/g, (e) =>
+    e === `&`
+      ? `&amp;`
+      : e === `<`
+      ? `&lt;`
+      : e === `>`
+      ? `&gt;`
+      : e === `"`
+      ? `&quot;`
+      : `&#39;`,
+  );
+}
+function hn2(e) {
+  return String(e ?? ``).replace(/[.*+?^${}()|[\]\\]/g, `\\$&`);
+}
+function pn2(e, t) {
+  let n = String(e ?? ``),
+    r = Array.isArray(t)
+      ? t
+          .map((e) => String(e ?? ``).trim())
+          .filter(Boolean)
+          .sort((e, t) => t.length - e.length)
+      : [];
+  if (!n || !r.length) return dn2(n);
+  let i = [],
+    a = new Set();
+  for (let e of r) {
+    let t = e.toLowerCase();
+    if (a.has(t)) continue;
+    a.add(t);
+    let r = new RegExp(hn2(e), `gi`),
+      o = null;
+    for (; (o = r.exec(n)) !== null; ) {
+      if (!o[0]) break;
+      i.push({ start: o.index, end: o.index + o[0].length });
+    }
+  }
+  if (!i.length) return dn2(n);
+  i.sort((e, t) => (e.start !== t.start ? e.start - t.start : t.end - e.end));
+  let o = [],
+    s = 0;
+  for (let e of i) (!o.length || e.start >= s) && (o.push(e), (s = e.end));
+  let c = ``,
+    l = 0;
+  for (let e of o)
+    (e.start > l && (c += dn2(n.slice(l, e.start))),
+      (c += `<mark class="cue-keyphrase-highlight">${dn2(n.slice(e.start, e.end))}</mark>`),
+      (l = e.end));
+  return l < n.length && (c += dn2(n.slice(l))), c;
 }
 var G = new l({
     playerEl: v,
@@ -1091,8 +1143,10 @@ function vr(e, t) {
         (n > 0 && i.appendChild(document.createTextNode(` `)),
         t.type === `text`)
       ) {
-        let e = document.createElement(`span`);
-        ((e.className = `fb-text`), (e.textContent = t.text), i.appendChild(e));
+        let r = document.createElement(`span`);
+        ((r.className = `fb-text`),
+          (r.innerHTML = pn2(t.text, pe[e] ?? [])),
+          i.appendChild(r));
       } else {
         let r = Number(t.wordIndex),
           a = Number.isFinite(r) ? `${e}:${r}` : `${e}:${n}`,
@@ -1274,6 +1328,7 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
       Number.isFinite(n) && n > 0
         ? Math.max(1, Math.floor(n))
         : (r.length ? Math.max(...r) + 1 : 0);
+  (!Array.isArray(pe) || pe.length !== e.length) && (pe = e.map(() => []));
   ((z = e),
     (ue = r),
     (de = i),
@@ -1300,9 +1355,9 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
         r.addEventListener(`click`, (e) => {
           (e.stopPropagation(), playCueInline(t));
         }));
-      let i = document.createElement(`p`);
+    let i = document.createElement(`p`);
       ((i.className = `cue cue-reference`),
-        (i.textContent = e.text),
+        (i.innerHTML = pn2(e.text, pe[t] ?? [])),
         i.addEventListener(`click`, (e) => {
           (e.stopPropagation(),
             (practicePageIndex = ue[t] ?? t),
@@ -1614,8 +1669,9 @@ function Br() {
       }
       return;
     }
-    if ((t || n) && e.ctrlKey && e.shiftKey) {
+    if ((t || n) && e.ctrlKey) {
       if (e.code === `ArrowUp`) {
+        if (!e.shiftKey) return;
         if (!v.src) return;
         (e.preventDefault(), e.stopPropagation(), rr());
         return;
@@ -1647,17 +1703,37 @@ function Br() {
     let e = Ue.value.trim();
     if (!e) {
       W(`请先粘贴或输入英文文本。`);
+      if (Ue.dataset.practiceOpeningHint === `daily`) {
+        delete Ue.dataset.practiceCardChunks;
+        delete Ue.dataset.practiceCardKeyPhrases;
+        delete Ue.dataset.practiceOpeningHint;
+        document.dispatchEvent(new CustomEvent(`app-unblock-ui`));
+      }
       return;
     }
     let t2 = practiceGenerateRunCount <= 0;
     practiceGenerateRunCount += 1;
+    let n2 = Ue.dataset.practiceOpeningHint === `daily`;
+    t2 &&
+      !n2 &&
+      document.dispatchEvent(
+        new CustomEvent(`app-block-ui`, {
+          detail: { message: `正在打开练习（首次生成会稍慢）...` },
+        }),
+      );
     W(t2 ? `正在生成练习（首次生成会稍慢，请稍等）...` : `正在生成练习...`);
     let t = [],
-      n = [];
+      n = [],
+      r2 = [];
     try {
       n = JSON.parse(Ue.dataset.practiceCardChunks || `[]`);
     } catch {
       n = [];
+    }
+    try {
+      r2 = JSON.parse(Ue.dataset.practiceCardKeyPhrases || `[]`);
+    } catch {
+      r2 = [];
     }
     let r = Array.isArray(n) && n.length > 0 ? n.map((e) => String(e || ``).trim()).filter(Boolean) : [e],
       i = [],
@@ -1673,31 +1749,38 @@ function Br() {
     i.length || (i = splitPracticeSentences(e));
     i.length || (i = [e]);
     i.length !== a.length && (a = i.map((e, t) => t));
+    pe = i.map((e, t) => {
+      let n = a[t] ?? 0,
+        r = Array.isArray(r2?.[n]) ? r2[n] : [];
+      return r
+        .map((e) => String(e ?? ``).trim())
+        .filter(Boolean);
+    });
     t = i;
-    ((Je.disabled = !0),
-      (z = []),
-      (ue = []),
-      (de = 0),
-      (B = []),
-      (V = []),
-      (H = -1),
-      (U = 0),
-      b && (b.checked = !1),
-      ir(),
-      (D = `subtitles`),
-      (O = {}),
-      (k = {}),
-      K.clearCurrentHistoryEntryId(),
-      Z(),
-      or(),
-      y.classList.remove(`oio-fillblank-reviewed`),
-      (y.innerHTML = ``),
-      v.pause(),
-      stopSpeechPlayback(),
-      tn(),
-      v.removeAttribute(`src`),
-      v.load());
+    Je.disabled = !0;
     try {
+      ((z = []),
+        (ue = []),
+        (de = 0),
+        (B = []),
+        (V = []),
+        (H = -1),
+        (U = 0),
+        b && (b.checked = !1),
+        ir(),
+        (D = `subtitles`),
+        (O = {}),
+        (k = {}),
+        K.clearCurrentHistoryEntryId(),
+        Z(),
+        or(),
+        y.classList.remove(`oio-fillblank-reviewed`),
+        (y.innerHTML = ``),
+        v.pause(),
+        stopSpeechPlayback(),
+        tn(),
+        v.removeAttribute(`src`),
+        v.load());
       let o = buildEstimatedCues(t),
         s = o.length ? o[o.length - 1].end : 1,
         c = buildSilentWavBlob(s + 0.4);
@@ -1721,15 +1804,21 @@ function Br() {
         ));
     } finally {
       delete Ue.dataset.practiceCardChunks;
+      delete Ue.dataset.practiceCardKeyPhrases;
+      delete Ue.dataset.practiceOpeningHint;
       Je.disabled = !1;
+      document.dispatchEvent(new CustomEvent(`app-unblock-ui`));
     }
   }),
   Ye?.addEventListener(`click`, () => {
     ((Ue.value = ``),
       delete Ue.dataset.practiceCardChunks,
+      delete Ue.dataset.practiceCardKeyPhrases,
+      delete Ue.dataset.practiceOpeningHint,
       W(``),
       (z = []),
       (ue = []),
+      (pe = []),
       (de = 0),
       (B = []),
       (V = []),
@@ -1754,6 +1843,13 @@ function Br() {
       v.load(),
       X(),
       Q());
+  }),
+  document.addEventListener(`app-tab-change`, (e) => {
+    let t = e?.detail?.tabId;
+    if (t === `daily-capture`) return;
+    v.pause();
+    stopSpeechPlayback();
+    clearSpeechLoopTimer();
   }),
   Q(),
   X());

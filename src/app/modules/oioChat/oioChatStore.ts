@@ -40,6 +40,7 @@ function normalizeTurn(raw: unknown): ChatTurn | null {
     text,
     mode: value.mode === "ask" ? "ask" : value.mode === "rewrite" ? "rewrite" : undefined,
     naturalVersion: typeof value.naturalVersion === "string" ? value.naturalVersion : undefined,
+    reply: typeof value.reply === "string" ? value.reply : (typeof value.answer === "string" ? value.answer : undefined),
     answer: typeof value.answer === "string" ? value.answer : undefined,
     quickNote: typeof value.quickNote === "string" ? value.quickNote : undefined,
     keyPhrases: Array.isArray(value.keyPhrases) ? value.keyPhrases.filter((item): item is string => typeof item === "string") : undefined,

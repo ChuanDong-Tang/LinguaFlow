@@ -25,10 +25,7 @@ export interface OioChatRewritePayload {
 export interface OioChatAskPayload {
   version: "3";
   mode: "ask";
-  is_already_natural: boolean;
-  encouragement: string;
-  natural_version: string;
-  answer: string;
+  reply: string;
   key_phrases: string[];
   usage?: RewriteUsagePayload | null;
 }
@@ -103,10 +100,7 @@ export async function requestOioChat(text: string, mode: "rewrite" | "ask"): Pro
     if ((payload as OioChatAskPayload).mode === "ask") {
       return (
         (payload as OioChatAskPayload).version === "3" &&
-        typeof (payload as OioChatAskPayload).is_already_natural === "boolean" &&
-        typeof (payload as OioChatAskPayload).encouragement === "string" &&
-        typeof (payload as OioChatAskPayload).natural_version === "string" &&
-        typeof (payload as OioChatAskPayload).answer === "string" &&
+        typeof (payload as OioChatAskPayload).reply === "string" &&
         Array.isArray((payload as OioChatAskPayload).key_phrases)
       );
     }
