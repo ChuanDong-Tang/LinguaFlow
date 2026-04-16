@@ -330,7 +330,7 @@ export class OioChatController {
       } else {
         const reply = await createChatReply(sourceText, this.activeMode);
         this.applyUsageSnapshot(reply.usageDailyUsed, reply.usageDailyLimit);
-        session.turns.push(this.toAssistantTurn(sourceText, reply));
+        session.turns.push(this.toAssistantTurn(reply));
         session.updatedAt = new Date().toISOString();
         this.setStatus("");
         await this.persistSessionSafely(session, true);
@@ -345,7 +345,6 @@ export class OioChatController {
         id: `assistant-error-${Date.now()}`,
         role: "assistant",
         reply: toChatErrorMessage(error),
-        sourceText,
         occurredAt: new Date().toISOString(),
         adminDebug,
       });
@@ -381,14 +380,13 @@ export class OioChatController {
     return false;
   }
 
-  private toAssistantTurn(sourceText: string, reply: ChatReply): ChatTurn {
+  private toAssistantTurn(reply: ChatReply): ChatTurn {
     return {
       id: `assistant-${Date.now()}`,
       role: "assistant",
       naturalVersion: reply.naturalVersion,
       reply: reply.reply,
       keyPhrases: reply.keyPhrases,
-      sourceText,
       occurredAt: new Date().toISOString(),
       usageDailyUsed: reply.usageDailyUsed,
       usageDailyLimit: reply.usageDailyLimit,
@@ -507,7 +505,7 @@ export class OioChatController {
           ? `<div class="chat-highlight-list">${turn.keyPhrases.map((item) => this.renderPhraseChip(item)).join("")}</div>`
           : "";
 
-        const saveAction = turn.sourceText
+        const saveAction = turn.naturalVersion?.trim()
           ? turn.capturedAt
             ? `<button type="button" class="secondary" disabled>${escapeHtml(t("oio_chat.saved_to"))} ${escapeHtml(formatKeyToSlashDisplay(turn.capturedDateKey ?? this.activeSession?.dateKey ?? dateToLocalKey(new Date())))}</button>`
             : `<button type="button" class="secondary" data-refine-turn-id="${escapeHtml(turn.id)}">${escapeHtml(t("oio_chat.save_to_daily_capture"))}</button>`
@@ -752,7 +750,7 @@ export class OioChatController {
 
     const turn = session.turns.find((item) => item.id === turnId && item.role === "assistant");
     const hasNaturalVersion = !!turn?.naturalVersion?.trim();
-    if (!turn?.sourceText || !hasNaturalVersion || turn.capturedAt) return;
+    if (!turn || !hasNaturalVersion || turn.capturedAt) return;
 
     const result = await saveTurnToDailyCapture(turn, session.id, session.dateKey);
     turn.capturedAt = new Date().toISOString();
