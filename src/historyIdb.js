@@ -1,9 +1,10 @@
 const DB_NAME = "kokoro-tts-web-history";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const STORE = "sessions";
 const REWRITE_STORE = "rewrite_sessions";
 const SUPER_DICT_STORE = "super_dict_records";
 const DAILY_CAPTURE_STORE = "daily_capture_records";
+const CHAT_SESSION_STORE = "chat_sessions";
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -23,6 +24,15 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains(DAILY_CAPTURE_STORE)) {
         db.createObjectStore(DAILY_CAPTURE_STORE, { keyPath: "dateKey" });
+      }
+      if (!db.objectStoreNames.contains(CHAT_SESSION_STORE)) {
+        const chatStore = db.createObjectStore(CHAT_SESSION_STORE, { keyPath: "id" });
+        chatStore.createIndex("updatedAt", "updatedAt", { unique: false });
+      } else {
+        const chatStore = e.target.transaction.objectStore(CHAT_SESSION_STORE);
+        if (!chatStore.indexNames.contains("updatedAt")) {
+          chatStore.createIndex("updatedAt", "updatedAt", { unique: false });
+        }
       }
     };
   });
@@ -241,6 +251,77 @@ export async function listDailyCaptureRecords() {
     });
     all.sort((a, b) => (a.dateKey < b.dateKey ? 1 : -1));
     return all;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * @param {{ id: string, dateKey: string, title: string, createdAt: string, updatedAt: string, turns: unknown[], kind?: string, practice?: object, practiceCompleted?: boolean }} record
+ */
+export async function saveChatSessionRecord(record) {
+  const db = await openDb();
+  try {
+    const tx = db.transaction(CHAT_SESSION_STORE, "readwrite");
+    const store = tx.objectStore(CHAT_SESSION_STORE);
+    await reqToPromise(store.put(record));
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function listChatSessionRecords() {
+  const db = await openDb();
+  try {
+    const tx = db.transaction(CHAT_SESSION_STORE, "readonly");
+    const store = tx.objectStore(CHAT_SESSION_STORE);
+    const all = await reqToPromise(store.getAll());
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    all.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    return all;
+  } finally {
+    db.close();
+  }
+}
+
+export async function deleteChatSessionRecord(id) {
+  const db = await openDb();
+  try {
+    const tx = db.transaction(CHAT_SESSION_STORE, "readwrite");
+    const store = tx.objectStore(CHAT_SESSION_STORE);
+    await reqToPromise(store.delete(id));
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function overwriteChatSessionRecords(records) {
+  const db = await openDb();
+  try {
+    const tx = db.transaction(CHAT_SESSION_STORE, "readwrite");
+    const store = tx.objectStore(CHAT_SESSION_STORE);
+    await reqToPromise(store.clear());
+    for (const record of records) {
+      await reqToPromise(store.put(record));
+    }
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
   } finally {
     db.close();
   }

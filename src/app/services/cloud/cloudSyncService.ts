@@ -12,6 +12,10 @@ let cachedCanSync: { actorKey: string; value: boolean; expiresAt: number } | nul
 let canSyncInFlight: Promise<boolean> | null = null;
 let canSyncInFlightActorKey = "";
 
+function isPersistableSession(session: OioChatSession): boolean {
+  return session.kind !== "practice";
+}
+
 function getSyncActorKey(): string {
   return getAuthService().getSnapshot().userId ?? "anonymous";
 }
@@ -81,8 +85,8 @@ export async function pullChatSessions(): Promise<{ sessions: OioChatSession[]; 
   const payload = await fetchJson<{ sessions: OioChatSession[]; has_more?: boolean; next_before?: string | null }>(
     `/api/sync-chat?limit=${CHAT_PAGE_SIZE}`,
   );
-  const remote = Array.isArray(payload.sessions) ? payload.sessions : [];
-  const local = await listChatSessions();
+  const remote = Array.isArray(payload.sessions) ? payload.sessions.filter(isPersistableSession) : [];
+  const local = (await listChatSessions()).filter(isPersistableSession);
   if (!remote.length) {
     if (local.length > 0) {
       await fetchJson("/api/sync-chat", {
@@ -114,8 +118,8 @@ export async function pullMoreChatSessions(before: string): Promise<ChatPageResu
   const payload = await fetchJson<{ sessions: OioChatSession[]; has_more?: boolean; next_before?: string | null }>(
     `/api/sync-chat?limit=${CHAT_PAGE_SIZE}&before=${encodeURIComponent(before)}`,
   );
-  const remote = Array.isArray(payload.sessions) ? payload.sessions : [];
-  const local = await listChatSessions();
+  const remote = Array.isArray(payload.sessions) ? payload.sessions.filter(isPersistableSession) : [];
+  const local = (await listChatSessions()).filter(isPersistableSession);
   const merged = mergeChatSessions(local, remote);
   await overwriteChatSessions(merged);
   return {
@@ -125,11 +129,12 @@ export async function pullMoreChatSessions(before: string): Promise<ChatPageResu
 }
 
 export async function pushChatSessions(sessions: OioChatSession[]): Promise<void> {
+  const persistable = sessions.filter(isPersistableSession);
   try {
     await fetchJson("/api/sync-chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessions }),
+      body: JSON.stringify({ sessions: persistable }),
     });
   } catch {
     // ignore cloud sync failures
@@ -187,10 +192,10 @@ export async function pushCaptureRecord(record: DailyCaptureRecord): Promise<voi
 
 function mergeChatSessions(local: OioChatSession[], remote: OioChatSession[]): OioChatSession[] {
   const map = new Map<string, OioChatSession>();
-  for (const session of local) {
+  for (const session of local.filter(isPersistableSession)) {
     map.set(session.id, session);
   }
-  for (const session of remote) {
+  for (const session of remote.filter(isPersistableSession)) {
     const existing = map.get(session.id);
     if (!existing) {
       map.set(session.id, session);

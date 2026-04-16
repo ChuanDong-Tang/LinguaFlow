@@ -43,8 +43,7 @@ export class OioChatController {
   private readonly statusEl: HTMLElement | null;
   private sessions: OioChatSession[] = [];
   private activeSessionId = "";
-  private activeMode: OioChatMode = "rewrite";
-  private collapsedDateKeys = new Set<string>();
+  private activeMode: OioChatMode = "beginner";
   private isAdminViewer = false;
   private adminViewerResolved = false;
   private speechRecognition: SpeechRecognitionLike | null = null;
@@ -58,7 +57,6 @@ export class OioChatController {
   private loadingMoreHistory = false;
   private pendingSessionIds = new Set<string>();
   private pendingSessionModes = new Map<string, OioChatMode | "practice">();
-  private static readonly collapseStorageKey = "oio-chat-history-collapsed-v1";
 
   constructor({
     root = document.querySelector<HTMLElement>("#tab-panel-oio-chat"),
@@ -79,7 +77,6 @@ export class OioChatController {
   async init(): Promise<void> {
     if (!this.root || !this.feedEl || !this.inputEl || !this.historyEl) return;
 
-    this.loadCollapsedGroups();
     await this.loadSessions();
     this.renderModeState();
     this.renderHistory();
@@ -148,7 +145,7 @@ export class OioChatController {
 
     this.modeButtons.forEach((button) => {
       button.addEventListener("click", () => {
-        this.activeMode = button.dataset.oioChatMode === "ask" ? "ask" : "rewrite";
+        this.activeMode = button.dataset.oioChatMode === "advanced" ? "advanced" : "beginner";
         this.renderModeState();
       });
     });
@@ -168,18 +165,13 @@ export class OioChatController {
         return;
       }
 
-      const dateToggle = target?.closest<HTMLButtonElement>("[data-chat-date-toggle]");
-      if (dateToggle) {
-        const dateKey = dateToggle.dataset.chatDateToggle?.trim() ?? "";
-        if (!dateKey) return;
-        this.toggleDateGroup(dateKey);
-        return;
-      }
-
       const sessionBtn = target?.closest<HTMLElement>("[data-chat-session-id]");
       if (sessionBtn) {
         const sessionId = sessionBtn.dataset.chatSessionId?.trim() ?? "";
         if (!sessionId) return;
+        if (sessionId !== this.activeSessionId && !(await this.ensurePracticeSessionCanClose())) {
+          return;
+        }
         this.activeSessionId = sessionId;
         this.renderModeState();
         this.renderHistory();
@@ -227,15 +219,32 @@ export class OioChatController {
       void this.syncUsageFromServer();
       void this.syncSessionsFromCloud();
     });
+    document.addEventListener("app-before-tab-change", (event) => {
+      const detail = (event as CustomEvent<{ toTabId?: string }>).detail;
+      if (detail?.toTabId === "oio-chat") return;
+      const active = this.activeSession;
+      if (active?.kind !== "practice") return;
+      if (active.practiceCompleted) {
+        this.finishActivePracticeSession(false);
+        return;
+      }
+      if (!window.confirm(t("oio_chat.confirm_abandon_practice_message"))) {
+        event.preventDefault();
+        return;
+      }
+      this.finishActivePracticeSession(false);
+    });
   }
 
   private async loadSessions(): Promise<void> {
     const sessions = await listChatSessions();
     const emptySessions = sessions.filter((session) => session.turns.length === 0);
-    if (emptySessions.length) {
-      await Promise.all(emptySessions.map((session) => deleteChatSession(session.id)));
+    const practiceSessions = sessions.filter((session) => session.kind === "practice");
+    const staleSessionIds = Array.from(new Set([...emptySessions, ...practiceSessions].map((session) => session.id)));
+    if (staleSessionIds.length) {
+      await Promise.all(staleSessionIds.map((sessionId) => deleteChatSession(sessionId)));
     }
-    this.sessions = sessions.filter((session) => session.turns.length > 0);
+    this.sessions = sessions.filter((session) => session.turns.length > 0 && session.kind !== "practice");
 
     if (!this.activeSessionId || !this.sessions.some((session) => session.id === this.activeSessionId)) {
       this.activeSessionId = this.sessions[0]?.id ?? "";
@@ -247,8 +256,7 @@ export class OioChatController {
   }
 
   private async startNewSession(): Promise<void> {
-    if (this.activeSession?.kind === "practice") {
-      this.setStatus(t("oio_chat.practice_locked"));
+    if (!(await this.ensurePracticeSessionCanClose())) {
       return;
     }
     const current = this.activeSession;
@@ -273,8 +281,16 @@ export class OioChatController {
   private async sendMessage(): Promise<void> {
     if (!this.inputEl || !this.submitEl) return;
     if (this.isActiveSessionPending()) return;
+    if (this.activeSession?.kind === "practice" && this.activeSession.practiceCompleted) {
+      this.finishActivePracticeSession(true);
+      return;
+    }
 
-    const sourceText = this.inputEl.value.trim();
+    const cappedInput = this.inputEl.value.slice(0, oioChatConfig.maxInputChars);
+    if (cappedInput !== this.inputEl.value) {
+      this.inputEl.value = cappedInput;
+    }
+    const sourceText = cappedInput.trim();
     if (!sourceText) return;
     if (!this.ensureSignedInBeforeChat()) return;
 
@@ -285,20 +301,12 @@ export class OioChatController {
       this.activeSessionId = session.id;
     }
 
-    if (session.kind === "practice" && session.practiceCompleted) {
-      this.setStatus(t("oio_chat.practice_finished_closed"));
-      return;
-    }
     const waitingPracticeReply = this.isWaitingPracticeReply(session);
-    if (waitingPracticeReply && session.practiceCompleted) {
-      this.setStatus(t("oio_chat.practice_finished_closed"));
-      return;
-    }
 
     const userTurn: ChatTurn = {
       id: `user-${Date.now()}`,
       role: "user",
-      text: sourceText,
+      sourceText,
       countsTowardLimit: true,
       occurredAt: new Date().toISOString(),
     };
@@ -336,8 +344,7 @@ export class OioChatController {
       session.turns.push({
         id: `assistant-error-${Date.now()}`,
         role: "assistant",
-        text: t("oio_chat.reply_failed"),
-        quickNote: toChatErrorMessage(error),
+        reply: toChatErrorMessage(error),
         sourceText,
         occurredAt: new Date().toISOString(),
         adminDebug,
@@ -375,21 +382,14 @@ export class OioChatController {
   }
 
   private toAssistantTurn(sourceText: string, reply: ChatReply): ChatTurn {
-    const naturalVersion = reply.isAlreadyNatural ? sourceText : reply.naturalVersion;
     return {
       id: `assistant-${Date.now()}`,
       role: "assistant",
-      mode: reply.mode,
-      text: "",
-      naturalVersion,
+      naturalVersion: reply.naturalVersion,
       reply: reply.reply,
-      answer: reply.answer,
-      quickNote: reply.quickNote,
       keyPhrases: reply.keyPhrases,
       sourceText,
       occurredAt: new Date().toISOString(),
-      encouragement: reply.encouragement,
-      isAlreadyNatural: reply.isAlreadyNatural,
       usageDailyUsed: reply.usageDailyUsed,
       usageDailyLimit: reply.usageDailyLimit,
     };
@@ -397,69 +397,30 @@ export class OioChatController {
 
   private renderHistory(): void {
     if (!this.historyEl) return;
-    if (!this.sessions.length) {
-      this.historyEl.innerHTML = `<p class="oio-chat-history-empty">${escapeHtml(t("oio_chat.history_empty"))}</p>`;
-      return;
-    }
-
-    const groups = new Map<string, OioChatSession[]>();
-    for (const session of this.sessions) {
-      const current = groups.get(session.dateKey) ?? [];
-      current.push(session);
-      groups.set(session.dateKey, current);
-    }
-
-    if (!groups.size) {
-      this.historyEl.innerHTML = `<p class="oio-chat-history-empty">${escapeHtml(t("oio_chat.history_empty"))}</p>`;
-      return;
-    }
-
-    const isPractice = this.activeSession?.kind === "practice";
+    const historySessions = this.sessions.filter((session) => session.kind !== "practice");
     const header = `
       <div class="oio-chat-history-head">
         <span class="oio-chat-history-head-label">${escapeHtml(t("oio_chat.history_title"))}</span>
-        <button type="button" class="secondary oio-chat-history-new-btn" data-oio-chat-new ${isPractice ? "disabled" : ""}>${escapeHtml(t("oio_chat.new_chat"))}</button>
+        <button type="button" class="secondary oio-chat-history-new-btn" data-oio-chat-new>${escapeHtml(t("oio_chat.new_chat"))}</button>
       </div>
     `;
 
-    const groupsHtml = Array.from(groups.entries())
-      .sort((left, right) => right[0].localeCompare(left[0]))
-      .map(([dateKey, sessions]) => {
-        const isCollapsed = this.collapsedDateKeys.has(dateKey);
-        return `
-        <section class="oio-chat-history-group${isCollapsed ? " is-collapsed" : ""}">
+    const listHtml = historySessions
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((session) => `
+        <article class="oio-chat-history-item${session.id === this.activeSessionId ? " is-active" : ""}">
           <button
             type="button"
-            class="oio-chat-history-date"
-            data-chat-date-toggle="${escapeHtml(dateKey)}"
-            aria-expanded="${!isCollapsed}"
+            class="oio-chat-history-open"
+            data-chat-session-id="${escapeHtml(session.id)}"
           >
-            <span class="oio-chat-history-date-icon" aria-hidden="true">▾</span>
-            <span class="oio-chat-history-date-label">${escapeHtml(formatKeyToSlashDisplay(dateKey))}</span>
+          <span class="oio-chat-history-copy">
+            <strong class="oio-chat-history-title">${escapeHtml(session.title)}</strong>
+          </span>
           </button>
-          <div class="oio-chat-history-list"${isCollapsed ? " hidden" : ""}>
-            ${sessions
-              .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-              .map((session) => `
-                <article class="oio-chat-history-item${session.id === this.activeSessionId ? " is-active" : ""}">
-                  <button
-                    type="button"
-                    class="oio-chat-history-open"
-                    data-chat-session-id="${escapeHtml(session.id)}"
-                  >
-                  <span class="oio-chat-history-copy">
-                    <strong class="oio-chat-history-title">${escapeHtml(session.title)}</strong>
-                    <span class="oio-chat-history-meta">${session.turns.filter((turn) => turn.role === "user").length} ${escapeHtml(t("oio_chat.turns"))}</span>
-                  </span>
-                  </button>
-                  <button type="button" class="oio-chat-history-delete" data-chat-session-delete="${escapeHtml(session.id)}" aria-label="${escapeHtml(t("oio_chat.delete_conversation_aria"))}">×</button>
-                </article>
-              `)
-              .join("")}
-          </div>
-        </section>
-      `;
-      })
+          <button type="button" class="oio-chat-history-delete" data-chat-session-delete="${escapeHtml(session.id)}" aria-label="${escapeHtml(t("oio_chat.delete_conversation_aria"))}">×</button>
+        </article>
+      `)
       .join("");
     const loadMoreHtml = this.cloudHasMore
       ? `
@@ -470,7 +431,11 @@ export class OioChatController {
         </div>
       `
       : "";
-    this.historyEl.innerHTML = header + groupsHtml + loadMoreHtml;
+    if (!historySessions.length) {
+      this.historyEl.innerHTML = header + `<p class="oio-chat-history-empty">${escapeHtml(t("oio_chat.history_empty"))}</p>` + loadMoreHtml;
+      return;
+    }
+    this.historyEl.innerHTML = header + `<div class="oio-chat-history-list">${listHtml}</div>` + loadMoreHtml;
   }
 
   private async loadMoreHistoryFromCloud(): Promise<void> {
@@ -510,28 +475,23 @@ export class OioChatController {
     const turnsHtml = session.turns
       .map((turn) => {
         if (turn.role === "user") {
+          const userText = (turn.sourceText ?? "").trim();
           return `
             <article class="chat-bubble chat-bubble--user">
               <span class="chat-bubble-role">${escapeHtml(t("oio_chat.you"))}</span>
-              <p class="chat-bubble-text">${escapeHtml(turn.text)}</p>
+              <p class="chat-bubble-text">${escapeHtml(userText)}</p>
             </article>
           `;
         }
 
-        const naturalVersionBlock = turn.naturalVersion
-          ? this.renderAssistantSection(t("oio_chat.section_natural"), turn.naturalVersion, turn.keyPhrases)
+        const naturalVersion = turn.naturalVersion || "";
+        const naturalVersionBlock = naturalVersion
+          ? this.renderAssistantSection(t("oio_chat.section_rewritten"), naturalVersion, turn.keyPhrases)
           : "";
 
-        const encouragementBlock = turn.encouragement
-          ? this.renderAssistantSection(t("oio_chat.section_encouragement"), turn.encouragement, turn.keyPhrases)
-          : "";
-
-        const answerBlock = (turn.reply || turn.answer)
-          ? this.renderAssistantSection(t("oio_chat.section_answer"), turn.reply || turn.answer || "", turn.keyPhrases)
-          : "";
-
-        const quickNoteBlock = turn.mode !== "ask" && turn.quickNote
-          ? this.renderAssistantSection(t("oio_chat.section_quick_note"), turn.quickNote, turn.keyPhrases)
+        const reply = turn.reply || "";
+        const replyBlock = turn.practiceKind !== "question" && reply
+          ? this.renderAssistantSection(t("oio_chat.section_reply_comment"), reply, turn.keyPhrases)
           : "";
 
         const adminDebugBlock = this.isAdminViewer && turn.adminDebug?.trim()
@@ -556,18 +516,16 @@ export class OioChatController {
           ? `<div class="chat-assistant-actions">${saveAction}</div>`
           : "";
 
-        const mainText = turn.text?.trim()
-          ? this.renderSpeakLines(turn.text, "chat-bubble-text", turn.keyPhrases)
+        const mainText = turn.practiceKind === "question" && turn.reply?.trim()
+          ? this.renderSpeakLines(turn.reply, "chat-bubble-text", turn.keyPhrases)
           : "";
 
         return `
           <article class="chat-bubble chat-bubble--assistant">
             <span class="chat-bubble-role">OIO</span>
             ${mainText}
-            ${encouragementBlock}
             ${naturalVersionBlock}
-            ${answerBlock}
-            ${quickNoteBlock}
+            ${replyBlock}
             ${adminDebugBlock}
             ${keyPhrasesBlock}
             ${actionBlock}
@@ -793,9 +751,10 @@ export class OioChatController {
     if (!session) return;
 
     const turn = session.turns.find((item) => item.id === turnId && item.role === "assistant");
-    if (!turn?.sourceText || !turn.naturalVersion || turn.capturedAt) return;
+    const hasNaturalVersion = !!turn?.naturalVersion?.trim();
+    if (!turn?.sourceText || !hasNaturalVersion || turn.capturedAt) return;
 
-    const result = await saveTurnToDailyCapture(turn, session.dateKey);
+    const result = await saveTurnToDailyCapture(turn, session.id, session.dateKey);
     turn.capturedAt = new Date().toISOString();
     turn.capturedDateKey = session.dateKey;
     session.updatedAt = new Date().toISOString();
@@ -815,7 +774,7 @@ export class OioChatController {
     const limit = this.usageDailyLimit;
     const usedText = used === null ? "--" : String(used);
     const limitText = limit === null ? "--" : String(limit);
-    const usageText = `${usedText}/${limitText} ${t("oio_chat.today")}`;
+    const usageText = `${usedText}/${limitText} ${t("oio_chat.today_usage_chars")}`;
     this.metaEl.textContent = `${this.inputEl.value.length}/${oioChatConfig.maxInputChars} ${t("oio_chat.characters")} · ${usageText}`;
   }
 
@@ -823,13 +782,12 @@ export class OioChatController {
     const isPractice = this.activeSession?.kind === "practice";
     this.root?.classList.toggle("is-practice-session", isPractice);
     this.modeButtons.forEach((button) => {
-      const selected = (button.dataset.oioChatMode === "ask" ? "ask" : "rewrite") === this.activeMode;
+      button.textContent = button.dataset.oioChatMode === "advanced"
+        ? t("oio_chat.mode_advanced")
+        : t("oio_chat.mode_beginner");
+      const selected = (button.dataset.oioChatMode === "advanced" ? "advanced" : "beginner") === this.activeMode;
       button.classList.toggle("is-active", selected);
       button.setAttribute("aria-pressed", selected ? "true" : "false");
-      button.disabled = isPractice;
-    });
-    const newChatButtons = this.historyEl?.querySelectorAll<HTMLButtonElement>("[data-oio-chat-new]") ?? [];
-    newChatButtons.forEach((button) => {
       button.disabled = isPractice;
     });
 
@@ -841,9 +799,9 @@ export class OioChatController {
       this.updateComposerPendingState();
       return;
     }
-    this.inputEl.placeholder = this.activeMode === "ask"
-      ? t("oio_chat.ask_placeholder")
-      : t("oio_chat.rewrite_placeholder");
+    this.inputEl.placeholder = this.activeMode === "advanced"
+      ? t("oio_chat.advanced_placeholder")
+      : t("oio_chat.beginner_placeholder");
     this.updateComposerPendingState();
   }
 
@@ -859,7 +817,7 @@ export class OioChatController {
     if (!sessionId) return;
     if (pending) {
       this.pendingSessionIds.add(sessionId);
-      this.pendingSessionModes.set(sessionId, pendingMode ?? "rewrite");
+      this.pendingSessionModes.set(sessionId, pendingMode ?? "beginner");
     } else {
       this.pendingSessionIds.delete(sessionId);
       this.pendingSessionModes.delete(sessionId);
@@ -885,20 +843,20 @@ export class OioChatController {
       this.inputEl.disabled = isPracticeCompleted || isPending;
     }
     if (this.submitEl) {
-      this.submitEl.disabled = isPracticeCompleted || isPending;
-      this.submitEl.textContent = isPracticeCompleted ? t("oio_chat.done") : isPending ? t("oio_chat.thinking") : t("oio_chat.send");
+      this.submitEl.disabled = isPending;
+      this.submitEl.textContent = isPracticeCompleted ? t("oio_chat.finish_practice") : isPending ? t("oio_chat.thinking") : t("oio_chat.send");
     }
     if (isPending && active?.id) {
       const pendingMode = this.pendingSessionModes.get(active.id);
       this.setStatus(
-        pendingMode === "ask"
-          ? t("oio_chat.working_answer")
-          : t("oio_chat.working_natural"),
+        pendingMode === "advanced"
+          ? t("oio_chat.working_advanced")
+          : t("oio_chat.working_beginner"),
       );
       return;
     }
     const currentStatus = this.statusEl?.textContent ?? "";
-    if (currentStatus === t("oio_chat.working_answer") || currentStatus === t("oio_chat.working_natural")) {
+    if (currentStatus === t("oio_chat.working_advanced") || currentStatus === t("oio_chat.working_beginner")) {
       this.setStatus("");
     }
   }
@@ -927,7 +885,10 @@ export class OioChatController {
   }
 
   private async startPracticeSession(item: CaptureItem): Promise<void> {
-    const contextText = (getCaptureNaturalVersion(item) || item.answer || item.sourceText).trim();
+    if (!(await this.ensurePracticeSessionCanClose())) {
+      return;
+    }
+    const contextText = (getCaptureNaturalVersion(item) || item.sourceText).trim();
     const targetPhrase = (getCaptureKeyPhrases(item)[0] ?? "").trim();
     if (!contextText) {
       this.setStatus(t("oio_chat.practice_context_missing"));
@@ -941,7 +902,7 @@ export class OioChatController {
       itemId: item.id,
       contextText,
       targetPhrase,
-      referenceAnswer: item.answer?.trim() ?? "",
+      referenceAnswer: item.reply?.trim() ?? "",
       titleSeed: contextText,
       entry: "card",
     });
@@ -991,7 +952,7 @@ export class OioChatController {
     } else {
       this.sessions = [session, ...this.sessions];
       this.activeSessionId = session.id;
-      this.activeMode = "ask";
+      this.activeMode = "beginner";
       this.renderModeState();
       this.renderHistory();
       this.renderFeed();
@@ -1012,11 +973,7 @@ export class OioChatController {
         session.updatedAt = new Date().toISOString();
         await this.persistSessionSafely(session, true);
       } else {
-        await deleteChatSession(session.id);
-        this.sessions = this.sessions.filter((item) => item.id !== session.id);
-        if (this.activeSessionId === session.id) {
-          this.activeSessionId = this.sessions[0]?.id ?? "";
-        }
+        this.discardPracticeSessionById(session.id);
       }
       this.setStatus(toChatErrorMessage(error));
       this.renderModeState();
@@ -1045,7 +1002,7 @@ export class OioChatController {
     session.turns.push({
       id: `assistant-question-${Date.now()}`,
       role: "assistant",
-      text: `${question}\n${this.buildPracticeTryUsingLine(targetPhrase)}`,
+      reply: `${question}\n${this.buildPracticeTryUsingLine(targetPhrase)}`,
       keyPhrases: [targetPhrase],
       practiceKind: "question",
       occurredAt: new Date().toISOString(),
@@ -1066,7 +1023,7 @@ export class OioChatController {
   }
 
   private async handlePracticeReply(session: OioChatSession, answer: string): Promise<void> {
-    const question = session.practice?.question ?? session.turns.find((turn) => turn.practiceKind === "question")?.text ?? "";
+    const question = session.practice?.question ?? session.turns.find((turn) => turn.practiceKind === "question")?.reply ?? "";
     const targetPhrase = session.practice?.targetPhrase?.trim()
       || (session.turns.find((turn) => turn.practiceKind === "question")?.keyPhrases?.[0] ?? "").trim();
     const referenceAnswer = session.practice?.referenceAnswer ?? "";
@@ -1075,9 +1032,8 @@ export class OioChatController {
     session.turns.push({
       id: `assistant-feedback-${Date.now()}`,
       role: "assistant",
-      text: feedbackResult.feedback,
-      naturalVersion: feedbackResult.isAlreadyNatural ? "" : feedbackResult.rewrittenAnswer,
-      isAlreadyNatural: feedbackResult.isAlreadyNatural,
+      naturalVersion: feedbackResult.rewrittenAnswer,
+      reply: feedbackResult.feedback,
       usageDailyUsed: feedbackResult.usageDailyUsed,
       usageDailyLimit: feedbackResult.usageDailyLimit,
       practiceKind: "feedback",
@@ -1104,13 +1060,16 @@ export class OioChatController {
   }
 
   private async persistSession(session: OioChatSession, pushCloud = true): Promise<void> {
+    if (session.kind === "practice") {
+      return;
+    }
     await saveChatSession(session);
-    this.sessions = (await listChatSessions()).filter((item) => item.turns.length > 0);
+    this.sessions = (await listChatSessions()).filter((item) => item.turns.length > 0 && item.kind !== "practice");
     if (!this.sessions.some((item) => item.id === this.activeSessionId) && this.sessions[0]) {
       this.activeSessionId = this.sessions[0].id;
     }
     if (pushCloud) {
-      void pushChatSessions(this.sessions);
+      void pushChatSessions(this.sessions.filter((item) => item.kind !== "practice"));
     }
   }
 
@@ -1178,8 +1137,18 @@ export class OioChatController {
   }
 
   private async removeSession(sessionId: string): Promise<void> {
+    const target = this.sessions.find((session) => session.id === sessionId);
+    if (target?.kind === "practice") {
+      this.discardPracticeSessionById(sessionId);
+      this.renderModeState();
+      this.renderHistory();
+      this.renderFeed();
+      this.updateMeta();
+      this.setStatus("");
+      return;
+    }
     await deleteChatSession(sessionId);
-    this.sessions = (await listChatSessions()).filter((session) => session.turns.length > 0);
+    this.sessions = (await listChatSessions()).filter((session) => session.turns.length > 0 && session.kind !== "practice");
 
     if (!this.sessions.length) {
       this.activeSessionId = "";
@@ -1191,36 +1160,53 @@ export class OioChatController {
     this.renderFeed();
     this.updateMeta();
     this.setStatus("");
-    void pushChatSessions(this.sessions);
+    void pushChatSessions(this.sessions.filter((item) => item.kind !== "practice"));
   }
 
-  private loadCollapsedGroups(): void {
-    if (typeof localStorage === "undefined") return;
-    try {
-      const raw = localStorage.getItem(OioChatController.collapseStorageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        this.collapsedDateKeys = new Set(parsed.filter((item) => typeof item === "string"));
-      }
-    } catch {
-      this.collapsedDateKeys = new Set();
+  private async ensurePracticeSessionCanClose(): Promise<boolean> {
+    const active = this.activeSession;
+    if (active?.kind !== "practice") return true;
+    if (active.practiceCompleted) {
+      this.finishActivePracticeSession(false);
+      return true;
+    }
+    const confirmed = await confirmDialog({
+      title: t("oio_chat.confirm_abandon_practice_title"),
+      message: t("oio_chat.confirm_abandon_practice_message"),
+      confirmText: t("oio_chat.confirm_abandon_practice_confirm"),
+      cancelText: t("oio_chat.confirm_abandon_practice_cancel"),
+    });
+    if (!confirmed) return false;
+    this.finishActivePracticeSession(false);
+    return true;
+  }
+
+  private discardActivePracticeSession(): void {
+    const active = this.activeSession;
+    if (active?.kind !== "practice") return;
+    this.discardPracticeSessionById(active.id);
+  }
+
+  private discardPracticeSessionById(sessionId: string): void {
+    this.sessions = this.sessions.filter((session) => session.id !== sessionId);
+    if (!this.sessions.length) {
+      this.activeSessionId = "";
+      return;
+    }
+    if (this.activeSessionId === sessionId || !this.sessions.some((item) => item.id === this.activeSessionId)) {
+      this.activeSessionId = this.sessions[0].id;
     }
   }
 
-  private toggleDateGroup(dateKey: string): void {
-    if (this.collapsedDateKeys.has(dateKey)) {
-      this.collapsedDateKeys.delete(dateKey);
-    } else {
-      this.collapsedDateKeys.add(dateKey);
-    }
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(
-        OioChatController.collapseStorageKey,
-        JSON.stringify(Array.from(this.collapsedDateKeys))
-      );
-    }
+  private finishActivePracticeSession(showStatus: boolean): void {
+    if (this.activeSession?.kind !== "practice") return;
+    this.discardActivePracticeSession();
+    if (this.inputEl) this.inputEl.value = "";
+    this.renderModeState();
     this.renderHistory();
+    this.renderFeed();
+    this.updateMeta();
+    this.setStatus(showStatus ? t("oio_chat.practice_complete") : "");
   }
 
   private buildSessionTitle(text: string): string {

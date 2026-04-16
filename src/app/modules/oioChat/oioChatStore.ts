@@ -1,7 +1,11 @@
 import { dateToLocalKey } from "../../dateUtils.js";
+import {
+  deleteChatSessionRecord,
+  listChatSessionRecords,
+  overwriteChatSessionRecords,
+  saveChatSessionRecord,
+} from "../../../historyIdb.js";
 import { type ChatTurn, type OioChatSessionKind } from "./oioChatTypes";
-
-const STORAGE_KEY = "oio-chat-sessions-v1";
 
 export interface OioChatSession {
   id: string;
@@ -21,37 +25,26 @@ export interface OioChatSession {
   practiceCompleted?: boolean;
 }
 
-function canUseStorage(): boolean {
-  return typeof window !== "undefined" && !!window.localStorage;
-}
-
 function normalizeTurn(raw: unknown): ChatTurn | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
   const id = typeof value.id === "string" ? value.id.trim() : "";
   const role = value.role === "assistant" ? "assistant" : value.role === "user" ? "user" : null;
-  const text = typeof value.text === "string" ? value.text : "";
+  const sourceText = typeof value.sourceText === "string" ? value.sourceText : "";
   if (!id || !role) return null;
-  if (role === "user" && !text.trim()) return null;
+  if (role === "user" && !sourceText.trim()) return null;
 
   return {
     id,
     role,
-    text,
-    mode: value.mode === "ask" ? "ask" : value.mode === "rewrite" ? "rewrite" : undefined,
     naturalVersion: typeof value.naturalVersion === "string" ? value.naturalVersion : undefined,
-    reply: typeof value.reply === "string" ? value.reply : (typeof value.answer === "string" ? value.answer : undefined),
-    answer: typeof value.answer === "string" ? value.answer : undefined,
-    quickNote: typeof value.quickNote === "string" ? value.quickNote : undefined,
+    reply: typeof value.reply === "string" ? value.reply : undefined,
     keyPhrases: Array.isArray(value.keyPhrases) ? value.keyPhrases.filter((item): item is string => typeof item === "string") : undefined,
-    sourceText: typeof value.sourceText === "string" ? value.sourceText : undefined,
+    sourceText: sourceText || undefined,
     occurredAt: typeof value.occurredAt === "string" ? value.occurredAt : undefined,
-    encouragement: typeof value.encouragement === "string" ? value.encouragement : undefined,
-    isAlreadyNatural: typeof value.isAlreadyNatural === "boolean" ? value.isAlreadyNatural : undefined,
     capturedAt: typeof value.capturedAt === "string" ? value.capturedAt : undefined,
     capturedDateKey: typeof value.capturedDateKey === "string" ? value.capturedDateKey : undefined,
     countsTowardLimit: typeof value.countsTowardLimit === "boolean" ? value.countsTowardLimit : undefined,
-    practiceKind: value.practiceKind === "question" ? "question" : value.practiceKind === "feedback" ? "feedback" : undefined,
     adminDebug: typeof value.adminDebug === "string" ? value.adminDebug : undefined,
     usageDailyUsed: typeof value.usageDailyUsed === "number" ? value.usageDailyUsed : undefined,
     usageDailyLimit: typeof value.usageDailyLimit === "number" ? value.usageDailyLimit : undefined,
@@ -103,42 +96,24 @@ function normalizeSession(raw: unknown): OioChatSession | null {
   };
 }
 
-function readSessions(): OioChatSession[] {
-  if (!canUseStorage()) return [];
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeSession).filter((session): session is OioChatSession => !!session);
-  } catch {
-    return [];
-  }
-}
-
-function writeSessions(sessions: OioChatSession[]): void {
-  if (!canUseStorage()) return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-}
-
 export async function listChatSessions(): Promise<OioChatSession[]> {
-  return readSessions().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const records = await listChatSessionRecords();
+  return records
+    .map(normalizeSession)
+    .filter((session): session is OioChatSession => !!session)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
 export async function saveChatSession(session: OioChatSession): Promise<void> {
-  const sessions = readSessions();
-  const nextSessions = sessions.filter((item) => item.id !== session.id);
-  nextSessions.push(session);
-  writeSessions(nextSessions);
+  await saveChatSessionRecord(session);
 }
 
 export async function deleteChatSession(sessionId: string): Promise<void> {
-  const sessions = readSessions().filter((item) => item.id !== sessionId);
-  writeSessions(sessions);
+  await deleteChatSessionRecord(sessionId);
 }
 
 export async function overwriteChatSessions(nextSessions: OioChatSession[]): Promise<void> {
-  writeSessions(nextSessions);
+  await overwriteChatSessionRecords(nextSessions);
 }
 
 export function createChatSession(date = new Date()): OioChatSession {

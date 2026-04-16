@@ -1,28 +1,19 @@
 import { sendJson, readJsonBody } from "../server/core/http.js";
 import { getRewriteConfig } from "../server/services/rewriteConfig.js";
 import {
-  buildOioChatAskUserPrompt,
-  buildOioChatRewriteUserPrompt,
+  buildOioChatBeginnerUserPrompt,
+  buildOioChatAdvancedUserPrompt,
   buildOioChatPracticeFeedbackPrompt,
   buildOioChatPracticeQuestionPrompt,
   buildRewriteUserPrompt,
-  OIO_CHAT_ASK_SYSTEM_PROMPT,
-  OIO_CHAT_REWRITE_SYSTEM_PROMPT,
+  OIO_CHAT_BEGINNER_SYSTEM_PROMPT,
+  OIO_CHAT_ADVANCED_SYSTEM_PROMPT,
   OIO_CHAT_PRACTICE_FEEDBACK_SYSTEM_PROMPT,
   OIO_CHAT_PRACTICE_QUESTION_SYSTEM_PROMPT,
   REWRITE_SYSTEM_PROMPT,
 } from "../server/services/rewritePrompt.js";
 import { findBlockedPattern, looksLikePromptInjection } from "../server/services/rewriteSecurity.js";
 import { getRewriteAccessContext, recordSuccessfulRewriteUsage } from "../server/services/rewriteUsage.js";
-
-function createError(code, message, status) {
-  return {
-    status,
-    body: {
-      error: { code, message },
-    },
-  };
-}
 
 function countWords(text) {
   const matches = String(text ?? "").trim().match(/\b[\w'-]+\b/g);
@@ -70,7 +61,7 @@ function parseModelPayload(content, config) {
   };
 }
 
-function parseChatRewritePayload(content, config) {
+function parseOioChatPayload(content, config) {
   let parsed;
   try {
     parsed = JSON.parse(content);
@@ -78,43 +69,16 @@ function parseChatRewritePayload(content, config) {
     return null;
   }
 
-  if (parsed?.version !== "3" || parsed?.mode !== "rewrite") return null;
-  if (typeof parsed?.is_already_natural !== "boolean") return null;
-  if (typeof parsed?.encouragement !== "string") return null;
-  if (typeof parsed?.natural_version !== "string") return null;
-  if (typeof parsed?.quick_note !== "string" || !parsed.quick_note.trim()) return null;
-
-  const keyPhrases = normalizeKeyPhrases(parsed.key_phrases, config);
-  if (keyPhrases.length < 1 || keyPhrases.length > config.maxKeyPhrases) return null;
-
-    return {
-    version: "3",
-    mode: "rewrite",
-    is_already_natural: parsed.is_already_natural,
-    encouragement: parsed.encouragement.trim(),
-    natural_version: parsed.natural_version.trim(),
-    quick_note: parsed.quick_note.trim(),
-    key_phrases: keyPhrases,
-  };
-}
-
-function parseAskPayload(content, config) {
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return null;
-  }
-
-  if (parsed?.version !== "3" || parsed?.mode !== "ask") return null;
+  if (parsed?.version !== "4") return null;
+  if (typeof parsed?.natural_version !== "string" || !parsed.natural_version.trim()) return null;
   if (typeof parsed?.reply !== "string" || !parsed.reply.trim()) return null;
 
   const keyPhrases = normalizeKeyPhrases(parsed.key_phrases, config);
   if (keyPhrases.length < 1 || keyPhrases.length > config.maxKeyPhrases) return null;
 
   return {
-    version: "3",
-    mode: "ask",
+    version: "4",
+    natural_version: parsed.natural_version.trim(),
     reply: parsed.reply.trim(),
     key_phrases: keyPhrases,
   };
@@ -168,12 +132,54 @@ function parsePracticeFeedbackPayload(content) {
   };
 }
 
-function buildUsageSnapshot(access, charged = false) {
+function buildUsageSnapshot(access, chargedChars = 0) {
   const quota = access?.actor?.quota;
   if (!quota) return null;
   return {
-    daily_used: Math.max(0, Number(quota.count) + (charged ? 1 : 0)),
+    daily_used: Math.max(0, Number(quota.count) + Math.max(0, Number(chargedChars) || 0)),
     daily_limit: Math.max(1, Number(quota.limit) || 20),
+  };
+}
+
+function getRemainingDailyChars(access) {
+  const quota = access?.actor?.quota;
+  if (!quota) return 0;
+  const used = Math.max(0, Number(quota.count) || 0);
+  const limit = Math.max(0, Number(quota.limit) || 0);
+  return Math.max(0, limit - used);
+}
+
+function clipText(value, maxChars) {
+  const text = String(value ?? "");
+  const max = Math.max(0, Math.floor(Number(maxChars) || 0));
+  if (text.length <= max) return text;
+  return text.slice(0, max);
+}
+
+function clipJoinedParts(parts, maxChars) {
+  let remaining = Math.max(0, Math.floor(Number(maxChars) || 0));
+  let hasAny = false;
+  return parts.map((raw) => {
+    const text = String(raw ?? "");
+    if (!text) return "";
+    const separatorCost = hasAny ? 1 : 0;
+    if (remaining <= separatorCost) return "";
+    const clipped = text.slice(0, remaining - separatorCost);
+    if (!clipped) return "";
+    remaining -= separatorCost + clipped.length;
+    hasAny = true;
+    return clipped;
+  });
+}
+
+function clipPracticeQuestionInputs(contextText, targetPhrase, maxChars) {
+  const max = Math.max(0, Math.floor(Number(maxChars) || 0));
+  const safeTargetPhrase = clipText(targetPhrase, max);
+  const separatorCost = safeTargetPhrase && contextText ? 1 : 0;
+  const remainingForContext = Math.max(0, max - safeTargetPhrase.length - separatorCost);
+  return {
+    contextText: clipText(contextText, remainingForContext),
+    targetPhrase: safeTargetPhrase,
   };
 }
 
@@ -241,17 +247,35 @@ export default async function handler(req, res) {
     return;
   }
 
-  const text = typeof body?.text === "string" ? body.text.trim() : "";
+  const rawText = typeof body?.text === "string" ? body.text.trim() : "";
   const mode = typeof body?.mode === "string" ? body.mode.trim() : "";
-  const practiceQuestion = typeof body?.question === "string" ? body.question.trim() : "";
-  const practiceAnswer = typeof body?.answer === "string" ? body.answer.trim() : "";
-  const practiceReference = typeof body?.reference_answer === "string" ? body.reference_answer.trim() : "";
-  const practiceContextText = typeof body?.context_text === "string" ? body.context_text.trim() : "";
-  const practiceTargetPhrase = typeof body?.target_phrase === "string" ? body.target_phrase.trim() : "";
+  const rawPracticeQuestion = typeof body?.question === "string" ? body.question.trim() : "";
+  const rawPracticeAnswer = typeof body?.answer === "string" ? body.answer.trim() : "";
+  const rawPracticeReference = typeof body?.reference_answer === "string" ? body.reference_answer.trim() : "";
+  const rawPracticeContextText = typeof body?.context_text === "string" ? body.context_text.trim() : "";
+  const rawPracticeTargetPhrase = typeof body?.target_phrase === "string" ? body.target_phrase.trim() : "";
+  const safetyMaxInputChars = Math.max(1, Math.floor(Number(config.safetyMaxInputChars) || 5000));
+  const text = clipText(rawText, safetyMaxInputChars);
+  const practiceQuestionInputs = clipPracticeQuestionInputs(
+    rawPracticeContextText,
+    rawPracticeTargetPhrase,
+    safetyMaxInputChars,
+  );
+  const [
+    practiceQuestion,
+    practiceAnswer,
+    practiceFeedbackTargetPhrase,
+    practiceReference,
+  ] = clipJoinedParts(
+    [rawPracticeQuestion, rawPracticeAnswer, rawPracticeTargetPhrase, rawPracticeReference],
+    safetyMaxInputChars,
+  );
+  const practiceContextText = practiceQuestionInputs.contextText;
+  const practiceTargetPhrase = practiceQuestionInputs.targetPhrase;
   const inputBundle = mode === "practice_question"
     ? [practiceContextText, practiceTargetPhrase].filter(Boolean).join("\n")
     : mode === "practice_feedback"
-      ? [practiceQuestion, practiceAnswer, practiceTargetPhrase, practiceReference].filter(Boolean).join("\n")
+      ? [practiceQuestion, practiceAnswer, practiceFeedbackTargetPhrase, practiceReference].filter(Boolean).join("\n")
       : text;
   const minRequired = mode === "practice_question" || mode === "practice_feedback"
     ? 1
@@ -265,14 +289,19 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (inputBundle.length > config.maxInputChars) {
-    sendJson(res, 400, { error: { code: "INPUT_TOO_LONG", message: `Input exceeds the ${config.maxInputChars}-character limit.` } });
-    return;
-  }
-
   const access = await getRewriteAccessContext(req, config, mode);
   if (!access.ok) {
     sendJson(res, access.status ?? 401, { error: { code: access.code, message: access.message } });
+    return;
+  }
+  const remainingChars = getRemainingDailyChars(access);
+  if (inputBundle.length > remainingChars) {
+    sendJson(res, 400, {
+      error: {
+        code: "INPUT_EXCEEDS_DAILY_REMAINING",
+        message: `Input exceeds remaining daily characters (${remainingChars}).`,
+      },
+    });
     return;
   }
 
@@ -284,10 +313,10 @@ export default async function handler(req, res) {
 
   let rawContent = "";
   try {
-    const prompt = mode === "ask"
-      ? { systemPrompt: OIO_CHAT_ASK_SYSTEM_PROMPT, buildUserPrompt: buildOioChatAskUserPrompt, input: text }
-      : mode === "rewrite"
-        ? { systemPrompt: OIO_CHAT_REWRITE_SYSTEM_PROMPT, buildUserPrompt: buildOioChatRewriteUserPrompt, input: text }
+    const prompt = mode === "beginner"
+      ? { systemPrompt: OIO_CHAT_BEGINNER_SYSTEM_PROMPT, buildUserPrompt: buildOioChatBeginnerUserPrompt, input: text }
+      : mode === "advanced"
+        ? { systemPrompt: OIO_CHAT_ADVANCED_SYSTEM_PROMPT, buildUserPrompt: buildOioChatAdvancedUserPrompt, input: text }
         : mode === "practice_question"
           ? {
             systemPrompt: OIO_CHAT_PRACTICE_QUESTION_SYSTEM_PROMPT,
@@ -298,7 +327,7 @@ export default async function handler(req, res) {
             ? {
               systemPrompt: OIO_CHAT_PRACTICE_FEEDBACK_SYSTEM_PROMPT,
               buildUserPrompt: buildOioChatPracticeFeedbackPrompt,
-              input: { question: practiceQuestion, answer: practiceAnswer, targetPhrase: practiceTargetPhrase, referenceAnswer: practiceReference },
+              input: { question: practiceQuestion, answer: practiceAnswer, targetPhrase: practiceFeedbackTargetPhrase, referenceAnswer: practiceReference },
             }
             : { systemPrompt: REWRITE_SYSTEM_PROMPT, buildUserPrompt: buildRewriteUserPrompt, input: text };
     rawContent = await callDeepSeek(prompt.input, config, prompt);
@@ -314,40 +343,34 @@ export default async function handler(req, res) {
     return;
   }
 
-  const parsed = mode === "ask"
-    ? parseAskPayload(rawContent, config)
-    : mode === "rewrite"
-      ? parseChatRewritePayload(rawContent, config)
-      : mode === "practice_question"
-        ? parsePracticeQuestionPayload(rawContent)
-        : mode === "practice_feedback"
-          ? parsePracticeFeedbackPayload(rawContent)
-          : parseModelPayload(rawContent, config);
+  const parsed = mode === "beginner" || mode === "advanced"
+    ? parseOioChatPayload(rawContent, config)
+    : mode === "practice_question"
+      ? parsePracticeQuestionPayload(rawContent)
+      : mode === "practice_feedback"
+        ? parsePracticeFeedbackPayload(rawContent)
+        : parseModelPayload(rawContent, config);
   if (!parsed) {
     sendJson(res, 502, { error: { code: "INVALID_MODEL_RESPONSE", message: "The model response could not be validated." } });
     return;
   }
 
+  const outputChars =
+    mode === "beginner" || mode === "advanced"
+      ? parsed.natural_version.length + parsed.reply.length
+      : mode === "practice_question"
+        ? parsed.question.length
+        : mode === "practice_feedback"
+          ? parsed.feedback.length + (parsed.rewritten_answer?.length ?? 0)
+          : parsed.rewritten_text.length;
+  const chargedChars = inputBundle.length + outputChars;
   await recordSuccessfulRewriteUsage(access, {
     inputChars: inputBundle.length,
-    outputChars:
-      mode === "ask"
-        ? parsed.reply.length
-        : mode === "rewrite"
-          ? parsed.natural_version.length + parsed.quick_note.length
-          : mode === "practice_question"
-            ? parsed.question.length
-          : mode === "practice_feedback"
-              ? parsed.feedback.length + (parsed.rewritten_answer?.length ?? 0)
-              : parsed.rewritten_text.length,
-    keyPhraseCount:
-      mode === "practice_question" || mode === "practice_feedback"
-        ? 0
-        : parsed.key_phrases.length,
+    outputChars,
   });
 
   sendJson(res, 200, {
     ...parsed,
-    usage: buildUsageSnapshot(access, true),
+    usage: buildUsageSnapshot(access, chargedChars),
   });
 }

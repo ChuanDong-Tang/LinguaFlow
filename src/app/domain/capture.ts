@@ -1,16 +1,15 @@
-export type CaptureMode = "rewrite" | "ask";
-export type CaptureKeyPhraseSource = "natural_version" | "answer";
+export type CaptureKeyPhraseSource = "natural_version";
 
 export interface CaptureItem {
   id: string;
-  mode?: CaptureMode;
-  sourceText: string;
+  chatSessionId?: string;
+  chatTurnId?: string;
+  createdAt?: string;
+  sourceText?: string;
   naturalVersion?: string;
-  correctedText?: string;
-  answer?: string;
+  reply?: string;
   keyPhrases?: string[];
   keyPhraseSource?: CaptureKeyPhraseSource;
-  quickNote?: string;
   note?: string;
 }
 
@@ -21,7 +20,7 @@ export interface DailyCaptureRecord {
 }
 
 export function getCaptureNaturalVersion(item: CaptureItem): string {
-  return item.naturalVersion?.trim() || item.correctedText?.trim() || "";
+  return item.naturalVersion?.trim() || "";
 }
 
 export function getCaptureKeyPhrases(item: CaptureItem): string[] {

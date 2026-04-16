@@ -4,6 +4,6 @@ function parseInteger(value: string | undefined, fallback: number): number {
 }
 
 export const oioChatConfig = {
-  maxInputChars: parseInteger(import.meta.env.VITE_OIO_CHAT_MAX_INPUT_CHARS, 1000),
+  maxInputChars: parseInteger(import.meta.env.VITE_OIO_CHAT_MAX_INPUT_CHARS, 5000),
   newConversationTitle: "New conversation",
 } as const;

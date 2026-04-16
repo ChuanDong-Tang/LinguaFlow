@@ -3,25 +3,8 @@ import { authenticateClerkRequest } from "../server/core/auth.js";
 import { getViewerAccessByClerkUserId } from "../server/services/access.js";
 import { getSupabaseAdmin } from "../server/infrastructure/supabase.js";
 
-const SESSION_DOC_PREFIX = "chat_session:";
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
-
-function toSessionDocType(sessionId) {
-  return `${SESSION_DOC_PREFIX}${sessionId}`;
-}
-
-function fromSessionDocType(docType) {
-  if (typeof docType !== "string" || !docType.startsWith(SESSION_DOC_PREFIX)) return "";
-  return docType.slice(SESSION_DOC_PREFIX.length).trim();
-}
-
-function normalizeSession(session) {
-  if (!session || typeof session !== "object") return null;
-  const id = typeof session.id === "string" ? session.id.trim() : "";
-  if (!id) return null;
-  return session;
-}
 
 function parseUrl(req) {
   const host = req.headers.host || "localhost";
@@ -32,6 +15,50 @@ function parsePageSize(rawValue) {
   const parsed = Number.parseInt(String(rawValue ?? ""), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_PAGE_SIZE;
   return Math.min(parsed, MAX_PAGE_SIZE);
+}
+
+function normalizeTurn(turn) {
+  if (!turn || typeof turn !== "object") return null;
+  const turnId = typeof turn.id === "string" ? turn.id.trim() : "";
+  const role = turn.role === "assistant" ? "assistant" : turn.role === "user" ? "user" : "";
+  const sourceText = typeof turn.sourceText === "string" ? turn.sourceText : "";
+  if (!turnId || !role) return null;
+  if (role === "user" && !sourceText.trim()) return null;
+  return {
+    id: turnId,
+    role,
+    naturalVersion: typeof turn.naturalVersion === "string" ? turn.naturalVersion : null,
+    reply: typeof turn.reply === "string" ? turn.reply : null,
+    keyPhrases: Array.isArray(turn.keyPhrases) ? turn.keyPhrases.filter((item) => typeof item === "string") : [],
+    sourceText: sourceText || null,
+    occurredAt: typeof turn.occurredAt === "string" ? turn.occurredAt : new Date().toISOString(),
+    capturedAt: typeof turn.capturedAt === "string" ? turn.capturedAt : null,
+    capturedDateKey: typeof turn.capturedDateKey === "string" ? turn.capturedDateKey : null,
+    countsTowardLimit: typeof turn.countsTowardLimit === "boolean" ? turn.countsTowardLimit : null,
+    adminDebug: typeof turn.adminDebug === "string" ? turn.adminDebug : null,
+    usageDailyUsed: Number.isFinite(turn.usageDailyUsed) ? Number(turn.usageDailyUsed) : null,
+    usageDailyLimit: Number.isFinite(turn.usageDailyLimit) ? Number(turn.usageDailyLimit) : null,
+  };
+}
+
+function normalizeSession(session) {
+  if (!session || typeof session !== "object") return null;
+  const id = typeof session.id === "string" ? session.id.trim() : "";
+  if (!id) return null;
+  if (session.kind === "practice") return null;
+  const createdAt = typeof session.createdAt === "string" ? session.createdAt : new Date().toISOString();
+  const updatedAt = typeof session.updatedAt === "string" ? session.updatedAt : createdAt;
+  const title = typeof session.title === "string" && session.title.trim() ? session.title.trim() : "New conversation";
+  const dateKey = typeof session.dateKey === "string" && session.dateKey.trim() ? session.dateKey.trim() : createdAt.slice(0, 10);
+  const turns = Array.isArray(session.turns) ? session.turns.map(normalizeTurn).filter(Boolean) : [];
+  return {
+    id,
+    createdAt,
+    updatedAt,
+    title,
+    dateKey,
+    turns,
+  };
 }
 
 async function requireProAccess(req, res) {
@@ -48,7 +75,39 @@ async function requireProAccess(req, res) {
     return null;
   }
 
-  return { access, appUserId: access.profile.appUserId };
+  return { appUserId: access.profile.appUserId };
+}
+
+async function loadTurnsBySessionIds(supabase, appUserId, sessionIds) {
+  if (!sessionIds.length) return new Map();
+  const { data, error } = await supabase
+    .from("chat_turns")
+    .select("*")
+    .eq("user_id", appUserId)
+    .in("session_id", sessionIds)
+    .order("occurred_at", { ascending: true });
+  if (error) throw error;
+  const grouped = new Map();
+  for (const row of data ?? []) {
+    const bucket = grouped.get(row.session_id) ?? [];
+    bucket.push({
+      id: row.turn_id,
+      role: row.role,
+      naturalVersion: row.natural_version ?? undefined,
+      reply: row.reply ?? undefined,
+      keyPhrases: Array.isArray(row.key_phrases) ? row.key_phrases.filter((item) => typeof item === "string") : [],
+      sourceText: row.source_text ?? undefined,
+      occurredAt: row.occurred_at ?? undefined,
+      capturedAt: row.captured_at ?? undefined,
+      capturedDateKey: row.captured_date_key ?? undefined,
+      countsTowardLimit: typeof row.counts_toward_limit === "boolean" ? row.counts_toward_limit : undefined,
+      adminDebug: row.admin_debug ?? undefined,
+      usageDailyUsed: Number.isFinite(row.usage_daily_used) ? Number(row.usage_daily_used) : undefined,
+      usageDailyLimit: Number.isFinite(row.usage_daily_limit) ? Number(row.usage_daily_limit) : undefined,
+    });
+    grouped.set(row.session_id, bucket);
+  }
+  return grouped;
 }
 
 export default async function handler(req, res) {
@@ -67,41 +126,44 @@ export default async function handler(req, res) {
     const limit = parsePageSize(url.searchParams.get("limit"));
     const before = url.searchParams.get("before")?.trim() ?? "";
     let query = supabase
-      .from("user_cloud_documents")
-      .select("doc_type,payload,updated_at")
+      .from("chat_sessions")
+      .select("session_id,title,date_key,created_at,updated_at")
       .eq("user_id", auth.appUserId)
-      .like("doc_type", `${SESSION_DOC_PREFIX}%`)
       .order("updated_at", { ascending: false })
       .limit(limit + 1);
-    if (before) {
-      query = query.lt("updated_at", before);
-    }
-    const perSessionResult = await query;
-
-    if (perSessionResult.error) {
+    if (before) query = query.lt("updated_at", before);
+    const result = await query;
+    if (result.error) {
       sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to load chat history." } });
       return;
     }
 
-    const perSessionRows = Array.isArray(perSessionResult.data) ? perSessionResult.data : [];
-    const hasMore = perSessionRows.length > limit;
-    const pageRows = hasMore ? perSessionRows.slice(0, limit) : perSessionRows;
-    const normalizedSessions = pageRows
-      .map((row) => {
-        const payload = normalizeSession(row?.payload);
-        if (!payload) return null;
-        const sessionId = fromSessionDocType(row?.doc_type);
-        if (!sessionId) return null;
-        if (payload.id !== sessionId) {
-          payload.id = sessionId;
-        }
-        return payload;
-      })
-      .filter(Boolean);
+    const rows = Array.isArray(result.data) ? result.data : [];
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const sessionIds = pageRows.map((row) => row.session_id).filter(Boolean);
+
+    let turnMap;
+    try {
+      turnMap = await loadTurnsBySessionIds(supabase, auth.appUserId, sessionIds);
+    } catch {
+      sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to load chat history." } });
+      return;
+    }
+
+    const sessions = pageRows.map((row) => ({
+      id: row.session_id,
+      title: row.title,
+      dateKey: row.date_key,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      turns: turnMap.get(row.session_id) ?? [],
+    }));
+
     const nextBefore = hasMore
       ? (typeof pageRows[pageRows.length - 1]?.updated_at === "string" ? pageRows[pageRows.length - 1].updated_at : null)
       : null;
-    sendJson(res, 200, { sessions: normalizedSessions, has_more: hasMore, next_before: nextBefore });
+    sendJson(res, 200, { sessions, has_more: hasMore, next_before: nextBefore });
     return;
   }
 
@@ -114,50 +176,89 @@ export default async function handler(req, res) {
       return;
     }
 
-    const sessions = Array.isArray(body?.sessions)
-      ? body.sessions.map(normalizeSession).filter(Boolean)
-      : [];
-    const now = new Date().toISOString();
-    const nextDocTypes = new Set(sessions.map((session) => toSessionDocType(session.id)));
-    const existingRowsResult = await supabase
-      .from("user_cloud_documents")
-      .select("doc_type")
-      .eq("user_id", auth.appUserId)
-      .like("doc_type", `${SESSION_DOC_PREFIX}%`);
-    if (existingRowsResult.error) {
+    const sessions = Array.isArray(body?.sessions) ? body.sessions.map(normalizeSession).filter(Boolean) : [];
+    const nextSessionIds = new Set(sessions.map((session) => session.id));
+
+    const existingResult = await supabase
+      .from("chat_sessions")
+      .select("session_id")
+      .eq("user_id", auth.appUserId);
+    if (existingResult.error) {
       sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
       return;
     }
-    const existingDocTypes = Array.isArray(existingRowsResult.data)
-      ? existingRowsResult.data
-          .map((row) => (typeof row?.doc_type === "string" ? row.doc_type : ""))
-          .filter(Boolean)
-      : [];
-    const docTypesToDelete = existingDocTypes.filter((docType) => !nextDocTypes.has(docType));
-
-    if (sessions.length > 0) {
-      const rows = sessions.map((session) => ({
-        user_id: auth.appUserId,
-        doc_type: toSessionDocType(session.id),
-        payload: session,
-        updated_at: typeof session.updatedAt === "string" && session.updatedAt.trim() ? session.updatedAt : now,
-      }));
-      const upsertResult = await supabase
-        .from("user_cloud_documents")
-        .upsert(rows, { onConflict: "user_id,doc_type" });
-      if (upsertResult.error) {
+    const existingIds = Array.isArray(existingResult.data) ? existingResult.data.map((row) => row.session_id).filter(Boolean) : [];
+    const toDelete = existingIds.filter((id) => !nextSessionIds.has(id));
+    if (toDelete.length > 0) {
+      const deleteResult = await supabase
+        .from("chat_sessions")
+        .delete()
+        .eq("user_id", auth.appUserId)
+        .in("session_id", toDelete);
+      if (deleteResult.error) {
         sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
         return;
       }
     }
 
-    if (docTypesToDelete.length > 0) {
-      const deleteResult = await supabase
-        .from("user_cloud_documents")
+    const sessionRows = sessions.map((session) => ({
+      user_id: auth.appUserId,
+      session_id: session.id,
+      title: session.title,
+      date_key: session.dateKey,
+      created_at: session.createdAt,
+      updated_at: session.updatedAt,
+    }));
+    if (sessionRows.length > 0) {
+      const upsertSessionResult = await supabase
+        .from("chat_sessions")
+        .upsert(sessionRows, { onConflict: "user_id,session_id" });
+      if (upsertSessionResult.error) {
+        sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
+        return;
+      }
+    }
+
+    const sessionIds = sessions.map((session) => session.id);
+    if (sessionIds.length > 0) {
+      const deleteTurnsResult = await supabase
+        .from("chat_turns")
         .delete()
         .eq("user_id", auth.appUserId)
-        .in("doc_type", docTypesToDelete);
-      if (deleteResult.error) {
+        .in("session_id", sessionIds);
+      if (deleteTurnsResult.error) {
+        sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
+        return;
+      }
+    }
+
+    const turnRows = [];
+    for (const session of sessions) {
+      for (const turn of session.turns) {
+        turnRows.push({
+          user_id: auth.appUserId,
+          session_id: session.id,
+          turn_id: turn.id,
+          role: turn.role,
+          natural_version: turn.naturalVersion,
+          reply: turn.reply,
+          key_phrases: Array.isArray(turn.keyPhrases) ? turn.keyPhrases : [],
+          source_text: turn.role === "user" ? (turn.sourceText ?? "") : (turn.sourceText ?? null),
+          occurred_at: turn.occurredAt ?? session.updatedAt ?? new Date().toISOString(),
+          captured_at: turn.capturedAt,
+          captured_date_key: turn.capturedDateKey,
+          counts_toward_limit: turn.countsTowardLimit,
+          admin_debug: turn.adminDebug,
+          usage_daily_used: turn.usageDailyUsed,
+          usage_daily_limit: turn.usageDailyLimit,
+        });
+      }
+    }
+    if (turnRows.length > 0) {
+      const upsertTurnsResult = await supabase
+        .from("chat_turns")
+        .upsert(turnRows, { onConflict: "user_id,session_id,turn_id" });
+      if (upsertTurnsResult.error) {
         sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
         return;
       }

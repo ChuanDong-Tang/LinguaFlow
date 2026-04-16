@@ -7,6 +7,8 @@ import { pullCaptureIndex, pullCaptureRecordByDate, pushCaptureRecord } from "..
 import { getI18n, t } from "../../i18n/i18n";
 import { onDailyCaptureUpdated } from "./dailyCaptureEvents";
 import { type CaptureItem, type DailyCaptureRecord, listCaptureRecords, saveCaptureRecord } from "./dailyCaptureStore";
+import { listChatSessions } from "../oioChat/oioChatStore";
+import { type ChatTurn } from "../oioChat/oioChatTypes";
 
 export class DailyCaptureController {
   private readonly root: HTMLElement | null;
@@ -27,6 +29,7 @@ export class DailyCaptureController {
   private readonly practiceHostEl: HTMLElement | null;
   private readonly practiceSelectedDayBtnEl: HTMLButtonElement | null;
   private records: DailyCaptureRecord[] = [];
+  private chatTurnByRef = new Map<string, ChatTurn>();
   private monthCursor = new Date();
   private selectedDateKey = dateToLocalKey(new Date());
   private dialogDateKey = "";
@@ -115,17 +118,6 @@ export class DailyCaptureController {
         return;
       }
 
-      const aiBtn = target?.closest<HTMLButtonElement>("[data-capture-practice-ai]");
-      if (aiBtn) {
-        const itemId = aiBtn.dataset.capturePracticeAi?.trim() ?? "";
-        if (!itemId) return;
-        const item = this.findItemById(itemId);
-        if (!item || item.mode !== "ask") return;
-        this.closeDayDialog();
-        this.launchAiPractice(item);
-        return;
-      }
-
       const practiceSelectedDayBtn = target?.closest<HTMLButtonElement>("[data-daily-capture-practice-selected-day]");
       if (practiceSelectedDayBtn) {
         this.launchSelectedDayPractice();
@@ -179,6 +171,7 @@ export class DailyCaptureController {
 
   private async loadRecords(): Promise<void> {
     this.records = await listCaptureRecords();
+    await this.refreshChatTurnMap();
     if (!this.records.find((record) => record.dateKey === this.selectedDateKey) && this.records[0]) {
       this.selectedDateKey = this.records[0].dateKey;
     }
@@ -297,6 +290,7 @@ export class DailyCaptureController {
     const index = Math.max(0, Math.min(this.dialogItemIndex, total - 1));
     this.dialogItemIndex = index;
     const item = record.items[index];
+    const resolvedItem = this.resolveItem(item);
     this.dayDialogTitleEl.textContent = formatKeyToSlashDisplay(record.dateKey);
     this.dayDialogMetaEl.textContent = `${t("daily_capture.card")} ${index + 1} / ${total}`;
     if (this.dayDialogPrevEl) this.dayDialogPrevEl.disabled = index <= 0;
@@ -305,20 +299,19 @@ export class DailyCaptureController {
     this.dayDialogBodyEl.innerHTML = `
       <article class="daily-capture-entry daily-capture-entry--dialog">
         <div class="daily-capture-entry-block">
-          <span class="daily-capture-entry-label">${item.mode === "ask" ? t("daily_capture.label_question") : t("daily_capture.label_original")}</span>
-          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(item.sourceText, getCaptureKeyPhrases(item))}</p>
+          <span class="daily-capture-entry-label">${t("daily_capture.label_rewritten")}</span>
+          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(resolvedItem.naturalVersion, resolvedItem.keyPhrases)}</p>
         </div>
         <div class="daily-capture-entry-block">
-          <span class="daily-capture-entry-label">${t("daily_capture.label_natural")}</span>
-          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(getCaptureNaturalVersion(item), getCaptureKeyPhrases(item))}</p>
+          <span class="daily-capture-entry-label">${t("daily_capture.label_reply_comment")}</span>
+          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(resolvedItem.reply, resolvedItem.keyPhrases)}</p>
         </div>
         <div class="daily-capture-entry-block">
-          <span class="daily-capture-entry-label">${t("daily_capture.label_key_phrases")}</span>
-          ${this.renderKeyPhrases(item)}
+          <span class="daily-capture-entry-label">${t("daily_capture.label_core_phrases")}</span>
+          ${this.renderKeyPhrases(resolvedItem.keyPhrases)}
         </div>
         <div class="daily-capture-entry-actions">
           <button type="button" class="secondary" data-capture-practice-oio="${escapeHtml(item.id)}">${t("daily_capture.practice_oio")}</button>
-          ${item.mode === "ask" ? `<button type="button" class="secondary" data-capture-practice-ai="${escapeHtml(item.id)}">${t("daily_capture.practice_ai")}</button>` : ""}
           <button type="button" class="secondary" data-capture-delete="${escapeHtml(item.id)}">${t("daily_capture.delete")}</button>
         </div>
       </article>
@@ -338,8 +331,11 @@ export class DailyCaptureController {
   }
 
   private launchOioPractice(item: CaptureItem): void {
-    const practiceText = (getCaptureNaturalVersion(item) || item.sourceText).trim();
-    const keyPhrases = getCaptureKeyPhrases(item);
+    const refKey = item.chatSessionId && item.chatTurnId ? `${item.chatSessionId}:${item.chatTurnId}` : "";
+    const turn = refKey ? this.chatTurnByRef.get(refKey) : null;
+    const practiceText = (turn?.naturalVersion || getCaptureNaturalVersion(item) || item.sourceText || "").trim();
+    const keyPhrases = turn?.keyPhrases ?? getCaptureKeyPhrases(item);
+    if (!practiceText || practiceText === "-") return;
     this.startPracticeWithText(practiceText, practiceText ? [practiceText] : undefined, keyPhrases.length ? [keyPhrases] : undefined);
   }
 
@@ -352,10 +348,15 @@ export class DailyCaptureController {
       return;
     }
     const cardTexts = items
-      .map((item) => getCaptureNaturalVersion(item) || item.sourceText)
+      .map((item) => this.resolveItem(item).naturalVersion)
       .map((text) => text.trim())
+      .filter((text) => text && text !== "-")
       .filter(Boolean);
-    const cardPhraseChunks = items.map((item) => getCaptureKeyPhrases(item));
+    const cardPhraseChunks = items.map((item) => this.resolveItem(item).keyPhrases);
+    if (!cardTexts.length) {
+      window.alert(t("daily_capture.practice_selected_empty"));
+      return;
+    }
     this.startPracticeWithText(cardTexts.join("\n"), cardTexts, cardPhraseChunks);
   }
 
@@ -389,19 +390,38 @@ export class DailyCaptureController {
     practiceSection?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  private launchAiPractice(item: CaptureItem): void {
-    document.dispatchEvent(new CustomEvent("app-request-tab-change", { detail: { tabId: "oio-chat" } }));
-    document.dispatchEvent(new CustomEvent("oio-chat-start-practice", { detail: { item } }));
-  }
-
-  private renderKeyPhrases(item: CaptureItem): string {
-    const keyPhrases = getCaptureKeyPhrases(item);
+  private renderKeyPhrases(keyPhrases: string[]): string {
     if (!keyPhrases.length) {
       return `<p class="daily-capture-entry-copy">-</p>`;
     }
     return `<div class="chat-highlight-list">${keyPhrases
       .map((phrase) => `<span class="chat-highlight-chip">${escapeHtml(phrase)}</span>`)
       .join("")}</div>`;
+  }
+
+  private async refreshChatTurnMap(): Promise<void> {
+    const sessions = await listChatSessions();
+    const nextMap = new Map<string, ChatTurn>();
+    for (const session of sessions) {
+      for (const turn of session.turns) {
+        if (turn.role !== "assistant") continue;
+        nextMap.set(`${session.id}:${turn.id}`, turn);
+      }
+    }
+    this.chatTurnByRef = nextMap;
+  }
+
+  private resolveItem(item: CaptureItem): { naturalVersion: string; reply: string; keyPhrases: string[] } {
+    const refKey = item.chatSessionId && item.chatTurnId ? `${item.chatSessionId}:${item.chatTurnId}` : "";
+    const turn = refKey ? this.chatTurnByRef.get(refKey) : null;
+    const keyPhrases = turn?.keyPhrases ?? getCaptureKeyPhrases(item);
+    const naturalVersion = (turn?.naturalVersion || getCaptureNaturalVersion(item) || item.sourceText || "").trim();
+    const reply = (turn?.reply || item.reply || item.note || "").trim();
+    return {
+      naturalVersion: naturalVersion || "-",
+      reply: reply || "-",
+      keyPhrases,
+    };
   }
 
   private syncPracticeCtaCopy(): void {

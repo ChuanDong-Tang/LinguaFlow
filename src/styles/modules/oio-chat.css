@@ -447,17 +447,17 @@
 .oio-chat-history-list {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.28rem;
 }
 
 .oio-chat-history-item {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.4rem;
   width: 100%;
-  padding: 0.5rem 0.6rem;
+  padding: 0.34rem 0.42rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
 }
 
@@ -485,20 +485,15 @@
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0;
 }
 
 .oio-chat-history-title {
-  font-size: 0.86rem;
+  font-size: 0.78rem;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.oio-chat-history-meta {
-  font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.56);
 }
 
 .oio-chat-history-empty {

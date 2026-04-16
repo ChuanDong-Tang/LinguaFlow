@@ -3,13 +3,6 @@ import { getAppConfig } from "../core/appConfig.js";
 import { getViewerAccessByClerkUserId } from "./access.js";
 import { getSupabaseAdmin } from "../infrastructure/supabase.js";
 
-function parseIntegerHeader(value) {
-  const parsed = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-const REWRITE_USAGE_DOC_TYPE = "rewrite_usage_daily";
-
 function toUtcDateKey(date = new Date()) {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
@@ -17,24 +10,17 @@ function toUtcDateKey(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function parseUsagePayload(payload) {
-  if (!payload || typeof payload !== "object") return {};
-  return payload;
-}
-
 async function readDailyCount(appUserId, dateKey) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
-    .from("user_cloud_documents")
-    .select("payload")
+    .from("rewrite_daily_usage")
+    .select("used_chars")
     .eq("user_id", appUserId)
-    .eq("doc_type", REWRITE_USAGE_DOC_TYPE)
+    .eq("date_key", dateKey)
     .maybeSingle();
   if (error) throw error;
-  const payload = parseUsagePayload(data?.payload);
-  const count = Number.parseInt(String(payload?.[dateKey] ?? "0"), 10);
+  const count = Number.parseInt(String(data?.used_chars ?? "0"), 10);
   return {
-    payload,
     count: Number.isFinite(count) ? count : 0,
   };
 }
@@ -52,31 +38,27 @@ export async function getRewriteUsageSnapshotByClerkUserId(clerkUserId) {
   const usage = await readDailyCount(appUserId, dateKey);
   return {
     daily_used: Math.max(0, Number(usage.count) || 0),
-    daily_limit: hasPro ? config.proDailyReplyLimit : config.freeDailyReplyLimit,
+    daily_limit: hasPro ? config.proDailyCharLimit : config.freeDailyCharLimit,
   };
 }
 
-async function writeDailyCount(appUserId, payload, dateKey, count) {
+async function writeDailyCount(appUserId, dateKey, count) {
   const supabase = getSupabaseAdmin();
-  const nextPayload = {
-    ...parseUsagePayload(payload),
-    [dateKey]: count,
-  };
   const { error } = await supabase
-    .from("user_cloud_documents")
+    .from("rewrite_daily_usage")
     .upsert(
       {
         user_id: appUserId,
-        doc_type: REWRITE_USAGE_DOC_TYPE,
-        payload: nextPayload,
+        date_key: dateKey,
+        used_chars: Math.max(0, Math.floor(count)),
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "user_id,doc_type" },
+      { onConflict: "user_id,date_key" },
     );
   if (error) throw error;
 }
 
-export async function getRewriteAccessContext(req, config, mode = "rewrite") {
+export async function getRewriteAccessContext(req, config, mode = "beginner") {
   const auth = await authenticateClerkRequest(req, { requireAuth: true });
   if (!auth.ok) {
     return {
@@ -85,13 +67,6 @@ export async function getRewriteAccessContext(req, config, mode = "rewrite") {
       message: auth.message,
     };
   }
-
-  const usage = {
-    dailyCalls: parseIntegerHeader(req.headers["x-rewrite-daily-calls"]),
-    dailyChars: parseIntegerHeader(req.headers["x-rewrite-daily-chars"]),
-    monthlyCalls: parseIntegerHeader(req.headers["x-rewrite-monthly-calls"]),
-    monthlyChars: parseIntegerHeader(req.headers["x-rewrite-monthly-chars"]),
-  };
 
   const authenticatedUserId = auth.clerkUserId;
   if (!authenticatedUserId) {
@@ -114,7 +89,7 @@ export async function getRewriteAccessContext(req, config, mode = "rewrite") {
     };
   }
   const appConfig = getAppConfig();
-  const limit = hasPro ? appConfig.proDailyReplyLimit : appConfig.freeDailyReplyLimit;
+  const limit = hasPro ? appConfig.proDailyCharLimit : appConfig.freeDailyCharLimit;
   const dateKey = toUtcDateKey();
   const dailyUsage = await readDailyCount(appUserId, dateKey);
   if (dailyUsage.count >= limit) {
@@ -122,7 +97,7 @@ export async function getRewriteAccessContext(req, config, mode = "rewrite") {
       ok: false,
       status: 429,
       code: "DAILY_LIMIT_REACHED",
-      message: `Daily AI reply limit reached (${limit}).`,
+      message: `Daily AI character limit reached (${limit}).`,
     };
   }
   const quota = {
@@ -130,7 +105,6 @@ export async function getRewriteAccessContext(req, config, mode = "rewrite") {
     appUserId,
     dateKey,
     count: dailyUsage.count,
-    payload: dailyUsage.payload,
     limit,
   };
 
@@ -138,15 +112,18 @@ export async function getRewriteAccessContext(req, config, mode = "rewrite") {
     ok: true,
     actor: {
       userId: authenticatedUserId,
-      usage,
       clerkUserId: authenticatedUserId,
       quota,
     },
   };
 }
 
-export async function recordSuccessfulRewriteUsage(context, _usage) {
+export async function recordSuccessfulRewriteUsage(context, usage) {
   const quota = context?.actor?.quota;
   if (!quota?.appUserId || !quota?.dateKey) return;
-  await writeDailyCount(quota.appUserId, quota.payload, quota.dateKey, quota.count + 1);
+  const inputChars = Math.max(0, Number(usage?.inputChars) || 0);
+  const outputChars = Math.max(0, Number(usage?.outputChars) || 0);
+  const chargedChars = inputChars + outputChars;
+  if (chargedChars <= 0) return;
+  await writeDailyCount(quota.appUserId, quota.dateKey, quota.count + chargedChars);
 }

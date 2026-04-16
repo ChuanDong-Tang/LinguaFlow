@@ -40,6 +40,7 @@ import {
   getBrowserTtsService as qn,
   getSelectedTtsPlaybackSource as Jn,
 } from "../../../services/tts/browserTtsService";
+import { renderTextWithKeyPhraseHighlight} from "../../../shared/keyPhraseHighlight";
 
 const LOCAL_HISTORY_ENABLED = false;
 
@@ -166,57 +167,7 @@ var qt = `month`,
 function W(e) {
   Xe && (Xe.textContent = e ?? ``);
 }
-function dn2(e) {
-  return String(e ?? ``).replace(/[&<>"']/g, (e) =>
-    e === `&`
-      ? `&amp;`
-      : e === `<`
-      ? `&lt;`
-      : e === `>`
-      ? `&gt;`
-      : e === `"`
-      ? `&quot;`
-      : `&#39;`,
-  );
-}
-function hn2(e) {
-  return String(e ?? ``).replace(/[.*+?^${}()|[\]\\]/g, `\\$&`);
-}
-function pn2(e, t) {
-  let n = String(e ?? ``),
-    r = Array.isArray(t)
-      ? t
-          .map((e) => String(e ?? ``).trim())
-          .filter(Boolean)
-          .sort((e, t) => t.length - e.length)
-      : [];
-  if (!n || !r.length) return dn2(n);
-  let i = [],
-    a = new Set();
-  for (let e of r) {
-    let t = e.toLowerCase();
-    if (a.has(t)) continue;
-    a.add(t);
-    let r = new RegExp(hn2(e), `gi`),
-      o = null;
-    for (; (o = r.exec(n)) !== null; ) {
-      if (!o[0]) break;
-      i.push({ start: o.index, end: o.index + o[0].length });
-    }
-  }
-  if (!i.length) return dn2(n);
-  i.sort((e, t) => (e.start !== t.start ? e.start - t.start : t.end - e.end));
-  let o = [],
-    s = 0;
-  for (let e of i) (!o.length || e.start >= s) && (o.push(e), (s = e.end));
-  let c = ``,
-    l = 0;
-  for (let e of o)
-    (e.start > l && (c += dn2(n.slice(l, e.start))),
-      (c += `<mark class="cue-keyphrase-highlight">${dn2(n.slice(e.start, e.end))}</mark>`),
-      (l = e.end));
-  return l < n.length && (c += dn2(n.slice(l))), c;
-}
+
 var G = new l({
     playerEl: v,
     playerTimeDisplay: nt,
@@ -1145,7 +1096,7 @@ function vr(e, t) {
       ) {
         let r = document.createElement(`span`);
         ((r.className = `fb-text`),
-          (r.innerHTML = pn2(t.text, pe[e] ?? [])),
+          (r.innerHTML = renderTextWithKeyPhraseHighlight(t.text, pe[e] ?? [])),
           i.appendChild(r));
       } else {
         let r = Number(t.wordIndex),
@@ -1357,7 +1308,7 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
         }));
     let i = document.createElement(`p`);
       ((i.className = `cue cue-reference`),
-        (i.innerHTML = pn2(e.text, pe[t] ?? [])),
+        (i.innerHTML = renderTextWithKeyPhraseHighlight(e.text, pe[t] ?? [])),
         i.addEventListener(`click`, (e) => {
           (e.stopPropagation(),
             (practicePageIndex = ue[t] ?? t),
@@ -1980,34 +1931,3 @@ function $(e, t) {
   })),
   en.wirePracticePackImport(),
   K.renderHistoryList().catch(() => {}));
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

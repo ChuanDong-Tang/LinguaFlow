@@ -12,19 +12,8 @@ export interface RewriteUsagePayload {
 }
 
 export interface OioChatRewritePayload {
-  version: "3";
-  mode: "rewrite";
-  is_already_natural: boolean;
-  encouragement: string;
+  version: "4";
   natural_version: string;
-  quick_note: string;
-  key_phrases: string[];
-  usage?: RewriteUsagePayload | null;
-}
-
-export interface OioChatAskPayload {
-  version: "3";
-  mode: "ask";
   reply: string;
   key_phrases: string[];
   usage?: RewriteUsagePayload | null;
@@ -84,27 +73,15 @@ export async function requestRewrite(text: string): Promise<RewriteSuccessPayloa
   });
 }
 
-export async function requestOioChat(text: string, mode: "rewrite" | "ask"): Promise<OioChatRewritePayload | OioChatAskPayload> {
-  return await requestJson<OioChatRewritePayload | OioChatAskPayload>({ text, mode }, "Chat request failed.", (payload) => {
+export async function requestOioChat(text: string, mode: "beginner" | "advanced"): Promise<OioChatRewritePayload> {
+  return await requestJson<OioChatRewritePayload>({ text, mode }, "Chat request failed.", (payload) => {
     if (!payload || typeof payload !== "object") return false;
-    if ((payload as OioChatRewritePayload).mode === "rewrite") {
-      return (
-        (payload as OioChatRewritePayload).version === "3" &&
-        typeof (payload as OioChatRewritePayload).is_already_natural === "boolean" &&
-        typeof (payload as OioChatRewritePayload).encouragement === "string" &&
-        typeof (payload as OioChatRewritePayload).natural_version === "string" &&
-        typeof (payload as OioChatRewritePayload).quick_note === "string" &&
-        Array.isArray((payload as OioChatRewritePayload).key_phrases)
-      );
-    }
-    if ((payload as OioChatAskPayload).mode === "ask") {
-      return (
-        (payload as OioChatAskPayload).version === "3" &&
-        typeof (payload as OioChatAskPayload).reply === "string" &&
-        Array.isArray((payload as OioChatAskPayload).key_phrases)
-      );
-    }
-    return false;
+    return (
+      (payload as OioChatRewritePayload).version === "4" &&
+      typeof (payload as OioChatRewritePayload).natural_version === "string" &&
+      typeof (payload as OioChatRewritePayload).reply === "string" &&
+      Array.isArray((payload as OioChatRewritePayload).key_phrases)
+    );
   });
 }
 

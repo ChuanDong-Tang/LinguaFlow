@@ -344,6 +344,16 @@ export class AppShellController {
     if (isTabDisabled(tabId)) {
       return;
     }
+    if (tabId !== this.activeTabId) {
+      const beforeEvent = new CustomEvent("app-before-tab-change", {
+        cancelable: true,
+        detail: { fromTabId: this.activeTabId, toTabId: tabId },
+      });
+      const shouldContinue = document.dispatchEvent(beforeEvent);
+      if (!shouldContinue) {
+        return;
+      }
+    }
 
     this.activeTabId = tabId;
     this.root?.setAttribute("data-active-tab", tabId);

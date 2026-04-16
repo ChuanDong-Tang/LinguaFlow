@@ -163,9 +163,9 @@
               <section class="workspace-card module-card oio-chat-main">
                 <div class="oio-chat-feed" data-oio-chat-feed></div>
                 <form class="oio-chat-composer" data-oio-chat-form>
-                  <div class="oio-chat-mode-switch" role="tablist" aria-label="Chat mode">
-                    <button type="button" class="oio-chat-mode-btn is-active" data-oio-chat-mode="rewrite" aria-pressed="true">Rewrite</button>
-                    <button type="button" class="oio-chat-mode-btn" data-oio-chat-mode="ask" aria-pressed="false">Ask</button>
+                  <div class="oio-chat-mode-switch" role="tablist" aria-label="Level mode">
+                    <button type="button" class="oio-chat-mode-btn is-active" data-oio-chat-mode="beginner" aria-pressed="true">Beginner</button>
+                    <button type="button" class="oio-chat-mode-btn" data-oio-chat-mode="advanced" aria-pressed="false">Advanced</button>
                   </div>
                   <label class="sr-only" for="oio-chat-input">Chat input</label>
                   <textarea id="oio-chat-input" class="oio-chat-input" rows="5" spellcheck="false" placeholder="Say it in English. Ask a question, describe your day, or test a sentence." data-oio-chat-input></textarea>
@@ -182,7 +182,7 @@
                       </button>
                       <button type="button" class="secondary" data-oio-chat-clear>Clear</button>
                     </div>
-                    <span class="oio-chat-meta" data-oio-chat-meta>0/320 characters · 0/20 turns</span>
+                    <span class="oio-chat-meta" data-oio-chat-meta>0/320 characters · --/-- chars today</span>
                   </div>
                   <p class="oio-chat-status" data-oio-chat-status></p>
                 </form>

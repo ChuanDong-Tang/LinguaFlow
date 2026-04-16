@@ -3,21 +3,33 @@ import { authenticateClerkRequest } from "../server/core/auth.js";
 import { getViewerAccessByClerkUserId } from "../server/services/access.js";
 import { getSupabaseAdmin } from "../server/infrastructure/supabase.js";
 
-const RECORD_DOC_PREFIX = "daily_capture:";
-const INDEX_TABLE = "daily_capture_index";
+function normalizeDateKey(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
 
-function toRecordDocType(dateKey) {
-  return `${RECORD_DOC_PREFIX}${dateKey}`;
+function normalizeCaptureItem(item) {
+  if (!item || typeof item !== "object") return null;
+  const id = typeof item.id === "string" ? item.id.trim() : "";
+  const chatSessionId = typeof item.chatSessionId === "string" ? item.chatSessionId.trim() : "";
+  const chatTurnId = typeof item.chatTurnId === "string" ? item.chatTurnId.trim() : "";
+  if (!id || !chatSessionId || !chatTurnId) return null;
+  return {
+    id,
+    chatSessionId,
+    chatTurnId,
+    createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+  };
 }
 
 function normalizeRecord(record) {
   if (!record || typeof record !== "object") return null;
-  const dateKey = typeof record.dateKey === "string" ? record.dateKey.trim() : "";
+  const dateKey = normalizeDateKey(record.dateKey);
   if (!dateKey) return null;
   const updatedAt = typeof record.updatedAt === "string" ? record.updatedAt : new Date().toISOString();
-  const items = Array.isArray(record.items) ? record.items : [];
+  const items = Array.isArray(record.items)
+    ? record.items.map(normalizeCaptureItem).filter(Boolean)
+    : [];
   return {
-    ...record,
     dateKey,
     updatedAt,
     items,
@@ -43,85 +55,78 @@ async function requireProAccess(req, res) {
     return null;
   }
 
-  return { access, appUserId: access.profile.appUserId };
+  return { appUserId: access.profile.appUserId };
 }
 
 async function loadCaptureIndex(supabase, appUserId) {
   const { data, error } = await supabase
-    .from(INDEX_TABLE)
-    .select("date_key,card_count,updated_at")
+    .from("daily_capture_items")
+    .select("date_key,created_at")
     .eq("user_id", appUserId)
     .order("date_key", { ascending: false });
   if (error) throw error;
-  return Array.isArray(data)
-    ? data.map((row) => ({
-      dateKey: row.date_key,
-      cardCount: Number(row.card_count) || 0,
-      updatedAt: row.updated_at || "",
-    }))
-    : [];
+  const aggregate = new Map();
+  for (const row of data ?? []) {
+    const dateKey = row.date_key;
+    if (!dateKey) continue;
+    const existing = aggregate.get(dateKey) ?? { cardCount: 0, updatedAt: "" };
+    existing.cardCount += 1;
+    if (typeof row.created_at === "string" && row.created_at > existing.updatedAt) {
+      existing.updatedAt = row.created_at;
+    }
+    aggregate.set(dateKey, existing);
+  }
+  return Array.from(aggregate.entries())
+    .map(([dateKey, value]) => ({ dateKey, cardCount: value.cardCount, updatedAt: value.updatedAt }))
+    .sort((left, right) => (left.dateKey < right.dateKey ? 1 : -1));
 }
 
 async function loadRecordByDate(supabase, appUserId, dateKey) {
   const { data, error } = await supabase
-    .from("user_cloud_documents")
-    .select("payload")
+    .from("daily_capture_items")
+    .select("capture_id,date_key,chat_session_id,chat_turn_id,created_at")
     .eq("user_id", appUserId)
-    .eq("doc_type", toRecordDocType(dateKey))
-    .maybeSingle();
+    .eq("date_key", dateKey)
+    .order("created_at", { ascending: true });
   if (error) throw error;
-  return normalizeRecord(data?.payload);
+  const rows = Array.isArray(data) ? data : [];
+  if (!rows.length) return null;
+  const updatedAt = rows[rows.length - 1]?.created_at ?? new Date().toISOString();
+  return {
+    dateKey,
+    updatedAt,
+    items: rows.map((row) => ({
+      id: row.capture_id,
+      chatSessionId: row.chat_session_id,
+      chatTurnId: row.chat_turn_id,
+      createdAt: row.created_at,
+    })),
+  };
 }
 
-async function upsertRecordAndIndex(supabase, appUserId, record) {
+async function replaceRecordItems(supabase, appUserId, record) {
   const normalized = normalizeRecord(record);
   if (!normalized) return;
-  const now = new Date().toISOString();
-  const cardCount = normalized.items.length;
-  if (cardCount <= 0) {
-    const [{ error: deleteRecordError }, { error: deleteIndexError }] = await Promise.all([
-      supabase
-        .from("user_cloud_documents")
-        .delete()
-        .eq("user_id", appUserId)
-        .eq("doc_type", toRecordDocType(normalized.dateKey)),
-      supabase
-        .from(INDEX_TABLE)
-        .delete()
-        .eq("user_id", appUserId)
-        .eq("date_key", normalized.dateKey),
-    ]);
-    if (deleteRecordError) throw deleteRecordError;
-    if (deleteIndexError) throw deleteIndexError;
-    return;
-  }
-
-  const [{ error: upsertRecordError }, { error: upsertIndexError }] = await Promise.all([
-    supabase
-      .from("user_cloud_documents")
-      .upsert(
-        {
-          user_id: appUserId,
-          doc_type: toRecordDocType(normalized.dateKey),
-          payload: normalized,
-          updated_at: normalized.updatedAt || now,
-        },
-        { onConflict: "user_id,doc_type" },
-      ),
-    supabase
-      .from(INDEX_TABLE)
-      .upsert(
-        {
-          user_id: appUserId,
-          date_key: normalized.dateKey,
-          card_count: cardCount,
-          updated_at: normalized.updatedAt || now,
-        },
-        { onConflict: "user_id,date_key" },
-      ),
-  ]);
-  if (upsertRecordError) throw upsertRecordError;
-  if (upsertIndexError) throw upsertIndexError;
+  const dateKey = normalized.dateKey;
+  const { error: deleteError } = await supabase
+    .from("daily_capture_items")
+    .delete()
+    .eq("user_id", appUserId)
+    .eq("date_key", dateKey);
+  if (deleteError) throw deleteError;
+  if (!normalized.items.length) return;
+  const rows = normalized.items.map((item) => ({
+    user_id: appUserId,
+    capture_id: item.id,
+    date_key: dateKey,
+    chat_session_id: item.chatSessionId,
+    chat_turn_id: item.chatTurnId,
+    created_at: item.createdAt || normalized.updatedAt || new Date().toISOString(),
+  }));
+  const { error: insertError } = await supabase
+    .from("daily_capture_items")
+    .upsert(rows, { onConflict: "user_id,capture_id" });
+  if (insertError) throw insertError;
 }
 
 export default async function handler(req, res) {
@@ -135,7 +140,7 @@ export default async function handler(req, res) {
 
   const supabase = getSupabaseAdmin();
   const url = parseUrl(req);
-  const dateKey = url.searchParams.get("date")?.trim() ?? "";
+  const dateKey = normalizeDateKey(url.searchParams.get("date"));
   const view = url.searchParams.get("view")?.trim() ?? "";
 
   if (req.method === "GET") {
@@ -169,7 +174,7 @@ export default async function handler(req, res) {
 
     try {
       if (body?.record && typeof body.record === "object") {
-        await upsertRecordAndIndex(supabase, auth.appUserId, body.record);
+        await replaceRecordItems(supabase, auth.appUserId, body.record);
         sendJson(res, 200, { ok: true });
         return;
       }
