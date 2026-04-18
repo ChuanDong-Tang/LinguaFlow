@@ -141,6 +141,35 @@ export async function pushChatSessions(sessions: OioChatSession[]): Promise<void
   }
 }
 
+export interface ChatPhraseUpdatePayload {
+  sessionId: string;
+  turnId: string;
+  keyPhrases: string[];
+}
+
+export async function pushChatPhraseUpdates(updates: ChatPhraseUpdatePayload[]): Promise<boolean> {
+  const payload = updates
+    .map((update) => ({
+      sessionId: typeof update.sessionId === "string" ? update.sessionId.trim() : "",
+      turnId: typeof update.turnId === "string" ? update.turnId.trim() : "",
+      keyPhrases: Array.isArray(update.keyPhrases) ? update.keyPhrases.filter((item) => typeof item === "string") : [],
+    }))
+    .filter((update) => update.sessionId && update.turnId);
+
+  if (!payload.length) return true;
+  if (!(await canSync())) return true;
+  try {
+    await fetchJson<{ ok?: boolean }>("/api/sync-chat-phrases", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ updates: payload }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface CaptureDaySummary {
   dateKey: string;
   cardCount: number;

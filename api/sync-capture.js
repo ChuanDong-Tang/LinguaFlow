@@ -1,6 +1,5 @@
 import { sendJson, readJsonBody } from "../server/core/http.js";
-import { authenticateClerkRequest } from "../server/core/auth.js";
-import { getViewerAccessByClerkUserId } from "../server/services/access.js";
+import { requireProAccess } from "../server/core/requireProAccess.js";
 import { getSupabaseAdmin } from "../server/infrastructure/supabase.js";
 
 function normalizeDateKey(value) {
@@ -56,23 +55,6 @@ function normalizeRecord(record) {
 function parseUrl(req) {
   const host = req.headers.host || "localhost";
   return new URL(req.url, `https://${host}`);
-}
-
-async function requireProAccess(req, res) {
-  const auth = await authenticateClerkRequest(req, { requireAuth: true });
-  if (!auth.ok || !auth.clerkUserId) {
-    sendJson(res, 401, { error: { code: auth.code ?? "UNAUTHORIZED", message: auth.message ?? "Sign in required." } });
-    return null;
-  }
-
-  const access = await getViewerAccessByClerkUserId(auth.clerkUserId);
-  const hasPro = access.entitlements.some((item) => item.active && item.code === "pro_access");
-  if (!hasPro || !access.profile?.appUserId) {
-    sendJson(res, 403, { error: { code: "PRO_REQUIRED", message: "Pro subscription required." } });
-    return null;
-  }
-
-  return { appUserId: access.profile.appUserId };
 }
 
 async function loadCaptureIndex(supabase, appUserId) {
