@@ -11,12 +11,20 @@ export interface RewriteUsagePayload {
   daily_limit: number;
 }
 
+export interface PhraseProficiencyHintPayload {
+  phrase: string;
+  delta: number;
+  score: number;
+  source: "ai_judgement";
+}
+
 export interface OioChatRewritePayload {
   version: "4";
   natural_version: string;
   reply: string;
   key_phrases: string[];
   usage?: RewriteUsagePayload | null;
+  proficiency_hint?: PhraseProficiencyHintPayload | null;
 }
 
 export interface PracticeFeedbackPayload {
@@ -25,6 +33,7 @@ export interface PracticeFeedbackPayload {
   rewritten_answer: string;
   feedback: string;
   usage?: RewriteUsagePayload | null;
+  proficiency_hint?: PhraseProficiencyHintPayload | null;
 }
 
 export interface PracticeQuestionPayload {

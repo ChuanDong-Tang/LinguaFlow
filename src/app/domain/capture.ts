@@ -1,4 +1,4 @@
-export type CaptureKeyPhraseSource = "natural_version";
+export type CaptureKeyPhraseSource = "natural_version" | "user_selected";
 
 export interface CaptureItem {
   id: string;
@@ -10,6 +10,7 @@ export interface CaptureItem {
   reply?: string;
   keyPhrases?: string[];
   keyPhraseSource?: CaptureKeyPhraseSource;
+  practiceBlankIndexes?: number[];
   note?: string;
 }
 
@@ -19,10 +20,11 @@ export interface DailyCaptureRecord {
   items: CaptureItem[];
 }
 
-export function getCaptureNaturalVersion(item: CaptureItem): string {
-  return item.naturalVersion?.trim() || "";
-}
-
-export function getCaptureKeyPhrases(item: CaptureItem): string[] {
-  return Array.isArray(item.keyPhrases) ? item.keyPhrases.filter((phrase) => typeof phrase === "string" && phrase.trim()) : [];
+export function getCapturePracticeBlankIndexes(item: CaptureItem): number[] {
+  return Array.isArray(item.practiceBlankIndexes)
+    ? item.practiceBlankIndexes
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value >= 0)
+      .map((value) => Math.floor(value))
+    : [];
 }

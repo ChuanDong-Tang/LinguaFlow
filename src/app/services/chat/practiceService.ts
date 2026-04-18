@@ -1,4 +1,8 @@
-import { requestPracticeFeedbackWithTargetPhrase, requestPracticeQuestion } from "../rewrite/rewriteClient";
+import {
+  requestPracticeFeedbackWithTargetPhrase,
+  requestPracticeQuestion,
+  type PhraseProficiencyHintPayload,
+} from "../rewrite/rewriteClient";
 
 export interface PracticeQuestionResult {
   question: string;
@@ -12,6 +16,7 @@ export interface PracticeFeedbackResult {
   feedback: string;
   usageDailyUsed?: number;
   usageDailyLimit?: number;
+  proficiencyHint?: PhraseProficiencyHintPayload;
 }
 
 export async function generatePracticeQuestion({
@@ -47,5 +52,6 @@ export async function generatePracticeFeedback({
     feedback: payload.feedback.trim(),
     usageDailyUsed: typeof payload.usage?.daily_used === "number" ? payload.usage.daily_used : undefined,
     usageDailyLimit: typeof payload.usage?.daily_limit === "number" ? payload.usage.daily_limit : undefined,
+    proficiencyHint: payload.proficiency_hint ?? undefined,
   };
 }

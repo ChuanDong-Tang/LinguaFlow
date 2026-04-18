@@ -48,6 +48,9 @@ function normalizeTurn(raw: unknown): ChatTurn | null {
     adminDebug: typeof value.adminDebug === "string" ? value.adminDebug : undefined,
     usageDailyUsed: typeof value.usageDailyUsed === "number" ? value.usageDailyUsed : undefined,
     usageDailyLimit: typeof value.usageDailyLimit === "number" ? value.usageDailyLimit : undefined,
+    proficiencyPhrase: typeof value.proficiencyPhrase === "string" ? value.proficiencyPhrase : undefined,
+    proficiencyDelta: typeof value.proficiencyDelta === "number" ? value.proficiencyDelta : undefined,
+    proficiencyScore: typeof value.proficiencyScore === "number" ? value.proficiencyScore : undefined,
   };
 }
 

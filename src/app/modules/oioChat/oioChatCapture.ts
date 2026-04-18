@@ -8,8 +8,15 @@ import { type ChatTurn } from "./oioChatTypes";
 export async function saveTurnToDailyCapture(
   turn: ChatTurn,
   sessionId: string,
+  sourceText: string,
   dateKey = dateToLocalKey(new Date()),
 ): Promise<"saved" | "duplicate"> {
+  const selectedPhrases = Array.isArray(turn.keyPhrases)
+    ? turn.keyPhrases
+      .map((item) => String(item ?? "").trim().replace(/\s+/g, " "))
+      .filter(Boolean)
+      .slice(0, 3)
+    : [];
   const current = (await getCaptureRecord(dateKey)) ?? {
     dateKey,
     updatedAt: new Date().toISOString(),
@@ -33,7 +40,11 @@ export async function saveTurnToDailyCapture(
       createdAt: new Date().toISOString(),
       chatSessionId: sessionId,
       chatTurnId: turn.id,
-      keyPhraseSource: "natural_version" as CaptureKeyPhraseSource,
+      sourceText: sourceText.trim() || undefined,
+      naturalVersion: turn.naturalVersion?.trim() || undefined,
+      reply: turn.reply?.trim() || undefined,
+      keyPhrases: selectedPhrases,
+      keyPhraseSource: "user_selected" as CaptureKeyPhraseSource,
     },
   ];
 

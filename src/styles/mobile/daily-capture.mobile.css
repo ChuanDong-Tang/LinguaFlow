@@ -61,4 +61,13 @@
   .practice-blank {
     width: min(100%, 7rem);
   }
+
+  .daily-capture-phrase-item {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .daily-capture-phrase-ai-btn {
+    width: 100%;
+  }
 }

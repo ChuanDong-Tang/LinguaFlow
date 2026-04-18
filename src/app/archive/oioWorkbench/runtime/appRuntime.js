@@ -1026,7 +1026,30 @@ async function cr(e) {
 }
 async function fr() {
   if (D !== `proofread` || !z.length) return;
-  (un(), Wt(O), Ht(O), (A = null), await cr(`已确认创建。`), br());
+  (un(),
+    Wt(O),
+    Ht(O),
+    (A = null),
+    await cr(`已确认创建。`),
+    emitPracticeBlankIndexesUpdate(),
+    br());
+}
+function emitPracticeBlankIndexesUpdate() {
+  let e = Ue.dataset.practiceCaptureItemId;
+  if (!e) return;
+  let t = Array.isArray(O?.[0]) ? O[0] : [],
+    n = Array.from(
+      new Set(
+        t.map((e) => Number(e))
+          .filter((e) => Number.isFinite(e) && e >= 0)
+          .map((e) => Math.floor(e)),
+      ),
+    ).sort((e, t) => e - t);
+  document.dispatchEvent(
+    new CustomEvent(`daily-capture-practice-blanks-updated`, {
+      detail: { itemId: e, blankIndexes: n },
+    }),
+  );
 }
 function hr() {
   (y.classList.add(`oio-fillblank-reviewed`),
@@ -1109,7 +1132,7 @@ function vr(e, t) {
           (s.autocomplete = `off`),
           (s.spellcheck = !1),
           (s.placeholder = `____`),
-          s.setAttribute(`aria-label`, `第 ${e + 1} 句填空`));
+          s.setAttribute(`aria-label`, `练习填空`));
         let c = t.answer.length,
           l = Math.min(18, Math.max(c + 1, 3));
         ((s.style.width = `${l}ch`),
@@ -1300,8 +1323,8 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
       let r = document.createElement(`button`);
       ((r.type = `button`),
         (r.className = `cue-inline-play`),
-        r.setAttribute(`aria-label`, `播放第 ${t + 1} 句`),
-        (r.title = `播放本句`),
+        r.setAttribute(`aria-label`, `播放当前练习文本`),
+        (r.title = `播放当前练习文本`),
         (r.textContent = `▶`),
         r.addEventListener(`click`, (e) => {
           (e.stopPropagation(), playCueInline(t));
@@ -1319,8 +1342,8 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
       let a = document.createElement(`textarea`);
       ((a.className = `cue-input`),
         (a.rows = 2),
-        (a.placeholder = `第 ${t + 1} 句听写…`),
-        a.setAttribute(`aria-label`, `第 ${t + 1} 句听写`),
+        (a.placeholder = `听写输入…`),
+        a.setAttribute(`aria-label`, `听写输入`),
         (a.spellcheck = !1),
         a.addEventListener(`click`, (e) => e.stopPropagation()));
       let o = document.createElement(`div`);
@@ -1657,6 +1680,8 @@ function Br() {
       if (Ue.dataset.practiceOpeningHint === `daily`) {
         delete Ue.dataset.practiceCardChunks;
         delete Ue.dataset.practiceCardKeyPhrases;
+        delete Ue.dataset.practiceCaptureItemId;
+        delete Ue.dataset.practiceBlankIndexes;
         delete Ue.dataset.practiceOpeningHint;
         document.dispatchEvent(new CustomEvent(`app-unblock-ui`));
       }
@@ -1675,7 +1700,8 @@ function Br() {
     W(t2 ? `正在生成练习（首次生成会稍慢，请稍等）...` : `正在生成练习...`);
     let t = [],
       n = [],
-      r2 = [];
+      r2 = [],
+      i2 = [];
     try {
       n = JSON.parse(Ue.dataset.practiceCardChunks || `[]`);
     } catch {
@@ -1686,19 +1712,14 @@ function Br() {
     } catch {
       r2 = [];
     }
-    let r = Array.isArray(n) && n.length > 0 ? n.map((e) => String(e || ``).trim()).filter(Boolean) : [e],
-      i = [],
-      a = [];
-    for (let e = 0; e < r.length; e++) {
-      let t = splitPracticeSentences(r[e]);
-      t.length || (t = [r[e]]);
-      for (let n of t) {
-        let t = String(n || ``).trim();
-        t && (i.push(t), a.push(e));
-      }
+    try {
+      i2 = JSON.parse(Ue.dataset.practiceBlankIndexes || `[]`);
+    } catch {
+      i2 = [];
     }
-    i.length || (i = splitPracticeSentences(e));
-    i.length || (i = [e]);
+    let r = Array.isArray(n) && n.length > 0 ? n.map((e) => String(e || ``).trim()).filter(Boolean) : [e],
+      i = r.length ? r : [e],
+      a = i.map((e, t) => t);
     i.length !== a.length && (a = i.map((e, t) => t));
     pe = i.map((e, t) => {
       let n = a[t] ?? 0,
@@ -1732,6 +1753,17 @@ function Br() {
         tn(),
         v.removeAttribute(`src`),
         v.load());
+      if (Array.isArray(i2) && i2.length > 0) {
+        let e = Array.from(
+          new Set(
+            i2
+              .map((e) => Number(e))
+              .filter((e) => Number.isFinite(e) && e >= 0)
+              .map((e) => Math.floor(e)),
+          ),
+        ).sort((e, t) => e - t);
+        e.length && (O = { 0: e });
+      }
       let o = buildEstimatedCues(t),
         s = o.length ? o[o.length - 1].end : 1,
         c = buildSilentWavBlob(s + 0.4);
@@ -1756,6 +1788,8 @@ function Br() {
     } finally {
       delete Ue.dataset.practiceCardChunks;
       delete Ue.dataset.practiceCardKeyPhrases;
+      delete Ue.dataset.practiceCaptureItemId;
+      delete Ue.dataset.practiceBlankIndexes;
       delete Ue.dataset.practiceOpeningHint;
       Je.disabled = !1;
       document.dispatchEvent(new CustomEvent(`app-unblock-ui`));
@@ -1765,6 +1799,8 @@ function Br() {
     ((Ue.value = ``),
       delete Ue.dataset.practiceCardChunks,
       delete Ue.dataset.practiceCardKeyPhrases,
+      delete Ue.dataset.practiceCaptureItemId,
+      delete Ue.dataset.practiceBlankIndexes,
       delete Ue.dataset.practiceOpeningHint,
       W(``),
       (z = []),

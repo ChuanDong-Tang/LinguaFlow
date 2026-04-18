@@ -1,14 +1,14 @@
-import { getCaptureKeyPhrases, getCaptureNaturalVersion } from "../../domain/capture";
+import { getCapturePracticeBlankIndexes } from "../../domain/capture";
+import { calcCardAverageScore, getPhraseTier, normalizePhraseKey } from "../../domain/proficiency";
 import { addMonthsClamp, dateToLocalKey, formatKeyToSlashDisplay } from "../../dateUtils.js";
 import { confirmDialog } from "../../shared/confirmDialog";
 import { escapeHtml } from "../../shared/html";
 import { renderTextWithKeyPhraseHighlight } from "../../shared/keyPhraseHighlight";
 import { pullCaptureIndex, pullCaptureRecordByDate, pushCaptureRecord } from "../../services/cloud/cloudSyncService";
+import { fetchPhraseProficiencyScores } from "../../services/proficiency/phraseProficiencyService";
 import { getI18n, t } from "../../i18n/i18n";
 import { onDailyCaptureUpdated } from "./dailyCaptureEvents";
 import { type CaptureItem, type DailyCaptureRecord, listCaptureRecords, saveCaptureRecord } from "./dailyCaptureStore";
-import { listChatSessions } from "../oioChat/oioChatStore";
-import { type ChatTurn } from "../oioChat/oioChatTypes";
 
 export class DailyCaptureController {
   private readonly root: HTMLElement | null;
@@ -29,12 +29,12 @@ export class DailyCaptureController {
   private readonly practiceHostEl: HTMLElement | null;
   private readonly practiceSelectedDayBtnEl: HTMLButtonElement | null;
   private records: DailyCaptureRecord[] = [];
-  private chatTurnByRef = new Map<string, ChatTurn>();
   private monthCursor = new Date();
   private selectedDateKey = dateToLocalKey(new Date());
   private dialogDateKey = "";
   private dialogItemIndex = 0;
   private cloudCountByDate = new Map<string, number>();
+  private phraseScoreByNorm = new Map<string, number>();
 
   constructor({
     root = document.querySelector<HTMLElement>("#tab-panel-daily-capture"),
@@ -100,7 +100,8 @@ export class DailyCaptureController {
       const dayBtn = target?.closest<HTMLButtonElement>("[data-capture-day]");
       if (dayBtn) {
         const dateKey = dayBtn.dataset.captureDay?.trim() ?? "";
-        if (!dateKey || dayBtn.disabled) return;
+        const hasData = dayBtn.dataset.captureHasData === "1";
+        if (!dateKey || !hasData) return;
         this.selectedDateKey = dateKey;
         this.renderCalendar();
         void this.openDayDialog(dateKey);
@@ -115,6 +116,24 @@ export class DailyCaptureController {
         if (!item) return;
         this.closeDayDialog();
         this.launchOioPractice(item);
+        return;
+      }
+
+      const aiPhraseBtn = target?.closest<HTMLButtonElement>("[data-capture-practice-ai-phrase]");
+      if (aiPhraseBtn) {
+        const itemId = aiPhraseBtn.dataset.capturePracticeAiItem?.trim() ?? "";
+        const encodedPhrase = aiPhraseBtn.dataset.capturePracticeAiPhrase?.trim() ?? "";
+        if (!itemId || !encodedPhrase) return;
+        const item = this.findItemById(itemId);
+        if (!item) return;
+        let phrase = "";
+        try {
+          phrase = decodeURIComponent(encodedPhrase);
+        } catch {
+          phrase = encodedPhrase;
+        }
+        this.closeDayDialog();
+        this.launchAiPractice(item, phrase);
         return;
       }
 
@@ -155,6 +174,13 @@ export class DailyCaptureController {
       if (detail?.tabId !== "daily-capture") return;
       await this.syncRecordsFromCloud();
     });
+    document.addEventListener("daily-capture-practice-blanks-updated", (event) => {
+      const detail = (event as CustomEvent<{ itemId?: string; blankIndexes?: number[] }>).detail;
+      const itemId = detail?.itemId?.trim() ?? "";
+      const indexes = Array.isArray(detail?.blankIndexes) ? detail.blankIndexes : [];
+      if (!itemId) return;
+      void this.updatePracticeBlankIndexes(itemId, indexes);
+    });
   }
 
   private async syncRecordsFromCloud(): Promise<void> {
@@ -171,7 +197,7 @@ export class DailyCaptureController {
 
   private async loadRecords(): Promise<void> {
     this.records = await listCaptureRecords();
-    await this.refreshChatTurnMap();
+    await this.refreshPhraseProficiencyMap();
     if (!this.records.find((record) => record.dateKey === this.selectedDateKey) && this.records[0]) {
       this.selectedDateKey = this.records[0].dateKey;
     }
@@ -206,8 +232,10 @@ export class DailyCaptureController {
     const offset = (firstDay.getDay() + 6) % 7;
     const start = new Date(year, month, 1 - offset);
     const countMap = new Map<string, number>();
+    const dayScoreMap = new Map<string, number>();
     for (const record of this.records) {
       countMap.set(record.dateKey, Array.isArray(record.items) ? record.items.length : 0);
+      dayScoreMap.set(record.dateKey, this.computeRecordAverageScore(record));
     }
     for (const [dateKey, count] of this.cloudCountByDate.entries()) {
       countMap.set(dateKey, Math.max(countMap.get(dateKey) ?? 0, count));
@@ -222,12 +250,14 @@ export class DailyCaptureController {
       const active = dateKey === this.selectedDateKey;
       const outside = date.getMonth() !== month;
       const hasData = count > 0;
+      const dayScore = dayScoreMap.get(dateKey) ?? 0;
+      const tier = getPhraseTier(dayScore);
       cells.push(`
         <button
           type="button"
-          class="daily-capture-day${active ? " is-active" : ""}${outside ? " is-outside" : ""}${hasData ? " is-marked" : " is-empty"}"
+          class="daily-capture-day${active ? " is-active" : ""}${outside ? " is-outside" : ""}${hasData ? " is-marked" : " is-empty"}${hasData ? ` is-tier-${tier}` : ""}"
           data-capture-day="${escapeHtml(dateKey)}"
-          ${hasData ? "" : "disabled"}
+          data-capture-has-data="${hasData ? "1" : "0"}"
         >
           <span class="daily-capture-day-date">${date.getDate()}</span>
           <span class="daily-capture-day-count">${hasData ? `${count}` : "·"}</span>
@@ -290,25 +320,29 @@ export class DailyCaptureController {
     const index = Math.max(0, Math.min(this.dialogItemIndex, total - 1));
     this.dialogItemIndex = index;
     const item = record.items[index];
-    const resolvedItem = this.resolveItem(item);
+    const itemNaturalVersion = (item.naturalVersion || item.sourceText || "").trim() || "-";
+    const itemReply = (item.reply || item.note || "").trim() || "-";
+    const itemKeyPhrases = this.normalizeItemKeyPhrases(item.keyPhrases);
+    const itemScore = this.computePhraseAverageScore(itemKeyPhrases);
+    const itemTier = getPhraseTier(itemScore);
     this.dayDialogTitleEl.textContent = formatKeyToSlashDisplay(record.dateKey);
     this.dayDialogMetaEl.textContent = `${t("daily_capture.card")} ${index + 1} / ${total}`;
     if (this.dayDialogPrevEl) this.dayDialogPrevEl.disabled = index <= 0;
     if (this.dayDialogNextEl) this.dayDialogNextEl.disabled = index >= total - 1;
 
     this.dayDialogBodyEl.innerHTML = `
-      <article class="daily-capture-entry daily-capture-entry--dialog">
+      <article class="daily-capture-entry daily-capture-entry--dialog daily-capture-entry--tier-${itemTier}">
         <div class="daily-capture-entry-block">
           <span class="daily-capture-entry-label">${t("daily_capture.label_rewritten")}</span>
-          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(resolvedItem.naturalVersion, resolvedItem.keyPhrases)}</p>
+          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(itemNaturalVersion, itemKeyPhrases)}</p>
         </div>
         <div class="daily-capture-entry-block">
           <span class="daily-capture-entry-label">${t("daily_capture.label_reply_comment")}</span>
-          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(resolvedItem.reply, resolvedItem.keyPhrases)}</p>
+          <p class="daily-capture-entry-copy">${renderTextWithKeyPhraseHighlight(itemReply, itemKeyPhrases)}</p>
         </div>
         <div class="daily-capture-entry-block">
           <span class="daily-capture-entry-label">${t("daily_capture.label_core_phrases")}</span>
-          ${this.renderKeyPhrases(resolvedItem.keyPhrases)}
+          ${this.renderKeyPhrases(itemKeyPhrases, item.id)}
         </div>
         <div class="daily-capture-entry-actions">
           <button type="button" class="secondary" data-capture-practice-oio="${escapeHtml(item.id)}">${t("daily_capture.practice_oio")}</button>
@@ -331,12 +365,39 @@ export class DailyCaptureController {
   }
 
   private launchOioPractice(item: CaptureItem): void {
-    const refKey = item.chatSessionId && item.chatTurnId ? `${item.chatSessionId}:${item.chatTurnId}` : "";
-    const turn = refKey ? this.chatTurnByRef.get(refKey) : null;
-    const practiceText = (turn?.naturalVersion || getCaptureNaturalVersion(item) || item.sourceText || "").trim();
-    const keyPhrases = turn?.keyPhrases ?? getCaptureKeyPhrases(item);
+    const practiceText = (item.naturalVersion || item.sourceText || "").trim();
+    const keyPhrases = this.normalizeItemKeyPhrases(item.keyPhrases);
+    const blankIndexes = getCapturePracticeBlankIndexes(item);
     if (!practiceText || practiceText === "-") return;
-    this.startPracticeWithText(practiceText, practiceText ? [practiceText] : undefined, keyPhrases.length ? [keyPhrases] : undefined);
+    this.startPracticeWithText(
+      practiceText,
+      practiceText ? [practiceText] : undefined,
+      keyPhrases.length ? [keyPhrases] : undefined,
+      item.id,
+      blankIndexes,
+    );
+  }
+
+  private launchAiPractice(item: CaptureItem, targetPhraseOverride?: string): void {
+    const keyPhrases = this.normalizeItemKeyPhrases(item.keyPhrases);
+    const normalizedNaturalVersion = (item.naturalVersion || "").trim();
+    const normalizedReply = (item.reply || item.note || "").trim();
+    const contextText = normalizedNaturalVersion && normalizedNaturalVersion !== "-"
+      ? normalizedNaturalVersion
+      : (item.sourceText ?? "").trim();
+    const targetPhrase = (targetPhraseOverride ?? keyPhrases[0] ?? "").trim();
+    if (!contextText || !targetPhrase) return;
+
+    const practiceItem: CaptureItem = {
+      ...item,
+      naturalVersion: contextText,
+      sourceText: contextText,
+      keyPhrases: [targetPhrase],
+      reply: normalizedReply && normalizedReply !== "-" ? normalizedReply : item.reply,
+    };
+
+    document.dispatchEvent(new CustomEvent("app-request-tab-change", { detail: { tabId: "oio-chat" } }));
+    document.dispatchEvent(new CustomEvent("oio-chat-start-practice", { detail: { item: practiceItem } }));
   }
 
   private launchSelectedDayPractice(): void {
@@ -348,19 +409,24 @@ export class DailyCaptureController {
       return;
     }
     const cardTexts = items
-      .map((item) => this.resolveItem(item).naturalVersion)
+      .map((item) => (item.naturalVersion || item.sourceText || "").trim())
       .map((text) => text.trim())
       .filter((text) => text && text !== "-")
       .filter(Boolean);
-    const cardPhraseChunks = items.map((item) => this.resolveItem(item).keyPhrases);
     if (!cardTexts.length) {
       window.alert(t("daily_capture.practice_selected_empty"));
       return;
     }
-    this.startPracticeWithText(cardTexts.join("\n"), cardTexts, cardPhraseChunks);
+    this.startPracticeWithText(cardTexts.join("\n"), undefined, undefined, undefined, []);
   }
 
-  private startPracticeWithText(practiceText: string, cardChunks?: string[], cardPhraseChunks?: string[][]): void {
+  private startPracticeWithText(
+    practiceText: string,
+    cardChunks?: string[],
+    cardPhraseChunks?: string[][],
+    captureItemId?: string,
+    blankIndexes?: number[],
+  ): void {
     const text = practiceText.trim();
     if (!text) return;
     const inputEl = document.querySelector<HTMLTextAreaElement>("#text");
@@ -378,6 +444,16 @@ export class DailyCaptureController {
       } else {
         delete inputEl.dataset.practiceCardKeyPhrases;
       }
+      if (captureItemId) {
+        inputEl.dataset.practiceCaptureItemId = captureItemId;
+      } else {
+        delete inputEl.dataset.practiceCaptureItemId;
+      }
+      if (Array.isArray(blankIndexes) && blankIndexes.length > 0) {
+        inputEl.dataset.practiceBlankIndexes = JSON.stringify(blankIndexes);
+      } else {
+        delete inputEl.dataset.practiceBlankIndexes;
+      }
       inputEl.dataset.practiceOpeningHint = "daily";
       inputEl.dispatchEvent(new Event("input", { bubbles: true }));
       inputEl.focus();
@@ -390,38 +466,83 @@ export class DailyCaptureController {
     practiceSection?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  private renderKeyPhrases(keyPhrases: string[]): string {
+  private renderKeyPhrases(keyPhrases: string[], itemId: string): string {
     if (!keyPhrases.length) {
       return `<p class="daily-capture-entry-copy">-</p>`;
     }
-    return `<div class="chat-highlight-list">${keyPhrases
-      .map((phrase) => `<span class="chat-highlight-chip">${escapeHtml(phrase)}</span>`)
+    return `<div class="daily-capture-phrase-list">${keyPhrases
+      .map((phrase) => {
+        const score = this.getPhraseScore(phrase);
+        const tier = getPhraseTier(score);
+        const encodedPhrase = encodeURIComponent(phrase);
+        return `
+          <div class="daily-capture-phrase-item">
+            <span class="chat-highlight-chip daily-capture-phrase-chip is-tier-${tier}">
+              <span>${escapeHtml(phrase)}</span>
+              <span class="daily-capture-phrase-score">${Math.max(0, Math.floor(score))}</span>
+            </span>
+            <button
+              type="button"
+              class="secondary daily-capture-phrase-ai-btn"
+              data-capture-practice-ai-phrase="${escapeHtml(encodedPhrase)}"
+              data-capture-practice-ai-item="${escapeHtml(itemId)}"
+            >
+              ${t("daily_capture.practice_ai")}
+            </button>
+          </div>
+        `;
+      })
       .join("")}</div>`;
   }
 
-  private async refreshChatTurnMap(): Promise<void> {
-    const sessions = await listChatSessions();
-    const nextMap = new Map<string, ChatTurn>();
-    for (const session of sessions) {
-      for (const turn of session.turns) {
-        if (turn.role !== "assistant") continue;
-        nextMap.set(`${session.id}:${turn.id}`, turn);
+  private async refreshPhraseProficiencyMap(): Promise<void> {
+    const phrases: string[] = [];
+    for (const record of this.records) {
+      for (const item of record.items) {
+        for (const phrase of this.normalizeItemKeyPhrases(item.keyPhrases)) {
+          phrases.push(phrase);
+        }
       }
     }
-    this.chatTurnByRef = nextMap;
+    if (!phrases.length) {
+      this.phraseScoreByNorm = new Map();
+      return;
+    }
+    try {
+      this.phraseScoreByNorm = await fetchPhraseProficiencyScores(phrases);
+    } catch {
+      this.phraseScoreByNorm = new Map();
+    }
   }
 
-  private resolveItem(item: CaptureItem): { naturalVersion: string; reply: string; keyPhrases: string[] } {
-    const refKey = item.chatSessionId && item.chatTurnId ? `${item.chatSessionId}:${item.chatTurnId}` : "";
-    const turn = refKey ? this.chatTurnByRef.get(refKey) : null;
-    const keyPhrases = turn?.keyPhrases ?? getCaptureKeyPhrases(item);
-    const naturalVersion = (turn?.naturalVersion || getCaptureNaturalVersion(item) || item.sourceText || "").trim();
-    const reply = (turn?.reply || item.reply || item.note || "").trim();
-    return {
-      naturalVersion: naturalVersion || "-",
-      reply: reply || "-",
-      keyPhrases,
-    };
+  private getPhraseScore(phrase: string): number {
+    const key = normalizePhraseKey(phrase);
+    if (!key) return 0;
+    const score = this.phraseScoreByNorm.get(key);
+    return Number.isFinite(Number(score)) ? Number(score) : 0;
+  }
+
+  private computePhraseAverageScore(phrases: string[]): number {
+    if (!phrases.length) return 0;
+    return calcCardAverageScore(phrases.map((phrase) => this.getPhraseScore(phrase)));
+  }
+
+  private computeRecordAverageScore(record: DailyCaptureRecord): number {
+    const phraseScores: number[] = [];
+    for (const item of record.items) {
+      for (const phrase of this.normalizeItemKeyPhrases(item.keyPhrases)) {
+        phraseScores.push(this.getPhraseScore(phrase));
+      }
+    }
+    return calcCardAverageScore(phraseScores);
+  }
+
+  private normalizeItemKeyPhrases(value: CaptureItem["keyPhrases"]): string[] {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((phrase) => String(phrase ?? "").trim().replace(/\s+/g, " "))
+      .filter(Boolean)
+      .slice(0, 3);
   }
 
   private syncPracticeCtaCopy(): void {
@@ -517,5 +638,34 @@ export class DailyCaptureController {
     this.dialogDateKey = record.dateKey;
     this.dialogItemIndex = Math.min(this.dialogItemIndex, nextItems.length - 1);
     this.renderDayDialog();
+  }
+
+  private async updatePracticeBlankIndexes(itemId: string, blankIndexes: number[]): Promise<void> {
+    const target = this.findItemById(itemId);
+    if (!target) return;
+    const normalized = Array.from(
+      new Set(
+        blankIndexes
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value >= 0)
+          .map((value) => Math.floor(value)),
+      ),
+    ).sort((left, right) => left - right);
+    const current = getCapturePracticeBlankIndexes(target);
+    if (current.length === normalized.length && current.every((value, index) => value === normalized[index])) {
+      return;
+    }
+    const record = this.records.find((entry) => entry.items.some((item) => item.id === itemId));
+    if (!record) return;
+    const nextItems = record.items.map((item) => item.id === itemId ? { ...item, practiceBlankIndexes: normalized } : item);
+    const nextRecord = {
+      ...record,
+      items: nextItems,
+      updatedAt: new Date().toISOString(),
+    };
+    await saveCaptureRecord(nextRecord);
+    this.cloudCountByDate.set(record.dateKey, nextItems.length);
+    void pushCaptureRecord(nextRecord);
+    await this.refreshFromStore(record.dateKey);
   }
 }

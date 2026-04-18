@@ -16,4 +16,7 @@ export interface ChatTurn {
   adminDebug?: string;
   usageDailyUsed?: number;
   usageDailyLimit?: number;
+  proficiencyPhrase?: string;
+  proficiencyDelta?: number;
+  proficiencyScore?: number;
 }

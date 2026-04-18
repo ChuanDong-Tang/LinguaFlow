@@ -205,7 +205,23 @@ export async function deleteSuperDictRecord(id) {
 }
 
 /**
- * @param {{ dateKey: string, updatedAt: string, items: Array<{ id: string, sourceText: string, correctedText: string, note: string }> }} record
+ * @param {{
+ *   dateKey: string,
+ *   updatedAt: string,
+ *   items: Array<{
+ *     id: string,
+ *     chatSessionId?: string,
+ *     chatTurnId?: string,
+ *     createdAt?: string,
+ *     sourceText?: string,
+ *     naturalVersion?: string,
+ *     reply?: string,
+ *     keyPhrases?: string[],
+ *     keyPhraseSource?: "natural_version" | "user_selected",
+ *     practiceBlankIndexes?: number[],
+ *     note?: string
+ *   }>
+ * }} record
  */
 export async function saveDailyCaptureRecord(record) {
   const db = await openDb();

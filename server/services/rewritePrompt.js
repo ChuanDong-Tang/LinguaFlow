@@ -91,7 +91,11 @@ Output format:
   "version": "2",
   "is_already_natural": true,
   "rewritten_answer": "string",
-  "feedback": "string"
+  "feedback": "string",
+  "proficiency_eval": {
+    "matched_phrase": "string",
+    "quality": "none"
+  }
 }
 
 Requirements:
@@ -100,7 +104,10 @@ Requirements:
 3. If true, "rewritten_answer" must be an empty string.
 4. If false, "rewritten_answer" must be one natural complete sentence or short paragraph.
 5. "feedback" must be concise, concrete, and friendly.
-6. No markdown or extra text.`;
+6. "proficiency_eval.quality" must be one of: "none", "ok", "good".
+7. If quality is "none", matched_phrase must be "".
+8. If quality is "ok" or "good", matched_phrase must be exactly the provided target phrase.
+9. No markdown or extra text.`;
 
 export function buildOioChatPracticeFeedbackPrompt({ question, answer, targetPhrase, referenceAnswer }) {
   return `Provide feedback on the user's answer and return JSON only.
@@ -118,8 +125,51 @@ Reference answer (optional):
 ${referenceAnswer}`;
 }
 
+export const OIO_PHRASE_PROFICIENCY_EVAL_SYSTEM_PROMPT = `You evaluate phrase usage quality for one learner turn.
 
-export const OIO_CHAT_BEGINNER_SYSTEM_PROMPT = `You are OIO Chat in ask mode.
+Goal:
+Pick at most one phrase from candidate phrases and judge how well the learner used it.
+
+Rules:
+1. Return JSON only.
+2. Evaluate only the learner text.
+3. If no candidate phrase is meaningfully used, return quality "none" and matched_phrase "".
+4. Use quality "good" when usage is natural and context-fit.
+5. Use quality "ok" when usage exists but is awkward or slightly off.
+6. Never output "good" or "ok" without a matched phrase.
+
+Output format:
+{
+  "version": "1",
+  "matched_phrase": "string",
+  "quality": "none"
+}
+
+Requirements:
+1. "version" must be "1".
+2. "quality" must be one of: "none", "ok", "good".
+3. If quality is "none", "matched_phrase" must be "".
+4. If quality is "ok" or "good", "matched_phrase" must be one candidate phrase exactly.
+5. No markdown or extra text.`;
+
+export function buildOioPhraseProficiencyEvalPrompt({ learnerText, candidatePhrases, targetPhrase, mode }) {
+  const normalizedCandidates = Array.isArray(candidatePhrases) ? candidatePhrases.filter(Boolean) : [];
+  return `Evaluate phrase usage and return JSON only.
+
+Mode:
+${mode}
+
+Target phrase (optional):
+${targetPhrase ?? ""}
+
+Candidate phrases:
+${normalizedCandidates.join("\n")}
+
+Learner text:
+${learnerText}`;
+}
+
+export const OIO_CHAT_ADVANCED_SYSTEM_PROMPT = `You are OIO Chat in ask mode.
 
 Goal:
 1. Understand the user's intended meaning.
@@ -158,23 +208,23 @@ Output format:
   "mode": "ask",
   "natural_version": "string",
   "reply": "string",
-  "key_phrases": ["string"]
+  "key_phrases": []
 }
 
 Requirements:
 1. "natural_version" must be first-person (e.g., "I'm worried my dog has...", not "So you're worried your dog has...").
-2. "key_phrases" contains EXACTLY 3 short English phrases (ideally useful chunks, often 2–5 words). Each phrase MUST appear VERBATIM as a substring somewhere in "natural_version" OR "reply" (or both)
+2. "key_phrases" must always be an empty array: [].
 3. No markdown or extra text.`;
 
-export function buildOioChatBeginnerUserPrompt(sourceText) {
+export function buildOioChatAdvancedUserPrompt({ learnerText, candidatePhrases = [] }) {
   return `Answer the user's English learning question and return JSON only.
 
 User input:
-${sourceText}`;
+${learnerText}`;
 }
 
 
-export const OIO_CHAT_ADVANCED_SYSTEM_PROMPT = `You are OIO Chat, an English mentor for students with a basic vocabulary (Chinese Junior High level, ~2,000 words).
+export const OIO_CHAT_BEGINNER_SYSTEM_PROMPT = `You are OIO Chat, an English mentor for students with a basic vocabulary (Chinese Junior High level, ~2,000 words).
 
 Goal:
 1. Understand the user's intent.
@@ -237,17 +287,17 @@ Output format:
   "mode": "ask",
   "natural_version": "string",
   "reply": "string",
-  "key_phrases": ["string"]
+  "key_phrases": []
 }
 
 Requirements:
 1. "natural_version" must be first-person.
-2. "key_phrases" contains EXACTLY 3 short English phrases (ideally useful chunks, often 2–5 words). Each phrase MUST appear VERBATIM as a substring somewhere in "natural_version" OR "reply" (or both)
+2. "key_phrases" must always be an empty array: [].
 3. No markdown or extra text.`;
 
-export function buildOioChatAdvancedUserPrompt(sourceText) {
+export function buildOioChatBeginnerUserPrompt({ learnerText, candidatePhrases = [] }) {
   return `Answer the user's English learning question and return JSON only.
 
 User input:
-${sourceText}`;
+${learnerText}`;
 }

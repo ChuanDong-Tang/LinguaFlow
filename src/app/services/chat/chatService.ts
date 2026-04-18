@@ -1,5 +1,5 @@
 import { type OioChatMode } from "../../modules/oioChat/oioChatTypes";
-import { RewriteApiError, requestOioChat } from "../rewrite/rewriteClient";
+import { RewriteApiError, requestOioChat, type PhraseProficiencyHintPayload } from "../rewrite/rewriteClient";
 
 export interface ChatReply {
   mode: OioChatMode;
@@ -8,6 +8,7 @@ export interface ChatReply {
   keyPhrases: string[];
   usageDailyUsed?: number;
   usageDailyLimit?: number;
+  proficiencyHint?: PhraseProficiencyHintPayload;
 }
 
 export async function createChatReply(sourceText: string, mode: OioChatMode): Promise<ChatReply> {
@@ -17,9 +18,10 @@ export async function createChatReply(sourceText: string, mode: OioChatMode): Pr
     mode,
     naturalVersion: payload.natural_version.trim(),
     reply: payload.reply.trim(),
-    keyPhrases: payload.key_phrases.slice(0, 4),
+    keyPhrases: [],
     usageDailyUsed: typeof payload.usage?.daily_used === "number" ? payload.usage.daily_used : undefined,
     usageDailyLimit: typeof payload.usage?.daily_limit === "number" ? payload.usage.daily_limit : undefined,
+    proficiencyHint: payload.proficiency_hint ?? undefined,
   };
 }
 

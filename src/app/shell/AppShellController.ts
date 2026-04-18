@@ -37,6 +37,10 @@ export class AppShellController {
   private readonly dailyHeroCopyEl: HTMLElement | null;
   private readonly dailyCalendarTitleEl: HTMLElement | null;
   private readonly dailyCalendarNoteEl: HTMLElement | null;
+  private readonly dailyLegendHelpBtnEl: HTMLButtonElement | null;
+  private readonly dailyLegendLevel1El: HTMLElement | null;
+  private readonly dailyLegendLevel2El: HTMLElement | null;
+  private readonly dailyLegendLevel3El: HTMLElement | null;
   private readonly superDictHeroKickerEl: HTMLElement | null;
   private readonly superDictHeroTitleEl: HTMLElement | null;
   private readonly superDictHeroCopyEl: HTMLElement | null;
@@ -81,6 +85,10 @@ export class AppShellController {
     this.dailyHeroCopyEl = this.root?.querySelector<HTMLElement>("[data-i18n-daily-hero-copy]") ?? null;
     this.dailyCalendarTitleEl = this.root?.querySelector<HTMLElement>("[data-i18n-daily-calendar-title]") ?? null;
     this.dailyCalendarNoteEl = this.root?.querySelector<HTMLElement>("[data-i18n-daily-calendar-note]") ?? null;
+    this.dailyLegendHelpBtnEl = this.root?.querySelector<HTMLButtonElement>("[data-i18n-daily-legend-help-aria]") ?? null;
+    this.dailyLegendLevel1El = this.root?.querySelector<HTMLElement>("[data-i18n-daily-legend-level-1]") ?? null;
+    this.dailyLegendLevel2El = this.root?.querySelector<HTMLElement>("[data-i18n-daily-legend-level-2]") ?? null;
+    this.dailyLegendLevel3El = this.root?.querySelector<HTMLElement>("[data-i18n-daily-legend-level-3]") ?? null;
     this.superDictHeroKickerEl = this.root?.querySelector<HTMLElement>("[data-i18n-super-dict-hero-kicker]") ?? null;
     this.superDictHeroTitleEl = this.root?.querySelector<HTMLElement>("[data-i18n-super-dict-hero-title]") ?? null;
     this.superDictHeroCopyEl = this.root?.querySelector<HTMLElement>("[data-i18n-super-dict-hero-copy]") ?? null;
@@ -288,6 +296,18 @@ export class AppShellController {
     }
     if (this.dailyCalendarNoteEl) {
       this.dailyCalendarNoteEl.textContent = t("tab.daily_capture.hero_calendar_note");
+    }
+    if (this.dailyLegendHelpBtnEl) {
+      this.dailyLegendHelpBtnEl.setAttribute("aria-label", t("daily_capture.legend_help_aria"));
+    }
+    if (this.dailyLegendLevel1El) {
+      this.dailyLegendLevel1El.textContent = t("daily_capture.legend_level_1");
+    }
+    if (this.dailyLegendLevel2El) {
+      this.dailyLegendLevel2El.textContent = t("daily_capture.legend_level_2");
+    }
+    if (this.dailyLegendLevel3El) {
+      this.dailyLegendLevel3El.textContent = t("daily_capture.legend_level_3");
     }
     if (this.superDictHeroKickerEl) {
       this.superDictHeroKickerEl.textContent = t("tab.super_dict.title");

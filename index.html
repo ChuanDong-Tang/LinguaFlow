@@ -102,7 +102,34 @@
                 <div class="module-card-head">
                   <div class="daily-capture-head-main">
                     <div class="daily-capture-head-title-row">
-                      <h3 class="module-card-title" data-i18n-daily-calendar-title>Calendar</h3>
+                      <div class="daily-capture-head-title-wrap">
+                        <h3 class="module-card-title" data-i18n-daily-calendar-title>Calendar</h3>
+                        <div class="daily-capture-legend-help">
+                          <button
+                            type="button"
+                            class="daily-capture-legend-help-btn"
+                            data-i18n-daily-legend-help-aria
+                            aria-label="Show proficiency legend"
+                          >?</button>
+                          <div class="daily-capture-legend-help-popover" role="tooltip">
+                            <div class="daily-capture-legend-row">
+                              <span class="daily-capture-legend-label" data-i18n-daily-legend-level-1>Level 1</span>
+                              <span class="daily-capture-legend-bar is-level-1" aria-hidden="true"></span>
+                              <span class="daily-capture-legend-range">0-2</span>
+                            </div>
+                            <div class="daily-capture-legend-row">
+                              <span class="daily-capture-legend-label" data-i18n-daily-legend-level-2>Level 2</span>
+                              <span class="daily-capture-legend-bar is-level-2" aria-hidden="true"></span>
+                              <span class="daily-capture-legend-range">3-5</span>
+                            </div>
+                            <div class="daily-capture-legend-row">
+                              <span class="daily-capture-legend-label" data-i18n-daily-legend-level-3>Level 3</span>
+                              <span class="daily-capture-legend-bar is-level-3" aria-hidden="true"></span>
+                              <span class="daily-capture-legend-range">6+</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                       <div class="daily-capture-calendar-jump">
                         <select class="daily-capture-calendar-select" data-daily-capture-year aria-label="Year"></select>
                         <select class="daily-capture-calendar-select" data-daily-capture-month aria-label="Month"></select>

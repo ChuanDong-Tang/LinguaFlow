@@ -252,6 +252,123 @@
   gap: 0.9rem;
 }
 
+.daily-capture-head-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.daily-capture-head-title-wrap .module-card-title {
+  margin: 0;
+}
+
+.daily-capture-legend-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.daily-capture-legend-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.28rem;
+  height: 1.28rem;
+  padding: 0;
+  border: 1px solid rgba(88, 165, 255, 0.66);
+  border-radius: 999px;
+  background: rgba(25, 44, 66, 0.85);
+  color: rgba(197, 228, 255, 0.95);
+  font: inherit;
+  font-size: 0.74rem;
+  line-height: 1;
+  cursor: help;
+}
+
+.daily-capture-legend-help-btn:focus {
+  outline: none;
+}
+
+.daily-capture-legend-help-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(64, 149, 255, 0.2);
+}
+
+.daily-capture-legend-help-popover {
+  position: absolute;
+  top: calc(100% + 0.42rem);
+  left: 0;
+  z-index: 12;
+  width: min(18.5rem, calc(100vw - 2.4rem));
+  padding: 0.58rem 0.65rem;
+  border: 1px solid rgba(88, 165, 255, 0.36);
+  border-radius: 10px;
+  background: rgba(16, 21, 29, 0.97);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.36);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.daily-capture-legend-help:hover .daily-capture-legend-help-popover,
+.daily-capture-legend-help:focus-within .daily-capture-legend-help-popover {
+  opacity: 1;
+  visibility: visible;
+}
+
+.daily-capture-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.daily-capture-legend-row + .daily-capture-legend-row {
+  margin-top: 0.32rem;
+}
+
+.daily-capture-legend-label,
+.daily-capture-legend-range {
+  font-size: 0.74rem;
+  color: rgba(225, 236, 248, 0.92);
+}
+
+.daily-capture-legend-label {
+  min-width: 6.5rem;
+}
+
+.daily-capture-legend-range {
+  min-width: 2.1rem;
+  text-align: right;
+}
+
+.daily-capture-legend-bar {
+  display: inline-block;
+  width: 3.3rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.daily-capture-legend-bar.is-common,
+.daily-capture-legend-bar.is-level-1 {
+  border-color: rgba(255, 255, 255, 0.36);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+}
+
+.daily-capture-legend-bar.is-rare,
+.daily-capture-legend-bar.is-level-2 {
+  border-color: rgba(88, 165, 255, 0.72);
+  background: linear-gradient(90deg, rgba(64, 149, 255, 0.55), rgba(64, 149, 255, 0.18));
+}
+
+.daily-capture-legend-bar.is-epic,
+.daily-capture-legend-bar.is-legendary,
+.daily-capture-legend-bar.is-level-3 {
+  border-color: rgba(57, 194, 200, 0.88);
+  background: linear-gradient(90deg, rgba(57, 194, 200, 0.64), rgba(57, 194, 200, 0.22));
+}
+
 .daily-capture-calendar-top {
   display: flex;
   flex-direction: column;
@@ -335,12 +452,18 @@
   align-items: center;
   justify-content: center;
   gap: 0.18rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
   color: rgba(255, 255, 255, 0.45);
   cursor: pointer;
   font: inherit;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.daily-capture-day:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
 }
 
 .daily-capture-day-date {
@@ -353,14 +476,43 @@
 }
 
 .daily-capture-day.is-empty {
-  opacity: 0.42;
-  cursor: not-allowed;
+  opacity: 0.5;
+  cursor: default;
+}
+
+.daily-capture-day.is-empty:hover {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
 }
 
 .daily-capture-day.is-marked {
   color: #fff;
   border-color: rgba(127, 184, 255, 0.24);
   background: rgba(64, 149, 255, 0.08);
+}
+
+.daily-capture-day.is-marked.is-tier-common,
+.daily-capture-day.is-marked.is-tier-level_1 {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.04));
+}
+
+.daily-capture-day.is-marked.is-tier-rare,
+.daily-capture-day.is-marked.is-tier-level_2 {
+  border-color: rgba(88, 165, 255, 0.6);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.22), rgba(64, 149, 255, 0.08));
+}
+
+.daily-capture-day.is-marked.is-tier-epic,
+.daily-capture-day.is-marked.is-tier-legendary,
+.daily-capture-day.is-marked.is-tier-level_3 {
+  border-color: rgba(57, 194, 200, 0.84);
+  background: linear-gradient(180deg, rgba(57, 194, 200, 0.24), rgba(57, 194, 200, 0.08));
+}
+
+.daily-capture-day.is-marked:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
 }
 
 .daily-capture-day.is-active {
@@ -440,6 +592,38 @@
   border-top: none;
 }
 
+.daily-capture-entry--tier-common,
+.daily-capture-entry--tier-rare,
+.daily-capture-entry--tier-epic,
+.daily-capture-entry--tier-legendary,
+.daily-capture-entry--tier-level_1,
+.daily-capture-entry--tier-level_2,
+.daily-capture-entry--tier-level_3 {
+  border-radius: 12px;
+  padding: 0.45rem 0.6rem 0.55rem;
+  padding-left: 0.55rem;
+  box-shadow: none;
+}
+
+.daily-capture-entry--tier-common,
+.daily-capture-entry--tier-level_1 {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.daily-capture-entry--tier-rare,
+.daily-capture-entry--tier-level_2 {
+  border: 1px solid rgba(88, 165, 255, 0.62);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.05), rgba(64, 149, 255, 0.02));
+}
+
+.daily-capture-entry--tier-epic,
+.daily-capture-entry--tier-legendary,
+.daily-capture-entry--tier-level_3 {
+  border: 1px solid rgba(57, 194, 200, 0.88);
+  background: linear-gradient(180deg, rgba(57, 194, 200, 0.12), rgba(57, 194, 200, 0.04));
+}
+
 .daily-capture-empty,
 .daily-capture-card {
   display: flex;
@@ -482,6 +666,34 @@
   border-top: none;
 }
 
+.daily-capture-entry--tier-common:first-child,
+.daily-capture-entry--tier-rare:first-child,
+.daily-capture-entry--tier-epic:first-child,
+.daily-capture-entry--tier-legendary:first-child,
+.daily-capture-entry--tier-level_1:first-child,
+.daily-capture-entry--tier-level_2:first-child,
+.daily-capture-entry--tier-level_3:first-child {
+  padding-top: 0.45rem;
+  border-top-style: solid;
+  border-top-width: 1px;
+}
+
+.daily-capture-entry--tier-common:first-child,
+.daily-capture-entry--tier-level_1:first-child {
+  border-top-color: rgba(255, 255, 255, 0.22);
+}
+
+.daily-capture-entry--tier-rare:first-child,
+.daily-capture-entry--tier-level_2:first-child {
+  border-top-color: rgba(88, 165, 255, 0.62);
+}
+
+.daily-capture-entry--tier-epic:first-child,
+.daily-capture-entry--tier-legendary:first-child,
+.daily-capture-entry--tier-level_3:first-child {
+  border-top-color: rgba(57, 194, 200, 0.88);
+}
+
 .daily-capture-entry-index {
   font-size: 0.8rem;
   color: rgba(255, 255, 255, 0.52);
@@ -497,6 +709,152 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
+}
+
+.daily-capture-phrase-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.daily-capture-phrase-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.daily-capture-phrase-chip {
+  min-width: 0;
+}
+
+.daily-capture-phrase-chip.is-tier-common,
+.daily-capture-phrase-chip.is-tier-level_1 {
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.04));
+}
+
+.daily-capture-phrase-chip.is-tier-rare,
+.daily-capture-phrase-chip.is-tier-level_2 {
+  border: 1px solid rgba(88, 165, 255, 0.62);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.2), rgba(64, 149, 255, 0.07));
+  box-shadow: 0 0 0 1px rgba(109, 185, 255, 0.14) inset;
+}
+
+.daily-capture-phrase-chip.is-tier-epic,
+.daily-capture-phrase-chip.is-tier-legendary,
+.daily-capture-phrase-chip.is-tier-level_3 {
+  border: 1px solid rgba(57, 194, 200, 0.88);
+  background: linear-gradient(180deg, rgba(57, 194, 200, 0.24), rgba(57, 194, 200, 0.1));
+  box-shadow: 0 0 0 1px rgba(118, 245, 248, 0.26) inset;
+}
+
+.daily-capture-phrase-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.7rem;
+  min-height: 1.1rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.daily-capture-phrase-ai-btn {
+  flex: 0 0 auto;
+  min-height: 1.8rem;
+  padding: 0.22rem 0.58rem;
+  border-radius: 8px;
+  font-size: 0.74rem;
+  border-color: rgba(127, 184, 255, 0.36);
+  background: rgba(64, 149, 255, 0.12);
+  color: rgba(230, 243, 255, 0.95);
+}
+
+.daily-capture-phrase-ai-btn:hover {
+  border-color: rgba(127, 184, 255, 0.56);
+  background: rgba(64, 149, 255, 0.22);
+}
+
+/* 3-level proficiency palette: one hue with deeper intensity */
+.daily-capture-legend-bar.is-level-1 {
+  border-color: rgba(88, 165, 255, 0.35);
+  background: linear-gradient(90deg, rgba(64, 149, 255, 0.2), rgba(64, 149, 255, 0.08));
+}
+
+.daily-capture-legend-bar.is-level-2 {
+  border-color: rgba(88, 165, 255, 0.62);
+  background: linear-gradient(90deg, rgba(64, 149, 255, 0.4), rgba(64, 149, 255, 0.16));
+}
+
+.daily-capture-legend-bar.is-level-3 {
+  border-color: rgba(88, 165, 255, 0.88);
+  background: linear-gradient(90deg, rgba(64, 149, 255, 0.66), rgba(64, 149, 255, 0.25));
+}
+
+.daily-capture-day.is-marked.is-tier-level_1 {
+  border-color: rgba(88, 165, 255, 0.35);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.14), rgba(64, 149, 255, 0.04));
+}
+
+.daily-capture-day.is-marked.is-tier-level_2 {
+  border-color: rgba(88, 165, 255, 0.6);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.24), rgba(64, 149, 255, 0.08));
+}
+
+.daily-capture-day.is-marked.is-tier-level_3 {
+  border-color: rgba(88, 165, 255, 0.82);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.35), rgba(64, 149, 255, 0.12));
+}
+
+.daily-capture-entry--tier-level_1 {
+  border: 1px solid rgba(88, 165, 255, 0.32);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.08), rgba(64, 149, 255, 0.02));
+}
+
+.daily-capture-entry--tier-level_2 {
+  border: 1px solid rgba(88, 165, 255, 0.6);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.14), rgba(64, 149, 255, 0.05));
+}
+
+.daily-capture-entry--tier-level_3 {
+  border: 1px solid rgba(88, 165, 255, 0.82);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.22), rgba(64, 149, 255, 0.08));
+}
+
+.daily-capture-entry--tier-level_1:first-child {
+  border-top-color: rgba(88, 165, 255, 0.32);
+}
+
+.daily-capture-entry--tier-level_2:first-child {
+  border-top-color: rgba(88, 165, 255, 0.6);
+}
+
+.daily-capture-entry--tier-level_3:first-child {
+  border-top-color: rgba(88, 165, 255, 0.82);
+}
+
+.daily-capture-phrase-chip.is-tier-level_1 {
+  border: 1px solid rgba(88, 165, 255, 0.34);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.14), rgba(64, 149, 255, 0.05));
+}
+
+.daily-capture-phrase-chip.is-tier-level_2 {
+  border: 1px solid rgba(88, 165, 255, 0.62);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.24), rgba(64, 149, 255, 0.09));
+  box-shadow: 0 0 0 1px rgba(109, 185, 255, 0.14) inset;
+}
+
+.daily-capture-phrase-chip.is-tier-level_3 {
+  border: 1px solid rgba(88, 165, 255, 0.88);
+  background: linear-gradient(180deg, rgba(64, 149, 255, 0.36), rgba(64, 149, 255, 0.12));
+  box-shadow: 0 0 0 1px rgba(130, 196, 255, 0.22) inset;
 }
 
 .daily-capture-footer {

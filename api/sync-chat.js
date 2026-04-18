@@ -38,6 +38,9 @@ function normalizeTurn(turn) {
     adminDebug: typeof turn.adminDebug === "string" ? turn.adminDebug : null,
     usageDailyUsed: Number.isFinite(turn.usageDailyUsed) ? Number(turn.usageDailyUsed) : null,
     usageDailyLimit: Number.isFinite(turn.usageDailyLimit) ? Number(turn.usageDailyLimit) : null,
+    proficiencyPhrase: typeof turn.proficiencyPhrase === "string" ? turn.proficiencyPhrase : null,
+    proficiencyDelta: Number.isFinite(turn.proficiencyDelta) ? Number(turn.proficiencyDelta) : null,
+    proficiencyScore: Number.isFinite(turn.proficiencyScore) ? Number(turn.proficiencyScore) : null,
   };
 }
 
@@ -104,6 +107,9 @@ async function loadTurnsBySessionIds(supabase, appUserId, sessionIds) {
       adminDebug: row.admin_debug ?? undefined,
       usageDailyUsed: Number.isFinite(row.usage_daily_used) ? Number(row.usage_daily_used) : undefined,
       usageDailyLimit: Number.isFinite(row.usage_daily_limit) ? Number(row.usage_daily_limit) : undefined,
+      proficiencyPhrase: typeof row.proficiency_phrase === "string" ? row.proficiency_phrase : undefined,
+      proficiencyDelta: Number.isFinite(row.proficiency_delta) ? Number(row.proficiency_delta) : undefined,
+      proficiencyScore: Number.isFinite(row.proficiency_score) ? Number(row.proficiency_score) : undefined,
     });
     grouped.set(row.session_id, bucket);
   }
@@ -251,6 +257,9 @@ export default async function handler(req, res) {
           admin_debug: turn.adminDebug,
           usage_daily_used: turn.usageDailyUsed,
           usage_daily_limit: turn.usageDailyLimit,
+          proficiency_phrase: turn.proficiencyPhrase ?? null,
+          proficiency_delta: Number.isFinite(turn.proficiencyDelta) ? Number(turn.proficiencyDelta) : null,
+          proficiency_score: Number.isFinite(turn.proficiencyScore) ? Number(turn.proficiencyScore) : null,
         });
       }
     }

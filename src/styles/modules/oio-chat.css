@@ -14,20 +14,15 @@
 .oio-chat-hero,
 .daily-capture-hero {
   width: 100%;
-}
-
-.oio-chat-hero {
-  margin-bottom: 0.7rem;
-  padding: 0.8rem 1rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .oio-chat-hero .workspace-hero-kicker {
   margin-bottom: 0.2rem;
-}
-
-.oio-chat-hero .workspace-hero-title {
-  margin: 0;
-  font-size: 1.18rem;
 }
 
 .oio-chat-main {
@@ -291,6 +286,14 @@
   color: rgba(255, 255, 255, 0.56);
 }
 
+.chat-proficiency-hint {
+  margin: -0.1rem 0 0;
+  line-height: 1.5;
+  color: rgba(145, 203, 255, 0.95);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 .chat-assistant-debug {
   margin: 0;
   padding: 0.55rem 0.65rem;
@@ -362,6 +365,47 @@
 
 .chat-chip-speak-btn {
   border-radius: 999px;
+}
+
+.chat-chip-remove-btn {
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.86);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.chat-chip-remove-btn:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.oio-chat-phrase-fab {
+  position: absolute;
+  z-index: 50;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(127, 184, 255, 0.38);
+  border-radius: 999px;
+  background: rgba(20, 34, 54, 0.96);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.3);
+}
+
+.oio-chat-phrase-fab:hover {
+  background: rgba(37, 62, 95, 0.98);
+  border-color: rgba(145, 203, 255, 0.62);
 }
 
 .chat-keyphrase-highlight {

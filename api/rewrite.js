@@ -14,6 +14,10 @@ import {
 } from "../server/services/rewritePrompt.js";
 import { findBlockedPattern, looksLikePromptInjection } from "../server/services/rewriteSecurity.js";
 import { getRewriteAccessContext, recordSuccessfulRewriteUsage } from "../server/services/rewriteUsage.js";
+import {
+  applyPhraseScoreDelta,
+  calcPhraseDeltaByMode,
+} from "../server/services/phraseProficiency.js";
 
 function countWords(text) {
   const matches = String(text ?? "").trim().match(/\b[\w'-]+\b/g);
@@ -73,14 +77,11 @@ function parseOioChatPayload(content, config) {
   if (typeof parsed?.natural_version !== "string" || !parsed.natural_version.trim()) return null;
   if (typeof parsed?.reply !== "string" || !parsed.reply.trim()) return null;
 
-  const keyPhrases = normalizeKeyPhrases(parsed.key_phrases, config);
-  if (keyPhrases.length < 1 || keyPhrases.length > config.maxKeyPhrases) return null;
-
   return {
     version: "4",
     natural_version: parsed.natural_version.trim(),
     reply: parsed.reply.trim(),
-    key_phrases: keyPhrases,
+    key_phrases: [],
   };
 }
 
@@ -118,6 +119,7 @@ function parsePracticeFeedbackPayload(content) {
       is_already_natural: parsed.is_already_natural,
       rewritten_answer: parsed.rewritten_answer.trim(),
       feedback: parsed.feedback.trim(),
+      proficiency_eval: parsePhraseEvalPayload(parsed?.proficiency_eval),
     };
   }
 
@@ -129,6 +131,78 @@ function parsePracticeFeedbackPayload(content) {
     is_already_natural: true,
     rewritten_answer: "",
     feedback: parsed.feedback.trim(),
+    proficiency_eval: parsePhraseEvalPayload(parsed?.proficiency_eval),
+  };
+}
+
+function normalizePhraseKey(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function normalizeDisplayPhrase(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function mergePhraseCandidates(...groups) {
+  const deduped = [];
+  const seen = new Set();
+  for (const group of groups) {
+    if (!Array.isArray(group)) continue;
+    for (const raw of group) {
+      const phrase = normalizeDisplayPhrase(raw);
+      const key = normalizePhraseKey(phrase);
+      if (!phrase || !key || seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(phrase);
+      if (deduped.length >= 20) return deduped;
+    }
+  }
+  return deduped;
+}
+
+function parsePhraseEvalPayload(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const quality = typeof raw?.quality === "string" ? raw.quality.trim().toLowerCase() : "";
+  if (quality !== "none" && quality !== "ok" && quality !== "good") return null;
+  const matchedPhrase = typeof raw?.matched_phrase === "string" ? normalizeDisplayPhrase(raw.matched_phrase) : "";
+  if (quality === "none") {
+    return { quality, matchedPhrase: "" };
+  }
+  if (!matchedPhrase) return null;
+  return { quality, matchedPhrase };
+}
+
+function resolveMatchedCandidate(evalResult, candidates) {
+  if (!evalResult || evalResult.quality === "none") return null;
+  const candidateMap = new Map();
+  for (const candidate of candidates) {
+    const key = normalizePhraseKey(candidate);
+    if (!key) continue;
+    if (!candidateMap.has(key)) {
+      candidateMap.set(key, normalizeDisplayPhrase(candidate));
+    }
+  }
+  const key = normalizePhraseKey(evalResult.matchedPhrase);
+  if (!key) return null;
+  const phrase = candidateMap.get(key);
+  if (!phrase) return null;
+  return { phrase, quality: evalResult.quality };
+}
+
+function buildProficiencyHint(scored) {
+  if (!scored || !scored.delta) return null;
+  return {
+    phrase: scored.phrase,
+    delta: scored.delta,
+    score: scored.score,
+    source: "ai_judgement",
   };
 }
 
@@ -214,6 +288,38 @@ async function callDeepSeek(text, config, prompt) {
     return payload?.choices?.[0]?.message?.content ?? "";
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function applyInlinePhraseProficiency({
+  access,
+  mode,
+  inlineEval,
+  targetPhrase,
+}) {
+  const appUserId = access?.actor?.quota?.appUserId ?? "";
+  if (!appUserId) return null;
+  if (mode !== "practice_feedback") return null;
+  if (!inlineEval || inlineEval.quality === "none") return null;
+
+  const candidates = mergePhraseCandidates([targetPhrase]);
+  if (!candidates.length) return null;
+
+  const matched = resolveMatchedCandidate(inlineEval, candidates);
+  if (!matched) return null;
+
+  const delta = calcPhraseDeltaByMode(mode, matched.quality);
+  if (!delta) return null;
+
+  try {
+    const scored = await applyPhraseScoreDelta({
+      appUserId,
+      phrase: matched.phrase,
+      delta,
+    });
+    return buildProficiencyHint(scored);
+  } catch {
+    return null;
   }
 }
 
@@ -311,12 +417,21 @@ export default async function handler(req, res) {
     return;
   }
 
+  const appUserId = access?.actor?.quota?.appUserId ?? "";
   let rawContent = "";
   try {
     const prompt = mode === "beginner"
-      ? { systemPrompt: OIO_CHAT_BEGINNER_SYSTEM_PROMPT, buildUserPrompt: buildOioChatBeginnerUserPrompt, input: text }
+      ? {
+        systemPrompt: OIO_CHAT_BEGINNER_SYSTEM_PROMPT,
+        buildUserPrompt: buildOioChatBeginnerUserPrompt,
+        input: { learnerText: text, candidatePhrases: [] },
+      }
       : mode === "advanced"
-        ? { systemPrompt: OIO_CHAT_ADVANCED_SYSTEM_PROMPT, buildUserPrompt: buildOioChatAdvancedUserPrompt, input: text }
+        ? {
+          systemPrompt: OIO_CHAT_ADVANCED_SYSTEM_PROMPT,
+          buildUserPrompt: buildOioChatAdvancedUserPrompt,
+          input: { learnerText: text, candidatePhrases: [] },
+        }
         : mode === "practice_question"
           ? {
             systemPrompt: OIO_CHAT_PRACTICE_QUESTION_SYSTEM_PROMPT,
@@ -355,6 +470,19 @@ export default async function handler(req, res) {
     return;
   }
 
+  let proficiencyHint = null;
+  if (mode === "practice_feedback") {
+    proficiencyHint = await applyInlinePhraseProficiency({
+      access,
+      mode,
+      inlineEval: parsed?.proficiency_eval,
+      targetPhrase: mode === "practice_feedback" ? practiceFeedbackTargetPhrase : "",
+    });
+  }
+
+  const responsePayload = { ...parsed };
+  delete responsePayload.proficiency_eval;
+
   const outputChars =
     mode === "beginner" || mode === "advanced"
       ? parsed.natural_version.length + parsed.reply.length
@@ -370,7 +498,8 @@ export default async function handler(req, res) {
   });
 
   sendJson(res, 200, {
-    ...parsed,
+    ...responsePayload,
+    ...(proficiencyHint ? { proficiency_hint: proficiencyHint } : {}),
     usage: buildUsageSnapshot(access, chargedChars),
   });
 }

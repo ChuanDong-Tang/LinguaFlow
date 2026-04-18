@@ -16,7 +16,6 @@ import { saveTurnToDailyCapture } from "./oioChatCapture";
 import { createChatSession, deleteChatSession, listChatSessions, saveChatSession, type OioChatSession } from "./oioChatStore";
 import { type ChatTurn, type OioChatMode } from "./oioChatTypes";
 import { type CaptureItem } from "../dailyCapture/dailyCaptureStore";
-import { getCaptureKeyPhrases, getCaptureNaturalVersion } from "../../domain/capture";
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -30,6 +29,8 @@ interface SpeechRecognitionLike {
 }
 
 export class OioChatController {
+  private static readonly MAX_SELECTED_PHRASES_PER_TURN = 3;
+  private static readonly PHRASE_SYNC_DEBOUNCE_MS = 3_000;
   private readonly root: HTMLElement | null;
   private readonly historyEl: HTMLElement | null;
   private readonly feedEl: HTMLElement | null;
@@ -57,6 +58,9 @@ export class OioChatController {
   private loadingMoreHistory = false;
   private pendingSessionIds = new Set<string>();
   private pendingSessionModes = new Map<string, OioChatMode | "practice">();
+  private pendingCloudSyncTimer: number | null = null;
+  private phraseSyncDirty = false;
+  private phraseAddButtonEl: HTMLButtonElement | null = null;
 
   constructor({
     root = document.querySelector<HTMLElement>("#tab-panel-oio-chat"),
@@ -193,6 +197,26 @@ export class OioChatController {
 
     this.root?.addEventListener("click", async (event) => {
       const target = event.target as HTMLElement | null;
+      const addPhraseBtn = target?.closest<HTMLButtonElement>("[data-oio-chat-add-phrase]");
+      if (addPhraseBtn) {
+        event.preventDefault();
+        await this.applySelectedPhraseToTurn();
+        return;
+      }
+      const removePhraseBtn = target?.closest<HTMLButtonElement>("[data-oio-chat-remove-phrase]");
+      if (removePhraseBtn) {
+        const turnId = removePhraseBtn.dataset.oioChatRemovePhraseTurn?.trim() ?? "";
+        const encodedPhrase = removePhraseBtn.dataset.oioChatRemovePhrase?.trim() ?? "";
+        if (!turnId || !encodedPhrase) return;
+        let phrase = "";
+        try {
+          phrase = decodeURIComponent(encodedPhrase);
+        } catch {
+          phrase = encodedPhrase;
+        }
+        await this.removePhraseFromTurn(turnId, phrase);
+        return;
+      }
       const speakBtn = target?.closest<HTMLButtonElement>("[data-oio-chat-speak]");
       if (speakBtn) {
         const encodedText = speakBtn.dataset.oioChatSpeak?.trim() ?? "";
@@ -204,6 +228,28 @@ export class OioChatController {
       const turnId = captureBtn.dataset.refineTurnId?.trim() ?? "";
       if (!turnId) return;
       await this.captureTurn(turnId);
+    });
+    this.root?.addEventListener("mouseup", () => {
+      window.setTimeout(() => {
+        this.refreshPhraseAddButton();
+      }, 0);
+    });
+    this.root?.addEventListener("keyup", (event) => {
+      if ((event as KeyboardEvent).key !== "Shift") return;
+      this.refreshPhraseAddButton();
+    });
+    document.addEventListener("selectionchange", () => {
+      this.refreshPhraseAddButton();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "hidden") return;
+      void this.flushPendingCloudSync();
+    });
+    window.addEventListener("pagehide", () => {
+      void this.flushPendingCloudSync();
+    });
+    window.addEventListener("beforeunload", () => {
+      void this.flushPendingCloudSync();
     });
 
     document.addEventListener("oio-chat-start-practice", (event) => {
@@ -221,6 +267,9 @@ export class OioChatController {
     });
     document.addEventListener("app-before-tab-change", (event) => {
       const detail = (event as CustomEvent<{ toTabId?: string }>).detail;
+      if (detail?.toTabId !== "oio-chat") {
+        void this.flushPendingCloudSync();
+      }
       if (detail?.toTabId === "oio-chat") return;
       const active = this.activeSession;
       if (active?.kind !== "practice") return;
@@ -390,6 +439,9 @@ export class OioChatController {
       occurredAt: new Date().toISOString(),
       usageDailyUsed: reply.usageDailyUsed,
       usageDailyLimit: reply.usageDailyLimit,
+      proficiencyPhrase: reply.proficiencyHint?.phrase?.trim() || undefined,
+      proficiencyDelta: typeof reply.proficiencyHint?.delta === "number" ? reply.proficiencyHint.delta : undefined,
+      proficiencyScore: typeof reply.proficiencyHint?.score === "number" ? reply.proficiencyHint.score : undefined,
     };
   }
 
@@ -459,6 +511,7 @@ export class OioChatController {
 
   private renderFeed(): void {
     if (!this.feedEl) return;
+    this.hidePhraseAddButton();
     const session = this.activeSession;
     if (!session?.turns.length) {
       this.feedEl.innerHTML = `
@@ -484,13 +537,14 @@ export class OioChatController {
 
         const naturalVersion = turn.naturalVersion || "";
         const naturalVersionBlock = naturalVersion
-          ? this.renderAssistantSection(t("oio_chat.section_rewritten"), naturalVersion, turn.keyPhrases)
+          ? this.renderAssistantSection(t("oio_chat.section_rewritten"), naturalVersion, turn.id, turn.keyPhrases)
           : "";
 
         const reply = turn.reply || "";
         const replyBlock = turn.practiceKind !== "question" && reply
-          ? this.renderAssistantSection(t("oio_chat.section_reply_comment"), reply, turn.keyPhrases)
+          ? this.renderAssistantSection(t("oio_chat.section_reply_comment"), reply, turn.id, turn.keyPhrases)
           : "";
+        const proficiencyBlock = this.renderProficiencyHint(turn);
 
         const adminDebugBlock = this.isAdminViewer && turn.adminDebug?.trim()
           ? `
@@ -502,7 +556,7 @@ export class OioChatController {
           : "";
 
         const keyPhrasesBlock = Array.isArray(turn.keyPhrases) && turn.keyPhrases.length
-          ? `<div class="chat-highlight-list">${turn.keyPhrases.map((item) => this.renderPhraseChip(item)).join("")}</div>`
+          ? `<div class="chat-highlight-list">${turn.keyPhrases.map((item) => this.renderPhraseChip(item, turn.id, !turn.capturedAt)).join("")}</div>`
           : "";
 
         const saveAction = turn.naturalVersion?.trim()
@@ -515,7 +569,7 @@ export class OioChatController {
           : "";
 
         const mainText = turn.practiceKind === "question" && turn.reply?.trim()
-          ? this.renderSpeakLines(turn.reply, "chat-bubble-text", turn.keyPhrases)
+          ? this.renderSpeakLines(turn.reply, "chat-bubble-text", turn.id, turn.keyPhrases)
           : "";
 
         return `
@@ -524,6 +578,7 @@ export class OioChatController {
             ${mainText}
             ${naturalVersionBlock}
             ${replyBlock}
+            ${proficiencyBlock}
             ${adminDebugBlock}
             ${keyPhrasesBlock}
             ${actionBlock}
@@ -545,29 +600,29 @@ export class OioChatController {
     this.feedEl.innerHTML = turnsHtml + pendingBubble;
   }
 
-  private renderAssistantSection(label: string, text: string, keyPhrases?: string[]): string {
+  private renderAssistantSection(label: string, text: string, turnId: string, keyPhrases?: string[]): string {
     return `
       <div class="chat-assistant-section">
         <span class="chat-assistant-label">${escapeHtml(label)}</span>
-        ${this.renderSpeakParagraph(text, "chat-assistant-copy", keyPhrases)}
+        ${this.renderSpeakParagraph(text, "chat-assistant-copy", turnId, keyPhrases)}
       </div>
     `;
   }
 
-  private renderSpeakParagraph(text: string, textClassName: string, keyPhrases?: string[]): string {
+  private renderSpeakParagraph(text: string, textClassName: string, turnId: string, keyPhrases?: string[]): string {
     const content = text.trim();
     if (!content) return "";
     const encoded = escapeHtml(encodeURIComponent(content));
     const highlighted = renderTextWithKeyPhraseHighlight(content, keyPhrases);
     return `
       <div class="chat-speak-line">
-        <p class="${textClassName}">${highlighted}</p>
+        <p class="${textClassName}" data-oio-chat-selectable="1" data-oio-chat-turn-id="${escapeHtml(turnId)}">${highlighted}</p>
         ${this.renderSpeakButton("data-oio-chat-speak", encoded)}
       </div>
     `;
   }
 
-  private renderSpeakLines(text: string, textClassName: string, keyPhrases?: string[]): string {
+  private renderSpeakLines(text: string, textClassName: string, turnId: string, keyPhrases?: string[]): string {
     const lines = splitTextForSpeech(text);
     if (!lines.length) return "";
     return `
@@ -578,7 +633,7 @@ export class OioChatController {
             const highlighted = renderTextWithKeyPhraseHighlight(line, keyPhrases);
             return `
               <div class="chat-speak-line">
-                <p class="${textClassName}">${highlighted}</p>
+                <p class="${textClassName}" data-oio-chat-selectable="1" data-oio-chat-turn-id="${escapeHtml(turnId)}">${highlighted}</p>
                 ${this.renderSpeakButton("data-oio-chat-speak", encoded)}
               </div>
             `;
@@ -588,12 +643,25 @@ export class OioChatController {
     `;
   }
 
-  private renderPhraseChip(phrase: string): string {
+  private renderPhraseChip(phrase: string, turnId: string, removable: boolean): string {
     const encoded = escapeHtml(encodeURIComponent(phrase));
+    const removeBtn = removable
+      ? `
+        <button
+          type="button"
+          class="chat-chip-remove-btn"
+          data-oio-chat-remove-phrase="${encoded}"
+          data-oio-chat-remove-phrase-turn="${escapeHtml(turnId)}"
+          aria-label="${escapeHtml(t("oio_chat.remove_phrase"))}"
+          title="${escapeHtml(t("oio_chat.remove_phrase"))}"
+        >×</button>
+      `
+      : "";
     return `
       <span class="chat-highlight-chip">
         <span>${escapeHtml(phrase)}</span>
         ${this.renderSpeakButton("data-oio-chat-speak", encoded, "chat-chip-speak-btn")}
+        ${removeBtn}
       </span>
     `;
   }
@@ -744,15 +812,202 @@ export class OioChatController {
     );
   }
 
+  private renderProficiencyHint(turn: ChatTurn): string {
+    const delta = Number.isFinite(turn.proficiencyDelta) ? Number(turn.proficiencyDelta) : 0;
+    const phrase = turn.proficiencyPhrase?.trim() ?? "";
+    if (!delta || !phrase) return "";
+    return `
+      <p class="chat-proficiency-hint">
+        ${escapeHtml(`${t("oio_chat.proficiency_gain_prefix")}${delta} · ${phrase}`)}
+      </p>
+    `;
+  }
+
+  private normalizePhraseText(value: string): string {
+    return String(value ?? "").trim().replace(/\s+/g, " ");
+  }
+
+  private countPhraseWords(value: string): number {
+    return this.normalizePhraseText(value).match(/\b[\w'-]+\b/g)?.length ?? 0;
+  }
+
+  private getTurnById(turnId: string): ChatTurn | null {
+    const session = this.activeSession;
+    if (!session) return null;
+    return session.turns.find((turn) => turn.id === turnId && turn.role === "assistant") ?? null;
+  }
+
+  private getSelectionCandidate(): { turnId: string; phrase: string; rect: DOMRect } | null {
+    if (!this.root) return null;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount < 1 || selection.isCollapsed) return null;
+    const text = this.normalizePhraseText(selection.toString());
+    if (!text) return null;
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    if (!rect || (rect.width <= 0 && rect.height <= 0)) return null;
+    const anchorElement = selection.anchorNode instanceof Element ? selection.anchorNode : selection.anchorNode?.parentElement;
+    const focusElement = selection.focusNode instanceof Element ? selection.focusNode : selection.focusNode?.parentElement;
+    const anchorSelectable = anchorElement?.closest<HTMLElement>("[data-oio-chat-selectable='1']");
+    const focusSelectable = focusElement?.closest<HTMLElement>("[data-oio-chat-selectable='1']");
+    if (!anchorSelectable || !focusSelectable) return null;
+    const turnId = anchorSelectable.dataset.oioChatTurnId?.trim() ?? "";
+    if (!turnId || turnId !== (focusSelectable.dataset.oioChatTurnId?.trim() ?? "")) return null;
+    if (!this.getTurnById(turnId)) return null;
+    return { turnId, phrase: text, rect };
+  }
+
+  private ensurePhraseAddButton(): HTMLButtonElement | null {
+    if (this.phraseAddButtonEl && document.body.contains(this.phraseAddButtonEl)) {
+      return this.phraseAddButtonEl;
+    }
+    if (!document.body) return null;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "oio-chat-phrase-fab";
+    button.dataset.oioChatAddPhrase = "1";
+    button.textContent = "+";
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void this.applySelectedPhraseToTurn();
+    });
+    button.setAttribute("aria-label", t("oio_chat.add_phrase"));
+    button.setAttribute("title", t("oio_chat.add_phrase"));
+    button.hidden = true;
+    document.body.appendChild(button);
+    this.phraseAddButtonEl = button;
+    return button;
+  }
+
+  private hidePhraseAddButton(): void {
+    if (!this.phraseAddButtonEl) return;
+    this.phraseAddButtonEl.hidden = true;
+    delete this.phraseAddButtonEl.dataset.oioChatPhraseText;
+    delete this.phraseAddButtonEl.dataset.oioChatTurnId;
+  }
+
+  private refreshPhraseAddButton(): void {
+    const button = this.ensurePhraseAddButton();
+    if (!button) return;
+    const candidate = this.getSelectionCandidate();
+    if (!candidate) {
+      this.hidePhraseAddButton();
+      return;
+    }
+    const turn = this.getTurnById(candidate.turnId);
+    if (!turn || turn.capturedAt) {
+      this.hidePhraseAddButton();
+      return;
+    }
+    const words = this.countPhraseWords(candidate.phrase);
+    if (words < 2 || words > 8) {
+      this.hidePhraseAddButton();
+      return;
+    }
+    const existing = Array.isArray(turn.keyPhrases) ? turn.keyPhrases : [];
+    if (existing.length >= OioChatController.MAX_SELECTED_PHRASES_PER_TURN) {
+      this.hidePhraseAddButton();
+      return;
+    }
+    button.dataset.oioChatPhraseText = candidate.phrase;
+    button.dataset.oioChatTurnId = candidate.turnId;
+    button.hidden = false;
+    const top = Math.max(8, window.scrollY + candidate.rect.top - 40);
+    const left = Math.max(8, Math.min(window.scrollX + candidate.rect.left, window.scrollX + window.innerWidth - 44));
+    button.style.top = `${top}px`;
+    button.style.left = `${left}px`;
+    button.setAttribute("aria-label", t("oio_chat.add_phrase"));
+    button.setAttribute("title", t("oio_chat.add_phrase"));
+  }
+
+  private async applySelectedPhraseToTurn(): Promise<void> {
+    const button = this.phraseAddButtonEl;
+    const phrase = this.normalizePhraseText(button?.dataset.oioChatPhraseText ?? "");
+    const turnId = button?.dataset.oioChatTurnId?.trim() ?? "";
+    this.hidePhraseAddButton();
+    if (!phrase || !turnId) return;
+    const turn = this.getTurnById(turnId);
+    const session = this.activeSession;
+    if (!session || !turn || turn.capturedAt) return;
+
+    const words = this.countPhraseWords(phrase);
+    if (words < 2 || words > 8) {
+      this.setStatus(t("oio_chat.phrase_word_limit"));
+      return;
+    }
+
+    const existing = Array.isArray(turn.keyPhrases) ? turn.keyPhrases : [];
+    if (existing.some((item) => item.toLowerCase() === phrase.toLowerCase())) {
+      this.setStatus(t("oio_chat.phrase_duplicate"));
+      return;
+    }
+    if (existing.length >= OioChatController.MAX_SELECTED_PHRASES_PER_TURN) {
+      this.setStatus(t("oio_chat.phrase_turn_limit"));
+      return;
+    }
+    turn.keyPhrases = [...existing, phrase];
+    this.phraseSyncDirty = true;
+    session.updatedAt = new Date().toISOString();
+    await this.persistSessionSafely(session, false);
+    this.scheduleDebouncedCloudSync();
+    this.renderFeed();
+    this.setStatus(t("oio_chat.phrase_added"));
+    window.getSelection()?.removeAllRanges();
+  }
+
+  private async removePhraseFromTurn(turnId: string, phrase: string): Promise<void> {
+    const targetPhrase = this.normalizePhraseText(phrase);
+    const session = this.activeSession;
+    const turn = this.getTurnById(turnId);
+    if (!session || !turn || !targetPhrase || turn.capturedAt) return;
+    const existing = Array.isArray(turn.keyPhrases) ? turn.keyPhrases : [];
+    const next = existing.filter((item) => item.toLowerCase() !== targetPhrase.toLowerCase());
+    if (next.length === existing.length) return;
+    turn.keyPhrases = next;
+    this.phraseSyncDirty = true;
+    session.updatedAt = new Date().toISOString();
+    await this.persistSessionSafely(session, false);
+    this.scheduleDebouncedCloudSync();
+    this.renderFeed();
+    this.setStatus(t("oio_chat.phrase_removed"));
+  }
+
+  private scheduleDebouncedCloudSync(): void {
+    if (this.pendingCloudSyncTimer !== null) {
+      window.clearTimeout(this.pendingCloudSyncTimer);
+    }
+    this.pendingCloudSyncTimer = window.setTimeout(() => {
+      this.pendingCloudSyncTimer = null;
+      if (!this.phraseSyncDirty) return;
+      this.phraseSyncDirty = false;
+      void pushChatSessions(this.sessions.filter((item) => item.kind !== "practice"));
+    }, OioChatController.PHRASE_SYNC_DEBOUNCE_MS);
+  }
+
+  private async flushPendingCloudSync(): Promise<void> {
+    if (this.pendingCloudSyncTimer !== null) {
+      window.clearTimeout(this.pendingCloudSyncTimer);
+      this.pendingCloudSyncTimer = null;
+    }
+    if (!this.phraseSyncDirty) return;
+    this.phraseSyncDirty = false;
+    await pushChatSessions(this.sessions.filter((item) => item.kind !== "practice"));
+  }
+
   private async captureTurn(turnId: string): Promise<void> {
     const session = this.activeSession;
     if (!session) return;
 
-    const turn = session.turns.find((item) => item.id === turnId && item.role === "assistant");
+    const turnIndex = session.turns.findIndex((item) => item.id === turnId && item.role === "assistant");
+    const turn = turnIndex >= 0 ? session.turns[turnIndex] : null;
     const hasNaturalVersion = !!turn?.naturalVersion?.trim();
     if (!turn || !hasNaturalVersion || turn.capturedAt) return;
+    const sourceText = this.findNearestUserSourceText(session, turnIndex);
+    if (!sourceText) return;
 
-    const result = await saveTurnToDailyCapture(turn, session.id, session.dateKey);
+    await this.flushPendingCloudSync();
+    const result = await saveTurnToDailyCapture(turn, session.id, sourceText, session.dateKey);
     turn.capturedAt = new Date().toISOString();
     turn.capturedDateKey = session.dateKey;
     session.updatedAt = new Date().toISOString();
@@ -764,6 +1019,16 @@ export class OioChatController {
         ? t("oio_chat.already_saved_for_date")
         : `${t("oio_chat.saved_to")} ${formatKeyToSlashDisplay(session.dateKey)}.`,
     );
+  }
+
+  private findNearestUserSourceText(session: OioChatSession, assistantTurnIndex: number): string {
+    for (let index = assistantTurnIndex - 1; index >= 0; index -= 1) {
+      const turn = session.turns[index];
+      if (turn.role !== "user") continue;
+      const sourceText = (turn.sourceText ?? "").trim();
+      if (sourceText) return sourceText;
+    }
+    return "";
   }
 
   private updateMeta(): void {
@@ -886,8 +1151,8 @@ export class OioChatController {
     if (!(await this.ensurePracticeSessionCanClose())) {
       return;
     }
-    const contextText = (getCaptureNaturalVersion(item) || item.sourceText).trim();
-    const targetPhrase = (getCaptureKeyPhrases(item)[0] ?? "").trim();
+    const contextText = (item.naturalVersion || item.sourceText || "").trim();
+    const targetPhrase = (Array.isArray(item.keyPhrases) ? item.keyPhrases[0] : "").trim();
     if (!contextText) {
       this.setStatus(t("oio_chat.practice_context_missing"));
       return;
@@ -1000,7 +1265,7 @@ export class OioChatController {
     session.turns.push({
       id: `assistant-question-${Date.now()}`,
       role: "assistant",
-      reply: `${question}\n${this.buildPracticeTryUsingLine(targetPhrase)}`,
+      reply: question,
       keyPhrases: [targetPhrase],
       practiceKind: "question",
       occurredAt: new Date().toISOString(),
@@ -1014,10 +1279,6 @@ export class OioChatController {
     this.renderFeed();
     this.updateMeta();
     this.inputEl?.focus();
-  }
-
-  private buildPracticeTryUsingLine(targetPhrase: string): string {
-    return `Try using "${targetPhrase}".`;
   }
 
   private async handlePracticeReply(session: OioChatSession, answer: string): Promise<void> {
@@ -1036,6 +1297,9 @@ export class OioChatController {
       usageDailyLimit: feedbackResult.usageDailyLimit,
       practiceKind: "feedback",
       occurredAt: new Date().toISOString(),
+      proficiencyPhrase: feedbackResult.proficiencyHint?.phrase?.trim() || undefined,
+      proficiencyDelta: typeof feedbackResult.proficiencyHint?.delta === "number" ? feedbackResult.proficiencyHint.delta : undefined,
+      proficiencyScore: typeof feedbackResult.proficiencyHint?.score === "number" ? feedbackResult.proficiencyHint.score : undefined,
     });
     if (session.practice) {
       session.practice.attempt = (session.practice.attempt ?? 0) + 1;
