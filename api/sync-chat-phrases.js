@@ -38,11 +38,18 @@ function normalizePhraseUpdate(raw) {
   if (!raw || typeof raw !== "object") return null;
   const sessionId = typeof raw.sessionId === "string" ? raw.sessionId.trim() : "";
   const turnId = typeof raw.turnId === "string" ? raw.turnId.trim() : "";
+  const clientVersion = Number.isFinite(raw.clientVersion)
+    ? Math.floor(Number(raw.clientVersion))
+    : Number.isFinite(raw.client_version)
+      ? Math.floor(Number(raw.client_version))
+      : 0;
   if (!sessionId || !turnId) return null;
+  if (clientVersion <= 0) return null;
   return {
     sessionId,
     turnId,
     keyPhrases: normalizeKeyPhrases(raw.keyPhrases),
+    clientVersion,
   };
 }
 
@@ -85,40 +92,23 @@ export default async function handler(req, res) {
   }
 
   const supabase = getSupabaseAdmin();
-  const nowIso = new Date().toISOString();
-  const touchedSessionIds = new Set();
-
-  for (const update of updates) {
-    const result = await supabase
-      .from("chat_turns")
-      .update({ key_phrases: update.keyPhrases })
-      .eq("user_id", auth.appUserId)
-      .eq("session_id", update.sessionId)
-      .eq("turn_id", update.turnId)
-      .eq("role", "assistant")
-      .select("turn_id")
-      .maybeSingle();
-
-    if (result.error) {
-      sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save phrase updates." } });
-      return;
-    }
-    if (result.data?.turn_id) {
-      touchedSessionIds.add(update.sessionId);
-    }
+  const rpcPayload = updates.map((update) => ({
+    session_id: update.sessionId,
+    turn_id: update.turnId,
+    key_phrases: update.keyPhrases,
+    client_version: update.clientVersion,
+  }));
+  const rpcResult = await supabase.rpc("apply_chat_phrase_updates", {
+    p_user_id: auth.appUserId,
+    p_updates: rpcPayload,
+  });
+  if (rpcResult.error) {
+    sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save phrase updates." } });
+    return;
   }
 
-  for (const sessionId of touchedSessionIds) {
-    const sessionUpdateResult = await supabase
-      .from("chat_sessions")
-      .update({ updated_at: nowIso })
-      .eq("user_id", auth.appUserId)
-      .eq("session_id", sessionId);
-    if (sessionUpdateResult.error) {
-      sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to bump chat session timestamp." } });
-      return;
-    }
-  }
-
-  sendJson(res, 200, { ok: true, updatedSessions: touchedSessionIds.size, acceptedUpdates: updates.length });
+  const firstRow = Array.isArray(rpcResult.data) ? rpcResult.data[0] : rpcResult.data;
+  const appliedUpdates = Number.isFinite(firstRow?.applied_updates) ? Number(firstRow.applied_updates) : 0;
+  const updatedSessions = Number.isFinite(firstRow?.touched_sessions) ? Number(firstRow.touched_sessions) : 0;
+  sendJson(res, 200, { ok: true, updatedSessions, acceptedUpdates: updates.length, appliedUpdates });
 }

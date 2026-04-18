@@ -145,6 +145,7 @@ export interface ChatPhraseUpdatePayload {
   sessionId: string;
   turnId: string;
   keyPhrases: string[];
+  clientVersion: number;
 }
 
 export async function pushChatPhraseUpdates(updates: ChatPhraseUpdatePayload[]): Promise<boolean> {
@@ -153,8 +154,9 @@ export async function pushChatPhraseUpdates(updates: ChatPhraseUpdatePayload[]):
       sessionId: typeof update.sessionId === "string" ? update.sessionId.trim() : "",
       turnId: typeof update.turnId === "string" ? update.turnId.trim() : "",
       keyPhrases: Array.isArray(update.keyPhrases) ? update.keyPhrases.filter((item) => typeof item === "string") : [],
+      clientVersion: Number.isFinite(update.clientVersion) ? Math.max(0, Math.floor(update.clientVersion)) : 0,
     }))
-    .filter((update) => update.sessionId && update.turnId);
+    .filter((update) => update.sessionId && update.turnId && update.clientVersion > 0);
 
   if (!payload.length) return true;
   if (!(await canSync())) return true;

@@ -51,6 +51,7 @@ function normalizeTurn(raw: unknown): ChatTurn | null {
     proficiencyPhrase: typeof value.proficiencyPhrase === "string" ? value.proficiencyPhrase : undefined,
     proficiencyDelta: typeof value.proficiencyDelta === "number" ? value.proficiencyDelta : undefined,
     proficiencyScore: typeof value.proficiencyScore === "number" ? value.proficiencyScore : undefined,
+    phraseClientVersion: typeof value.phraseClientVersion === "number" ? value.phraseClientVersion : undefined,
   };
 }
 

@@ -65,6 +65,7 @@ export class OioChatController {
   private pendingSessionIds = new Set<string>();
   private pendingSessionModes = new Map<string, OioChatMode | "practice">();
   private pendingCloudSyncTimer: number | null = null;
+  private phraseVersionClockByTurn = new Map<string, number>();
   private pendingPhraseUpdates = new Map<string, ChatPhraseUpdatePayload>();
   private phraseAddButtonEl: HTMLButtonElement | null = null;
 
@@ -953,7 +954,7 @@ export class OioChatController {
       return;
     }
     turn.keyPhrases = [...existing, phrase];
-    this.enqueuePhraseUpdate(session.id, turn.id, turn.keyPhrases);
+    this.enqueuePhraseUpdate(session.id, turn);
     session.updatedAt = new Date().toISOString();
     await this.persistSessionSafely(session, false);
     this.scheduleDebouncedCloudSync();
@@ -971,7 +972,7 @@ export class OioChatController {
     const next = existing.filter((item) => item.toLowerCase() !== targetPhrase.toLowerCase());
     if (next.length === existing.length) return;
     turn.keyPhrases = next;
-    this.enqueuePhraseUpdate(session.id, turn.id, turn.keyPhrases);
+    this.enqueuePhraseUpdate(session.id, turn);
     session.updatedAt = new Date().toISOString();
     await this.persistSessionSafely(session, false);
     this.scheduleDebouncedCloudSync();
@@ -1001,6 +1002,7 @@ export class OioChatController {
       sessionId: update.sessionId,
       turnId: update.turnId,
       keyPhrases: [...update.keyPhrases],
+      clientVersion: update.clientVersion,
     }));
     const synced = await pushChatPhraseUpdates(payload);
     if (!synced) return;
@@ -1011,6 +1013,7 @@ export class OioChatController {
       if (
         current.sessionId === snapshot.sessionId
         && current.turnId === snapshot.turnId
+        && current.clientVersion === snapshot.clientVersion
         && this.arePhraseArraysEqual(current.keyPhrases, snapshot.keyPhrases)
       ) {
         this.pendingPhraseUpdates.delete(key);
@@ -1018,19 +1021,36 @@ export class OioChatController {
     }
   }
 
-  private enqueuePhraseUpdate(sessionId: string, turnId: string, keyPhrases?: string[]): void {
+  private enqueuePhraseUpdate(sessionId: string, turn: ChatTurn): void {
     const normalizedSessionId = sessionId.trim();
-    const normalizedTurnId = turnId.trim();
+    const normalizedTurnId = (turn.id ?? "").trim();
     if (!normalizedSessionId || !normalizedTurnId) return;
-    const normalizedPhrases = Array.isArray(keyPhrases) ? [...keyPhrases] : [];
+    const normalizedPhrases = Array.isArray(turn.keyPhrases) ? [...turn.keyPhrases] : [];
+    const nextVersion = this.nextPhraseClientVersion(normalizedSessionId, normalizedTurnId, turn.phraseClientVersion);
+    turn.phraseClientVersion = nextVersion;
     this.pendingPhraseUpdates.set(
       `${normalizedSessionId}::${normalizedTurnId}`,
       {
         sessionId: normalizedSessionId,
         turnId: normalizedTurnId,
         keyPhrases: normalizedPhrases,
+        clientVersion: nextVersion,
       },
     );
+  }
+
+  private nextPhraseClientVersion(sessionId: string, turnId: string, persistedVersion?: number): number {
+    const key = `${sessionId}::${turnId}`;
+    const now = Date.now();
+    const base = Math.max(
+      0,
+      Number.isFinite(persistedVersion) ? Math.floor(Number(persistedVersion)) : 0,
+      this.phraseVersionClockByTurn.get(key) ?? 0,
+      now,
+    );
+    const next = base + 1;
+    this.phraseVersionClockByTurn.set(key, next);
+    return next;
   }
 
   private arePhraseArraysEqual(left: string[], right: string[]): boolean {

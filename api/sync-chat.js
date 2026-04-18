@@ -40,6 +40,7 @@ function normalizeTurn(turn) {
     proficiencyPhrase: typeof turn.proficiencyPhrase === "string" ? turn.proficiencyPhrase : null,
     proficiencyDelta: Number.isFinite(turn.proficiencyDelta) ? Number(turn.proficiencyDelta) : null,
     proficiencyScore: Number.isFinite(turn.proficiencyScore) ? Number(turn.proficiencyScore) : null,
+    phraseClientVersion: Number.isFinite(turn.phraseClientVersion) ? Number(turn.phraseClientVersion) : null,
   };
 }
 
@@ -92,6 +93,7 @@ async function loadTurnsBySessionIds(supabase, appUserId, sessionIds) {
       proficiencyPhrase: typeof row.proficiency_phrase === "string" ? row.proficiency_phrase : undefined,
       proficiencyDelta: Number.isFinite(row.proficiency_delta) ? Number(row.proficiency_delta) : undefined,
       proficiencyScore: Number.isFinite(row.proficiency_score) ? Number(row.proficiency_score) : undefined,
+      phraseClientVersion: Number.isFinite(row.phrase_client_version) ? Number(row.phrase_client_version) : undefined,
     });
     grouped.set(row.session_id, bucket);
   }
@@ -242,6 +244,7 @@ export default async function handler(req, res) {
           proficiency_phrase: turn.proficiencyPhrase ?? null,
           proficiency_delta: Number.isFinite(turn.proficiencyDelta) ? Number(turn.proficiencyDelta) : null,
           proficiency_score: Number.isFinite(turn.proficiencyScore) ? Number(turn.proficiencyScore) : null,
+          phrase_client_version: Number.isFinite(turn.phraseClientVersion) ? Number(turn.phraseClientVersion) : null,
         });
       }
     }

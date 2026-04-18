@@ -19,4 +19,5 @@ export interface ChatTurn {
   proficiencyPhrase?: string;
   proficiencyDelta?: number;
   proficiencyScore?: number;
+  phraseClientVersion?: number;
 }
