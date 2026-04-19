@@ -167,29 +167,6 @@ export default async function handler(req, res) {
     }
 
     const sessions = Array.isArray(body?.sessions) ? body.sessions.map(normalizeSession).filter(Boolean) : [];
-    const nextSessionIds = new Set(sessions.map((session) => session.id));
-
-    const existingResult = await supabase
-      .from("chat_sessions")
-      .select("session_id")
-      .eq("user_id", auth.appUserId);
-    if (existingResult.error) {
-      sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
-      return;
-    }
-    const existingIds = Array.isArray(existingResult.data) ? existingResult.data.map((row) => row.session_id).filter(Boolean) : [];
-    const toDelete = existingIds.filter((id) => !nextSessionIds.has(id));
-    if (toDelete.length > 0) {
-      const deleteResult = await supabase
-        .from("chat_sessions")
-        .delete()
-        .eq("user_id", auth.appUserId)
-        .in("session_id", toDelete);
-      if (deleteResult.error) {
-        sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
-        return;
-      }
-    }
 
     const sessionRows = sessions.map((session) => ({
       user_id: auth.appUserId,
@@ -262,5 +239,48 @@ export default async function handler(req, res) {
     return;
   }
 
-  sendJson(res, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "Use GET or POST /api/sync-chat." } });
+  if (req.method === "DELETE") {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { error: { code: "INVALID_JSON", message: "Request body must be valid JSON." } });
+      return;
+    }
+
+    const sessionIds = Array.isArray(body?.sessionIds)
+      ? body.sessionIds
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean)
+      : [];
+    if (!sessionIds.length) {
+      sendJson(res, 400, { error: { code: "INVALID_SESSION_IDS", message: "sessionIds must contain at least one id." } });
+      return;
+    }
+
+    const deleteTurnsResult = await supabase
+      .from("chat_turns")
+      .delete()
+      .eq("user_id", auth.appUserId)
+      .in("session_id", sessionIds);
+    if (deleteTurnsResult.error) {
+      sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to delete chat history." } });
+      return;
+    }
+
+    const deleteSessionsResult = await supabase
+      .from("chat_sessions")
+      .delete()
+      .eq("user_id", auth.appUserId)
+      .in("session_id", sessionIds);
+    if (deleteSessionsResult.error) {
+      sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to delete chat history." } });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  sendJson(res, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "Use GET, POST, or DELETE /api/sync-chat." } });
 }

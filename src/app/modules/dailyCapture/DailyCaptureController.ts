@@ -4,7 +4,7 @@ import { addMonthsClamp, dateToLocalKey, formatKeyToSlashDisplay } from "../../d
 import { confirmDialog } from "../../shared/confirmDialog";
 import { escapeHtml } from "../../shared/html";
 import { renderTextWithKeyPhraseHighlight } from "../../shared/keyPhraseHighlight";
-import { pullCaptureIndex, pullCaptureRecordByDate, pushCaptureRecord } from "../../services/cloud/cloudSyncService";
+import { deleteCaptureItems, pullCaptureIndex, pullCaptureRecordByDate, pushCaptureRecord } from "../../services/cloud/cloudSyncService";
 import { fetchPhraseProficiencyScores } from "../../services/proficiency/phraseProficiencyService";
 import { getI18n, t } from "../../i18n/i18n";
 import { onDailyCaptureUpdated } from "./dailyCaptureEvents";
@@ -629,7 +629,7 @@ export class DailyCaptureController {
     };
     await saveCaptureRecord(updatedRecord);
     this.cloudCountByDate.set(record.dateKey, nextItems.length);
-    void pushCaptureRecord(updatedRecord);
+    void deleteCaptureItems([itemId]);
     await this.refreshFromStore(record.dateKey);
     if (!nextItems.length) {
       this.closeDayDialog();

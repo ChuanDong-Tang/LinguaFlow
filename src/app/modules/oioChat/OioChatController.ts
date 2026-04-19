@@ -7,6 +7,7 @@ import { createChatReply, toChatErrorMessage, type ChatReply } from "../../servi
 import { fetchChatUsageSnapshot } from "../../services/chat/chatUsageService";
 import { generatePracticeFeedback, generatePracticeQuestion } from "../../services/chat/practiceService";
 import {
+  deleteChatSessions,
   pullChatSessions,
   pullMoreChatSessions,
   pushChatPhraseUpdates,
@@ -1510,7 +1511,7 @@ export class OioChatController {
     this.renderFeed();
     this.updateMeta();
     this.setStatus("");
-    void pushChatSessions(this.sessions.filter((item) => item.kind !== "practice"));
+    void deleteChatSessions([sessionId]);
   }
 
   private async ensurePracticeSessionCanClose(): Promise<boolean> {

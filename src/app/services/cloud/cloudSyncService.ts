@@ -82,6 +82,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export async function pullChatSessions(): Promise<{ sessions: OioChatSession[]; hasMore: boolean; nextBefore: string | null } | null> {
+  if (!(await canSync())) return null;
   const payload = await fetchJson<{ sessions: OioChatSession[]; has_more?: boolean; next_before?: string | null }>(
     `/api/sync-chat?limit=${CHAT_PAGE_SIZE}`,
   );
@@ -114,6 +115,7 @@ export interface ChatPageResult {
 }
 
 export async function pullMoreChatSessions(before: string): Promise<ChatPageResult | null> {
+  if (!(await canSync())) return null;
   if (!before?.trim()) return null;
   const payload = await fetchJson<{ sessions: OioChatSession[]; has_more?: boolean; next_before?: string | null }>(
     `/api/sync-chat?limit=${CHAT_PAGE_SIZE}&before=${encodeURIComponent(before)}`,
@@ -129,12 +131,30 @@ export async function pullMoreChatSessions(before: string): Promise<ChatPageResu
 }
 
 export async function pushChatSessions(sessions: OioChatSession[]): Promise<void> {
+  if (!(await canSync())) return;
   const persistable = sessions.filter(isPersistableSession);
   try {
     await fetchJson("/api/sync-chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessions: persistable }),
+    });
+  } catch {
+    // ignore cloud sync failures
+  }
+}
+
+export async function deleteChatSessions(sessionIds: string[]): Promise<void> {
+  if (!(await canSync())) return;
+  const normalizedSessionIds = sessionIds
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+  if (!normalizedSessionIds.length) return;
+  try {
+    await fetchJson<{ ok?: boolean }>("/api/sync-chat", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionIds: normalizedSessionIds }),
     });
   } catch {
     // ignore cloud sync failures
@@ -215,6 +235,23 @@ export async function pushCaptureRecord(record: DailyCaptureRecord): Promise<voi
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ record }),
+    });
+  } catch {
+    // ignore cloud sync failures
+  }
+}
+
+export async function deleteCaptureItems(captureIds: string[]): Promise<void> {
+  if (!(await canSync())) return;
+  const normalizedCaptureIds = captureIds
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+  if (!normalizedCaptureIds.length) return;
+  try {
+    await fetchJson<{ ok?: boolean }>("/api/sync-capture", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ captureIds: normalizedCaptureIds }),
     });
   } catch {
     // ignore cloud sync failures

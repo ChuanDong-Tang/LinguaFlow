@@ -143,12 +143,6 @@ async function replaceRecordItems(supabase, appUserId, record) {
   const normalized = normalizeRecord(record);
   if (!normalized) return;
   const dateKey = normalized.dateKey;
-  const { error: deleteError } = await supabase
-    .from("daily_capture_items")
-    .delete()
-    .eq("user_id", appUserId)
-    .eq("date_key", dateKey);
-  if (deleteError) throw deleteError;
   if (!normalized.items.length) return;
   const rows = normalized.items.map((item) => ({
     user_id: appUserId,
@@ -266,5 +260,53 @@ export default async function handler(req, res) {
     }
   }
 
-  sendJson(res, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "Use GET or POST /api/sync-capture." } });
+  if (req.method === "DELETE") {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { error: { code: "INVALID_JSON", message: "Request body must be valid JSON." } });
+      return;
+    }
+
+    const captureIds = Array.isArray(body?.captureIds)
+      ? body.captureIds
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean)
+      : [];
+    if (!captureIds.length) {
+      sendJson(res, 400, { error: { code: "INVALID_CAPTURE_IDS", message: "captureIds must contain at least one id." } });
+      return;
+    }
+
+    try {
+      const deleteStateResult = await supabase
+        .from("daily_capture_practice_state")
+        .delete()
+        .eq("user_id", auth.appUserId)
+        .in("capture_id", captureIds);
+      if (deleteStateResult.error) {
+        sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to delete capture records." } });
+        return;
+      }
+
+      const deleteItemsResult = await supabase
+        .from("daily_capture_items")
+        .delete()
+        .eq("user_id", auth.appUserId)
+        .in("capture_id", captureIds);
+      if (deleteItemsResult.error) {
+        sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to delete capture records." } });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true });
+      return;
+    } catch {
+      sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to delete capture records." } });
+      return;
+    }
+  }
+
+  sendJson(res, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "Use GET, POST, or DELETE /api/sync-capture." } });
 }
