@@ -221,20 +221,14 @@ export async function pushCaptureRecord(record: DailyCaptureRecord): Promise<voi
   }
 }
 
+// remote first
 function mergeChatSessions(local: OioChatSession[], remote: OioChatSession[]): OioChatSession[] {
   const map = new Map<string, OioChatSession>();
   for (const session of local.filter(isPersistableSession)) {
     map.set(session.id, session);
   }
   for (const session of remote.filter(isPersistableSession)) {
-    const existing = map.get(session.id);
-    if (!existing) {
-      map.set(session.id, session);
-      continue;
-    }
-    if (existing.updatedAt < session.updatedAt) {
-      map.set(session.id, session);
-    }
+    map.set(session.id, session);
   }
   return Array.from(map.values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
