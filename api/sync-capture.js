@@ -6,6 +6,14 @@ function normalizeDateKey(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizePhraseDisplay(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function normalizePhraseKey(value) {
+  return normalizePhraseDisplay(value).toLowerCase();
+}
+
 function normalizeCaptureItem(item) {
   if (!item || typeof item !== "object") return null;
   const id = typeof item.id === "string" ? item.id.trim() : "";
@@ -158,6 +166,7 @@ async function replaceRecordItems(supabase, appUserId, record) {
     .from("daily_capture_items")
     .upsert(rows, { onConflict: "user_id,capture_id" });
   if (insertError) throw insertError;
+  await seedUserPhraseProficiencyFromCaptureItems(supabase, appUserId, normalized.items);
 
   const stateRows = normalized.items.map((item) => ({
     user_id: appUserId,
@@ -169,6 +178,35 @@ async function replaceRecordItems(supabase, appUserId, record) {
     .from("daily_capture_practice_state")
     .upsert(stateRows, { onConflict: "user_id,capture_id" });
   if (stateUpsertError) throw stateUpsertError;
+}
+
+async function seedUserPhraseProficiencyFromCaptureItems(supabase, appUserId, items) {
+  const deduped = new Map();
+  for (const item of items) {
+    const phrases = Array.isArray(item?.keyPhrases) ? item.keyPhrases : [];
+    for (const rawPhrase of phrases) {
+      const phraseDisplay = normalizePhraseDisplay(rawPhrase);
+      const phraseNorm = normalizePhraseKey(rawPhrase);
+      if (!phraseDisplay || !phraseNorm) continue;
+      if (!deduped.has(phraseNorm)) {
+        deduped.set(phraseNorm, phraseDisplay);
+      }
+    }
+  }
+  if (!deduped.size) return;
+
+  const now = new Date().toISOString();
+  const rows = Array.from(deduped.entries()).map(([phraseNorm, phraseDisplay]) => ({
+    user_id: appUserId,
+    phrase_norm: phraseNorm,
+    phrase_display: phraseDisplay,
+    updated_at: now,
+  }));
+
+  const { error } = await supabase
+    .from("user_phrase_proficiency")
+    .upsert(rows, { onConflict: "user_id,phrase_norm", ignoreDuplicates: true });
+  if (error) throw error;
 }
 
 export default async function handler(req, res) {

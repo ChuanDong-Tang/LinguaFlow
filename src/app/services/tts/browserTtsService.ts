@@ -12,38 +12,14 @@
 }
 
 const KOKORO_MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
-const KOKORO_DEFAULT_VOICE = "af_nova";
+const KOKORO_DEFAULT_VOICE = "am_echo";
 const KOKORO_VOICE_OPTIONS = [
-  "af_heart",
-  "af_alloy",
-  "af_aoede",
-  "af_bella",
-  "af_jessica",
-  "af_kore",
-  "af_nicole",
-  "af_nova",
-  "af_river",
-  "af_sarah",
-  "af_sky",
-  "am_adam",
-  "am_echo",
-  "am_eric",
-  "am_fenrir",
-  "am_liam",
-  "am_michael",
-  "am_onyx",
-  "am_puck",
-  "am_santa",
-  "bf_emma",
-  "bf_isabella",
-  "bm_george",
-  "bm_lewis",
-  "bf_alice",
-  "bf_lily",
-  "bm_daniel",
   "bm_fable",
+  "bf_emma",
+  "am_echo",
+  "af_heart",
 ] as const;
-const KOKORO_LOAD_TIMEOUT_MS = 30_000;
+const KOKORO_LOAD_TIMEOUT_MS = 45_000;
 const PHONE_RE = /Android|iPhone|iPod|Mobile/i;
 const TTS_CACHE_DB_NAME = "linguaflow-tts-cache";
 const TTS_CACHE_STORE = "audio";
@@ -51,7 +27,9 @@ const TTS_CACHE_MAX_ENTRIES = 120;
 const KOKORO_VOICE_STORAGE_KEY = "linguaflow-kokoro-voice";
 const TTS_SOURCE_STORAGE_KEY = "linguaflow-tts-source";
 const TTS_LANGUAGE_STORAGE_KEY = "linguaflow-tts-language";
-const KOKORO_WORKER_COUNT = 2;
+const KOKORO_PREWARM_WORKER_COUNT = 1;
+const KOKORO_PLAYBACK_WORKER_COUNT = 2;
+const KOKORO_SPEAK_INIT_TIMEOUT_MS = 12_000;
 
 export const TTS_DEBUG_EVENT = "app-tts-debug";
 
@@ -410,6 +388,7 @@ class BrowserTtsService {
   private prewarmPromise: Promise<void> | null = null;
   private kokoroWorkers: KokoroWorkerClient[] = [];
   private kokoroWorkersInitKey: string | null = null;
+  private kokoroActiveDtype: KokoroDtype | null = null;
 
   isSupported(): boolean {
     if (typeof window === "undefined") return false;
@@ -521,7 +500,7 @@ class BrowserTtsService {
       if (this.kokoroUnavailable || typeof window === "undefined") return;
       try {
         emitTtsDebug({ level: "info", stage: "prewarm", message: "TTS prewarm started." });
-        await this.ensureKokoroWorkersWithTimeout(timeoutMs);
+        await this.ensureKokoroWorkersWithTimeout(timeoutMs, KOKORO_PREWARM_WORKER_COUNT);
         emitTtsDebug({ level: "info", stage: "prewarm", message: "TTS prewarm completed." });
       } catch {
         emitTtsDebug({
@@ -543,11 +522,15 @@ class BrowserTtsService {
     if (this.kokoroUnavailable || typeof window === "undefined" || typeof Audio === "undefined") return false;
     try {
       const selectedVoiceId = getSelectedKokoroVoiceId();
-      const dtype = this.pickKokoroDtype();
       const chunks = this.splitForKokoro(content);
       if (!chunks.length) return false;
 
-      await this.ensureKokoroWorkersWithTimeout();
+      // Prefer first-audio latency: if prewarm already prepared workers, start speaking immediately.
+      // We avoid blocking on worker upscaling during the click-to-play path.
+      if (!this.kokoroWorkers.length) {
+        await this.ensureKokoroWorkersWithTimeout(KOKORO_SPEAK_INIT_TIMEOUT_MS, KOKORO_PLAYBACK_WORKER_COUNT);
+      }
+      const dtype = this.kokoroActiveDtype ?? this.pickKokoroDtype();
       if (token !== this.speakToken) return false;
 
       const chunkBlobTasks = chunks.map((chunk, index) => this.resolveChunkBlob(chunk, dtype, selectedVoiceId, index, token));
@@ -746,62 +729,95 @@ class BrowserTtsService {
     }
   }
 
-  private async ensureKokoroWorkersWithTimeout(timeoutMs: number = KOKORO_LOAD_TIMEOUT_MS): Promise<void> {
-    try {
-      await Promise.race([
-        this.ensureKokoroWorkers(),
-        new Promise<void>((_, reject) => {
-          setTimeout(() => reject(new Error("KOKORO_LOAD_TIMEOUT")), timeoutMs);
-        }),
-      ]);
-    } catch (error) {
-      const message = String((error as Error)?.message ?? "");
-      this.resetKokoroWorkers();
-      if (message.includes("KOKORO_LOAD_TIMEOUT")) {
-        this.kokoroUnavailable = true;
-        emitTtsDebug({
-          level: "error",
-          stage: "model_load",
-          message: "Kokoro model load timed out.",
-          meta: { timeoutMs },
-        });
-      } else {
-        emitTtsDebug({
-          level: "error",
-          stage: "model_load",
-          message: "Kokoro model load failed.",
-          meta: { error: message || "unknown" },
-        });
+  private async ensureKokoroWorkersWithTimeout(
+    timeoutMs: number = KOKORO_LOAD_TIMEOUT_MS,
+    targetWorkerCount: number = KOKORO_PLAYBACK_WORKER_COUNT,
+  ): Promise<void> {
+    const preferredDtype = this.pickKokoroDtype();
+    const fallbackDtypes: KokoroDtype[] = preferredDtype === "q8" ? ["q8", "q4"] : ["q4"];
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt < fallbackDtypes.length; attempt += 1) {
+      const dtype = fallbackDtypes[attempt];
+      try {
+        await Promise.race([
+          this.ensureKokoroWorkers(dtype, targetWorkerCount),
+          new Promise<void>((_, reject) => {
+            setTimeout(() => reject(new Error("KOKORO_LOAD_TIMEOUT")), timeoutMs);
+          }),
+        ]);
+        if (attempt > 0) {
+          emitTtsDebug({
+            level: "warn",
+            stage: "model_load",
+            message: "Kokoro loaded with fallback dtype.",
+            meta: { dtype, attempt: attempt + 1 },
+          });
+        }
+        return;
+      } catch (error) {
+        lastError = error;
+        const message = String((error as Error)?.message ?? "unknown");
+        this.resetKokoroWorkers();
+        if (attempt < fallbackDtypes.length - 1) {
+          emitTtsDebug({
+            level: "warn",
+            stage: "model_load",
+            message: "Kokoro load attempt failed. Retrying with fallback dtype.",
+            meta: { dtype, attempt: attempt + 1, timeoutMs, targetWorkerCount, error: message },
+          });
+          continue;
+        }
+
+        if (message.includes("KOKORO_LOAD_TIMEOUT")) {
+          this.kokoroUnavailable = true;
+          emitTtsDebug({
+            level: "error",
+            stage: "model_load",
+            message: "Kokoro model load timed out.",
+            meta: { timeoutMs, dtype, targetWorkerCount },
+          });
+        } else {
+          emitTtsDebug({
+            level: "error",
+            stage: "model_load",
+            message: "Kokoro model load failed.",
+            meta: { dtype, targetWorkerCount, error: message || "unknown" },
+          });
+        }
       }
-      throw error;
     }
+    throw lastError ?? new Error("KOKORO_LOAD_FAILED");
   }
 
-  private async ensureKokoroWorkers(): Promise<void> {
+  private async ensureKokoroWorkers(dtype: KokoroDtype, targetWorkerCount: number): Promise<void> {
     if (typeof window === "undefined" || typeof Worker === "undefined") {
       throw new Error("Kokoro worker is not supported");
     }
 
-    const dtype = this.pickKokoroDtype();
     const device: "wasm" | "webgpu" = "wasm";
-    const initKey = `${KOKORO_MODEL_ID}|${device}|${dtype}`;
+    const workerCount = Math.max(1, Math.floor(targetWorkerCount || 1));
+    const initKey = `${KOKORO_MODEL_ID}|${device}|${dtype}|workers:${workerCount}`;
 
-    if (this.kokoroWorkers.length === KOKORO_WORKER_COUNT && this.kokoroWorkersInitKey === initKey) {
+    if (this.kokoroWorkers.length === workerCount && this.kokoroWorkersInitKey === initKey) {
       return;
     }
 
     this.resetKokoroWorkers();
-    const workers = Array.from({ length: KOKORO_WORKER_COUNT }, () => new KokoroWorkerClient());
+    const workers = Array.from({ length: workerCount }, () => new KokoroWorkerClient());
     try {
       await Promise.all(workers.map((worker) => worker.init(KOKORO_MODEL_ID, device, dtype)));
       this.kokoroWorkers = workers;
       this.kokoroWorkersInitKey = initKey;
+      this.kokoroActiveDtype = dtype;
+      this.kokoroUnavailable = false;
     } catch (error) {
       for (const worker of workers) {
         worker.terminate();
       }
       this.kokoroWorkers = [];
       this.kokoroWorkersInitKey = null;
+      this.kokoroActiveDtype = null;
       throw error;
     }
   }
@@ -812,6 +828,7 @@ class BrowserTtsService {
     }
     this.kokoroWorkers = [];
     this.kokoroWorkersInitKey = null;
+    this.kokoroActiveDtype = null;
   }
 
   private speakWithBrowser(content: string, token: number): Promise<boolean> {

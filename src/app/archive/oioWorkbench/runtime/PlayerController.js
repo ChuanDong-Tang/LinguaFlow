@@ -22,6 +22,7 @@
     this.playerSeekEl = playerSeekEl;
     this.playerPlayBtn = playerPlayBtn;
     this.playerPlayIcon = playerPlayIcon;
+    this.playerPlayLabel = this.playerPlayBtn?.querySelector(".player-play-label") ?? null;
     this.playerRateEl = playerRateEl;
     this.loopWholeCheckbox = loopWholeCheckbox;
     this.getPlaybackCues = getPlaybackCues;
@@ -100,7 +101,11 @@
     if (this.playerPlayBtn && this.playerPlayIcon) {
       const playing = !this.playerEl.paused && !!this.playerEl.src;
       this.playerPlayIcon.textContent = playing ? "⏸" : "▶";
+      if (this.playerPlayLabel) {
+        this.playerPlayLabel.textContent = playing ? "暂停" : "播放";
+      }
       this.playerPlayBtn.setAttribute("aria-label", playing ? "暂停" : "播放");
+      this.playerPlayBtn.setAttribute("aria-pressed", playing ? "true" : "false");
     }
   }
 

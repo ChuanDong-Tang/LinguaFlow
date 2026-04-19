@@ -2,7 +2,7 @@
 
 export default defineConfig({
   optimizeDeps: {
-    exclude: ["@huggingface/transformers", "onnxruntime-web", "phonemizer"],
+    exclude: ["@huggingface/transformers", "onnxruntime-web", "phonemizer", "kokoro-js"],
   },
   build: {
     chunkSizeWarningLimit: 900,

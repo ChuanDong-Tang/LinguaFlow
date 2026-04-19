@@ -57,6 +57,7 @@ export class OioChatController {
   private speechRecognitionActive = false;
   private speechRecognitionRequested = false;
   private speechRecognitionDraft = "";
+  private discardSpeechRecognitionResults = false;
   private usageDailyUsed: number | null = null;
   private usageDailyLimit: number | null = null;
   private cloudHasMore = false;
@@ -147,11 +148,23 @@ export class OioChatController {
 
     this.clearEl?.addEventListener("click", () => {
       if (this.inputEl) this.inputEl.value = "";
-      this.setStatus("");
+      this.speechRecognitionDraft = "";
+      if (this.speechRecognition && (this.speechRecognitionActive || this.speechRecognitionRequested)) {
+        // Keep listening flow, but restart from an empty draft after clear.
+        this.discardSpeechRecognitionResults = true;
+        this.speechRecognitionRequested = true;
+        this.speechRecognition.stop();
+        this.speechRecognitionActive = false;
+        this.updateVoiceInputState();
+        this.setStatus(t("oio_chat.listening"));
+      } else {
+        this.setStatus("");
+      }
       this.updateMeta();
     });
     this.voiceInputEl?.addEventListener("click", () => {
       this.toggleSpeechInput();
+      this.focusComposerToEnd();
     });
 
     this.modeButtons.forEach((button) => {
@@ -715,6 +728,7 @@ export class OioChatController {
     recognition.interimResults = true;
     recognition.onresult = (event) => {
       if (!this.inputEl) return;
+      if (this.discardSpeechRecognitionResults) return;
       const base = this.speechRecognitionDraft;
       let finalChunk = "";
       let interimChunk = "";
@@ -772,9 +786,17 @@ export class OioChatController {
     void this.startSpeechInput();
   }
 
+  private focusComposerToEnd(): void {
+    if (!this.inputEl || this.inputEl.disabled) return;
+    const end = this.inputEl.value.length;
+    this.inputEl.focus({ preventScroll: true });
+    this.inputEl.setSelectionRange(end, end);
+  }
+
   private async startSpeechInput(): Promise<void> {
     if (!this.speechRecognition) return;
     try {
+      this.discardSpeechRecognitionResults = false;
       this.speechRecognitionDraft = this.inputEl?.value?.trim() ?? "";
       this.speechRecognitionRequested = true;
       this.speechRecognition.start();

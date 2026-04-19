@@ -12,7 +12,19 @@ import {
   setSelectedKokoroVoiceId,
 } from "../services/tts/browserTtsService";
 
-const KOKORO_SWITCH_TIMEOUT_MS = 15_000;
+const KOKORO_SWITCH_TIMEOUT_MS = 45_000;
+const KOKORO_SWITCH_TIMEOUT_SECONDS = Math.floor(KOKORO_SWITCH_TIMEOUT_MS / 1000);
+const UI_BLOCK_SAFETY_TIMEOUT_MS = 60_000;
+type TtsVoiceGroupId = "uk" | "us";
+
+const TTS_VOICE_META: Record<string, { group: TtsVoiceGroupId; label: string; genderKey: "tts.voice_gender.male" | "tts.voice_gender.female" }> = {
+  bm_fable: { group: "uk", label: "Fable", genderKey: "tts.voice_gender.male" },
+  bf_emma: { group: "uk", label: "Emma", genderKey: "tts.voice_gender.female" },
+  am_echo: { group: "us", label: "Echo", genderKey: "tts.voice_gender.male" },
+  af_heart: { group: "us", label: "Heart", genderKey: "tts.voice_gender.female" },
+};
+
+const TTS_VOICE_GROUP_ORDER: readonly TtsVoiceGroupId[] = ["uk", "us"] as const;
 
 export class AppShellController {
   private readonly root: Element | null;
@@ -196,11 +208,11 @@ export class AppShellController {
         if (source === "kokoro") {
           const voiceId = getSelectedKokoroVoiceId();
           let ok = false;
-          await this.withTtsSwitchBlock(`正在切换到 Kokoro（${voiceId}）并预热模型（最多 15 秒）...`, async () => {
+          await this.withTtsSwitchBlock(`正在切换到 Kokoro（${voiceId}）并预热模型（最多 ${KOKORO_SWITCH_TIMEOUT_SECONDS} 秒）...`, async () => {
             ok = await getBrowserTtsService().switchToKokoroWithWarmup(KOKORO_SWITCH_TIMEOUT_MS);
           });
           if (!ok) {
-            window.alert("Kokoro 初始化失败（超过 15 秒或预热失败），已自动切回 Web Speech。");
+            window.alert(`Kokoro 初始化失败（超过 ${KOKORO_SWITCH_TIMEOUT_SECONDS} 秒或预热失败），已自动切回 Web Speech。`);
           }
         } else {
           getBrowserTtsService().setPlaybackSource("web");
@@ -220,11 +232,11 @@ export class AppShellController {
       setSelectedKokoroVoiceId(voiceId);
       if (getSelectedTtsPlaybackSource() === "kokoro") {
         let ok = false;
-        await this.withTtsSwitchBlock(`正在切换 Kokoro 音色到 ${voiceId} 并预热模型（最多 15 秒）...`, async () => {
+        await this.withTtsSwitchBlock(`正在切换 Kokoro 音色到 ${voiceId} 并预热模型（最多 ${KOKORO_SWITCH_TIMEOUT_SECONDS} 秒）...`, async () => {
           ok = await getBrowserTtsService().switchToKokoroWithWarmup(KOKORO_SWITCH_TIMEOUT_MS);
         });
         if (!ok) {
-          window.alert("Kokoro 初始化失败（超过 15 秒或预热失败），已自动切回 Web Speech。");
+          window.alert(`Kokoro 初始化失败（超过 ${KOKORO_SWITCH_TIMEOUT_SECONDS} 秒或预热失败），已自动切回 Web Speech。`);
         }
       }
       this.syncTtsVoiceOptions();
@@ -324,6 +336,8 @@ export class AppShellController {
     const i18n = getI18n();
     i18n.subscribe((locale) => {
       this.applyStaticI18n();
+      this.renderTtsVoiceOptions();
+      this.syncTtsVoiceOptions();
       this.syncLocaleButtons(locale);
       this.refreshAuthCopyFromState(getAuthService().getSnapshot());
     });
@@ -582,11 +596,29 @@ export class AppShellController {
   private renderTtsVoiceOptions(): void {
     if (!this.ttsVoiceListEl) return;
     const voices = listKokoroVoiceIds();
-    const html = voices
+    const groupedHtml = TTS_VOICE_GROUP_ORDER
+      .map((groupId) => {
+        const groupLabel = groupId === "uk" ? t("tts.voice_group.uk") : t("tts.voice_group.us");
+        const buttons = voices
+          .filter((voiceId) => TTS_VOICE_META[voiceId]?.group === groupId)
+          .map((voiceId) => {
+            const meta = TTS_VOICE_META[voiceId];
+            if (!meta) return "";
+            const genderLabel = t(meta.genderKey);
+            return `<button type="button" class="app-tts-voice-option" data-tts-voice-option="${voiceId}" role="option" aria-selected="false">${meta.label} · ${genderLabel}</button>`;
+          })
+          .join("");
+        if (!buttons) return "";
+        return `<section class="app-tts-voice-group"><h4 class="app-tts-voice-group-title">${groupLabel}</h4><div class="app-tts-voice-group-list">${buttons}</div></section>`;
+      })
+      .join("");
+
+    const fallbackHtml = voices
       .map((voiceId) => {
         return `<button type="button" class="app-tts-voice-option" data-tts-voice-option="${voiceId}" role="option" aria-selected="false">${voiceId}</button>`;
       })
       .join("");
+    const html = groupedHtml || fallbackHtml;
     this.ttsVoiceListEl.innerHTML = html;
   }
 
@@ -674,7 +706,7 @@ export class AppShellController {
       if (this.ttsSwitchBlockEl) {
         this.ttsSwitchBlockEl.hidden = true;
       }
-    }, 15_000);
+    }, UI_BLOCK_SAFETY_TIMEOUT_MS);
   }
 
   private clearUiBlockSafetyTimer(): void {

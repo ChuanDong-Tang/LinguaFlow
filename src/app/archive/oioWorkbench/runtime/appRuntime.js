@@ -163,7 +163,8 @@ var qt = `month`,
   speechLoopTimer = null,
   practiceGenerateRunCount = 0,
   Yt = new Map(),
-  Xt = null;
+  Xt = null,
+  Qt = ``;
 function W(e) {
   Xe && (Xe.textContent = e ?? ``);
 }
@@ -1035,7 +1036,7 @@ async function fr() {
     br());
 }
 function emitPracticeBlankIndexesUpdate() {
-  let e = Ue.dataset.practiceCaptureItemId;
+  let e = Qt || Ue.dataset.practiceCaptureItemId || ``;
   if (!e) return;
   let t = Array.isArray(O?.[0]) ? O[0] : [],
     n = Array.from(
@@ -1320,15 +1321,6 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
     e.forEach((e, t) => {
       let n = document.createElement(`div`);
       ((n.className = `cue-row`), (n.dataset.idx = String(t)));
-      let r = document.createElement(`button`);
-      ((r.type = `button`),
-        (r.className = `cue-inline-play`),
-        r.setAttribute(`aria-label`, `播放当前练习文本`),
-        (r.title = `播放当前练习文本`),
-        (r.textContent = `▶`),
-        r.addEventListener(`click`, (e) => {
-          (e.stopPropagation(), playCueInline(t));
-        }));
     let i = document.createElement(`p`);
       ((i.className = `cue cue-reference`),
         (i.innerHTML = renderTextWithKeyPhraseHighlight(e.text, pe[t] ?? [])),
@@ -1352,7 +1344,6 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
       s.className = `cue-proofread cue-proofread--hidden`;
       let c = document.createElement(`div`);
       ((c.className = `cue-fillblank cue-fillblank--hidden`),
-        n.appendChild(r),
         n.appendChild(i),
         n.appendChild(a),
         n.appendChild(o),
@@ -1690,6 +1681,7 @@ function Br() {
     let t2 = practiceGenerateRunCount <= 0;
     practiceGenerateRunCount += 1;
     let n2 = Ue.dataset.practiceOpeningHint === `daily`;
+    Qt = n2 ? String(Ue.dataset.practiceCaptureItemId || ``).trim() : ``;
     t2 &&
       !n2 &&
       document.dispatchEvent(
@@ -1797,6 +1789,7 @@ function Br() {
   }),
   Ye?.addEventListener(`click`, () => {
     ((Ue.value = ``),
+      (Qt = ``),
       delete Ue.dataset.practiceCardChunks,
       delete Ue.dataset.practiceCardKeyPhrases,
       delete Ue.dataset.practiceCaptureItemId,
