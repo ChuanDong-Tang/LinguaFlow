@@ -4,6 +4,8 @@ import { getSupabaseAdmin } from "../infrastructure/supabase.js";
 const MAX_BATCH_PHRASES = 200;
 const RECENT_CANDIDATE_FETCH_LIMIT = 200;
 const RECENT_CANDIDATE_LIMIT = 20;
+const RECENT_PROFICIENCY_PHRASE_LIMIT = 20;
+const MAX_MATCHED_CHAT_PHRASES = 3;
 
 function normalizePhraseKey(value) {
   return String(value ?? "")
@@ -16,6 +18,12 @@ function toDisplayPhrase(value) {
   return String(value ?? "")
     .trim()
     .replace(/\s+/g, " ");
+}
+
+function tokenize(value) {
+  return normalizePhraseKey(value)
+    .split(/\s+/)
+    .filter(Boolean);
 }
 
 export async function resolveAppUserIdByClerkUserId(clerkUserId) {
@@ -138,4 +146,50 @@ export async function applyPhraseScoreDelta({
     delta: safeDelta,
     score: nextScore,
   };
+}
+
+export async function listRecentUserProficiencyPhrases(appUserId, limit = RECENT_PROFICIENCY_PHRASE_LIMIT) {
+  if (!appUserId) return [];
+  const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit) || RECENT_PROFICIENCY_PHRASE_LIMIT)));
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("user_phrase_proficiency")
+    .select("phrase_norm,phrase_display")
+    .eq("user_id", appUserId)
+    .order("updated_at", { ascending: false })
+    .limit(safeLimit);
+  if (error) throw error;
+
+  const deduped = [];
+  const seen = new Set();
+  for (const row of data ?? []) {
+    const phrase = toDisplayPhrase(row?.phrase_display || row?.phrase_norm);
+    const norm = normalizePhraseKey(phrase);
+    if (!phrase || !norm || seen.has(norm)) continue;
+    seen.add(norm);
+    deduped.push({ phrase, norm, tokens: tokenize(norm) });
+  }
+  return deduped;
+}
+
+export function matchRecentPhrasesFromText(text, recentPhrases, maxMatches = MAX_MATCHED_CHAT_PHRASES) {
+  const normalizedText = normalizePhraseKey(text);
+  if (!normalizedText) return [];
+  const textTokens = new Set(tokenize(normalizedText));
+  const safeMax = Math.max(1, Math.min(10, Math.floor(Number(maxMatches) || MAX_MATCHED_CHAT_PHRASES)));
+  const matches = [];
+  for (const candidate of Array.isArray(recentPhrases) ? recentPhrases : []) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const phrase = toDisplayPhrase(candidate.phrase);
+    const norm = normalizePhraseKey(candidate.norm || phrase);
+    const tokens = Array.isArray(candidate.tokens) ? candidate.tokens : tokenize(norm);
+    if (!phrase || !norm || !tokens.length) continue;
+
+    const exactContains = normalizedText.includes(norm);
+    const tokenCovered = tokens.every((token) => textTokens.has(token));
+    if (!exactContains && !tokenCovered) continue;
+    matches.push(phrase);
+    if (matches.length >= safeMax) break;
+  }
+  return matches;
 }

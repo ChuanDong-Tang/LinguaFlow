@@ -470,29 +470,34 @@ export class DailyCaptureController {
     if (!keyPhrases.length) {
       return `<p class="daily-capture-entry-copy">-</p>`;
     }
-    return `<div class="daily-capture-phrase-list">${keyPhrases
-      .map((phrase) => {
-        const score = this.getPhraseScore(phrase);
-        const tier = getPhraseTier(score);
-        const encodedPhrase = encodeURIComponent(phrase);
-        return `
-          <div class="daily-capture-phrase-item">
-            <span class="chat-highlight-chip daily-capture-phrase-chip is-tier-${tier}">
-              <span>${escapeHtml(phrase)}</span>
-              <span class="daily-capture-phrase-score">${Math.max(0, Math.floor(score))}</span>
-            </span>
-            <button
-              type="button"
-              class="secondary daily-capture-phrase-ai-btn"
-              data-capture-practice-ai-phrase="${escapeHtml(encodedPhrase)}"
-              data-capture-practice-ai-item="${escapeHtml(itemId)}"
-            >
-              ${t("daily_capture.practice_ai")}
-            </button>
-          </div>
-        `;
-      })
+    const listClass = keyPhrases.length > 3
+      ? "daily-capture-phrase-list daily-capture-phrase-list--scrollable"
+      : "daily-capture-phrase-list";
+    return `<div class="${listClass}">${keyPhrases
+      .map((phrase) => this.renderSinglePhraseItem(phrase, itemId))
       .join("")}</div>`;
+  }
+
+  private renderSinglePhraseItem(phrase: string, itemId: string): string {
+    const score = this.getPhraseScore(phrase);
+    const tier = getPhraseTier(score);
+    const encodedPhrase = encodeURIComponent(phrase);
+    return `
+      <div class="daily-capture-phrase-item">
+        <span class="chat-highlight-chip daily-capture-phrase-chip is-tier-${tier}">
+          <span>${escapeHtml(phrase)}</span>
+          <span class="daily-capture-phrase-score">${Math.max(0, Math.floor(score))}</span>
+        </span>
+        <button
+          type="button"
+          class="secondary daily-capture-phrase-ai-btn"
+          data-capture-practice-ai-phrase="${escapeHtml(encodedPhrase)}"
+          data-capture-practice-ai-item="${escapeHtml(itemId)}"
+        >
+          ${t("daily_capture.practice_ai")}
+        </button>
+      </div>
+    `;
   }
 
   private async refreshPhraseProficiencyMap(): Promise<void> {
@@ -541,8 +546,7 @@ export class DailyCaptureController {
     if (!Array.isArray(value)) return [];
     return value
       .map((phrase) => String(phrase ?? "").trim().replace(/\s+/g, " "))
-      .filter(Boolean)
-      .slice(0, 3);
+      .filter(Boolean);
   }
 
   private syncPracticeCtaCopy(): void {

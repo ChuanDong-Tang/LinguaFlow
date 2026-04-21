@@ -11,11 +11,12 @@ export async function saveTurnToDailyCapture(
   sourceText: string,
   dateKey = dateToLocalKey(new Date()),
 ): Promise<"saved" | "duplicate"> {
+  const MAX_CAPTURE_PHRASES_PER_TURN = 999;
   const selectedPhrases = Array.isArray(turn.keyPhrases)
     ? turn.keyPhrases
       .map((item) => String(item ?? "").trim().replace(/\s+/g, " "))
       .filter(Boolean)
-      .slice(0, 3)
+      .slice(0, MAX_CAPTURE_PHRASES_PER_TURN)
     : [];
   const current = (await getCaptureRecord(dateKey)) ?? {
     dateKey,

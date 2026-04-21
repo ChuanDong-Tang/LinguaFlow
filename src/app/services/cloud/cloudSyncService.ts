@@ -8,6 +8,7 @@ import { type OioChatSession } from "../../modules/oioChat/oioChatStore";
 const SYNC_ACCESS_CACHE_MS = 60_000;
 const CLOUD_SYNC_TIMEOUT_MS = 12_000;
 const CHAT_PAGE_SIZE = 50;
+export const CHAT_PROFICIENCY_UPDATED_EVENT = "oio-chat-proficiency-updated";
 let cachedCanSync: { actorKey: string; value: boolean; expiresAt: number } | null = null;
 let canSyncInFlight: Promise<boolean> | null = null;
 let canSyncInFlightActorKey = "";
@@ -134,11 +135,32 @@ export async function pushChatSessions(sessions: OioChatSession[]): Promise<void
   if (!(await canSync())) return;
   const persistable = sessions.filter(isPersistableSession);
   try {
-    await fetchJson("/api/sync-chat", {
+    const payload = await fetchJson<{ proficiency_updates?: Array<{ sessionId?: string; turnId?: string; phrase?: string; delta?: number; score?: number }> }>(
+      "/api/sync-chat",
+      {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessions: persistable }),
-    });
+      },
+    );
+    const updates = Array.isArray(payload?.proficiency_updates)
+      ? payload.proficiency_updates
+        .map((item) => ({
+          sessionId: typeof item?.sessionId === "string" ? item.sessionId.trim() : "",
+          turnId: typeof item?.turnId === "string" ? item.turnId.trim() : "",
+          phrase: typeof item?.phrase === "string" ? item.phrase.trim() : "",
+          delta: Number.isFinite(item?.delta) ? Number(item.delta) : 0,
+          score: Number.isFinite(item?.score) ? Number(item.score) : 0,
+        }))
+        .filter((item) => item.sessionId && item.turnId && item.phrase && item.delta > 0)
+      : [];
+    if (updates.length) {
+      document.dispatchEvent(
+        new CustomEvent(CHAT_PROFICIENCY_UPDATED_EVENT, {
+          detail: { updates },
+        }),
+      );
+    }
   } catch {
     console.error("[sync-chat] pushChatSessions failed", Error, {
       sessionCount: persistable.length,

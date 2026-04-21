@@ -1,9 +1,18 @@
 import { sendJson, readJsonBody } from "../server/core/http.js";
 import { requireProAccess } from "../server/core/requireProAccess.js";
 import { getSupabaseAdmin } from "../server/infrastructure/supabase.js";
+import {
+  applyPhraseScoreDelta,
+  listRecentUserProficiencyPhrases,
+  matchRecentPhrasesFromText,
+} from "../server/services/phraseProficiency.js";
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
+const RECENT_CHAT_PROFICIENCY_LIMIT = 20;
+const CHAT_PROFICIENCY_DELTA = 1;
+const MAX_MATCHES_PER_USER_TURN = 3;
+const MAX_NEW_USER_TURNS_TO_SCORE = 5;
 
 function parseUrl(req) {
   const host = req.headers.host || "localhost";
@@ -100,6 +109,80 @@ async function loadTurnsBySessionIds(supabase, appUserId, sessionIds) {
   return grouped;
 }
 
+async function loadExistingUserTurnIds(supabase, appUserId, turnIds) {
+  if (!Array.isArray(turnIds) || !turnIds.length) return new Set();
+  const normalizedTurnIds = Array.from(new Set(
+    turnIds
+      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .filter(Boolean),
+  ));
+  if (!normalizedTurnIds.length) return new Set();
+  const { data, error } = await supabase
+    .from("chat_turns")
+    .select("turn_id")
+    .eq("user_id", appUserId)
+    .eq("role", "user")
+    .in("turn_id", normalizedTurnIds);
+  if (error) throw error;
+  return new Set(
+    (data ?? [])
+      .map((row) => (typeof row.turn_id === "string" ? row.turn_id : ""))
+      .filter(Boolean),
+  );
+}
+
+async function scoreNewUserTurnsByRecentPhrases(supabase, appUserId, userTurns) {
+  if (!appUserId || !Array.isArray(userTurns) || !userTurns.length) return [];
+  const recentPhrases = await listRecentUserProficiencyPhrases(appUserId, RECENT_CHAT_PROFICIENCY_LIMIT);
+  if (!recentPhrases.length) return [];
+
+  const recentTurns = userTurns.slice(-MAX_NEW_USER_TURNS_TO_SCORE);
+  const proficiencyUpdates = [];
+  for (const turn of recentTurns) {
+    const text = typeof turn?.sourceText === "string" ? turn.sourceText : "";
+    if (!text.trim()) continue;
+    const matchedPhrases = matchRecentPhrasesFromText(text, recentPhrases, MAX_MATCHES_PER_USER_TURN);
+    let firstScored = null;
+    for (const phrase of matchedPhrases) {
+      const scored = await applyPhraseScoreDelta({
+        appUserId,
+        phrase,
+        delta: CHAT_PROFICIENCY_DELTA,
+      });
+      if (!firstScored && scored) {
+        firstScored = scored;
+      }
+    }
+    if (!firstScored) continue;
+    const assistantTurnId = typeof turn?.assistantTurnId === "string" ? turn.assistantTurnId.trim() : "";
+    const sessionId = typeof turn?.sessionId === "string" ? turn.sessionId.trim() : "";
+    if (!assistantTurnId || !sessionId) continue;
+    const updatePayload = {
+      sessionId,
+      turnId: assistantTurnId,
+      phrase: firstScored.phrase,
+      delta: firstScored.delta,
+      score: firstScored.score,
+    };
+    const updateResult = await supabase
+      .from("chat_turns")
+      .update({
+        proficiency_phrase: updatePayload.phrase,
+        proficiency_delta: updatePayload.delta,
+        proficiency_score: updatePayload.score,
+      })
+      .eq("user_id", appUserId)
+      .eq("session_id", sessionId)
+      .eq("turn_id", assistantTurnId)
+      .eq("role", "assistant");
+    if (updateResult.error) {
+      continue;
+    }
+    proficiencyUpdates.push(updatePayload);
+  }
+  return proficiencyUpdates;
+}
+
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
     res.status(204).end();
@@ -187,8 +270,34 @@ export default async function handler(req, res) {
     }
 
     const turnRows = [];
+    const userTurnsForScoring = [];
     for (const session of sessions) {
+      const nextAssistantTurnIdByUserTurn = new Map();
+      for (let index = 0; index < session.turns.length; index += 1) {
+        const turn = session.turns[index];
+        if (turn.role !== "user") continue;
+        let assistantTurnId = "";
+        for (let nextIndex = index + 1; nextIndex < session.turns.length; nextIndex += 1) {
+          const nextTurn = session.turns[nextIndex];
+          if (nextTurn.role === "assistant") {
+            assistantTurnId = nextTurn.id;
+            break;
+          }
+        }
+        if (assistantTurnId) {
+          nextAssistantTurnIdByUserTurn.set(turn.id, assistantTurnId);
+        }
+      }
       for (const turn of session.turns) {
+        if (turn.role === "user") {
+          userTurnsForScoring.push({
+            id: turn.id,
+            sessionId: session.id,
+            assistantTurnId: nextAssistantTurnIdByUserTurn.get(turn.id) ?? "",
+            sourceText: turn.sourceText ?? "",
+            occurredAt: turn.occurredAt ?? session.updatedAt ?? new Date().toISOString(),
+          });
+        }
         turnRows.push({
           user_id: auth.appUserId,
           session_id: session.id,
@@ -212,6 +321,22 @@ export default async function handler(req, res) {
         });
       }
     }
+    let existingUserTurnIds = new Set();
+    if (userTurnsForScoring.length > 0) {
+      try {
+        existingUserTurnIds = await loadExistingUserTurnIds(
+          supabase,
+          auth.appUserId,
+          userTurnsForScoring.map((turn) => turn.id),
+        );
+      } catch (error) {
+        console.error("[sync-chat] load existing user turns failed", {
+          appUserId: auth.appUserId,
+          turnCount: userTurnsForScoring.length,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     if (turnRows.length > 0) {
       const upsertTurnsResult = await supabase
         .from("chat_turns")
@@ -227,6 +352,26 @@ export default async function handler(req, res) {
           hint: upsertTurnsResult.error.hint,
         });
         sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
+        return;
+      }
+    }
+
+    if (userTurnsForScoring.length > 0) {
+      const newUserTurns = userTurnsForScoring
+        .filter((turn) => !existingUserTurnIds.has(turn.id))
+        .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
+      if (newUserTurns.length > 0) {
+        let proficiencyUpdates = [];
+        try {
+          proficiencyUpdates = await scoreNewUserTurnsByRecentPhrases(supabase, auth.appUserId, newUserTurns);
+        } catch (error) {
+          console.error("[sync-chat] score user phrase proficiency failed", {
+            appUserId: auth.appUserId,
+            turnCount: newUserTurns.length,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        sendJson(res, 200, { ok: true, proficiency_updates: proficiencyUpdates });
         return;
       }
     }

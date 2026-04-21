@@ -19,32 +19,7 @@ import {
   calcPhraseDeltaByMode,
 } from "../server/services/phraseProficiency.js";
 
-function countWords(text) {
-  const matches = String(text ?? "").trim().match(/\b[\w'-]+\b/g);
-  return matches?.length ?? 0;
-}
-
-function normalizeKeyPhrases(value, config) {
-  if (!Array.isArray(value)) return [];
-
-  const unique = [];
-  for (const raw of value) {
-    if (typeof raw !== "string") continue;
-    const phrase = raw.trim().replace(/\s+/g, " ");
-    if (!phrase) continue;
-    if (countWords(phrase) > config.maxKeyPhraseWords) continue;
-    if (!unique.some((item) => item.toLowerCase() === phrase.toLowerCase())) {
-      unique.push(phrase);
-    }
-    if (unique.length >= config.maxKeyPhrases) {
-      break;
-    }
-  }
-
-  return unique;
-}
-
-function parseModelPayload(content, config) {
+function parseModelPayload(content) {
   let parsed;
   try {
     parsed = JSON.parse(content);
@@ -55,13 +30,10 @@ function parseModelPayload(content, config) {
   if (parsed?.version !== "1") return null;
   if (typeof parsed?.rewritten_text !== "string" || !parsed.rewritten_text.trim()) return null;
 
-  const keyPhrases = normalizeKeyPhrases(parsed.key_phrases, config);
-  if (keyPhrases.length < 1 || keyPhrases.length > config.maxKeyPhrases) return null;
-
   return {
     version: "1",
     rewritten_text: parsed.rewritten_text.trim(),
-    key_phrases: keyPhrases,
+    key_phrases: [],
   };
 }
 
@@ -458,13 +430,17 @@ export default async function handler(req, res) {
     return;
   }
 
-  const parsed = mode === "beginner" || mode === "advanced"
-    ? parseOioChatPayload(rawContent, config)
-    : mode === "practice_question"
-      ? parsePracticeQuestionPayload(rawContent)
-      : mode === "practice_feedback"
-        ? parsePracticeFeedbackPayload(rawContent)
-        : parseModelPayload(rawContent, config);
+  let parsed;
+  if (mode === "beginner" || mode === "advanced") {
+    parsed = parseOioChatPayload(rawContent, config);
+  } else if (mode === "practice_question") {
+    parsed = parsePracticeQuestionPayload(rawContent);
+  } else if (mode === "practice_feedback") {
+    parsed = parsePracticeFeedbackPayload(rawContent);
+  } else {
+    parsed = parseModelPayload(rawContent);
+  }
+
   if (!parsed) {
     sendJson(res, 502, { error: { code: "INVALID_MODEL_RESPONSE", message: "The model response could not be validated." } });
     return;

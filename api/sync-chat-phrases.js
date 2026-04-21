@@ -3,8 +3,8 @@ import { requireProAccess } from "../server/core/requireProAccess.js";
 import { getSupabaseAdmin } from "../server/infrastructure/supabase.js";
 
 const MAX_UPDATES_PER_REQUEST = 50;
-const MAX_PHRASES_PER_TURN = 3;
-const MIN_PHRASE_WORDS = 2;
+const MAX_PHRASES_PER_TURN = 999;
+const MIN_PHRASE_WORDS = 1;
 const MAX_PHRASE_WORDS = 8;
 
 function normalizePhraseText(value) {
@@ -24,7 +24,8 @@ function normalizeKeyPhrases(raw) {
     const phrase = normalizePhraseText(item);
     if (!phrase) continue;
     const words = countPhraseWords(phrase);
-    if (words < MIN_PHRASE_WORDS || words > MAX_PHRASE_WORDS) continue;
+    //if (words < MIN_PHRASE_WORDS || words > MAX_PHRASE_WORDS) continue;
+    if (words < MIN_PHRASE_WORDS) continue;
     const phraseKey = phrase.toLowerCase();
     if (dedup.has(phraseKey)) continue;
     dedup.add(phraseKey);

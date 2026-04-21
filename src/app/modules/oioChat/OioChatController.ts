@@ -7,6 +7,7 @@ import { createChatReply, toChatErrorMessage, type ChatReply } from "../../servi
 import { fetchChatUsageSnapshot } from "../../services/chat/chatUsageService";
 import { generatePracticeFeedback, generatePracticeQuestion } from "../../services/chat/practiceService";
 import {
+  CHAT_PROFICIENCY_UPDATED_EVENT,
   deleteChatSessions,
   pullChatSessions,
   pullMoreChatSessions,
@@ -36,7 +37,7 @@ interface SpeechRecognitionLike {
 }
 
 export class OioChatController {
-  private static readonly MAX_SELECTED_PHRASES_PER_TURN = 3;
+  private static readonly MAX_SELECTED_PHRASES_PER_TURN = 999;
   private static readonly PHRASE_SYNC_DEBOUNCE_MS = 3_000;
   private readonly root: HTMLElement | null;
   private readonly historyEl: HTMLElement | null;
@@ -285,6 +286,10 @@ export class OioChatController {
     document.addEventListener("app-auth-signed-in", () => {
       void this.syncUsageFromServer();
       void this.syncSessionsFromCloud();
+    });
+    document.addEventListener(CHAT_PROFICIENCY_UPDATED_EVENT, (event) => {
+      const detail = (event as CustomEvent<{ updates?: Array<{ sessionId?: string; turnId?: string; phrase?: string; delta?: number; score?: number }> }>).detail;
+      void this.applyCloudProficiencyUpdates(detail?.updates ?? []);
     });
     document.addEventListener("app-before-tab-change", (event) => {
       const detail = (event as CustomEvent<{ toTabId?: string }>).detail;
@@ -1583,5 +1588,38 @@ export class OioChatController {
     } catch {
       // ignore sync failures and keep current in-memory snapshot
     }
+  }
+
+  private async applyCloudProficiencyUpdates(
+    updates: Array<{ sessionId?: string; turnId?: string; phrase?: string; delta?: number; score?: number }>,
+  ): Promise<void> {
+    if (!Array.isArray(updates) || !updates.length) return;
+    const touchedSessionIds = new Set<string>();
+    for (const update of updates) {
+      const sessionId = typeof update?.sessionId === "string" ? update.sessionId.trim() : "";
+      const turnId = typeof update?.turnId === "string" ? update.turnId.trim() : "";
+      const phrase = typeof update?.phrase === "string" ? update.phrase.trim() : "";
+      const delta = Number.isFinite(update?.delta) ? Number(update.delta) : 0;
+      const score = Number.isFinite(update?.score) ? Number(update.score) : 0;
+      if (!sessionId || !turnId || !phrase || delta <= 0) continue;
+      const session = this.sessions.find((item) => item.id === sessionId);
+      if (!session || session.kind === "practice") continue;
+      const turn = session.turns.find((item) => item.id === turnId && item.role === "assistant");
+      if (!turn) continue;
+      turn.proficiencyPhrase = phrase;
+      turn.proficiencyDelta = delta;
+      turn.proficiencyScore = score;
+      touchedSessionIds.add(sessionId);
+    }
+
+    if (!touchedSessionIds.size) return;
+    for (const sessionId of touchedSessionIds) {
+      const session = this.sessions.find((item) => item.id === sessionId);
+      if (!session) continue;
+      await this.persistSessionSafely(session, false);
+    }
+    this.renderFeed();
+    this.renderHistory();
+    this.updateMeta();
   }
 }

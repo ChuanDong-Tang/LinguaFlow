@@ -138,7 +138,7 @@ export const en = {
   "oio_chat.add_phrase": "Add as phrase",
   "oio_chat.remove_phrase": "Remove phrase",
   "oio_chat.phrase_word_limit": "Phrase must contain 2 to 8 words.",
-  "oio_chat.phrase_turn_limit": "You can select up to 3 phrases in this reply.",
+  "oio_chat.phrase_turn_limit": "Phrase selection limit reached for this reply.",
   "oio_chat.phrase_duplicate": "This phrase has already been added.",
   "oio_chat.phrase_added": "Phrase added.",
   "oio_chat.phrase_removed": "Phrase removed.",

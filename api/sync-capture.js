@@ -24,7 +24,7 @@ function normalizeCaptureItem(item) {
     ? item.keyPhrases
       .map((value) => String(value ?? "").trim().replace(/\s+/g, " "))
       .filter(Boolean)
-      .slice(0, 3)
+      //.slice(0, 3)
     : [];
   const practiceBlankIndexes = Array.isArray(item.practiceBlankIndexes)
     ? item.practiceBlankIndexes

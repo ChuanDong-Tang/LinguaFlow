@@ -140,7 +140,7 @@ export const zhCN: typeof en = {
   "oio_chat.add_phrase": "添加为短语",
   "oio_chat.remove_phrase": "删除短语",
   "oio_chat.phrase_word_limit": "短语需要 2 到 8 个单词。",
-  "oio_chat.phrase_turn_limit": "本轮最多选择 3 个短语。",
+  "oio_chat.phrase_turn_limit": "本轮短语已达到上限。",
   "oio_chat.phrase_duplicate": "该短语已添加。",
   "oio_chat.phrase_added": "已添加短语。",
   "oio_chat.phrase_removed": "已删除短语。",

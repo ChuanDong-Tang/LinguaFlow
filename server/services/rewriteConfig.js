@@ -46,8 +46,6 @@ export function getRewriteConfig() {
     requireUserId: parseBoolean(process.env.REWRITE_REQUIRE_USER_ID, false),
     minInputChars: parseInteger(process.env.REWRITE_MIN_INPUT_CHARS, 1),
     safetyMaxInputChars: parseInteger(process.env.REWRITE_SAFE_MAX_INPUT_CHARS, 5000),
-    maxKeyPhrases: parseInteger(process.env.REWRITE_MAX_KEY_PHRASES, 3),
-    maxKeyPhraseWords: parseInteger(process.env.REWRITE_MAX_KEY_PHRASE_WORDS, 8),
     deepseekApiKey: process.env.DEEPSEEK_API_KEY ?? "",
     deepseekBaseUrl: (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com").replace(/\/+$/, ""),
     deepseekModel: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
