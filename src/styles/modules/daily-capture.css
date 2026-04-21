@@ -525,6 +525,11 @@
   opacity: 0.38;
 }
 
+.daily-capture-day.is-marked.is-active {
+  border-color: rgba(127, 184, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(127, 184, 255, 0.85);
+}
+
 .daily-capture-day.is-empty .daily-capture-day-count {
   color: rgba(255, 255, 255, 0.3);
 }

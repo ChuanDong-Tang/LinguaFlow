@@ -207,13 +207,13 @@ export class SubscriptionController {
       return;
     }
 
-    const subscription = access.subscription;
-    const hasPro = access.entitlements.some((item) => item.active && item.code === "pro_access");
+    const activeEntitlement = access.entitlements.find((item) => item.active) ?? null;
+    const hasPro = !!activeEntitlement;
     this.hasPro = hasPro;
     this.applyStaticI18n();
 
     const planName = getPlanLabel(hasPro);
-    const expiresAt = subscription?.endsAt ?? access.entitlements.find((item) => item.active && item.code === "pro_access")?.expiresAt ?? null;
+    const expiresAt = activeEntitlement?.endsAt ?? null;
 
     if (this.currentPlanEl) {
       const expiryText = formatDateTime(expiresAt);
@@ -259,7 +259,6 @@ export class SubscriptionController {
         body: JSON.stringify({
           clerkUserId,
           months,
-          planCode: "pro_monthly",
         }),
       });
       if (this.adminStatusEl) this.adminStatusEl.textContent = t("subscription.admin_success");

@@ -247,9 +247,9 @@ export class DailyCaptureController {
       date.setDate(start.getDate() + index);
       const dateKey = dateToLocalKey(date);
       const count = countMap.get(dateKey) ?? 0;
-      const active = dateKey === this.selectedDateKey;
       const outside = date.getMonth() !== month;
       const hasData = count > 0;
+      const active = hasData && dateKey === this.selectedDateKey;
       const dayScore = dayScoreMap.get(dateKey) ?? 0;
       const tier = getPhraseTier(dayScore);
       cells.push(`

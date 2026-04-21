@@ -30,7 +30,7 @@ export async function getRewriteUsageSnapshotByClerkUserId(clerkUserId) {
 
   const config = getAppConfig();
   const viewer = await getViewerAccessByClerkUserId(clerkUserId);
-  const hasPro = viewer.entitlements.some((item) => item.active && item.code === "pro_access");
+  const hasPro = viewer.entitlements.some((item) => item.active);
   const appUserId = viewer.profile?.appUserId ?? "";
   if (!appUserId) return null;
 
@@ -78,7 +78,7 @@ export async function getRewriteAccessContext(req, config, mode = "beginner") {
   }
 
   const viewer = await getViewerAccessByClerkUserId(authenticatedUserId);
-  const hasPro = viewer.entitlements.some((item) => item.active && item.code === "pro_access");
+  const hasPro = viewer.entitlements.some((item) => item.active);
   const appUserId = viewer.profile?.appUserId ?? "";
   if (!appUserId) {
     return {

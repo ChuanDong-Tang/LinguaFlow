@@ -506,7 +506,7 @@ export class AppShellController {
       const access = await getAccessRepository().getViewerAccess();
       if (requestId !== this.accessRequestId) return;
 
-      const hasPro = access.entitlements.some((item) => item.active && item.code === "pro_access");
+      const hasPro = access.entitlements.some((item) => item.active);
       this.isAdminViewer = !!access.profile?.isAdmin || !!access.permissions?.canManageSubscriptions;
       this.authPlanKey = hasPro ? "pro" : "free";
       this.authPlanUserId = userId;

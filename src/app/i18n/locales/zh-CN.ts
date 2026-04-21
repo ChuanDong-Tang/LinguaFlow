@@ -165,7 +165,7 @@ export const zhCN: typeof en = {
   "daily_capture.selected_day_label": "当前选中日期",
   "daily_capture.practice_selected_day": "练习选中日期卡片",
   "daily_capture.practice_selected_empty": "选中日期没有可练习的卡片。",
-  "daily_capture.practice_oio": "在 OIO 中练习",
+  "daily_capture.practice_oio": "在下方练习",
   "daily_capture.practice_ai": "AI 练习",
   "daily_capture.delete": "删除",
   "daily_capture.cancel": "取消",

@@ -163,7 +163,7 @@ export const en = {
   "daily_capture.selected_day_label": "Selected day",
   "daily_capture.practice_selected_day": "Practice selected day",
   "daily_capture.practice_selected_empty": "No cards saved for the selected day.",
-  "daily_capture.practice_oio": "Practice in OIO",
+  "daily_capture.practice_oio": "Practice Below",
   "daily_capture.practice_ai": "AI Practice",
   "daily_capture.delete": "Delete",
   "daily_capture.cancel": "Cancel",

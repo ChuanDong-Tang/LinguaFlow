@@ -37,23 +37,15 @@ function mapAppUser(userRow) {
 }
 
 function mapEntitlement(row) {
-  return {
-    code: row.code,
-    active: row.status === "active" && isFutureDate(row.expires_at),
-    source: row.source || "manual",
-    expiresAt: row.expires_at,
-  };
-}
+  const status = String(row?.status ?? "").toLowerCase();
+  const planCode = String(row?.plan_code ?? "").trim();
 
-function mapSubscription(row) {
-  if (!row) return null;
-  const active = row.status === "active" && isFutureDate(row.ends_at);
   return {
-    planCode: row.plan_code,
-    status: active ? row.status : "inactive",
-    source: row.source || "manual",
-    startsAt: row.started_at,
-    endsAt: row.ends_at,
+    planCode,
+    active: status === "active" && isFutureDate(row?.end_at),
+    source: row?.source || "manual",
+    startsAt: row?.start_at ?? null,
+    endsAt: row?.end_at ?? null,
   };
 }
 
@@ -61,7 +53,6 @@ export function createAnonymousViewerAccess() {
   return {
     profile: null,
     entitlements: [],
-    subscription: null,
     permissions: {
       canUseRewrite: true,
       canManageSubscriptions: false,
@@ -99,28 +90,24 @@ export async function getViewerAccessByClerkUserId(clerkUserId) {
   const supabase = getSupabaseAdmin();
   const appUser = await ensureAppUser(clerkUserId);
 
-  const [{ data: entitlementRows, error: entitlementError }, { data: subscriptionRow, error: subscriptionError }] = await Promise.all([
-    supabase.from("entitlements").select("*").eq("user_id", appUser.id).order("created_at", { ascending: false }),
-    supabase.from("subscriptions").select("*").eq("user_id", appUser.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-  ]);
+  const { data: entitlementRow, error: entitlementError } = await supabase
+    .from("entitlements")
+    .select("*")
+    .eq("user_id", appUser.id)
+    .maybeSingle();
 
   if (entitlementError) {
-    throw entitlementError;
+    throw new Error(`[entitlements] expected single row per user_id, but got conflict for user_id=${appUser.id}`);
   }
 
-  if (subscriptionError) {
-    throw subscriptionError;
-  }
-
-  const entitlements = (entitlementRows ?? []).map(mapEntitlement);
-  const subscription = mapSubscription(subscriptionRow);
+  const entitlement = entitlementRow ? mapEntitlement(entitlementRow) : null;
+  const entitlements = entitlement ? [entitlement] : [];
   const profile = mapAppUser(appUser);
-  const hasPro = entitlements.some((item) => item.active && item.code === "pro_access");
+  const hasPro = entitlement?.active === true;
 
   return {
     profile,
     entitlements,
-    subscription,
     permissions: {
       canUseRewrite: true,
       canManageSubscriptions: profile.isAdmin,
@@ -151,33 +138,19 @@ export async function activateManualSubscription({ clerkUserId, actorClerkUserId
   const durationDays = Math.max(1, months) * 30;
   const endsAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
 
-  const subscriptionPayload = {
+  const entitlementPayload = {
     user_id: appUser.id,
     plan_code: planCode,
     status: "active",
     source,
-    started_at: now.toISOString(),
-    ends_at: endsAt.toISOString(),
+    start_at: now.toISOString(),
+    end_at: endsAt.toISOString(),
     updated_at: now.toISOString(),
   };
 
-  const entitlementPayload = {
-    user_id: appUser.id,
-    code: "pro_access",
-    status: "active",
-    source,
-    expires_at: endsAt.toISOString(),
-    updated_at: now.toISOString(),
-  };
-
-  const [{ error: subscriptionError }, { error: entitlementError }] = await Promise.all([
-    supabase.from("subscriptions").insert(subscriptionPayload),
-    supabase.from("entitlements").upsert(entitlementPayload, { onConflict: "user_id,code" }),
-  ]);
-
-  if (subscriptionError) {
-    throw subscriptionError;
-  }
+  const { error: entitlementError } = await supabase
+    .from("entitlements")
+    .upsert(entitlementPayload, { onConflict: "user_id" });
 
   if (entitlementError) {
     throw entitlementError;

@@ -36,7 +36,7 @@ async function canSync(): Promise<boolean> {
   canSyncInFlightActorKey = actorKey;
   canSyncInFlight = (async () => {
     const access = await getAccessRepository().getViewerAccess();
-    return access.entitlements.some((item) => item.active && item.code === "pro_access");
+    return access.entitlements.some((item) => item.active);
   })();
   try {
     const result = await canSyncInFlight;
