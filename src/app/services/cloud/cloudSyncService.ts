@@ -140,7 +140,9 @@ export async function pushChatSessions(sessions: OioChatSession[]): Promise<void
       body: JSON.stringify({ sessions: persistable }),
     });
   } catch {
-    // ignore cloud sync failures
+    console.error("[sync-chat] pushChatSessions failed", Error, {
+      sessionCount: persistable.length,
+    });
   }
 }
 

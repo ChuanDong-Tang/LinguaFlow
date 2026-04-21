@@ -221,7 +221,7 @@ export default async function handler(req, res) {
           proficiency_phrase: turn.proficiencyPhrase ?? null,
           proficiency_delta: Number.isFinite(turn.proficiencyDelta) ? Number(turn.proficiencyDelta) : null,
           proficiency_score: Number.isFinite(turn.proficiencyScore) ? Number(turn.proficiencyScore) : null,
-          phrase_client_version: Number.isFinite(turn.phraseClientVersion) ? Number(turn.phraseClientVersion) : null,
+          phrase_client_version: Number.isFinite(turn.phraseClientVersion) ? Math.max(0, Math.floor(Number(turn.phraseClientVersion))) : 0,
         });
       }
     }
@@ -230,6 +230,15 @@ export default async function handler(req, res) {
         .from("chat_turns")
         .upsert(turnRows, { onConflict: "user_id,session_id,turn_id" });
       if (upsertTurnsResult.error) {
+        console.error("[sync-chat] upsert chat_turns failed", {
+          appUserId: auth.appUserId,
+          sessionCount: sessions.length,
+          turnCount: turnRows.length,
+          code: upsertTurnsResult.error.code,
+          message: upsertTurnsResult.error.message,
+          details: upsertTurnsResult.error.details,
+          hint: upsertTurnsResult.error.hint,
+        });
         sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
         return;
       }
