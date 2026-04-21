@@ -25,7 +25,6 @@ export function getAppConfig() {
     adminClerkUserIds: parseCsv(process.env.APP_ADMIN_CLERK_USER_IDS),
     adminEmails: parseCsv(process.env.APP_ADMIN_EMAILS).map((item) => item.toLowerCase()),
     proPlanCode: process.env.APP_PRO_PLAN_CODE ?? "pro_monthly",
-    allowAnonymousRewrite: parseBoolean(process.env.APP_ALLOW_ANONYMOUS_REWRITE, true),
     freeDailyCharLimit,
     proDailyCharLimit,
   };

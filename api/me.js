@@ -14,7 +14,6 @@ export default async function handler(req, res) {
     return;
   }
 
-  const config = getAppConfig();
   const auth = await authenticateClerkRequest(req, { requireAuth: false });
   if (!auth.ok) {
     sendJson(res, 401, { error: { code: auth.code, message: auth.message } });
@@ -27,7 +26,7 @@ export default async function handler(req, res) {
         ...createAnonymousViewerAccess(),
         permissions: {
           ...createAnonymousViewerAccess().permissions,
-          canUseRewrite: config.allowAnonymousRewrite,
+          canUseRewrite: false,
         },
       },
     });
