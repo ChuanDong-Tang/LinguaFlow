@@ -186,19 +186,6 @@ export default async function handler(req, res) {
       }
     }
 
-    const sessionIds = sessions.map((session) => session.id);
-    if (sessionIds.length > 0) {
-      const deleteTurnsResult = await supabase
-        .from("chat_turns")
-        .delete()
-        .eq("user_id", auth.appUserId)
-        .in("session_id", sessionIds);
-      if (deleteTurnsResult.error) {
-        sendJson(res, 500, { error: { code: "SYNC_FAILED", message: "Failed to save chat history." } });
-        return;
-      }
-    }
-
     const turnRows = [];
     for (const session of sessions) {
       for (const turn of session.turns) {

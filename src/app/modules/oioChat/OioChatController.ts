@@ -1420,7 +1420,7 @@ export class OioChatController {
       this.activeSessionId = this.sessions[0].id;
     }
     if (pushCloud) {
-      void pushChatSessions(this.sessions.filter((item) => item.kind !== "practice"));
+      void pushChatSessions([session]);
     }
   }
 
