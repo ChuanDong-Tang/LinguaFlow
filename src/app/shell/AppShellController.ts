@@ -5,12 +5,11 @@ import { getI18n, t, type Locale } from "../i18n/i18n";
 import {
   TTS_DEBUG_EVENT,
   type TtsDebugEventDetail,
-  getBrowserTtsService,
   getSelectedKokoroVoiceId,
-  getSelectedTtsPlaybackSource,
   listKokoroVoiceIds,
   setSelectedKokoroVoiceId,
-} from "../services/tts/browserTtsService";
+} from "../services/audio/tts/browserTtsService";
+import { getAudioFacade } from "../services/audio/audioFacade";
 
 const KOKORO_SWITCH_TIMEOUT_MS = 45_000;
 const KOKORO_SWITCH_TIMEOUT_SECONDS = Math.floor(KOKORO_SWITCH_TIMEOUT_MS / 1000);
@@ -209,13 +208,13 @@ export class AppShellController {
           const voiceId = getSelectedKokoroVoiceId();
           let ok = false;
           await this.withTtsSwitchBlock(`正在切换到 Kokoro（${voiceId}）并预热模型（最多 ${KOKORO_SWITCH_TIMEOUT_SECONDS} 秒）...`, async () => {
-            ok = await getBrowserTtsService().switchToKokoroWithWarmup(KOKORO_SWITCH_TIMEOUT_MS);
+            ok = await getAudioFacade().switchProvider("kokoro", { warmupTimeoutMs: KOKORO_SWITCH_TIMEOUT_MS });
           });
           if (!ok) {
             window.alert(`Kokoro 初始化失败（超过 ${KOKORO_SWITCH_TIMEOUT_SECONDS} 秒或预热失败），已自动切回 Web Speech。`);
           }
         } else {
-          getBrowserTtsService().setPlaybackSource("web");
+          await getAudioFacade().switchProvider("web");
         }
         this.syncTtsSourceOptions();
         this.syncTtsKokoroOptionsVisibility();
@@ -230,10 +229,10 @@ export class AppShellController {
       const voiceId = optionEl.dataset.ttsVoiceOption?.trim() ?? "";
       if (!voiceId) return;
       setSelectedKokoroVoiceId(voiceId);
-      if (getSelectedTtsPlaybackSource() === "kokoro") {
+      if (getAudioFacade().getActiveProviderId() === "kokoro") {
         let ok = false;
         await this.withTtsSwitchBlock(`正在切换 Kokoro 音色到 ${voiceId} 并预热模型（最多 ${KOKORO_SWITCH_TIMEOUT_SECONDS} 秒）...`, async () => {
-          ok = await getBrowserTtsService().switchToKokoroWithWarmup(KOKORO_SWITCH_TIMEOUT_MS);
+          ok = await getAudioFacade().switchProvider("kokoro", { warmupTimeoutMs: KOKORO_SWITCH_TIMEOUT_MS });
         });
         if (!ok) {
           window.alert(`Kokoro 初始化失败（超过 ${KOKORO_SWITCH_TIMEOUT_SECONDS} 秒或预热失败），已自动切回 Web Speech。`);
@@ -623,7 +622,7 @@ export class AppShellController {
   }
 
   private syncTtsSourceOptions(): void {
-    const selected = getSelectedTtsPlaybackSource();
+    const selected = getAudioFacade().getActiveProviderId();
     for (const optionEl of this.ttsSourceOptionEls) {
       const active = optionEl.dataset.ttsSourceOption === selected;
       optionEl.setAttribute("aria-pressed", active ? "true" : "false");
@@ -633,7 +632,7 @@ export class AppShellController {
 
   private syncTtsKokoroOptionsVisibility(): void {
     if (!this.ttsKokoroOptionsEl) return;
-    this.ttsKokoroOptionsEl.hidden = getSelectedTtsPlaybackSource() !== "kokoro";
+    this.ttsKokoroOptionsEl.hidden = getAudioFacade().getActiveProviderId() !== "kokoro";
   }
 
   private openTtsSettingsDialog(): void {

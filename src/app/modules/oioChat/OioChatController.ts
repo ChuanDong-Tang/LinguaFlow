@@ -18,7 +18,8 @@ import {
 import { getAccessRepository } from "../../infrastructure/repositories";
 import { getI18n, t } from "../../i18n/i18n";
 import { RewriteApiError } from "../../services/rewrite/rewriteClient";
-import { getBrowserTtsService, splitTextForSpeech } from "../../services/tts/browserTtsService";
+import { splitTextForSpeech } from "../../services/audio/tts/browserTtsService";
+import { getAudioFacade } from "../../services/audio/audioFacade";
 import { getAuthService } from "../../services/auth/authService";
 import { saveTurnToDailyCapture } from "./oioChatCapture";
 import { createChatSession, deleteChatSession, listChatSessions, saveChatSession, type OioChatSession } from "./oioChatStore";
@@ -712,7 +713,7 @@ export class OioChatController {
     } catch {
       decoded = encodedText;
     }
-    const played = await getBrowserTtsService().speak(decoded);
+    const played = await getAudioFacade().speak(decoded);
     if (!played) {
       this.setStatus(t("oio_chat.voice_playback_unavailable"));
     }

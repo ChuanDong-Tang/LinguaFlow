@@ -15,5 +15,6 @@ pnpm-debug.log*
 
 .vercel
 AGENTS.md
+agent.md
 
 .idea/

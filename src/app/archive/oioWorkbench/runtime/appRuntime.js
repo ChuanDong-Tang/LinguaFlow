@@ -36,10 +36,8 @@ import {
   validFillBlankStateKeySetFromMap as Ut,
   eventTargetElement as Gt,
 } from "./runtimeUtils.js";
-import {
-  getBrowserTtsService as qn,
-  getSelectedTtsPlaybackSource as Jn,
-} from "../../../services/tts/browserTtsService";
+import { getAudioFacade } from "../../../services/audio/audioFacade";
+import { createPracticeAudioFlow } from "../../../services/audio/practiceAudioFlow";
 import { renderTextWithKeyPhraseHighlight} from "../../../shared/keyPhraseHighlight";
 
 const LOCAL_HISTORY_ENABLED = false;
@@ -156,11 +154,8 @@ var qt = `month`,
   de = 0,
   H = -1,
   U = 0,
-  te = -1,
   lastPlayedCueIndex = -1,
   practicePageIndex = 0,
-  speechLoopToken = 0,
-  speechLoopTimer = null,
   practiceGenerateRunCount = 0,
   Yt = new Map(),
   Xt = null,
@@ -188,6 +183,21 @@ var G = new l({
     formatClockSec: we,
   }),
   $t = null,
+  practiceAudioFlow = createPracticeAudioFlow({
+    getCueByIndex: (e) => z[e],
+    getPlaybackRate: () => parseFloat(it?.value || `1`),
+    isCueLoopEnabled: () => !!b?.checked,
+    getLastPlayedCueIndex: () => lastPlayedCueIndex,
+    setLastPlayedCueIndex: (e) => {
+      lastPlayedCueIndex = e;
+    },
+    onCueInlineStarted: (e) => {
+      practicePageIndex = ue[e] ?? e;
+      Rr();
+      H = e;
+      for (let t = 0; t < B.length; t++) B[t].classList.toggle(`cue-row--active`, t === e);
+    },
+  }),
   K = {
     initDateState: () => {},
     syncJumpInput: () => {},
@@ -830,45 +840,10 @@ function Qn(e) {
   z[e] && (v.pause(), Zn(e));
 }
 function clearSpeechLoopTimer() {
-  speechLoopTimer && (clearTimeout(speechLoopTimer), (speechLoopTimer = null));
+  practiceAudioFlow.clearLoopTimer();
 }
 function stopSpeechPlayback({ invalidateLoop: e = !0 } = {}) {
-  e && (speechLoopToken += 1);
-  clearSpeechLoopTimer();
-  qn().stop();
-  te = -1;
-}
-function scheduleCueLoop(e, t) {
-  clearSpeechLoopTimer();
-  speechLoopTimer = setTimeout(() => {
-    if (!b?.checked || lastPlayedCueIndex < 0) return;
-    if (e !== speechLoopToken || lastPlayedCueIndex !== t) return;
-    speakCue(t, { fromLoop: !0, loopToken: e });
-  }, 120);
-}
-function speakCue(e, { fromLoop: t = !1, loopToken: n = null } = {}) {
-  if (!z[e]) return;
-  let r = parseFloat(it?.value || `1`);
-  qn().setPlaybackRate(Number.isFinite(r) ? r : 1);
-  t || (speechLoopToken += 1);
-  let i = n ?? speechLoopToken,
-    a = z[e].text || ``;
-  clearSpeechLoopTimer();
-  stopSpeechPlayback({ invalidateLoop: !1 });
-  te = e;
-  qn()
-    .speak(a)
-    .then((t) => {
-      t &&
-        b?.checked &&
-        lastPlayedCueIndex >= 0 &&
-        i === speechLoopToken &&
-        lastPlayedCueIndex === e &&
-        scheduleCueLoop(i, e);
-    })
-    .finally(() => {
-      te === e && (te = -1);
-    });
+  practiceAudioFlow.stop({ invalidateLoop: e });
 }
 function $n(e) {
   if (!e) return null;
@@ -898,13 +873,7 @@ function rr() {
   v.pause();
 }
 function playCueInline(e) {
-  if (!z[e]) return;
-  lastPlayedCueIndex = e;
-  practicePageIndex = ue[e] ?? e;
-  Rr();
-  H = e;
-  for (let t = 0; t < B.length; t++) B[t].classList.toggle(`cue-row--active`, t === e);
-  speakCue(e);
+  practiceAudioFlow.playCueInline(e);
 }
 function zr() {
   if (!de) {
@@ -1430,9 +1399,7 @@ function jr(e) {
       X());
   }),
   b?.addEventListener(`change`, () => {
-    if (b?.checked) return;
-    speechLoopToken += 1;
-    clearSpeechLoopTimer();
+    practiceAudioFlow.onCueLoopToggleChanged(!!b?.checked);
   }),
   $e?.addEventListener(`change`, () => {
     v.loop = !!$e.checked;
@@ -1448,7 +1415,7 @@ function jr(e) {
   }),
   it?.addEventListener(`change`, () => {
     let e = parseFloat(it.value);
-    Number.isFinite(e) && ((v.playbackRate = e), qn().setPlaybackRate(e));
+    Number.isFinite(e) && ((v.playbackRate = e), getAudioFacade().setPlaybackRate(e));
   }),
   Ct2?.addEventListener(`click`, () => {
     z.length && qr(practicePageIndex - 1, { focusDictation: D === `dictation` });
@@ -1766,7 +1733,7 @@ function Br() {
         Ar(o, { cueCardIndexList: a, cardCount: Math.max(1, r.length) }),
         X());
       await fn();
-      let l = Jn() === `kokoro` ? `Kokoro（失败时自动回退 Web Speech）` : `Web Speech`;
+      let l = getAudioFacade().getActiveProviderId() === `kokoro` ? `Kokoro（失败时自动回退 Web Speech）` : `Web Speech`;
       W(
         `完成。共 ${r.length} 张卡片，${t.length} 句。点句播放将使用当前语音源：${l}。`,
       );
