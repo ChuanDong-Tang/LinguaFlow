@@ -10,6 +10,16 @@ import { getI18n, t } from "../../i18n/i18n";
 import { onDailyCaptureUpdated } from "./dailyCaptureEvents";
 import { type CaptureItem, type DailyCaptureRecord, listCaptureRecords, saveCaptureRecord } from "./dailyCaptureStore";
 
+const PRACTICE_RUNTIME_READY_EVENT = "practice-runtime-ready";
+
+type PendingPracticeLaunch = {
+  practiceText: string;
+  cardChunks?: string[];
+  cardPhraseChunks?: string[][];
+  captureItemId?: string;
+  blankIndexes?: number[];
+};
+
 export class DailyCaptureController {
   private readonly root: HTMLElement | null;
   private readonly gridEl: HTMLElement | null;
@@ -35,6 +45,9 @@ export class DailyCaptureController {
   private dialogItemIndex = 0;
   private cloudCountByDate = new Map<string, number>();
   private phraseScoreByNorm = new Map<string, number>();
+  private practiceRuntimeReady = false;
+  private pendingPracticeLaunch: PendingPracticeLaunch | null = null;
+  private practiceLoadingNoticeEl: HTMLDivElement | null = null;
 
   constructor({
     root = document.querySelector<HTMLElement>("#tab-panel-daily-capture"),
@@ -60,6 +73,7 @@ export class DailyCaptureController {
 
   async init(): Promise<void> {
     if (!this.root || !this.gridEl) return;
+    this.practiceRuntimeReady = this.getPracticeRuntimeReadyFlag();
     this.embedPracticePanel();
     await this.loadRecords();
     this.populateCalendarSelectors();
@@ -77,6 +91,15 @@ export class DailyCaptureController {
   }
 
   private bindEvents(): void {
+    document.addEventListener(PRACTICE_RUNTIME_READY_EVENT, () => {
+      this.practiceRuntimeReady = true;
+      this.hidePracticeLoadingNotice();
+      const pending = this.pendingPracticeLaunch;
+      this.pendingPracticeLaunch = null;
+      if (!pending) return;
+      this.commitPracticeLaunch(pending);
+    });
+
     this.prevBtnEl?.addEventListener("click", () => {
       this.monthCursor = addMonthsClamp(this.monthCursor, -1);
       this.renderCalendar();
@@ -429,11 +452,33 @@ export class DailyCaptureController {
   ): void {
     const text = practiceText.trim();
     if (!text) return;
+    const request: PendingPracticeLaunch = {
+      practiceText: text,
+      cardChunks,
+      cardPhraseChunks,
+      captureItemId,
+      blankIndexes,
+    };
+    if (!this.practiceRuntimeReady) {
+      this.pendingPracticeLaunch = request;
+      this.showPracticeLoadingNotice();
+      return;
+    }
+    this.hidePracticeLoadingNotice();
+    this.commitPracticeLaunch(request);
+  }
+
+  private commitPracticeLaunch({
+    practiceText,
+    cardChunks,
+    cardPhraseChunks,
+    captureItemId,
+    blankIndexes,
+  }: PendingPracticeLaunch): void {
     const inputEl = document.querySelector<HTMLTextAreaElement>("#text");
     const generateBtn = document.querySelector<HTMLButtonElement>("#generate");
-    document.dispatchEvent(new CustomEvent("app-block-ui", { detail: { message: "正在打开练习..." } }));
     if (inputEl) {
-      inputEl.value = text;
+      inputEl.value = practiceText;
       if (Array.isArray(cardChunks) && cardChunks.length > 0) {
         inputEl.dataset.practiceCardChunks = JSON.stringify(cardChunks);
       } else {
@@ -459,11 +504,43 @@ export class DailyCaptureController {
       inputEl.focus();
     }
     generateBtn?.click();
-    if (!generateBtn) {
-      document.dispatchEvent(new CustomEvent("app-unblock-ui"));
-    }
     const practiceSection = this.root?.querySelector<HTMLElement>("#subs-section");
     practiceSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  private getPracticeRuntimeReadyFlag(): boolean {
+    const globalWindow = window as Window & { __practiceRuntimeReady?: boolean };
+    return globalWindow.__practiceRuntimeReady === true;
+  }
+
+  private showPracticeLoadingNotice(): void {
+    if (!this.practiceLoadingNoticeEl) {
+      const el = document.createElement("div");
+      el.setAttribute("role", "status");
+      el.setAttribute("aria-live", "polite");
+      el.style.position = "fixed";
+      el.style.top = "20px";
+      el.style.right = "20px";
+      el.style.zIndex = "9999";
+      el.style.maxWidth = "320px";
+      el.style.padding = "10px 12px";
+      el.style.borderRadius = "10px";
+      el.style.background = "rgba(17,24,39,0.9)";
+      el.style.color = "#fff";
+      el.style.fontSize = "14px";
+      el.style.lineHeight = "1.4";
+      el.style.boxShadow = "0 8px 24px rgba(0,0,0,0.28)";
+      el.style.pointerEvents = "none";
+      document.body.appendChild(el);
+      this.practiceLoadingNoticeEl = el;
+    }
+    this.practiceLoadingNoticeEl.textContent = "练习引擎正在加载，马上就好...";
+    this.practiceLoadingNoticeEl.hidden = false;
+  }
+
+  private hidePracticeLoadingNotice(): void {
+    if (!this.practiceLoadingNoticeEl) return;
+    this.practiceLoadingNoticeEl.hidden = true;
   }
 
   private renderKeyPhrases(keyPhrases: string[], itemId: string): string {

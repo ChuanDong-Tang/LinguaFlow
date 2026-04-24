@@ -27,12 +27,15 @@ class AudioFacade {
   async switchProvider(id: AudioTextProviderId, options?: AudioProviderSwitchOptions): Promise<boolean> {
     const target = this.providers.get(id);
     if (!target) return false;
+    const previous = this.providers.get(this.activeProviderId);
+    if (previous && previous !== target) {
+      previous.stop();
+      if (typeof previous.deactivate === "function") {
+        previous.deactivate();
+      }
+    }
     const ok = typeof target.activate === "function" ? await target.activate(options) : true;
     if (!ok) return false;
-    const previous = this.providers.get(this.activeProviderId);
-    if (previous && previous !== target && typeof previous.deactivate === "function") {
-      previous.deactivate();
-    }
     this.activeProviderId = id;
     this.persistActiveProvider(id);
     return true;
@@ -47,12 +50,18 @@ class AudioFacade {
   }
 
   async speak(text: string): Promise<boolean> {
+    for (const [id, provider] of this.providers.entries()) {
+      if (id === this.activeProviderId) continue;
+      provider.stop();
+    }
     const provider = this.requireActiveProvider();
     return provider.speak(text);
   }
 
   stop(): void {
-    this.requireActiveProvider().stop();
+    for (const provider of this.providers.values()) {
+      provider.stop();
+    }
   }
 
   pause(): boolean {

@@ -16,6 +16,10 @@ export class WebSpeechProvider extends AudioTextProviderBase {
     return true;
   }
 
+  deactivate(): void {
+    this.synthesizer.stop();
+  }
+
   async speak(text: string): Promise<boolean> {
     setSelectedTtsPlaybackSource("web");
     return this.synthesizer.speak(text);

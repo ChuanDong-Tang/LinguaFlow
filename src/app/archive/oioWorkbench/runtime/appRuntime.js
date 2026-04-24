@@ -18,6 +18,7 @@ import {
 import { getAudioFacade } from "../../../services/audio/audioFacade";
 import { createPracticeAudioFlow } from "../../../services/audio/practiceAudioFlow";
 import { renderTextWithKeyPhraseHighlight} from "../../../shared/keyPhraseHighlight";
+import { splitTextForSpeech } from "../../../services/audio/providers/webspeech/splitTextForSpeech";
 
 var {
     textEl: Ue,
@@ -88,7 +89,7 @@ var I = -1,
   U = 0,
   lastPlayedCueIndex = -1,
   practicePageIndex = 0,
-  practiceGenerateRunCount = 0,
+  speechActiveCueIndex = -1,
   Yt = new Map(),
   Xt = null,
   Qt = ``;
@@ -122,6 +123,10 @@ var G = new l({
     getLastPlayedCueIndex: () => lastPlayedCueIndex,
     setLastPlayedCueIndex: (e) => {
       lastPlayedCueIndex = e;
+    },
+    onActiveCueChange: (e) => {
+      speechActiveCueIndex = Number.isFinite(e) ? e : -1;
+      syncPlayerTransportUi();
     },
     onCueInlineStarted: (e) => {
       practicePageIndex = ue[e] ?? e;
@@ -259,40 +264,6 @@ function buildEstimatedCues(e) {
     return (t += n), r;
   });
 }
-function buildSilentWavBlob(e, t = 8e3) {
-  let n = Math.max(1, Math.ceil(Math.max(0.5, e) * t)),
-    r = new ArrayBuffer(44 + n),
-    i = new DataView(r),
-    a = 0;
-  function o(e) {
-    for (let t = 0; t < e.length; t++) i.setUint8(a++, e.charCodeAt(t));
-  }
-  return (
-    o(`RIFF`),
-    i.setUint32(a, 36 + n, !0),
-    (a += 4),
-    o(`WAVE`),
-    o(`fmt `),
-    i.setUint32(a, 16, !0),
-    (a += 4),
-    i.setUint16(a, 1, !0),
-    (a += 2),
-    i.setUint16(a, 1, !0),
-    (a += 2),
-    i.setUint32(a, t, !0),
-    (a += 4),
-    i.setUint32(a, t, !0),
-    (a += 4),
-    i.setUint16(a, 1, !0),
-    (a += 2),
-    i.setUint16(a, 8, !0),
-    (a += 2),
-    o(`data`),
-    i.setUint32(a, n, !0),
-    (a += 4),
-    new Blob([r], { type: `audio/wav` })
-  );
-}
 function Y(e) {
   let t = 0;
   for (let n = 0; n < z.length; n++) e + 1e-4 >= z[n].start && (t = n);
@@ -338,17 +309,39 @@ function $n(e) {
   return t[0] ?? null;
 }
 function seekToNextCue() {
-  if (!z.length || !v.src) return;
+  if (!z.length) return;
+  if (!v.src) {
+    let e = wr();
+    e >= 0 && e < z.length || (e = Math.max(0, Y(v.currentTime)));
+    playCueInline(Math.min(z.length - 1, e + 1));
+    return;
+  }
   let e = Y(v.currentTime);
   Qn(Math.min(z.length - 1, e + 1));
 }
 function seekToPreviousCue() {
-  if (!z.length || !v.src) return;
+  if (!z.length) return;
+  if (!v.src) {
+    let e = wr();
+    e >= 0 && e < z.length || (e = Math.max(0, Y(v.currentTime)));
+    playCueInline(Math.max(0, e - 1));
+    return;
+  }
   let e = Y(v.currentTime);
   Qn(Math.max(0, e - 1));
 }
 function toggleMainPlayerPlayback() {
-  if (!v.src) return;
+  if (!v.src) {
+    if (!z.length) return;
+    if (speechActiveCueIndex >= 0) {
+      stopPracticeSpeechPlayback();
+      return;
+    }
+    let e = wr();
+    e >= 0 && e < z.length || (e = Math.max(0, Y(v.currentTime)));
+    playCueInline(e);
+    return;
+  }
   if (v.paused) {
     v.play().catch(() => {});
     return;
@@ -395,6 +388,13 @@ function qr(e, { focusDictation: t = !1 } = {}) {
 }
 function syncPlayerTransportUi() {
   G.syncPlayerTransport();
+  if (!et || !tt || v.src) return;
+  let e = speechActiveCueIndex >= 0;
+  tt.textContent = e ? `⏸` : `▶`;
+  let t = et.querySelector(`.player-play-label`);
+  t && (t.textContent = e ? `暂停` : `播放`);
+  et.setAttribute(`aria-label`, e ? `暂停` : `播放`);
+  et.setAttribute(`aria-pressed`, e ? `true` : `false`);
 }
 function resetPlayerTransportUi() {
   G.resetPlayerTransportOptions();
@@ -743,7 +743,8 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
             (practicePageIndex = ue[t] ?? t),
             Rr(),
             (H = t),
-            B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t)));
+            B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t)),
+            playCueInline(t));
         }));
       let a = document.createElement(`textarea`);
       ((a.className = `cue-input`),
@@ -979,26 +980,25 @@ function Br() {
   }),
   y.addEventListener(`focusin`, (e) => {
     let t = e.target;
-    if (!(!z.length || !v.src)) {
-      if (t?.classList?.contains(`fb-slot`)) {
-        if (D !== `fillblank`) return;
-        let e = t.closest(`.cue-row`),
-          n = e?.dataset.idx == null ? -1 : Number(e.dataset.idx);
-        if (n < 0) return;
-        (practicePageIndex = ue[n] ?? n), Rr();
-        n !== Y(v.currentTime) && Qn(n);
-        return;
-      }
-      if (t?.classList?.contains(`cue-input`) && D === `dictation`) {
-        let e = t.closest(`.cue-row`),
-          n = e?.dataset.idx == null ? -1 : Number(e.dataset.idx);
-        if (n < 0) return;
-        (practicePageIndex = ue[n] ?? n), Rr();
-        (H = n),
-          B.forEach((e, t) => {
-            e.classList.toggle(`cue-row--active`, t === n);
-          });
-      }
+    if (!z.length) return;
+    if (t?.classList?.contains(`fb-slot`)) {
+      if (D !== `fillblank`) return;
+      let e = t.closest(`.cue-row`),
+        n = e?.dataset.idx == null ? -1 : Number(e.dataset.idx);
+      if (n < 0) return;
+      (practicePageIndex = ue[n] ?? n), Rr();
+      n !== Y(v.currentTime) && Qn(n);
+      return;
+    }
+    if (t?.classList?.contains(`cue-input`) && D === `dictation`) {
+      let e = t.closest(`.cue-row`),
+        n = e?.dataset.idx == null ? -1 : Number(e.dataset.idx);
+      if (n < 0) return;
+      (practicePageIndex = ue[n] ?? n), Rr();
+      (H = n),
+        B.forEach((e, t) => {
+          e.classList.toggle(`cue-row--active`, t === n);
+        });
     }
   }),
   document.addEventListener(`keydown`, (e) => {
@@ -1007,7 +1007,7 @@ function Br() {
       n = e.target?.classList?.contains(`fb-slot`),
       r = D !== `subtitles`;
     if (n && e.code === `Tab` && D === `fillblank`) {
-      if (!z.length || !v.src) return;
+      if (!z.length) return;
       (e.preventDefault(), e.stopPropagation());
       let t = [...y.querySelectorAll(`.fb-slot`)].filter((e) => !e.readOnly),
         n = e.target,
@@ -1039,17 +1039,16 @@ function Br() {
     if ((t || n) && e.ctrlKey) {
       if (e.code === `ArrowUp`) {
         if (!e.shiftKey) return;
-        if (!v.src) return;
         (e.preventDefault(), e.stopPropagation(), toggleMainPlayerPlayback());
         return;
       }
       if (e.code === `ArrowLeft`) {
-        if (!z.length || !v.src) return;
+        if (!z.length) return;
         (e.preventDefault(), e.stopPropagation(), seekToPreviousCue());
         return;
       }
       if (e.code === `ArrowRight`) {
-        if (!z.length || !v.src) return;
+        if (!z.length) return;
         (e.preventDefault(), e.stopPropagation(), seekToNextCue());
         return;
       }
@@ -1057,12 +1056,12 @@ function Br() {
     let i = je(e.target, Ue),
       a = e.ctrlKey || e.altKey;
     if (e.code === `Space`) {
-      if (Me(e.target) || t || n || (i && !a) || !v.src) return;
+      if (Me(e.target) || t || n || (i && !a) || !z.length) return;
       (e.preventDefault(), toggleMainPlayerPlayback());
       return;
     }
     if (e.code === `ArrowRight` || e.code === `ArrowLeft`) {
-      if (t || n || (i && !a) || Ne(e.target) || !z.length || !v.src) return;
+      if (t || n || (i && !a) || Ne(e.target) || !z.length) return;
       (e.preventDefault(), e.code === `ArrowRight` ? seekToNextCue() : seekToPreviousCue());
     }
   }),
@@ -1070,28 +1069,11 @@ function Br() {
     let e = Ue.value.trim();
     if (!e) {
       W(`请先粘贴或输入英文文本。`);
-      if (Ue.dataset.practiceOpeningHint === `daily`) {
-        delete Ue.dataset.practiceCardChunks;
-        delete Ue.dataset.practiceCardKeyPhrases;
-        delete Ue.dataset.practiceCaptureItemId;
-        delete Ue.dataset.practiceBlankIndexes;
-        delete Ue.dataset.practiceOpeningHint;
-        document.dispatchEvent(new CustomEvent(`app-unblock-ui`));
-      }
       return;
     }
-    let t2 = practiceGenerateRunCount <= 0;
-    practiceGenerateRunCount += 1;
     let n2 = Ue.dataset.practiceOpeningHint === `daily`;
     Qt = n2 ? String(Ue.dataset.practiceCaptureItemId || ``).trim() : ``;
-    t2 &&
-      !n2 &&
-      document.dispatchEvent(
-        new CustomEvent(`app-block-ui`, {
-          detail: { message: `正在打开练习（首次生成会稍慢）...` },
-        }),
-      );
-    W(t2 ? `正在生成练习（首次生成会稍慢，请稍等）...` : `正在生成练习...`);
+    W(`正在生成练习...`);
     let t = [],
       n = [],
       r2 = [],
@@ -1112,9 +1094,17 @@ function Br() {
       i2 = [];
     }
     let r = Array.isArray(n) && n.length > 0 ? n.map((e) => String(e || ``).trim()).filter(Boolean) : [e],
-      i = r.length ? r : [e],
-      a = i.map((e, t) => t);
-    i.length !== a.length && (a = i.map((e, t) => t));
+      i = [],
+      a = [];
+    r.forEach((e, t) => {
+      let n = splitTextForSpeech(e);
+      n.length || (n = [e]);
+      n.forEach((e) => {
+        i.push(e);
+        a.push(t);
+      });
+    });
+    i.length || ((i = [e]), (a = [0]));
     pe = i.map((e, t) => {
       let n = a[t] ?? 0,
         r = Array.isArray(r2?.[n]) ? r2[n] : [];
@@ -1157,13 +1147,9 @@ function Br() {
         ).sort((e, t) => e - t);
         e.length && (O = { 0: e });
       }
-      let o = buildEstimatedCues(t),
-        s = o.length ? o[o.length - 1].end : 1,
-        c = buildSilentWavBlob(s + 0.4);
-      ((Jt = c),
-        (R = URL.createObjectURL(c)),
-        (v.src = R),
-        v.load(),
+      let o = buildEstimatedCues(t);
+      ((Jt = null),
+        (R = null),
         Ar(o, { cueCardIndexList: a, cardCount: Math.max(1, r.length) }),
         syncPlayerTransportUi());
       let l = getAudioFacade().getActiveProviderId() === `kokoro` ? `Kokoro（失败时自动回退 Web Speech）` : `Web Speech`;
@@ -1184,7 +1170,6 @@ function Br() {
       delete Ue.dataset.practiceBlankIndexes;
       delete Ue.dataset.practiceOpeningHint;
       Je.disabled = !1;
-      document.dispatchEvent(new CustomEvent(`app-unblock-ui`));
     }
   }),
   Ye?.addEventListener(`click`, () => {
@@ -1241,3 +1226,5 @@ function Br() {
   syncSubtitlePracticeUI: Tr,
   updatePracticeModeButtons: Cr,
 })));
+((window.__practiceRuntimeReady = !0),
+document.dispatchEvent(new CustomEvent(`practice-runtime-ready`)));
