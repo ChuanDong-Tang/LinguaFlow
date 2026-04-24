@@ -431,16 +431,23 @@ export class DailyCaptureController {
       window.alert(t("daily_capture.practice_selected_empty"));
       return;
     }
-    const cardTexts = items
-      .map((item) => (item.naturalVersion || item.sourceText || "").trim())
-      .map((text) => text.trim())
-      .filter((text) => text && text !== "-")
-      .filter(Boolean);
-    if (!cardTexts.length) {
+    const cardEntries = items
+      .map((item) => {
+        const text = (item.naturalVersion || item.sourceText || "").trim();
+        if (!text || text === "-") return null;
+        return {
+          text,
+          keyPhrases: this.normalizeItemKeyPhrases(item.keyPhrases),
+        };
+      })
+      .filter((entry): entry is { text: string; keyPhrases: string[] } => !!entry);
+    if (!cardEntries.length) {
       window.alert(t("daily_capture.practice_selected_empty"));
       return;
     }
-    this.startPracticeWithText(cardTexts.join("\n"), undefined, undefined, undefined, []);
+    const cardChunks = cardEntries.map((entry) => entry.text);
+    const cardPhraseChunks = cardEntries.map((entry) => entry.keyPhrases);
+    this.startPracticeWithText(cardChunks.join("\n"), cardChunks, cardPhraseChunks, undefined, []);
   }
 
   private startPracticeWithText(

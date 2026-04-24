@@ -19,16 +19,6 @@ export interface AppTabConfig {
 export function getAppTabs(): AppTabConfig[] {
   return [
     {
-      id: "daily-capture",
-      label: t("tab.daily_capture.label"),
-      navHint: t("tab.daily_capture.nav_hint"),
-      title: t("tab.daily_capture.title"),
-      description: t("tab.daily_capture.description"),
-      calendarTitle: t("tab.daily_capture.calendar_title"),
-      historyTitle: t("tab.daily_capture.history_title"),
-      workspaceTitle: t("tab.daily_capture.workspace_title"),
-    },
-    {
       id: "oio-chat",
       label: t("tab.oio_chat.label"),
       navHint: t("tab.oio_chat.nav_hint"),
@@ -37,6 +27,16 @@ export function getAppTabs(): AppTabConfig[] {
       calendarTitle: t("tab.oio_chat.calendar_title"),
       historyTitle: t("tab.oio_chat.history_title"),
       workspaceTitle: t("tab.oio_chat.workspace_title"),
+    },
+    {
+      id: "daily-capture",
+      label: t("tab.daily_capture.label"),
+      navHint: t("tab.daily_capture.nav_hint"),
+      title: t("tab.daily_capture.title"),
+      description: t("tab.daily_capture.description"),
+      calendarTitle: t("tab.daily_capture.calendar_title"),
+      historyTitle: t("tab.daily_capture.history_title"),
+      workspaceTitle: t("tab.daily_capture.workspace_title"),
     },
     {
       id: "super-dict",

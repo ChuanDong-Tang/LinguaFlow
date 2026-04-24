@@ -296,7 +296,7 @@ export class AppShellController {
       this.authMenuSignOutEl.textContent = t("account.sign_out");
     }
     if (this.dailyHeroKickerEl) {
-      this.dailyHeroKickerEl.textContent = t("tab.daily_capture.title");
+      this.dailyHeroKickerEl.textContent = "OIO Partice";
     }
     if (this.dailyHeroTitleEl) {
       this.dailyHeroTitleEl.textContent = t("tab.daily_capture.hero_title");
@@ -323,7 +323,7 @@ export class AppShellController {
       this.dailyLegendLevel3El.textContent = t("daily_capture.legend_level_3");
     }
     if (this.superDictHeroKickerEl) {
-      this.superDictHeroKickerEl.textContent = t("tab.super_dict.title");
+      this.superDictHeroKickerEl.textContent = "Super Dict";
     }
     if (this.superDictHeroTitleEl) {
       this.superDictHeroTitleEl.textContent = t("tab.super_dict.title");

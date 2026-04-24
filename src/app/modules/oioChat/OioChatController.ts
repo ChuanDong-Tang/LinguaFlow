@@ -72,6 +72,8 @@ export class OioChatController {
   private phraseVersionClockByTurn = new Map<string, number>();
   private pendingPhraseUpdates = new Map<string, ChatPhraseUpdatePayload>();
   private phraseAddButtonEl: HTMLButtonElement | null = null;
+  private floatingNoticeEl: HTMLDivElement | null = null;
+  private floatingNoticeTimer: number | null = null;
 
   constructor({
     root = document.querySelector<HTMLElement>("#tab-panel-oio-chat"),
@@ -244,6 +246,13 @@ export class OioChatController {
       if (speakBtn) {
         const encodedText = speakBtn.dataset.oioChatSpeak?.trim() ?? "";
         await this.playEncodedText(encodedText);
+        return;
+      }
+      const copyBtn = target?.closest<HTMLButtonElement>("[data-copy-turn-id]");
+      if (copyBtn) {
+        const turnId = copyBtn.dataset.copyTurnId?.trim() ?? "";
+        if (!turnId) return;
+        await this.copyTurnPair(turnId);
         return;
       }
       const captureBtn = target?.closest<HTMLButtonElement>("[data-refine-turn-id]");
@@ -586,13 +595,28 @@ export class OioChatController {
           ? `<div class="chat-highlight-list">${turn.keyPhrases.map((item) => this.renderPhraseChip(item, turn.id, !turn.capturedAt)).join("")}</div>`
           : "";
 
+        const copyAction = turn.naturalVersion?.trim()
+          ? `
+            <button
+              type="button"
+              class="secondary chat-icon-btn"
+              data-copy-turn-id="${escapeHtml(turn.id)}"
+              aria-label="${escapeHtml(t("oio_chat.copy_rewrite_pair"))}"
+              title="${escapeHtml(t("oio_chat.copy_rewrite_pair"))}"
+            >
+              <svg viewBox="0 0 24 24" class="chat-icon-btn-svg" aria-hidden="true">
+                <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H10V7h9v14z" fill="currentColor"></path>
+              </svg>
+            </button>
+          `
+          : "";
         const saveAction = turn.naturalVersion?.trim()
           ? turn.capturedAt
             ? `<button type="button" class="secondary" disabled>${escapeHtml(t("oio_chat.saved_to"))} ${escapeHtml(formatKeyToSlashDisplay(turn.capturedDateKey ?? this.activeSession?.dateKey ?? dateToLocalKey(new Date())))}</button>`
             : `<button type="button" class="secondary" data-refine-turn-id="${escapeHtml(turn.id)}">${escapeHtml(t("oio_chat.save_to_daily_capture"))}</button>`
           : "";
-        const actionBlock = saveAction
-          ? `<div class="chat-assistant-actions">${saveAction}</div>`
+        const actionBlock = copyAction || saveAction
+          ? `<div class="chat-assistant-actions">${copyAction}${saveAction}</div>`
           : "";
 
         const mainText = turn.practiceKind === "question" && turn.reply?.trim()
@@ -1114,6 +1138,64 @@ export class OioChatController {
         ? t("oio_chat.already_saved_for_date")
         : `${t("oio_chat.saved_to")} ${formatKeyToSlashDisplay(session.dateKey)}.`,
     );
+  }
+
+  private async copyTurnPair(turnId: string): Promise<void> {
+    const session = this.activeSession;
+    if (!session) return;
+    if (!navigator.clipboard?.writeText) return;
+
+    const turnIndex = session.turns.findIndex((item) => item.id === turnId && item.role === "assistant");
+    const turn = turnIndex >= 0 ? session.turns[turnIndex] : null;
+    const rewritten = (turn?.naturalVersion ?? "").trim();
+    if (!turn || !rewritten) return;
+
+    const sourceText = this.findNearestUserSourceText(session, turnIndex).trim();
+    if (!sourceText) return;
+
+    const payload = `${sourceText}\n\n---\n\n${rewritten}`;
+    try {
+      await navigator.clipboard.writeText(payload);
+      this.showFloatingNotice(t("oio_chat.copy_success"));
+    } catch {
+      // copy failure is intentionally silent
+    }
+  }
+
+  private showFloatingNotice(message: string): void {
+    const text = message.trim();
+    if (!text) return;
+    if (!this.floatingNoticeEl) {
+      const el = document.createElement("div");
+      el.setAttribute("role", "status");
+      el.setAttribute("aria-live", "polite");
+      el.style.position = "fixed";
+      el.style.top = "20px";
+      el.style.right = "20px";
+      el.style.zIndex = "9999";
+      el.style.maxWidth = "320px";
+      el.style.padding = "10px 12px";
+      el.style.borderRadius = "10px";
+      el.style.background = "rgba(17,24,39,0.9)";
+      el.style.color = "#fff";
+      el.style.fontSize = "14px";
+      el.style.lineHeight = "1.4";
+      el.style.boxShadow = "0 8px 24px rgba(0,0,0,0.28)";
+      el.style.pointerEvents = "none";
+      document.body.appendChild(el);
+      this.floatingNoticeEl = el;
+    }
+    this.floatingNoticeEl.textContent = text;
+    this.floatingNoticeEl.hidden = false;
+    if (this.floatingNoticeTimer !== null) {
+      window.clearTimeout(this.floatingNoticeTimer);
+    }
+    this.floatingNoticeTimer = window.setTimeout(() => {
+      if (this.floatingNoticeEl) {
+        this.floatingNoticeEl.hidden = true;
+      }
+      this.floatingNoticeTimer = null;
+    }, 1800);
   }
 
   private findNearestUserSourceText(session: OioChatSession, assistantTurnIndex: number): string {

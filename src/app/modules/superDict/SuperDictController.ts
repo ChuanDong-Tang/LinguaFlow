@@ -5,6 +5,7 @@ import { deleteLookupHistory, listLookupHistory, saveLookupHistory, type SuperDi
 import { QUICK_ADD_EVENT } from "./SuperDictQuickAddController";
 
 export class SuperDictController {
+  private static readonly HISTORY_ENABLED = false;
   private readonly root: HTMLElement | null;
   private readonly formEl: HTMLFormElement | null;
   private readonly inputEl: HTMLInputElement | null;
@@ -29,7 +30,13 @@ export class SuperDictController {
     if (!this.root || !this.inputEl) return;
 
     this.applyLinks("");
-    await this.loadHistory();
+    if (SuperDictController.HISTORY_ENABLED) {
+      await this.loadHistory();
+    } else {
+      this.records = [];
+      this.renderHistory();
+      this.setHistoryOpen(false);
+    }
     getI18n().subscribe(() => {
       this.renderHistory();
     });
@@ -44,10 +51,13 @@ export class SuperDictController {
 
       this.setHistoryOpen(false);
       this.applyLinks(query);
-      await this.saveHistory(query);
+      if (SuperDictController.HISTORY_ENABLED) {
+        await this.saveHistory(query);
+      }
     });
 
     this.inputEl?.addEventListener("focus", () => {
+      if (!SuperDictController.HISTORY_ENABLED) return;
       this.setHistoryOpen(this.records.length > 0);
     });
 
@@ -81,7 +91,7 @@ export class SuperDictController {
 
       const query = normalizeLookupQuery(this.inputEl?.value ?? "");
       this.applyLinks(query);
-      if (query) {
+      if (SuperDictController.HISTORY_ENABLED && query) {
         void this.saveHistory(query);
         this.setHistoryOpen(false);
       }
@@ -104,7 +114,9 @@ export class SuperDictController {
         this.inputEl.value = query;
       }
       this.applyLinks(query);
-      void this.saveHistory(query);
+      if (SuperDictController.HISTORY_ENABLED) {
+        void this.saveHistory(query);
+      }
       this.setHistoryOpen(false);
     });
   }
@@ -151,6 +163,12 @@ export class SuperDictController {
 
   private renderHistory(): void {
     if (!this.historyEl) return;
+    if (!SuperDictController.HISTORY_ENABLED) {
+      this.historyEl.hidden = true;
+      this.historyEl.innerHTML = "";
+      this.setHistoryOpen(false);
+      return;
+    }
 
     const hasRecords = this.records.length > 0;
     this.historyEl.hidden = !hasRecords;
@@ -201,6 +219,10 @@ export class SuperDictController {
   private setHistoryOpen(open: boolean): void {
     this.historyOpen = open;
     if (this.historyPanelEl) {
+      if (!SuperDictController.HISTORY_ENABLED) {
+        this.historyPanelEl.hidden = true;
+        return;
+      }
       this.historyPanelEl.hidden = !open || this.records.length === 0;
     }
   }
