@@ -58,6 +58,12 @@ class AudioFacade {
     return provider.speak(text);
   }
 
+  async prefetchTexts(texts: string[]): Promise<boolean> {
+    const provider = this.requireActiveProvider();
+    if (typeof provider.prefetchTexts !== "function") return true;
+    return provider.prefetchTexts(texts);
+  }
+
   stop(): void {
     for (const provider of this.providers.values()) {
       provider.stop();

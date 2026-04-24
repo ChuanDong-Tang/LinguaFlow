@@ -58,6 +58,15 @@ export class WebSpeechSynthesizer {
     });
   }
 
+  async prewarm(): Promise<void> {
+    if (!this.isSupported()) return;
+    try {
+      window.speechSynthesis.getVoices();
+    } catch {
+      // ignore prewarm failures
+    }
+  }
+
   private pickEnglishVoice(): SpeechSynthesisVoice | null {
     if (!(typeof window !== "undefined" && "speechSynthesis" in window)) return null;
     const voices = window.speechSynthesis.getVoices();

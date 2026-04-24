@@ -9,6 +9,7 @@ export interface AudioTextProvider {
   activate?(options?: AudioProviderSwitchOptions): Promise<boolean> | boolean;
   deactivate?(): void;
   speak(text: string): Promise<boolean>;
+  prefetchTexts?(texts: string[]): Promise<boolean>;
   stop(): void;
   pause?(): boolean;
   resume?(): boolean;
@@ -33,6 +34,10 @@ export abstract class AudioTextProviderBase implements AudioTextProvider {
 
   abstract speak(text: string): Promise<boolean>;
   abstract stop(): void;
+
+  async prefetchTexts(_texts: string[]): Promise<boolean> {
+    return true;
+  }
 
   pause(): boolean {
     return false;

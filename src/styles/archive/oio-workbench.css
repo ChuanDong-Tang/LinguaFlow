@@ -2195,8 +2195,8 @@ kbd {
 }
 
 .cue-row--active {
-  background: var(--oio-surface-2);
-  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.45);
+  background: transparent;
+  box-shadow: none;
 }
 
 .cue-reference {
@@ -2214,10 +2214,6 @@ kbd {
 
 .cue-reference:hover {
   background: transparent;
-}
-
-.cue-row--active .cue-reference {
-  color: var(--oio-text);
 }
 
 .cue-keyphrase-highlight {
@@ -2350,7 +2346,7 @@ kbd {
 .cue-proofread .pr-ref-line {
   font-size: 0.875rem;
   line-height: 1.85;
-  color: var(--oio-text);
+  color: var(--oio-text-secondary);
   word-break: break-word;
 }
 
@@ -2396,7 +2392,7 @@ kbd {
   text-align: left;
   font-size: 0.875rem;
   line-height: 1.85;
-  color: var(--oio-text);
+  color: var(--oio-text-secondary);
 }
 
 .fb-text {
@@ -2465,6 +2461,12 @@ kbd {
 
 .fb-punct {
   display: inline;
+  color: inherit;
+}
+
+.cue-row--active .cue-reference,
+.cue-row--active .cue-proofread .pr-ref-line,
+.cue-row--active .cue-fillblank .fb-flow {
   color: var(--oio-text);
 }
 

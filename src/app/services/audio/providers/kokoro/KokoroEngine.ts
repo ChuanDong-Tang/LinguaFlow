@@ -124,6 +124,47 @@ export class KokoroEngine {
     }
   }
 
+  async prefetchTexts(texts: string[]): Promise<boolean> {
+    if (this.unavailable || typeof window === "undefined") return false;
+    const sourceTexts = Array.isArray(texts) ? texts : [];
+    const normalizedLines = sourceTexts
+      .map((text) => String(text ?? "").trim())
+      .filter(Boolean);
+    if (!normalizedLines.length) return true;
+    try {
+      await this.prewarm(KOKORO_LOAD_TIMEOUT_MS);
+      if (!this.workers.length) {
+        await this.ensureWorkersWithTimeout(KOKORO_SPEAK_INIT_TIMEOUT_MS, KOKORO_PLAYBACK_WORKER_COUNT);
+      }
+      const dtype = this.activeDtype ?? this.pickDtype();
+      const voiceId = getSelectedKokoroVoiceId();
+      const chunks = Array.from(
+        new Set(
+          normalizedLines.flatMap((line) => this.splitForKokoro(line)),
+        ),
+      );
+      for (const chunk of chunks) {
+        const cacheKey = await this.buildCacheKey(chunk, dtype, voiceId);
+        const cached = await this.audioCache.get(cacheKey);
+        if (cached) continue;
+        const worker = this.workers[0];
+        if (!worker) return false;
+        const generated = await worker.generate(chunk, voiceId);
+        const blob = this.float32ToWavBlob(generated.audio, generated.sampleRate);
+        await this.audioCache.set(cacheKey, blob);
+      }
+      return true;
+    } catch (error) {
+      emitTtsDebug({
+        level: "warn",
+        stage: "kokoro_prefetch",
+        message: "Kokoro prefetch failed.",
+        meta: { error: String((error as Error)?.message ?? error ?? "unknown") },
+      });
+      return false;
+    }
+  }
+
   private stopCurrentAudio(): void {
     if (this.currentAudio) {
       this.currentAudio.pause();

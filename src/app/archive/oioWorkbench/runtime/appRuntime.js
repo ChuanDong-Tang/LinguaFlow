@@ -349,6 +349,7 @@ function toggleMainPlayerPlayback() {
   v.pause();
 }
 function playCueInline(e) {
+  v.pause();
   practiceAudioFlow.playCueInline(e);
 }
 function zr() {
@@ -680,7 +681,7 @@ function Tr() {
       (r.classList.remove(`cue-reference--hidden`),
         i.classList.remove(`cue-input--visible`),
         a.classList.remove(`cue-peek--visible`),
-        c?.classList.remove(`cue-inline-play--hidden`),
+        c?.classList.add(`cue-inline-play--hidden`),
         o?.classList.add(`cue-proofread--hidden`),
         s?.classList.add(`cue-fillblank--hidden`));
       return;
@@ -688,10 +689,9 @@ function Tr() {
     (r.classList.add(`cue-reference--hidden`),
       o?.classList.toggle(`cue-proofread--hidden`, D !== `proofread`),
       s?.classList.toggle(`cue-fillblank--hidden`, D !== `fillblank`));
-    let l = D === `dictation`,
-      u = D === `proofread`;
+    let l = D === `dictation`;
     (i.classList.toggle(`cue-input--visible`, l),
-      c?.classList.toggle(`cue-inline-play--hidden`, u));
+      c?.classList.remove(`cue-inline-play--hidden`));
   }),
     e || Z(),
     or(),
@@ -735,7 +735,7 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
     e.forEach((e, t) => {
       let n = document.createElement(`div`);
       ((n.className = `cue-row`), (n.dataset.idx = String(t)));
-    let i = document.createElement(`p`);
+      let i = document.createElement(`p`);
       ((i.className = `cue cue-reference`),
         (i.innerHTML = renderTextWithKeyPhraseHighlight(e.text, pe[t] ?? [])),
         i.addEventListener(`click`, (e) => {
@@ -770,7 +770,8 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
               ((practicePageIndex = ue[t] ?? t),
               Rr(),
               (H = t),
-              B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t))));
+              B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t)),
+              (D === `proofread` || D === `fillblank`) && playCueInline(t)));
         }),
         y.appendChild(n),
         B.push(n),
@@ -925,7 +926,13 @@ function syncActiveCueByCurrentTime(e) {
       !y.contains(t) ||
       (e.stopPropagation(),
       t.classList.toggle(`pr-word--selected`),
-      D === `proofread` && un());
+      D === `proofread` &&
+        ((practicePageIndex = ue[Number(t.dataset.si)] ?? Number(t.dataset.si)),
+        Rr(),
+        (H = Number(t.dataset.si)),
+        B.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === Number(t.dataset.si))),
+        un(),
+        playCueInline(Number(t.dataset.si))));
   }),
   lt?.addEventListener(`click`, () => {
     Mr().catch((e) => {
@@ -987,7 +994,11 @@ function Br() {
         n = e?.dataset.idx == null ? -1 : Number(e.dataset.idx);
       if (n < 0) return;
       (practicePageIndex = ue[n] ?? n), Rr();
-      n !== Y(v.currentTime) && Qn(n);
+      (H = n),
+        B.forEach((e, t) => {
+          e.classList.toggle(`cue-row--active`, t === n);
+        }),
+        playCueInline(n);
       return;
     }
     if (t?.classList?.contains(`cue-input`) && D === `dictation`) {
@@ -998,7 +1009,8 @@ function Br() {
       (H = n),
         B.forEach((e, t) => {
           e.classList.toggle(`cue-row--active`, t === n);
-        });
+        }),
+        playCueInline(n);
     }
   }),
   document.addEventListener(`keydown`, (e) => {
@@ -1152,10 +1164,27 @@ function Br() {
         (R = null),
         Ar(o, { cueCardIndexList: a, cardCount: Math.max(1, r.length) }),
         syncPlayerTransportUi());
-      let l = getAudioFacade().getActiveProviderId() === `kokoro` ? `Kokoro（失败时自动回退 Web Speech）` : `Web Speech`;
-      W(
-        `完成。共 ${r.length} 张卡片，${t.length} 句。点句播放将使用当前语音源：${l}。`,
-      );
+      let l = getAudioFacade(),
+        c = l.getActiveProviderId(),
+        d = [],
+        h = [],
+        p = new Set();
+      t.forEach((e) => {
+        let n = String(e ?? ``).trim();
+        if (!n || p.has(n)) return;
+        p.add(n), d.push(n);
+      });
+      if (d.length) {
+        (W(`正在预加载语音（${d.length} 句）...`), (h = [c]));
+        let e = await l.prefetchTexts(d);
+        if (!e && c === `kokoro`) {
+          (W(`Kokoro 预加载失败，正在切换到 Web Speech...`),
+            (await l.switchProvider(`web`)) && ((c = l.getActiveProviderId()), h.push(c), (e = await l.prefetchTexts(d))));
+        }
+      }
+      let g = l.getActiveProviderId() === `kokoro` ? `Kokoro` : `Web Speech`,
+        m = h.length > 1 ? `（本次已自动回退到 Web Speech）` : ``;
+      W(`完成。共 ${r.length} 张卡片，${t.length} 句。当前语音源：${g}${m}。`);
     } catch (e) {
       (console.error(e),
         W(
