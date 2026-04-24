@@ -5,10 +5,12 @@ import { getI18n, t, type Locale } from "../i18n/i18n";
 import {
   TTS_DEBUG_EVENT,
   type TtsDebugEventDetail,
+} from "../services/audio/providers/ttsDebug";
+import {
   getSelectedKokoroVoiceId,
   listKokoroVoiceIds,
   setSelectedKokoroVoiceId,
-} from "../services/audio/tts/browserTtsService";
+} from "../services/audio/providers/ttsPreferences";
 import { getAudioFacade } from "../services/audio/audioFacade";
 
 const KOKORO_SWITCH_TIMEOUT_MS = 45_000;

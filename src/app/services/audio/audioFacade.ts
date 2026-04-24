@@ -1,60 +1,7 @@
-import {
-  getBrowserTtsService,
-  getSelectedTtsPlaybackSource,
-  setSelectedTtsPlaybackSource,
-} from "./tts/browserTtsService";
-
-export type AudioTextProviderId = string;
-export type AudioProviderSwitchOptions = {
-  warmupTimeoutMs?: number;
-};
-
-export interface AudioTextProvider {
-  id: AudioTextProviderId;
-  activate?(options?: AudioProviderSwitchOptions): Promise<boolean> | boolean;
-  deactivate?(): void;
-  speak(text: string): Promise<boolean>;
-  stop(): void;
-  pause?(): boolean;
-  resume?(): boolean;
-  isPaused?(): boolean;
-  setPlaybackRate?(rate: number): number | void;
-}
-
-export abstract class AudioTextProviderBase implements AudioTextProvider {
-  readonly id: AudioTextProviderId;
-
-  protected constructor(id: AudioTextProviderId) {
-    this.id = id;
-  }
-
-  activate(_options?: AudioProviderSwitchOptions): Promise<boolean> | boolean {
-    return true;
-  }
-
-  deactivate(): void {
-    // optional
-  }
-
-  abstract speak(text: string): Promise<boolean>;
-  abstract stop(): void;
-
-  pause(): boolean {
-    return false;
-  }
-
-  resume(): boolean {
-    return false;
-  }
-
-  isPaused(): boolean {
-    return false;
-  }
-
-  setPlaybackRate(rate: number): number {
-    return Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1;
-  }
-}
+import { KokoroAudioProvider } from "./providers/kokoro/KokoroAudioProvider";
+import { getSelectedTtsPlaybackSource, setSelectedTtsPlaybackSource } from "./providers/ttsPreferences";
+import { WebSpeechProvider } from "./providers/webspeech/WebSpeechProvider";
+import type { AudioProviderSwitchOptions, AudioTextProvider, AudioTextProviderId } from "./types";
 
 class AudioFacade {
   private readonly providers = new Map<AudioTextProviderId, AudioTextProvider>();
@@ -149,60 +96,8 @@ class AudioFacade {
   }
 }
 
-class WebSpeechAudioProvider extends AudioTextProviderBase {
-  private readonly browserTtsService = getBrowserTtsService();
-
-  constructor() {
-    super("web");
-  }
-
-  activate(): boolean {
-    this.browserTtsService.setPlaybackSource("web");
-    return true;
-  }
-
-  async speak(text: string): Promise<boolean> {
-    this.browserTtsService.setPlaybackSource("web");
-    return this.browserTtsService.speak(text);
-  }
-
-  stop(): void {
-    this.browserTtsService.stop();
-  }
-
-  setPlaybackRate(rate: number): number {
-    return this.browserTtsService.setPlaybackRate(rate);
-  }
-}
-
-class KokoroAudioProvider extends AudioTextProviderBase {
-  private readonly browserTtsService = getBrowserTtsService();
-
-  constructor() {
-    super("kokoro");
-  }
-
-  async activate(options?: AudioProviderSwitchOptions): Promise<boolean> {
-    const timeoutMs = Number.isFinite(options?.warmupTimeoutMs) ? Number(options?.warmupTimeoutMs) : 45_000;
-    return this.browserTtsService.switchToKokoroWithWarmup(timeoutMs);
-  }
-
-  async speak(text: string): Promise<boolean> {
-    this.browserTtsService.setPlaybackSource("kokoro");
-    return this.browserTtsService.speak(text);
-  }
-
-  stop(): void {
-    this.browserTtsService.stop();
-  }
-
-  setPlaybackRate(rate: number): number {
-    return this.browserTtsService.setPlaybackRate(rate);
-  }
-}
-
 function createDefaultProviders(): AudioTextProvider[] {
-  return [new WebSpeechAudioProvider(), new KokoroAudioProvider()];
+  return [new WebSpeechProvider(), new KokoroAudioProvider()];
 }
 
 const audioFacade = new AudioFacade();
@@ -229,3 +124,5 @@ export function setActiveAudioTextProvider(id: AudioTextProviderId): boolean {
 export async function switchActiveAudioTextProvider(id: AudioTextProviderId, options?: AudioProviderSwitchOptions): Promise<boolean> {
   return audioFacade.switchProvider(id, options);
 }
+
+export type { AudioProviderSwitchOptions, AudioTextProvider, AudioTextProviderId } from "./types";

@@ -18,7 +18,7 @@ import {
 import { getAccessRepository } from "../../infrastructure/repositories";
 import { getI18n, t } from "../../i18n/i18n";
 import { RewriteApiError } from "../../services/rewrite/rewriteClient";
-import { splitTextForSpeech } from "../../services/audio/tts/browserTtsService";
+import { splitTextForSpeech } from "../../services/audio/providers/webspeech/splitTextForSpeech";
 import { getAudioFacade } from "../../services/audio/audioFacade";
 import { getAuthService } from "../../services/auth/authService";
 import { saveTurnToDailyCapture } from "./oioChatCapture";

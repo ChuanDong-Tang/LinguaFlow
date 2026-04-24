@@ -319,7 +319,7 @@ function Zn(e) {
     ((v.currentTime = z[e].start),
     b?.checked && (U = e),
     (H = -1),
-    jr(v.currentTime),
+    syncActiveCueByCurrentTime(v.currentTime),
     Xn(e));
 }
 function Qn(e) {
@@ -328,7 +328,7 @@ function Qn(e) {
 function clearSpeechLoopTimer() {
   practiceAudioFlow.clearLoopTimer();
 }
-function stopSpeechPlayback({ invalidateLoop: e = !0 } = {}) {
+function stopPracticeSpeechPlayback({ invalidateLoop: e = !0 } = {}) {
   practiceAudioFlow.stop({ invalidateLoop: e });
 }
 function $n(e) {
@@ -337,17 +337,17 @@ function $n(e) {
   for (let e of t) if (!e.readOnly) return e;
   return t[0] ?? null;
 }
-function tr() {
+function seekToNextCue() {
   if (!z.length || !v.src) return;
   let e = Y(v.currentTime);
   Qn(Math.min(z.length - 1, e + 1));
 }
-function nr() {
+function seekToPreviousCue() {
   if (!z.length || !v.src) return;
   let e = Y(v.currentTime);
   Qn(Math.max(0, e - 1));
 }
-function rr() {
+function toggleMainPlayerPlayback() {
   if (!v.src) return;
   if (v.paused) {
     v.play().catch(() => {});
@@ -393,10 +393,10 @@ function qr(e, { focusDictation: t = !1 } = {}) {
       t && V[n]?.focus({ preventScroll: !0 });
   }
 }
-function X() {
+function syncPlayerTransportUi() {
   G.syncPlayerTransport();
 }
-function ir() {
+function resetPlayerTransportUi() {
   G.resetPlayerTransportOptions();
 }
 function Z() {
@@ -778,7 +778,7 @@ function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
     (D = `subtitles`),
     Q());
 }
-function jr(e) {
+function syncActiveCueByCurrentTime(e) {
   if (!z.length || !B.length) return;
   let t = -1;
   if (D === `fillblank` && v.paused && I >= 0 && I < z.length) {
@@ -811,7 +811,7 @@ function jr(e) {
       return;
     }
   }
-  ((!v.paused || e > 0) && jr(e), X());
+  ((!v.paused || e > 0) && syncActiveCueByCurrentTime(e), syncPlayerTransportUi());
 }),
   v.addEventListener(`play`, () => {
     if (D === `fillblank` && z.length) {
@@ -822,26 +822,26 @@ function jr(e) {
         I = n && e + 1e-4 >= n.end - 0.12 ? t : Yn(e);
       } else I = Yn(e);
     }
-    (jr(v.currentTime), X());
+    (syncActiveCueByCurrentTime(v.currentTime), syncPlayerTransportUi());
   }),
   v.addEventListener(`pause`, () => {
-    (stopSpeechPlayback(), X());
+    (stopPracticeSpeechPlayback(), syncPlayerTransportUi());
   }),
   v.addEventListener(`loadedmetadata`, () => {
-    X();
+    syncPlayerTransportUi();
   }),
   v.addEventListener(`durationchange`, () => {
-    X();
+    syncPlayerTransportUi();
   }),
   v.addEventListener(`ended`, () => {
-    (stopSpeechPlayback(), X());
+    (stopPracticeSpeechPlayback(), syncPlayerTransportUi());
   }),
   v.addEventListener(`seeked`, () => {
     (D === `fillblank` && z.length && (I = Yn(v.currentTime)),
       (H = -1),
-      jr(v.currentTime),
-      (v.paused || !z.length) && stopSpeechPlayback(),
-      X());
+      syncActiveCueByCurrentTime(v.currentTime),
+      (v.paused || !z.length) && stopPracticeSpeechPlayback(),
+      syncPlayerTransportUi());
   }),
   b?.addEventListener(`change`, () => {
     practiceAudioFlow.onCueLoopToggleChanged(!!b?.checked);
@@ -850,13 +850,13 @@ function jr(e) {
     v.loop = !!$e.checked;
   }),
   et?.addEventListener(`click`, () => {
-    rr();
+    toggleMainPlayerPlayback();
   }),
   at?.addEventListener(`click`, () => {
-    nr();
+    seekToPreviousCue();
   }),
   ot?.addEventListener(`click`, () => {
-    tr();
+    seekToNextCue();
   }),
   it?.addEventListener(`change`, () => {
     let e = parseFloat(it.value);
@@ -872,7 +872,7 @@ function jr(e) {
     G.setSeekDragging(!0);
   }),
   rt?.addEventListener(`pointerup`, () => {
-    (G.setSeekDragging(!1), X());
+    (G.setSeekDragging(!1), syncPlayerTransportUi());
   }),
   rt?.addEventListener(`pointercancel`, () => {
     G.setSeekDragging(!1);
@@ -1040,17 +1040,17 @@ function Br() {
       if (e.code === `ArrowUp`) {
         if (!e.shiftKey) return;
         if (!v.src) return;
-        (e.preventDefault(), e.stopPropagation(), rr());
+        (e.preventDefault(), e.stopPropagation(), toggleMainPlayerPlayback());
         return;
       }
       if (e.code === `ArrowLeft`) {
         if (!z.length || !v.src) return;
-        (e.preventDefault(), e.stopPropagation(), nr());
+        (e.preventDefault(), e.stopPropagation(), seekToPreviousCue());
         return;
       }
       if (e.code === `ArrowRight`) {
         if (!z.length || !v.src) return;
-        (e.preventDefault(), e.stopPropagation(), tr());
+        (e.preventDefault(), e.stopPropagation(), seekToNextCue());
         return;
       }
     }
@@ -1058,12 +1058,12 @@ function Br() {
       a = e.ctrlKey || e.altKey;
     if (e.code === `Space`) {
       if (Me(e.target) || t || n || (i && !a) || !v.src) return;
-      (e.preventDefault(), rr());
+      (e.preventDefault(), toggleMainPlayerPlayback());
       return;
     }
     if (e.code === `ArrowRight` || e.code === `ArrowLeft`) {
       if (t || n || (i && !a) || Ne(e.target) || !z.length || !v.src) return;
-      (e.preventDefault(), e.code === `ArrowRight` ? tr() : nr());
+      (e.preventDefault(), e.code === `ArrowRight` ? seekToNextCue() : seekToPreviousCue());
     }
   }),
   Je.addEventListener(`click`, async () => {
@@ -1133,7 +1133,7 @@ function Br() {
         (H = -1),
         (U = 0),
         b && (b.checked = !1),
-        ir(),
+        resetPlayerTransportUi(),
         (D = `subtitles`),
         (O = {}),
         (k = {}),
@@ -1142,7 +1142,7 @@ function Br() {
         y.classList.remove(`oio-fillblank-reviewed`),
         (y.innerHTML = ``),
         v.pause(),
-        stopSpeechPlayback(),
+        stopPracticeSpeechPlayback(),
         tn(),
         v.removeAttribute(`src`),
         v.load());
@@ -1165,7 +1165,7 @@ function Br() {
         (v.src = R),
         v.load(),
         Ar(o, { cueCardIndexList: a, cardCount: Math.max(1, r.length) }),
-        X());
+        syncPlayerTransportUi());
       let l = getAudioFacade().getActiveProviderId() === `kokoro` ? `Kokoro（失败时自动回退 Web Speech）` : `Web Speech`;
       W(
         `完成。共 ${r.length} 张卡片，${t.length} 句。点句播放将使用当前语音源：${l}。`,
@@ -1205,7 +1205,7 @@ function Br() {
       (H = -1),
       (U = 0),
       b && (b.checked = !1),
-      ir(),
+      resetPlayerTransportUi(),
       (D = `subtitles`),
       (O = {}),
       (k = {}),
@@ -1215,23 +1215,23 @@ function Br() {
       y.classList.remove(`oio-fillblank-reviewed`),
       (y.innerHTML = ``),
       v.pause(),
-      stopSpeechPlayback(),
+      stopPracticeSpeechPlayback(),
       tn(),
       (Jt = null),
       v.removeAttribute(`src`),
       v.load(),
-      X(),
+      syncPlayerTransportUi(),
       Q());
   }),
   document.addEventListener(`app-tab-change`, (e) => {
     let t = e?.detail?.tabId;
     if (t === `daily-capture`) return;
     v.pause();
-    stopSpeechPlayback();
+    stopPracticeSpeechPlayback();
     clearSpeechLoopTimer();
   }),
   Q(),
-  X());
+  syncPlayerTransportUi());
 (($t = new u({
   getCueListMode: () => D,
   getPlaybackCues: () => z,

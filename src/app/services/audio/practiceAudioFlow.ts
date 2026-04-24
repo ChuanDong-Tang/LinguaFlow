@@ -3,8 +3,8 @@ import { getAudioFacade } from "./audioFacade";
 type CueLike = { text?: string | null } | null | undefined;
 
 type PlayCueOptions = {
-  fromLoop?: boolean;
-  loopToken?: number | null;
+  triggeredByLoop?: boolean;
+  requestToken?: number | null;
 };
 
 export type PracticeAudioFlowDeps = {
@@ -28,35 +28,35 @@ export type PracticeAudioFlow = {
 export function createPracticeAudioFlow(deps: PracticeAudioFlowDeps): PracticeAudioFlow {
   const audio = getAudioFacade();
   let activeCueIndex = -1;
-  let speechLoopToken = 0;
-  let speechLoopTimer: number | null = null;
+  let loopGeneration = 0;
+  let loopTimerId: number | null = null;
 
   const clearLoopTimer = (): void => {
-    if (speechLoopTimer === null) return;
-    window.clearTimeout(speechLoopTimer);
-    speechLoopTimer = null;
+    if (loopTimerId === null) return;
+    window.clearTimeout(loopTimerId);
+    loopTimerId = null;
   };
 
   const stop = ({ invalidateLoop = true }: { invalidateLoop?: boolean } = {}): void => {
-    if (invalidateLoop) speechLoopToken += 1;
+    if (invalidateLoop) loopGeneration += 1;
     clearLoopTimer();
     audio.stop();
     activeCueIndex = -1;
     deps.onActiveCueChange?.(-1);
   };
 
-  const scheduleCueLoop = (loopToken: number, cueIndex: number): void => {
+  const scheduleCueLoop = (generation: number, cueIndex: number): void => {
     clearLoopTimer();
-    speechLoopTimer = window.setTimeout(() => {
+    loopTimerId = window.setTimeout(() => {
       if (!deps.isCueLoopEnabled()) return;
       if (deps.getLastPlayedCueIndex() < 0) return;
-      if (loopToken !== speechLoopToken) return;
+      if (generation !== loopGeneration) return;
       if (deps.getLastPlayedCueIndex() !== cueIndex) return;
-      playCue(cueIndex, { fromLoop: true, loopToken });
+      playCue(cueIndex, { triggeredByLoop: true, requestToken: generation });
     }, 120);
   };
 
-  const playCue = (cueIndex: number, { fromLoop = false, loopToken = null }: PlayCueOptions = {}): void => {
+  const playCue = (cueIndex: number, { triggeredByLoop = false, requestToken = null }: PlayCueOptions = {}): void => {
     const cue = deps.getCueByIndex(cueIndex);
     if (!cue) return;
 
@@ -66,8 +66,8 @@ export function createPracticeAudioFlow(deps: PracticeAudioFlowDeps): PracticeAu
     const rate = deps.getPlaybackRate();
     audio.setPlaybackRate(Number.isFinite(rate) ? rate : 1);
 
-    if (!fromLoop) speechLoopToken += 1;
-    const token = loopToken ?? speechLoopToken;
+    if (!triggeredByLoop) loopGeneration += 1;
+    const token = requestToken ?? loopGeneration;
 
     clearLoopTimer();
     stop({ invalidateLoop: false });
@@ -80,12 +80,12 @@ export function createPracticeAudioFlow(deps: PracticeAudioFlowDeps): PracticeAu
         if (!played) return;
         if (!deps.isCueLoopEnabled()) return;
         if (deps.getLastPlayedCueIndex() < 0) return;
-        if (token !== speechLoopToken) return;
+        if (token !== loopGeneration) return;
         if (deps.getLastPlayedCueIndex() !== cueIndex) return;
         scheduleCueLoop(token, cueIndex);
       })
       .finally(() => {
-        if (token !== speechLoopToken) return;
+        if (token !== loopGeneration) return;
         if (activeCueIndex !== cueIndex) return;
         activeCueIndex = -1;
         deps.onActiveCueChange?.(-1);
@@ -102,7 +102,7 @@ export function createPracticeAudioFlow(deps: PracticeAudioFlowDeps): PracticeAu
 
   const onCueLoopToggleChanged = (enabled: boolean): void => {
     if (enabled) return;
-    speechLoopToken += 1;
+    loopGeneration += 1;
     clearLoopTimer();
   };
 
