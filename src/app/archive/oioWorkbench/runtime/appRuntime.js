@@ -1,46 +1,23 @@
 import { getDomRefs as p } from "./domRefs.js";
 import { PlayerController as l } from "./PlayerController.js";
 import { PracticeController as u } from "./PracticeController.js";
-import { HistoryController as d } from "./HistoryController.js";
-import { HistoryExportController as _e } from "./HistoryExportController.js";
-import { ImportExportController as f } from "./ImportExportController.js";
-import { PEEK_MS as m, EXPORT_SCHEMA_VERSION as h, HISTORY_COLLAPSE_KEY as ee } from "./constants.js";
-import { saveSession as Re, listSessions as Be, getSession as Ve, deleteSession as He } from "../../../../historyIdb.js";
-import { toLocalDateKeyFromSaved as ie, savedAtIsoForImportedBasename as oe } from "../../../dateUtils.js";
+import { PEEK_MS as m } from "./constants.js";
 import {
-  splitSentences as ge,
   tokenizeWords as xe,
   normFillToken as Se,
   normFillAnswer as Ce,
   formatClockSec as we,
 } from "./textUtils.js";
 import {
-  isImportJsonFile as Te,
-  isImportAudioFile as Ee,
-  importFileStem as De,
-  buildImportPairs as Oe,
-  validateImportPayload as ke,
-  importOrphanNote as Ae,
   isTypingField as je,
   isSpaceReservedControl as Me,
   isArrowReservedControl as Ne,
-  nextExportBasename as nn,
-  downloadBlob as rn,
-  audioBlobToExtension as an,
   cloneBlankMap as sn,
-  makeHistoryPreview as dn,
-  rowMatchesHistoryExportFilter as hn,
-  fillBlankAccuracyTierFromPercent as Bt,
-  fillBlankTierLabelZh as Vt,
-  fingerprintBlankMap as Ht,
-  validFillBlankStateKeySetFromMap as Ut,
   eventTargetElement as Gt,
 } from "./runtimeUtils.js";
 import { getAudioFacade } from "../../../services/audio/audioFacade";
 import { createPracticeAudioFlow } from "../../../services/audio/practiceAudioFlow";
 import { renderTextWithKeyPhraseHighlight} from "../../../shared/keyPhraseHighlight";
-
-const LOCAL_HISTORY_ENABLED = false;
 
 var {
     textEl: Ue,
@@ -73,51 +50,13 @@ var {
     fillblankCheckBtn: lt,
     dictationCheckBtn: Et2,
     proofreadSaveBtn: dt,
-    historyExportBtn: ft,
-    historyExportDialog: pt,
-    historyExportFrom: mt,
-    historyExportTo: ht,
-    historyExportApplyRange: gt,
-    historyExportClearRange: _t,
-    historyExportSelectAll: x,
-    historyExportCount: vt,
-    historyExportList: S,
-    historyExportCancel: yt,
-    historyExportConfirm: bt,
-    oioImportSuccessDialog: xt,
-    oioImportSuccessBody: St,
-    oioImportSuccessOk: Ct,
-    oioImportReportDialog: wt,
-    oioImportReportTitle: Tt,
-    oioImportReportBody: Et,
-    oioImportReportOk: Dt,
-    fillblankUpdateDoneDialog: Ot,
-    fillblankUpdateDoneBody: kt,
-    fillblankUpdateDoneOk: At,
-    historySectionEl: jt,
-    historyCollapseBtn: Mt,
-    historyCollapsibleEl: Nt,
-    historyContextLabelEl: C,
-    historyGranularityEl: w,
-    historyNavRootEl: T,
-    historyEntriesRootEl: E,
-    historyMagicCardEl: Pt,
-    historyQuickJumpBtn: Ft,
-    historyJumpDialog: It,
-    historyJumpText: Lt,
-    historyJumpCancel: Rt,
-    historyJumpConfirm: zt,
   } = p(),
   D = `subtitles`,
   O = {},
   k = {},
   A = null;
 function Wt(e) {
-  let t = Ut(e),
-    n = {};
-  for (let [e, r] of Object.entries(k))
-    (r !== `pending` && r !== `wrong` && r !== `ok`) ||
-      (t.has(e) && (n[e] = r));
+  let n = {};
   for (let [t, r] of Object.entries(e)) {
     let e = Number(t);
     if (!Number.isFinite(e)) continue;
@@ -136,14 +75,7 @@ function Wt(e) {
   }
   k = n;
 }
-var qt = `month`,
-  j = null,
-  M = 0,
-  N = 0,
-  P = ``,
-  F = null,
-  I = -1,
-  L = ``,
+var I = -1,
   R = null,
   Jt = null,
   z = [],
@@ -197,48 +129,7 @@ var G = new l({
       H = e;
       for (let t = 0; t < B.length; t++) B[t].classList.toggle(`cue-row--active`, t === e);
     },
-  }),
-  K = {
-    initDateState: () => {},
-    syncJumpInput: () => {},
-    syncJumpConfirmState: () => {},
-    groupByLocalDate: () => new Map(),
-    getDayRows: () => [],
-    renderEntries: () => {},
-    renderToday: () => {},
-    renderWeek: () => {},
-    renderMonth: () => {},
-    renderAllNav: () => {},
-    openJumpDialog: () => {},
-    renderHistoryList: async () => {},
-    alignHistoryStateToGranularity: () => {},
-    ensureWeekSelectionInRange: () => {},
-    ensureMonthSelectionInMonth: () => {},
-    setGranularity: () => {},
-    shiftWeek: () => {},
-    shiftMonth: () => {},
-    selectDay: () => {},
-    setCalendarYear: () => {},
-    setCalendarMonth: () => {},
-    setCurrentHistoryEntryId: () => {},
-    getCurrentHistoryEntryId: () => null,
-    clearCurrentHistoryEntryId: () => {},
-    markSessionSaved: () => {},
-    handleJumpTextBlur: () => {},
-    applyJumpFromText: () => !1,
-  },
-  exportCtrl = {
-    wireEvents: () => {},
-    openDialog: async () => {},
-    renderFilteredList: () => {},
-    syncSelectAllState: () => {},
-    buildZip: async () => null,
-    downloadSingle: async () => {},
-  },
-  en = {
-    wirePracticePackImport: () => {},
-    processImportedFiles: async () => {},
-  };
+  });
 function tn() {
   ((R &&= (URL.revokeObjectURL(R), null)), (Jt = null));
 }
@@ -303,143 +194,6 @@ function ln(e, t) {
 function un() {
   O = on();
 }
-async function fn() {
-  if (!LOCAL_HISTORY_ENABLED) return null;
-  if (!z.length) return null;
-  let e = Jt;
-  if (!e && R)
-    try {
-      e = await (await fetch(R)).blob();
-    } catch {
-      return null;
-    }
-  if (!e) return null;
-  let t = nn(),
-    n = Pn(),
-    r = {
-      id: crypto.randomUUID(),
-      savedAt: new Date().toISOString(),
-      basename: t,
-      payload: n,
-      audioBlob: e,
-    };
-  try {
-    return (await Re(r), K.markSessionSaved(r.savedAt, r.id), await J({ scrollToId: !1 }), t);
-  } catch (e) {
-    return (console.error(e), null);
-  }
-}
-
-async function yn(e, t, n) {
-  if (!LOCAL_HISTORY_ENABLED) return { ok: !1, error: `当前版本已关闭本地历史。` };
-  let r = ke(e);
-  if (r) return { ok: !1, error: r };
-  if (!(t instanceof Blob)) return { ok: !1, error: `音频文件无效。` };
-  let i = String(n ?? ``)
-    .trim()
-    .replace(/[/\\?*:|"<>]/g, `-`)
-    .slice(0, 120);
-  i ||= nn();
-  let a = {
-    id: crypto.randomUUID(),
-    savedAt: oe(i),
-    basename: i,
-    payload: e,
-    audioBlob: t,
-  };
-  try {
-    return (await Re(a), { ok: !0, id: a.id });
-  } catch (e) {
-    return (console.error(e), { ok: !1, error: `写入本地历史失败。` });
-  }
-}
-function wn(e, t, n = F) {
-  let r = document.createElement(`div`);
-  ((r.className = `history-entry-row`),
-    (r.dataset.historyEntryId = e.id),
-    e.id === n && r.classList.add(`history-entry-row--current`));
-  let i = document.createElement(`div`);
-  i.className = `history-entry-main`;
-  let a = document.createElement(`p`);
-  ((a.className = `history-entry-label`), (a.textContent = t));
-  let o = document.createElement(`p`);
-  ((o.className = `history-entry-meta`),
-    (o.textContent =
-      [e.basename || e.label || ``, dn(e.payload?.sourceText)]
-        .filter(Boolean)
-        .join(` · `) || ` `),
-    i.appendChild(a),
-    i.appendChild(o));
-  let s = document.createElement(`div`);
-  s.className = `history-entry-actions`;
-  let c = Gn(zn(e.payload));
-  c && s.appendChild(c);
-  let l = document.createElement(`button`);
-  ((l.type = `button`),
-    (l.className = `history-act-load`),
-    (l.textContent = `载入`),
-    (l.dataset.historyLoad = e.id));
-  let d = document.createElement(`button`);
-  return (
-    (d.type = `button`),
-    (d.className = `history-act-del`),
-    (d.textContent = `删除`),
-    (d.dataset.historyDelete = e.id),
-    s.appendChild(l),
-    s.appendChild(d),
-    r.appendChild(i),
-    r.appendChild(s),
-    r
-  );
-}
-async function J(e = {}) {
-  return K.renderHistoryList(e);
-}
-
-function Pn() {
-  let e = z.length,
-    t = [];
-  for (let n = 0; n < e; n++) t.push(V[n]?.value ?? ``);
-  let n = {
-    schemaVersion: h,
-    appId: `kokoro-tts-web`,
-    exportedAt: new Date().toISOString(),
-    sourceText: Ue.value,
-    cues: z.map((e) => ({ start: e.start, end: e.end, text: e.text })),
-    dictation: t,
-    proofreadBlanks: D === `proofread` ? on() : sn(O),
-    fillBlankSlotStates: { ...k },
-  };
-  return (A && A.totalBlanks > 0 && (n.fillBlankAccuracy = { ...A }), n);
-}
-function Fn(e) {
-  if (!e || typeof e != `object`) return null;
-  let t = Number(e.totalBlanks),
-    n = Number(e.correctBlanks);
-  if (!Number.isFinite(t) || t <= 0 || !Number.isFinite(n) || n < 0)
-    return null;
-  let r = Math.min(n, t),
-    i = Number(e.percent);
-  (Number.isFinite(i) || (i = Math.round((r / t) * 100)),
-    (i = Math.max(0, Math.min(100, Math.round(i)))));
-  let a =
-      typeof e.updatedAt == `string` && e.updatedAt
-        ? e.updatedAt
-        : new Date().toISOString(),
-    o = Bt(i);
-  return {
-    totalBlanks: t,
-    correctBlanks: r,
-    percent: i,
-    tier: o,
-    updatedAt: a,
-  };
-}
-function In(e) {
-  return !e || typeof e != `object`
-    ? !1
-    : Object.values(e).some((e) => e === `ok` || e === `wrong`);
-}
 function Ln(e, t) {
   let n = e && typeof e == `object` ? e : {};
   if (!Array.isArray(t) || t.length === 0) return [];
@@ -459,112 +213,6 @@ function Ln(e, t) {
     }
   }
   return r;
-}
-function Rn(e, t, n, r) {
-  let i = t && typeof t == `object` ? t : {},
-    a = Ln(e, n);
-  if (!a.length) return null;
-  let o = 0;
-  for (let e of a) i[e] === `ok` && (o += 1);
-  let s = a.length,
-    c = typeof r == `string` && r ? r : new Date().toISOString(),
-    l = Math.round((o / s) * 100);
-  return {
-    totalBlanks: s,
-    correctBlanks: o,
-    percent: l,
-    tier: Bt(l),
-    updatedAt: c,
-  };
-}
-function zn(e) {
-  return e
-    ? Fn(e.fillBlankAccuracy) ||
-        (In(e.fillBlankSlotStates)
-          ? Rn(
-              e.proofreadBlanks,
-              e.fillBlankSlotStates,
-              e.cues,
-              typeof e.exportedAt == `string` ? e.exportedAt : ``,
-            )
-          : null)
-    : null;
-}
-function Bn(e) {
-  if (!Array.isArray(e) || e.length === 0) return null;
-  let t = 0,
-    n = 0;
-  for (let r of e) {
-    let e = zn(r.payload);
-    e && ((t += e.percent), (n += 1));
-  }
-  return n === 0 ? null : { percent: Math.round(t / n), count: n };
-}
-function Vn(e, t, n = {}) {
-  if (!Number.isFinite(e) || t < 1) return null;
-  let r = n.size ?? 28,
-    i = r <= 26 ? 2.25 : 2.75,
-    a = Math.max(0, Math.min(100, Math.round(e))),
-    o = (r - i) / 2 - 0.5,
-    s = r / 2,
-    c = r / 2,
-    l = 2 * Math.PI * o,
-    u = (a / 100) * l,
-    d = document.createElementNS(`http://www.w3.org/2000/svg`, `svg`);
-  (d.setAttribute(`class`, `history-cal-fb-ring-svg`),
-    d.setAttribute(`viewBox`, `0 0 ${r} ${r}`),
-    d.setAttribute(`width`, String(r)),
-    d.setAttribute(`height`, String(r)));
-  let f = document.createElementNS(`http://www.w3.org/2000/svg`, `circle`);
-  (f.setAttribute(`cx`, String(s)),
-    f.setAttribute(`cy`, String(c)),
-    f.setAttribute(`r`, String(o)),
-    f.setAttribute(`fill`, `none`),
-    f.setAttribute(`stroke-width`, String(i)),
-    f.setAttribute(`class`, `history-fb-ring-track`));
-  let p = document.createElementNS(`http://www.w3.org/2000/svg`, `circle`);
-  (p.setAttribute(`cx`, String(s)),
-    p.setAttribute(`cy`, String(c)),
-    p.setAttribute(`r`, String(o)),
-    p.setAttribute(`fill`, `none`),
-    p.setAttribute(`stroke-width`, String(i)),
-    p.setAttribute(`stroke-linecap`, `round`));
-  let m = Bt(a);
-  (p.setAttribute(
-    `class`,
-    `history-fb-ring-progress history-fb-ring-tier--${m}`,
-  ),
-    p.setAttribute(`stroke-dasharray`, `${u} ${l}`),
-    p.setAttribute(`transform`, `rotate(-90 ${s} ${c})`),
-    d.appendChild(f),
-    d.appendChild(p));
-  let h = document.createElement(`div`);
-  ((h.className = n.wrapClass || `history-cal-fb-ring-wrap`),
-    h.setAttribute(`role`, `img`));
-  let ee =
-      t > 1
-        ? `当日 ${t} 条含填空统计的练习平均正确率 ${a}%`
-        : `填空正确率 ${a}%`,
-    te = Vt(m);
-  return (
-    h.setAttribute(`aria-label`, `${ee}，等级 ${te}`),
-    (h.title =
-      t > 1
-        ? `当日 ${t} 条平均 ${a}%（${te}）；逐条百分比算术平均`
-        : `填空正确率 ${a}%（${te}）`),
-    h.appendChild(d),
-    h
-  );
-}
-function Hn(e, t) {
-  let n = Bn(t);
-  if (!n) return;
-  let r = Vn(n.percent, n.count, { size: 26 });
-  if (!r) return;
-  let i = document.createElement(`div`);
-  ((i.className = `history-cal-fb-ring-anchor`),
-    i.appendChild(r),
-    e.appendChild(i));
 }
 function Un() {
   let e = Ln(O, z);
@@ -594,151 +242,7 @@ function Wn() {
           : e.classList.contains(`fb-slot--wrong`)
             ? (k[t] = `wrong`)
             : (k[t] = `pending`));
-    }),
-    Ht(O));
-}
-function Gn(e) {
-  if (!e || e.totalBlanks <= 0) return null;
-  let t = 2 * Math.PI * 15.5,
-    n = t * (e.percent / 100),
-    r = Bt(e.percent),
-    i = document.createElementNS(`http://www.w3.org/2000/svg`, `svg`);
-  (i.setAttribute(`class`, `history-fb-ring-svg`),
-    i.setAttribute(`viewBox`, `0 0 36 36`),
-    i.setAttribute(`width`, `36`),
-    i.setAttribute(`height`, `36`));
-  let a = document.createElementNS(`http://www.w3.org/2000/svg`, `circle`);
-  (a.setAttribute(`cx`, `18`),
-    a.setAttribute(`cy`, `18`),
-    a.setAttribute(`r`, `15.5`),
-    a.setAttribute(`fill`, `none`),
-    a.setAttribute(`stroke-width`, `3`),
-    a.setAttribute(`class`, `history-fb-ring-track`));
-  let o = document.createElementNS(`http://www.w3.org/2000/svg`, `circle`);
-  (o.setAttribute(`cx`, `18`),
-    o.setAttribute(`cy`, `18`),
-    o.setAttribute(`r`, `15.5`),
-    o.setAttribute(`fill`, `none`),
-    o.setAttribute(`stroke-width`, `3`),
-    o.setAttribute(`stroke-linecap`, `round`),
-    o.setAttribute(
-      `class`,
-      `history-fb-ring-progress history-fb-ring-tier--${r}`,
-    ),
-    o.setAttribute(`stroke-dasharray`, `${n} ${t}`),
-    o.setAttribute(`transform`, `rotate(-90 18 18)`));
-  let s = document.createElementNS(`http://www.w3.org/2000/svg`, `text`);
-  (s.setAttribute(`x`, `18`),
-    s.setAttribute(`y`, `18`),
-    s.setAttribute(`text-anchor`, `middle`),
-    s.setAttribute(`dominant-baseline`, `central`),
-    s.setAttribute(`class`, `history-fb-ring-text`),
-    (s.textContent = `${e.percent}%`),
-    i.appendChild(a),
-    i.appendChild(o),
-    i.appendChild(s));
-  let c = Vt(r),
-    l = document.createElement(`div`);
-  return (
-    (l.className = `history-fb-ring-wrap`),
-    l.setAttribute(`role`, `img`),
-    l.setAttribute(
-      `aria-label`,
-      `填空正确率 ${e.percent}%，${e.correctBlanks} / ${e.totalBlanks} 空正确，等级 ${c}`,
-    ),
-    (l.title = `填空 ${e.correctBlanks} / ${e.totalBlanks} 正确（${e.percent}%，${c}）`),
-    l.appendChild(i),
-    l
-  );
-}
-function Kn(e, t, { historySessionId: n = null } = {}) {
-  let r = ke(e);
-  if (r) return (W(r), !1);
-  (Z(), v.pause(), tn());
-  let i = e.cues.map((e) => ({
-    start: Number(e.start),
-    end: Number(e.end),
-    text: String(e.text ?? ``),
-  }));
-  ((Ue.value = e.sourceText == null ? `` : String(e.sourceText)),
-    (Jt = t),
-    (R = URL.createObjectURL(t)),
-    (v.src = R),
-    v.load(),
-    b && (b.checked = !1),
-    ir(),
-    (U = 0),
-    (H = -1),
-    Ar(i));
-  let a = Array.isArray(e.dictation) ? e.dictation : [];
-  for (let e = 0; e < V.length; e++)
-    V[e].value = a[e] == null ? `` : String(a[e]);
-  O = sn(
-    e.proofreadBlanks && typeof e.proofreadBlanks == `object`
-      ? e.proofreadBlanks
-      : {},
-  );
-  let o =
-    e.fillBlankSlotStates && typeof e.fillBlankSlotStates == `object`
-      ? e.fillBlankSlotStates
-      : {};
-  k = {};
-  for (let [e, t] of Object.entries(o))
-    (t === `pending` || t === `wrong` || t === `ok`) && (k[e] = t);
-  return (
-    Wt(O),
-    Ht(O),
-    (D = `subtitles`),
-    (A =
-      Fn(e.fillBlankAccuracy) ??
-      (In(e.fillBlankSlotStates)
-        ? Rn(e.proofreadBlanks, e.fillBlankSlotStates, i, e.exportedAt)
-        : null)),
-    Q(),
-    jr(v.currentTime),
-    X(),
-    K.setCurrentHistoryEntryId(n),
-    W(`已导入练习包（${e.schemaVersion || `1.0.0`}，共 ${i.length} 句）`),
-    K.renderHistoryList().catch(() => {}),
-    !0
-  );
-}
-function isMobileGenerationClient() {
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ``);
-}
-function yieldToMainThread() {
-  return new Promise((e) => setTimeout(e, 0));
-}
-function splitTtsSentenceChunks(e, t) {
-  let n = String(e || ``).trim();
-  if (!n) return [];
-  if (n.length <= t) return [n];
-  let r = n
-      .split(/(?<=[,;:，；：])\s+|\s+-\s+|\s+/)
-      .map((e) => e.trim())
-      .filter(Boolean),
-    i = [],
-    a = ``;
-  for (let o of r) {
-    let s = a ? `${a} ${o}` : o;
-    if (s.length <= t) {
-      a = s;
-      continue;
-    }
-    a && (i.push(a), (a = ``));
-    if (o.length <= t) {
-      a = o;
-      continue;
-    }
-    for (let c = 0; c < o.length; c += t) {
-      let l = o.slice(c, c + t).trim();
-      l && i.push(l);
-    }
-  }
-  return a && i.push(a), i.length ? i : [n];
-}
-function buildTtsChunkPlan(e, t) {
-  return e.map((e) => ({ text: e, chunks: splitTtsSentenceChunks(e, t) }));
+    }));
 }
 function estimateCueDurationSec(e) {
   let t = String(e || ``).trim();
@@ -754,24 +258,6 @@ function buildEstimatedCues(e) {
       r = { start: t, end: t + n, text: e };
     return (t += n), r;
   });
-}
-function splitPracticeSentences(e) {
-  let t = ge(e);
-  if (Array.isArray(t) && t.length > 1) return t;
-  let n = String(e || ``)
-    .split(/\r?\n+/)
-    .map((e) => e.trim())
-    .filter(Boolean);
-  if (!n.length) return [];
-  let r = [];
-  for (let e of n) {
-    let t = e
-      .split(/(?<=[.!?…])\s+|(?<=[;；])\s+/g)
-      .map((e) => e.trim())
-      .filter(Boolean);
-    r.push(...(t.length ? t : [e]));
-  }
-  return r.length ? r : n;
 }
 function buildSilentWavBlob(e, t = 8e3) {
   let n = Math.max(1, Math.ceil(Math.max(0.5, e) * t)),
@@ -850,9 +336,6 @@ function $n(e) {
   let t = e.querySelectorAll(`.fb-slot`);
   for (let e of t) if (!e.readOnly) return e;
   return t[0] ?? null;
-}
-function er(e) {
-  Qn(e);
 }
 function tr() {
   if (!z.length || !v.src) return;
@@ -956,49 +439,14 @@ function or() {
     Et2 && (Et2.hidden = !i),
     (ct.hidden = !n && !r && !i));
 }
-async function sr() {
-  if (!LOCAL_HISTORY_ENABLED) return { ok: !1, reason: `disabled` };
-  if (!z.length) return { ok: !1, reason: `no-cues` };
-  let e = K.getCurrentHistoryEntryId();
-  if (!e) return { ok: !1, reason: `no-active-id` };
-  let t = await Ve(e);
-  return !t?.payload || !t.audioBlob
-    ? { ok: !1, reason: `bad-row` }
-    : ((t.payload = Pn()),
-      (t.savedAt = new Date().toISOString()),
-      await Re(t),
-      await J({ scrollToId: !1 }),
-      { ok: !0, reason: `updated` });
-}
 async function cr(e) {
-  if (!LOCAL_HISTORY_ENABLED) return (W(e), { outcome: `page-only` });
-  let t = ``,
-    n = `error`;
-  try {
-    let e = await sr();
-    if (e.ok)
-      ((n = `history`),
-        (t = `已同步到本地历史（与下载 JSON 内容一致），刷新后从同一条历史载入即可恢复。`));
-    else if (e.reason === `no-active-id`) {
-      let e = await fn();
-      e
-        ? ((n = `new-history`),
-          (t = `已新建本地历史「${e}」并写入；之后继续练习并点「检查填空」即可更新同一条。`))
-        : ((n = `page-only`),
-          (t = `无法写入本地历史（可能无缓存音频）；当前内容仅保留在本页。`));
-    } else
-      ((n = `page-only`),
-        (t = `本地历史条目不完整，未能写入；当前内容仅保留在本页。`));
-  } catch (e) {
-    (console.error(e), (n = `error`), (t = `写入本地历史失败，请稍后再试。`));
-  }
-  return (W(`${e}${t}`), { outcome: n });
+  W(e);
+  return { outcome: `page-only` };
 }
 async function fr() {
   if (D !== `proofread` || !z.length) return;
   (un(),
     Wt(O),
-    Ht(O),
     (A = null),
     await cr(`已确认创建。`),
     emitPracticeBlankIndexesUpdate(),
@@ -1185,7 +633,7 @@ function br() {
       W(`还没有可练习的填空。请先进入「创建填空」选择要挖空的词。`);
       return;
     }
-    (Wt(O), Ht(O));
+    Wt(O);
     for (let e = 0; e < z.length; e++) vr(e, ln(e, O));
     ((D = `fillblank`),
       !v.paused && z.length && (I = Yn(v.currentTime)),
@@ -1262,9 +710,6 @@ function Dr() {
 }
 function Or() {
   return $t ? $t.goPracticeDictation() : Sr();
-}
-function kr(e, t) {
-  return;
 }
 function Ar(e, { cueCardIndexList: t = null, cardCount: n = null } = {}) {
   let r = Array.isArray(t) && t.length === e.length ? t : e.map((e, t) => t),
@@ -1525,16 +970,6 @@ function Br() {
       (console.error(e), W(`确认创建失败，请稍后再试。`));
     });
   }),
-  localStorage.getItem(`kokoro-history-collapsed`) === `1` &&
-    (jt?.classList.add(`history-collapsed`),
-    Nt && (Nt.hidden = !0),
-    Mt?.setAttribute(`aria-expanded`, `false`)),
-  Mt?.addEventListener(`click`, () => {
-    let e = jt?.classList.toggle(`history-collapsed`) ?? !1;
-    (Nt && (Nt.hidden = e),
-      Mt?.setAttribute(`aria-expanded`, e ? `false` : `true`),
-      localStorage.setItem(ee, e ? `1` : `0`));
-  }),
   y.addEventListener(`input`, (e) => {
     let t = e.target;
     (t?.classList?.contains(`fb-slot`) &&
@@ -1702,7 +1137,6 @@ function Br() {
         (D = `subtitles`),
         (O = {}),
         (k = {}),
-        K.clearCurrentHistoryEntryId(),
         Z(),
         or(),
         y.classList.remove(`oio-fillblank-reviewed`),
@@ -1732,7 +1166,6 @@ function Br() {
         v.load(),
         Ar(o, { cueCardIndexList: a, cardCount: Math.max(1, r.length) }),
         X());
-      await fn();
       let l = getAudioFacade().getActiveProviderId() === `kokoro` ? `Kokoro（失败时自动回退 Web Speech）` : `Web Speech`;
       W(
         `完成。共 ${r.length} 张卡片，${t.length} 句。点句播放将使用当前语音源：${l}。`,
@@ -1777,7 +1210,6 @@ function Br() {
       (O = {}),
       (k = {}),
       (A = null),
-      K.clearCurrentHistoryEntryId(),
       Z(),
       or(),
       y.classList.remove(`oio-fillblank-reviewed`),
@@ -1800,23 +1232,6 @@ function Br() {
   }),
   Q(),
   X());
-function Nr(e) {
-  (St && (St.textContent = e || `导入成功。`), xt?.showModal());
-}
-function $(e, t) {
-  (Tt && (Tt.textContent = e || `导入结果`),
-    Et && (Et.textContent = t || ``),
-    wt?.showModal());
-}
-(Ct?.addEventListener(`click`, () => {
-  xt?.close();
-}),
-  Dt?.addEventListener(`click`, () => {
-    wt?.close();
-  }),
-  At?.addEventListener(`click`, () => {
-    Ot?.close();
-  }));
 (($t = new u({
   getCueListMode: () => D,
   getPlaybackCues: () => z,
@@ -1825,105 +1240,4 @@ function $(e, t) {
   },
   syncSubtitlePracticeUI: Tr,
   updatePracticeModeButtons: Cr,
-})),
-  (K = new d({
-    dom: {
-      granularityEl: w,
-      navRoot: T,
-      entriesRoot: E,
-      contextLabel: C,
-      magicCard: Pt,
-      quickJumpBtn: Ft,
-      jumpDialog: It,
-      jumpText: Lt,
-      jumpCancel: Rt,
-      jumpConfirm: zt,
-    },
-    getState: () => ({
-      granularity: qt,
-      weekStart: j,
-      year: M,
-      month: N,
-      selectedDay: P,
-      currentEntryId: F,
-      jumpDay: L,
-    }),
-    setState: (next) => {
-      Object.prototype.hasOwnProperty.call(next, `granularity`) && (qt = next.granularity);
-      Object.prototype.hasOwnProperty.call(next, `weekStart`) && (j = next.weekStart);
-      Object.prototype.hasOwnProperty.call(next, `year`) && (M = next.year);
-      Object.prototype.hasOwnProperty.call(next, `month`) && (N = next.month);
-      Object.prototype.hasOwnProperty.call(next, `selectedDay`) && (P = next.selectedDay);
-      Object.prototype.hasOwnProperty.call(next, `currentEntryId`) && (F = next.currentEntryId);
-      Object.prototype.hasOwnProperty.call(next, `jumpDay`) && (L = next.jumpDay);
-    },
-    listSessions: () => Be(),
-    buildEntryRow: (row, label, currentId) => wn(row, label, currentId),
-    getDayAverage: Bn,
-    createAverageRing: Vn,
-    attachDayRing: Hn,
-    setGranularitySelectValue: (mode) => {
-      w && (w.value = mode);
-    },
-  })),
-  K.initDateState(),
-  K.setGranularity(`month`),
-  K.wireEvents({
-    onLoad: async (id) => {
-      let e = await Ve(id);
-      if (!e?.payload || !e.audioBlob) {
-        (W(`记录损坏或已不存在。`), await J());
-        return;
-      }
-      Kn(e.payload, e.audioBlob, { historySessionId: id });
-    },
-    onDownload: async (id) => {
-      await exportCtrl.downloadSingle(id);
-    },
-    onDelete: async (id) => {
-      let e = await Ve(id),
-        t = e?.basename || e?.label || `该条记录`;
-      if (!confirm(`确定删除本地历史「${t}」？此操作不可恢复。`)) return;
-      try {
-        (await He(id),
-          id === K.getCurrentHistoryEntryId() && K.clearCurrentHistoryEntryId(),
-          W(`已从本地历史删除。`));
-      } catch (e) {
-        (console.error(e), W(`删除失败。`));
-      }
-      await J();
-    },
-  }),
-  (exportCtrl = new _e({
-    dom: {
-      openBtn: ft,
-      dialog: pt,
-      from: mt,
-      to: ht,
-      applyRange: gt,
-      clearRange: _t,
-      selectAll: x,
-      count: vt,
-      list: S,
-      cancel: yt,
-      confirm: bt,
-    },
-    setStatus: W,
-    listSessions: () => Be(),
-    getSession: (id) => Ve(id),
-    toLocalDateKeyFromSaved: ie,
-    rowMatchesHistoryExportFilter: hn,
-    nextExportBasename: nn,
-    audioBlobToExtension: an,
-    downloadBlob: rn,
-  })),
-  exportCtrl.wireEvents(),
-  (en = new f({
-    setStatus: W,
-    saveImportedSessionToHistory: yn,
-    renderHistoryList: (opts = {}) => K.renderHistoryList(opts),
-    showImportSuccessDialog: Nr,
-    showImportReportDialog: $,
-  })),
-  en.wirePracticePackImport(),
-  K.renderHistoryList().catch(() => {}));
+})));
