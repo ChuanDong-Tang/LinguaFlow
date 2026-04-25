@@ -649,7 +649,6 @@ export class DailyCaptureController {
     const sourcePanel = document.querySelector<HTMLElement>("#tab-panel-rewrite");
     const practiceSection = sourcePanel?.querySelector<HTMLElement>(".module-card--oio-practice");
     if (!practiceSection) return;
-    practiceSection.querySelector("#history-section")?.remove();
     this.practiceHostEl.replaceChildren(practiceSection);
   }
 
