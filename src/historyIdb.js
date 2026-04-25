@@ -219,6 +219,7 @@ export async function deleteSuperDictRecord(id) {
  *     keyPhrases?: string[],
  *     keyPhraseSource?: "natural_version" | "user_selected",
  *     practiceBlankIndexes?: number[],
+ *     practiceCorrectBlankIndexes?: number[],
  *     note?: string
  *   }>
  * }} record

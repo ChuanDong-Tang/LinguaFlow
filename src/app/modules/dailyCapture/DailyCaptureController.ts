@@ -1,5 +1,5 @@
-import { getCapturePracticeBlankIndexes } from "../../domain/capture";
-import { calcCardAverageScore, getPhraseTier, normalizePhraseKey } from "../../domain/proficiency";
+import { getCapturePracticeBlankIndexes, getCapturePracticeCorrectBlankIndexes } from "../../domain/capture";
+import { getPhraseTier, normalizePhraseKey } from "../../domain/proficiency";
 import { addMonthsClamp, dateToLocalKey, formatKeyToSlashDisplay } from "../../dateUtils.js";
 import { confirmDialog } from "../../shared/confirmDialog";
 import { escapeHtml } from "../../shared/html";
@@ -18,6 +18,7 @@ type PendingPracticeLaunch = {
   cardPhraseChunks?: string[][];
   captureItemId?: string;
   blankIndexes?: number[];
+  correctBlankIndexes?: number[];
 };
 
 export class DailyCaptureController {
@@ -204,6 +205,13 @@ export class DailyCaptureController {
       if (!itemId) return;
       void this.updatePracticeBlankIndexes(itemId, indexes);
     });
+    document.addEventListener("daily-capture-practice-correct-blanks-updated", (event) => {
+      const detail = (event as CustomEvent<{ itemId?: string; correctBlankIndexes?: number[] }>).detail;
+      const itemId = detail?.itemId?.trim() ?? "";
+      const indexes = Array.isArray(detail?.correctBlankIndexes) ? detail.correctBlankIndexes : [];
+      if (!itemId) return;
+      void this.updatePracticeCorrectBlankIndexes(itemId, indexes);
+    });
   }
 
   private async syncRecordsFromCloud(): Promise<void> {
@@ -258,7 +266,7 @@ export class DailyCaptureController {
     const dayScoreMap = new Map<string, number>();
     for (const record of this.records) {
       countMap.set(record.dateKey, Array.isArray(record.items) ? record.items.length : 0);
-      dayScoreMap.set(record.dateKey, this.computeRecordAverageScore(record));
+      dayScoreMap.set(record.dateKey, this.computeRecordAverageAccuracy(record));
     }
     for (const [dateKey, count] of this.cloudCountByDate.entries()) {
       countMap.set(dateKey, Math.max(countMap.get(dateKey) ?? 0, count));
@@ -274,7 +282,7 @@ export class DailyCaptureController {
       const hasData = count > 0;
       const active = hasData && dateKey === this.selectedDateKey;
       const dayScore = dayScoreMap.get(dateKey) ?? 0;
-      const tier = getPhraseTier(dayScore);
+      const tier = this.getPracticeAccuracyTier(dayScore);
       cells.push(`
         <button
           type="button"
@@ -294,7 +302,7 @@ export class DailyCaptureController {
 
   private async openDayDialog(dateKey: string): Promise<void> {
     const cloudCount = this.cloudCountByDate.get(dateKey) ?? 0;
-    if (cloudCount > 0 && !this.findRecord(dateKey)) {
+    if (cloudCount > 0) {
       await pullCaptureRecordByDate(dateKey);
       await this.loadRecords();
       this.renderCalendar();
@@ -346,8 +354,8 @@ export class DailyCaptureController {
     const itemNaturalVersion = (item.naturalVersion || item.sourceText || "").trim() || "-";
     const itemReply = (item.reply || item.note || "").trim() || "-";
     const itemKeyPhrases = this.normalizeItemKeyPhrases(item.keyPhrases);
-    const itemScore = this.computePhraseAverageScore(itemKeyPhrases);
-    const itemTier = getPhraseTier(itemScore);
+    const itemAccuracy = this.computeItemFillblankAccuracy(item);
+    const itemTier = this.getPracticeAccuracyTier(itemAccuracy);
     this.dayDialogTitleEl.textContent = formatKeyToSlashDisplay(record.dateKey);
     this.dayDialogMetaEl.textContent = `${t("daily_capture.card")} ${index + 1} / ${total}`;
     if (this.dayDialogPrevEl) this.dayDialogPrevEl.disabled = index <= 0;
@@ -391,6 +399,7 @@ export class DailyCaptureController {
     const practiceText = (item.naturalVersion || item.sourceText || "").trim();
     const keyPhrases = this.normalizeItemKeyPhrases(item.keyPhrases);
     const blankIndexes = getCapturePracticeBlankIndexes(item);
+    const correctBlankIndexes = getCapturePracticeCorrectBlankIndexes(item);
     if (!practiceText || practiceText === "-") return;
     this.startPracticeWithText(
       practiceText,
@@ -398,6 +407,7 @@ export class DailyCaptureController {
       keyPhrases.length ? [keyPhrases] : undefined,
       item.id,
       blankIndexes,
+      correctBlankIndexes,
     );
   }
 
@@ -456,6 +466,7 @@ export class DailyCaptureController {
     cardPhraseChunks?: string[][],
     captureItemId?: string,
     blankIndexes?: number[],
+    correctBlankIndexes?: number[],
   ): void {
     const text = practiceText.trim();
     if (!text) return;
@@ -465,6 +476,7 @@ export class DailyCaptureController {
       cardPhraseChunks,
       captureItemId,
       blankIndexes,
+      correctBlankIndexes,
     };
     if (!this.practiceRuntimeReady) {
       this.pendingPracticeLaunch = request;
@@ -481,6 +493,7 @@ export class DailyCaptureController {
     cardPhraseChunks,
     captureItemId,
     blankIndexes,
+    correctBlankIndexes,
   }: PendingPracticeLaunch): void {
     const inputEl = document.querySelector<HTMLTextAreaElement>("#text");
     const generateBtn = document.querySelector<HTMLButtonElement>("#generate");
@@ -505,6 +518,11 @@ export class DailyCaptureController {
         inputEl.dataset.practiceBlankIndexes = JSON.stringify(blankIndexes);
       } else {
         delete inputEl.dataset.practiceBlankIndexes;
+      }
+      if (Array.isArray(correctBlankIndexes) && correctBlankIndexes.length > 0) {
+        inputEl.dataset.practiceCorrectBlankIndexes = JSON.stringify(correctBlankIndexes);
+      } else {
+        delete inputEl.dataset.practiceCorrectBlankIndexes;
       }
       inputEl.dataset.practiceOpeningHint = "daily";
       inputEl.dispatchEvent(new Event("input", { bubbles: true }));
@@ -611,19 +629,29 @@ export class DailyCaptureController {
     return Number.isFinite(Number(score)) ? Number(score) : 0;
   }
 
-  private computePhraseAverageScore(phrases: string[]): number {
-    if (!phrases.length) return 0;
-    return calcCardAverageScore(phrases.map((phrase) => this.getPhraseScore(phrase)));
+  private computeItemFillblankAccuracy(item: CaptureItem): number {
+    const blanks = getCapturePracticeBlankIndexes(item);
+    if (!blanks.length) return 0;
+    const correctSet = new Set(getCapturePracticeCorrectBlankIndexes(item));
+    let correct = 0;
+    for (const blankIndex of blanks) {
+      if (correctSet.has(blankIndex)) correct += 1;
+    }
+    return Math.round((correct / blanks.length) * 100);
   }
 
-  private computeRecordAverageScore(record: DailyCaptureRecord): number {
-    const phraseScores: number[] = [];
-    for (const item of record.items) {
-      for (const phrase of this.normalizeItemKeyPhrases(item.keyPhrases)) {
-        phraseScores.push(this.getPhraseScore(phrase));
-      }
-    }
-    return calcCardAverageScore(phraseScores);
+  private computeRecordAverageAccuracy(record: DailyCaptureRecord): number {
+    const items = Array.isArray(record.items) ? record.items : [];
+    if (!items.length) return 0;
+    const total = items.reduce((sum, item) => sum + this.computeItemFillblankAccuracy(item), 0);
+    return Math.round(total / items.length);
+  }
+
+  private getPracticeAccuracyTier(percent: number): "level_1" | "level_2" | "level_3" {
+    const safe = Number.isFinite(Number(percent)) ? Number(percent) : 0;
+    if (safe >= 70) return "level_3";
+    if (safe >= 30) return "level_2";
+    return "level_1";
   }
 
   private normalizeItemKeyPhrases(value: CaptureItem["keyPhrases"]): string[] {
@@ -745,6 +773,35 @@ export class DailyCaptureController {
     const record = this.records.find((entry) => entry.items.some((item) => item.id === itemId));
     if (!record) return;
     const nextItems = record.items.map((item) => item.id === itemId ? { ...item, practiceBlankIndexes: normalized } : item);
+    const nextRecord = {
+      ...record,
+      items: nextItems,
+      updatedAt: new Date().toISOString(),
+    };
+    await saveCaptureRecord(nextRecord);
+    this.cloudCountByDate.set(record.dateKey, nextItems.length);
+    void pushCaptureRecord(nextRecord);
+    await this.refreshFromStore(record.dateKey);
+  }
+
+  private async updatePracticeCorrectBlankIndexes(itemId: string, correctBlankIndexes: number[]): Promise<void> {
+    const target = this.findItemById(itemId);
+    if (!target) return;
+    const normalized = Array.from(
+      new Set(
+        correctBlankIndexes
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value >= 0)
+          .map((value) => Math.floor(value)),
+      ),
+    ).sort((left, right) => left - right);
+    const current = getCapturePracticeCorrectBlankIndexes(target);
+    if (current.length === normalized.length && current.every((value, index) => value === normalized[index])) {
+      return;
+    }
+    const record = this.records.find((entry) => entry.items.some((item) => item.id === itemId));
+    if (!record) return;
+    const nextItems = record.items.map((item) => item.id === itemId ? { ...item, practiceCorrectBlankIndexes: normalized } : item);
     const nextRecord = {
       ...record,
       items: nextItems,

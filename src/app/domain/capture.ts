@@ -11,6 +11,7 @@ export interface CaptureItem {
   keyPhrases?: string[];
   keyPhraseSource?: CaptureKeyPhraseSource;
   practiceBlankIndexes?: number[];
+  practiceCorrectBlankIndexes?: number[];
   note?: string;
 }
 
@@ -23,6 +24,15 @@ export interface DailyCaptureRecord {
 export function getCapturePracticeBlankIndexes(item: CaptureItem): number[] {
   return Array.isArray(item.practiceBlankIndexes)
     ? item.practiceBlankIndexes
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value >= 0)
+      .map((value) => Math.floor(value))
+    : [];
+}
+
+export function getCapturePracticeCorrectBlankIndexes(item: CaptureItem): number[] {
+  return Array.isArray(item.practiceCorrectBlankIndexes)
+    ? item.practiceCorrectBlankIndexes
       .map((value) => Number(value))
       .filter((value) => Number.isFinite(value) && value >= 0)
       .map((value) => Math.floor(value))

@@ -23,6 +23,7 @@
   const practicePageIndicator = document.getElementById("practice-page-indicator");
   const practiceActionsBar = document.getElementById("practice-actions-bar");
   const fillblankCheckBtn = document.getElementById("fillblank-check-btn");
+  const fillblankSyncBtn = document.getElementById("fillblank-sync-btn");
   const dictationCheckBtn = document.getElementById("dictation-check-btn");
   const proofreadSaveBtn = document.getElementById("proofread-save-btn");
 
@@ -49,6 +50,7 @@
     practicePageIndicator,
     practiceActionsBar,
     fillblankCheckBtn,
+    fillblankSyncBtn,
     dictationCheckBtn,
     proofreadSaveBtn,
   };

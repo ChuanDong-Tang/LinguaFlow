@@ -225,10 +225,18 @@
               </div>
             </section>
             <section class="workspace-card module-card module-card--oio-practice oio-practice-only">
-              <div class="module-card-head">
-                <div>
-                  <h3 class="module-card-title">练习区</h3>
-                  <p class="module-card-note">练习素材输入在最上面，下面是历史与练习面板。</p>
+              <div class="module-card-head module-card-head--inline-help">
+                <h3 class="module-card-title">练习区</h3>
+                <div class="oio-help-anchor">
+                  <button type="button" class="oio-help-btn" aria-label="练习区快捷键说明" data-oio-help>?</button>
+                  <div class="oio-help-popover oio-help-popover--wide">
+                    <p class="oio-help-text"><strong>快捷键</strong></p>
+                    <p class="oio-help-text"><kbd>Space</kbd>：播放 / 暂停</p>
+                    <p class="oio-help-text"><kbd>←</kbd> / <kbd>→</kbd>：上一句 / 下一句</p>
+                    <p class="oio-help-text"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>←</kbd>/<kbd>→</kbd>：在句子间切换</p>
+                    <p class="oio-help-text">听写模式会切焦点并播放；填空模式只切换到目标句（不自动播放）</p>
+                    <p class="oio-help-text"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>↑</kbd>：输入框内播放 / 暂停</p>
+                  </div>
                 </div>
               </div>
               <div class="oio-practice-layout oio-practice-layout--stack">
@@ -253,15 +261,6 @@
                   </div>
                 </section>
                 <section class="oio-panel subs oio-practice-panel" id="subs-section">
-                  <div class="oio-panel-head">
-                    <h2 class="oio-section-title subs-title">练习</h2>
-                    <div class="oio-help-anchor">
-                      <button type="button" class="oio-help-btn" aria-label="字幕与练习模式说明" data-oio-help>?</button>
-                      <div class="oio-help-popover oio-help-popover--wide">
-                        <p class="oio-help-text">按「完整句子」切分。<strong>字幕</strong>：显示原句、可点句跳转。<strong>听写</strong>、<strong>创建填空</strong>、<strong>填空练习</strong>等模式仍保留。</p>
-                      </div>
-                    </div>
-                  </div>
                   <audio id="player" class="player oio-audio-native" playsinline></audio>
                   <div class="practice-mode-bar" id="practice-mode-bar" hidden>
                     <span class="practice-mode-intro">模式</span>
@@ -298,9 +297,10 @@
                   </div>
                   <div id="subtitles-scroll" class="subtitles-scroll" aria-label="与音频同步的字幕"><div id="subtitles-list" class="subtitles-list"></div></div>
                   <div class="proofread-bar practice-actions-bar" id="practice-actions-bar" hidden aria-label="与当前模式对应的操作">
-                    <button type="button" id="dictation-check-btn" class="secondary" hidden>检查听写</button>
+                    <button type="button" id="dictation-check-btn" class="secondary" hidden>创建填空</button>
                     <button type="button" id="proofread-save-btn" class="secondary" hidden>确认创建</button>
                     <button type="button" id="fillblank-check-btn" class="secondary" hidden>检查填空</button>
+                    <button type="button" id="fillblank-sync-btn" class="secondary" hidden>更新填空状态</button>
                   </div>
                 </section>
               </div>

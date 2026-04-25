@@ -50,6 +50,18 @@ export class KokoroAudioProvider extends AudioTextProviderBase {
     this.engine.stop();
   }
 
+  pause(): boolean {
+    return this.engine.pause();
+  }
+
+  resume(): boolean {
+    return this.engine.resume();
+  }
+
+  isPaused(): boolean {
+    return this.engine.isPaused();
+  }
+
   setPlaybackRate(rate: number): number {
     return this.engine.setPlaybackRate(rate);
   }

@@ -16,6 +16,37 @@ export class WebSpeechSynthesizer {
     this.currentUtterance = null;
   }
 
+  pause(): boolean {
+    if (!this.currentUtterance) return false;
+    if (!(typeof window !== "undefined" && "speechSynthesis" in window)) return false;
+    try {
+      if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+        window.speechSynthesis.pause();
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  resume(): boolean {
+    if (!this.currentUtterance) return false;
+    if (!(typeof window !== "undefined" && "speechSynthesis" in window)) return false;
+    try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  isPaused(): boolean {
+    if (!(typeof window !== "undefined" && "speechSynthesis" in window)) return false;
+    return !!window.speechSynthesis.paused && !!this.currentUtterance;
+  }
+
   setPlaybackRate(rate: number): number {
     const normalized = Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1;
     this.playbackRate = normalized;

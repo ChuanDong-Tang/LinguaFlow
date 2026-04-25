@@ -18,6 +18,8 @@ import { createPracticeAudioFlow } from "../../../services/audio/practiceAudioFl
 import { renderTextWithKeyPhraseHighlight} from "../../../shared/keyPhraseHighlight";
 import { splitTextForSpeech } from "../../../services/audio/providers/webspeech/splitTextForSpeech";
 
+const DICTATION_DRAFTS_STORAGE_KEY = `oio-practice-dictation-drafts-v1`;
+
 var {
     textEl: inputTextEl,
     btnEl: generatePracticeBtn,
@@ -41,6 +43,7 @@ var {
     practicePageIndicator: practicePageIndicatorEl,
     practiceActionsBar: ct,
     fillblankCheckBtn: lt,
+    fillblankSyncBtn: fillblankSyncBtnEl,
     dictationCheckBtn: dictationCheckBtnEl,
     proofreadSaveBtn: dt,
   } = p(),
@@ -79,9 +82,114 @@ var fillblankActiveCueIndex = -1,
   lastPlayedCueIndex = -1,
   practicePageIndex = 0,
   speechActiveCueIndex = -1,
-  practiceCaptureItemId = ``;
+  practiceCaptureItemId = ``,
+  dictationDraftStoreKey = ``;
 function setStatusMessage(e) {
   statusMessageEl && (statusMessageEl.textContent = e ?? ``);
+}
+function simpleHash(e) {
+  let t = 5381,
+    n = String(e ?? ``);
+  for (let e = 0; e < n.length; e++) t = ((t << 5) + t + n.charCodeAt(e)) >>> 0;
+  return t.toString(36);
+}
+function getDictationDraftBucket() {
+  if (typeof localStorage === `undefined`) return {};
+  try {
+    let e = localStorage.getItem(DICTATION_DRAFTS_STORAGE_KEY);
+    if (!e) return {};
+    let t = JSON.parse(e);
+    return t && typeof t == `object` ? t : {};
+  } catch {
+    return {};
+  }
+}
+function setDictationDraftBucket(e) {
+  if (typeof localStorage === `undefined`) return;
+  try {
+    localStorage.setItem(DICTATION_DRAFTS_STORAGE_KEY, JSON.stringify(e && typeof e == `object` ? e : {}));
+  } catch {
+  }
+}
+function getCurrentDictationDraftStoreKey() {
+  if (practiceCaptureItemId) return `capture:${practiceCaptureItemId}`;
+  if (!playbackCues.length) return ``;
+  let e = playbackCues.map((e) => String(e?.text ?? ``).trim()).join(`\n`).trim();
+  return e ? `text:${simpleHash(e)}` : ``;
+}
+function loadDictationDraftsForCurrentPractice() {
+  let e = getCurrentDictationDraftStoreKey();
+  dictationDraftStoreKey = e;
+  if (!e) return {};
+  let t = getDictationDraftBucket()[e];
+  return t && typeof t == `object` ? t : {};
+}
+function persistCurrentDictationDrafts() {
+  if (!dictationDraftStoreKey) return;
+  let e = {};
+  for (let t = 0; t < cueInputEls.length; t++) {
+    let n = cueInputEls[t]?.value ?? ``;
+    n && (e[String(t)] = n);
+  }
+  let t = getDictationDraftBucket();
+  Object.keys(e).length ? (t[dictationDraftStoreKey] = e) : delete t[dictationDraftStoreKey];
+  setDictationDraftBucket(t);
+}
+function applyDictationDraftsToInputs() {
+  let e = loadDictationDraftsForCurrentPractice();
+  for (let t = 0; t < cueInputEls.length; t++) {
+    let n = cueInputEls[t];
+    if (!n) continue;
+    n.value = typeof e[String(t)] == `string` ? e[String(t)] : ``;
+  }
+}
+function updateProofreadDictationLine(e) {
+  let t = cueRowEls[e]?.querySelector(`.cue-proofread .pr-user-line`);
+  if (!t) return;
+  let n = cueInputEls[e]?.value ?? ``;
+  t.textContent = n.trim() ? n : `-`;
+}
+function updateAllProofreadDictationLines() {
+  for (let e = 0; e < cueInputEls.length; e++) updateProofreadDictationLine(e);
+}
+function getCueTextFromSource(e, t) {
+  if (!Array.isArray(e) || !Number.isFinite(t) || t < 0 || t >= e.length) return ``;
+  let n = e[t];
+  return typeof n == `string` ? n : String(n?.text || ``);
+}
+function getCueWordTokenCountFromSource(e, t) {
+  let n = getCueTextFromSource(e, t);
+  return xe(String(n || ``).trim()).length;
+}
+function getCueWordTokenCount(e) {
+  return getCueWordTokenCountFromSource(playbackCues, e);
+}
+function getGlobalWordIndex(e, t) {
+  let n = Number(e),
+    r = Number(t);
+  if (!Number.isFinite(n) || n < 0 || n >= playbackCues.length) return null;
+  if (!Number.isFinite(r) || r < 0) return null;
+  let i = Math.floor(r),
+    a = getCueWordTokenCount(n);
+  if (i >= a) return null;
+  let o = 0;
+  for (let e2 = 0; e2 < n; e2++) o += getCueWordTokenCount(e2);
+  return o + i;
+}
+function getCueWordPositionByGlobalIndexFromSource(e, t) {
+  let n = Number(t);
+  if (!Number.isFinite(n) || n < 0) return null;
+  let r = Math.floor(n),
+    i = 0;
+  for (let t2 = 0; t2 < (Array.isArray(e) ? e.length : 0); t2++) {
+    let n2 = getCueWordTokenCountFromSource(e, t2);
+    if (r < i + n2) return { cueIndex: t2, wordIndex: r - i };
+    i += n2;
+  }
+  return null;
+}
+function getCueWordPositionByGlobalIndex(e) {
+  return getCueWordPositionByGlobalIndexFromSource(playbackCues, e);
 }
 
 var playerController = new l({
@@ -118,8 +226,7 @@ var playerController = new l({
     onCueInlineStarted: (e) => {
       practicePageIndex = cuePageIndexByCue[e] ?? e;
       renderPracticePager();
-      activeCueIndex = e;
-      for (let t = 0; t < cueRowEls.length; t++) cueRowEls[t].classList.toggle(`cue-row--active`, t === e);
+      setActiveCueIndex(e);
     },
   });
 function collectProofreadSelectionMap() {
@@ -269,11 +376,30 @@ function findCueIndexAtTimeWithTolerance(e) {
 function scrollCueIntoView(e) {
   cueRowEls[e]?.scrollIntoView({ block: `center`, behavior: `smooth` });
 }
+function setActiveCueIndex(e) {
+  let t = Number.isFinite(e) && e >= 0 && e < cueRowEls.length ? e : -1;
+  activeCueIndex = t;
+  for (let n = 0; n < cueRowEls.length; n++) cueRowEls[n].classList.toggle(`cue-row--active`, n === t);
+}
+function armCueNoPlay(
+  e,
+  { syncPlaybackPosition: t = !0, scrollIntoView: n = !0 } = {},
+) {
+  if (!playbackCues[e]) return;
+  if (!mediaEl.src && speechActiveCueIndex >= 0 && speechActiveCueIndex !== e) {
+    stopPracticeSpeechPlayback();
+  }
+  (practicePageIndex = cuePageIndexByCue[e] ?? e), renderPracticePager();
+  if (t) {
+    let t = playbackCues[e];
+    t && Number.isFinite(t.start) && (mediaEl.currentTime = t.start);
+  }
+  (setActiveCueIndex(e), n && scrollCueIntoView(e));
+}
 function seekToCueStart(e) {
   playbackCues[e] &&
     ((mediaEl.currentTime = playbackCues[e].start),
-    (activeCueIndex = -1),
-    syncActiveCueByCurrentTime(mediaEl.currentTime),
+    setActiveCueIndex(e),
     scrollCueIntoView(e));
 }
 function seekCueNoPlay(e) {
@@ -316,8 +442,14 @@ function seekToPreviousCue() {
 function toggleMainPlayerPlayback() {
   if (!mediaEl.src) {
     if (!playbackCues.length) return;
+    let t = getAudioFacade();
     if (speechActiveCueIndex >= 0) {
-      stopPracticeSpeechPlayback();
+      if (t.isPaused()) {
+        t.resume();
+      } else {
+        t.pause();
+      }
+      syncPlayerTransportUi();
       return;
     }
     let e = getFocusedCueIndex();
@@ -365,20 +497,20 @@ function goToPracticePage(e, { focusDictation: t = !1 } = {}) {
   let r = cueRowEls[n];
   r?.scrollIntoView({ block: `nearest`, behavior: `smooth` });
   if (cueListMode === `dictation`) {
-    (activeCueIndex = n),
-      cueRowEls.forEach((e, t) => e.classList.toggle(`cue-row--active`, t === n)),
-      t && cueInputEls[n]?.focus({ preventScroll: !0 });
+    (setActiveCueIndex(n),
+      t && cueInputEls[n]?.focus({ preventScroll: !0 }));
   }
 }
 function syncPlayerTransportUi() {
   playerController.syncPlayerTransport();
   if (!et || !tt || mediaEl.src) return;
-  let e = speechActiveCueIndex >= 0;
-  tt.textContent = e ? `⏸` : `▶`;
-  let t = et.querySelector(`.player-play-label`);
-  t && (t.textContent = e ? `暂停` : `播放`);
-  et.setAttribute(`aria-label`, e ? `暂停` : `播放`);
-  et.setAttribute(`aria-pressed`, e ? `true` : `false`);
+  let e = speechActiveCueIndex >= 0,
+    t = e && getAudioFacade().isPaused();
+  tt.textContent = e && !t ? `⏸` : `▶`;
+  let n = et.querySelector(`.player-play-label`);
+  n && (n.textContent = e && !t ? `暂停` : `播放`);
+  et.setAttribute(`aria-label`, e && !t ? `暂停` : `播放`);
+  et.setAttribute(`aria-pressed`, e && !t ? `true` : `false`);
 }
 function resetPlayerTransportUi() {
   playerController.resetPlayerTransportOptions();
@@ -400,8 +532,10 @@ function syncPracticeActionButtons() {
     i = e && t === `dictation`;
   (dt && (dt.hidden = !n),
     lt && (lt.hidden = !r),
+    fillblankSyncBtnEl && (fillblankSyncBtnEl.hidden = !r),
     dictationCheckBtnEl && (dictationCheckBtnEl.hidden = !i),
     (ct.hidden = !n && !r && !i));
+  dictationCheckBtnEl && (dictationCheckBtnEl.textContent = `创建填空`);
 }
 async function persistStatusPageOnly(e) {
   setStatusMessage(e);
@@ -419,8 +553,17 @@ async function saveProofreadSelection() {
 function emitPracticeBlankIndexesUpdate() {
   let e = practiceCaptureItemId || inputTextEl.dataset.practiceCaptureItemId || ``;
   if (!e) return;
-  let t = Array.isArray(selectedProofreadBlankMap?.[0]) ? selectedProofreadBlankMap[0] : [],
-    n = Array.from(
+  let t = [];
+  for (let [e2, n2] of Object.entries(selectedProofreadBlankMap || {})) {
+    let r2 = Number(e2);
+    if (!Number.isFinite(r2)) continue;
+    let i2 = Array.isArray(n2) ? n2 : [];
+    i2.forEach((e3) => {
+      let n3 = getGlobalWordIndex(r2, Number(e3));
+      n3 != null && t.push(n3);
+    });
+  }
+  let n = Array.from(
       new Set(
         t.map((e) => Number(e))
           .filter((e) => Number.isFinite(e) && e >= 0)
@@ -433,13 +576,35 @@ function emitPracticeBlankIndexesUpdate() {
     }),
   );
 }
+function emitPracticeCorrectBlankIndexesUpdate() {
+  let e = practiceCaptureItemId || inputTextEl.dataset.practiceCaptureItemId || ``;
+  if (!e) return;
+  let t = [];
+  subtitleListEl.querySelectorAll(`.fb-slot`).forEach((e2) => {
+    if (!e2.classList.contains(`fb-slot--ok`)) return;
+    let n = String(e2.dataset.fbSlotKey || ``),
+      r = /^(\d+):(\d+)$/.exec(n);
+    if (!r) return;
+    let i = getGlobalWordIndex(Number(r[1]), Number(r[2]));
+    i != null && t.push(i);
+  });
+  let n = Array.from(
+    new Set(
+      t
+        .map((e2) => Number(e2))
+        .filter((e2) => Number.isFinite(e2) && e2 >= 0)
+        .map((e2) => Math.floor(e2)),
+    ),
+  ).sort((e2, t2) => e2 - t2);
+  document.dispatchEvent(
+    new CustomEvent(`daily-capture-practice-correct-blanks-updated`, {
+      detail: { itemId: e, correctBlankIndexes: n },
+    }),
+  );
+}
 function markFillblankReviewResult() {
   (subtitleListEl.classList.add(`oio-fillblank-reviewed`),
     subtitleListEl.querySelectorAll(`.fb-slot`).forEach((e) => {
-      if (e.dataset.fbRevealed === `1`) {
-        (e.classList.remove(`fb-slot--wrong`), e.classList.add(`fb-slot--ok`));
-        return;
-      }
       e.classList.remove(`fb-slot--wrong`, `fb-slot--ok`);
       let t = e.dataset.answer ?? ``,
         n = e.value,
@@ -455,6 +620,10 @@ function renderProofreadSelectionRows() {
     let t = cueRowEls[e]?.querySelector(`.cue-proofread`);
     if (!t) continue;
     t.replaceChildren();
+    let n = document.createElement(`p`);
+    ((n.className = `pr-user-line`),
+      (n.textContent = cueInputEls[e]?.value?.trim() ? cueInputEls[e].value : `-`),
+      t.appendChild(n));
     let r = document.createElement(`div`);
     ((r.className = `pr-ref-line`),
       xe(playbackCues[e].text.trim()).forEach((t, n) => {
@@ -509,10 +678,8 @@ function renderFillblankCueRow(e, t) {
           (s.dataset.fbSlotKey = a));
         let u = fillblankSlotStateByKey[a];
         (u === `ok`
-          ? (s.classList.add(`fb-slot--ok`, `fb-slot--revealed`),
-            (s.dataset.fbRevealed = `1`),
-            (s.readOnly = !0),
-            (s.value = t.answer))
+          ? ((s.value = t.answer),
+            s.classList.add(`fb-slot--ok`, `fb-slot--revealed`))
           : u === `wrong` && s.classList.add(`fb-slot--wrong`),
           s.addEventListener(`click`, (e) => e.stopPropagation()));
         let d = document.createElement(`span`);
@@ -523,13 +690,14 @@ function renderFillblankCueRow(e, t) {
           })();
         ((d.className = `fb-slot-actions`),
           d.setAttribute(`role`, `group`),
-          d.setAttribute(`aria-label`, `填空帮助`));
-        let f = document.createElement(`button`);
+          d.setAttribute(`aria-label`, `填空状态`));
+        let f = document.createElement(`button`),
+          h = document.createElement(`button`);
         ((f.type = `button`),
-          (f.className = `fb-help-btn`),
-          (f.textContent = `帮填`),
-          f.setAttribute(`aria-label`, `帮我填写这个单词`),
-          (f.title = `帮我填写这个单词`),
+          (f.className = `fb-state-btn fb-state-btn--pending`),
+          (f.textContent = `○`),
+          f.setAttribute(`aria-label`, `待练`),
+          (f.title = `待练`),
           f.addEventListener(`mousedown`, (e) => {
             e.stopPropagation();
           }),
@@ -537,16 +705,32 @@ function renderFillblankCueRow(e, t) {
             if (!subtitleListEl.classList.contains(`oio-fillblank-reviewed`)) return;
             (e.preventDefault(),
               e.stopPropagation(),
+              (s.value = ``),
+              s.classList.remove(`fb-slot--revealed`, `fb-slot--ok`, `fb-slot--wrong`),
+              s.focus({ preventScroll: !0 }),
+              syncFillblankStateFromSlots(),
+              updateFillblankScoreSummary());
+          }),
+          (h.type = `button`),
+          (h.className = `fb-state-btn fb-state-btn--mastered`),
+          (h.textContent = `✓`),
+          h.setAttribute(`aria-label`, `已掌握`),
+          (h.title = `已掌握`),
+          h.addEventListener(`mousedown`, (e) => {
+            e.stopPropagation();
+          }),
+          h.addEventListener(`click`, (e) => {
+            if (!subtitleListEl.classList.contains(`oio-fillblank-reviewed`)) return;
+            (e.preventDefault(),
+              e.stopPropagation(),
               (s.value = s.dataset.answer ?? ``),
               s.classList.remove(`fb-slot--wrong`),
-              s.classList.add(`fb-slot--ok`),
-              (s.readOnly = !1),
-              delete s.dataset.fbRevealed,
-              s.classList.remove(`fb-slot--revealed`),
+              s.classList.add(`fb-slot--ok`, `fb-slot--revealed`),
               syncFillblankStateFromSlots(),
               updateFillblankScoreSummary());
           }),
           d.appendChild(f),
+          d.appendChild(h),
           o.appendChild(s),
           t.suffix &&
             (() => {
@@ -606,6 +790,7 @@ function updatePracticeModeButtons() {
     });
 }
 function getFocusedCueIndex() {
+  if (activeCueIndex >= 0) return activeCueIndex;
   let e = document.activeElement;
   if (e?.classList?.contains(`cue-input`)) {
     let t = e.closest(`.cue-row`);
@@ -615,7 +800,7 @@ function getFocusedCueIndex() {
     let t = e.closest(`.cue-row`);
     if (t?.dataset.idx != null) return Number(t.dataset.idx);
   }
-  return activeCueIndex >= 0 ? activeCueIndex : findCueIndexAtTime(mediaEl.currentTime);
+  return findCueIndexAtTime(mediaEl.currentTime);
 }
 function syncSubtitlePracticeUI() {
   let e = cueListMode !== `subtitles`;
@@ -640,7 +825,7 @@ function syncSubtitlePracticeUI() {
       s?.classList.toggle(`cue-fillblank--hidden`, cueListMode !== `fillblank`));
     let l = cueListMode === `dictation`;
     (i.classList.toggle(`cue-input--visible`, l),
-      c?.classList.remove(`cue-inline-play--hidden`));
+      c?.classList.toggle(`cue-inline-play--hidden`, cueListMode !== `dictation`));
   }),
     e || clearPeekUiTimers(),
     syncPracticeActionButtons(),
@@ -688,11 +873,9 @@ function setPracticeCues(e, { cueCardIndexList: t = null, cardCount: n = null } 
         (i.innerHTML = renderTextWithKeyPhraseHighlight(e.text, keyPhrasesByCue[t] ?? [])),
         i.addEventListener(`click`, (e) => {
           (e.stopPropagation(),
-            (practicePageIndex = cuePageIndexByCue[t] ?? t),
-            renderPracticePager(),
-            (activeCueIndex = t),
-            cueRowEls.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t)),
-            playCueInline(t));
+            cueListMode === `dictation` || cueListMode === `subtitles`
+              ? playCueInline(t)
+              : armCueNoPlay(t));
         }));
       let a = document.createElement(`textarea`);
       ((a.className = `cue-input`),
@@ -700,7 +883,12 @@ function setPracticeCues(e, { cueCardIndexList: t = null, cardCount: n = null } 
         (a.placeholder = `听写输入…`),
         a.setAttribute(`aria-label`, `听写输入`),
         (a.spellcheck = !1),
-        a.addEventListener(`click`, (e) => e.stopPropagation()));
+        a.addEventListener(`click`, (e) => {
+          (e.stopPropagation(),
+            cueListMode === `dictation`
+              ? playCueInline(t)
+              : armCueNoPlay(t, { scrollIntoView: !1 }));
+        }));
       let o = document.createElement(`div`);
       ((o.className = `cue-peek`), o.setAttribute(`aria-hidden`, `true`));
       let s = document.createElement(`div`);
@@ -715,16 +903,15 @@ function setPracticeCues(e, { cueCardIndexList: t = null, cardCount: n = null } 
         n.addEventListener(`click`, (e) => {
           cueListMode !== `subtitles` &&
             (Gt(e)?.closest?.(`.fb-slot-actions`) ||
-              ((practicePageIndex = cuePageIndexByCue[t] ?? t),
-              renderPracticePager(),
-              (activeCueIndex = t),
-              cueRowEls.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === t)),
-              (cueListMode === `proofread` || cueListMode === `fillblank`) && playCueInline(t)));
+              (cueListMode === `dictation`
+                ? playCueInline(t)
+                : armCueNoPlay(t)));
         }),
         subtitleListEl.appendChild(n),
         cueRowEls.push(n),
         cueInputEls.push(a));
     }),
+    applyDictationDraftsToInputs(),
     (cueListMode = `subtitles`),
     refreshPracticeUI());
 }
@@ -746,9 +933,7 @@ function syncActiveCueByCurrentTime(e) {
       }
     }
   if (t !== activeCueIndex) {
-    for (let e = 0; e < cueRowEls.length; e++)
-      cueRowEls[e].classList.toggle(`cue-row--active`, e === t);
-    activeCueIndex = t;
+    setActiveCueIndex(t);
   }
 }
 (mediaEl.addEventListener(`timeupdate`, () => {
@@ -794,10 +979,12 @@ function syncActiveCueByCurrentTime(e) {
       syncPlayerTransportUi());
   }),
   b?.addEventListener(`change`, () => {
-    practiceAudioFlow.onCueLoopToggleChanged(!!b?.checked);
+    (practiceAudioFlow.onCueLoopToggleChanged(!!b?.checked),
+      b?.blur?.());
   }),
   $e?.addEventListener(`change`, () => {
-    mediaEl.loop = !!$e.checked;
+    (mediaEl.loop = !!$e.checked),
+      $e?.blur?.();
   }),
   et?.addEventListener(`click`, () => {
     toggleMainPlayerPlayback();
@@ -877,18 +1064,22 @@ function syncActiveCueByCurrentTime(e) {
       cueListMode === `proofread` &&
         ((practicePageIndex = cuePageIndexByCue[Number(t.dataset.si)] ?? Number(t.dataset.si)),
         renderPracticePager(),
-        (activeCueIndex = Number(t.dataset.si)),
-        cueRowEls.forEach((e, n) => e.classList.toggle(`cue-row--active`, n === Number(t.dataset.si))),
-        syncProofreadSelectionMap(),
-        playCueInline(Number(t.dataset.si))));
+        setActiveCueIndex(Number(t.dataset.si)),
+        syncProofreadSelectionMap()));
   }),
   lt?.addEventListener(`click`, () => {
     checkFillblankAnswers().catch((e) => {
-      (console.error(e), setStatusMessage(`记录填空正确率失败，请稍后再试。`));
+      (console.error(e), setStatusMessage(`检查填空失败，请稍后再试。`));
+    });
+  }),
+  fillblankSyncBtnEl?.addEventListener(`click`, () => {
+    syncFillblankStateToCapture().catch((e) => {
+      (console.error(e), setStatusMessage(`更新填空状态失败，请稍后再试。`));
     });
   }),
   dictationCheckBtnEl?.addEventListener(`click`, () => {
-    checkDictationAnswers();
+    (switchToProofreadMode(),
+      setStatusMessage(`已切换到「创建填空」。`));
   }));
 async function checkFillblankAnswers() {
   (markFillblankReviewResult(), syncFillblankStateFromSlots(), updateFillblankScoreSummary());
@@ -897,6 +1088,27 @@ async function checkFillblankAnswers() {
     e
       ? `填空已校对（${e.correctBlanks}/${e.totalBlanks}，${e.percent}%）。`
       : `填空已校对。`,
+  );
+}
+function clearFillblankReviewUi() {
+  subtitleListEl.classList.remove(`oio-fillblank-reviewed`);
+  subtitleListEl.querySelectorAll(`.fb-slot`).forEach((e) => {
+    e.classList.remove(`fb-slot--wrong`, `fb-slot--ok`, `fb-slot--revealed`);
+  });
+}
+async function syncFillblankStateToCapture() {
+  if (cueListMode !== `fillblank` || !playbackCues.length) return;
+  if (!subtitleListEl.classList.contains(`oio-fillblank-reviewed`)) {
+    setStatusMessage(`请先点击「检查填空」。`);
+    return;
+  }
+  emitPracticeCorrectBlankIndexesUpdate();
+  let e = fillblankScoreSummary;
+  clearFillblankReviewUi();
+  await persistStatusPageOnly(
+    e
+      ? `填空状态已更新（${e.correctBlanks}/${e.totalBlanks}，${e.percent}%）。`
+      : `填空状态已更新。`,
   );
 }
 function normalizeDictationText(e) {
@@ -931,7 +1143,9 @@ function checkDictationAnswers() {
     (t?.classList?.contains(`fb-slot`) &&
       (t.readOnly || t.classList.remove(`fb-slot--wrong`, `fb-slot--ok`)),
       t?.classList?.contains(`cue-input`) &&
-        t.classList.remove(`cue-input--ok`, `cue-input--wrong`));
+        (t.classList.remove(`cue-input--ok`, `cue-input--wrong`),
+          persistCurrentDictationDrafts(),
+          updateProofreadDictationLine(Number(t.closest(`.cue-row`)?.dataset.idx))));
   }),
   subtitleListEl.addEventListener(`focusin`, (e) => {
     let t = e.target;
@@ -941,66 +1155,55 @@ function checkDictationAnswers() {
       let e = t.closest(`.cue-row`),
         n = e?.dataset.idx == null ? -1 : Number(e.dataset.idx);
       if (n < 0) return;
-      (practicePageIndex = cuePageIndexByCue[n] ?? n), renderPracticePager();
-      (activeCueIndex = n),
-        cueRowEls.forEach((e, t) => {
-          e.classList.toggle(`cue-row--active`, t === n);
-        }),
-        playCueInline(n);
+      armCueNoPlay(n, { scrollIntoView: !1 });
       return;
     }
     if (t?.classList?.contains(`cue-input`) && cueListMode === `dictation`) {
       let e = t.closest(`.cue-row`),
         n = e?.dataset.idx == null ? -1 : Number(e.dataset.idx);
       if (n < 0) return;
-      (practicePageIndex = cuePageIndexByCue[n] ?? n), renderPracticePager();
-      (activeCueIndex = n),
-        cueRowEls.forEach((e, t) => {
-          e.classList.toggle(`cue-row--active`, t === n);
-        }),
-        playCueInline(n);
+      armCueNoPlay(n, { scrollIntoView: !1 });
     }
   }),
   document.addEventListener(`keydown`, (e) => {
     if (e.repeat) return;
     let t = e.target?.classList?.contains(`cue-input`),
-      n = e.target?.classList?.contains(`fb-slot`),
-      r = cueListMode !== `subtitles`;
-    if (n && e.code === `Tab` && cueListMode === `fillblank`) {
-      if (!playbackCues.length) return;
-      (e.preventDefault(), e.stopPropagation());
-      let t = [...subtitleListEl.querySelectorAll(`.fb-slot`)].filter((e) => !e.readOnly),
-        n = e.target,
-        r = t.indexOf(n);
-      if (r < 0) return;
-      let i = e.shiftKey ? r - 1 : r + 1;
-      if (i < 0 || i >= t.length) return;
-      let a = t[i],
-        o = Number(n.closest(`.cue-row`)?.dataset.idx),
-        s = Number(a.closest(`.cue-row`)?.dataset.idx);
-      (o !== s && seekCueNoPlay(s), a.focus({ preventScroll: !0 }));
-      return;
-    }
+      n = e.target?.classList?.contains(`fb-slot`);
     if ((t || n) && e.ctrlKey) {
       if (e.code === `ArrowUp`) {
         if (!e.shiftKey) return;
         (e.preventDefault(), e.stopPropagation(), toggleMainPlayerPlayback());
         return;
       }
-      if (e.code === `ArrowLeft`) {
+      if ((e.code === `ArrowLeft` || e.code === `ArrowRight`) && e.shiftKey) {
         if (!playbackCues.length) return;
-        (e.preventDefault(), e.stopPropagation(), seekToPreviousCue());
-        return;
-      }
-      if (e.code === `ArrowRight`) {
-        if (!playbackCues.length) return;
-        (e.preventDefault(), e.stopPropagation(), seekToNextCue());
+        e.preventDefault();
+        e.stopPropagation();
+        let r = e.code === `ArrowRight` ? 1 : -1,
+          i =
+            cueListMode === `dictation`
+              ? getFocusedCueIndex()
+              : activeCueIndex;
+        i >= 0 && i < playbackCues.length ||
+          (i = Math.max(0, findCueIndexAtTime(mediaEl.currentTime)));
+        let a = Math.max(0, Math.min(playbackCues.length - 1, i + r));
+        if (cueListMode === `dictation`) {
+          cueInputEls[a]?.focus({ preventScroll: !0 });
+          playCueInline(a);
+          return;
+        }
+        armCueNoPlay(a);
         return;
       }
     }
     let i = je(e.target, inputTextEl),
       a = e.ctrlKey || e.altKey;
     if (e.code === `Space`) {
+      if (e.target === b || e.target === $e) {
+        if (!playbackCues.length) return;
+        (e.preventDefault(), e.stopPropagation(), toggleMainPlayerPlayback());
+        return;
+      }
       if (Me(e.target) || t || n || (i && !a) || !playbackCues.length) return;
       (e.preventDefault(), toggleMainPlayerPlayback());
       return;
@@ -1022,7 +1225,8 @@ function checkDictationAnswers() {
     let t = [],
       n = [],
       r2 = [],
-      i2 = [];
+      i2 = [],
+      a2 = [];
     try {
       n = JSON.parse(inputTextEl.dataset.practiceCardChunks || `[]`);
     } catch {
@@ -1037,6 +1241,11 @@ function checkDictationAnswers() {
       i2 = JSON.parse(inputTextEl.dataset.practiceBlankIndexes || `[]`);
     } catch {
       i2 = [];
+    }
+    try {
+      a2 = JSON.parse(inputTextEl.dataset.practiceCorrectBlankIndexes || `[]`);
+    } catch {
+      a2 = [];
     }
     let r = Array.isArray(n) && n.length > 0 ? n.map((e) => String(e || ``).trim()).filter(Boolean) : [e],
       i = [],
@@ -1088,7 +1297,41 @@ function checkDictationAnswers() {
               .map((e) => Math.floor(e)),
           ),
         ).sort((e, t) => e - t);
-        e.length && (selectedProofreadBlankMap = { 0: e });
+        if (e.length) {
+          let n = {};
+          e.forEach((e2) => {
+            let n2 = getCueWordPositionByGlobalIndexFromSource(t, e2);
+            if (!n2) return;
+            let r = String(n2.cueIndex);
+            n[r] || (n[r] = []);
+            n[r].push(n2.wordIndex);
+          });
+          for (let [e2, r] of Object.entries(n)) {
+            n[e2] = Array.from(
+              new Set(
+                (Array.isArray(r) ? r : [])
+                  .map((e3) => Number(e3))
+                  .filter((e3) => Number.isFinite(e3) && e3 >= 0)
+                  .map((e3) => Math.floor(e3)),
+              ),
+            ).sort((e3, t2) => e3 - t2);
+          }
+          selectedProofreadBlankMap = n;
+        }
+      }
+      if (Array.isArray(a2) && a2.length > 0) {
+        let e = Array.from(
+          new Set(
+            a2
+              .map((e) => Number(e))
+              .filter((e) => Number.isFinite(e) && e >= 0)
+              .map((e) => Math.floor(e)),
+          ),
+        ).sort((e, t) => e - t);
+        e.forEach((e) => {
+          let n = getCueWordPositionByGlobalIndexFromSource(t, e);
+          n && (fillblankSlotStateByKey[`${n.cueIndex}:${n.wordIndex}`] = `ok`);
+        });
       }
       let o = buildEstimatedCues(t);
       (setPracticeCues(o, { cueCardIndexList: a, cardCount: Math.max(1, r.length) }),
@@ -1126,6 +1369,7 @@ function checkDictationAnswers() {
       delete inputTextEl.dataset.practiceCardKeyPhrases;
       delete inputTextEl.dataset.practiceCaptureItemId;
       delete inputTextEl.dataset.practiceBlankIndexes;
+      delete inputTextEl.dataset.practiceCorrectBlankIndexes;
       delete inputTextEl.dataset.practiceOpeningHint;
       generatePracticeBtn.disabled = !1;
     }
@@ -1137,6 +1381,7 @@ function checkDictationAnswers() {
       delete inputTextEl.dataset.practiceCardKeyPhrases,
       delete inputTextEl.dataset.practiceCaptureItemId,
       delete inputTextEl.dataset.practiceBlankIndexes,
+      delete inputTextEl.dataset.practiceCorrectBlankIndexes,
       delete inputTextEl.dataset.practiceOpeningHint,
       setStatusMessage(``),
       (playbackCues = []),
@@ -1146,6 +1391,7 @@ function checkDictationAnswers() {
       (cueRowEls = []),
       (cueInputEls = []),
       (activeCueIndex = -1),
+      (dictationDraftStoreKey = ``),
       b && (b.checked = !1),
       resetPlayerTransportUi(),
       (cueListMode = `subtitles`),

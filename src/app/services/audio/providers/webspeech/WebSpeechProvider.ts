@@ -35,6 +35,18 @@ export class WebSpeechProvider extends AudioTextProviderBase {
     this.synthesizer.stop();
   }
 
+  pause(): boolean {
+    return this.synthesizer.pause();
+  }
+
+  resume(): boolean {
+    return this.synthesizer.resume();
+  }
+
+  isPaused(): boolean {
+    return this.synthesizer.isPaused();
+  }
+
   setPlaybackRate(rate: number): number {
     return this.synthesizer.setPlaybackRate(rate);
   }

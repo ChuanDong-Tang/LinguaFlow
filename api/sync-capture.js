@@ -32,6 +32,12 @@ function normalizeCaptureItem(item) {
       .filter((value) => Number.isFinite(value) && value >= 0)
       .map((value) => Math.floor(value))
     : [];
+  const practiceCorrectBlankIndexes = Array.isArray(item.practiceCorrectBlankIndexes)
+    ? item.practiceCorrectBlankIndexes
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value >= 0)
+      .map((value) => Math.floor(value))
+    : [];
   return {
     id,
     chatSessionId,
@@ -42,6 +48,7 @@ function normalizeCaptureItem(item) {
     reply: typeof item.reply === "string" ? item.reply : "",
     keyPhrases,
     practiceBlankIndexes,
+    practiceCorrectBlankIndexes,
   };
 }
 
@@ -103,11 +110,26 @@ async function loadRecordByDate(supabase, appUserId, dateKey) {
     .filter(Boolean);
   const blankIndexesByCaptureId = new Map();
   if (captureIds.length) {
-    const { data: stateRows, error: stateError } = await supabase
-      .from("daily_capture_practice_state")
-      .select("capture_id,blank_indexes")
-      .eq("user_id", appUserId)
-      .in("capture_id", captureIds);
+    let stateRows = [];
+    let stateError = null;
+    {
+      const result = await supabase
+        .from("daily_capture_practice_state")
+        .select("capture_id,blank_indexes,correct_blank_indexes")
+        .eq("user_id", appUserId)
+        .in("capture_id", captureIds);
+      stateRows = result.data ?? [];
+      stateError = result.error ?? null;
+    }
+    if (stateError) {
+      const fallback = await supabase
+        .from("daily_capture_practice_state")
+        .select("capture_id,blank_indexes")
+        .eq("user_id", appUserId)
+        .in("capture_id", captureIds);
+      stateRows = fallback.data ?? [];
+      stateError = fallback.error ?? null;
+    }
     if (stateError) throw stateError;
     for (const stateRow of stateRows ?? []) {
       const captureId = typeof stateRow.capture_id === "string" ? stateRow.capture_id : "";
@@ -118,7 +140,16 @@ async function loadRecordByDate(supabase, appUserId, dateKey) {
           .filter((value) => Number.isFinite(value) && value >= 0)
           .map((value) => Math.floor(value))
         : [];
-      blankIndexesByCaptureId.set(captureId, normalizedBlankIndexes);
+      const normalizedCorrectBlankIndexes = Array.isArray(stateRow.correct_blank_indexes)
+        ? stateRow.correct_blank_indexes
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value >= 0)
+          .map((value) => Math.floor(value))
+        : [];
+      blankIndexesByCaptureId.set(captureId, {
+        blankIndexes: normalizedBlankIndexes,
+        correctBlankIndexes: normalizedCorrectBlankIndexes,
+      });
     }
   }
   const updatedAt = rows[rows.length - 1]?.created_at ?? new Date().toISOString();
@@ -134,7 +165,8 @@ async function loadRecordByDate(supabase, appUserId, dateKey) {
       naturalVersion: typeof row.natural_version === "string" ? row.natural_version : "",
       reply: typeof row.reply === "string" ? row.reply : "",
       keyPhrases: Array.isArray(row.key_phrases) ? row.key_phrases.filter((value) => typeof value === "string") : [],
-      practiceBlankIndexes: blankIndexesByCaptureId.get(row.capture_id) ?? [],
+      practiceBlankIndexes: blankIndexesByCaptureId.get(row.capture_id)?.blankIndexes ?? [],
+      practiceCorrectBlankIndexes: blankIndexesByCaptureId.get(row.capture_id)?.correctBlankIndexes ?? [],
     })),
   };
 }
@@ -166,11 +198,28 @@ async function replaceRecordItems(supabase, appUserId, record) {
     user_id: appUserId,
     capture_id: item.id,
     blank_indexes: item.practiceBlankIndexes,
+    correct_blank_indexes: item.practiceCorrectBlankIndexes,
     updated_at: normalized.updatedAt || new Date().toISOString(),
   }));
-  const { error: stateUpsertError } = await supabase
-    .from("daily_capture_practice_state")
-    .upsert(stateRows, { onConflict: "user_id,capture_id" });
+  let stateUpsertError = null;
+  {
+    const result = await supabase
+      .from("daily_capture_practice_state")
+      .upsert(stateRows, { onConflict: "user_id,capture_id" });
+    stateUpsertError = result.error ?? null;
+  }
+  if (stateUpsertError) {
+    const fallbackStateRows = normalized.items.map((item) => ({
+      user_id: appUserId,
+      capture_id: item.id,
+      blank_indexes: item.practiceBlankIndexes,
+      updated_at: normalized.updatedAt || new Date().toISOString(),
+    }));
+    const fallback = await supabase
+      .from("daily_capture_practice_state")
+      .upsert(fallbackStateRows, { onConflict: "user_id,capture_id" });
+    stateUpsertError = fallback.error ?? null;
+  }
   if (stateUpsertError) throw stateUpsertError;
 }
 

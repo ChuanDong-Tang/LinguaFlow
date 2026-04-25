@@ -55,6 +55,30 @@ export class KokoroEngine {
     }
   }
 
+  pause(): boolean {
+    if (!this.currentAudio) return false;
+    try {
+      this.currentAudio.pause();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  resume(): boolean {
+    if (!this.currentAudio) return false;
+    try {
+      void this.currentAudio.play();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  isPaused(): boolean {
+    return !!this.currentAudio && this.currentAudio.paused;
+  }
+
   deactivate(): void {
     this.stop();
     this.resetWorkers();
