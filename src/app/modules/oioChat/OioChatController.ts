@@ -106,6 +106,7 @@ export class OioChatController {
       this.renderHistory();
       this.renderFeed();
       this.updateMeta();
+      this.syncSpeechRecognitionLang();
       this.updateVoiceInputState();
     });
     this.updateVoiceInputState();
@@ -754,7 +755,7 @@ export class OioChatController {
     }
 
     const recognition = new recognitionCtor();
-    recognition.lang = "en-US";
+    recognition.lang = this.getSpeechRecognitionLang();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
@@ -801,6 +802,15 @@ export class OioChatController {
     this.speechRecognition = recognition;
   }
 
+  private getSpeechRecognitionLang(): string {
+    return getI18n().getLocale() === "zh-CN" ? "zh-CN" : "en-US";
+  }
+
+  private syncSpeechRecognitionLang(): void {
+    if (!this.speechRecognition) return;
+    this.speechRecognition.lang = this.getSpeechRecognitionLang();
+  }
+
   private toggleSpeechInput(): void {
     if (!this.speechRecognition) {
       this.setStatus(t("oio_chat.voice_input_unavailable_browser"));
@@ -827,6 +837,7 @@ export class OioChatController {
   private async startSpeechInput(): Promise<void> {
     if (!this.speechRecognition) return;
     try {
+      this.syncSpeechRecognitionLang();
       this.discardSpeechRecognitionResults = false;
       this.speechRecognitionDraft = this.inputEl?.value?.trim() ?? "";
       this.speechRecognitionRequested = true;
