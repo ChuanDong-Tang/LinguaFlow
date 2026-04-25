@@ -299,7 +299,7 @@
   top: calc(100% + 0.42rem);
   left: 0;
   z-index: 12;
-  width: min(18.5rem, calc(100vw - 2.4rem));
+  width: min(19.5rem, calc(100vw - 2.4rem));
   padding: 0.58rem 0.65rem;
   border: 1px solid rgba(88, 165, 255, 0.36);
   border-radius: 10px;
@@ -309,6 +309,21 @@
   visibility: hidden;
   pointer-events: none;
   transition: opacity 120ms ease;
+}
+
+.daily-capture-legend-group-title {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: rgba(225, 236, 248, 0.84);
+}
+
+.daily-capture-legend-group-title--split {
+  margin-top: 0.5rem;
+  padding-top: 0.42rem;
+  border-top: 1px solid rgba(136, 162, 210, 0.28);
 }
 
 .daily-capture-legend-help:hover .daily-capture-legend-help-popover,
@@ -325,6 +340,10 @@
 
 .daily-capture-legend-row + .daily-capture-legend-row {
   margin-top: 0.32rem;
+}
+
+.daily-capture-legend-group-title + .daily-capture-legend-row {
+  margin-top: 0.34rem;
 }
 
 .daily-capture-legend-label,
@@ -350,23 +369,34 @@
   border: 1px solid transparent;
 }
 
-.daily-capture-legend-bar.is-common,
-.daily-capture-legend-bar.is-level-1 {
-  border-color: rgba(255, 255, 255, 0.36);
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+.daily-capture-legend-bar.is-card-level-1 {
+  border-color: rgba(118, 136, 166, 0.36);
+  background: linear-gradient(90deg, rgba(92, 112, 146, 0.24), rgba(92, 112, 146, 0.08));
 }
 
-.daily-capture-legend-bar.is-rare,
-.daily-capture-legend-bar.is-level-2 {
-  border-color: rgba(88, 165, 255, 0.72);
-  background: linear-gradient(90deg, rgba(64, 149, 255, 0.55), rgba(64, 149, 255, 0.18));
+.daily-capture-legend-bar.is-card-level-2 {
+  border-color: rgba(136, 162, 210, 0.64);
+  background: linear-gradient(90deg, rgba(109, 134, 180, 0.42), rgba(109, 134, 180, 0.14));
 }
 
-.daily-capture-legend-bar.is-epic,
-.daily-capture-legend-bar.is-legendary,
-.daily-capture-legend-bar.is-level-3 {
-  border-color: rgba(57, 194, 200, 0.88);
-  background: linear-gradient(90deg, rgba(57, 194, 200, 0.64), rgba(57, 194, 200, 0.22));
+.daily-capture-legend-bar.is-card-level-3 {
+  border-color: rgba(156, 190, 248, 0.84);
+  background: linear-gradient(90deg, rgba(132, 162, 221, 0.66), rgba(132, 162, 221, 0.24));
+}
+
+.daily-capture-legend-bar.is-phrase-level-1 {
+  border-color: rgba(106, 132, 214, 0.42);
+  background: linear-gradient(90deg, rgba(86, 114, 202, 0.3), rgba(66, 93, 173, 0.1));
+}
+
+.daily-capture-legend-bar.is-phrase-level-2 {
+  border-color: rgba(121, 157, 246, 0.68);
+  background: linear-gradient(90deg, rgba(99, 132, 232, 0.46), rgba(74, 109, 199, 0.16));
+}
+
+.daily-capture-legend-bar.is-phrase-level-3 {
+  border-color: rgba(145, 183, 255, 0.9);
+  background: linear-gradient(90deg, rgba(118, 160, 247, 0.62), rgba(90, 130, 222, 0.24));
 }
 
 .daily-capture-calendar-top {
@@ -811,79 +841,79 @@
   background: rgba(64, 149, 255, 0.22);
 }
 
-/* 3-level proficiency palette: one hue with deeper intensity */
+/* 3-level palette: completion (cyan) + phrase proficiency (deep blue) */
 .daily-capture-legend-bar.is-level-1 {
-  border-color: rgba(88, 165, 255, 0.35);
-  background: linear-gradient(90deg, rgba(64, 149, 255, 0.2), rgba(64, 149, 255, 0.08));
+  border-color: rgba(118, 136, 166, 0.36);
+  background: linear-gradient(90deg, rgba(92, 112, 146, 0.24), rgba(92, 112, 146, 0.08));
 }
 
 .daily-capture-legend-bar.is-level-2 {
-  border-color: rgba(88, 165, 255, 0.62);
-  background: linear-gradient(90deg, rgba(64, 149, 255, 0.4), rgba(64, 149, 255, 0.16));
+  border-color: rgba(136, 162, 210, 0.64);
+  background: linear-gradient(90deg, rgba(109, 134, 180, 0.42), rgba(109, 134, 180, 0.14));
 }
 
 .daily-capture-legend-bar.is-level-3 {
-  border-color: rgba(88, 165, 255, 0.88);
-  background: linear-gradient(90deg, rgba(64, 149, 255, 0.66), rgba(64, 149, 255, 0.25));
+  border-color: rgba(156, 190, 248, 0.84);
+  background: linear-gradient(90deg, rgba(132, 162, 221, 0.66), rgba(132, 162, 221, 0.24));
 }
 
 .daily-capture-day.is-marked.is-tier-level_1 {
-  border-color: rgba(88, 165, 255, 0.35);
-  background: linear-gradient(180deg, rgba(64, 149, 255, 0.14), rgba(64, 149, 255, 0.04));
+  border-color: rgba(118, 136, 166, 0.36);
+  background: linear-gradient(180deg, rgba(92, 112, 146, 0.2), rgba(92, 112, 146, 0.06));
 }
 
 .daily-capture-day.is-marked.is-tier-level_2 {
-  border-color: rgba(88, 165, 255, 0.6);
-  background: linear-gradient(180deg, rgba(64, 149, 255, 0.24), rgba(64, 149, 255, 0.08));
+  border-color: rgba(136, 162, 210, 0.64);
+  background: linear-gradient(180deg, rgba(109, 134, 180, 0.3), rgba(109, 134, 180, 0.1));
 }
 
 .daily-capture-day.is-marked.is-tier-level_3 {
-  border-color: rgba(88, 165, 255, 0.82);
-  background: linear-gradient(180deg, rgba(64, 149, 255, 0.35), rgba(64, 149, 255, 0.12));
+  border-color: rgba(156, 190, 248, 0.84);
+  background: linear-gradient(180deg, rgba(132, 162, 221, 0.42), rgba(132, 162, 221, 0.15));
 }
 
 .daily-capture-entry--tier-level_1 {
-  border: 1px solid rgba(88, 165, 255, 0.32);
-  background: linear-gradient(180deg, rgba(64, 149, 255, 0.08), rgba(64, 149, 255, 0.02));
+  border: 1px solid rgba(118, 136, 166, 0.36);
+  background: linear-gradient(180deg, rgba(92, 112, 146, 0.13), rgba(92, 112, 146, 0.04));
 }
 
 .daily-capture-entry--tier-level_2 {
-  border: 1px solid rgba(88, 165, 255, 0.6);
-  background: linear-gradient(180deg, rgba(64, 149, 255, 0.14), rgba(64, 149, 255, 0.05));
+  border: 1px solid rgba(136, 162, 210, 0.64);
+  background: linear-gradient(180deg, rgba(109, 134, 180, 0.2), rgba(109, 134, 180, 0.07));
 }
 
 .daily-capture-entry--tier-level_3 {
-  border: 1px solid rgba(88, 165, 255, 0.82);
-  background: linear-gradient(180deg, rgba(64, 149, 255, 0.22), rgba(64, 149, 255, 0.08));
+  border: 1px solid rgba(156, 190, 248, 0.84);
+  background: linear-gradient(180deg, rgba(132, 162, 221, 0.28), rgba(132, 162, 221, 0.1));
 }
 
 .daily-capture-entry--tier-level_1:first-child {
-  border-top-color: rgba(88, 165, 255, 0.32);
+  border-top-color: rgba(118, 136, 166, 0.36);
 }
 
 .daily-capture-entry--tier-level_2:first-child {
-  border-top-color: rgba(88, 165, 255, 0.6);
+  border-top-color: rgba(136, 162, 210, 0.64);
 }
 
 .daily-capture-entry--tier-level_3:first-child {
-  border-top-color: rgba(88, 165, 255, 0.82);
+  border-top-color: rgba(156, 190, 248, 0.84);
 }
 
 .daily-capture-phrase-chip.is-tier-level_1 {
-  border: 1px solid rgba(88, 165, 255, 0.34);
-  background: linear-gradient(180deg, rgba(64, 149, 255, 0.14), rgba(64, 149, 255, 0.05));
+  border: 1px solid rgba(106, 132, 214, 0.42);
+  background: linear-gradient(180deg, rgba(86, 114, 202, 0.2), rgba(66, 93, 173, 0.08));
 }
 
 .daily-capture-phrase-chip.is-tier-level_2 {
-  border: 1px solid rgba(88, 165, 255, 0.62);
-  background: linear-gradient(180deg, rgba(64, 149, 255, 0.24), rgba(64, 149, 255, 0.09));
-  box-shadow: 0 0 0 1px rgba(109, 185, 255, 0.14) inset;
+  border: 1px solid rgba(121, 157, 246, 0.68);
+  background: linear-gradient(180deg, rgba(99, 132, 232, 0.32), rgba(74, 109, 199, 0.12));
+  box-shadow: 0 0 0 1px rgba(127, 164, 255, 0.16) inset;
 }
 
 .daily-capture-phrase-chip.is-tier-level_3 {
-  border: 1px solid rgba(88, 165, 255, 0.88);
-  background: linear-gradient(180deg, rgba(64, 149, 255, 0.36), rgba(64, 149, 255, 0.12));
-  box-shadow: 0 0 0 1px rgba(130, 196, 255, 0.22) inset;
+  border: 1px solid rgba(145, 183, 255, 0.9);
+  background: linear-gradient(180deg, rgba(118, 160, 247, 0.44), rgba(90, 130, 222, 0.18));
+  box-shadow: 0 0 0 1px rgba(157, 193, 255, 0.24) inset;
 }
 
 .daily-capture-footer {
