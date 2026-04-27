@@ -57,7 +57,6 @@ function normalizeSession(session) {
   if (!session || typeof session !== "object") return null;
   const id = typeof session.id === "string" ? session.id.trim() : "";
   if (!id) return null;
-  if (session.kind === "practice") return null;
   const createdAt = typeof session.createdAt === "string" ? session.createdAt : new Date().toISOString();
   const updatedAt = typeof session.updatedAt === "string" ? session.updatedAt : createdAt;
   const title = typeof session.title === "string" && session.title.trim() ? session.title.trim() : "New conversation";

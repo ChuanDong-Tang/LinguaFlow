@@ -8,6 +8,8 @@ function isInteractiveNode(node: Node | null): boolean {
 }
 
 export class SuperDictQuickAddController {
+  private static readonly FAB_WIDTH = 32;
+  private static readonly FAB_HEIGHT = 32;
   private buttonEl: HTMLButtonElement | null = null;
   private selectedText = "";
 
@@ -33,7 +35,7 @@ export class SuperDictQuickAddController {
     button.title = "Add to Super Dict";
     button.innerHTML = `
       <svg viewBox="0 0 24 24" class="super-dict-quick-add-icon" aria-hidden="true">
-        <path d="M4 5.5a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 18 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 4 18.5v-13Zm2.5-.5a.5.5 0 0 0-.5.5v13a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-13a.5.5 0 0 0-.5-.5h-9Zm13 2a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2h-2a1 1 0 1 1 0-2h2V8a1 1 0 0 1 1-1Z" fill="currentColor"></path>
+        <path d="M10.5 4.5a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm5.65 8.24 3.2 3.2a1 1 0 0 1-1.42 1.42l-3.2-3.2a1 1 0 1 1 1.42-1.42Z" fill="currentColor"></path>
       </svg>
     `;
     button.addEventListener("click", () => {
@@ -77,8 +79,12 @@ export class SuperDictQuickAddController {
 
   private showButton(rect: DOMRect): void {
     if (!this.buttonEl) return;
-    const left = Math.max(8, Math.min(window.innerWidth - 52, rect.right + window.scrollX + 8));
-    const top = Math.max(8, rect.bottom + window.scrollY + 8);
+    const minLeft = window.scrollX + 8;
+    const maxLeft = window.scrollX + window.innerWidth - SuperDictQuickAddController.FAB_WIDTH - 8;
+    const left = Math.max(minLeft, Math.min(maxLeft, rect.right + window.scrollX + 8));
+    const minTop = window.scrollY + 8;
+    const maxTop = window.scrollY + window.innerHeight - SuperDictQuickAddController.FAB_HEIGHT - 8;
+    const top = Math.max(minTop, Math.min(maxTop, rect.bottom + window.scrollY + 8));
     this.buttonEl.style.left = `${left}px`;
     this.buttonEl.style.top = `${top}px`;
     this.buttonEl.hidden = false;

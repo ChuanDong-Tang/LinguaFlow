@@ -1,5 +1,4 @@
 export type OioChatMode = "beginner" | "advanced";
-export type OioChatSessionKind = "chat" | "practice";
 
 export interface ChatTurn {
   id: string;
@@ -12,7 +11,6 @@ export interface ChatTurn {
   capturedAt?: string;
   capturedDateKey?: string;
   countsTowardLimit?: boolean;
-  practiceKind?: "question" | "feedback";
   adminDebug?: string;
   usageDailyUsed?: number;
   usageDailyLimit?: number;

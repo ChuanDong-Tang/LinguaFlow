@@ -1,0 +1,9 @@
+@import "./styles-v2/tokens.css";
+@import "./styles-v2/base.css";
+@import "./styles-v2/layout.css";
+@import "./styles-v2/components.css";
+@import "./styles-v2/pages/chat.css";
+@import "./styles-v2/pages/daily-capture.css";
+@import "./styles-v2/pages/super-dict.css";
+@import "./styles-v2/pages/subscription.css";
+@import "./styles-v2/mobile.css";

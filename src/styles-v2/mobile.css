@@ -1,0 +1,145 @@
+@media (max-width: 1080px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 40;
+    width: min(19rem, 88vw);
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+  }
+
+  .oio-app.is-mobile-nav-open .app-sidebar {
+    transform: translateX(0);
+  }
+
+  .app-mobile-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    border: 0;
+    background: var(--v2-mobile-overlay-bg);
+  }
+
+  .oio-app.is-mobile-nav-open .app-mobile-overlay {
+    display: block;
+  }
+
+  .app-mobile-bar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.55rem;
+    margin-bottom: 0.8rem;
+    padding: 0.45rem 0;
+    background: var(--v2-mobile-bar-bg);
+    border-bottom: 1px solid var(--v2-border);
+  }
+
+  .app-tts-settings-btn {
+    position: static;
+  }
+
+  .app-workspace {
+    padding: 0.86rem;
+  }
+
+  .daily-capture-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .super-dict-link-grid,
+  .super-dict-link-grid--images,
+  .super-dict-link-grid--solo,
+  .subscription-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-workspace {
+    padding: 0.7rem;
+  }
+
+  .app-tab-panel {
+    max-width: none;
+  }
+
+  .module-card {
+    padding: 0.82rem;
+    border-radius: 18px;
+  }
+
+  .oio-chat-main {
+    padding: 0;
+    border-radius: 0;
+  }
+
+  .workspace-hero-title,
+  .oio-overview-title {
+    font-size: 1.55rem;
+  }
+
+  .module-card-title {
+    font-size: 1.25rem;
+  }
+
+  .oio-chat-feed {
+    min-height: 16rem;
+    max-height: none;
+  }
+
+  .oio-chat-composer-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .oio-chat-footer-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .daily-capture-calendar-dow,
+  .daily-capture-calendar-grid {
+    gap: 0.3rem;
+  }
+
+  .daily-capture-day {
+    min-height: 2.8rem;
+  }
+
+  .daily-capture-day-dialog-head,
+  .daily-capture-head-title-row,
+  .daily-capture-footer,
+  .daily-capture-practice-actions,
+  .subscription-dialog-head,
+  .subscription-current-row,
+  .subscription-admin-head,
+  .subscription-activate-head,
+  .subscription-admin-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .daily-capture-calendar-jump,
+  .daily-capture-calendar-nav,
+  .oio-chat-actions {
+    flex-wrap: wrap;
+  }
+
+  .super-dict-link-grid,
+  .super-dict-link-grid--images,
+  .super-dict-link-grid--solo,
+  .subscription-layout,
+  .subscription-activate-grid,
+  .subscription-admin-grid {
+    grid-template-columns: 1fr;
+  }
+}

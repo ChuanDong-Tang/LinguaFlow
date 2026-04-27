@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OIO Lab</title>
-    <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="/src/style.v2.css" />
   </head>
   <body>
     <main class="wrap oio-app app-shell-ready" data-active-tab="oio-chat">
@@ -14,9 +14,72 @@
           <header class="oio-header app-shell-header">
             <div class="oio-header-top">
               <h1 class="oio-brand"><span class="oio-brand-oio">OIO</span> Lab</h1>
+            </div>
+          </header>
+          <nav class="app-nav" aria-label="Feature navigation">
+            <div class="app-nav-group">
+              <div class="app-nav-list">
+                <button type="button" class="app-nav-btn" data-tab-target="oio-chat" aria-controls="tab-panel-oio-chat">
+                  <span class="app-nav-btn-main">
+                    <span class="app-nav-btn-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" class="app-nav-btn-icon-svg">
+                        <rect x="3.5" y="4" width="17" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
+                        <circle cx="9" cy="12" r="1.3" fill="currentColor"></circle>
+                        <circle cx="12" cy="12" r="1.3" fill="currentColor"></circle>
+                        <circle cx="15" cy="12" r="1.3" fill="currentColor"></circle>
+                      </svg>
+                    </span>
+                    <span class="app-nav-btn-label">OIO Chat</span>
+                  </span>
+                </button>
+                <button type="button" class="app-nav-btn" data-tab-target="daily-capture" aria-controls="tab-panel-daily-capture" aria-current="false">
+                  <span class="app-nav-btn-main">
+                    <span class="app-nav-btn-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" class="app-nav-btn-icon-svg">
+                        <rect x="4" y="5" width="16" height="15" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
+                        <path d="M8 3.8v2.6M16 3.8v2.6M4 9.2h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                      </svg>
+                    </span>
+                    <span class="app-nav-btn-label">OIO Practice</span>
+                  </span>
+                </button>
+                <button type="button" class="app-nav-btn" data-tab-target="super-dict" aria-controls="tab-panel-super-dict">
+                  <span class="app-nav-btn-main">
+                    <span class="app-nav-btn-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" class="app-nav-btn-icon-svg">
+                        <path d="M7 4.5h10a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 18V6A1.5 1.5 0 0 1 7 4.5Z" fill="none" stroke="currentColor" stroke-width="1.8"></path>
+                        <path d="M12 4.5V19.5" fill="none" stroke="currentColor" stroke-width="1.8"></path>
+                      </svg>
+                    </span>
+                    <span class="app-nav-btn-label">Super Dict</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </nav>
+          <section class="app-sidebar-chat-history" data-oio-chat-rail hidden>
+            <div class="app-sidebar-chat-history-list" data-oio-chat-history></div>
+          </section>
+          <section class="app-account-dock" aria-label="Account">
+            <div class="app-account-main-row">
               <button
                 type="button"
-                class="app-tts-settings-btn"
+                class="app-account-chip"
+                data-auth-chip
+                aria-haspopup="menu"
+                aria-expanded="false"
+                disabled
+                hidden
+              >
+                <div class="app-account-avatar" data-auth-avatar aria-hidden="true">G</div>
+                <div class="app-account-meta">
+                  <strong class="app-account-title" data-auth-label>Guest mode</strong>
+                  <span class="app-account-note" data-auth-note>Local only</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                class="app-tts-settings-btn app-account-settings-btn"
                 data-tts-settings-toggle
                 aria-haspopup="dialog"
                 aria-expanded="false"
@@ -29,56 +92,13 @@
                 </svg>
               </button>
             </div>
-          </header>
-          <section class="app-account-dock" aria-label="Account">
-            <button
-              type="button"
-              class="app-account-chip"
-              data-auth-chip
-              aria-haspopup="menu"
-              aria-expanded="false"
-              disabled
-              hidden
-            >
-              <div class="app-account-avatar" data-auth-avatar aria-hidden="true">G</div>
-              <div class="app-account-meta">
-                <strong class="app-account-title" data-auth-label>Guest mode</strong>
-                <span class="app-account-note" data-auth-note>Local only</span>
-              </div>
-            </button>
-            <button type="button" class="secondary app-account-action" data-auth-action>Sign in</button>
-            <div class="app-account-menu" data-auth-menu hidden>
-              <button type="button" class="app-account-menu-item" data-auth-menu-subscription>Subscription</button>
-              <button type="button" class="app-account-menu-item" data-auth-menu-signout>Sign out</button>
-            </div>
-          </section>
-
-          <nav class="app-nav" aria-label="Feature navigation">
-            <div class="app-nav-group">
-              <div class="app-nav-list">
-                <button type="button" class="app-nav-btn" data-tab-target="oio-chat" aria-controls="tab-panel-oio-chat">
-                  <span class="app-nav-btn-main">
-                    <span class="app-nav-btn-icon" aria-hidden="true">✦</span>
-                    <span class="app-nav-btn-label">OIO Chat</span>
-                  </span>
-                </button>
-                <button type="button" class="app-nav-btn" data-tab-target="daily-capture" aria-controls="tab-panel-daily-capture" aria-current="false">
-                  <span class="app-nav-btn-main">
-                    <span class="app-nav-btn-icon" aria-hidden="true">◫</span>
-                    <span class="app-nav-btn-label">OIO Partice</span>
-                  </span>
-                </button>
-                <button type="button" class="app-nav-btn" data-tab-target="super-dict" aria-controls="tab-panel-super-dict">
-                  <span class="app-nav-btn-main">
-                    <span class="app-nav-btn-icon" aria-hidden="true">⌕</span>
-                    <span class="app-nav-btn-label">Super Dict</span>
-                  </span>
-                </button>
+            <div class="app-account-meta-menu-wrap">
+              <button type="button" class="secondary app-account-action" data-auth-action>Sign in</button>
+              <div class="app-account-menu" data-auth-menu hidden>
+                <button type="button" class="app-account-menu-item" data-auth-menu-subscription>Subscription</button>
+                <button type="button" class="app-account-menu-item" data-auth-menu-signout>Sign out</button>
               </div>
             </div>
-          </nav>
-          <section class="app-sidebar-chat-history" data-oio-chat-rail hidden>
-            <div class="app-sidebar-chat-history-list" data-oio-chat-history></div>
           </section>
         </aside>
 
@@ -92,138 +112,108 @@
           <section class="app-tab-panel app-tab-panel--placeholder" id="tab-panel-daily-capture" data-tab-panel="daily-capture" hidden>
             <section class="workspace-card module-card module-card--overview">
               <div class="workspace-hero workspace-hero--placeholder daily-capture-hero">
-                <span class="workspace-hero-kicker" data-i18n-daily-hero-kicker>OIO Partice</span>
+                <h2 class="workspace-hero-title oio-chat-page-title daily-capture-page-title">OIO Practice</h2>
+                <p class="daily-capture-page-subtitle">坚持学习，成为更好的自己 🌱</p>
               </div>
             </section>
-            <div class="daily-capture-layout">
-              <section class="workspace-card module-card module-card--calendar-inline module-card--calendar-main">
-                <div class="module-card-head">
-                  <div class="daily-capture-head-main">
-                    <div class="daily-capture-head-title-row">
-                      <div class="daily-capture-head-title-wrap">
-                        <h3 class="module-card-title" data-i18n-daily-calendar-title>Calendar</h3>
-                        <div class="daily-capture-legend-help">
-                          <button
-                            type="button"
-                            class="daily-capture-legend-help-btn"
-                            data-i18n-daily-legend-help-aria
-                            aria-label="Show proficiency legend"
-                          >?</button>
-                          <div class="daily-capture-legend-help-popover" role="tooltip">
-                            <p class="daily-capture-legend-group-title">卡片 / 日历缩略图</p>
-                            <div class="daily-capture-legend-row">
-                              <span class="daily-capture-legend-label" data-i18n-daily-legend-level-1>Level 1</span>
-                              <span class="daily-capture-legend-bar is-card-level-1" aria-hidden="true"></span>
-                              <span class="daily-capture-legend-range">0-2</span>
-                            </div>
-                            <div class="daily-capture-legend-row">
-                              <span class="daily-capture-legend-label" data-i18n-daily-legend-level-2>Level 2</span>
-                              <span class="daily-capture-legend-bar is-card-level-2" aria-hidden="true"></span>
-                              <span class="daily-capture-legend-range">3-5</span>
-                            </div>
-                            <div class="daily-capture-legend-row">
-                              <span class="daily-capture-legend-label" data-i18n-daily-legend-level-3>Level 3</span>
-                              <span class="daily-capture-legend-bar is-card-level-3" aria-hidden="true"></span>
-                              <span class="daily-capture-legend-range">6+</span>
-                            </div>
-                            <p class="daily-capture-legend-group-title daily-capture-legend-group-title--split">短语熟练度</p>
-                            <div class="daily-capture-legend-row">
-                              <span class="daily-capture-legend-label">短语等级 1</span>
-                              <span class="daily-capture-legend-bar is-phrase-level-1" aria-hidden="true"></span>
-                              <span class="daily-capture-legend-range">0-2</span>
-                            </div>
-                            <div class="daily-capture-legend-row">
-                              <span class="daily-capture-legend-label">短语等级 2</span>
-                              <span class="daily-capture-legend-bar is-phrase-level-2" aria-hidden="true"></span>
-                              <span class="daily-capture-legend-range">3-5</span>
-                            </div>
-                            <div class="daily-capture-legend-row">
-                              <span class="daily-capture-legend-label">短语等级 3</span>
-                              <span class="daily-capture-legend-bar is-phrase-level-3" aria-hidden="true"></span>
-                              <span class="daily-capture-legend-range">6+</span>
-                            </div>
-                          </div>
+
+            <div class="daily-capture-top-grid">
+              <section class="workspace-card module-card module-card--daily-calendar">
+                <div class="daily-calendar-layout">
+                  <div class="daily-calendar-main">
+                    <div class="daily-calendar-head">
+                      <h3 class="daily-calendar-title" data-daily-capture-month-label>2026 年 4 月</h3>
+                      <div class="daily-calendar-head-controls">
+                        <div class="daily-calendar-practice-wrap">
+                          <button type="button" class="secondary daily-calendar-practice-selected-btn" data-daily-capture-practice-selected-day>练习当日所有卡牌</button>
+                        </div>
+                        <div class="daily-calendar-nav">
+                          <button type="button" class="daily-calendar-nav-btn" data-daily-capture-prev-month data-daily-capture-prev aria-label="上一月">‹</button>
+                          <span class="daily-calendar-nav-month" data-daily-capture-month-chip>2026 年 4 月</span>
+                          <button type="button" class="daily-calendar-nav-btn" data-daily-capture-next-month data-daily-capture-next aria-label="下一月">›</button>
                         </div>
                       </div>
-                      <div class="daily-capture-calendar-jump">
-                        <select class="daily-capture-calendar-select" data-daily-capture-year aria-label="Year"></select>
-                        <select class="daily-capture-calendar-select" data-daily-capture-month aria-label="Month"></select>
-                      </div>
                     </div>
-                    <p class="module-card-note" data-i18n-daily-calendar-note>Pick a day and review what you saved.</p>
-                  </div>
-                </div>
-                <div class="daily-capture-calendar">
-                  <div class="daily-capture-calendar-top">
-                    <p class="daily-capture-calendar-selected-day" data-daily-capture-selected-day></p>
-                    <button
-                      type="button"
-                      class="secondary daily-capture-practice-selected-day-btn"
-                      data-daily-capture-practice-selected-day
-                    >
-                      Practice selected day
-                    </button>
-                  </div>
-                  <div class="daily-capture-calendar-dow">
-                    <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-                  </div>
-                  <div class="daily-capture-calendar-grid" data-daily-capture-grid></div>
-                  <div class="daily-capture-calendar-nav">
-                    <button type="button" class="secondary daily-capture-calendar-nav-arrow" data-daily-capture-prev aria-label="Previous month">←</button>
-                    <button type="button" class="secondary daily-capture-calendar-nav-arrow" data-daily-capture-next aria-label="Next month">→</button>
+                    <div class="daily-capture-calendar-dow">
+                      <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                    </div>
+                    <div class="daily-capture-calendar-grid" data-daily-capture-grid></div>
                   </div>
                 </div>
               </section>
-              <section class="workspace-card module-card module-card--daily-capture-practice-host" data-daily-capture-practice-host></section>
-            </div>
-            <dialog class="daily-capture-day-dialog" data-daily-capture-day-dialog>
-              <div class="daily-capture-day-dialog-panel">
-                <div class="daily-capture-day-dialog-head">
-                  <div>
-                    <h3 class="daily-capture-day-dialog-title" data-daily-capture-day-title></h3>
-                    <p class="daily-capture-day-dialog-meta" data-daily-capture-day-meta></p>
+
+              <section class="workspace-card module-card module-card--daily-detail">
+                <section class="daily-capture-detail-panel" data-daily-capture-day-panel aria-label="卡片详情">
+                  <div class="daily-capture-day-dialog-head">
+                    <div>
+                      <h3 class="daily-capture-day-dialog-title" data-daily-capture-day-title></h3>
+                      <p class="daily-capture-day-dialog-meta" data-daily-capture-day-meta></p>
+                    </div>
+                    <div class="daily-capture-day-dialog-actions">
+                      <button type="button" class="secondary" data-daily-capture-practice-current>在下方练习</button>
+                      <button type="button" class="secondary" data-daily-capture-delete-current>删除</button>
+                      <button type="button" class="secondary" data-daily-capture-item-prev aria-label="上一张">‹</button>
+                      <button type="button" class="secondary" data-daily-capture-item-next aria-label="下一张">›</button>
+                    </div>
                   </div>
-                  <button type="button" class="secondary" data-daily-capture-day-close>Close</button>
-                </div>
-                <div class="daily-capture-day-dialog-body" data-daily-capture-day-body></div>
-                <div class="daily-capture-day-dialog-actions">
-                  <button type="button" class="secondary" data-daily-capture-item-prev>Previous card</button>
-                  <button type="button" class="secondary" data-daily-capture-item-next>Next card</button>
-                </div>
-              </div>
-            </dialog>
+                  <div class="daily-capture-day-dialog-body" data-daily-capture-day-body></div>
+                </section>
+              </section>
+            </div>
+
+            <section class="workspace-card module-card module-card--daily-practice">
+              <h3 class="daily-practice-title">练习区</h3>
+              <section class="module-card--daily-capture-practice-host" data-daily-capture-practice-host></section>
+            </section>
           </section>
 
           <section class="app-tab-panel app-tab-panel--placeholder" id="tab-panel-oio-chat" data-tab-panel="oio-chat" hidden>
             <section class="workspace-card module-card module-card--overview">
               <div class="workspace-hero workspace-hero--placeholder oio-chat-hero">
-                <span class="workspace-hero-kicker">OIO Chat</span>
+                <h2 class="workspace-hero-title oio-chat-page-title">OIO Chat</h2>
+                <p class="workspace-hero-copy oio-chat-page-subtitle">今天也要进步呀 ✨</p>
+                <div class="oio-chat-session-date-row" aria-live="polite">
+                  <span class="oio-chat-session-date-text" data-oio-chat-session-date>----</span>
+                </div>
               </div>
             </section>
             <div class="oio-chat-layout">
               <section class="workspace-card module-card oio-chat-main">
                 <div class="oio-chat-feed" data-oio-chat-feed></div>
+                <button type="button" class="oio-chat-scroll-bottom" data-oio-chat-scroll-bottom aria-label="跳到最新消息" title="跳到最新消息">
+                  <svg viewBox="0 0 24 24" class="oio-chat-scroll-bottom-icon" aria-hidden="true">
+                    <path d="M12 5v12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                    <path d="m7.5 12 4.5 5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                  </svg>
+                </button>
                 <form class="oio-chat-composer" data-oio-chat-form>
-                  <div class="oio-chat-mode-switch" role="tablist" aria-label="Level mode">
-                    <button type="button" class="oio-chat-mode-btn is-active" data-oio-chat-mode="beginner" aria-pressed="true">Beginner</button>
-                    <button type="button" class="oio-chat-mode-btn" data-oio-chat-mode="advanced" aria-pressed="false">Advanced</button>
-                  </div>
                   <label class="sr-only" for="oio-chat-input">Chat input</label>
-                  <textarea id="oio-chat-input" class="oio-chat-input" rows="5" spellcheck="false" placeholder="Say it in English. Ask a question, describe your day, or test a sentence." data-oio-chat-input></textarea>
-                  <div class="oio-chat-composer-footer">
-                    <div class="oio-chat-actions">
-                      <button type="submit" class="primary" data-oio-chat-submit>Send</button>
-                      <button type="button" class="secondary oio-chat-voice-input-btn" data-oio-chat-voice-input aria-label="Start voice input" title="Start voice input">
-                        <svg viewBox="0 0 24 24" class="oio-chat-voice-input-icon" aria-hidden="true">
-                          <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z" fill="currentColor"></path>
-                          <path d="M6 11a6 6 0 0 0 12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-                          <path d="M12 17v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-                          <path d="M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-                        </svg>
-                      </button>
-                      <button type="button" class="secondary" data-oio-chat-clear>Clear</button>
+                  <div class="oio-chat-compose-box">
+                    <textarea id="oio-chat-input" class="oio-chat-input" rows="3" spellcheck="false" placeholder="Say it in English. Ask a question, describe your day, or test a sentence." data-oio-chat-input></textarea>
+                    <div class="oio-chat-composer-footer">
+                      <span class="oio-chat-meta" data-oio-chat-meta>0/320 characters · --/-- chars today</span>
+                      <div class="oio-chat-footer-right">
+                        <div class="oio-chat-mode-switch" role="tablist" aria-label="Level mode">
+                          <button type="button" class="oio-chat-mode-btn is-active" data-oio-chat-mode="beginner" aria-pressed="true">Beginner</button>
+                          <button type="button" class="oio-chat-mode-btn" data-oio-chat-mode="advanced" aria-pressed="false">Advanced</button>
+                        </div>
+                        <div class="oio-chat-actions">
+                          <button type="button" class="secondary oio-chat-voice-input-btn" data-oio-chat-voice-input aria-label="Start voice input" title="Start voice input">
+                            <svg viewBox="0 0 24 24" class="oio-chat-voice-input-icon" aria-hidden="true">
+                              <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z" fill="currentColor"></path>
+                              <path d="M6 11a6 6 0 0 0 12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                              <path d="M12 17v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                              <path d="M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            </svg>
+                          </button>
+                          <button type="submit" class="primary oio-chat-submit-btn" data-oio-chat-submit aria-label="Send" title="Send">
+                            <svg viewBox="0 0 24 24" class="oio-chat-submit-icon" aria-hidden="true">
+                              <path d="M3.6 11.2 19.5 3.9c.8-.37 1.7.28 1.57 1.15l-2.16 14.1c-.13.86-1.19 1.2-1.81.57l-4.01-4.01-2.62 3.83a.95.95 0 0 1-1.72-.56l.13-4.73-4.72-1.3c-.94-.26-1.03-1.57-.13-1.98Z" fill="currentColor"></path>
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <span class="oio-chat-meta" data-oio-chat-meta>0/320 characters · --/-- chars today</span>
                   </div>
                   <p class="oio-chat-status" data-oio-chat-status></p>
                 </form>
@@ -337,7 +327,8 @@
             <section class="workspace-card module-card module-card--overview module-card--super-dict-overview">
               <div class="super-dict-overview-head">
                 <div>
-                  <span class="workspace-hero-kicker" data-i18n-super-dict-hero-kicker>Super Dict</span>
+                  <h2 class="workspace-hero-title oio-chat-page-title super-dict-page-title" data-i18n-super-dict-hero-title>Super Dict</h2>
+                  <p class="workspace-hero-copy super-dict-page-subtitle" data-i18n-super-dict-hero-copy>你专属的表达工具箱。</p>
                 </div>
               </div>
             </section>
@@ -548,7 +539,11 @@
       <div class="app-tts-settings-dialog-panel">
         <div class="app-tts-settings-dialog-head">
           <h3 class="app-tts-settings-dialog-title">Speech Settings</h3>
-          <button type="button" class="secondary" data-tts-settings-close>Close</button>
+          <button type="button" class="app-tts-settings-close-btn" data-tts-settings-close aria-label="Close speech settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+            </svg>
+          </button>
         </div>
 
         <section class="app-tts-settings-section">
@@ -564,6 +559,14 @@
           <div class="app-tts-choice-grid" role="group" aria-label="App language">
             <button type="button" class="app-tts-choice-btn" data-locale-option="en" aria-pressed="false">English</button>
             <button type="button" class="app-tts-choice-btn" data-locale-option="zh-CN" aria-pressed="false">中文</button>
+          </div>
+        </section>
+
+        <section class="app-tts-settings-section">
+          <p class="app-tts-settings-title" data-i18n-tts-theme-title>Theme</p>
+          <div class="app-tts-choice-grid" role="group" aria-label="Theme" data-i18n-tts-theme-group>
+            <button type="button" class="app-tts-choice-btn" data-theme-option="light" data-i18n-tts-theme-light aria-pressed="false">Light</button>
+            <button type="button" class="app-tts-choice-btn" data-theme-option="dark" data-i18n-tts-theme-dark aria-pressed="false">Dark</button>
           </div>
         </section>
 

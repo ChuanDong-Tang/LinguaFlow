@@ -1,0 +1,568 @@
+.module-card,
+.chat-bubble,
+.oio-chat-history-empty,
+.oio-chat-history-more,
+.super-dict-link-card,
+.subscription-tier-card,
+.subscription-activate-card,
+.daily-capture-entry,
+.daily-capture-day-dialog-empty,
+.oio-panel {
+  border: 1px solid var(--v2-border);
+  border-radius: 24px;
+  background: var(--v2-surface);
+  box-shadow: none;
+}
+
+.module-card {
+  padding: 1.2rem;
+}
+
+.module-card-title {
+  font-size: 1.5rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.module-card-head {
+  margin-bottom: 0.9rem;
+}
+
+.module-card-note {
+  margin-top: 0.18rem;
+  color: var(--v2-text-soft);
+  font-size: 0.9rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.primary,
+.secondary,
+.history-jump-btn-cancel {
+  min-height: 2.28rem;
+  border-radius: 12px;
+  padding: 0.45rem 0.88rem;
+  border: 1px solid var(--v2-border);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.primary {
+  border-color: var(--v2-primary-bg);
+  background: var(--v2-primary-bg);
+  color: var(--v2-primary-fg);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--v2-primary-bg-hover);
+}
+
+.secondary,
+.history-jump-btn-cancel {
+  background: var(--v2-surface);
+  color: var(--v2-text);
+}
+
+.secondary:hover:not(:disabled),
+.history-jump-btn-cancel:hover:not(:disabled) {
+  background: var(--v2-secondary-bg-hover);
+}
+
+.primary:disabled,
+.secondary:disabled,
+.history-jump-btn-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status {
+  color: var(--v2-text-soft);
+  font-size: 0.82rem;
+}
+
+.oio-chat-input,
+.super-dict-search-input,
+#text,
+.history-jump-text,
+.subscription-admin-field input,
+.player-rate-select,
+.daily-capture-calendar-select {
+  width: 100%;
+  min-height: 2.72rem;
+  border: 1px solid var(--v2-border);
+  border-radius: 15px;
+  background: var(--v2-surface);
+  padding: 0.68rem 0.8rem;
+}
+
+.oio-chat-input,
+#text {
+  min-height: 7rem;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+.oio-chat-mode-switch,
+.practice-mode-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.oio-chat-mode-btn,
+.practice-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--v2-border);
+  border-radius: 10px;
+  background: var(--v2-mode-bg);
+  color: var(--v2-text-soft);
+  line-height: 1.1;
+  text-align: center;
+  cursor: pointer;
+}
+
+.oio-chat-mode-btn.is-active,
+.practice-mode-btn.is-active {
+  border-color: var(--v2-mode-border-active);
+  background: var(--v2-mode-bg-active);
+  color: var(--v2-text);
+  font-weight: 600;
+}
+
+.chat-bubble {
+  padding: 1rem 1.05rem;
+}
+
+.chat-bubble--user {
+  background: var(--v2-chat-user-bubble-bg);
+  border-color: var(--v2-chat-user-bubble-border);
+}
+
+.chat-bubble--assistant {
+  background: var(--v2-surface);
+}
+
+.chat-bubble-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.chat-bubble-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chat-bubble-time {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  color: var(--v2-text-muted);
+}
+
+.chat-bubble-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  border: 1px solid var(--v2-border);
+  background: var(--v2-surface-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  overflow: hidden;
+}
+
+.chat-bubble-avatar--assistant {
+  background: var(--v2-chat-assistant-avatar-bg);
+}
+
+.chat-bubble-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.chat-bubble-role,
+.chat-assistant-label,
+.daily-capture-entry-label,
+.subscription-activate-label {
+  font-size: 0.8rem;
+  color: var(--v2-text-soft);
+}
+
+.chat-bubble-text,
+.chat-assistant-copy,
+.daily-capture-entry-copy,
+.daily-capture-practice-quote,
+.oio-help-text {
+  margin: 0.2rem 0 0;
+  color: var(--v2-text);
+  line-height: 1.72;
+}
+
+.chat-keyphrase-highlight {
+  padding: 0 0.18em;
+  border-radius: 0.34em;
+  background: #53ebeb;
+  color: inherit;
+}
+
+.chat-assistant-actions,
+.oio-chat-actions,
+.daily-capture-footer,
+.daily-capture-practice-actions,
+.subscription-admin-actions,
+.daily-capture-entry-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chat-highlight-list,
+.daily-capture-phrase-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chat-highlight-chip,
+.daily-capture-phrase-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.85rem;
+  padding: 0.32rem 0.68rem;
+  border: 1px solid var(--v2-border);
+  border-radius: 999px;
+  background: var(--v2-chip-bg);
+  font-size: 0.83rem;
+}
+
+.chat-chip-remove-btn,
+.chat-speak-btn,
+.chat-chip-speak-btn,
+.oio-chat-voice-input-btn,
+.chat-icon-btn,
+.super-dict-history-delete,
+.app-mobile-menu-btn,
+.practice-pager-btn,
+.daily-capture-calendar-nav-arrow,
+.daily-capture-legend-help-btn {
+  min-width: 2rem;
+  min-height: 2rem;
+  border: 1px solid var(--v2-border);
+  border-radius: 10px;
+  background: var(--v2-surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chat-thinking-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chat-thinking-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid var(--v2-border);
+  border-top-color: var(--v2-primary-bg);
+  border-radius: 50%;
+  animation: v2-spin 0.85s linear infinite;
+}
+
+.oio-chat-composer {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.oio-chat-compose-box {
+  position: relative;
+  border: 1px solid var(--v2-border);
+  border-radius: 22px;
+  background: var(--v2-surface);
+  padding: 0.65rem 0.75rem 0.7rem;
+}
+
+.oio-chat-composer-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 0.65rem;
+}
+
+.oio-chat-footer-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-left: auto;
+}
+
+.oio-chat-meta,
+.oio-chat-status,
+.subscription-current-plan,
+.subscription-admin-note,
+.subscription-admin-status,
+.daily-capture-empty-copy,
+.daily-capture-practice-status,
+.super-dict-link-copy span {
+  color: var(--v2-text-soft);
+}
+
+.oio-chat-voice-input-btn {
+  width: 2.2rem;
+  height: 2.2rem;
+}
+
+.oio-chat-submit-btn {
+  width: 2.2rem;
+  height: 2.2rem;
+  min-height: 2.2rem;
+  min-width: 2.2rem;
+  border-radius: 999px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.oio-chat-submit-icon,
+.oio-chat-voice-input-icon,
+.chat-speak-icon,
+.chat-icon-btn-svg {
+  display: block;
+}
+
+.oio-chat-input {
+  border: 0;
+  border-radius: 14px;
+  box-shadow: none;
+  min-height: 7.2rem;
+  padding: 0.5rem 0.2rem 0.75rem;
+  resize: none;
+}
+
+.oio-chat-input:focus {
+  outline: none;
+}
+
+.oio-chat-voice-input-btn.is-listening {
+  border-color: var(--v2-voice-active-border);
+  background: var(--v2-voice-active-bg);
+}
+
+.oio-chat-delete-dialog-actions,
+.history-jump-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.super-dict-link-card {
+  text-decoration: none;
+  color: inherit;
+}
+
+.super-dict-link-icon {
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--v2-border);
+  display: grid;
+  place-items: center;
+  font-size: 1.15rem;
+  font-weight: 600;
+  background: var(--v2-chip-bg-soft);
+  flex: 0 0 auto;
+}
+
+.super-dict-link-copy strong {
+  font-size: 1.03rem;
+  font-weight: 600;
+}
+
+.super-dict-history-dropdown {
+  border: 1px solid var(--v2-border);
+  border-radius: 14px;
+  background: var(--v2-surface);
+}
+
+.super-dict-history-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--v2-border);
+}
+
+.super-dict-history-option:last-child {
+  border-bottom: 0;
+}
+
+.super-dict-history-select {
+  width: 100%;
+  min-height: 2.8rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  padding: 0.6rem 0.7rem;
+}
+
+.super-dict-history-option-title {
+  font-size: 0.92rem;
+}
+
+.super-dict-history-option-meta {
+  font-size: 0.78rem;
+  color: var(--v2-text-soft);
+}
+
+.subscription-tier-badge,
+.module-calendar-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.62rem;
+  padding: 0.2rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid var(--v2-border);
+  background: var(--v2-chip-bg);
+  font-size: 0.75rem;
+  color: var(--v2-text-soft);
+}
+
+.subscription-tier-card.is-current,
+.subscription-tier-card--pro {
+  background: var(--v2-chip-bg-soft);
+}
+
+.daily-capture-day-dialog-body {
+  margin-top: 0.75rem;
+}
+
+.oio-help-popover,
+.oio-help-popover--wide {
+  margin-top: 0.45rem;
+  border: 1px solid var(--v2-border);
+  border-radius: var(--v2-radius-md);
+  background: var(--v2-surface);
+  padding: 0.6rem 0.7rem;
+}
+
+.oio-help-btn {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--v2-border);
+  background: var(--v2-surface);
+  cursor: pointer;
+}
+
+.practice-global-audio-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.66rem;
+  border: 1px solid var(--v2-border);
+  border-radius: 14px;
+  background: var(--v2-chip-bg-soft);
+}
+
+.practice-global-audio-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.practice-pager {
+  margin-top: 0.7rem;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.subtitles-scroll {
+  margin-top: 0.7rem;
+  border: 1px solid var(--v2-border);
+  border-radius: 14px;
+  padding: 0.7rem;
+  background: var(--v2-surface);
+}
+
+.subtitles-list {
+  min-height: 8rem;
+}
+
+#status,
+.oio-chat-status {
+  min-height: 1.25rem;
+}
+
+.chat-proficiency-hint {
+  color: var(--v2-text-soft);
+}
+
+.chat-assistant-debug {
+  margin: 0;
+  border: 1px dashed var(--v2-border-strong);
+  border-radius: 10px;
+  padding: 0.55rem;
+  background: var(--v2-chip-bg-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.super-dict-quick-add-fab {
+  position: absolute;
+  z-index: 9999;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  border: 1px solid var(--v2-quick-add-border);
+  border-radius: 999px;
+  background: var(--v2-quick-add-bg);
+  color: var(--v2-quick-add-fg);
+  box-shadow: var(--v2-shadow-raised);
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.super-dict-quick-add-fab:hover {
+  background: var(--v2-quick-add-bg-hover);
+}
+
+.super-dict-quick-add-icon {
+  width: 0.9rem;
+  height: 0.9rem;
+  display: block;
+  flex: 0 0 auto;
+}

@@ -1,0 +1,103 @@
+.subscription-dialog {
+  width: min(70rem, calc(100vw - 2rem));
+  padding: 0;
+}
+
+.subscription-dialog-panel {
+  position: relative;
+}
+
+.subscription-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.8rem;
+}
+
+.subscription-dialog-title {
+  font-size: clamp(1.2rem, 1.8vw, 1.6rem);
+  line-height: 1.2;
+}
+
+.subscription-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.subscription-tier-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.subscription-tier-card {
+  padding: 0.85rem;
+}
+
+.subscription-tier-top,
+.subscription-current-row,
+.subscription-admin-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.subscription-tier-title {
+  font-size: 1.04rem;
+}
+
+.subscription-tier-copy {
+  margin: 0.25rem 0;
+}
+
+.subscription-tier-note {
+  margin: 0 0 0.7rem;
+  font-size: 0.82rem;
+  color: var(--v2-text-soft);
+}
+
+.subscription-activate-sheet {
+  position: absolute;
+  inset: 0;
+  padding: 1rem;
+  display: grid;
+  place-items: center;
+  background: var(--v2-subscription-activate-overlay);
+}
+
+.subscription-activate-card {
+  width: min(28rem, 100%);
+  padding: 0.85rem;
+}
+
+.subscription-activate-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.subscription-activate-title {
+  font-size: 1rem;
+}
+
+.subscription-activate-grid,
+.subscription-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+}
+
+.subscription-activate-block,
+.subscription-admin-field {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.subscription-admin-panel {
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--v2-border);
+}

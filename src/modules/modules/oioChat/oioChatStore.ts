@@ -5,7 +5,7 @@ import {
   overwriteChatSessionRecords,
   saveChatSessionRecord,
 } from "../../../historyIdb.js";
-import { type ChatTurn, type OioChatSessionKind } from "./oioChatTypes";
+import { type ChatTurn } from "./oioChatTypes";
 
 export interface OioChatSession {
   id: string;
@@ -14,15 +14,6 @@ export interface OioChatSession {
   createdAt: string;
   updatedAt: string;
   turns: ChatTurn[];
-  kind?: OioChatSessionKind;
-  practice?: {
-    itemId: string;
-    question: string;
-    targetPhrase?: string;
-    referenceAnswer?: string;
-    attempt: number;
-  };
-  practiceCompleted?: boolean;
 }
 
 function normalizeTurn(raw: unknown): ChatTurn | null {
@@ -74,18 +65,6 @@ function normalizeSession(raw: unknown): OioChatSession | null {
         occurredAt: turn.occurredAt ?? createdAt,
       }))
     : [];
-  const kind = value.kind === "practice" ? "practice" : value.kind === "chat" ? "chat" : undefined;
-  const practiceRaw = value.practice && typeof value.practice === "object" ? (value.practice as Record<string, unknown>) : null;
-  const practice = practiceRaw && typeof practiceRaw.itemId === "string" && typeof practiceRaw.question === "string"
-    ? {
-      itemId: practiceRaw.itemId,
-      question: practiceRaw.question,
-      targetPhrase: typeof practiceRaw.targetPhrase === "string" ? practiceRaw.targetPhrase : undefined,
-      referenceAnswer: typeof practiceRaw.referenceAnswer === "string" ? practiceRaw.referenceAnswer : undefined,
-      attempt: typeof practiceRaw.attempt === "number" ? practiceRaw.attempt : 0,
-    }
-    : undefined;
-  const practiceCompleted = typeof value.practiceCompleted === "boolean" ? value.practiceCompleted : undefined;
 
   return {
     id,
@@ -94,9 +73,6 @@ function normalizeSession(raw: unknown): OioChatSession | null {
     createdAt,
     updatedAt,
     turns,
-    kind,
-    practice,
-    practiceCompleted,
   };
 }
 
@@ -129,6 +105,5 @@ export function createChatSession(date = new Date()): OioChatSession {
     createdAt: timestamp,
     updatedAt: timestamp,
     turns: [],
-    kind: "chat",
   };
 }

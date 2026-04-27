@@ -27,21 +27,6 @@ export interface OioChatRewritePayload {
   proficiency_hint?: PhraseProficiencyHintPayload | null;
 }
 
-export interface PracticeFeedbackPayload {
-  version: "2";
-  is_already_natural: boolean;
-  rewritten_answer: string;
-  feedback: string;
-  usage?: RewriteUsagePayload | null;
-  proficiency_hint?: PhraseProficiencyHintPayload | null;
-}
-
-export interface PracticeQuestionPayload {
-  version: "1";
-  question: string;
-  usage?: RewriteUsagePayload | null;
-}
-
 interface RewriteErrorPayload {
   error?: {
     code?: string;
@@ -92,39 +77,6 @@ export async function requestOioChat(text: string, mode: "beginner" | "advanced"
       Array.isArray((payload as OioChatRewritePayload).key_phrases)
     );
   });
-}
-
-export async function requestPracticeFeedback(question: string, answer: string, referenceAnswer?: string): Promise<PracticeFeedbackPayload> {
-  return await requestPracticeFeedbackWithTargetPhrase(question, answer, "", referenceAnswer);
-}
-
-export async function requestPracticeQuestion(contextText: string, targetPhrase: string): Promise<PracticeQuestionPayload> {
-  return await requestJson<PracticeQuestionPayload>(
-    { mode: "practice_question", context_text: contextText, target_phrase: targetPhrase },
-    "Practice question request failed.",
-    (payload) =>
-      !!payload &&
-      (payload as PracticeQuestionPayload).version === "1" &&
-      typeof (payload as PracticeQuestionPayload).question === "string",
-  );
-}
-
-export async function requestPracticeFeedbackWithTargetPhrase(
-  question: string,
-  answer: string,
-  targetPhrase: string,
-  referenceAnswer?: string,
-): Promise<PracticeFeedbackPayload> {
-  return await requestJson<PracticeFeedbackPayload>(
-    { mode: "practice_feedback", question, answer, target_phrase: targetPhrase, reference_answer: referenceAnswer ?? "" },
-    "Practice feedback request failed.",
-    (payload) =>
-      !!payload &&
-      (payload as PracticeFeedbackPayload).version === "2" &&
-      typeof (payload as PracticeFeedbackPayload).is_already_natural === "boolean" &&
-      typeof (payload as PracticeFeedbackPayload).rewritten_answer === "string" &&
-      typeof (payload as PracticeFeedbackPayload).feedback === "string",
-  );
 }
 
 async function requestJson<T>(

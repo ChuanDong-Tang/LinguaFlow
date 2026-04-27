@@ -1166,6 +1166,8 @@ function checkDictationAnswers() {
     }
   }),
   document.addEventListener(`keydown`, (e) => {
+    let r2 = document.querySelector(`.oio-app`)?.getAttribute(`data-active-tab`);
+    if (r2 !== `daily-capture` && r2 !== `rewrite`) return;
     if (e.repeat) return;
     let t = e.target?.classList?.contains(`cue-input`),
       n = e.target?.classList?.contains(`fb-slot`);

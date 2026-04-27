@@ -1,0 +1,223 @@
+:root {
+  color-scheme: light;
+
+  --v2-bg: #f7f6f3;
+  --v2-bg-panel: #f4f2ee;
+  --v2-surface: #ffffff;
+  --v2-surface-muted: #fbfaf8;
+  --v2-surface-active: #f1ece4;
+
+  --v2-text: #171616;
+  --v2-text-soft: #6b6966;
+  --v2-text-muted: #9d9a95;
+
+  --v2-border: #e9e6e1;
+  --v2-border-strong: #ded9d1;
+
+  --v2-accent: #171616;
+  --v2-accent-contrast: #ffffff;
+  --v2-chip: #f2efea;
+
+  --v2-danger: #c64545;
+
+  --v2-radius-sm: 12px;
+  --v2-radius-md: 16px;
+  --v2-radius-lg: 22px;
+  --v2-radius-pill: 999px;
+
+  --v2-space-1: 0.25rem;
+  --v2-space-2: 0.5rem;
+  --v2-space-3: 0.75rem;
+  --v2-space-4: 1rem;
+  --v2-space-5: 1.25rem;
+  --v2-space-6: 1.5rem;
+
+  --v2-shadow-soft: 0 1px 2px rgba(27, 24, 20, 0.03);
+  --v2-shadow-raised: 0 6px 16px rgba(27, 24, 20, 0.08);
+  --v2-focus-ring: rgba(23, 22, 22, 0.2);
+  --v2-dialog-backdrop: rgba(27, 24, 20, 0.16);
+  --v2-ui-block-backdrop: rgba(27, 24, 20, 0.2);
+
+  --v2-mobile-overlay-bg: rgba(22, 19, 15, 0.2);
+  --v2-mobile-bar-bg: rgba(247, 246, 243, 0.95);
+
+  --v2-sidebar-grad-start: #f8f7f5;
+  --v2-sidebar-grad-end: #f6f4f1;
+  --v2-hover-surface: #f2f0ec;
+
+  --v2-nav-icon-bg: #f2efea;
+  --v2-nav-icon-fg: #242320;
+  --v2-nav-active-bg: #f1eee8;
+  --v2-nav-active-icon-border: #e2ddd3;
+  --v2-nav-active-icon-bg: #f8f6f2;
+
+  --v2-primary-bg: #191919;
+  --v2-primary-bg-hover: #2a2929;
+  --v2-primary-fg: #ffffff;
+  --v2-secondary-bg-hover: #f3f0eb;
+
+  --v2-chat-user-bubble-bg: #f7f5f2;
+  --v2-chat-user-bubble-border: #f0ece6;
+  --v2-chat-assistant-avatar-bg: #f4f1eb;
+  --v2-chat-scrollbar-thumb: #d8d3cc;
+  --v2-fab-bg-hover: #f5f2ed;
+  --v2-voice-ring-border: rgba(34, 31, 27, 0.35);
+
+  --v2-chip-bg: #f3f0eb;
+  --v2-chip-bg-soft: #fbfaf7;
+  --v2-mode-bg: #f2efea;
+  --v2-mode-bg-active: #efe9e0;
+  --v2-mode-border-active: #dcd6cc;
+  --v2-voice-active-bg: #efe9e0;
+  --v2-voice-active-border: #cfc8be;
+
+  --v2-daily-day-marked-bg: #f8f6f2;
+  --v2-daily-day-marked-border: #efeae3;
+  --v2-daily-day-active-bg: #181818;
+  --v2-daily-day-active-fg: #ffffff;
+  --v2-daily-day-active-count: rgba(255, 255, 255, 0.74);
+  --v2-daily-legend-bar-bg: #ddd9d2;
+  --v2-daily-legend-bar-strong: #5a5349;
+  --v2-practice-calendar-selected-bg: #181818;
+  --v2-practice-calendar-selected-fg: #ffffff;
+  --v2-practice-calendar-marker-bg: #f2ebdf;
+  --v2-practice-illustration-bg: #fcfbf9;
+  --v2-practice-callout-bg: #f7f4ef;
+  --v2-practice-tab-active-bg: #f2ebdf;
+  --v2-practice-token-bg: #f2ebdf;
+  --v2-practice-panel-bg: #fcfbf8;
+  --v2-practice-toolbar-bg: #f7f4ef;
+  --v2-practice-active-bg: #181818;
+  --v2-practice-active-fg: #ffffff;
+  --v2-practice-row-active-bg: #f3eee5;
+  --v2-practice-row-active-border: #d8cebf;
+  --v2-practice-highlight-bg: #f2ebdf;
+  --v2-practice-highlight-border: #dccfb8;
+  --v2-practice-keyword-bg: #f8f4e7;
+  --v2-practice-keyword-border: #e8ddc1;
+  --v2-settings-segment-active-bg: #f4efe8;
+  --v2-settings-row-active-bg: #f6f0e8;
+  --v2-settings-close-bg-hover: #f4f1eb;
+  --v2-settings-close-fg: #6c6964;
+  --v2-practice-input-ok-border: #86c89b;
+  --v2-practice-input-wrong-border: #d88f8f;
+  --v2-practice-fill-ok-border: #6ea884;
+  --v2-practice-fill-ok-bg: #edf6f0;
+  --v2-practice-fill-wrong-border: #cf8f8f;
+  --v2-practice-fill-wrong-bg: #f9eded;
+  --v2-practice-peek-bg: #f7f1e3;
+  --v2-practice-peek-border: #e0d2ae;
+  --v2-practice-peek-fg: #8a6a1f;
+  --v2-quick-add-bg: #1f1f1f;
+  --v2-quick-add-bg-hover: #2b2b2b;
+  --v2-quick-add-fg: #f8f9fb;
+  --v2-quick-add-border: #2f2f2f;
+
+  --v2-subscription-activate-overlay: rgba(247, 246, 243, 0.75);
+
+  --v2-font: "PingFang SC", "Noto Sans SC", "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --v2-bg: #131416;
+  --v2-bg-panel: #191b1f;
+  --v2-surface: #1f2328;
+  --v2-surface-muted: #262b31;
+  --v2-surface-active: #2c3239;
+
+  --v2-text: #f3f4f6;
+  --v2-text-soft: #bec5ce;
+  --v2-text-muted: #9099a5;
+
+  --v2-border: #343b44;
+  --v2-border-strong: #444c56;
+
+  --v2-accent: #f3f4f6;
+  --v2-accent-contrast: #111315;
+  --v2-chip: #2b3138;
+
+  --v2-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --v2-shadow-raised: 0 10px 24px rgba(0, 0, 0, 0.35);
+  --v2-focus-ring: rgba(243, 244, 246, 0.34);
+  --v2-dialog-backdrop: rgba(0, 0, 0, 0.45);
+  --v2-ui-block-backdrop: rgba(0, 0, 0, 0.5);
+
+  --v2-mobile-overlay-bg: rgba(0, 0, 0, 0.46);
+  --v2-mobile-bar-bg: rgba(19, 20, 22, 0.95);
+
+  --v2-sidebar-grad-start: #181b20;
+  --v2-sidebar-grad-end: #15181c;
+  --v2-hover-surface: #2a3037;
+
+  --v2-nav-icon-bg: #2b3138;
+  --v2-nav-icon-fg: #d7dde5;
+  --v2-nav-active-bg: #2a3037;
+  --v2-nav-active-icon-border: #3b434d;
+  --v2-nav-active-icon-bg: #313843;
+
+  --v2-primary-bg: #f3f4f6;
+  --v2-primary-bg-hover: #d7dde5;
+  --v2-primary-fg: #14171a;
+  --v2-secondary-bg-hover: #2a3037;
+
+  --v2-chat-user-bubble-bg: #2a3037;
+  --v2-chat-user-bubble-border: #363e48;
+  --v2-chat-assistant-avatar-bg: #2a3037;
+  --v2-chat-scrollbar-thumb: #4b5563;
+  --v2-fab-bg-hover: #2a3037;
+  --v2-voice-ring-border: rgba(215, 221, 229, 0.4);
+
+  --v2-chip-bg: #2b3138;
+  --v2-chip-bg-soft: #252b31;
+  --v2-mode-bg: #2b3138;
+  --v2-mode-bg-active: #313843;
+  --v2-mode-border-active: #3b434d;
+  --v2-voice-active-bg: #313843;
+  --v2-voice-active-border: #485260;
+
+  --v2-daily-day-marked-bg: #252b31;
+  --v2-daily-day-marked-border: #363e48;
+  --v2-daily-day-active-bg: #f3f4f6;
+  --v2-daily-day-active-fg: #131416;
+  --v2-daily-day-active-count: rgba(19, 20, 22, 0.68);
+  --v2-daily-legend-bar-bg: #4b5563;
+  --v2-daily-legend-bar-strong: #d7dde5;
+  --v2-practice-calendar-selected-bg: #f3f4f6;
+  --v2-practice-calendar-selected-fg: #131416;
+  --v2-practice-calendar-marker-bg: #2c3239;
+  --v2-practice-illustration-bg: #252b31;
+  --v2-practice-callout-bg: #252b31;
+  --v2-practice-tab-active-bg: #313843;
+  --v2-practice-token-bg: #313843;
+  --v2-practice-panel-bg: #252b31;
+  --v2-practice-toolbar-bg: #2c3239;
+  --v2-practice-active-bg: #f3f4f6;
+  --v2-practice-active-fg: #131416;
+  --v2-practice-row-active-bg: #313843;
+  --v2-practice-row-active-border: #485260;
+  --v2-practice-highlight-bg: #3a2f1f;
+  --v2-practice-highlight-border: #6a5637;
+  --v2-practice-keyword-bg: #433a2a;
+  --v2-practice-keyword-border: #736247;
+  --v2-settings-segment-active-bg: #2f353d;
+  --v2-settings-row-active-bg: #323842;
+  --v2-settings-close-bg-hover: #2a3037;
+  --v2-settings-close-fg: #b8c0ca;
+  --v2-practice-input-ok-border: #6ea884;
+  --v2-practice-input-wrong-border: #cf8f8f;
+  --v2-practice-fill-ok-border: #6ea884;
+  --v2-practice-fill-ok-bg: #23342b;
+  --v2-practice-fill-wrong-border: #cf8f8f;
+  --v2-practice-fill-wrong-bg: #3a2626;
+  --v2-practice-peek-bg: #3a3325;
+  --v2-practice-peek-border: #6f5c33;
+  --v2-practice-peek-fg: #e0c27b;
+  --v2-quick-add-bg: #2a2f36;
+  --v2-quick-add-bg-hover: #353c45;
+  --v2-quick-add-fg: #f8f9fb;
+  --v2-quick-add-border: #414a56;
+
+  --v2-subscription-activate-overlay: rgba(19, 20, 22, 0.75);
+}

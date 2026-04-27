@@ -24,24 +24,23 @@ type PendingPracticeLaunch = {
 export class DailyCaptureController {
   private readonly root: HTMLElement | null;
   private readonly gridEl: HTMLElement | null;
-  private readonly captionEl: HTMLElement | null;
+  private readonly monthLabelEl: HTMLElement | null;
+  private readonly monthChipEl: HTMLElement | null;
   private readonly prevBtnEl: HTMLButtonElement | null;
   private readonly nextBtnEl: HTMLButtonElement | null;
-  private readonly yearSelectEl: HTMLSelectElement | null;
-  private readonly monthSelectEl: HTMLSelectElement | null;
-  private readonly selectedDayEl: HTMLElement | null;
-  private readonly dayDialogEl: HTMLDialogElement | null;
+  private readonly practiceSelectedDayBtnEl: HTMLButtonElement | null;
+  private readonly dayDetailPanelEl: HTMLElement | null;
   private readonly dayDialogTitleEl: HTMLElement | null;
   private readonly dayDialogMetaEl: HTMLElement | null;
   private readonly dayDialogBodyEl: HTMLElement | null;
-  private readonly dayDialogCloseEl: HTMLButtonElement | null;
+  private readonly dayPracticeCurrentEl: HTMLButtonElement | null;
+  private readonly dayDeleteCurrentEl: HTMLButtonElement | null;
   private readonly dayDialogPrevEl: HTMLButtonElement | null;
   private readonly dayDialogNextEl: HTMLButtonElement | null;
   private readonly practiceHostEl: HTMLElement | null;
-  private readonly practiceSelectedDayBtnEl: HTMLButtonElement | null;
   private records: DailyCaptureRecord[] = [];
   private monthCursor = new Date();
-  private selectedDateKey = dateToLocalKey(new Date());
+  private selectedDateKey = "";
   private dialogDateKey = "";
   private dialogItemIndex = 0;
   private cloudCountByDate = new Map<string, number>();
@@ -49,40 +48,37 @@ export class DailyCaptureController {
   private practiceRuntimeReady = false;
   private pendingPracticeLaunch: PendingPracticeLaunch | null = null;
   private practiceLoadingNoticeEl: HTMLDivElement | null = null;
+  private syncingDateKeys = new Set<string>();
 
   constructor({
     root = document.querySelector<HTMLElement>("#tab-panel-daily-capture"),
   }: { root?: HTMLElement | null } = {}) {
     this.root = root;
     this.gridEl = root?.querySelector<HTMLElement>("[data-daily-capture-grid]") ?? null;
-    this.captionEl = root?.querySelector<HTMLElement>("[data-daily-capture-caption]") ?? null;
-    this.prevBtnEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-prev]") ?? null;
-    this.nextBtnEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-next]") ?? null;
-    this.yearSelectEl = root?.querySelector<HTMLSelectElement>("[data-daily-capture-year]") ?? null;
-    this.monthSelectEl = root?.querySelector<HTMLSelectElement>("[data-daily-capture-month]") ?? null;
-    this.selectedDayEl = root?.querySelector<HTMLElement>("[data-daily-capture-selected-day]") ?? null;
-    this.dayDialogEl = root?.querySelector<HTMLDialogElement>("[data-daily-capture-day-dialog]") ?? null;
+    this.monthLabelEl = root?.querySelector<HTMLElement>("[data-daily-capture-month-label]") ?? null;
+    this.monthChipEl = root?.querySelector<HTMLElement>("[data-daily-capture-month-chip]") ?? null;
+    this.prevBtnEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-prev-month], [data-daily-capture-prev]") ?? null;
+    this.nextBtnEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-next-month], [data-daily-capture-next]") ?? null;
+    this.practiceSelectedDayBtnEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-practice-selected-day]") ?? null;
+    this.dayDetailPanelEl = root?.querySelector<HTMLElement>("[data-daily-capture-day-panel]") ?? null;
     this.dayDialogTitleEl = root?.querySelector<HTMLElement>("[data-daily-capture-day-title]") ?? null;
     this.dayDialogMetaEl = root?.querySelector<HTMLElement>("[data-daily-capture-day-meta]") ?? null;
     this.dayDialogBodyEl = root?.querySelector<HTMLElement>("[data-daily-capture-day-body]") ?? null;
-    this.dayDialogCloseEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-day-close]") ?? null;
+    this.dayPracticeCurrentEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-practice-current]") ?? null;
+    this.dayDeleteCurrentEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-delete-current]") ?? null;
     this.dayDialogPrevEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-item-prev]") ?? null;
     this.dayDialogNextEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-item-next]") ?? null;
     this.practiceHostEl = root?.querySelector<HTMLElement>("[data-daily-capture-practice-host]") ?? null;
-    this.practiceSelectedDayBtnEl = root?.querySelector<HTMLButtonElement>("[data-daily-capture-practice-selected-day]") ?? null;
   }
 
   async init(): Promise<void> {
     if (!this.root || !this.gridEl) return;
     this.practiceRuntimeReady = this.getPracticeRuntimeReadyFlag();
     this.embedPracticePanel();
+    await this.cleanupLegacyPreviewMockRecords();
     await this.loadRecords();
-    this.populateCalendarSelectors();
-    this.syncPracticeCtaCopy();
     this.bindEvents();
     getI18n().subscribe(() => {
-      this.populateCalendarSelectors();
-      this.syncPracticeCtaCopy();
       this.renderCalendar();
       this.renderDayDialog();
     });
@@ -111,14 +107,6 @@ export class DailyCaptureController {
       this.renderCalendar();
     });
 
-    this.yearSelectEl?.addEventListener("change", () => {
-      this.applyYearMonthSelection();
-    });
-
-    this.monthSelectEl?.addEventListener("change", () => {
-      this.applyYearMonthSelection();
-    });
-
     this.root?.addEventListener("click", (event) => {
       const target = event.target as HTMLElement | null;
       const dayBtn = target?.closest<HTMLButtonElement>("[data-capture-day]");
@@ -138,26 +126,23 @@ export class DailyCaptureController {
         if (!itemId) return;
         const item = this.findItemById(itemId);
         if (!item) return;
-        this.closeDayDialog();
         this.launchOioPractice(item);
         return;
       }
 
-      const aiPhraseBtn = target?.closest<HTMLButtonElement>("[data-capture-practice-ai-phrase]");
-      if (aiPhraseBtn) {
-        const itemId = aiPhraseBtn.dataset.capturePracticeAiItem?.trim() ?? "";
-        const encodedPhrase = aiPhraseBtn.dataset.capturePracticeAiPhrase?.trim() ?? "";
-        if (!itemId || !encodedPhrase) return;
-        const item = this.findItemById(itemId);
-        if (!item) return;
-        let phrase = "";
-        try {
-          phrase = decodeURIComponent(encodedPhrase);
-        } catch {
-          phrase = encodedPhrase;
-        }
-        this.closeDayDialog();
-        this.launchAiPractice(item, phrase);
+      const practiceCurrentBtn = target?.closest<HTMLButtonElement>("[data-daily-capture-practice-current]");
+      if (practiceCurrentBtn) {
+        const currentItem = this.getCurrentDialogItem();
+        if (!currentItem) return;
+        this.launchOioPractice(currentItem);
+        return;
+      }
+
+      const deleteCurrentBtn = target?.closest<HTMLButtonElement>("[data-daily-capture-delete-current]");
+      if (deleteCurrentBtn) {
+        const currentItem = this.getCurrentDialogItem();
+        if (!currentItem) return;
+        void this.removeCaptureItem(currentItem.id);
         return;
       }
 
@@ -175,20 +160,12 @@ export class DailyCaptureController {
       }
     });
 
-    this.dayDialogCloseEl?.addEventListener("click", () => {
-      this.closeDayDialog();
-    });
     this.dayDialogPrevEl?.addEventListener("click", () => {
       this.shiftDialogItem(-1);
     });
     this.dayDialogNextEl?.addEventListener("click", () => {
       this.shiftDialogItem(1);
     });
-    this.dayDialogEl?.addEventListener("cancel", () => {
-      this.dialogDateKey = "";
-      this.dialogItemIndex = 0;
-    });
-
     onDailyCaptureUpdated(async ({ dateKey }) => {
       await this.refreshFromStore(dateKey);
     });
@@ -228,12 +205,13 @@ export class DailyCaptureController {
 
   private async loadRecords(): Promise<void> {
     this.records = await listCaptureRecords();
-    await this.refreshPhraseProficiencyMap();
-    if (!this.records.find((record) => record.dateKey === this.selectedDateKey) && this.records[0]) {
-      this.selectedDateKey = this.records[0].dateKey;
+    void this.refreshPhraseProficiencyMap();
+    if (this.selectedDateKey && !this.records.find((record) => record.dateKey === this.selectedDateKey)) {
+      this.selectedDateKey = "";
     }
-    if (this.yearSelectEl && this.monthSelectEl) {
-      this.populateCalendarSelectors();
+    if (this.dialogDateKey && !this.records.find((record) => record.dateKey === this.dialogDateKey)) {
+      this.dialogDateKey = "";
+      this.dialogItemIndex = 0;
     }
   }
 
@@ -241,6 +219,7 @@ export class DailyCaptureController {
     await this.loadRecords();
     if (preferredDateKey && this.records.find((record) => record.dateKey === preferredDateKey)) {
       this.selectedDateKey = preferredDateKey;
+      this.dialogDateKey = preferredDateKey;
       const [year, month] = preferredDateKey.split("-").map(Number);
       if (year && month) {
         this.monthCursor = new Date(year, month - 1, 1);
@@ -254,10 +233,9 @@ export class DailyCaptureController {
     if (!this.gridEl) return;
     const year = this.monthCursor.getFullYear();
     const month = this.monthCursor.getMonth();
-    const locale = getI18n().getLocale() === "zh-CN" ? "zh-CN" : "en-US";
-    if (this.captionEl) {
-      this.captionEl.textContent = this.monthCursor.toLocaleDateString(locale, { month: "long", year: "numeric" });
-    }
+    const monthLabel = `${year} 年 ${month + 1} 月`;
+    if (this.monthLabelEl) this.monthLabelEl.textContent = monthLabel;
+    if (this.monthChipEl) this.monthChipEl.textContent = monthLabel;
 
     const firstDay = new Date(year, month, 1);
     const offset = (firstDay.getDay() + 6) % 7;
@@ -283,46 +261,56 @@ export class DailyCaptureController {
       const active = hasData && dateKey === this.selectedDateKey;
       const dayScore = dayScoreMap.get(dateKey) ?? 0;
       const tier = this.getPracticeAccuracyTier(dayScore);
+      const normalizedDayScore = Math.max(0, Math.min(100, Number.isFinite(dayScore) ? dayScore : 0));
+      const dayFillStrength = (0.08 + normalizedDayScore * 0.0042).toFixed(3);
       cells.push(`
         <button
           type="button"
-          class="daily-capture-day${active ? " is-active" : ""}${outside ? " is-outside" : ""}${hasData ? " is-marked" : " is-empty"}${hasData ? ` is-tier-${tier}` : ""}"
+          class="daily-capture-day${active ? " is-selected" : ""}${outside ? " is-muted" : ""}${hasData ? " is-marked" : " is-empty"}${hasData ? ` is-tier-${tier}` : ""}"
           data-capture-day="${escapeHtml(dateKey)}"
           data-capture-has-data="${hasData ? "1" : "0"}"
+          data-capture-accuracy="${normalizedDayScore}"
+          style="${hasData ? `--capture-day-fill:${dayFillStrength};` : ""}"
+          ${hasData ? "" : "disabled"}
         >
           <span class="daily-capture-day-date">${date.getDate()}</span>
-          <span class="daily-capture-day-count">${hasData ? `${count}` : "·"}</span>
+          <span class="daily-capture-day-count">${hasData ? `${count}` : ""}</span>
         </button>
       `);
     }
     this.gridEl.innerHTML = cells.join("");
-    this.renderSelectedDaySummary();
-    this.syncCalendarSelectors();
+    this.syncPracticeSelectedDayButton();
   }
 
   private async openDayDialog(dateKey: string): Promise<void> {
-    const cloudCount = this.cloudCountByDate.get(dateKey) ?? 0;
-    if (cloudCount > 0) {
-      await pullCaptureRecordByDate(dateKey);
-      await this.loadRecords();
-      this.renderCalendar();
-    }
     const record = this.findRecord(dateKey);
     if (!record?.items?.length) return;
     this.dialogDateKey = dateKey;
     this.dialogItemIndex = 0;
     this.renderDayDialog();
-    if (!this.dayDialogEl?.open) {
-      this.dayDialogEl?.showModal();
+
+    const localCount = record.items.length;
+    const cloudCount = this.cloudCountByDate.get(dateKey) ?? 0;
+    if (cloudCount > localCount) {
+      void this.syncSingleDayFromCloud(dateKey);
     }
   }
 
-  private closeDayDialog(): void {
-    if (this.dayDialogEl?.open) {
-      this.dayDialogEl.close();
+  private async syncSingleDayFromCloud(dateKey: string): Promise<void> {
+    if (this.syncingDateKeys.has(dateKey)) return;
+    this.syncingDateKeys.add(dateKey);
+    try {
+      await pullCaptureRecordByDate(dateKey);
+      await this.loadRecords();
+      this.renderCalendar();
+      if (this.dialogDateKey === dateKey) {
+        this.renderDayDialog();
+      }
+    } catch {
+      // ignore
+    } finally {
+      this.syncingDateKeys.delete(dateKey);
     }
-    this.dialogDateKey = "";
-    this.dialogItemIndex = 0;
   }
 
   private shiftDialogItem(delta: number): void {
@@ -336,12 +324,36 @@ export class DailyCaptureController {
   }
 
   private renderDayDialog(): void {
-    if (!this.dayDialogBodyEl || !this.dayDialogTitleEl || !this.dayDialogMetaEl) return;
+    if (!this.dayDetailPanelEl || !this.dayDialogBodyEl || !this.dayDialogTitleEl || !this.dayDialogMetaEl) return;
+    if (!this.dialogDateKey) {
+      this.dayDialogTitleEl.textContent = "";
+      this.dayDialogMetaEl.textContent = "";
+      this.dayDialogBodyEl.innerHTML = "";
+      if (this.dayPracticeCurrentEl) {
+        this.dayPracticeCurrentEl.textContent = t("daily_capture.practice_oio");
+        this.dayPracticeCurrentEl.disabled = true;
+      }
+      if (this.dayDeleteCurrentEl) {
+        this.dayDeleteCurrentEl.textContent = t("daily_capture.delete");
+        this.dayDeleteCurrentEl.disabled = true;
+      }
+      if (this.dayDialogPrevEl) this.dayDialogPrevEl.disabled = true;
+      if (this.dayDialogNextEl) this.dayDialogNextEl.disabled = true;
+      return;
+    }
     const record = this.findRecord(this.dialogDateKey);
     if (!record?.items?.length) {
       this.dayDialogTitleEl.textContent = "";
       this.dayDialogMetaEl.textContent = "";
-      this.dayDialogBodyEl.innerHTML = `<p class="daily-capture-day-dialog-empty">${escapeHtml(t("daily_capture.no_cards_day"))}</p>`;
+      this.dayDialogBodyEl.innerHTML = "";
+      if (this.dayPracticeCurrentEl) {
+        this.dayPracticeCurrentEl.textContent = t("daily_capture.practice_oio");
+        this.dayPracticeCurrentEl.disabled = true;
+      }
+      if (this.dayDeleteCurrentEl) {
+        this.dayDeleteCurrentEl.textContent = t("daily_capture.delete");
+        this.dayDeleteCurrentEl.disabled = true;
+      }
       if (this.dayDialogPrevEl) this.dayDialogPrevEl.disabled = true;
       if (this.dayDialogNextEl) this.dayDialogNextEl.disabled = true;
       return;
@@ -358,6 +370,14 @@ export class DailyCaptureController {
     const itemTier = this.getPracticeAccuracyTier(itemAccuracy);
     this.dayDialogTitleEl.textContent = formatKeyToSlashDisplay(record.dateKey);
     this.dayDialogMetaEl.textContent = `${t("daily_capture.card")} ${index + 1} / ${total}`;
+    if (this.dayPracticeCurrentEl) {
+      this.dayPracticeCurrentEl.textContent = t("daily_capture.practice_oio");
+      this.dayPracticeCurrentEl.disabled = false;
+    }
+    if (this.dayDeleteCurrentEl) {
+      this.dayDeleteCurrentEl.textContent = t("daily_capture.delete");
+      this.dayDeleteCurrentEl.disabled = false;
+    }
     if (this.dayDialogPrevEl) this.dayDialogPrevEl.disabled = index <= 0;
     if (this.dayDialogNextEl) this.dayDialogNextEl.disabled = index >= total - 1;
 
@@ -373,14 +393,17 @@ export class DailyCaptureController {
         </div>
         <div class="daily-capture-entry-block">
           <span class="daily-capture-entry-label">${t("daily_capture.label_core_phrases")}</span>
-          ${this.renderKeyPhrases(itemKeyPhrases, item.id)}
-        </div>
-        <div class="daily-capture-entry-actions">
-          <button type="button" class="secondary" data-capture-practice-oio="${escapeHtml(item.id)}">${t("daily_capture.practice_oio")}</button>
-          <button type="button" class="secondary" data-capture-delete="${escapeHtml(item.id)}">${t("daily_capture.delete")}</button>
+          ${this.renderKeyPhrases(itemKeyPhrases)}
         </div>
       </article>
     `;
+  }
+
+  private getCurrentDialogItem(): CaptureItem | null {
+    const record = this.findRecord(this.dialogDateKey);
+    if (!record?.items?.length) return null;
+    const index = Math.max(0, Math.min(this.dialogItemIndex, record.items.length - 1));
+    return record.items[index] ?? null;
   }
 
   private findRecord(dateKey: string): DailyCaptureRecord | null {
@@ -411,36 +434,11 @@ export class DailyCaptureController {
     );
   }
 
-  private launchAiPractice(item: CaptureItem, targetPhraseOverride?: string): void {
-    const keyPhrases = this.normalizeItemKeyPhrases(item.keyPhrases);
-    const normalizedNaturalVersion = (item.naturalVersion || "").trim();
-    const normalizedReply = (item.reply || item.note || "").trim();
-    const contextText = normalizedNaturalVersion && normalizedNaturalVersion !== "-"
-      ? normalizedNaturalVersion
-      : (item.sourceText ?? "").trim();
-    const targetPhrase = (targetPhraseOverride ?? keyPhrases[0] ?? "").trim();
-    if (!contextText || !targetPhrase) return;
-
-    const practiceItem: CaptureItem = {
-      ...item,
-      naturalVersion: contextText,
-      sourceText: contextText,
-      keyPhrases: [targetPhrase],
-      reply: normalizedReply && normalizedReply !== "-" ? normalizedReply : item.reply,
-    };
-
-    document.dispatchEvent(new CustomEvent("app-request-tab-change", { detail: { tabId: "oio-chat" } }));
-    document.dispatchEvent(new CustomEvent("oio-chat-start-practice", { detail: { item: practiceItem } }));
-  }
-
   private launchSelectedDayPractice(): void {
-    const selectedDateKey = this.selectedDateKey;
-    const record = this.findRecord(selectedDateKey);
+    if (!this.selectedDateKey) return;
+    const record = this.findRecord(this.selectedDateKey);
     const items = Array.isArray(record?.items) ? record.items : [];
-    if (!items.length) {
-      window.alert(t("daily_capture.practice_selected_empty"));
-      return;
-    }
+    if (!items.length) return;
     const cardEntries = items
       .map((item) => {
         const text = (item.naturalVersion || item.sourceText || "").trim();
@@ -451,10 +449,7 @@ export class DailyCaptureController {
         };
       })
       .filter((entry): entry is { text: string; keyPhrases: string[] } => !!entry);
-    if (!cardEntries.length) {
-      window.alert(t("daily_capture.practice_selected_empty"));
-      return;
-    }
+    if (!cardEntries.length) return;
     const cardChunks = cardEntries.map((entry) => entry.text);
     const cardPhraseChunks = cardEntries.map((entry) => entry.keyPhrases);
     this.startPracticeWithText(cardChunks.join("\n"), cardChunks, cardPhraseChunks, undefined, []);
@@ -526,7 +521,6 @@ export class DailyCaptureController {
       }
       inputEl.dataset.practiceOpeningHint = "daily";
       inputEl.dispatchEvent(new Event("input", { bubbles: true }));
-      inputEl.focus();
     }
     generateBtn?.click();
     const practiceSection = this.root?.querySelector<HTMLElement>("#subs-section");
@@ -550,11 +544,12 @@ export class DailyCaptureController {
       el.style.maxWidth = "320px";
       el.style.padding = "10px 12px";
       el.style.borderRadius = "10px";
-      el.style.background = "rgba(17,24,39,0.9)";
-      el.style.color = "#fff";
+      el.style.border = "1px solid var(--v2-border)";
+      el.style.background = "var(--v2-surface)";
+      el.style.color = "var(--v2-text)";
       el.style.fontSize = "14px";
       el.style.lineHeight = "1.4";
-      el.style.boxShadow = "0 8px 24px rgba(0,0,0,0.28)";
+      el.style.boxShadow = "var(--v2-shadow-raised)";
       el.style.pointerEvents = "none";
       document.body.appendChild(el);
       this.practiceLoadingNoticeEl = el;
@@ -568,7 +563,7 @@ export class DailyCaptureController {
     this.practiceLoadingNoticeEl.hidden = true;
   }
 
-  private renderKeyPhrases(keyPhrases: string[], itemId: string): string {
+  private renderKeyPhrases(keyPhrases: string[]): string {
     if (!keyPhrases.length) {
       return `<p class="daily-capture-entry-copy">-</p>`;
     }
@@ -576,28 +571,24 @@ export class DailyCaptureController {
       ? "daily-capture-phrase-list daily-capture-phrase-list--scrollable"
       : "daily-capture-phrase-list";
     return `<div class="${listClass}">${keyPhrases
-      .map((phrase) => this.renderSinglePhraseItem(phrase, itemId))
+      .map((phrase) => this.renderSinglePhraseItem(phrase))
       .join("")}</div>`;
   }
 
-  private renderSinglePhraseItem(phrase: string, itemId: string): string {
+  private renderSinglePhraseItem(phrase: string): string {
     const score = this.getPhraseScore(phrase);
     const tier = getPhraseTier(score);
-    const encodedPhrase = encodeURIComponent(phrase);
+    const normalizedScore = Number.isFinite(score) ? Math.max(0, score) : 0;
+    const strength = Math.max(0, Math.min(1, normalizedScore / 10));
     return `
       <div class="daily-capture-phrase-item">
-        <span class="chat-highlight-chip daily-capture-phrase-chip is-tier-${tier}">
+        <span
+          class="chat-highlight-chip daily-capture-phrase-chip is-tier-${tier}"
+          style="--phrase-strength:${strength.toFixed(3)};"
+        >
           <span>${escapeHtml(phrase)}</span>
           <span class="daily-capture-phrase-score">${Math.max(0, Math.floor(score))}</span>
         </span>
-        <button
-          type="button"
-          class="secondary daily-capture-phrase-ai-btn"
-          data-capture-practice-ai-phrase="${escapeHtml(encodedPhrase)}"
-          data-capture-practice-ai-item="${escapeHtml(itemId)}"
-        >
-          ${t("daily_capture.practice_ai")}
-        </button>
       </div>
     `;
   }
@@ -616,7 +607,8 @@ export class DailyCaptureController {
       return;
     }
     try {
-      this.phraseScoreByNorm = await fetchPhraseProficiencyScores(phrases);
+      const fetched = await fetchPhraseProficiencyScores(phrases);
+      this.phraseScoreByNorm = fetched;
     } catch {
       this.phraseScoreByNorm = new Map();
     }
@@ -661,15 +653,12 @@ export class DailyCaptureController {
       .filter(Boolean);
   }
 
-  private syncPracticeCtaCopy(): void {
-    if (this.practiceSelectedDayBtnEl) {
-      this.practiceSelectedDayBtnEl.textContent = t("daily_capture.practice_selected_day");
-    }
-  }
-
-  private renderSelectedDaySummary(): void {
-    if (!this.selectedDayEl) return;
-    this.selectedDayEl.textContent = `${t("daily_capture.selected_day_label")}: ${formatKeyToSlashDisplay(this.selectedDateKey)}`;
+  private syncPracticeSelectedDayButton(): void {
+    if (!this.practiceSelectedDayBtnEl) return;
+    this.practiceSelectedDayBtnEl.textContent = t("daily_capture.practice_selected_day");
+    const record = this.selectedDateKey ? this.findRecord(this.selectedDateKey) : null;
+    const hasItems = Array.isArray(record?.items) && record.items.length > 0;
+    this.practiceSelectedDayBtnEl.disabled = !hasItems;
   }
 
   private embedPracticePanel(): void {
@@ -680,49 +669,20 @@ export class DailyCaptureController {
     this.practiceHostEl.replaceChildren(practiceSection);
   }
 
-  private populateCalendarSelectors(): void {
-    if (!this.yearSelectEl || !this.monthSelectEl) return;
-    const years = this.buildYearOptions();
-    this.yearSelectEl.innerHTML = years
-      .map((year) => `<option value="${year}">${year}</option>`)
-      .join("");
-    this.monthSelectEl.innerHTML = Array.from({ length: 12 }, (_, index) => {
-      const month = index + 1;
-      return `<option value="${month}">${month.toString().padStart(2, "0")}</option>`;
-    }).join("");
-    this.syncCalendarSelectors();
-  }
-
-  private buildYearOptions(): number[] {
-    const currentYear = new Date().getFullYear();
-    const years = new Set<number>([currentYear - 2, currentYear - 1, currentYear, currentYear + 1, currentYear + 2]);
-    for (const record of this.records) {
-      const year = Number.parseInt(record.dateKey.slice(0, 4), 10);
-      if (Number.isFinite(year)) {
-        years.add(year);
-      }
+  private async cleanupLegacyPreviewMockRecords(): Promise<void> {
+    const legacyMockPrefix = "mock-preview-2026-04";
+    const existingRecords = await listCaptureRecords();
+    for (const record of existingRecords) {
+      const items = Array.isArray(record.items) ? record.items : [];
+      const nextItems = items.filter((item) => !String(item.id ?? "").startsWith(legacyMockPrefix));
+      if (nextItems.length === items.length) continue;
+      const nextRecord = {
+        ...record,
+        items: nextItems,
+        updatedAt: new Date().toISOString(),
+      };
+      await saveCaptureRecord(nextRecord);
     }
-    return Array.from(years).sort((a, b) => a - b);
-  }
-
-  private syncCalendarSelectors(): void {
-    if (!this.yearSelectEl || !this.monthSelectEl) return;
-    const year = this.monthCursor.getFullYear();
-    const month = this.monthCursor.getMonth() + 1;
-    if (!Array.from(this.yearSelectEl.options).some((option) => Number(option.value) === year)) {
-      this.populateCalendarSelectors();
-      return;
-    }
-    this.yearSelectEl.value = String(year);
-    this.monthSelectEl.value = String(month);
-  }
-
-  private applyYearMonthSelection(): void {
-    const year = Number.parseInt(this.yearSelectEl?.value ?? "", 10);
-    const month = Number.parseInt(this.monthSelectEl?.value ?? "", 10);
-    if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return;
-    this.monthCursor = new Date(year, month - 1, 1);
-    this.renderCalendar();
   }
 
   private async removeCaptureItem(itemId: string): Promise<void> {
@@ -747,7 +707,11 @@ export class DailyCaptureController {
     void deleteCaptureItems([itemId]);
     await this.refreshFromStore(record.dateKey);
     if (!nextItems.length) {
-      this.closeDayDialog();
+      this.selectedDateKey = "";
+      this.dialogDateKey = "";
+      this.dialogItemIndex = 0;
+      this.renderDayDialog();
+      this.renderCalendar();
       return;
     }
     this.dialogDateKey = record.dateKey;

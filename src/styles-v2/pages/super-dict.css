@@ -1,0 +1,72 @@
+.super-dict-layout {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.module-card--super-dict-links .module-card-title,
+.module-card--super-dict-images .module-card-title,
+.module-card--super-dict-youglish .module-card-title,
+.module-card--super-dict-search .module-card-title {
+  font-size: 1.25rem;
+}
+
+.super-dict-search-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.super-dict-search-row {
+  display: block;
+}
+
+.super-dict-search-input {
+  border-radius: 16px;
+}
+
+.super-dict-search-input-wrap {
+  position: relative;
+}
+
+.super-dict-history-dropdown {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  z-index: 18;
+}
+
+.super-dict-link-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.super-dict-link-grid--images,
+.super-dict-link-grid--solo {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.super-dict-link-card {
+  display: flex;
+  align-items: center;
+  gap: 0.68rem;
+  min-height: 5.3rem;
+  padding: 0.7rem;
+}
+
+.super-dict-link-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.super-dict-link-card--cambridge,
+.super-dict-link-card--oxford,
+.super-dict-link-card--longman,
+.super-dict-link-card--collins,
+.super-dict-link-card--google,
+.super-dict-link-card--bing,
+.super-dict-link-card--baidu,
+.super-dict-link-card--youglish {
+  background: var(--v2-surface);
+}

@@ -16,7 +16,9 @@ import { getAudioFacade } from "../services/audio/audioFacade";
 const KOKORO_SWITCH_TIMEOUT_MS = 45_000;
 const KOKORO_SWITCH_TIMEOUT_SECONDS = Math.floor(KOKORO_SWITCH_TIMEOUT_MS / 1000);
 const UI_BLOCK_SAFETY_TIMEOUT_MS = 60_000;
+const THEME_STORAGE_KEY = "oio-theme";
 type TtsVoiceGroupId = "uk" | "us";
+type ThemeOption = "light" | "dark";
 
 const TTS_VOICE_META: Record<string, { group: TtsVoiceGroupId; label: string; genderKey: "tts.voice_gender.male" | "tts.voice_gender.female" }> = {
   bm_fable: { group: "uk", label: "Fable", genderKey: "tts.voice_gender.male" },
@@ -61,6 +63,11 @@ export class AppShellController {
   private readonly ttsSettingsDialogEl: HTMLDialogElement | null;
   private readonly ttsSettingsCloseEl: HTMLButtonElement | null;
   private readonly ttsSourceOptionEls: HTMLButtonElement[] = [];
+  private readonly themeOptionEls: HTMLButtonElement[] = [];
+  private readonly ttsThemeTitleEl: HTMLElement | null;
+  private readonly ttsThemeGroupEl: HTMLElement | null;
+  private readonly ttsThemeLightEl: HTMLElement | null;
+  private readonly ttsThemeDarkEl: HTMLElement | null;
   private readonly ttsKokoroOptionsEl: HTMLElement | null;
   private readonly ttsVoiceListEl: HTMLElement | null;
   private readonly ttsSwitchBlockEl: HTMLElement | null;
@@ -109,6 +116,11 @@ export class AppShellController {
     this.ttsSettingsDialogEl = document.querySelector<HTMLDialogElement>("[data-tts-settings-dialog]");
     this.ttsSettingsCloseEl = document.querySelector<HTMLButtonElement>("[data-tts-settings-close]");
     this.ttsSourceOptionEls = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-tts-source-option]"));
+    this.themeOptionEls = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-theme-option]"));
+    this.ttsThemeTitleEl = document.querySelector<HTMLElement>("[data-i18n-tts-theme-title]");
+    this.ttsThemeGroupEl = document.querySelector<HTMLElement>("[data-i18n-tts-theme-group]");
+    this.ttsThemeLightEl = document.querySelector<HTMLElement>("[data-i18n-tts-theme-light]");
+    this.ttsThemeDarkEl = document.querySelector<HTMLElement>("[data-i18n-tts-theme-dark]");
     this.ttsKokoroOptionsEl = document.querySelector<HTMLElement>("[data-tts-kokoro-options]");
     this.ttsVoiceListEl = document.querySelector<HTMLElement>("[data-tts-voice-list]");
     this.ttsSwitchBlockEl = document.querySelector<HTMLElement>("[data-tts-switch-block]");
@@ -127,10 +139,12 @@ export class AppShellController {
     if (!this.navButtons.length || !this.panels.length) return;
 
     this.syncDisabledTabs();
+    this.initTheme();
     this.applyStaticI18n();
     this.renderTtsVoiceOptions();
     this.wireEvents();
     this.syncTtsSourceOptions();
+    this.syncThemeOptions();
     this.syncTtsVoiceOptions();
     this.syncTtsKokoroOptionsVisibility();
     this.initLocaleSwitch();
@@ -220,6 +234,14 @@ export class AppShellController {
         }
         this.syncTtsSourceOptions();
         this.syncTtsKokoroOptionsVisibility();
+      });
+    }
+
+    for (const optionEl of this.themeOptionEls) {
+      optionEl.addEventListener("click", () => {
+        const theme = this.normalizeTheme(optionEl.dataset.themeOption);
+        if (!theme) return;
+        this.setTheme(theme);
       });
     }
 
@@ -331,6 +353,18 @@ export class AppShellController {
     if (this.superDictHeroCopyEl) {
       this.superDictHeroCopyEl.textContent = t("tab.super_dict.hero_description");
     }
+    if (this.ttsThemeTitleEl) {
+      this.ttsThemeTitleEl.textContent = t("tts.theme_title");
+    }
+    if (this.ttsThemeGroupEl) {
+      this.ttsThemeGroupEl.setAttribute("aria-label", t("tts.theme_group_aria"));
+    }
+    if (this.ttsThemeLightEl) {
+      this.ttsThemeLightEl.textContent = t("tts.theme_light");
+    }
+    if (this.ttsThemeDarkEl) {
+      this.ttsThemeDarkEl.textContent = t("tts.theme_dark");
+    }
   }
 
   private initLocaleSwitch(): void {
@@ -357,6 +391,56 @@ export class AppShellController {
       const active = button.dataset.localeOption === locale;
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+  }
+
+  private normalizeTheme(raw: string | undefined): ThemeOption | null {
+    return raw === "dark" || raw === "light" ? raw : null;
+  }
+
+  private getStoredTheme(): ThemeOption | null {
+    try {
+      const raw = window.localStorage.getItem(THEME_STORAGE_KEY) ?? "";
+      return this.normalizeTheme(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  private getActiveTheme(): ThemeOption {
+    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  }
+
+  private applyTheme(theme: ThemeOption): void {
+    if (theme === "dark") {
+      document.documentElement.dataset.theme = "dark";
+      return;
+    }
+    delete document.documentElement.dataset.theme;
+  }
+
+  private initTheme(): void {
+    const stored = this.getStoredTheme();
+    if (!stored) return;
+    this.applyTheme(stored);
+  }
+
+  private setTheme(theme: ThemeOption): void {
+    this.applyTheme(theme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore storage errors and keep runtime theme.
+    }
+    this.syncThemeOptions();
+  }
+
+  private syncThemeOptions(): void {
+    const selected = this.getActiveTheme();
+    for (const optionEl of this.themeOptionEls) {
+      const active = optionEl.dataset.themeOption === selected;
+      optionEl.setAttribute("aria-pressed", active ? "true" : "false");
+      optionEl.classList.toggle("is-active", active);
     }
   }
 
@@ -640,6 +724,7 @@ export class AppShellController {
   private openTtsSettingsDialog(): void {
     if (!this.ttsSettingsDialogEl) return;
     this.syncTtsSourceOptions();
+    this.syncThemeOptions();
     this.syncLocaleButtons(getI18n().getLocale());
     this.syncTtsVoiceOptions();
     this.syncTtsKokoroOptionsVisibility();

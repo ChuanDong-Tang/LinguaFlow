@@ -94,9 +94,6 @@ export async function listRecentCandidatePhrases(appUserId) {
 
 export function calcPhraseDeltaByMode(mode, quality) {
   if (quality !== "good" && quality !== "ok") return 0;
-  if (mode === "practice_feedback") {
-    return quality === "good" ? 2 : 1;
-  }
   return quality === "good" ? 3 : 2;
 }
 

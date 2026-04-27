@@ -274,7 +274,7 @@ export async function listDailyCaptureRecords() {
 }
 
 /**
- * @param {{ id: string, dateKey: string, title: string, createdAt: string, updatedAt: string, turns: unknown[], kind?: string, practice?: object, practiceCompleted?: boolean }} record
+ * @param {{ id: string, dateKey: string, title: string, createdAt: string, updatedAt: string, turns: unknown[] }} record
  */
 export async function saveChatSessionRecord(record) {
   const db = await openDb();
