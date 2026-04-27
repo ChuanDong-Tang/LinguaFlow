@@ -13,6 +13,14 @@
   color: var(--v2-text-soft);
 }
 
+.daily-capture-top-grid {
+  --daily-capture-top-card-height: 26rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: start;
+}
+
 .module-card--daily-calendar,
 .module-card--daily-detail,
 .module-card--daily-practice {
@@ -21,14 +29,20 @@
   padding: 1.1rem;
 }
 
-.module-card--daily-practice {
-  margin-top: 0.9rem;
+.module-card--daily-calendar,
+.module-card--daily-detail {
+  height: var(--daily-capture-top-card-height);
+  min-height: var(--daily-capture-top-card-height);
+  max-height: var(--daily-capture-top-card-height);
+  overflow: hidden;
 }
 
-.daily-capture-top-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.9rem;
+.module-card--daily-detail {
+  overflow-y: auto;
+}
+
+.module-card--daily-practice {
+  margin-top: 0.9rem;
 }
 
 .module-card--daily-capture-practice-host {
@@ -60,10 +74,12 @@
 
 .daily-calendar-layout {
   display: block;
+  height: 100%;
 }
 
 .daily-calendar-main {
   min-width: 0;
+  height: 100%;
 }
 
 .daily-calendar-head {
@@ -244,11 +260,9 @@
 
 .daily-capture-detail-panel {
   width: 100%;
-  min-height: 100%;
-  max-height: min(70vh, 34rem);
-  overflow: hidden;
+  overflow: visible;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
 }
 
 .daily-practice-title {
@@ -294,8 +308,7 @@
 
 .daily-capture-day-dialog-body {
   margin-top: 0.75rem;
-  min-height: 0;
-  overflow-y: auto;
+  overflow: visible;
   padding-right: 0.1rem;
 }
 
@@ -305,27 +318,11 @@
 }
 
 .daily-capture-day-dialog-body .daily-capture-phrase-list {
-  --daily-phrase-visible-count: 3;
-  --daily-phrase-row-height: 2.2rem;
-  --daily-phrase-gap: 0.4rem;
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
-  gap: var(--daily-phrase-gap);
+  gap: 0.4rem;
   width: 100%;
-  min-height: calc(
-    (var(--daily-phrase-row-height) * var(--daily-phrase-visible-count))
-    + (var(--daily-phrase-gap) * (var(--daily-phrase-visible-count) - 1))
-  );
-}
-
-.daily-capture-day-dialog-body .daily-capture-phrase-list--scrollable {
-  max-height: calc(
-    (var(--daily-phrase-row-height) * var(--daily-phrase-visible-count))
-    + (var(--daily-phrase-gap) * (var(--daily-phrase-visible-count) - 1))
-  );
-  overflow-y: auto;
-  padding-right: 0.15rem;
 }
 
 .daily-capture-day-dialog-body .daily-capture-phrase-list > * {
@@ -338,7 +335,7 @@
   justify-content: space-between;
   gap: 0.45rem;
   width: 100%;
-  min-height: var(--daily-phrase-row-height);
+  min-height: 2.2rem;
 }
 
 .daily-capture-day-dialog-body .daily-capture-phrase-chip {
@@ -805,6 +802,13 @@
 @media (max-width: 1260px) {
   .daily-capture-top-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .module-card--daily-calendar,
+  .module-card--daily-detail {
+    height: auto;
+    min-height: 0;
+    max-height: none;
   }
 
   .daily-capture-detail-panel {

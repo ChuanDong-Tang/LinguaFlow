@@ -284,16 +284,16 @@ export class DailyCaptureController {
 
   private async openDayDialog(dateKey: string): Promise<void> {
     const record = this.findRecord(dateKey);
-    if (!record?.items?.length) return;
+    const localCount = record?.items?.length ?? 0;
+    const cloudCount = this.cloudCountByDate.get(dateKey) ?? 0;
+    if (cloudCount > localCount) {
+      await this.syncSingleDayFromCloud(dateKey);
+    }
+    const latestRecord = this.findRecord(dateKey);
+    if (!latestRecord?.items?.length) return;
     this.dialogDateKey = dateKey;
     this.dialogItemIndex = 0;
     this.renderDayDialog();
-
-    const localCount = record.items.length;
-    const cloudCount = this.cloudCountByDate.get(dateKey) ?? 0;
-    if (cloudCount > localCount) {
-      void this.syncSingleDayFromCloud(dateKey);
-    }
   }
 
   private async syncSingleDayFromCloud(dateKey: string): Promise<void> {
@@ -567,10 +567,7 @@ export class DailyCaptureController {
     if (!keyPhrases.length) {
       return `<p class="daily-capture-entry-copy">-</p>`;
     }
-    const listClass = keyPhrases.length > 3
-      ? "daily-capture-phrase-list daily-capture-phrase-list--scrollable"
-      : "daily-capture-phrase-list";
-    return `<div class="${listClass}">${keyPhrases
+    return `<div class="daily-capture-phrase-list">${keyPhrases
       .map((phrase) => this.renderSinglePhraseItem(phrase))
       .join("")}</div>`;
   }
