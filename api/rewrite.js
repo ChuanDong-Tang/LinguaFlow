@@ -83,6 +83,7 @@ async function callDeepSeek(text, config, prompt) {
           { role: "system", content: prompt.systemPrompt },
           { role: "user", content: prompt.buildUserPrompt(text) },
         ],
+        temperature : 1.2
       }),
       signal: controller.signal,
     });
