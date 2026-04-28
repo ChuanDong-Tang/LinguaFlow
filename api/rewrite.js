@@ -3,33 +3,13 @@ import { getRewriteConfig } from "../server/services/rewriteConfig.js";
 import {
   buildOioChatBeginnerUserPrompt,
   buildOioChatAdvancedUserPrompt,
-  buildRewriteUserPrompt,
   OIO_CHAT_BEGINNER_SYSTEM_PROMPT,
   OIO_CHAT_ADVANCED_SYSTEM_PROMPT,
-  REWRITE_SYSTEM_PROMPT,
 } from "../server/services/rewritePrompt.js";
 import { findBlockedPattern, looksLikePromptInjection } from "../server/services/rewriteSecurity.js";
 import { getRewriteAccessContext, recordSuccessfulRewriteUsage } from "../server/services/rewriteUsage.js";
 
 const EFFECTIVE_CHAR_REGEX = /[\p{L}\p{N}]/u;
-
-function parseModelPayload(content) {
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return null;
-  }
-
-  if (parsed?.version !== "1") return null;
-  if (typeof parsed?.rewritten_text !== "string" || !parsed.rewritten_text.trim()) return null;
-
-  return {
-    version: "1",
-    rewritten_text: parsed.rewritten_text.trim(),
-    key_phrases: [],
-  };
-}
 
 function parseOioChatPayload(content) {
   let parsed;
@@ -189,15 +169,13 @@ export default async function handler(req, res) {
       ? {
         systemPrompt: OIO_CHAT_BEGINNER_SYSTEM_PROMPT,
         buildUserPrompt: buildOioChatBeginnerUserPrompt,
-        input: { learnerText: text, candidatePhrases: [] },
+        input: { learnerText: text },
       }
-      : mode === "advanced"
-        ? {
-          systemPrompt: OIO_CHAT_ADVANCED_SYSTEM_PROMPT,
-          buildUserPrompt: buildOioChatAdvancedUserPrompt,
-          input: { learnerText: text, candidatePhrases: [] },
-        }
-        : { systemPrompt: REWRITE_SYSTEM_PROMPT, buildUserPrompt: buildRewriteUserPrompt, input: text };
+      : {
+        systemPrompt: OIO_CHAT_ADVANCED_SYSTEM_PROMPT,
+        buildUserPrompt: buildOioChatAdvancedUserPrompt,
+        input: { learnerText: text },
+      };
     rawContent = await callDeepSeek(prompt.input, config, prompt);
   } catch (error) {
     console.error("[rewrite] DeepSeek request failed:", error);
@@ -212,21 +190,14 @@ export default async function handler(req, res) {
   }
 
   let parsed;
-  if (mode === "beginner" || mode === "advanced") {
-    parsed = parseOioChatPayload(rawContent);
-  } else {
-    parsed = parseModelPayload(rawContent);
-  }
+  parsed = parseOioChatPayload(rawContent);
 
   if (!parsed) {
     sendJson(res, 502, { error: { code: "INVALID_MODEL_RESPONSE", message: "The model response could not be validated." } });
     return;
   }
 
-  const outputChars =
-    mode === "beginner" || mode === "advanced"
-      ? countEffectiveChars(parsed.natural_version) + countEffectiveChars(parsed.reply)
-      : countEffectiveChars(parsed.rewritten_text);
+  const outputChars = countEffectiveChars(parsed.natural_version) + countEffectiveChars(parsed.reply);
   const chargedChars = inputBundleEffectiveChars + outputChars;
   await recordSuccessfulRewriteUsage(access, {
     inputChars: inputBundleEffectiveChars,
