@@ -46,8 +46,8 @@ export class OioChatController {
   private readonly inputEl: HTMLTextAreaElement | null;
   private readonly submitEl: HTMLButtonElement | null;
   private readonly clearEl: HTMLButtonElement | null;
-  private readonly voiceInputEl: HTMLButtonElement | null;
-  private readonly modeButtons: HTMLButtonElement[];
+  private readonly voiceInputButtons: HTMLButtonElement[];
+  private readonly modeSelectEl: HTMLSelectElement | null;
   private readonly metaEl: HTMLElement | null;
   private readonly statusEl: HTMLElement | null;
   private readonly sessionDateEl: HTMLElement | null;
@@ -61,6 +61,7 @@ export class OioChatController {
   private speechRecognitionActive = false;
   private speechRecognitionRequested = false;
   private speechRecognitionDraft = "";
+  private speechRecognitionLang: "zh-CN" | "en-US" = "zh-CN";
   private discardSpeechRecognitionResults = false;
   private usageDailyUsed: number | null = null;
   private usageDailyLimit: number | null = null;
@@ -86,8 +87,8 @@ export class OioChatController {
     this.inputEl = root?.querySelector<HTMLTextAreaElement>("[data-oio-chat-input]") ?? null;
     this.submitEl = root?.querySelector<HTMLButtonElement>("[data-oio-chat-submit]") ?? null;
     this.clearEl = root?.querySelector<HTMLButtonElement>("[data-oio-chat-clear]") ?? null;
-    this.voiceInputEl = root?.querySelector<HTMLButtonElement>("[data-oio-chat-voice-input]") ?? null;
-    this.modeButtons = Array.from(root?.querySelectorAll<HTMLButtonElement>("[data-oio-chat-mode]") ?? []);
+    this.voiceInputButtons = Array.from(root?.querySelectorAll<HTMLButtonElement>("[data-oio-chat-voice-input-lang]") ?? []);
+    this.modeSelectEl = root?.querySelector<HTMLSelectElement>("[data-oio-chat-mode-select]") ?? null;
     this.metaEl = root?.querySelector<HTMLElement>("[data-oio-chat-meta]") ?? null;
     this.statusEl = root?.querySelector<HTMLElement>("[data-oio-chat-status]") ?? null;
     this.sessionDateEl = root?.querySelector<HTMLElement>("[data-oio-chat-session-date]") ?? null;
@@ -174,9 +175,12 @@ export class OioChatController {
       }
       this.updateMeta();
     });
-    this.voiceInputEl?.addEventListener("click", () => {
-      this.toggleSpeechInput();
-      this.focusComposerToEnd();
+    this.voiceInputButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const lang = button.dataset.oioChatVoiceInputLang === "en" ? "en-US" : "zh-CN";
+        this.toggleSpeechInputByLang(lang);
+        this.focusComposerToEnd();
+      });
     });
     this.feedEl?.addEventListener("scroll", () => {
       this.syncScrollBottomButton();
@@ -185,11 +189,9 @@ export class OioChatController {
       this.scrollFeedToBottom();
     });
 
-    this.modeButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        this.activeMode = button.dataset.oioChatMode === "advanced" ? "advanced" : "beginner";
-        this.renderModeState();
-      });
+    this.modeSelectEl?.addEventListener("change", () => {
+      this.activeMode = this.modeSelectEl?.value === "advanced" ? "advanced" : "beginner";
+      this.renderModeState();
     });
 
     this.historyEl?.addEventListener("click", async (event) => {
@@ -818,17 +820,17 @@ export class OioChatController {
     }
 
     const recognition = new recognitionCtor();
-    recognition.lang = this.getSpeechRecognitionLang();
-    recognition.continuous = true;
+    recognition.lang = this.speechRecognitionLang;
+    recognition.continuous = false;
     recognition.interimResults = true;
+    (recognition as SpeechRecognitionLike & { maxAlternatives?: number }).maxAlternatives = 3;
     recognition.onresult = (event) => {
       if (!this.inputEl) return;
       if (this.discardSpeechRecognitionResults) return;
       const base = this.speechRecognitionDraft;
       let finalChunk = "";
       let interimChunk = "";
-      const start = typeof event.resultIndex === "number" ? event.resultIndex : 0;
-      for (let index = start; index < event.results.length; index += 1) {
+      for (let index = 0; index < event.results.length; index += 1) {
         const result = event.results[index];
         const transcript = result?.[0]?.transcript?.trim() ?? "";
         if (!transcript) continue;
@@ -850,7 +852,6 @@ export class OioChatController {
       this.speechRecognitionActive = false;
       this.speechRecognitionRequested = false;
       this.updateVoiceInputState();
-      this.setStatus(t("oio_chat.voice_input_failed"));
     };
     recognition.onend = () => {
       this.speechRecognitionActive = false;
@@ -858,36 +859,32 @@ export class OioChatController {
       if (this.speechRecognitionRequested) {
         window.setTimeout(() => {
           void this.startSpeechInput();
-        }, 120);
+        }, 30);
         return;
       }
-      this.setStatus(t("oio_chat.voice_input_stopped"));
     };
     this.speechRecognition = recognition;
   }
 
-  private getSpeechRecognitionLang(): string {
-    return getI18n().getLocale() === "zh-CN" ? "zh-CN" : "en-US";
-  }
-
   private syncSpeechRecognitionLang(): void {
     if (!this.speechRecognition) return;
-    this.speechRecognition.lang = this.getSpeechRecognitionLang();
+    this.speechRecognition.lang = this.speechRecognitionLang;
   }
 
-  private toggleSpeechInput(): void {
+  private toggleSpeechInputByLang(nextLang: "zh-CN" | "en-US"): void {
     if (!this.speechRecognition) {
-      this.setStatus(t("oio_chat.voice_input_unavailable_browser"));
       return;
     }
+    const isSameLang = this.speechRecognitionLang === nextLang;
     if (this.speechRecognitionActive || this.speechRecognitionRequested) {
-      this.speechRecognitionRequested = false;
+      this.speechRecognitionLang = nextLang;
+      this.speechRecognitionRequested = !isSameLang;
       this.speechRecognition.stop();
       this.speechRecognitionActive = false;
       this.updateVoiceInputState();
-      this.setStatus(t("oio_chat.voice_input_stopped"));
       return;
     }
+    this.speechRecognitionLang = nextLang;
     void this.startSpeechInput();
   }
 
@@ -926,44 +923,26 @@ export class OioChatController {
       this.speechRecognitionRequested = true;
       this.speechRecognition.start();
       this.speechRecognitionActive = true;
-      this.setStatus(t("oio_chat.listening"));
       this.updateVoiceInputState();
     } catch {
       this.speechRecognitionActive = false;
       this.speechRecognitionRequested = false;
       this.updateVoiceInputState();
-      this.setStatus(t("oio_chat.voice_input_start_failed"));
     }
   }
 
   private updateVoiceInputState(): void {
-    if (!this.voiceInputEl) return;
+    if (!this.voiceInputButtons.length) return;
     const supported = !!this.speechRecognition;
-    this.voiceInputEl.disabled = !supported;
-    this.voiceInputEl.classList.toggle("is-listening", this.speechRecognitionActive);
-    this.voiceInputEl.innerHTML = `
-      <span class="oio-chat-voice-visual" aria-hidden="true">
-        <svg viewBox="0 0 24 24" class="oio-chat-voice-input-icon" aria-hidden="true">
-          <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z" fill="currentColor"></path>
-          <path d="M6 11a6 6 0 0 0 12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-          <path d="M12 17v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-          <path d="M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-        </svg>
-        <span class="oio-chat-voice-rings"><i></i><i></i><i></i></span>
-      </span>
-    `;
-    this.voiceInputEl.setAttribute(
-      "aria-label",
-      supported
-        ? (this.speechRecognitionActive ? t("oio_chat.voice_input_stop") : t("oio_chat.voice_input_start"))
-        : t("oio_chat.voice_input_unavailable"),
-    );
-    this.voiceInputEl.setAttribute(
-      "title",
-      supported
-        ? (this.speechRecognitionActive ? t("oio_chat.voice_input_stop") : t("oio_chat.voice_input_start"))
-        : t("oio_chat.voice_input_unavailable"),
-    );
+    const activeCode = this.speechRecognitionLang === "en-US" ? "en" : "zh";
+    this.voiceInputButtons.forEach((button) => {
+      const code = button.dataset.oioChatVoiceInputLang === "en" ? "en" : "zh";
+      const isListening = supported && this.speechRecognitionActive && code === activeCode;
+      button.disabled = !supported;
+      button.classList.toggle("is-listening", isListening);
+      button.setAttribute("aria-label", isListening ? `Stop ${code} voice input` : `Start ${code} voice input`);
+      button.setAttribute("title", isListening ? `Stop ${code} voice input` : `Start ${code} voice input`);
+    });
   }
 
   private renderProficiencyHint(turn: ChatTurn): string {
@@ -1343,14 +1322,13 @@ export class OioChatController {
   }
 
   private renderModeState(): void {
-    this.modeButtons.forEach((button) => {
-      button.textContent = button.dataset.oioChatMode === "advanced"
-        ? t("oio_chat.mode_advanced")
-        : t("oio_chat.mode_beginner");
-      const selected = (button.dataset.oioChatMode === "advanced" ? "advanced" : "beginner") === this.activeMode;
-      button.classList.toggle("is-active", selected);
-      button.setAttribute("aria-pressed", selected ? "true" : "false");
-    });
+    if (this.modeSelectEl) {
+      this.modeSelectEl.value = this.activeMode;
+      const beginnerOption = this.modeSelectEl.querySelector<HTMLOptionElement>("option[value='beginner']");
+      const advancedOption = this.modeSelectEl.querySelector<HTMLOptionElement>("option[value='advanced']");
+      if (beginnerOption) beginnerOption.textContent = t("oio_chat.mode_beginner");
+      if (advancedOption) advancedOption.textContent = t("oio_chat.mode_advanced");
+    }
 
     if (!this.inputEl) return;
     this.inputEl.placeholder = this.activeMode === "advanced"

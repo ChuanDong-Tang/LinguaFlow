@@ -193,18 +193,21 @@
                     <div class="oio-chat-composer-footer">
                       <span class="oio-chat-meta" data-oio-chat-meta>0/320 characters · --/-- chars today</span>
                       <div class="oio-chat-footer-right">
-                        <div class="oio-chat-mode-switch" role="tablist" aria-label="Level mode">
-                          <button type="button" class="oio-chat-mode-btn is-active" data-oio-chat-mode="beginner" aria-pressed="true">Beginner</button>
-                          <button type="button" class="oio-chat-mode-btn" data-oio-chat-mode="advanced" aria-pressed="false">Advanced</button>
-                        </div>
+                        <label class="oio-chat-mode-select-wrap" for="oio-chat-mode-select">
+                          <span class="sr-only">Level mode</span>
+                          <select id="oio-chat-mode-select" class="oio-chat-mode-select" data-oio-chat-mode-select>
+                            <option value="beginner" selected>Beginner</option>
+                            <option value="advanced">Advanced</option>
+                          </select>
+                        </label>
                         <div class="oio-chat-actions">
-                          <button type="button" class="secondary oio-chat-voice-input-btn" data-oio-chat-voice-input aria-label="Start voice input" title="Start voice input">
-                            <svg viewBox="0 0 24 24" class="oio-chat-voice-input-icon" aria-hidden="true">
-                              <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z" fill="currentColor"></path>
-                              <path d="M6 11a6 6 0 0 0 12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-                              <path d="M12 17v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-                              <path d="M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-                            </svg>
+                          <button type="button" class="secondary oio-chat-voice-input-btn" data-oio-chat-voice-input-lang="zh" aria-label="Start Chinese voice input" title="Start Chinese voice input">
+                            <span class="oio-chat-voice-label">zh</span>
+                            <span class="oio-chat-voice-rings" aria-hidden="true"><i></i><i></i><i></i></span>
+                          </button>
+                          <button type="button" class="secondary oio-chat-voice-input-btn" data-oio-chat-voice-input-lang="en" aria-label="Start English voice input" title="Start English voice input">
+                            <span class="oio-chat-voice-label">en</span>
+                            <span class="oio-chat-voice-rings" aria-hidden="true"><i></i><i></i><i></i></span>
                           </button>
                           <button type="submit" class="primary oio-chat-submit-btn" data-oio-chat-submit aria-label="Send" title="Send">
                             <svg viewBox="0 0 24 24" class="oio-chat-submit-icon" aria-hidden="true">
