@@ -1,0 +1,8 @@
+{
+  "name": "@lf/server-next",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:worker": "node worker.dev.mjs"
+  }
+}

@@ -6,14 +6,25 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:web": "npm --prefix apps/web run dev",
+    "dev:mobile": "npm --prefix apps/mobile run start",
+    "dev:api": "npm --prefix api-next run dev",
+    "dev:worker": "npm --prefix server-next run dev:worker",
+    "dev:all": "node scripts/dev-all.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^3.2.8",
-    "@clerk/clerk-js": "^6.6.0",
+    "@clerk/clerk-js": "^5.114.1",
+    "@lf/core": "file:packages/core",
+    "@prisma/client": "^6.19.3",
     "@supabase/supabase-js": "^2.103.0",
+    "ioredis": "^5.10.1",
     "jszip": "^3.10.1",
     "kokoro-js": "^1.2.1",
     "vite": "^8.0.3"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.3"
   }
 }

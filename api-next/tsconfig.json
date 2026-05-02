@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@lf/core/*": ["../packages/core/src/*"],
+      "@lf/server-next/*": ["../server-next/src/*"]
+    },
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}
+

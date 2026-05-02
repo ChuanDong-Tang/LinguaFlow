@@ -1,0 +1,215 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("LF_DATABASE_URL")
+}
+
+model User {
+  id             String             @id @default(cuid())
+  nickname       String?
+  avatarUrl      String?
+  status         UserStatus         @default(active)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  authIdentities UserAuthIdentity[]
+  conversations  Conversation[]
+  messages       Message[]
+  entitlements   Entitlement[]
+
+  @@map("users")
+}
+
+model UserAuthIdentity {
+  userId         String
+  provider       AuthProvider
+  providerUserId String
+  createdAt      DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerUserId])
+  @@index([userId])
+  @@map("user_auth_identities")
+}
+
+model Contact {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  name          String
+  avatarUrl     String?
+  kind          ContactKind    @default(ai_assistant)
+  enabled       Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
+  conversations Conversation[]
+
+  @@map("contacts")
+}
+
+model Conversation {
+  id         String    @id @default(cuid())
+  userId     String
+  contactId  String
+  dateKey    String
+  title      String?
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact  Contact   @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  messages Message[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@index([userId, contactId, updatedAt(sort: Desc)])
+  @@map("conversations")
+  @@unique([userId, contactId, dateKey])
+}
+
+model Message {
+  id               String        @id @default(cuid())
+  conversationId   String
+  userId           String
+  role             MessageRole
+  status           MessageStatus @default(pending)
+  content          String
+  inputChars       Int           @default(0)
+  outputChars      Int           @default(0)
+  sourceMessageId  String?       @unique
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([userId, status, createdAt])
+  @@map("messages")
+}
+
+model Entitlement {
+  id              String   @id @default(cuid())
+  userId          String
+  dateKey         String
+  dailyTotalLimit Int
+  usedTotalChars  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dateKey])
+  @@index([dateKey])
+  @@map("entitlements")
+}
+
+model AiRequestLog {
+  id             String             @id @default(cuid())
+  requestId      String
+  userId         String
+  conversationId String?
+  userMessageId  String?
+  provider       String
+  model          String
+  status         AiRequestLogStatus
+  inputChars     Int                @default(0)
+  outputChars    Int                @default(0)
+  durationMs     Int?
+  errorCode      String?
+  errorMessage   String?
+  createdAt      DateTime           @default(now())
+
+  @@index([requestId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("ai_request_logs")
+}
+
+model PaymentOrder {
+  id              String             @id @default(cuid())
+  userId          String
+  module          String
+  sourceKey       String?
+  provider        String
+  providerOrderId String             @unique
+  amount          Int
+  currency        String             @default("CNY")
+  status          PaymentOrderStatus @default(pending)
+  metadata        Json?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([module, sourceKey])
+  @@index([status, createdAt])
+  @@map("payment_orders")
+}
+
+model PaymentEvent {
+  id              String             @id @default(cuid())
+  provider        String
+  providerEventId String
+  providerOrderId String?
+  eventType       String
+  status          PaymentEventStatus @default(received)
+  rawPayload      Json
+  errorMessage    String?
+  createdAt       DateTime           @default(now())
+  processedAt     DateTime?
+
+  @@unique([provider, providerEventId])
+  @@index([providerOrderId])
+  @@index([status, createdAt])
+  @@map("payment_events")
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum AuthProvider {
+  wechat
+}
+
+enum ContactKind {
+  ai_assistant
+}
+
+enum MessageRole {
+  user
+  assistant
+}
+
+enum MessageStatus {
+  pending
+  success
+  failed
+}
+
+enum AiRequestLogStatus {
+  failed
+  cancelled
+  quota_exceeded
+  task_in_progress
+  rate_limited
+}
+
+enum PaymentOrderStatus {
+  pending
+  paid
+  closed
+  failed
+  refunded
+}
+
+enum PaymentEventStatus {
+  received
+  processed
+  ignored
+  failed
+}
