@@ -43,9 +43,6 @@ const messageRepository = new PrismaMessageRepository(prisma);
 const chatMessageService = new ChatMessageService(conversationRepository, messageRepository);
 //redis
 const redisClient = getRedisClient();
-if (!redisClient && process.env.NODE_ENV === "production") {
-  throw new Error("REDIS_URL is required in production.");
-}
 const rewriteTaskGuard = redisClient
   ? new RedisRewriteTaskGuard(redisClient)
   : new InMemoryRewriteTaskGuard();
@@ -95,8 +92,9 @@ app.get("/health", async () => {
 // 启动函数：异步监听端口
 async function start() {
   try {
-    await app.listen({ host: "0.0.0.0", port: 3101 });
-    app.log.info("api-next running at http://localhost:3101");
+    const port = Number(process.env.PORT ?? process.env.LF_API_PORT ?? 3101);
+    await app.listen({ host: "0.0.0.0", port });
+    app.log.info(`api-next running at http://localhost:${port}`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
