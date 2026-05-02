@@ -2,10 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run vercel-build",
   "installCommand": "npm install",
-  "framework": null,
-  "functions": {
-    "src/server.ts": {
-      "maxDuration": 60
-    }
-  }
+  "framework": "fastify"
 }
