@@ -1,1 +1,1 @@
-export * from "./AIProvider"
+export * from "./AIProvider.js";

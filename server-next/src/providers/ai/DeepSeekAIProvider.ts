@@ -8,7 +8,7 @@ import type {
 import {
   DEFAULT_REWRITE_SYSTEM_PROMPT,
   buildRewriteUserPrompt,
-} from "@lf/core/prompts/rewritePrompt.js";
+} from "@lf/core/Prompts/rewritePrompt.js";
 
 /** DeepSeekAIProvider：调用 DeepSeek 流式接口实现改写能力。 */
 export class DeepSeekAIProvider implements AIProvider {
