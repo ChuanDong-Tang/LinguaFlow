@@ -3,7 +3,14 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./*": "./src/*"
+    "./*.js": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
   },
   "scripts": {
     "dev:worker": "node worker.dev.mjs"

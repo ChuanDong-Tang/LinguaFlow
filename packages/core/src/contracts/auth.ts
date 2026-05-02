@@ -1,4 +1,4 @@
-import type { User } from "../types";
+import type { User } from "../types/index.js";
 
 export type LoginRequest =
   | { type: "phone"; phone: string; code: string }

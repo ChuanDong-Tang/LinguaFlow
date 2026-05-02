@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
-import type { RewriteStreamEvent, RewriteStreamRequestBody } from "@lf/core/contracts/chatStream";
-import type { AbortSignalLike } from "@lf/core/ports/ai/AIProvider";
-import { resolveRequestId } from "../lib/httpResult";
+import type { RewriteStreamEvent, RewriteStreamRequestBody } from "@lf/core/contracts/chatStream.js";
+import type { AbortSignalLike } from "@lf/core/ports/ai/AIProvider.js";
+import { resolveRequestId } from "../lib/httpResult.js";
 
 export interface ChatStreamRouteDeps {
   rewriteService: {

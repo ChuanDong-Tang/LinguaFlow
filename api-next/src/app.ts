@@ -1,28 +1,28 @@
 import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
-import { MockAuthProvider } from "@lf/core/ports/auth/MockAuthProvider";
-import { PrismaUserRepository } from "@lf/server-next/infrastructure/repository/PrismaUserRepository";
-import { AuthLoginService } from "@lf/server-next/services/auth/AuthLoginService";
-import { registerAuthRoutes } from "./auth/routes";
-import { registerChatStreamRoutes } from "./chat/streamRoutes";
-import { DeepSeekAIProvider } from "@lf/server-next/providers/ai/DeepSeekAIProvider";
-import { RewriteService } from "@lf/server-next/services/chat/RewriteService";
-import { registerChatRoutes } from "./chat/routes";
-import { PrismaConversationRepository } from "@lf/server-next/infrastructure/repository/PrismaConversationRepository";
-import { PrismaMessageRepository } from "@lf/server-next/infrastructure/repository/PrismaMessageRepository";
-import { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService";
-import { getRedisClient } from "@lf/server-next/infrastructure/redis/redisClient";
+import { MockAuthProvider } from "@lf/core/ports/auth/MockAuthProvider.js";
+import { PrismaUserRepository } from "@lf/server-next/infrastructure/repository/PrismaUserRepository.js";
+import { AuthLoginService } from "@lf/server-next/services/auth/AuthLoginService.js";
+import { registerAuthRoutes } from "./auth/routes.js";
+import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
+import { DeepSeekAIProvider } from "@lf/server-next/providers/ai/DeepSeekAIProvider.js";
+import { RewriteService } from "@lf/server-next/services/chat/RewriteService.js";
+import { registerChatRoutes } from "./chat/routes.js";
+import { PrismaConversationRepository } from "@lf/server-next/infrastructure/repository/PrismaConversationRepository.js";
+import { PrismaMessageRepository } from "@lf/server-next/infrastructure/repository/PrismaMessageRepository.js";
+import { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService.js";
+import { getRedisClient } from "@lf/server-next/infrastructure/redis/redisClient.js";
 import {
   InMemoryRewriteTaskGuard,
   RedisRewriteTaskGuard,
-} from "@lf/server-next/services/chat/RewriteTaskGuard";
-import { PrismaEntitlementRepository } from "@lf/server-next/infrastructure/repository/PrismaEntitlementRepository";
-import { EntitlementService } from "@lf/server-next/services/entitlement/EntitlementService";
-import { PrismaAiRequestLogRepository } from "@lf/server-next/infrastructure/repository/PrismaAiRequestLogRepository";
+} from "@lf/server-next/services/chat/RewriteTaskGuard.js";
+import { PrismaEntitlementRepository } from "@lf/server-next/infrastructure/repository/PrismaEntitlementRepository.js";
+import { EntitlementService } from "@lf/server-next/services/entitlement/EntitlementService.js";
+import { PrismaAiRequestLogRepository } from "@lf/server-next/infrastructure/repository/PrismaAiRequestLogRepository.js";
 import {
   InMemoryRewriteRateLimiter,
   RedisRewriteRateLimiter,
-} from "@lf/server-next/services/chat/RewriteRateLimiter";
+} from "@lf/server-next/services/chat/RewriteRateLimiter.js";
 
 const prisma = new PrismaClient();
 

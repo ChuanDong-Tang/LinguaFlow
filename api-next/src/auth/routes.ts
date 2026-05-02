@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
-import type { LoginCredential, LoginResponse, WeChatLoginResponse } from "@lf/core/contracts/auth";
-import { isLoginRequest, isWeChatLoginBody } from "./validators";
-import { isMockUserId } from "./mockUser";
+import type { LoginCredential, LoginResponse, WeChatLoginResponse } from "@lf/core/contracts/auth.js";
+import { isLoginRequest, isWeChatLoginBody } from "./validators.js";
+import { isMockUserId } from "./mockUser.js";
 
 
 export interface AuthRouteDeps {

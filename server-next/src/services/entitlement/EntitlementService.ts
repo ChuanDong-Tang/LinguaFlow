@@ -1,4 +1,4 @@
-import type { EntitlementRepository } from "@lf/core/ports/repository/EntitlementRepository";
+import type { EntitlementRepository } from "@lf/core/ports/repository/EntitlementRepository.js";
 
 export class DailyQuotaExceededError extends Error {
   readonly code = "DAILY_QUOTA_EXCEEDED";

@@ -1,4 +1,4 @@
-import { createApp, disconnectApp } from "./app";
+import { createApp, disconnectApp } from "./app.js";
 
 const app = createApp();
 

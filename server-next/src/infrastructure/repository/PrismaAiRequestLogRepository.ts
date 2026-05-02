@@ -2,7 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import type {
   AiRequestLogRepository,
   CreateAiRequestLogInput,
-} from "@lf/core/ports/repository/AiRequestLogRepository";
+} from "@lf/core/ports/repository/AiRequestLogRepository.js";
 
 export class PrismaAiRequestLogRepository implements AiRequestLogRepository {
   constructor(private readonly prisma: PrismaClient) {}

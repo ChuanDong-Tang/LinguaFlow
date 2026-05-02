@@ -1,6 +1,6 @@
-import type { User } from "../../types";
-import type { AuthLoginResult, AuthProvider} from "./AuthProvider";
-import type { LoginCredential } from "../../contracts/auth";
+import type { User } from "../../types/index.js";
+import type { AuthLoginResult, AuthProvider} from "./AuthProvider.js";
+import type { LoginCredential } from "../../contracts/auth.js";
 
 
 // Mock 登录实现：现在先返回固定 token，后面可替换为真实登录

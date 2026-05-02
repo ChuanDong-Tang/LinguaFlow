@@ -1,8 +1,8 @@
 /** AuthLoginService：编排微信登录落库主链路（查身份、创建用户、绑定身份）。 */
 
 import { createHmac } from "node:crypto";
-import type { UserEntity, UserRepository } from "@lf/core/ports/repository/UserRepository";
-import type { WeChatLoginResponse } from "@lf/core/contracts/auth";
+import type { UserEntity, UserRepository } from "@lf/core/ports/repository/UserRepository.js";
+import type { WeChatLoginResponse } from "@lf/core/contracts/auth.js";
 
 export interface WeChatLoginInput {
   authingToken: string;

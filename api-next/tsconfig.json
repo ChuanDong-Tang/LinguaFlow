@@ -2,7 +2,9 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "paths": {
+      "@lf/core/*.js": ["../packages/core/src/*.ts"],
       "@lf/core/*": ["../packages/core/src/*"],
+      "@lf/server-next/*.js": ["../server-next/src/*.ts"],
       "@lf/server-next/*": ["../server-next/src/*"]
     },
     "lib": ["ES2022"],

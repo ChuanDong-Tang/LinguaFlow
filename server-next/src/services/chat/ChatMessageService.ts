@@ -1,5 +1,5 @@
-import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository";
-import type { MessageRepository } from "@lf/core/ports/repository/MessageRepository";
+import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository.js";
+import type { MessageRepository } from "@lf/core/ports/repository/MessageRepository.js";
 
 export interface SendMessageInput {
   userId: string;

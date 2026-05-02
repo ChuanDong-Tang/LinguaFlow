@@ -6,7 +6,7 @@ import type {
   EnsureDailyEntitlementInput,
   EntitlementEntity,
   EntitlementRepository,
-} from "@lf/core/ports/repository/EntitlementRepository";
+} from "@lf/core/ports/repository/EntitlementRepository.js";
 
 export class PrismaEntitlementRepository implements EntitlementRepository {
   constructor(private readonly prisma: PrismaClient) {}

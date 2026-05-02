@@ -5,7 +5,7 @@ import type {
   ConversationEntity,
   ConversationRepository,
   CreateConversationInput,
-} from "@lf/core/ports/repository/ConversationRepository";
+} from "@lf/core/ports/repository/ConversationRepository.js";
 
 export class PrismaConversationRepository implements ConversationRepository {
   constructor(private readonly prisma: PrismaClient) {}

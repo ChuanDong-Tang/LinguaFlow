@@ -1,4 +1,4 @@
-import type { LoginCredential, WeChatLoginRequestBody } from "@lf/core/contracts/auth";
+import type { LoginCredential, WeChatLoginRequestBody } from "@lf/core/contracts/auth.js";
 
 /** 运行时校验：确保请求体符合 LoginCredential */
 export function isLoginRequest(value: unknown): value is LoginCredential {

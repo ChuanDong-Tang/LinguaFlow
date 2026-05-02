@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import type { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService";
-import { resolveRequestId } from "../lib/httpResult";
+import type { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService.js";
+import { resolveRequestId } from "../lib/httpResult.js";
 
 type SendMessageBody = {
   userId: string;

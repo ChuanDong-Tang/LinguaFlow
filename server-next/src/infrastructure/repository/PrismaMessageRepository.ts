@@ -7,7 +7,7 @@ import type {
   MessageEntity,
   MessageRepository,
   UpdateMessageStatusInput,
-} from "@lf/core/ports/repository/MessageRepository";
+} from "@lf/core/ports/repository/MessageRepository.js";
 
 export class PrismaMessageRepository implements MessageRepository {
   constructor(private readonly prisma: PrismaClient) {}

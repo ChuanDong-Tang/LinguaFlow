@@ -3,7 +3,7 @@ import type {
   ApiFailure,
   ApiSuccess,
   ErrorCode
-} from "@lf/core/contracts/apiContract";
+} from "@lf/core/contracts/apiContract.js";
 
 export function createRequestId(): string {
   return `req_${randomUUID().replace(/-/g, "")}`;

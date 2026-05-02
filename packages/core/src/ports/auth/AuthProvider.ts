@@ -1,5 +1,5 @@
-import type { User } from "../../types";
-import type { LoginCredential } from "../../contracts/auth";
+import type { User } from "../../types/index.js";
+import type { LoginCredential } from "../../contracts/auth.js";
 
 export type AuthLoginByPhoneInput = {
   phone: string;

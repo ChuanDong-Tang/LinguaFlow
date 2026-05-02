@@ -9,7 +9,7 @@ import type {
   UserAuthIdentity,
   UserEntity,
   UserRepository,
-} from "@lf/core/ports/repository/UserRepository";
+} from "@lf/core/ports/repository/UserRepository.js";
 
 export class PrismaUserRepository implements UserRepository {
   constructor(private readonly prisma: PrismaClient) {}

@@ -3,12 +3,12 @@ import type {
   AIProviderConfig,
   RewriteTextInput,
   RewriteTextStreamEvent,
-} from "@lf/core/ports/ai/AIProvider";
+} from "@lf/core/ports/ai/AIProvider.js";
 
 import {
   DEFAULT_REWRITE_SYSTEM_PROMPT,
   buildRewriteUserPrompt,
-} from "@lf/core/prompts/rewritePrompt";
+} from "@lf/core/prompts/rewritePrompt.js";
 
 /** DeepSeekAIProvider：调用 DeepSeek 流式接口实现改写能力。 */
 export class DeepSeekAIProvider implements AIProvider {
