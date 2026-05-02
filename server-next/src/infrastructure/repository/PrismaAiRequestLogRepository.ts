@@ -1,11 +1,16 @@
-import type { PrismaClient } from "@prisma/client";
 import type {
   AiRequestLogRepository,
   CreateAiRequestLogInput,
 } from "@lf/core/ports/repository/AiRequestLogRepository.js";
 
+type PrismaAiRequestLogClient = {
+  aiRequestLog: {
+    create: (args: any) => Promise<any>;
+  };
+};
+
 export class PrismaAiRequestLogRepository implements AiRequestLogRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaAiRequestLogClient) {}
 
   async create(input: CreateAiRequestLogInput): Promise<void> {
     await this.prisma.aiRequestLog.create({

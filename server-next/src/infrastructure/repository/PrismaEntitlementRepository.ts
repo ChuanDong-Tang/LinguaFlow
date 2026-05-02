@@ -1,6 +1,5 @@
 /** PrismaEntitlementRepository：EntitlementRepository 的 Prisma 实现。 */
 
-import type { PrismaClient } from "@prisma/client";
 import type {
   ConsumeDailyEntitlementInput,
   EnsureDailyEntitlementInput,
@@ -8,8 +7,15 @@ import type {
   EntitlementRepository,
 } from "@lf/core/ports/repository/EntitlementRepository.js";
 
+type PrismaEntitlementClient = {
+  entitlement: {
+    upsert: (args: any) => Promise<any>;
+    update: (args: any) => Promise<any>;
+  };
+};
+
 export class PrismaEntitlementRepository implements EntitlementRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaEntitlementClient) {}
 
   async ensureDaily(input: EnsureDailyEntitlementInput): Promise<EntitlementEntity> {
     const row = await this.prisma.entitlement.upsert({

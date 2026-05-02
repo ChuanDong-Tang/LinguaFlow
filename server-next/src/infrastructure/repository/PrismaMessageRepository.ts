@@ -1,6 +1,5 @@
 /** PrismaMessageRepository：MessageRepository 的 Prisma 实现。 */
 
-import type { PrismaClient } from "@prisma/client";
 import type {
   CreateMessageInput,
   ListByConversationRangeInput,
@@ -9,8 +8,17 @@ import type {
   UpdateMessageStatusInput,
 } from "@lf/core/ports/repository/MessageRepository.js";
 
+type PrismaMessageClient = {
+  message: {
+    create: (args: any) => Promise<any>;
+    update: (args: any) => Promise<any>;
+    findFirst: (args: any) => Promise<any>;
+    findMany: (args: any) => Promise<any[]>;
+  };
+};
+
 export class PrismaMessageRepository implements MessageRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaMessageClient) {}
 
   async create(input: CreateMessageInput): Promise<MessageEntity> {
     const created = await this.prisma.message.create({

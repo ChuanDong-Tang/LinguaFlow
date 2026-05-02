@@ -1,6 +1,5 @@
 /** PrismaUserRepository：UserRepository 的 Prisma 实现。 */
 
-import type { PrismaClient } from "@prisma/client";
 import type {
   AuthProvider,
   BindAuthIdentityInput,
@@ -11,8 +10,20 @@ import type {
   UserRepository,
 } from "@lf/core/ports/repository/UserRepository.js";
 
+type PrismaUserClient = {
+  user: {
+    create: (args: any) => Promise<any>;
+    findUnique: (args: any) => Promise<any>;
+    upsert: (args: any) => Promise<any>;
+  };
+  userAuthIdentity: {
+    findUnique: (args: any) => Promise<any>;
+    upsert: (args: any) => Promise<any>;
+  };
+};
+
 export class PrismaUserRepository implements UserRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaUserClient) {}
 
   async findByAuthIdentity(
     provider: AuthProvider,

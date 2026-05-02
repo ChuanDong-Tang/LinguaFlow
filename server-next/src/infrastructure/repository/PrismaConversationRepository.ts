@@ -1,14 +1,22 @@
 /** PrismaConversationRepository：ConversationRepository 的 Prisma 实现。 */
 
-import type { PrismaClient } from "@prisma/client";
 import type {
   ConversationEntity,
   ConversationRepository,
   CreateConversationInput,
 } from "@lf/core/ports/repository/ConversationRepository.js";
 
+type PrismaConversationClient = {
+  conversation: {
+    create: (args: any) => Promise<any>;
+    findUnique: (args: any) => Promise<any>;
+    findMany: (args: any) => Promise<any[]>;
+    update: (args: any) => Promise<any>;
+  };
+};
+
 export class PrismaConversationRepository implements ConversationRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaConversationClient) {}
 
   async create(input: CreateConversationInput): Promise<ConversationEntity> {
     //console.log("creating conversation for userId=", input.userId);
