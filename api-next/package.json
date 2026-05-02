@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx src/server.ts",
     "start": "tsx src/server.ts",
-    "vercel-build": "prisma generate --schema ../prisma/schema.prisma"
+    "vercel-build": "prisma generate --schema ../prisma/schema.prisma && esbuild api/serverless.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/serverless-bundle.js --external:@prisma/client"
   },
   "dependencies": {
     "@lf/core": "file:../packages/core",
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "esbuild": "^0.27.0",
     "prisma": "^6.19.3",
     "typescript": "^6.0.3"
   }

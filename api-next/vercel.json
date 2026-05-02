@@ -10,7 +10,7 @@
     }
   ],
   "functions": {
-    "api/serverless.ts": {
+    "api/serverless.js": {
       "maxDuration": 60
     }
   }
