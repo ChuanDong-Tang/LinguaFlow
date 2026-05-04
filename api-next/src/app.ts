@@ -1,0 +1,149 @@
+import Fastify from "fastify";
+import { PrismaClient } from "@prisma/client";
+import { MockAuthProvider } from "@lf/core/ports/auth/MockAuthProvider.js";
+import { PrismaUserRepository } from "@lf/server-next/infrastructure/repository/PrismaUserRepository.js";
+import { AuthLoginService } from "@lf/server-next/services/auth/AuthLoginService.js";
+import { registerAuthRoutes } from "./auth/routes.js";
+import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
+import { DeepSeekAIProvider } from "@lf/server-next/providers/ai/DeepSeekAIProvider.js";
+import { RewriteService } from "@lf/server-next/services/chat/RewriteService.js";
+import { registerChatRoutes } from "./chat/routes.js";
+import { PrismaConversationRepository } from "@lf/server-next/infrastructure/repository/PrismaConversationRepository.js";
+import { PrismaMessageRepository } from "@lf/server-next/infrastructure/repository/PrismaMessageRepository.js";
+import { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService.js";
+import { getRedisClient } from "@lf/server-next/infrastructure/redis/redisClient.js";
+import {
+  InMemoryRewriteTaskGuard,
+  RedisRewriteTaskGuard,
+} from "@lf/server-next/services/chat/RewriteTaskGuard.js";
+import { PrismaEntitlementRepository } from "@lf/server-next/infrastructure/repository/PrismaEntitlementRepository.js";
+import { PrismaSubscriptionRepository } from "@lf/server-next/infrastructure/repository/PrismaSubscriptionRepository.js";
+import { PrismaPaymentOrderRepository } from "@lf/server-next/infrastructure/repository/PrismaPaymentOrderRepository.js";
+import { PrismaPaymentEventRepository } from "@lf/server-next/infrastructure/repository/PrismaPaymentEventRepository.js";
+import { EntitlementService } from "@lf/server-next/services/entitlement/EntitlementService.js";
+import { SubscriptionService } from "@lf/server-next/services/subscription/SubscriptionService.js";
+import { PaymentOrderService } from "@lf/server-next/services/payment/PaymentOrderService.js";
+import { PaymentNotifyService } from "@lf/server-next/services/payment/PaymentNotifyService.js";
+import { WeChatPaymentProvider } from "@lf/server-next/providers/payment/WeChatPaymentProvider.js";
+import { PrismaAiRequestLogRepository } from "@lf/server-next/infrastructure/repository/PrismaAiRequestLogRepository.js";
+import {
+  InMemoryRewriteRateLimiter,
+  RedisRewriteRateLimiter,
+} from "@lf/server-next/services/chat/RewriteRateLimiter.js";
+import { registerMeRoutes } from "./me/routes.js";
+import { registerPaymentRoutes } from "./payment/routes.js";
+import { registerAdminRoutes } from "./admin/routes.js";
+
+const prisma = new PrismaClient();
+
+export function createApp() {
+  const app = Fastify({ logger: true });
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_req, body, done) => {
+      try {
+        const rawBody = String(body);
+        done(null, Object.assign(JSON.parse(rawBody), { __rawBody: rawBody }));
+      } catch (error) {
+        done(error as Error);
+      }
+    }
+  );
+
+  const authProvider = new MockAuthProvider();
+  const userRepository = new PrismaUserRepository(prisma);
+  const authLoginService = new AuthLoginService(userRepository);
+  const aiProvider = new DeepSeekAIProvider({
+    apiKey: process.env.DEEPSEEK_API_KEY ?? "",
+    baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+    model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash",
+  });
+  const conversationRepository = new PrismaConversationRepository(prisma);
+  const messageRepository = new PrismaMessageRepository(prisma);
+  const chatMessageService = new ChatMessageService(conversationRepository, messageRepository);
+  const redisClient = getRedisClient();
+  const rewriteTaskGuard = redisClient
+    ? new RedisRewriteTaskGuard(redisClient)
+    : new InMemoryRewriteTaskGuard();
+  const rewriteRateLimiter = redisClient
+    ? new RedisRewriteRateLimiter(redisClient)
+    : new InMemoryRewriteRateLimiter();
+  const entitlementRepository = new PrismaEntitlementRepository(prisma);
+  const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
+  const subscriptionService = new SubscriptionService(subscriptionRepository);
+  const entitlementService = new EntitlementService(entitlementRepository, subscriptionService);
+  const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
+  const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
+  const paymentProvider = new WeChatPaymentProvider();
+  const paymentOrderService = new PaymentOrderService(paymentOrderRepository, paymentProvider);
+  const paymentNotifyService = new PaymentNotifyService(
+    paymentEventRepository,
+    paymentOrderRepository,
+    subscriptionService
+  );
+  const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
+  const rewriteService = new RewriteService(
+    aiProvider,
+    chatMessageService,
+    rewriteTaskGuard,
+    entitlementService,
+    aiRequestLogRepository,
+    rewriteRateLimiter
+  );
+
+  registerChatStreamRoutes(app, { rewriteService });
+  registerAuthRoutes(app, {
+    authProvider,
+    authLoginService,
+    userRepository,
+  });
+  registerChatRoutes(app, {
+    chatMessageService,
+    userRepository,
+  });
+  registerMeRoutes(app, {
+    subscriptionService,
+    entitlementService,
+  });
+  registerPaymentRoutes(app, {
+    paymentOrderService,
+    paymentNotifyService,
+  });
+  registerAdminRoutes(app, { prisma });
+
+  app.get("/health", async (_req, reply) => {
+    const db = await prisma
+      .$queryRaw`SELECT 1`
+      .then(() => ({ ok: true }))
+      .catch((error) => ({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    const redis = redisClient
+      ? await redisClient
+          .ping()
+          .then(() => ({ ok: true }))
+          .catch((error) => ({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          }))
+      : { ok: true, skipped: true };
+    const ok = db.ok && redis.ok;
+
+    return reply.status(ok ? 200 : 503).send({
+      ok,
+      data: {
+        api: { ok: true },
+        db,
+        redis,
+      },
+    });
+  });
+
+  return app;
+}
+
+export async function disconnectApp() {
+  await prisma.$disconnect();
+}

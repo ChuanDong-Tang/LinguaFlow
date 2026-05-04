@@ -1,4 +1,5 @@
 import { getSession } from "./authStorage";
+import { getAuthHeaders } from "./authHeaders";
 
 type RewriteStreamEvent =
   | { type: "start" }
@@ -17,7 +18,7 @@ export async function rewriteStream(
 
   const response = await fetch(`${BASE_URL}/chat/rewrite/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify({ userId, text }),
   });
 
@@ -52,4 +53,3 @@ export async function rewriteStream(
     }
   }
 }
-

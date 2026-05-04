@@ -1,10 +1,10 @@
-/** AuthLoginService：编排微信登录落库主链路（查身份、创建用户、绑定身份）。 */
+/** AuthLoginService：编排 Authing 登录落库主链路（查身份、创建用户、绑定身份）。 */
 
-import { createHmac } from "node:crypto";
-import type { UserEntity, UserRepository } from "@lf/core/ports/repository/UserRepository";
-import type { WeChatLoginResponse } from "@lf/core/contracts/auth";
+import type { UserEntity, UserRepository } from "@lf/core/ports/repository/UserRepository.js";
+import type { AuthingLoginResponse, RefreshTokenResponse } from "@lf/core/contracts/auth.js";
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from "./JwtSessionToken.js";
 
-export interface WeChatLoginInput {
+export interface AuthingLoginInput {
   authingToken: string;
 }
 
@@ -17,10 +17,10 @@ interface AuthingUserInfo {
 export class AuthLoginService {
   constructor(private readonly userRepository: UserRepository) {}
 
-  async loginWithWeChat(input: WeChatLoginInput): Promise<WeChatLoginResponse> {
+  async loginWithAuthing(input: AuthingLoginInput): Promise<AuthingLoginResponse> {
     const authingUser = await this.resolveAuthingUserFromToken(input.authingToken);
     const providerUserId = authingUser.sub;
-    const existing = await this.userRepository.findByAuthIdentity("wechat", providerUserId);
+    const existing = await this.userRepository.findByAuthIdentity("authing", providerUserId);
 
     if (existing) {
       return this.buildLoginResult(existing, false);
@@ -33,37 +33,32 @@ export class AuthLoginService {
 
     await this.userRepository.bindAuthIdentity({
       userId: createdUser.id,
-      provider: "wechat",
+      provider: "authing",
       providerUserId,
     });
 
     return this.buildLoginResult(createdUser, true);
   }
 
-  private buildLoginResult(user: UserEntity, isNewUser: boolean): WeChatLoginResponse {
+  refreshSession(input: { refreshToken: string }): RefreshTokenResponse {
+    const payload = verifyRefreshToken(input.refreshToken);
+    if (!payload) {
+      throw new Error("Invalid refresh token");
+    }
+
     return {
-      accessToken: this.signAccessToken(user.id),
-      user,
-      isNewUser,
+      accessToken: signAccessToken(payload.sub),
+      refreshToken: signRefreshToken(payload.sub),
     };
   }
 
-  private signAccessToken(userId: string): string {
-    const secret = process.env.AUTH_JWT_SECRET ?? "dev-only-change-me";
-    const header = this.base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-    const payload = this.base64UrlEncode(
-      JSON.stringify({
-        sub: userId,
-        iat: Math.floor(Date.now() / 1000),
-      })
-    );
-    const unsignedToken = `${header}.${payload}`;
-    const signature = createHmac("sha256", secret).update(unsignedToken).digest("base64url");
-    return `${unsignedToken}.${signature}`;
-  }
-
-  private base64UrlEncode(value: string): string {
-    return Buffer.from(value, "utf8").toString("base64url");
+  private buildLoginResult(user: UserEntity, isNewUser: boolean): AuthingLoginResponse {
+    return {
+      accessToken: signAccessToken(user.id),
+      refreshToken: signRefreshToken(user.id),
+      user,
+      isNewUser,
+    };
   }
 
   /**

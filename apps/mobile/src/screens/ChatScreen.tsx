@@ -1,16 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
+  ToastAndroid,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { startRewriteStream } from "../services/chatStream";
 import { getSession } from "../services/authStorage";
-import { listMessagesByRangeFromCloud, sendMessageToCloud } from "../services/chatHistoryApi";
+import { listMessagesByRangeFromCloud } from "../services/chatHistoryApi";
 import { loadLocalMessages, saveLocalMessages } from "../services/chatLocalStorage";
-import { loadDebugSettings } from "../services/debugSettingsStorage";
+import {
+  createLocalRewritePair,
+  runRewriteSync,
+} from "../services/chatSyncService";
+import {
+  loadAssistantPreferences,
+  saveAssistantPreferences,
+} from "../services/assistantPreferences";
+import { copyTextToClipboard } from "../services/clipboardService";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatComposer } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
@@ -22,7 +31,6 @@ import {
   getVisibleWindow,
   isSameDate,
   mergeByLocalId,
-  nowHHMM,
   toDateKey,
   updateMessageByLocalId,
 } from "./chat/messageState";
@@ -47,12 +55,25 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [windowStart, setWindowStart] = useState(0);
   const [windowEnd, setWindowEnd] = useState(0);
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
+  const [autoCopyAfterRewrite, setAutoCopyAfterRewrite] = useState(true);
 
   const scrollRef = useRef<ScrollView>(null);
   const activeAbortControllerRef = useRef<AbortController | null>(null);
   const activeAssistantLocalIdRef = useRef<string | null>(null);
   const stopRequestedRef = useRef(false);
   const canSend = useMemo(() => inputText.trim().length > 0 && !isSending, [inputText, isSending]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function bootstrapPreferences() {
+      const preferences = await loadAssistantPreferences();
+      if (!cancelled) setAutoCopyAfterRewrite(preferences.autoCopyAfterRewrite);
+    }
+    void bootstrapPreferences();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,68 +197,23 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     stopRequestedRef.current = false;
 
     try {
-      const session = await getSession();
-      const userId = session?.user?.id ?? "mock_user_001";
-      const debugSettings = await loadDebugSettings();
-      requestSystemPrompt = input.systemPrompt ?? debugSettings.systemPrompt.trim();
-
-      const cloud = await sendMessageToCloud({
+      const result = await runRewriteSync({
         text: input.text,
-        contactId: "rewrite_assistant",
-      });
-      const cloudConversationId = cloud.conversationId;
-      const cloudUserMessageId = cloud.userMessage.id;
-
-      if (!conversationId) setConversationId(cloud.conversationId);
-
-      await startRewriteStream(
-        {
-          userId,
-          text: input.text,
-          conversationId: cloudConversationId,
-          userMessageId: cloudUserMessageId,
-          systemPrompt: requestSystemPrompt || undefined,
-          signal: abortController.signal,
+        assistantLocalId: input.assistantLocalId,
+        retryCount: input.retryCount,
+        signal: abortController.signal,
+        systemPrompt: requestSystemPrompt,
+        userLocalId: input.userLocalId,
+        isStopRequested: () => stopRequestedRef.current,
+        onConversationReady: (nextConversationId) => {
+          if (!conversationId) setConversationId(nextConversationId);
         },
-        (event) => {
-          if (event.type === "delta") {
-            updateLocalMessage(input.assistantLocalId, (row) => ({
-              ...row,
-              text: row.text + event.text,
-              createdAt: new Date().toISOString(),
-            }));
-          }
+        onUpdateMessage: updateLocalMessage,
+      });
 
-          if (event.type === "error") {
-            if (input.userLocalId) {
-              updateLocalMessage(input.userLocalId, (row) => ({ ...row, status: "failed" }));
-            }
-            updateLocalMessage(input.assistantLocalId, (row) => ({
-              ...row,
-              text: `[错误] ${event.message}`,
-              status: "failed",
-              retryText: input.text,
-              retryCount: input.retryCount,
-              retrySystemPrompt: requestSystemPrompt,
-              createdAt: new Date().toISOString(),
-            }));
-          }
-
-          if (event.type === "done") {
-            if (input.userLocalId) {
-              updateLocalMessage(input.userLocalId, (row) => ({ ...row, status: "success" }));
-            }
-            updateLocalMessage(input.assistantLocalId, (row) => ({
-              ...row,
-              status: "success",
-              retryText: input.text,
-              retryCount: input.retryCount,
-              retrySystemPrompt: requestSystemPrompt,
-              createdAt: new Date().toISOString(),
-            }));
-          }
-        }
-      );
+      if (result.status === "success" && autoCopyAfterRewrite) {
+        await copyAssistantText(result.assistantText, true);
+      }
     } catch (error) {
       const wasStopped = stopRequestedRef.current;
       const message = wasStopped ? "已停止生成" : error instanceof Error ? error.message : "stream failed";
@@ -264,6 +240,36 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     }
   }
 
+  async function copyAssistantText(text: string, silent = false): Promise<void> {
+    try {
+      const ok = await copyTextToClipboard(text);
+      if (ok) {
+        notifyCopySuccess(silent ? "已自动复制" : "已复制");
+      } else if (!silent) {
+        Alert.alert("没有可复制的内容");
+      }
+    } catch {
+      Alert.alert("复制失败", "请稍后重试，或手动选择内容复制。");
+    }
+  }
+
+  function notifyCopySuccess(message: string): void {
+    if (Platform.OS === "android") {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+      return;
+    }
+    if (!message.includes("自动")) {
+      Alert.alert(message);
+    }
+  }
+
+  async function handleToggleAutoCopy(): Promise<void> {
+    const next = !autoCopyAfterRewrite;
+    setAutoCopyAfterRewrite(next);
+    await saveAssistantPreferences({ autoCopyAfterRewrite: next });
+    Alert.alert(next ? "自动复制已开启" : "自动复制已关闭");
+  }
+
   async function handleSend(): Promise<void> {
     const text = inputText.trim();
     if (!text || isSending) return;
@@ -280,28 +286,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     setInputText("");
     setIsSending(true);
 
-    const t = nowHHMM();
-    const createdAt = new Date().toISOString();
-    const userLocalId = `local-user-${Date.now()}`;
-    const assistantLocalId = `local-assistant-${Date.now()}`;
-    const userLocal: ChatMessage = {
-      localId: userLocalId,
-      role: "user",
-      text,
-      time: t,
-      createdAt,
-      status: "pending",
-    };
-    const assistantLocal: ChatMessage = {
-      localId: assistantLocalId,
-      role: "assistant",
-      text: "",
-      time: t,
-      createdAt,
-      status: "pending",
-      retryText: text,
-      retryCount: 0,
-    };
+    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalRewritePair(text, now);
     const localNext = [...(isViewingToday ? baseMessages : filterByDate(allLocalMessages, now)), userLocal, assistantLocal];
     setDayMessages(localNext);
     const endInit = localNext.length;
@@ -315,8 +300,8 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
     await runRewriteRequest({
       text,
-      userLocalId,
-      assistantLocalId,
+      userLocalId: userLocal.localId,
+      assistantLocalId: assistantLocal.localId,
       retryCount: 0,
     });
   }
@@ -466,7 +451,12 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
       >
-        <ChatHeader onBack={onBack} onOpenCalendar={() => setIsDateSheetOpen(true)} />
+        <ChatHeader
+          onBack={onBack}
+          onOpenCalendar={() => setIsDateSheetOpen(true)}
+          autoCopyEnabled={autoCopyAfterRewrite}
+          onToggleAutoCopy={handleToggleAutoCopy}
+        />
 
         <MessageList
           messages={messages}
@@ -478,6 +468,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           onReachTop={handleReachTop}
           onReachBottom={handleReachBottom}
           onRetryMessage={handleRetryMessage}
+          onCopyMessage={(message) => copyAssistantText(message.text)}
         />
 
         <ChatComposer

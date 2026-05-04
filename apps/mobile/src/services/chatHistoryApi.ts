@@ -1,4 +1,5 @@
 import { getSession } from "./authStorage";
+import { getAuthHeaders } from "./authHeaders";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -37,7 +38,7 @@ export async function sendMessageToCloud(input: {
 
   const res = await fetch(`${BASE_URL}/chat/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify({
       userId,
       contactId: input.contactId,
@@ -54,7 +55,8 @@ export async function sendMessageToCloud(input: {
 
 export async function listMessagesFromCloud(conversationId: string): Promise<MessageView[]> {
   const res = await fetch(
-    `${BASE_URL}/chat/messages?conversationId=${encodeURIComponent(conversationId)}`
+    `${BASE_URL}/chat/messages?conversationId=${encodeURIComponent(conversationId)}`,
+    { headers: await getAuthHeaders() }
   );
 
   const json = (await res.json()) as ApiResult<MessageView[]>;
@@ -73,7 +75,9 @@ export async function listMessagesByRangeFromCloud(
   if (input.fromDateKey) params.set("fromDateKey", input.fromDateKey);
   if (input.toDateKey) params.set("toDateKey", input.toDateKey);
 
-  const res = await fetch(`${BASE_URL}/chat/messages/range?${params.toString()}`);
+  const res = await fetch(`${BASE_URL}/chat/messages/range?${params.toString()}`, {
+    headers: await getAuthHeaders(),
+  });
   const json = (await res.json()) as ApiResult<MessageView[]>;
 
   if (!json.ok) {

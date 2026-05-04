@@ -2,7 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { User } from "../../../../packages/core/src/types";
 
 export type AuthSession = {
-  token: string;
+  accessToken: string;
+  refreshToken?: string;
   user: User;
   sessionFlags?: {
     isPro: boolean;

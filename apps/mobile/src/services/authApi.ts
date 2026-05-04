@@ -1,4 +1,11 @@
-import type { LoginCredential, LoginResponse } from "../../../../packages/core/src/contracts/auth";
+import type {
+  AuthingLoginRequestBody,
+  AuthingLoginResponse,
+  LoginCredential,
+  LoginResponse,
+  RefreshTokenRequestBody,
+  RefreshTokenResponse,
+} from "../../../../packages/core/src/contracts/auth";
 import { logEvent } from "./logger";
 
 // 登录接口返回外层结构
@@ -47,4 +54,51 @@ export async function login(input: LoginCredential): Promise<LoginResponse> {
     );
     throw err;
   }
+}
+
+export async function loginWithAuthing(input: AuthingLoginRequestBody): Promise<AuthingLoginResponse> {
+  await logEvent("authing_login_request", "info");
+
+  try {
+    const res = await fetch(`${BASE_URL}/auth/authing-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const apiResult = (await res.json()) as ApiResult<AuthingLoginResponse>;
+
+    if (!apiResult.ok) {
+      await logEvent("authing_login_failed", "warn", apiResult.error.message, {
+        code: apiResult.error.code,
+      });
+      throw new Error(apiResult.error.message);
+    }
+
+    await logEvent("authing_login_success", "info", undefined, {
+      userId: apiResult.data.user.id,
+    });
+
+    return apiResult.data;
+  } catch (err) {
+    await logEvent(
+      "authing_login_exception",
+      "error",
+      err instanceof Error ? err.message : "unknown error"
+    );
+    throw err;
+  }
+}
+
+export async function refreshAccessToken(input: RefreshTokenRequestBody): Promise<RefreshTokenResponse> {
+  const res = await fetch(`${BASE_URL}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  const apiResult = (await res.json()) as ApiResult<RefreshTokenResponse>;
+  if (!apiResult.ok) {
+    throw new Error(apiResult.error.message);
+  }
+  return apiResult.data;
 }

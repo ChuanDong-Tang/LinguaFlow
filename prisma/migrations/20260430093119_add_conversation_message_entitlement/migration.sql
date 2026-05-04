@@ -2,7 +2,7 @@
 CREATE TYPE "UserStatus" AS ENUM ('active', 'disabled');
 
 -- CreateEnum
-CREATE TYPE "AuthProvider" AS ENUM ('wechat');
+CREATE TYPE "AuthProvider" AS ENUM ('authing');
 
 -- CreateEnum
 CREATE TYPE "ContactKind" AS ENUM ('ai_assistant', 'human', 'system');

@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import type { RewriteStreamEvent, RewriteStreamRequestBody } from "@lf/core/contracts/chatStream";
-import type { AbortSignalLike } from "@lf/core/ports/ai/AIProvider";
-import { resolveRequestId } from "../lib/httpResult";
+import type { RewriteStreamEvent, RewriteStreamRequestBody } from "@lf/core/contracts/chatStream.js";
+import type { AbortSignalLike } from "@lf/core/ports/ai/AIProvider.js";
+import { resolveRequestId } from "../lib/httpResult.js";
+import { resolveUserContext, UnauthorizedError } from "../auth/userContext.js";
 
 export interface ChatStreamRouteDeps {
   rewriteService: {
@@ -44,6 +45,23 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
       });
     }
 
+    let userContext;
+    try {
+      userContext = resolveUserContext({
+        authorization: req.headers.authorization,
+        bodyUserId: body.userId,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          error: { code: error.code, message: error.message },
+        });
+      }
+
+      throw error;
+    }
+
     reply.raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
     reply.raw.setHeader("Connection", "keep-alive");
@@ -64,7 +82,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
       await deps.rewriteService.rewriteStream(
         {
           text: body.text,
-          userId: body.userId,
+          userId: userContext.userId,
           systemPrompt: body.systemPrompt ?? undefined,
           conversationId:body.conversationId,
           userMessageId:body.userMessageId,

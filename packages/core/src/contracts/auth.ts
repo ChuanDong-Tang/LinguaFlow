@@ -1,4 +1,4 @@
-import type { User } from "../types";
+import type { User } from "../types/index.js";
 
 export type LoginRequest =
   | { type: "phone"; phone: string; code: string }
@@ -6,6 +6,7 @@ export type LoginRequest =
 
 export type LoginResponse = {
   token: string;
+  refreshToken?: string;
   user: User;
   sessionFlags?: {
     isPro: boolean;
@@ -17,14 +18,15 @@ export type LoginCredential =
   | { type: "wechat_code"; wechatCode: string }
   | { type: "email_code"; email: string; code: string };
 
-/** 微信登录（落库链路）请求体 */
-export interface WeChatLoginRequestBody {
+/** Authing 登录（落库链路）请求体 */
+export interface AuthingLoginRequestBody {
   authingToken: string;
 }
 
-/** 微信登录（落库链路）响应体 */
-export interface WeChatLoginResponse {
+/** Authing 登录（落库链路）响应体 */
+export interface AuthingLoginResponse {
   accessToken: string;
+  refreshToken: string;
   user: {
     id: string;
     nickname: string | null;
@@ -34,4 +36,13 @@ export interface WeChatLoginResponse {
     updatedAt: Date;
   };
   isNewUser: boolean;
+}
+
+export interface RefreshTokenRequestBody {
+  refreshToken: string;
+}
+
+export interface RefreshTokenResponse {
+  accessToken: string;
+  refreshToken: string;
 }

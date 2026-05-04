@@ -1,1 +1,250 @@
 /** PaymentNotifyService：编排支付回调处理（验签、幂等、状态更新）。 */
+
+import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
+import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import type { SubscriptionService } from "../subscription/SubscriptionService.js";
+import {
+  decryptWeChatPayResource,
+  verifyWeChatPaySignature,
+} from "../../providers/payment/wechat/WeChatPaySignature.js";
+import { loadWeChatPayConfig } from "../../providers/payment/wechat/WeChatPayConfig.js";
+
+export interface WeChatNotifyInput {
+  headers: {
+    timestamp?: string;
+    nonce?: string;
+    signature?: string;
+    serial?: string;
+  };
+  rawBody: string;
+}
+
+type WeChatNotifyBody = {
+  id: string;
+  event_type: string;
+  resource?: {
+    associated_data?: string;
+    nonce: string;
+    ciphertext: string;
+  };
+};
+
+type WeChatTransactionResource = {
+  out_trade_no: string;
+  transaction_id?: string;
+  trade_state: string;
+};
+
+type WeChatRefundResource = {
+  out_trade_no: string;
+  out_refund_no?: string;
+  refund_id?: string;
+  refund_status?: string;
+};
+
+export class PaymentNotifyService {
+  constructor(
+    private readonly paymentEventRepository: PaymentEventRepository,
+    private readonly paymentOrderRepository: PaymentOrderRepository,
+    private readonly subscriptionService: SubscriptionService
+  ) {}
+
+  async handleWeChatNotify(input: WeChatNotifyInput): Promise<{ status: "success" | "ignored" }> {
+    const config = loadWeChatPayConfig();
+
+    if (
+      !input.headers.timestamp ||
+      !input.headers.nonce ||
+      !input.headers.signature
+    ) {
+      throw new Error("WECHAT_NOTIFY_HEADERS_INVALID");
+    }
+
+    const valid = verifyWeChatPaySignature({
+      timestamp: input.headers.timestamp,
+      nonce: input.headers.nonce,
+      signature: input.headers.signature,
+      body: input.rawBody,
+      platformPublicKey: config.platformPublicKey,
+    });
+
+    if (!valid) throw new Error("WECHAT_NOTIFY_SIGNATURE_INVALID");
+
+    const body = JSON.parse(input.rawBody) as WeChatNotifyBody;
+    const existingEvent = await this.paymentEventRepository.findByProviderEventId({
+      provider: "wechat",
+      providerEventId: body.id,
+    });
+
+    if (existingEvent?.status === "processed" || existingEvent?.status === "ignored") {
+      return { status: "ignored" };
+    }
+
+    const resourceText = body.resource
+      ? decryptWeChatPayResource({
+          associatedData: body.resource.associated_data,
+          nonce: body.resource.nonce,
+          ciphertext: body.resource.ciphertext,
+          apiV3Key: config.apiV3Key,
+        })
+      : "{}";
+    const resource = JSON.parse(resourceText) as WeChatTransactionResource;
+    const providerOrderId = resource.out_trade_no;
+    const event =
+      existingEvent ??
+      (await this.paymentEventRepository.create({
+        provider: "wechat",
+        providerEventId: body.id,
+        providerOrderId,
+        eventType: body.event_type,
+        rawPayload: {
+          body,
+          resource,
+        },
+      }));
+
+    try {
+      if (body.event_type !== "TRANSACTION.SUCCESS" || resource.trade_state !== "SUCCESS") {
+        await this.paymentEventRepository.markIgnored(
+          event.id,
+          `Unsupported event ${body.event_type}/${resource.trade_state}`
+        );
+        return { status: "ignored" };
+      }
+
+      const order = await this.paymentOrderRepository.findByProviderOrderId(providerOrderId);
+
+      if (!order) {
+        await this.paymentEventRepository.markFailed(event.id, "Payment order not found");
+        throw new Error("PAYMENT_ORDER_NOT_FOUND");
+      }
+
+      if (order.status !== "paid") {
+        await this.paymentOrderRepository.updateStatus({
+          id: order.id,
+          status: "paid",
+          metadata: {
+            ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
+            wechatTransactionId: resource.transaction_id ?? null,
+          },
+        });
+      }
+
+      await this.subscriptionService.openOrRenewPro({
+        userId: order.userId,
+        sourceOrderId: order.id,
+        months: 1,
+      });
+
+      await this.paymentEventRepository.markProcessed(event.id);
+      return { status: "success" };
+    } catch (error) {
+      await this.paymentEventRepository.markFailed(
+        event.id,
+        error instanceof Error ? error.message : String(error)
+      );
+      throw error;
+    }
+  }
+
+  async handleWeChatRefundNotify(
+    input: WeChatNotifyInput
+  ): Promise<{ status: "success" | "ignored" }> {
+    const config = loadWeChatPayConfig();
+
+    if (
+      !input.headers.timestamp ||
+      !input.headers.nonce ||
+      !input.headers.signature
+    ) {
+      throw new Error("WECHAT_REFUND_NOTIFY_HEADERS_INVALID");
+    }
+
+    const valid = verifyWeChatPaySignature({
+      timestamp: input.headers.timestamp,
+      nonce: input.headers.nonce,
+      signature: input.headers.signature,
+      body: input.rawBody,
+      platformPublicKey: config.platformPublicKey,
+    });
+
+    if (!valid) throw new Error("WECHAT_REFUND_NOTIFY_SIGNATURE_INVALID");
+
+    const body = JSON.parse(input.rawBody) as WeChatNotifyBody;
+    const existingEvent = await this.paymentEventRepository.findByProviderEventId({
+      provider: "wechat",
+      providerEventId: body.id,
+    });
+
+    if (existingEvent?.status === "processed" || existingEvent?.status === "ignored") {
+      return { status: "ignored" };
+    }
+
+    const resourceText = body.resource
+      ? decryptWeChatPayResource({
+          associatedData: body.resource.associated_data,
+          nonce: body.resource.nonce,
+          ciphertext: body.resource.ciphertext,
+          apiV3Key: config.apiV3Key,
+        })
+      : "{}";
+    const resource = JSON.parse(resourceText) as WeChatRefundResource;
+    const providerOrderId = resource.out_trade_no;
+    const event =
+      existingEvent ??
+      (await this.paymentEventRepository.create({
+        provider: "wechat",
+        providerEventId: body.id,
+        providerOrderId,
+        eventType: body.event_type,
+        rawPayload: {
+          body,
+          resource,
+        },
+      }));
+
+    try {
+      const isRefundSuccess =
+        body.event_type.includes("REFUND") &&
+        (!resource.refund_status || resource.refund_status === "SUCCESS");
+
+      if (!isRefundSuccess) {
+        await this.paymentEventRepository.markIgnored(
+          event.id,
+          `Unsupported refund event ${body.event_type}/${resource.refund_status ?? "unknown"}`
+        );
+        return { status: "ignored" };
+      }
+
+      const order = await this.paymentOrderRepository.findByProviderOrderId(providerOrderId);
+
+      if (!order) {
+        await this.paymentEventRepository.markFailed(event.id, "Payment order not found");
+        throw new Error("PAYMENT_ORDER_NOT_FOUND");
+      }
+
+      await this.paymentOrderRepository.updateStatus({
+        id: order.id,
+        status: "refunded",
+        metadata: {
+          ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
+          refund: {
+            refundId: resource.refund_id ?? null,
+            outRefundNo: resource.out_refund_no ?? null,
+            refundStatus: resource.refund_status ?? null,
+            handledManually: true,
+          },
+        },
+      });
+
+      await this.paymentEventRepository.markProcessed(event.id);
+      return { status: "success" };
+    } catch (error) {
+      await this.paymentEventRepository.markFailed(
+        event.id,
+        error instanceof Error ? error.message : String(error)
+      );
+      throw error;
+    }
+  }
+}

@@ -11,7 +11,8 @@
     "dev:mobile": "npm --prefix apps/mobile run start",
     "dev:api": "npm --prefix api-next run dev",
     "dev:worker": "npm --prefix server-next run dev:worker",
-    "dev:all": "node scripts/dev-all.mjs"
+    "dev:all": "node scripts/dev-all.mjs",
+    "seed:dev-users": "npm --prefix api-next run seed:dev-users"
   },
   "dependencies": {
     "@clerk/backend": "^3.2.8",

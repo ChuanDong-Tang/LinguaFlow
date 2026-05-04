@@ -1,17 +1,17 @@
-import type { RewriteStreamRequestBody } from "@lf/core/contracts/chatStream";
+import type { RewriteStreamRequestBody } from "@lf/core/contracts/chatStream.js";
 import type {
   AbortSignalLike,
   AIProvider,
   RewriteTextStreamEvent,
-} from "../../../../packages/core/src/ports/ai/AIProvider";
-import type { ChatMessageService } from "./ChatMessageService";
-import type { RewriteTaskGuard } from "./RewriteTaskGuard";
-import type { EntitlementService } from "../entitlement/EntitlementService";
+} from "@lf/core/ports/ai/AIProvider.js";
+import type { ChatMessageService } from "./ChatMessageService.js";
+import type { RewriteTaskGuard } from "./RewriteTaskGuard.js";
+import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type {
   AiRequestLogRepository,
   AiRequestLogStatus,
-} from "@lf/core/ports/repository/AiRequestLogRepository";
-import type { RewriteRateLimiter } from "./RewriteRateLimiter";
+} from "@lf/core/ports/repository/AiRequestLogRepository.js";
+import type { RewriteRateLimiter } from "./RewriteRateLimiter.js";
 
 type RewriteStreamServiceInput = RewriteStreamRequestBody & {
   signal?: AbortSignalLike;

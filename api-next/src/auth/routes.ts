@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import type { LoginCredential, LoginResponse, WeChatLoginResponse } from "@lf/core/contracts/auth";
-import { isLoginRequest, isWeChatLoginBody } from "./validators";
-import { isMockUserId } from "./mockUser";
+import type { AuthingLoginResponse, LoginCredential, LoginResponse, RefreshTokenResponse } from "@lf/core/contracts/auth.js";
+import { isAuthingLoginBody, isLoginRequest, isRefreshTokenBody } from "./validators.js";
+import { isAllowedMockUserId, isMockAuthEnabled } from "./userContext.js";
+import { signAccessToken, signRefreshToken } from "@lf/server-next/services/auth/JwtSessionToken.js";
 
 
 export interface AuthRouteDeps {
@@ -9,9 +10,10 @@ export interface AuthRouteDeps {
     login: (credential: LoginCredential) => Promise<LoginResponse>;
   };
   authLoginService: {
-    loginWithWeChat: (input: {
+    loginWithAuthing: (input: {
       authingToken: string;
-    }) => Promise<WeChatLoginResponse>;
+    }) => Promise<AuthingLoginResponse>;
+    refreshSession: (input: { refreshToken: string }) => RefreshTokenResponse;
   };
 
   userRepository: {
@@ -30,6 +32,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
   app.post("/auth/login", async (req, reply) => {
     const body = req.body as unknown;
 
+    if (!isMockAuthEnabled()) {
+      return reply.status(403).send({
+        ok: false,
+        error: { code: "MOCK_AUTH_DISABLED", message: "Mock auth is disabled" },
+      });
+    }
+
     if (!isLoginRequest(body)) {
       return reply.status(400).send({
         ok: false,
@@ -39,7 +48,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
 
     const data = await deps.authProvider.login(body);
 
-    if (isMockUserId(data.user.id)) {
+    if (isAllowedMockUserId(data.user.id)) {
       await deps.userRepository.ensureUserExists({
         id: data.user.id,
         nickname: data.user.displayName ?? "Mock User",
@@ -48,26 +57,33 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       });
     }
 
+    const accessToken = signAccessToken(data.user.id);
+    const refreshToken = signRefreshToken(data.user.id);
+
     return reply.status(200).send({
       ok: true,
-      data,
+      data: {
+        ...data,
+        token: accessToken,
+        refreshToken,
+      },
     });
   });
 
-  // 微信登录（落库版）：查身份 -> 无则创建用户并绑定身份
-  app.post("/auth/wechat-login", async (req, reply) => {
+  // Authing 登录（落库版）：查身份 -> 无则创建用户并绑定身份
+  app.post("/auth/authing-login", async (req, reply) => {
     const body = req.body as unknown;
 
-    if (!isWeChatLoginBody(body)) {
+    if (!isAuthingLoginBody(body)) {
       return reply.status(400).send({
         ok: false,
-        error: { code: "REQUEST_INVALID", message: "Invalid wechat login payload" },
+        error: { code: "REQUEST_INVALID", message: "Invalid authing login payload" },
       });
     }
 
-    let result: WeChatLoginResponse;
+    let result: AuthingLoginResponse;
     try {
-      result = await deps.authLoginService.loginWithWeChat({
+      result = await deps.authLoginService.loginWithAuthing({
         authingToken: body.authingToken,
       });
     } catch (error) {
@@ -82,5 +98,32 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       ok: true,
       data: result,
     });
+  });
+
+  app.post("/auth/refresh", async (req, reply) => {
+    const body = req.body as unknown;
+
+    if (!isRefreshTokenBody(body)) {
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "REQUEST_INVALID", message: "Invalid refresh token payload" },
+      });
+    }
+
+    try {
+      const result = deps.authLoginService.refreshSession({
+        refreshToken: body.refreshToken,
+      });
+      return reply.status(200).send({
+        ok: true,
+        data: result,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unauthorized";
+      return reply.status(401).send({
+        ok: false,
+        error: { code: "AUTH_INVALID", message },
+      });
+    }
   });
 }

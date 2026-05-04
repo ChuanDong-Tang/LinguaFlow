@@ -12,6 +12,7 @@ type MessageListProps = {
   onReachTop: () => void;
   onReachBottom: () => void;
   onRetryMessage: (message: ChatMessage) => void;
+  onCopyMessage: (message: ChatMessage) => void;
 };
 
 export function MessageList({
@@ -24,6 +25,7 @@ export function MessageList({
   onReachTop,
   onReachBottom,
   onRetryMessage,
+  onCopyMessage,
 }: MessageListProps) {
   return (
     <ScrollView
@@ -67,7 +69,14 @@ export function MessageList({
                     <Text style={styles.voiceIcon}>⋮⋮</Text>
                   </View>
                 )}
-                <Text style={styles.copyIcon}>▢</Text>
+                <Pressable
+                  style={styles.copyButton}
+                  hitSlop={8}
+                  onPress={() => onCopyMessage(m)}
+                  disabled={!m.text.trim()}
+                >
+                  <Text style={[styles.copyIcon, !m.text.trim() && styles.copyIconDisabled]}>▢</Text>
+                </Pressable>
               </View>
             </View>
             <Text style={styles.timeTextLeft}>{m.time}</Text>
@@ -185,7 +194,15 @@ const styles = StyleSheet.create({
   copyIcon: {
     fontSize: 28,
     color: "#222222",
-    marginRight: 4,
+  },
+  copyButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  copyIconDisabled: {
+    color: "#B8BDC7",
   },
   timeTextLeft: {
     marginTop: 8,

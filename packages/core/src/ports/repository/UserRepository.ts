@@ -1,7 +1,8 @@
 /** UserRepository：定义用户数据读写接口（不关心具体数据库实现）。 */
 
-export type AuthProvider = "wechat";
+export type AuthProvider = "authing";
 export type UserStatus = "active" | "disabled";
+export type UserRole = "user" | "admin";
 
 /** 用户主数据 */
 export interface UserEntity {
@@ -9,15 +10,16 @@ export interface UserEntity {
   nickname: string | null;
   avatarUrl: string | null;
   status: UserStatus;
+  role: UserRole;
   createdAt: Date;
   updatedAt: Date;
 }
 
-/** 登录身份绑定数据（V1 先只支持微信） */
+/** 登录身份绑定数据（V1 先绑定 Authing 用户身份） */
 export interface UserAuthIdentity {
   userId: string;
   provider: AuthProvider;
-  providerUserId: string; // wechat openid
+  providerUserId: string; // Authing user id / OIDC sub
   createdAt: Date;
 }
 
@@ -39,6 +41,7 @@ export interface EnsureUserExistsInput {
   nickname?: string | null;
   avatarUrl?: string | null;
   status?: UserStatus;
+  role?: UserRole;
 }
 
 /** 用户数据仓储接口（V1 最小闭环） */

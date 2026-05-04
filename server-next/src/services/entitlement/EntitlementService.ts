@@ -1,4 +1,5 @@
-import type { EntitlementRepository } from "@lf/core/ports/repository/EntitlementRepository";
+import type { EntitlementRepository } from "@lf/core/ports/repository/EntitlementRepository.js";
+import type { SubscriptionService } from "../subscription/SubscriptionService.js";
 
 export class DailyQuotaExceededError extends Error {
   readonly code = "DAILY_QUOTA_EXCEEDED";
@@ -18,14 +19,30 @@ export class DailyQuotaExceededError extends Error {
   }
 }
 
+export interface CurrentEntitlementView {
+  userId: string;
+  plan: "free" | "pro_monthly";
+  isPro: boolean;
+  expiresAt: string | null;
+  dateKey: string;
+  dailyTotalLimit: number;
+  usedTotalChars: number;
+  remainingChars: number;
+}
+
 export class EntitlementService {
-  constructor(private readonly entitlementRepository: EntitlementRepository) {}
+  constructor(
+    private readonly entitlementRepository: EntitlementRepository,
+    private readonly subscriptionService: SubscriptionService
+  ) {}
 
   async assertCanUse(userId: string, requestedChars: number): Promise<void> {
+    const dateKey = this.currentDateKey();
+    const dailyTotalLimit = await this.resolveDailyLimit(userId);
     const entitlement = await this.entitlementRepository.ensureDaily({
       userId,
-      dateKey: this.currentDateKey(),
-      dailyTotalLimit: this.defaultDailyLimitForUser(userId),
+      dateKey,
+      dailyTotalLimit,
     });
 
     const remainingChars = entitlement.dailyTotalLimit - entitlement.usedTotalChars;
@@ -41,17 +58,58 @@ export class EntitlementService {
   async consume(userId: string, chars: number): Promise<void> {
     if (chars <= 0) return;
 
+    const dateKey = this.currentDateKey();
+    const dailyTotalLimit = await this.resolveDailyLimit(userId);
+
     await this.entitlementRepository.ensureDaily({
       userId,
-      dateKey: this.currentDateKey(),
-      dailyTotalLimit: this.defaultDailyLimitForUser(userId),
+      dateKey,
+      dailyTotalLimit,
     });
 
-    await this.entitlementRepository.consumeDaily({
+    const entitlement = await this.entitlementRepository.tryConsumeDaily({
       userId,
-      dateKey: this.currentDateKey(),
+      dateKey,
       chars,
     });
+
+    if (!entitlement) {
+      const latest = await this.entitlementRepository.ensureDaily({
+        userId,
+        dateKey,
+        dailyTotalLimit,
+      });
+      const remainingChars = latest.dailyTotalLimit - latest.usedTotalChars;
+
+      throw new DailyQuotaExceededError({
+        remainingChars: Math.max(0, remainingChars),
+        dailyTotalLimit: latest.dailyTotalLimit,
+        usedTotalChars: latest.usedTotalChars,
+      });
+    }
+  }
+
+  async getCurrentEntitlement(userId: string): Promise<CurrentEntitlementView> {
+    const dateKey = this.currentDateKey();
+    const subscription = await this.subscriptionService.getCurrentSubscription(userId);
+    const dailyTotalLimit = this.dailyLimitForPlan(subscription.isPro);
+    const entitlement = await this.entitlementRepository.ensureDaily({
+      userId,
+      dateKey,
+      dailyTotalLimit,
+    });
+    const remainingChars = entitlement.dailyTotalLimit - entitlement.usedTotalChars;
+
+    return {
+      userId,
+      plan: subscription.plan,
+      isPro: subscription.isPro,
+      expiresAt: subscription.expiresAt?.toISOString() ?? null,
+      dateKey,
+      dailyTotalLimit: entitlement.dailyTotalLimit,
+      usedTotalChars: entitlement.usedTotalChars,
+      remainingChars: Math.max(0, remainingChars),
+    };
   }
 
   private currentDateKey(): string {
@@ -65,10 +123,15 @@ export class EntitlementService {
     return formatter.format(now);
   }
 
-  private defaultDailyLimitForUser(userId: string): number {
-    if (userId === "mock_user_001") {
-      return Number(process.env.LF_PRO_DAILY_TOTAL_LIMIT ?? "10000");
-    }
-    return Number(process.env.LF_FREE_DAILY_TOTAL_LIMIT ?? "500");
+  private async resolveDailyLimit(userId: string): Promise<number> {
+    const subscription = await this.subscriptionService.getCurrentSubscription(userId);
+
+    return this.dailyLimitForPlan(subscription.isPro);
+  }
+
+  private dailyLimitForPlan(isPro: boolean): number {
+    return isPro
+      ? Number(process.env.LF_PRO_DAILY_TOTAL_LIMIT ?? "10000")
+      : Number(process.env.LF_FREE_DAILY_TOTAL_LIMIT ?? "500");
   }
 }

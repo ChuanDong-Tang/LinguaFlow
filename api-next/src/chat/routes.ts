@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import type { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService";
-import { resolveRequestId } from "../lib/httpResult";
+import {
+  ConversationAccessDeniedError,
+  type ChatMessageService,
+} from "@lf/server-next/services/chat/ChatMessageService.js";
+import { resolveRequestId } from "../lib/httpResult.js";
+import { resolveUserContext, UnauthorizedError } from "../auth/userContext.js";
 
 type SendMessageBody = {
   userId: string;
@@ -10,6 +14,7 @@ type SendMessageBody = {
 
 type ListMessagesQuery = {
   conversationId: string;
+  userId?: string;
 };
 
 type ListMessagesRangeQuery = {
@@ -55,7 +60,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     if (isSendMessageBody(body)) {
       req.log.info({ requestId, userId: body.userId }, "chat/messages incoming userId");
     }
-    
+
     if (!isSendMessageBody(body)) {
       return reply.status(400).send({
         ok: false,
@@ -64,20 +69,41 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       });
     }
 
-    const user = await deps.userRepository.findById(body.userId);
-    req.log.info({ requestId, userId: body.userId, exists: !!user }, "user exists before conversation.create");
+    let userContext;
+    try {
+      userContext = resolveUserContext({
+        authorization: req.headers.authorization,
+        bodyUserId: body.userId,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+
+      throw error;
+    }
+
+    const user = await deps.userRepository.findById(userContext.userId);
+    req.log.info(
+      { requestId, userId: userContext.userId, source: userContext.source, exists: !!user },
+      "user exists before conversation.create"
+    );
 
     if (!user) {
       await deps.userRepository.ensureUserExists({
-        id: body.userId,
-        nickname: "Mock User",
+        id: userContext.userId,
+        nickname: userContext.source === "mock" ? "Mock User" : null,
         avatarUrl: null,
         status: "active",
       });
     }
 
     const data = await deps.chatMessageService.sendUserMessage({
-      userId: body.userId,
+      userId: userContext.userId,
       contactId: body.contactId,
       text: body.text,
     });
@@ -101,43 +127,110 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       });
     }
 
-    const data = await deps.chatMessageService.listConversationMessages(conversationId);
-    return reply.status(200).send({ ok: true, request_id: requestId, data });
+    let userContext;
+    try {
+      userContext = resolveUserContext({
+        authorization: req.headers.authorization,
+        bodyUserId: query.userId,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+
+      throw error;
+    }
+
+    try {
+      const data = await deps.chatMessageService.listConversationMessages({
+        conversationId,
+        userId: userContext.userId,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (error instanceof ConversationAccessDeniedError) {
+        return reply.status(404).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+
+      throw error;
+    }
   });
 
-  // 按日期范围查会话历史：未传范围时，mock_user_001 默认按近30天（pro）
+  // 按日期范围查会话历史：未传范围时默认查近30天
   app.get("/chat/messages/range", async (req, reply) => {
     const query = req.query as Partial<ListMessagesRangeQuery>;
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
     const conversationId = query.conversationId?.trim();
-    const userId = query.userId?.trim();
 
-    if (!conversationId || !userId) {
+    if (!conversationId) {
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
-        error: { code: "VALIDATION_FAILED", message: "conversationId and userId are required" },
+        error: { code: "VALIDATION_FAILED", message: "conversationId is required" },
       });
     }
 
-    const isMockProUser = userId === "mock_user_001";
+    let userContext;
+    try {
+      userContext = resolveUserContext({
+        authorization: req.headers.authorization,
+        bodyUserId: query.userId,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+
+      throw error;
+    }
+
+    req.log.info(
+      { requestId, userId: userContext.userId, source: userContext.source },
+      "chat/messages/range resolved user context"
+    );
+
     const now = new Date();
     const defaultFrom = formatDateKey(
-      new Date(now.getFullYear(), now.getMonth(), now.getDate() - (isMockProUser ? 29 : 3650))
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29)
     );
     const defaultTo = formatDateKey(now);
 
     const fromDateKey = query.fromDateKey?.trim() || defaultFrom;
     const toDateKey = query.toDateKey?.trim() || defaultTo;
 
-    const data = await deps.chatMessageService.listConversationMessagesByDateRange({
-      conversationId,
-      fromDateKey,
-      toDateKey,
-    });
+    try {
+      const data = await deps.chatMessageService.listConversationMessagesByDateRange({
+        conversationId,
+        userId: userContext.userId,
+        fromDateKey,
+        toDateKey,
+      });
 
-    return reply.status(200).send({ ok: true, request_id: requestId, data });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (error instanceof ConversationAccessDeniedError) {
+        return reply.status(404).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+
+      throw error;
+    }
   });
 }
 

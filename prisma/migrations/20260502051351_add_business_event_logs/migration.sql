@@ -31,7 +31,7 @@ CREATE TABLE "ai_request_logs" (
 CREATE TABLE "payment_orders" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "module" TEXT NOT NULL,
+    "productCode" TEXT NOT NULL,
     "sourceKey" TEXT,
     "provider" TEXT NOT NULL,
     "providerOrderId" TEXT NOT NULL,
@@ -77,7 +77,7 @@ CREATE UNIQUE INDEX "payment_orders_providerOrderId_key" ON "payment_orders"("pr
 CREATE INDEX "payment_orders_userId_createdAt_idx" ON "payment_orders"("userId", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "payment_orders_module_sourceKey_idx" ON "payment_orders"("module", "sourceKey");
+CREATE INDEX "payment_orders_productCode_sourceKey_idx" ON "payment_orders"("productCode", "sourceKey");
 
 -- CreateIndex
 CREATE INDEX "payment_orders_status_createdAt_idx" ON "payment_orders"("status", "createdAt");

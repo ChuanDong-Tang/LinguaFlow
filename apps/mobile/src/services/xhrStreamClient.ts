@@ -3,8 +3,15 @@ import type {
   StartRewriteStreamInput,
   StreamClient,
 } from "./streamClient";
+import { getAuthHeaders } from "./authHeaders";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
+const DEFAULT_STREAM_TIMEOUT_MS = 45_000;
+
+function getStreamTimeoutMs(): number {
+  const parsed = Number.parseInt(process.env.EXPO_PUBLIC_REWRITE_STREAM_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_STREAM_TIMEOUT_MS;
+}
 
 export class XhrStreamClient implements StreamClient {
   startRewriteStream(
@@ -15,12 +22,18 @@ export class XhrStreamClient implements StreamClient {
       const xhr = new XMLHttpRequest();
       let consumedLength = 0;
       let buffer = "";
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        xhr.abort();
+      }, getStreamTimeoutMs());
 
       xhr.open("POST", `${BASE_URL}/chat/rewrite/stream`);
       xhr.setRequestHeader("Content-Type", "application/json");
 
       const abortRequest = () => xhr.abort();
       if (input.signal?.aborted) {
+        clearTimeout(timeoutId);
         abortRequest();
         return;
       }
@@ -60,6 +73,7 @@ export class XhrStreamClient implements StreamClient {
 
       xhr.onload = () => {
         input.signal?.removeEventListener("abort", abortRequest);
+        clearTimeout(timeoutId);
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve();
         } else {
@@ -69,23 +83,39 @@ export class XhrStreamClient implements StreamClient {
 
       xhr.onerror = () => {
         input.signal?.removeEventListener("abort", abortRequest);
+        clearTimeout(timeoutId);
         reject(new Error("network error"));
       };
 
       xhr.onabort = () => {
         input.signal?.removeEventListener("abort", abortRequest);
-        reject(new Error("request aborted"));
+        clearTimeout(timeoutId);
+        reject(new Error(timedOut ? "request timeout" : "request aborted"));
       };
 
-      xhr.send(
-        JSON.stringify({
-          userId: input.userId,
-          text: input.text,
-          conversationId: input.conversationId,
-          userMessageId: input.userMessageId,
-          systemPrompt: input.systemPrompt,
+      void getAuthHeaders()
+        .then((headers) => {
+          if (input.signal?.aborted) {
+            clearTimeout(timeoutId);
+            abortRequest();
+            return;
+          }
+
+          for (const [key, value] of Object.entries(headers)) {
+            xhr.setRequestHeader(key, value);
+          }
+
+          xhr.send(
+            JSON.stringify({
+              userId: input.userId,
+              text: input.text,
+              conversationId: input.conversationId,
+              userMessageId: input.userMessageId,
+              systemPrompt: input.systemPrompt,
+            })
+          );
         })
-      );
+        .catch(reject);
     });
   }
 }

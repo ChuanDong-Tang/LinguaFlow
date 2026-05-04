@@ -1,5 +1,5 @@
-import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository";
-import type { MessageRepository } from "@lf/core/ports/repository/MessageRepository";
+import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository.js";
+import type { MessageRepository } from "@lf/core/ports/repository/MessageRepository.js";
 
 export interface SendMessageInput {
   userId: string;
@@ -22,8 +22,17 @@ export interface SendMessageResult {
 
 export interface ListMessagesByDateRangeInput {
   conversationId: string;
+  userId: string;
   fromDateKey: string; // YYYY-MM-DD (server timezone)
   toDateKey: string; // YYYY-MM-DD (server timezone)
+}
+
+export class ConversationAccessDeniedError extends Error {
+  readonly code = "CONVERSATION_NOT_FOUND";
+
+  constructor() {
+    super("Conversation not found");
+  }
 }
 
 
@@ -114,14 +123,21 @@ export class ChatMessageService {
     return this.toView(msg);
   }
 
-  async listConversationMessages(conversationId: string): Promise<MessageView[]> {
-    const rows = await this.messageRepository.listByConversation(conversationId, 200);
+  async listConversationMessages(input: {
+    conversationId: string;
+    userId: string;
+  }): Promise<MessageView[]> {
+    await this.assertConversationBelongsToUser(input.conversationId, input.userId);
+
+    const rows = await this.messageRepository.listByConversation(input.conversationId, 200);
     return rows.map((row) => this.toView(row));
   }
 
   async listConversationMessagesByDateRange(
     input: ListMessagesByDateRangeInput
   ): Promise<MessageView[]> {
+    await this.assertConversationBelongsToUser(input.conversationId, input.userId);
+
     const fromStart = new Date(`${input.fromDateKey}T00:00:00+08:00`);
     const toEnd = new Date(`${input.toDateKey}T23:59:59.999+08:00`);
 
@@ -133,6 +149,17 @@ export class ChatMessageService {
     });
 
     return rows.map((row) => this.toView(row));
+  }
+
+  private async assertConversationBelongsToUser(
+    conversationId: string,
+    userId: string
+  ): Promise<void> {
+    const conversation = await this.conversationRepository.findById(conversationId);
+
+    if (!conversation || conversation.userId !== userId) {
+      throw new ConversationAccessDeniedError();
+    }
   }
 
   private toView(row: {

@@ -1,15 +1,24 @@
 /** PrismaEntitlementRepository：EntitlementRepository 的 Prisma 实现。 */
 
-import type { PrismaClient } from "@prisma/client";
 import type {
   ConsumeDailyEntitlementInput,
   EnsureDailyEntitlementInput,
   EntitlementEntity,
   EntitlementRepository,
-} from "@lf/core/ports/repository/EntitlementRepository";
+} from "@lf/core/ports/repository/EntitlementRepository.js";
+
+type PrismaEntitlementClient = {
+  $executeRawUnsafe: (query: string, ...values: unknown[]) => Promise<number>;
+  entitlement: {
+    upsert: (args: any) => Promise<any>;
+    update: (args: any) => Promise<any>;
+    updateMany: (args: any) => Promise<{ count: number }>;
+    findUnique: (args: any) => Promise<any>;
+  };
+};
 
 export class PrismaEntitlementRepository implements EntitlementRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaEntitlementClient) {}
 
   async ensureDaily(input: EnsureDailyEntitlementInput): Promise<EntitlementEntity> {
     const row = await this.prisma.entitlement.upsert({
@@ -25,8 +34,28 @@ export class PrismaEntitlementRepository implements EntitlementRepository {
         dailyTotalLimit: input.dailyTotalLimit,
         usedTotalChars: 0,
       },
-      update: {},
+      update: {
+        dailyTotalLimit: {
+          increment: 0,
+        },
+      },
     });
+
+    if (row.dailyTotalLimit < input.dailyTotalLimit) {
+      const updated = await this.prisma.entitlement.update({
+        where: {
+          userId_dateKey: {
+            userId: input.userId,
+            dateKey: input.dateKey,
+          },
+        },
+        data: {
+          dailyTotalLimit: input.dailyTotalLimit,
+        },
+      });
+
+      return this.toEntity(updated);
+    }
 
     return this.toEntity(row);
   }
@@ -47,6 +76,35 @@ export class PrismaEntitlementRepository implements EntitlementRepository {
     });
 
     return this.toEntity(row);
+  }
+
+  async tryConsumeDaily(input: ConsumeDailyEntitlementInput): Promise<EntitlementEntity | null> {
+    const changed = await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "entitlements"
+        SET "usedTotalChars" = "usedTotalChars" + $1,
+            "updatedAt" = NOW()
+        WHERE "userId" = $2
+          AND "dateKey" = $3
+          AND "usedTotalChars" + $1 <= "dailyTotalLimit"
+      `,
+      input.chars,
+      input.userId,
+      input.dateKey
+    );
+
+    if (changed === 0) return null;
+
+    const row = await this.prisma.entitlement.findUnique({
+      where: {
+        userId_dateKey: {
+          userId: input.userId,
+          dateKey: input.dateKey,
+        },
+      },
+    });
+
+    return row ? this.toEntity(row) : null;
   }
 
   private toEntity(row: {

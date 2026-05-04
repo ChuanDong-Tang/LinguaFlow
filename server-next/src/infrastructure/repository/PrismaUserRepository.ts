@@ -1,6 +1,5 @@
 /** PrismaUserRepository：UserRepository 的 Prisma 实现。 */
 
-import type { PrismaClient } from "@prisma/client";
 import type {
   AuthProvider,
   BindAuthIdentityInput,
@@ -9,10 +8,22 @@ import type {
   UserAuthIdentity,
   UserEntity,
   UserRepository,
-} from "@lf/core/ports/repository/UserRepository";
+} from "@lf/core/ports/repository/UserRepository.js";
+
+type PrismaUserClient = {
+  user: {
+    create: (args: any) => Promise<any>;
+    findUnique: (args: any) => Promise<any>;
+    upsert: (args: any) => Promise<any>;
+  };
+  userAuthIdentity: {
+    findUnique: (args: any) => Promise<any>;
+    upsert: (args: any) => Promise<any>;
+  };
+};
 
 export class PrismaUserRepository implements UserRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaUserClient) {}
 
   async findByAuthIdentity(
     provider: AuthProvider,
@@ -77,12 +88,14 @@ export class PrismaUserRepository implements UserRepository {
         nickname: input.nickname ?? undefined,
         avatarUrl: input.avatarUrl ?? undefined,
         status: input.status ?? undefined,
+        role: input.role ?? undefined,
       },
       create: {
         id: input.id,
         nickname: input.nickname ?? null,
         avatarUrl: input.avatarUrl ?? null,
         status: input.status ?? "active",
+        role: input.role ?? "user",
       },
     });
   }
@@ -98,6 +111,7 @@ export class PrismaUserRepository implements UserRepository {
     nickname: string | null;
     avatarUrl: string | null;
     status: "active" | "disabled";
+    role: "user" | "admin";
     createdAt: Date;
     updatedAt: Date;
   }): UserEntity {
@@ -106,6 +120,7 @@ export class PrismaUserRepository implements UserRepository {
       nickname: record.nickname,
       avatarUrl: record.avatarUrl,
       status: record.status,
+      role: record.role,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

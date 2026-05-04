@@ -4,9 +4,16 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 type ChatHeaderProps = {
   onBack: () => void;
   onOpenCalendar: () => void;
+  autoCopyEnabled: boolean;
+  onToggleAutoCopy: () => void;
 };
 
-export function ChatHeader({ onBack, onOpenCalendar }: ChatHeaderProps) {
+export function ChatHeader({
+  onBack,
+  onOpenCalendar,
+  autoCopyEnabled,
+  onToggleAutoCopy,
+}: ChatHeaderProps) {
   return (
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
@@ -26,8 +33,14 @@ export function ChatHeader({ onBack, onOpenCalendar }: ChatHeaderProps) {
         <Text style={styles.calendarText}>📅</Text>
       </Pressable>
 
-      <Pressable style={styles.moreButton} hitSlop={8}>
-        <Text style={styles.moreText}>•••</Text>
+      <Pressable
+        style={[styles.autoCopyButton, autoCopyEnabled && styles.autoCopyButtonActive]}
+        hitSlop={8}
+        onPress={onToggleAutoCopy}
+      >
+        <Text style={[styles.autoCopyText, autoCopyEnabled && styles.autoCopyTextActive]}>
+          {autoCopyEnabled ? "复制开" : "复制关"}
+        </Text>
       </Pressable>
     </View>
   );
@@ -93,14 +106,27 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 22,
   },
-  moreButton: {
-    width: 34,
+  autoCopyButton: {
+    minWidth: 58,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: "#E4E6EC",
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 8,
+    backgroundColor: "#FFFFFF",
   },
-  moreText: {
-    fontSize: 20,
-    color: "#111111",
-    letterSpacing: 1,
+  autoCopyButtonActive: {
+    borderColor: "#DCD8FF",
+    backgroundColor: "#F5F3FF",
+  },
+  autoCopyText: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontWeight: "700",
+  },
+  autoCopyTextActive: {
+    color: "#5B57E8",
   },
 });

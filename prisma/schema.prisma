@@ -12,12 +12,14 @@ model User {
   nickname       String?
   avatarUrl      String?
   status         UserStatus         @default(active)
+  role           UserRole           @default(user)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   authIdentities UserAuthIdentity[]
   conversations  Conversation[]
   messages       Message[]
   entitlements   Entitlement[]
+  subscriptions  Subscription[]
 
   @@map("users")
 }
@@ -107,6 +109,23 @@ model Entitlement {
   @@map("entitlements")
 }
 
+model Subscription {
+  id            String             @id @default(cuid())
+  userId        String
+  plan          SubscriptionPlan
+  status        SubscriptionStatus
+  startedAt     DateTime
+  expiresAt     DateTime
+  sourceOrderId String?            @unique
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, expiresAt])
+  @@map("subscriptions")
+}
+
 model AiRequestLog {
   id             String             @id @default(cuid())
   requestId      String
@@ -132,7 +151,7 @@ model AiRequestLog {
 model PaymentOrder {
   id              String             @id @default(cuid())
   userId          String
-  module          String
+  productCode     String
   sourceKey       String?
   provider        String
   providerOrderId String             @unique
@@ -144,7 +163,7 @@ model PaymentOrder {
   updatedAt       DateTime           @updatedAt
 
   @@index([userId, createdAt])
-  @@index([module, sourceKey])
+  @@index([productCode, sourceKey])
   @@index([status, createdAt])
   @@map("payment_orders")
 }
@@ -167,13 +186,37 @@ model PaymentEvent {
   @@map("payment_events")
 }
 
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  adminId     String
+  action      String
+  targetType  String
+  targetId    String?
+  requestId   String?
+  ip          String?
+  beforeData  Json?
+  afterData   Json?
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([adminId, createdAt])
+  @@map("admin_audit_logs")
+}
+
 enum UserStatus {
   active
   disabled
 }
 
+enum UserRole {
+  user
+  admin
+}
+
 enum AuthProvider {
-  wechat
+  authing
 }
 
 enum ContactKind {
@@ -212,4 +255,14 @@ enum PaymentEventStatus {
   processed
   ignored
   failed
+}
+
+enum SubscriptionPlan {
+  pro_monthly
+}
+
+enum SubscriptionStatus {
+  active
+  expired
+  cancelled
 }

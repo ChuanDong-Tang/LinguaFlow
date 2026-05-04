@@ -2,6 +2,16 @@
   "name": "@lf/server-next",
   "private": true,
   "type": "module",
+  "exports": {
+    "./*.js": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
+  },
   "scripts": {
     "dev:worker": "node worker.dev.mjs"
   }
