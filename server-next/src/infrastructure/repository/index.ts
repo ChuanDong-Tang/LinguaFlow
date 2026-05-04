@@ -6,3 +6,4 @@ export * from "./PrismaMessageRepository.js";
 export * from "./PrismaSubscriptionRepository.js";
 export * from "./PrismaPaymentOrderRepository.js";
 export * from "./PrismaPaymentEventRepository.js";
+export * from "./PrismaSystemEventLogRepository.js";

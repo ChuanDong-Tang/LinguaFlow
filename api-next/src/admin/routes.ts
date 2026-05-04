@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { requireAdmin } from "../auth/adminAuth.js";
 import { resolveRequestId } from "../lib/httpResult.js";
+import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 
 export interface AdminRouteDeps {
   prisma: {
@@ -30,11 +31,12 @@ export interface AdminRouteDeps {
     $executeRawUnsafe: (query: string, ...values: unknown[]) => Promise<number>;
     $queryRawUnsafe: (query: string, ...values: unknown[]) => Promise<any[]>;
   };
+  systemEventLogRepository?: SystemEventLogWriter;
 }
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps): void {
   app.get("/admin/users", async (req, reply) => {
-    const admin = await requireAdmin(req, reply, deps.prisma.user);
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -67,7 +69,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
   });
 
   app.get("/admin/orders", async (req, reply) => {
-    const admin = await requireAdmin(req, reply, deps.prisma.user);
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -98,7 +100,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
   });
 
   app.get("/admin/users/:id/overview", async (req, reply) => {
-    const admin = await requireAdmin(req, reply, deps.prisma.user);
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -140,7 +142,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
   });
 
   app.get("/admin/subscriptions", async (req, reply) => {
-    const admin = await requireAdmin(req, reply, deps.prisma.user);
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -171,7 +173,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
   });
 
   app.post("/admin/orders/:id/manual-refund-note", async (req, reply) => {
-    const admin = await requireAdmin(req, reply, deps.prisma.user);
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -225,7 +227,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
   });
 
   app.post("/admin/subscriptions/:id/manual-adjust", async (req, reply) => {
-    const admin = await requireAdmin(req, reply, deps.prisma.user);
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -293,7 +295,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
   });
 
   app.get("/admin/audit-logs", async (req, reply) => {
-    const admin = await requireAdmin(req, reply, deps.prisma.user);
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -327,7 +329,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
   });
 
   app.get("/admin/ops/alerts", async (req, reply) => {
-    const admin = await requireAdmin(req, reply, deps.prisma.user);
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);

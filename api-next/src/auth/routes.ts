@@ -3,6 +3,8 @@ import type { AuthingLoginResponse, LoginCredential, LoginResponse, RefreshToken
 import { isAuthingLoginBody, isLoginRequest, isRefreshTokenBody } from "./validators.js";
 import { isAllowedMockUserId, isMockAuthEnabled } from "./userContext.js";
 import { signAccessToken, signRefreshToken } from "@lf/server-next/services/auth/JwtSessionToken.js";
+import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
+import { writeSystemEventLog } from "../lib/systemEventLog.js";
 
 
 export interface AuthRouteDeps {
@@ -24,6 +26,7 @@ export interface AuthRouteDeps {
       status?: "active" | "disabled";
     }) => Promise<void>;
   };
+  systemEventLogRepository?: SystemEventLogWriter;
 }
 
 /** 注册认证相关路由 */
@@ -33,6 +36,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     const body = req.body as unknown;
 
     if (!isMockAuthEnabled()) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "auth",
+        event: "auth.mock_login.disabled",
+        level: "warn",
+        status: "failed",
+        errorCode: "MOCK_AUTH_DISABLED",
+      });
       return reply.status(403).send({
         ok: false,
         error: { code: "MOCK_AUTH_DISABLED", message: "Mock auth is disabled" },
@@ -40,6 +50,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     }
 
     if (!isLoginRequest(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "auth",
+        event: "auth.mock_login.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "REQUEST_INVALID",
+      });
       return reply.status(400).send({
         ok: false,
         error: { code: "REQUEST_INVALID", message: "Invalid login payload" },
@@ -75,6 +92,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     const body = req.body as unknown;
 
     if (!isAuthingLoginBody(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "auth",
+        event: "auth.authing_login.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "REQUEST_INVALID",
+      });
       return reply.status(400).send({
         ok: false,
         error: { code: "REQUEST_INVALID", message: "Invalid authing login payload" },
@@ -88,6 +112,14 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unauthorized";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "auth",
+        event: "auth.authing_login.failed",
+        level: "warn",
+        status: "failed",
+        errorCode: "AUTH_INVALID",
+        errorMessage: message,
+      });
       return reply.status(401).send({
         ok: false,
         error: { code: "AUTH_INVALID", message },
@@ -104,6 +136,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     const body = req.body as unknown;
 
     if (!isRefreshTokenBody(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "auth",
+        event: "auth.refresh.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "REQUEST_INVALID",
+      });
       return reply.status(400).send({
         ok: false,
         error: { code: "REQUEST_INVALID", message: "Invalid refresh token payload" },
@@ -120,6 +159,14 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unauthorized";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "auth",
+        event: "auth.refresh.failed",
+        level: "warn",
+        status: "failed",
+        errorCode: "AUTH_INVALID",
+        errorMessage: message,
+      });
       return reply.status(401).send({
         ok: false,
         error: { code: "AUTH_INVALID", message },

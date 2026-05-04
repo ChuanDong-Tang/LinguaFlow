@@ -9,10 +9,13 @@ import type { PaymentNotifyService } from "@lf/server-next/services/payment/Paym
 import { checkWeChatPayConfig } from "@lf/server-next/providers/payment/wechat/WeChatPayConfig.js";
 import { resolveUserContext, UnauthorizedError } from "../auth/userContext.js";
 import { resolveRequestId } from "../lib/httpResult.js";
+import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
+import { writeSystemEventLog } from "../lib/systemEventLog.js";
 
 export interface PaymentRouteDeps {
   paymentOrderService: PaymentOrderService;
   paymentNotifyService: PaymentNotifyService;
+  systemEventLogRepository?: SystemEventLogWriter;
 }
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
@@ -43,6 +46,14 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     reply.header("x-request-id", requestId);
 
     if (!isCreatePaymentOrderRequest(req.body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.orders.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "VALIDATION_FAILED",
+      });
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
@@ -50,7 +61,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       });
     }
 
-    const userContext = resolvePaymentUserContext(req, reply, requestId);
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
     if (!userContext) return;
 
     try {
@@ -60,6 +71,16 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Payment order failed";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.orders.create_failed",
+        level: "error",
+        status: "failed",
+        errorCode: "PAYMENT_FAILED",
+        errorMessage: message,
+      });
       return reply.status(502).send({
         ok: false,
         request_id: requestId,
@@ -75,6 +96,14 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     const id = params.id?.trim();
 
     if (!id) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.orders.missing_id",
+        level: "warn",
+        status: "failed",
+        errorCode: "VALIDATION_FAILED",
+      });
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
@@ -82,7 +111,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       });
     }
 
-    const userContext = resolvePaymentUserContext(req, reply, requestId);
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
     if (!userContext) return;
 
     try {
@@ -96,6 +125,17 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         error instanceof PaymentOrderNotFoundError ||
         error instanceof PaymentOrderAccessDeniedError
       ) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.orders.query_failed",
+          level: "warn",
+          status: "failed",
+          errorCode: "RESOURCE_NOT_FOUND",
+          errorMessage: error.message,
+          metadata: { orderId: id },
+        });
         return reply.status(404).send({
           ok: false,
           request_id: requestId,
@@ -112,6 +152,14 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     const rawBody = body?.__rawBody;
 
     if (!rawBody) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "payment",
+        event: "payment.notify.missing_raw_body",
+        level: "warn",
+        status: "failed",
+        errorCode: "PAYMENT_NOTIFY_INVALID",
+        metadata: { path: "/payment/wechat/notify" },
+      });
       return reply.status(400).send({ code: "FAIL", message: "Missing raw body" });
     }
 
@@ -128,7 +176,17 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
 
       return reply.status(200).send({ code: "SUCCESS", message: "成功" });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "WeChat payment notify failed";
       req.log.error({ error }, "wechat payment notify failed");
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "payment",
+        event: "payment.notify.failed",
+        level: "error",
+        status: "failed",
+        errorCode: "PAYMENT_NOTIFY_FAILED",
+        errorMessage: message,
+        metadata: { path: "/payment/wechat/notify" },
+      });
       return reply.status(500).send({ code: "FAIL", message: "失败" });
     }
   });
@@ -138,6 +196,14 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     const rawBody = body?.__rawBody;
 
     if (!rawBody) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "payment",
+        event: "payment.refund_notify.missing_raw_body",
+        level: "warn",
+        status: "failed",
+        errorCode: "PAYMENT_NOTIFY_INVALID",
+        metadata: { path: "/payment/wechat/refund-notify" },
+      });
       return reply.status(400).send({ code: "FAIL", message: "Missing raw body" });
     }
 
@@ -154,7 +220,17 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
 
       return reply.status(200).send({ code: "SUCCESS", message: "成功" });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "WeChat refund notify failed";
       req.log.error({ error }, "wechat refund notify failed");
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        module: "payment",
+        event: "payment.refund_notify.failed",
+        level: "error",
+        status: "failed",
+        errorCode: "PAYMENT_NOTIFY_FAILED",
+        errorMessage: message,
+        metadata: { path: "/payment/wechat/refund-notify" },
+      });
       return reply.status(500).send({ code: "FAIL", message: "失败" });
     }
   });
@@ -163,7 +239,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
 function resolvePaymentUserContext(
   req: FastifyRequest,
   reply: FastifyReply,
-  requestId: string
+  requestId: string,
+  deps: PaymentRouteDeps
 ) {
   try {
     return resolveUserContext({
@@ -172,6 +249,15 @@ function resolvePaymentUserContext(
     });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
+      void writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.auth.unauthorized",
+        level: "warn",
+        status: "failed",
+        errorCode: "AUTH_UNAUTHORIZED",
+        errorMessage: error.message,
+      });
       void reply.status(401).send({
         ok: false,
         request_id: requestId,

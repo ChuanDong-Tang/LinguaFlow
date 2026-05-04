@@ -205,6 +205,27 @@ model AdminAuditLog {
   @@map("admin_audit_logs")
 }
 
+model SystemEventLog {
+  id           String                 @id @default(cuid())
+  requestId    String?
+  userId       String?
+  module       String
+  event        String
+  level        SystemEventLogLevel
+  status       SystemEventLogStatus
+  errorCode    String?
+  errorMessage String?
+  metadata     Json?
+  createdAt    DateTime               @default(now())
+
+  @@index([requestId])
+  @@index([userId, createdAt])
+  @@index([module, event, createdAt])
+  @@index([level, createdAt])
+  @@index([status, createdAt])
+  @@map("system_event_logs")
+}
+
 enum UserStatus {
   active
   disabled
@@ -265,4 +286,16 @@ enum SubscriptionStatus {
   active
   expired
   cancelled
+}
+
+enum SystemEventLogLevel {
+  info
+  warn
+  error
+}
+
+enum SystemEventLogStatus {
+  success
+  failed
+  ignored
 }

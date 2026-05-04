@@ -26,6 +26,7 @@ import { PaymentOrderService } from "@lf/server-next/services/payment/PaymentOrd
 import { PaymentNotifyService } from "@lf/server-next/services/payment/PaymentNotifyService.js";
 import { WeChatPaymentProvider } from "@lf/server-next/providers/payment/WeChatPaymentProvider.js";
 import { PrismaAiRequestLogRepository } from "@lf/server-next/infrastructure/repository/PrismaAiRequestLogRepository.js";
+import { PrismaSystemEventLogRepository } from "@lf/server-next/infrastructure/repository/PrismaSystemEventLogRepository.js";
 import {
   InMemoryRewriteRateLimiter,
   RedisRewriteRateLimiter,
@@ -75,6 +76,7 @@ export function createApp() {
   const entitlementService = new EntitlementService(entitlementRepository, subscriptionService);
   const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
   const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
+  const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
   const paymentProvider = new WeChatPaymentProvider();
   const paymentOrderService = new PaymentOrderService(paymentOrderRepository, paymentProvider);
   const paymentNotifyService = new PaymentNotifyService(
@@ -97,6 +99,7 @@ export function createApp() {
     authProvider,
     authLoginService,
     userRepository,
+    systemEventLogRepository,
   });
   registerChatRoutes(app, {
     chatMessageService,
@@ -109,8 +112,9 @@ export function createApp() {
   registerPaymentRoutes(app, {
     paymentOrderService,
     paymentNotifyService,
+    systemEventLogRepository,
   });
-  registerAdminRoutes(app, { prisma });
+  registerAdminRoutes(app, { prisma, systemEventLogRepository });
 
   app.get("/health", async (_req, reply) => {
     const db = await prisma
