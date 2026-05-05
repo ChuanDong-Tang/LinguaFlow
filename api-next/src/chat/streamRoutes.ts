@@ -2,7 +2,13 @@ import type { FastifyInstance } from "fastify";
 import type { RewriteStreamEvent, RewriteStreamRequestBody } from "@lf/core/contracts/chatStream.js";
 import type { AbortSignalLike } from "@lf/core/ports/ai/AIProvider.js";
 import { resolveRequestId } from "../lib/httpResult.js";
-import { resolveUserContext, UnauthorizedError } from "../auth/userContext.js";
+import {
+  AccountDisabledError,
+  resolveActiveUserContext,
+  UnauthorizedError,
+} from "../auth/userContext.js";
+import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
+import { writeSystemEventLog } from "../lib/systemEventLog.js";
 
 export interface ChatStreamRouteDeps {
   rewriteService: {
@@ -11,6 +17,13 @@ export interface ChatStreamRouteDeps {
       onEvent: (event: RewriteStreamEvent) => Promise<void> | void
     ) => Promise<void>;
   };
+  userRepository: {
+    findById: (userId: string) => Promise<{
+      id: string;
+      status: "active" | "disabled";
+    } | null>;
+  };
+  systemEventLogRepository?: SystemEventLogWriter;
 }
 
 function isRewriteStreamBody(value: unknown): value is RewriteStreamRequestBody {
@@ -47,13 +60,29 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
 
     let userContext;
     try {
-      userContext = resolveUserContext({
+      userContext = await resolveActiveUserContext({
         authorization: req.headers.authorization,
-        bodyUserId: body.userId,
+        userRepository: deps.userRepository,
       });
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return reply.status(401).send({
+          ok: false,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: body.userId,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/rewrite/stream" },
+        });
+        return reply.status(403).send({
           ok: false,
           error: { code: error.code, message: error.message },
         });

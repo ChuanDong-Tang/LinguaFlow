@@ -3,6 +3,7 @@ import type {
   AuthingLoginResponse,
   LoginCredential,
   LoginResponse,
+  LogoutRequestBody,
   RefreshTokenRequestBody,
   RefreshTokenResponse,
 } from "../../../../packages/core/src/contracts/auth";
@@ -101,4 +102,17 @@ export async function refreshAccessToken(input: RefreshTokenRequestBody): Promis
     throw new Error(apiResult.error.message);
   }
   return apiResult.data;
+}
+
+export async function logout(input: LogoutRequestBody): Promise<void> {
+  const res = await fetch(`${BASE_URL}/auth/logout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  const apiResult = (await res.json()) as ApiResult<{ ok: true }>;
+  if (!apiResult.ok) {
+    throw new Error(apiResult.error.message);
+  }
 }

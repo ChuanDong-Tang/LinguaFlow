@@ -46,3 +46,11 @@ export interface RefreshTokenResponse {
   accessToken: string;
   refreshToken: string;
 }
+
+export interface LogoutRequestBody {
+  refreshToken: string;
+}
+
+export interface LogoutResponse {
+  ok: true;
+}

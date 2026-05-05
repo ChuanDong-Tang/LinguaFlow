@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
 import { MockAuthProvider } from "@lf/core/ports/auth/MockAuthProvider.js";
 import { PrismaUserRepository } from "@lf/server-next/infrastructure/repository/PrismaUserRepository.js";
+import { PrismaUserSessionRepository } from "@lf/server-next/infrastructure/repository/PrismaUserSessionRepository.js";
 import { AuthLoginService } from "@lf/server-next/services/auth/AuthLoginService.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
@@ -54,7 +55,8 @@ export function createApp() {
 
   const authProvider = new MockAuthProvider();
   const userRepository = new PrismaUserRepository(prisma);
-  const authLoginService = new AuthLoginService(userRepository);
+  const userSessionRepository = new PrismaUserSessionRepository(prisma);
+  const authLoginService = new AuthLoginService(userRepository, userSessionRepository);
   const aiProvider = new DeepSeekAIProvider({
     apiKey: process.env.DEEPSEEK_API_KEY ?? "",
     baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
@@ -94,7 +96,11 @@ export function createApp() {
     rewriteRateLimiter
   );
 
-  registerChatStreamRoutes(app, { rewriteService });
+  registerChatStreamRoutes(app, {
+    rewriteService,
+    userRepository,
+    systemEventLogRepository,
+  });
   registerAuthRoutes(app, {
     authProvider,
     authLoginService,
@@ -104,14 +110,18 @@ export function createApp() {
   registerChatRoutes(app, {
     chatMessageService,
     userRepository,
+    systemEventLogRepository,
   });
   registerMeRoutes(app, {
     subscriptionService,
     entitlementService,
+    userRepository,
+    systemEventLogRepository,
   });
   registerPaymentRoutes(app, {
     paymentOrderService,
     paymentNotifyService,
+    userRepository,
     systemEventLogRepository,
   });
   registerAdminRoutes(app, { prisma, systemEventLogRepository });

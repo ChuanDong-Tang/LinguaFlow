@@ -4,7 +4,13 @@ import {
   type ChatMessageService,
 } from "@lf/server-next/services/chat/ChatMessageService.js";
 import { resolveRequestId } from "../lib/httpResult.js";
-import { resolveUserContext, UnauthorizedError } from "../auth/userContext.js";
+import {
+  AccountDisabledError,
+  resolveActiveUserContext,
+  UnauthorizedError,
+} from "../auth/userContext.js";
+import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
+import { writeSystemEventLog } from "../lib/systemEventLog.js";
 
 type SendMessageBody = {
   userId: string;
@@ -27,7 +33,10 @@ type ListMessagesRangeQuery = {
 export interface ChatRouteDeps {
   chatMessageService: ChatMessageService;
   userRepository: {
-    findById: (userId: string) => Promise<{ id: string } | null>;
+    findById: (userId: string) => Promise<{
+      id: string;
+      status: "active" | "disabled";
+    } | null>;
     ensureUserExists: (input: {
       id: string;
       nickname?: string | null;
@@ -35,6 +44,7 @@ export interface ChatRouteDeps {
       status?: "active" | "disabled";
     }) => Promise<void>;
   };
+  systemEventLogRepository?: SystemEventLogWriter;
 }
 
 function isSendMessageBody(value: unknown): value is SendMessageBody {
@@ -71,13 +81,30 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
 
     let userContext;
     try {
-      userContext = resolveUserContext({
+      userContext = await resolveActiveUserContext({
         authorization: req.headers.authorization,
-        bodyUserId: body.userId,
+        userRepository: deps.userRepository,
       });
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: body.userId,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/messages" },
+        });
+        return reply.status(403).send({
           ok: false,
           request_id: requestId,
           error: { code: error.code, message: error.message },
@@ -92,15 +119,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       { requestId, userId: userContext.userId, source: userContext.source, exists: !!user },
       "user exists before conversation.create"
     );
-
-    if (!user) {
-      await deps.userRepository.ensureUserExists({
-        id: userContext.userId,
-        nickname: userContext.source === "mock" ? "Mock User" : null,
-        avatarUrl: null,
-        status: "active",
-      });
-    }
 
     const data = await deps.chatMessageService.sendUserMessage({
       userId: userContext.userId,
@@ -129,13 +147,30 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
 
     let userContext;
     try {
-      userContext = resolveUserContext({
+      userContext = await resolveActiveUserContext({
         authorization: req.headers.authorization,
-        bodyUserId: query.userId,
+        userRepository: deps.userRepository,
       });
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: query.userId ?? null,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/messages" },
+        });
+        return reply.status(403).send({
           ok: false,
           request_id: requestId,
           error: { code: error.code, message: error.message },
@@ -181,13 +216,30 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
 
     let userContext;
     try {
-      userContext = resolveUserContext({
+      userContext = await resolveActiveUserContext({
         authorization: req.headers.authorization,
-        bodyUserId: query.userId,
+        userRepository: deps.userRepository,
       });
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: query.userId ?? null,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/messages/range" },
+        });
+        return reply.status(403).send({
           ok: false,
           request_id: requestId,
           error: { code: error.code, message: error.message },

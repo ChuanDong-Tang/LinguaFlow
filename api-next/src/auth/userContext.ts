@@ -2,13 +2,28 @@ import { verifySessionToken } from "@lf/server-next/services/auth/JwtSessionToke
 
 export type UserContext = {
   userId: string;
-  source: "mock" | "auth";
+  source: "auth";
 };
+
+export interface UserStatusLookup {
+  findById: (userId: string) => Promise<{
+    id: string;
+    status: "active" | "disabled";
+  } | null>;
+}
 
 export class UnauthorizedError extends Error {
   readonly code = "UNAUTHORIZED";
 
   constructor(message = "Unauthorized") {
+    super(message);
+  }
+}
+
+export class AccountDisabledError extends Error {
+  readonly code = "ACCOUNT_DISABLED";
+
+  constructor(message = "Account is disabled") {
     super(message);
   }
 }
@@ -30,9 +45,6 @@ export function isAllowedMockUserId(userId: string): boolean {
 
 export function resolveUserContext(input: {
   authorization?: string;
-  bodyUserId?: string;
-  mockUserId?: string;
-  allowMockFallback?: boolean;
 }): UserContext {
   if (input.authorization) {
     const token = resolveBearerToken(input.authorization);
@@ -47,18 +59,25 @@ export function resolveUserContext(input: {
     };
   }
 
-  const userId = (input.bodyUserId ?? input.mockUserId)?.trim();
-  const allowMockFallback = input.allowMockFallback ?? isMockAuthEnabled();
-  const isAllowedMockUser = userId ? isAllowedMockUserId(userId) : false;
+  throw new UnauthorizedError();
+}
 
-  if (allowMockFallback && isAllowedMockUser && userId) {
-    return {
-      userId,
-      source: "mock",
-    };
+export async function resolveActiveUserContext(input: {
+  authorization?: string;
+  userRepository: UserStatusLookup;
+}): Promise<UserContext> {
+  const context = resolveUserContext(input);
+  const user = await input.userRepository.findById(context.userId);
+
+  if (user?.status === "disabled") {
+    throw new AccountDisabledError();
   }
 
-  throw new UnauthorizedError();
+  if (!user && context.source === "auth") {
+    throw new UnauthorizedError("Account not found");
+  }
+
+  return context;
 }
 
 function resolveBearerToken(authorization: string): string | null {

@@ -1,12 +1,25 @@
 import type { FastifyInstance } from "fastify";
 import type { EntitlementService } from "@lf/server-next/services/entitlement/EntitlementService.js";
 import type { SubscriptionService } from "@lf/server-next/services/subscription/SubscriptionService.js";
-import { resolveUserContext, UnauthorizedError } from "../auth/userContext.js";
+import {
+  AccountDisabledError,
+  resolveActiveUserContext,
+  UnauthorizedError,
+} from "../auth/userContext.js";
 import { resolveRequestId } from "../lib/httpResult.js";
+import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
+import { writeSystemEventLog } from "../lib/systemEventLog.js";
 
 export interface MeRouteDeps {
   subscriptionService: SubscriptionService;
   entitlementService: EntitlementService;
+  userRepository: {
+    findById: (userId: string) => Promise<{
+      id: string;
+      status: "active" | "disabled";
+    } | null>;
+  };
+  systemEventLogRepository?: SystemEventLogWriter;
 }
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
@@ -20,13 +33,29 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
 
     let userContext;
     try {
-      userContext = resolveUserContext({
+      userContext = await resolveActiveUserContext({
         authorization: req.headers.authorization,
-        mockUserId: firstHeaderValue(req.headers["x-lf-mock-user-id"]),
+        userRepository: deps.userRepository,
       });
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/me/subscription" },
+        });
+        return reply.status(403).send({
           ok: false,
           request_id: requestId,
           error: { code: error.code, message: error.message },
@@ -59,13 +88,29 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
 
     let userContext;
     try {
-      userContext = resolveUserContext({
+      userContext = await resolveActiveUserContext({
         authorization: req.headers.authorization,
-        mockUserId: firstHeaderValue(req.headers["x-lf-mock-user-id"]),
+        userRepository: deps.userRepository,
       });
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/me/entitlement" },
+        });
+        return reply.status(403).send({
           ok: false,
           request_id: requestId,
           error: { code: error.code, message: error.message },

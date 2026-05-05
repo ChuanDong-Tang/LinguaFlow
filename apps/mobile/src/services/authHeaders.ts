@@ -14,9 +14,7 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
     };
   }
 
-  return {
-    "x-lf-mock-user-id": "mock_user_001",
-  };
+  return {};
 }
 
 async function ensureFreshSession(): Promise<void> {

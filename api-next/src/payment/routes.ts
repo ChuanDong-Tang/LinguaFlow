@@ -7,7 +7,11 @@ import {
 } from "@lf/server-next/services/payment/PaymentOrderService.js";
 import type { PaymentNotifyService } from "@lf/server-next/services/payment/PaymentNotifyService.js";
 import { checkWeChatPayConfig } from "@lf/server-next/providers/payment/wechat/WeChatPayConfig.js";
-import { resolveUserContext, UnauthorizedError } from "../auth/userContext.js";
+import {
+  AccountDisabledError,
+  resolveActiveUserContext,
+  UnauthorizedError,
+} from "../auth/userContext.js";
 import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
@@ -15,6 +19,12 @@ import { writeSystemEventLog } from "../lib/systemEventLog.js";
 export interface PaymentRouteDeps {
   paymentOrderService: PaymentOrderService;
   paymentNotifyService: PaymentNotifyService;
+  userRepository: {
+    findById: (userId: string) => Promise<{
+      id: string;
+      status: "active" | "disabled";
+    } | null>;
+  };
   systemEventLogRepository?: SystemEventLogWriter;
 }
 
@@ -236,20 +246,20 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
   });
 }
 
-function resolvePaymentUserContext(
+async function resolvePaymentUserContext(
   req: FastifyRequest,
   reply: FastifyReply,
   requestId: string,
   deps: PaymentRouteDeps
 ) {
   try {
-    return resolveUserContext({
+    return await resolveActiveUserContext({
       authorization: req.headers.authorization,
-      mockUserId: firstHeaderValue(req.headers["x-lf-mock-user-id"]),
+      userRepository: deps.userRepository,
     });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
-      void writeSystemEventLog(deps.systemEventLogRepository, {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
         module: "payment",
         event: "payment.auth.unauthorized",
@@ -262,6 +272,23 @@ function resolvePaymentUserContext(
         ok: false,
         request_id: requestId,
         error: { code: "AUTH_UNAUTHORIZED", message: error.message },
+      });
+      return null;
+    }
+    if (error instanceof AccountDisabledError) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.account_disabled",
+        level: "warn",
+        status: "failed",
+        errorCode: "ACCOUNT_DISABLED",
+        metadata: { path: req.url },
+      });
+      void reply.status(403).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: error.code, message: error.message },
       });
       return null;
     }

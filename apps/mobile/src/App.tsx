@@ -4,6 +4,7 @@ import { SplashGateScreen } from "./screens/SplashGateScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { initI18n } from "./i18n";
 import { clearSession, getSession } from "./services/authStorage";
+import { logout } from "./services/authApi";
 import { HomeScreen } from "./screens/HomeScreen";
 import { ChatScreen } from "./screens/ChatScreen";
 
@@ -98,6 +99,14 @@ useEffect(() => {
       <HomeScreen
         onOpenChat={() => setScreen("chat")}
         onLogout={async () => {
+          const session = await getSession();
+          if (session?.refreshToken) {
+            try {
+              await logout({ refreshToken: session.refreshToken });
+            } catch {
+              // 本地退出不能被网络失败阻塞。
+            }
+          }
           await clearSession();
           setScreen("login");
         }}

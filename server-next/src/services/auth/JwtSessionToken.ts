@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export interface SessionTokenPayload {
   sub: string;
+  sid?: string;
   iat: number;
   exp: number;
   typ: "access" | "refresh";
@@ -14,8 +15,16 @@ export function signAccessToken(userId: string): string {
   return signTypedToken(userId, "access", getAccessTokenTtlSeconds());
 }
 
+export function signAccessTokenWithSession(userId: string, sessionId: string): string {
+  return signTypedToken(userId, "access", getAccessTokenTtlSeconds(), sessionId);
+}
+
 export function signRefreshToken(userId: string): string {
   return signTypedToken(userId, "refresh", getRefreshTokenTtlSeconds());
+}
+
+export function signRefreshTokenWithSession(userId: string, sessionId: string): string {
+  return signTypedToken(userId, "refresh", getRefreshTokenTtlSeconds(), sessionId);
 }
 
 export function signSessionToken(userId: string): string {
@@ -25,7 +34,8 @@ export function signSessionToken(userId: string): string {
 function signTypedToken(
   userId: string,
   typ: "access" | "refresh",
-  ttlSeconds: number
+  ttlSeconds: number,
+  sessionId?: string
 ): string {
   const secret = getJwtSecret();
   const now = Math.floor(Date.now() / 1000);
@@ -33,6 +43,7 @@ function signTypedToken(
   const payload = base64UrlEncode(
     JSON.stringify({
       sub: userId,
+      ...(sessionId ? { sid: sessionId } : {}),
       typ,
       iat: now,
       exp: now + ttlSeconds,
@@ -72,10 +83,12 @@ function verifyTypedToken(token: string, expectedType: "access" | "refresh"): Se
     if (typeof decoded.iat !== "number") return null;
     if (typeof decoded.exp !== "number") return null;
     if (decoded.typ !== expectedType) return null;
+    if (decoded.sid !== undefined && typeof decoded.sid !== "string") return null;
     const now = Math.floor(Date.now() / 1000);
     if (decoded.exp <= now) return null;
     return {
       sub: decoded.sub,
+      ...(typeof decoded.sid === "string" ? { sid: decoded.sid } : {}),
       iat: decoded.iat,
       exp: decoded.exp,
       typ: decoded.typ,
