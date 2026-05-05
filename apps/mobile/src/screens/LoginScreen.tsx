@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import { Animated, Image, Linking, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { t } from "../i18n";
@@ -13,8 +12,10 @@ import {
   getAuthingRedirectUri,
   isAuthingConfigured,
 } from "../services/authingAuth";
-import { setSession } from "../services/authStorage";
+import { clearForceAuthingLogin, setSession, shouldForceAuthingLogin } from "../services/authStorage";
 import { logEvent } from "../services/logger";
+import { getCurrentEntitlement } from "../services/meApi";
+import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import type { User } from "@lf/core/types";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -24,13 +25,11 @@ type LoginScreenProps = {
   onLoginSuccess: () => void;
 };
 
-const TERMS_URL = "https://example.com/terms";
-const PRIVACY_URL = "https://example.com/privacy";
-
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const [forceAuthingLogin, setForceAuthingLogin] = useState(false);
   const enterOpacity = useRef(new Animated.Value(0)).current;
   const enterTranslateY = useRef(new Animated.Value(14)).current;
   const agreementShake = useRef(new Animated.Value(0)).current;
@@ -45,12 +44,16 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       responseType: AuthSession.ResponseType.Code,
       scopes: ["openid", "profile", "offline_access"],
       usePKCE: true,
+      prompt: forceAuthingLogin ? AuthSession.Prompt.Login : undefined,
     },
     authingDiscovery
   );
-  const authingReady = authingConfigured && Boolean(authingRequest);
-
   useEffect(() => {
+    let mounted = true;
+    void shouldForceAuthingLogin().then((value) => {
+      if (mounted) setForceAuthingLogin(value);
+    });
+
     //console.log("[authing] redirectUri =", authingRedirectUri);
 
     Animated.parallel([
@@ -65,9 +68,12 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         useNativeDriver: true,
       }),
     ]).start();
+    return () => {
+      mounted = false;
+    };
   }, [enterOpacity, enterTranslateY]);
 
-  async function handleMockLogin() {
+  async function handlePrimaryLogin() {
     if (loading) return;
     if (!agreed) {
       shakeAgreement();
@@ -78,89 +84,93 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setStatusText("");
 
     try {
-      // 先用 mock 请求体跑通流程；后续接真微信时替换 wechatCode 来源
+      if (authingConfigured) {
+        if (!authingRequest || !authingDiscovery) {
+          setStatusText("Authing 登录尚未准备好，请稍后重试");
+          return;
+        }
+
+        const result = await promptAuthingAsync();
+        if (result.type !== "success") {
+          setStatusText("已取消登录");
+          return;
+        }
+
+        const code = result.params.code;
+        const tokenResult = await AuthSession.exchangeCodeAsync(
+          {
+            clientId: authingClientId,
+            code,
+            redirectUri: authingRedirectUri,
+            extraParams: {
+              code_verifier: authingRequest.codeVerifier ?? "",
+            },
+          },
+          authingDiscovery
+        );
+
+        const backendSession = await loginWithAuthing({
+          authingToken: tokenResult.accessToken,
+        });
+        const localSession = {
+          accessToken: backendSession.accessToken,
+          refreshToken: backendSession.refreshToken,
+          user: toSessionUser(backendSession.user),
+          sessionFlags: {
+            isPro: false,
+          },
+        };
+        await setSession(localSession);
+
+        const entitlement = await getCurrentEntitlement().catch(() => null);
+        if (entitlement) {
+          await setSession({
+            ...localSession,
+            sessionFlags: {
+              isPro: entitlement.isPro,
+            },
+          });
+        }
+
+        await logEvent("authing_login_ui_success", "info", undefined, {
+          userId: backendSession.user.id,
+        });
+        await clearForceAuthingLogin();
+        onLoginSuccess();
+        return;
+      }
+
       const result = await login({
         type: "wechat_code",
-        wechatCode: "mock_wechat_code"
+        wechatCode: "mock_wechat_code",
       });
-
-      // 保存本地会话，供 App 启动自动登录读取
-      await setSession({
+      const localSession = {
         accessToken: result.token,
         refreshToken: result.refreshToken,
         user: result.user,
-        sessionFlags: result.sessionFlags,
-      });
+        sessionFlags: {
+          isPro: result.sessionFlags?.isPro ?? false,
+        },
+      };
+      await setSession(localSession);
+
+      const entitlement = await getCurrentEntitlement().catch(() => null);
+      if (entitlement) {
+        await setSession({
+          ...localSession,
+          sessionFlags: {
+            isPro: entitlement.isPro,
+          },
+        });
+      }
 
       await logEvent("login_ui_success", "info", undefined, { userId: result.user.id });
+      await clearForceAuthingLogin();
       onLoginSuccess();
     } catch (err) {
       const message = normalizeLoginError(err, t("auth.login.failed"));
       setStatusText(message);
       await logEvent("login_ui_failed", "warn", err instanceof Error ? err.message : message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleAuthingLogin() {
-    if (loading) return;
-    if (!agreed) {
-      shakeAgreement();
-      return;
-    }
-
-    if (!authingConfigured) {
-      setStatusText("Authing 登录未配置，本地请使用 Mock 测试登录");
-      return;
-    }
-
-    if (!authingRequest || !authingDiscovery) {
-      setStatusText("Authing 登录尚未准备好，请稍后重试");
-      return;
-    }
-
-    setLoading(true);
-    setStatusText("");
-
-    try {
-      const result = await promptAuthingAsync();
-      if (result.type !== "success") {
-        setStatusText("已取消登录");
-        return;
-      }
-
-      const code = result.params.code;
-      const tokenResult = await AuthSession.exchangeCodeAsync(
-        {
-          clientId: authingClientId,
-          code,
-          redirectUri: authingRedirectUri,
-          extraParams: {
-            code_verifier: authingRequest.codeVerifier ?? "",
-          },
-        },
-        authingDiscovery
-      );
-
-      const backendSession = await loginWithAuthing({
-        authingToken: tokenResult.accessToken,
-      });
-
-      await setSession({
-        accessToken: backendSession.accessToken,
-        refreshToken: backendSession.refreshToken,
-        user: toSessionUser(backendSession.user),
-      });
-
-      await logEvent("authing_login_ui_success", "info", undefined, {
-        userId: backendSession.user.id,
-      });
-      onLoginSuccess();
-    } catch (err) {
-      const message = normalizeLoginError(err, t("auth.login.failed"));
-      setStatusText(message);
-      await logEvent("authing_login_ui_failed", "warn", err instanceof Error ? err.message : message);
     } finally {
       setLoading(false);
     }
@@ -196,39 +206,20 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           <SketchHeart style={styles.doodleHeart} />
         </View>
 
-        <Image
-          source={require("../../assets/splash/logo.png")}
-          style={styles.logoImage}
-          resizeMode="contain"
-        />
+        <Image source={require("../../assets/splash/logo.png")} style={styles.logoImage} resizeMode="contain" />
 
         <Text style={styles.brandText}>OIO</Text>
         <View style={styles.taglineWrap}>
           <Text style={styles.tagline}>把中文想法，说成自然英文</Text>
         </View>
 
-        {/* Mock 登录按钮：未勾选协议时禁用 */}
         <Pressable
           style={[styles.wechatButton, (!agreed || loading) && styles.wechatButtonDisabled]}
-          onPress={handleMockLogin}
+          onPress={handlePrimaryLogin}
           disabled={loading}
         >
           <SketchButtonFrame />
-          <View style={styles.wechatIcon}>
-            <Ionicons name="flask-outline" size={24} color="white" />
-          </View>
-          <Text style={styles.wechatText}>
-            {loading ? "登录中..." : "Mock 测试登录"}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[styles.authingButton, (!agreed || loading || !authingReady) && styles.authingButtonDisabled]}
-          onPress={handleAuthingLogin}
-          disabled={loading || !authingReady}
-        >
-          <Ionicons name="log-in-outline" size={18} color="#111111" />
-          <Text style={styles.authingText}>使用 Authing 登录</Text>
+          <Text style={styles.wechatText}>{loading ? "登录中..." : "登录"}</Text>
         </Pressable>
 
         {/* 协议勾选 */}
@@ -382,15 +373,15 @@ function SketchCheckbox({ checked }: { checked: boolean }) {
 const styles = StyleSheet.create({
   logoImage: {
     position: 'absolute',
-    top: 0,
-    width: 330,
-    height: 330,
+    top: 104,
+    width: 222,
+    height: 222,
   },
   container: { flex: 1, backgroundColor: "#FFFFFF" },
   content: {
     flex: 1,
-    paddingHorizontal: 34,
-    paddingTop: 194,
+    paddingHorizontal: 32,
+    paddingTop: 182,
     alignItems: "center",
   },
   doodleLayer: {
@@ -460,11 +451,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(145, 135, 255, 0.16)",
   },
   brandText: {
-    marginTop: 100,
-    fontSize: 43,
-    fontWeight: "700",
+    marginTop: 62,
+    fontSize: 36,
+    fontWeight: "600",
     color: "#050505",
-    letterSpacing: 3,
+    letterSpacing: 1,
   },
   taglineWrap: {
     marginTop: 8,
@@ -472,8 +463,8 @@ const styles = StyleSheet.create({
   },
   tagline: {
     color: "#8D9097",
-    fontSize: 17,
-    letterSpacing: 1.8,
+    fontSize: 14,
+    letterSpacing: 0.4,
   },
   taglineUnderline: {
     marginTop: 5,
@@ -483,11 +474,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#A59DF8",
   },
   wechatButton: {
-    marginTop: 78,
+    marginTop: 58,
     width: "100%",
-    maxWidth: 342,
-    height: 78,
-    borderRadius: 22,
+    maxWidth: 300,
+    height: 62,
+    borderRadius: 18,
     backgroundColor: "#111111",
     flexDirection: "row",
     alignItems: "center",
@@ -510,7 +501,7 @@ const styles = StyleSheet.create({
   wechatIcon: {
     width: 28,
     height: 28,
-    marginRight: 12,
+    marginRight: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -570,9 +561,9 @@ const styles = StyleSheet.create({
   },
   wechatText: {
     color: "#FFFFFF",
-    fontSize: 25,
-    fontWeight: "700",
-    letterSpacing: 1,
+    fontSize: 18,
+    fontWeight: "600",
+    letterSpacing: 0,
   },
   authingButton: {
     marginTop: 16,
@@ -597,15 +588,15 @@ const styles = StyleSheet.create({
   },
   agreeRow: {
     width: "100%",
-    maxWidth: 342,
+    maxWidth: 300,
     flexDirection: "row",
     alignItems: "center",
   },
   agreementBlock: {
     position: "absolute",
-    left: 34,
-    right: 34,
-    bottom: 88,
+    left: 32,
+    right: 32,
+    bottom: 86,
     alignItems: "center",
   },
   checkboxPressable: {
@@ -641,8 +632,8 @@ const styles = StyleSheet.create({
   agreeText: {
     flex: 1,
     color: "#777A82",
-    fontSize: 17,
-    lineHeight: 24,
+    fontSize: 13.5,
+    lineHeight: 20,
   },
   linkText: {
     color: "#111111",
@@ -651,7 +642,7 @@ const styles = StyleSheet.create({
   statusText: {
     marginTop: 14,
     color: "#D14343",
-    fontSize: 14,
+    fontSize: 13,
   },
   doodleHeart: {
     position: "absolute",

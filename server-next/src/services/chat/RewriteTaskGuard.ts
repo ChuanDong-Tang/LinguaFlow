@@ -36,8 +36,7 @@ export class InMemoryRewriteTaskGuard implements RewriteTaskGuard {
 
 type RedisLike = {
   set(...args: any[]): Promise<unknown>;
-  get(key: string): Promise<string | null>;
-  del(key: string): Promise<number>;
+  eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
 };
 
 export class RedisRewriteTaskGuard implements RewriteTaskGuard {
@@ -49,12 +48,17 @@ export class RedisRewriteTaskGuard implements RewriteTaskGuard {
   }
 
   async release(userId: string, taskId: string): Promise<void> {
-    const key = this.keyForUser(userId);
-    const currentTaskId = await this.redis.get(key);
-
-    if (currentTaskId === taskId) {
-      await this.redis.del(key);
-    }
+    await this.redis.eval(
+      `
+      if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("DEL", KEYS[1])
+      end
+      return 0
+      `,
+      1,
+      this.keyForUser(userId),
+      taskId
+    );
   }
 
   private keyForUser(userId: string): string {

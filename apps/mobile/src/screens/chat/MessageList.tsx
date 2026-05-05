@@ -1,5 +1,7 @@
 import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import type { ChatMessage } from "./types";
 
 type MessageListProps = {
@@ -41,45 +43,51 @@ export function MessageList({
         if (distanceToBottom < 36) onReachBottom();
       }}
     >
-      <Text style={styles.dayText}>{selectedDateLabel}</Text>
+      <View style={styles.dayDivider}>
+        <View style={styles.dayLine} />
+        <Text style={styles.dayText}>{selectedDateLabel}</Text>
+        <View style={styles.dayLine} />
+      </View>
 
       {isLoadingOlder ? <ActivityIndicator style={styles.indicator} size="small" color="#9AA0AB" /> : null}
       {isLoadingHistory ? <ActivityIndicator style={styles.indicator} size="small" color="#9AA0AB" /> : null}
 
-      {messages.map((m, i) =>
-        m.role === "user" ? (
-          <View key={`u-${i}`} style={styles.userBlock}>
+      {messages.map((message, index) =>
+        message.role === "user" ? (
+          <View key={`u-${index}`} style={styles.userBlock}>
             <View style={styles.userBubble}>
-              <Text style={styles.userText}>{m.text}</Text>
+              <Text style={styles.userText}>{message.text}</Text>
             </View>
-            <Text style={styles.timeTextRight}>{m.time}</Text>
+            <Text style={styles.timeTextRight}>{message.time}</Text>
           </View>
         ) : (
-          <View key={`a-${i}`} style={styles.assistantBlock}>
-            <View style={styles.assistantAvatar} />
+          <View key={`a-${index}`} style={styles.assistantBlock}>
+            <View style={styles.assistantAvatar}>
+              <MaterialCommunityIcons name="ghost" size={23} color="#111111" />
+            </View>
             <View style={styles.assistantCard}>
-              <Text style={styles.assistantCardText}>{m.text || "..."}</Text>
+              <Text style={styles.assistantCardText}>{message.text || "..."}</Text>
               <View style={styles.cardActionRow}>
-                {m.status === "failed" && (m.retryCount ?? 0) < 1 && m.retryText ? (
-                  <Pressable style={styles.retryButton} onPress={() => onRetryMessage(m)}>
+                {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
+                  <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
                     <Text style={styles.retryText}>重试</Text>
                   </Pressable>
-                ) : (
-                  <View style={styles.voiceBtn}>
-                    <Text style={styles.voiceIcon}>⋮⋮</Text>
-                  </View>
-                )}
+                ) : <View />}
                 <Pressable
                   style={styles.copyButton}
                   hitSlop={8}
-                  onPress={() => onCopyMessage(m)}
-                  disabled={!m.text.trim()}
+                  onPress={() => onCopyMessage(message)}
+                  disabled={!message.text.trim()}
                 >
-                  <Text style={[styles.copyIcon, !m.text.trim() && styles.copyIconDisabled]}>▢</Text>
+                  <Ionicons
+                    name="copy-outline"
+                    size={21}
+                    color={!message.text.trim() ? "#C1C5CE" : "#111111"}
+                  />
                 </Pressable>
               </View>
             </View>
-            <Text style={styles.timeTextLeft}>{m.time}</Text>
+            <Text style={styles.timeTextLeft}>{message.time}</Text>
           </View>
         )
       )}
@@ -95,14 +103,24 @@ const styles = StyleSheet.create({
   },
   messageListContent: {
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
+    paddingTop: 8,
+    paddingBottom: 18,
+  },
+  dayDivider: {
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dayLine: {
+    width: 42,
+    height: 1,
+    backgroundColor: "#E7E8EE",
   },
   dayText: {
-    textAlign: "center",
-    color: "#9AA0AB",
-    fontSize: 14,
-    marginBottom: 18,
+    marginHorizontal: 12,
+    color: "#8F95A1",
+    fontSize: 13,
   },
   indicator: {
     marginBottom: 10,
@@ -115,16 +133,16 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   userBubble: {
-    backgroundColor: "#F1EEFF",
+    backgroundColor: "#EDE9FF",
     borderRadius: 20,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    maxWidth: "82%",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    maxWidth: "78%",
   },
   userText: {
     color: "#111111",
-    fontSize: 18,
-    lineHeight: 26,
+    fontSize: 17,
+    lineHeight: 24,
   },
   timeTextRight: {
     marginTop: 8,
@@ -136,52 +154,44 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   assistantAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#D6D4FA",
-    marginBottom: 8,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#F0ECFF",
+    marginBottom: 6,
+    alignItems: "center",
+    justifyContent: "center",
   },
   assistantCard: {
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#ECEEF2",
+    borderColor: "#E8E9EE",
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
-    paddingVertical: 18,
-    marginLeft: 26,
+    paddingTop: 16,
+    paddingBottom: 14,
+    marginLeft: 18,
+    shadowColor: "#111111",
+    shadowOpacity: 0.04,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 1,
   },
   assistantCardText: {
     color: "#111111",
-    fontSize: 20,
-    lineHeight: 30,
+    fontSize: 17,
+    lineHeight: 26,
   },
   cardActionRow: {
-    marginTop: 18,
+    marginTop: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  voiceBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "#DDD9FF",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F8F7FF",
-  },
-  voiceIcon: {
-    fontSize: 14,
-    color: "#6E6BFF",
-    letterSpacing: 2,
-    transform: [{ rotate: "90deg" }],
-  },
   retryButton: {
-    height: 40,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 18,
     backgroundColor: "#111111",
     alignItems: "center",
     justifyContent: "center",
@@ -191,22 +201,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
-  copyIcon: {
-    fontSize: 28,
-    color: "#222222",
-  },
   copyButton: {
-    minWidth: 44,
-    minHeight: 44,
+    minWidth: 40,
+    minHeight: 40,
     alignItems: "center",
     justifyContent: "center",
   },
-  copyIconDisabled: {
-    color: "#B8BDC7",
-  },
   timeTextLeft: {
     marginTop: 8,
-    marginLeft: 28,
+    marginLeft: 58,
     color: "#A1A7B2",
     fontSize: 12,
   },

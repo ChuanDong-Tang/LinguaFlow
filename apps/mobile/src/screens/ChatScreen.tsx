@@ -9,12 +9,18 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession } from "../services/authStorage";
+import { getCurrentEntitlement } from "../services/meApi";
 import { listMessagesByRangeFromCloud } from "../services/chatHistoryApi";
-import { loadLocalMessages, saveLocalMessages } from "../services/chatLocalStorage";
+import { createLocalRewritePair } from "../services/chatSyncService";
 import {
-  createLocalRewritePair,
-  runRewriteSync,
-} from "../services/chatSyncService";
+  appendRewriteMessages,
+  ensureRewriteMessagesLoaded,
+  replaceRewriteMessages,
+  startRewriteSession,
+  stopRewriteSession,
+  subscribeRewriteSession,
+  updateRewriteMessage,
+} from "../services/rewriteSessionService";
 import {
   loadAssistantPreferences,
   saveAssistantPreferences,
@@ -26,13 +32,11 @@ import { MessageList } from "./chat/MessageList";
 import { DatePickerSheet } from "./chat/DatePickerSheet";
 import type { ChatMessage } from "./chat/types";
 import {
-  clampMessages,
   filterByDate,
   getVisibleWindow,
   isSameDate,
   mergeByLocalId,
   toDateKey,
-  updateMessageByLocalId,
 } from "./chat/messageState";
 
 type ChatScreenProps = {
@@ -58,9 +62,6 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [autoCopyAfterRewrite, setAutoCopyAfterRewrite] = useState(true);
 
   const scrollRef = useRef<ScrollView>(null);
-  const activeAbortControllerRef = useRef<AbortController | null>(null);
-  const activeAssistantLocalIdRef = useRef<string | null>(null);
-  const stopRequestedRef = useRef(false);
   const canSend = useMemo(() => inputText.trim().length > 0 && !isSending, [inputText, isSending]);
 
   useEffect(() => {
@@ -78,7 +79,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   useEffect(() => {
     let cancelled = false;
     async function bootstrapLocal() {
-      const rows = await loadLocalMessages();
+      const rows = await ensureRewriteMessagesLoaded();
       if (cancelled) return;
       setAllLocalMessages(rows);
       const byDay = filterByDate(rows, selectedDate);
@@ -95,15 +96,39 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   }, [selectedDate]);
 
   useEffect(() => {
+    return subscribeRewriteSession((snapshot) => {
+      setIsSending(snapshot.isSending);
+      if (snapshot.conversationId) setConversationId(snapshot.conversationId);
+
+      const rows = snapshot.messages;
+      if (rows.length === 0) return;
+
+      setAllLocalMessages(rows);
+      const byDay = filterByDate(rows, selectedDate);
+      setDayMessages(byDay);
+      const { start, end, items } = getVisibleWindow(byDay);
+      setWindowStart(start);
+      setWindowEnd(end);
+      setMessages(items);
+      setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 60);
+    });
+  }, [selectedDate]);
+
+  useEffect(() => {
     if (!conversationId) return;
     const safeConversationId: string = conversationId;
     let cancelled = false;
 
     async function loadHistory() {
       try {
-        const session = await getSession();
-        const isPro = session?.sessionFlags?.isPro === true;
-        const userId = session?.user?.id ?? "mock_user_001";
+        const [session, entitlement] = await Promise.all([
+          getSession(),
+          getCurrentEntitlement().catch(() => null),
+        ]);
+        const isPro = entitlement?.isPro ?? session?.sessionFlags?.isPro === true;
+        const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
 
         if (!isPro) {
           setCloudDateKeys(new Set());
@@ -152,7 +177,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         if (mappedDay.length > 0) {
           const merged = mergeByLocalId(allLocalMessages, mappedDay);
           setAllLocalMessages(merged);
-          await saveLocalMessages(merged);
+          await replaceRewriteMessages(merged);
           setDayMessages(mappedDay);
           const { start, end, items } = getVisibleWindow(mappedDay);
           setWindowStart(start);
@@ -174,70 +199,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     localId: string,
     updater: (message: ChatMessage) => ChatMessage
   ): void {
-    setMessages((prev) => updateMessageByLocalId(prev, localId, updater));
-    setDayMessages((prev) => updateMessageByLocalId(prev, localId, updater));
-    setAllLocalMessages((prev) => {
-      const next = updateMessageByLocalId(prev, localId, updater);
-      void saveLocalMessages(next);
-      return next;
-    });
-  }
-
-  async function runRewriteRequest(input: {
-    text: string;
-    assistantLocalId: string;
-    retryCount: number;
-    systemPrompt?: string;
-    userLocalId?: string;
-  }): Promise<void> {
-    let requestSystemPrompt = input.systemPrompt;
-    const abortController = new AbortController();
-    activeAbortControllerRef.current = abortController;
-    activeAssistantLocalIdRef.current = input.assistantLocalId;
-    stopRequestedRef.current = false;
-
-    try {
-      const result = await runRewriteSync({
-        text: input.text,
-        assistantLocalId: input.assistantLocalId,
-        retryCount: input.retryCount,
-        signal: abortController.signal,
-        systemPrompt: requestSystemPrompt,
-        userLocalId: input.userLocalId,
-        isStopRequested: () => stopRequestedRef.current,
-        onConversationReady: (nextConversationId) => {
-          if (!conversationId) setConversationId(nextConversationId);
-        },
-        onUpdateMessage: updateLocalMessage,
-      });
-
-      if (result.status === "success" && autoCopyAfterRewrite) {
-        await copyAssistantText(result.assistantText, true);
-      }
-    } catch (error) {
-      const wasStopped = stopRequestedRef.current;
-      const message = wasStopped ? "已停止生成" : error instanceof Error ? error.message : "stream failed";
-      if (input.userLocalId) {
-        updateLocalMessage(input.userLocalId, (row) => ({ ...row, status: "failed" }));
-      }
-      updateLocalMessage(input.assistantLocalId, (row) => ({
-        ...row,
-        text: `[错误] ${message}`,
-        status: "failed",
-        retryText: input.text,
-        retryCount: input.retryCount,
-        retrySystemPrompt: requestSystemPrompt,
-        createdAt: new Date().toISOString(),
-      }));
-    } finally {
-      activeAbortControllerRef.current = null;
-      activeAssistantLocalIdRef.current = null;
-      stopRequestedRef.current = false;
-      setIsSending(false);
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 60);
-    }
+    updateRewriteMessage(localId, updater);
   }
 
   async function copyAssistantText(text: string, silent = false): Promise<void> {
@@ -270,6 +232,18 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     Alert.alert(next ? "自动复制已开启" : "自动复制已关闭");
   }
 
+  function handleOpenMenu(): void {
+    Alert.alert("聊天设置", autoCopyAfterRewrite ? "自动复制已开启" : "自动复制已关闭", [
+      {
+        text: autoCopyAfterRewrite ? "关闭自动复制" : "开启自动复制",
+        onPress: () => {
+          void handleToggleAutoCopy();
+        },
+      },
+      { text: "取消", style: "cancel" },
+    ]);
+  }
+
   async function handleSend(): Promise<void> {
     const text = inputText.trim();
     if (!text || isSending) return;
@@ -294,15 +268,17 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     setWindowStart(startInit);
     setWindowEnd(endInit);
     setMessages(localNext.slice(startInit, endInit));
-    const allNext = clampMessages([...allLocalMessages, userLocal, assistantLocal], 10000);
+    const allNext = await appendRewriteMessages([userLocal, assistantLocal]);
     setAllLocalMessages(allNext);
-    await saveLocalMessages(allNext);
 
-    await runRewriteRequest({
+    startRewriteSession({
       text,
       userLocalId: userLocal.localId,
       assistantLocalId: assistantLocal.localId,
       retryCount: 0,
+      conversationId,
+      autoCopyAfterRewrite,
+      onSuccessText: (assistantText) => copyAssistantText(assistantText, true),
     });
   }
 
@@ -320,19 +296,19 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       createdAt: new Date().toISOString(),
     }));
 
-    await runRewriteRequest({
+    startRewriteSession({
       text,
       assistantLocalId: message.localId,
       retryCount,
       systemPrompt: message.retrySystemPrompt,
+      conversationId,
+      autoCopyAfterRewrite,
+      onSuccessText: (assistantText) => copyAssistantText(assistantText, true),
     });
   }
 
   function handleStopGenerating(): void {
-    if (!activeAbortControllerRef.current || !activeAssistantLocalIdRef.current) return;
-
-    stopRequestedRef.current = true;
-    activeAbortControllerRef.current.abort();
+    stopRewriteSession();
   }
 
   function handleComposerFocus(): void {
@@ -399,8 +375,11 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
     try {
       setIsLoadingHistory(true);
-      const session = await getSession();
-      const userId = session?.user?.id ?? "mock_user_001";
+      const [session, entitlement] = await Promise.all([
+        getSession(),
+        getCurrentEntitlement().catch(() => null),
+      ]);
+      const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
       const dateKey = toDateKey(d);
 
       const cloudRows = await listMessagesByRangeFromCloud({
@@ -424,7 +403,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
       const merged = mergeByLocalId(allLocalMessages, mapped);
       setAllLocalMessages(merged);
-      await saveLocalMessages(merged);
+      await replaceRewriteMessages(merged);
       setDayMessages(mapped);
       const { start, end, items } = getVisibleWindow(mapped);
       setWindowStart(start);
@@ -454,8 +433,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         <ChatHeader
           onBack={onBack}
           onOpenCalendar={() => setIsDateSheetOpen(true)}
-          autoCopyEnabled={autoCopyAfterRewrite}
-          onToggleAutoCopy={handleToggleAutoCopy}
+          onOpenMenu={handleOpenMenu}
         />
 
         <MessageList

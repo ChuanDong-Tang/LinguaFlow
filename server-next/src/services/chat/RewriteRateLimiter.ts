@@ -32,21 +32,27 @@ export class InMemoryRewriteRateLimiter implements RewriteRateLimiter {
 }
 
 type RedisLike = {
-  incr(key: string): Promise<number>;
-  pexpire(key: string, ttlMs: number): Promise<number>;
+  eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
 };
 
 export class RedisRewriteRateLimiter implements RewriteRateLimiter {
   constructor(private readonly redis: RedisLike) {}
 
   async consume(key: string, limit: number, windowMs: number): Promise<boolean> {
-    const count = await this.redis.incr(key);
+    const count = await this.redis.eval(
+      `
+      local current = redis.call("INCR", KEYS[1])
+      if current == 1 then
+        redis.call("PEXPIRE", KEYS[1], ARGV[1])
+      end
+      return current
+      `,
+      1,
+      key,
+      windowMs
+    );
 
-    if (count === 1) {
-      await this.redis.pexpire(key, windowMs);
-    }
-
-    return count <= limit;
+    return Number(count) <= limit;
   }
 }
 

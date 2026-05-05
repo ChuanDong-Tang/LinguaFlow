@@ -1,27 +1,23 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 
 type ChatHeaderProps = {
   onBack: () => void;
   onOpenCalendar: () => void;
-  autoCopyEnabled: boolean;
-  onToggleAutoCopy: () => void;
+  onOpenMenu: () => void;
 };
 
-export function ChatHeader({
-  onBack,
-  onOpenCalendar,
-  autoCopyEnabled,
-  onToggleAutoCopy,
-}: ChatHeaderProps) {
+export function ChatHeader({ onBack, onOpenCalendar, onOpenMenu }: ChatHeaderProps) {
   return (
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
-        <Text style={styles.backText}>‹</Text>
+        <Ionicons name="chevron-back" size={26} color="#111111" />
       </Pressable>
 
       <View style={styles.headerAvatarWrap}>
-        <View style={styles.headerAvatar} />
+        <MaterialCommunityIcons name="ghost" size={28} color="#111111" />
       </View>
 
       <View style={styles.headerBody}>
@@ -30,17 +26,11 @@ export function ChatHeader({
       </View>
 
       <Pressable style={styles.calendarButton} hitSlop={8} onPress={onOpenCalendar}>
-        <Text style={styles.calendarText}>📅</Text>
+        <Ionicons name="calendar-outline" size={26} color="#111111" />
       </Pressable>
 
-      <Pressable
-        style={[styles.autoCopyButton, autoCopyEnabled && styles.autoCopyButtonActive]}
-        hitSlop={8}
-        onPress={onToggleAutoCopy}
-      >
-        <Text style={[styles.autoCopyText, autoCopyEnabled && styles.autoCopyTextActive]}>
-          {autoCopyEnabled ? "复制开" : "复制关"}
-        </Text>
+      <Pressable style={styles.menuButton} hitSlop={8} onPress={onOpenMenu}>
+        <Ionicons name="ellipsis-horizontal" size={25} color="#111111" />
       </Pressable>
     </View>
   );
@@ -48,36 +38,26 @@ export function ChatHeader({
 
 const styles = StyleSheet.create({
   header: {
-    minHeight: 86,
-    paddingHorizontal: 14,
-    paddingBottom: 8,
+    minHeight: 76,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 4,
     flexDirection: "row",
     alignItems: "center",
   },
   backButton: {
-    width: 28,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
-  },
-  backText: {
-    fontSize: 42,
-    color: "#111111",
-    lineHeight: 42,
   },
   headerAvatarWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#ECEAFE",
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#F0ECFF",
     alignItems: "center",
     justifyContent: "center",
-  },
-  headerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#D6D4FA",
   },
   headerBody: {
     marginLeft: 10,
@@ -85,48 +65,24 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "700",
     color: "#111111",
   },
   headerSubTitle: {
     marginTop: 4,
     color: "#9AA0AB",
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12.5,
+    lineHeight: 17,
   },
   calendarButton: {
-    width: 30,
+    width: 32,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 6,
   },
-  calendarText: {
-    color: "#111111",
-    fontSize: 20,
-    lineHeight: 22,
-  },
-  autoCopyButton: {
-    minWidth: 58,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: "#E4E6EC",
+  menuButton: {
+    width: 32,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
-    backgroundColor: "#FFFFFF",
-  },
-  autoCopyButtonActive: {
-    borderColor: "#DCD8FF",
-    backgroundColor: "#F5F3FF",
-  },
-  autoCopyText: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "700",
-  },
-  autoCopyTextActive: {
-    color: "#5B57E8",
   },
 });

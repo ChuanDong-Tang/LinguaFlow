@@ -37,7 +37,7 @@ export function DatePickerSheet({
 
           <View style={styles.topRow}>
             <Pressable style={styles.closeBtn} onPress={onClose}>
-              <Text style={styles.closeText}>✕</Text>
+              <Text style={styles.closeText}>×</Text>
             </Pressable>
             <Text style={styles.title}>选择日期</Text>
             <View style={styles.closeBtn} />
@@ -129,34 +129,34 @@ function toDateKey(d: Date): string {
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.18)" },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.16)" },
   sheet: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingHorizontal: 24,
-    paddingBottom: 26,
+    paddingHorizontal: 22,
+    paddingBottom: 24,
     minHeight: 560,
   },
   grab: {
     alignSelf: "center",
     marginTop: 8,
-    width: 78,
-    height: 7,
+    width: 64,
+    height: 5,
     borderRadius: 999,
     backgroundColor: "#E3E5E9",
   },
   topRow: {
-    marginTop: 12,
+    marginTop: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   closeBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  closeText: { fontSize: 20, color: "#111111" },
-  title: { fontSize: 18, fontWeight: "700", color: "#111111", letterSpacing: 0.2 },
+  closeText: { fontSize: 26, color: "#111111", lineHeight: 26 },
+  title: { fontSize: 18, fontWeight: "700", color: "#111111" },
   monthRow: {
-    marginTop: 18,
+    marginTop: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -166,13 +166,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  monthTitle: { fontSize: 18, fontWeight: "600", color: "#111111" },
+  monthTitle: { fontSize: 17, fontWeight: "600", color: "#111111" },
   monthDrop: { fontSize: 16, color: "#5E6370", marginTop: 2 },
   monthActions: { flexDirection: "row", alignItems: "center", gap: 12 },
   arrowBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-  arrow: { fontSize: 28, color: "#111111", lineHeight: 28 },
+  arrow: { fontSize: 26, color: "#111111", lineHeight: 26 },
   weekRow: {
-    marginTop: 18,
+    marginTop: 16,
     flexDirection: "row",
     justifyContent: "space-between",
   },
@@ -180,7 +180,7 @@ const styles = StyleSheet.create({
     width: "14.28%",
     textAlign: "center",
     color: "#A0A5B1",
-    fontSize: 13,
+    fontSize: 12,
   },
   grid: {
     marginTop: 10,
@@ -194,17 +194,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   dayDot: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
   },
   dayDotSelected: {
-    backgroundColor: "#6E6BFF",
+    backgroundColor: "#E5DFFF",
   },
   dayText: {
-    fontSize: 16,
+    fontSize: 15,
     color: "#1E222B",
     fontWeight: "500",
   },
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
     color: "#C5CAD4",
   },
   dayTextSelected: {
-    color: "#FFFFFF",
+    color: "#111111",
     fontWeight: "700",
   },
 });
