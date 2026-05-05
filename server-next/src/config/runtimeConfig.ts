@@ -41,7 +41,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     redisUrl: trimToNull(env.REDIS_URL),
     authingDomain: trimToNull(env.AUTHING_DOMAIN),
     authJwtSecret: env.AUTH_JWT_SECRET?.trim() || "dev-only-change-me",
-    authAccessTokenTtlSeconds: readPositiveInt(env.AUTH_ACCESS_TOKEN_TTL_SECONDS, 60 * 60 * 2),
+    authAccessTokenTtlSeconds: readPositiveInt(env.AUTH_ACCESS_TOKEN_TTL_SECONDS, 60 * 30),
     authRefreshTokenTtlSeconds: readPositiveInt(env.AUTH_REFRESH_TOKEN_TTL_SECONDS, 60 * 60 * 24 * 30),
     deepSeekApiKey: env.DEEPSEEK_API_KEY?.trim() || "",
     deepSeekBaseUrl: env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
