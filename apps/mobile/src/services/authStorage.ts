@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { User } from "../../../../packages/core/src/types";
+import type { User } from "@lf/core/types";
 
 export type AuthSession = {
   accessToken: string;

@@ -13,6 +13,10 @@
     }
   },
   "scripts": {
-    "dev:worker": "node worker.dev.mjs"
+    "dev:worker": "node --env-file-if-exists=../.env --env-file-if-exists=../.env.local --import tsx worker.dev.mjs",
+    "start:worker": "node --env-file-if-exists=../.env --env-file-if-exists=../.env.local --import tsx worker.dev.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
   }
 }

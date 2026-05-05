@@ -15,7 +15,7 @@ import {
 } from "../services/authingAuth";
 import { setSession } from "../services/authStorage";
 import { logEvent } from "../services/logger";
-import type { User } from "../../../../packages/core/src/types";
+import type { User } from "@lf/core/types";
 
 WebBrowser.maybeCompleteAuthSession();
 

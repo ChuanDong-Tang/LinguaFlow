@@ -6,7 +6,7 @@ import type {
   LogoutRequestBody,
   RefreshTokenRequestBody,
   RefreshTokenResponse,
-} from "../../../../packages/core/src/contracts/auth";
+} from "@lf/core/contracts/auth";
 import { logEvent } from "./logger";
 
 // 登录接口返回外层结构
