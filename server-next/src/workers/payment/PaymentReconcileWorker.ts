@@ -2,6 +2,7 @@
 
 import type { PaymentOrderService } from "../../services/payment/PaymentOrderService.js";
 import type { SubscriptionService } from "../../services/subscription/SubscriptionService.js";
+import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 
 export interface PaymentReconcileWorkerOptions {
   intervalMs?: number;
@@ -22,9 +23,10 @@ export class PaymentReconcileWorker {
     if (this.timer) return;
 
     void this.runOnce();
+    const intervalMs = this.options.intervalMs ?? getRuntimeConfig().paymentReconcileIntervalMs;
     this.timer = setInterval(() => {
       void this.runOnce();
-    }, this.options.intervalMs ?? Number(process.env.LF_PAYMENT_RECONCILE_INTERVAL_MS ?? "60000"));
+    }, intervalMs);
   }
 
   stop(): void {

@@ -1,4 +1,5 @@
 import { verifySessionToken } from "@lf/server-next/services/auth/JwtSessionToken.js";
+import { getRuntimeConfig } from "@lf/server-next/config/runtimeConfig.js";
 
 export type UserContext = {
   userId: string;
@@ -29,14 +30,11 @@ export class AccountDisabledError extends Error {
 }
 
 export function isMockAuthEnabled(): boolean {
-  return process.env.LF_ALLOW_MOCK_AUTH === "true";
+  return getRuntimeConfig().allowMockAuth;
 }
 
 export function getAllowedMockUserIds(): string[] {
-  return (process.env.LF_MOCK_USER_IDS ?? "mock_user_001")
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean);
+  return getRuntimeConfig().mockUserIds;
 }
 
 export function isAllowedMockUserId(userId: string): boolean {

@@ -3,6 +3,7 @@
 import type { UserEntity, UserRepository } from "@lf/core/ports/repository/UserRepository.js";
 import type { UserSessionRepository } from "@lf/core/ports/repository/UserSessionRepository.js";
 import type { AuthingLoginResponse, RefreshTokenResponse } from "@lf/core/contracts/auth.js";
+import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import {
   signAccessTokenWithSession,
   signRefreshTokenWithSession,
@@ -24,8 +25,6 @@ interface AuthingUserInfo {
   nickname: string | null;
   picture: string | null;
 }
-
-const DEFAULT_REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 export class AuthLoginService {
   constructor(
@@ -197,7 +196,7 @@ export class AuthLoginService {
    * 后续如果接入官方 SDK，可在此处替换，不影响上层流程。
    */
   private async resolveAuthingUserFromToken(authingToken: string): Promise<AuthingUserInfo> {
-    const domain = process.env.AUTHING_DOMAIN?.trim();
+    const domain = getRuntimeConfig().authingDomain;
     if (!domain) {
       throw new Error("AUTHING_DOMAIN is required");
     }
@@ -234,11 +233,6 @@ function hashRefreshToken(token: string): string {
 }
 
 function resolveRefreshExpiry(now: Date): Date {
-  const ttlSeconds = getRefreshTokenTtlSeconds();
+  const ttlSeconds = getRuntimeConfig().authRefreshTokenTtlSeconds;
   return new Date(now.getTime() + ttlSeconds * 1000);
-}
-
-function getRefreshTokenTtlSeconds(): number {
-  const parsed = Number.parseInt(process.env.AUTH_REFRESH_TOKEN_TTL_SECONDS ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_REFRESH_TTL_SECONDS;
 }

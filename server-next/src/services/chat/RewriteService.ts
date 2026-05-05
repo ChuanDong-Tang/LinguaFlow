@@ -12,6 +12,7 @@ import type {
   AiRequestLogStatus,
 } from "@lf/core/ports/repository/AiRequestLogRepository.js";
 import type { RewriteRateLimiter } from "./RewriteRateLimiter.js";
+import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 
 type RewriteStreamServiceInput = RewriteStreamRequestBody & {
   signal?: AbortSignalLike;
@@ -35,9 +36,10 @@ export class RewriteService {
     let assistantText = "";
     const startedAt = Date.now();
     const taskId = input.userMessageId;
-    const taskTtlMs = Number(process.env.REWRITE_TASK_TTL_MS ?? "60000");
-    const rateLimit = Number(process.env.REWRITE_GLOBAL_RATE_LIMIT ?? "30");
-    const rateWindowMs = Number(process.env.REWRITE_GLOBAL_RATE_WINDOW_MS ?? "60000");
+    const config = getRuntimeConfig();
+    const taskTtlMs = config.rewriteTaskTtlMs;
+    const rateLimit = config.rewriteGlobalRateLimit;
+    const rateWindowMs = config.rewriteGlobalRateWindowMs;
     const rateAllowed = await this.rateLimiter.consume(
       this.currentRateLimitKey(),
       rateLimit,
@@ -112,7 +114,7 @@ export class RewriteService {
   }
   
   private currentRateLimitKey(): string {
-    const windowMs = Number(process.env.REWRITE_GLOBAL_RATE_WINDOW_MS ?? "60000");
+    const windowMs = getRuntimeConfig().rewriteGlobalRateWindowMs;
     const bucket = Math.floor(Date.now() / windowMs);
     return `rewrite:rate:global:${bucket}`;
   }

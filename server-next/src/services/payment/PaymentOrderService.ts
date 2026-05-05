@@ -8,6 +8,7 @@ import type {
   PaymentOrderEntity,
   PaymentOrderRepository,
 } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 
 export class PaymentOrderNotFoundError extends Error {
   readonly code = "PAYMENT_ORDER_NOT_FOUND";
@@ -35,8 +36,9 @@ export class PaymentOrderService {
     userId: string;
   }): Promise<CreatePaymentOrderResponse> {
     const productCode = "pro_monthly" as const;
-    const amount = Number(process.env.LF_PRO_MONTHLY_PRICE_CENTS ?? "1900");
-    const reuseWindowMs = Number(process.env.LF_PAYMENT_PENDING_REUSE_WINDOW_MS ?? "300000");
+    const config = getRuntimeConfig();
+    const amount = config.proMonthlyPriceCents;
+    const reuseWindowMs = config.paymentPendingReuseWindowMs;
     const since = new Date(Date.now() - reuseWindowMs);
     const existing = await this.paymentOrderRepository.findRecentPending({
       userId: input.userId,
@@ -115,12 +117,13 @@ export class PaymentOrderService {
     failed: number;
   }> {
     const now = input.now ?? new Date();
-    const graceMs = Number(process.env.LF_PAYMENT_RECONCILE_GRACE_MS ?? "120000");
-    const expireMs = Number(process.env.LF_PAYMENT_PENDING_EXPIRE_MS ?? "1800000");
+    const config = getRuntimeConfig();
+    const graceMs = config.paymentReconcileGraceMs;
+    const expireMs = config.paymentPendingExpireMs;
     const before = new Date(now.getTime() - graceMs);
     const orders = await this.paymentOrderRepository.listPendingCreatedBefore({
       before,
-      limit: input.limit ?? Number(process.env.LF_PAYMENT_RECONCILE_BATCH_SIZE ?? "20"),
+      limit: input.limit ?? config.paymentReconcileBatchSize,
     });
     const result = {
       scanned: orders.length,
@@ -203,7 +206,7 @@ export class PaymentOrderService {
   }
 
   private resolveNotifyUrl(): string {
-    const notifyUrl = process.env.WECHAT_PAY_NOTIFY_URL;
+    const notifyUrl = getRuntimeConfig().wechatPayNotifyUrl;
     if (!notifyUrl) throw new Error("WECHAT_PAY_NOTIFY_URL is required");
     return notifyUrl;
   }

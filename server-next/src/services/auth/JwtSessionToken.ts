@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 
 export interface SessionTokenPayload {
   sub: string;
@@ -99,17 +100,15 @@ function verifyTypedToken(token: string, expectedType: "access" | "refresh"): Se
 }
 
 function getJwtSecret(): string {
-  return process.env.AUTH_JWT_SECRET ?? "dev-only-change-me";
+  return getRuntimeConfig().authJwtSecret;
 }
 
 function getAccessTokenTtlSeconds(): number {
-  const parsed = Number.parseInt(process.env.AUTH_ACCESS_TOKEN_TTL_SECONDS ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_ACCESS_TTL_SECONDS;
+  return getRuntimeConfig().authAccessTokenTtlSeconds;
 }
 
 function getRefreshTokenTtlSeconds(): number {
-  const parsed = Number.parseInt(process.env.AUTH_REFRESH_TOKEN_TTL_SECONDS ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_REFRESH_TTL_SECONDS;
+  return getRuntimeConfig().authRefreshTokenTtlSeconds;
 }
 
 function base64UrlEncode(value: string): string {

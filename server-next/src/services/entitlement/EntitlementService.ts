@@ -1,5 +1,6 @@
 import type { EntitlementRepository } from "@lf/core/ports/repository/EntitlementRepository.js";
 import type { SubscriptionService } from "../subscription/SubscriptionService.js";
+import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 
 export class DailyQuotaExceededError extends Error {
   readonly code = "DAILY_QUOTA_EXCEEDED";
@@ -115,7 +116,7 @@ export class EntitlementService {
   private currentDateKey(): string {
     const now = new Date();
     const formatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone: process.env.LF_QUOTA_TIME_ZONE ?? "Asia/Shanghai",
+      timeZone: getRuntimeConfig().quotaTimeZone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -130,8 +131,7 @@ export class EntitlementService {
   }
 
   private dailyLimitForPlan(isPro: boolean): number {
-    return isPro
-      ? Number(process.env.LF_PRO_DAILY_TOTAL_LIMIT ?? "10000")
-      : Number(process.env.LF_FREE_DAILY_TOTAL_LIMIT ?? "500");
+    const config = getRuntimeConfig();
+    return isPro ? config.proDailyTotalLimit : config.freeDailyTotalLimit;
   }
 }

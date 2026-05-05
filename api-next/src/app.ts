@@ -35,6 +35,7 @@ import {
 import { registerMeRoutes } from "./me/routes.js";
 import { registerPaymentRoutes } from "./payment/routes.js";
 import { registerAdminRoutes } from "./admin/routes.js";
+import { getRuntimeConfig } from "@lf/server-next/config/runtimeConfig.js";
 
 const prisma = new PrismaClient();
 
@@ -57,10 +58,11 @@ export function createApp() {
   const userRepository = new PrismaUserRepository(prisma);
   const userSessionRepository = new PrismaUserSessionRepository(prisma);
   const authLoginService = new AuthLoginService(userRepository, userSessionRepository);
+  const runtimeConfig = getRuntimeConfig();
   const aiProvider = new DeepSeekAIProvider({
-    apiKey: process.env.DEEPSEEK_API_KEY ?? "",
-    baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
-    model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash",
+    apiKey: runtimeConfig.deepSeekApiKey,
+    baseUrl: runtimeConfig.deepSeekBaseUrl,
+    model: runtimeConfig.deepSeekModel,
   });
   const conversationRepository = new PrismaConversationRepository(prisma);
   const messageRepository = new PrismaMessageRepository(prisma);

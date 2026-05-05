@@ -9,6 +9,7 @@ import {
   DEFAULT_REWRITE_SYSTEM_PROMPT,
   buildRewriteUserPrompt,
 } from "@lf/core/Prompts/rewritePrompt.js";
+import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 
 /** DeepSeekAIProvider：调用 DeepSeek 流式接口实现改写能力。 */
 export class DeepSeekAIProvider implements AIProvider {
@@ -23,7 +24,7 @@ export class DeepSeekAIProvider implements AIProvider {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl;
     this.model = config.model;
-    this.timeoutMs = Number(process.env.DEEPSEEK_TIMEOUT_MS ?? "20000");
+    this.timeoutMs = getRuntimeConfig().deepSeekTimeoutMs;
 
     if (!this.apiKey) {
       throw new Error("DEEPSEEK_API_KEY is required");
