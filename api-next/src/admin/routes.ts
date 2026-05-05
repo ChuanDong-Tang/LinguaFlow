@@ -18,6 +18,7 @@ export interface AdminRouteDeps {
     };
     subscription: {
       findMany: (args: any) => Promise<any[]>;
+      findFirst: (args: any) => Promise<any | null>;
       findUnique: (args: any) => Promise<any | null>;
       update: (args: any) => Promise<any>;
     };
@@ -28,6 +29,7 @@ export interface AdminRouteDeps {
       count: (args: any) => Promise<number>;
       findMany: (args: any) => Promise<any[]>;
     };
+    $transaction: <T>(fn: (tx: any) => Promise<T>) => Promise<T>;
     $executeRawUnsafe: (query: string, ...values: unknown[]) => Promise<number>;
     $queryRawUnsafe: (query: string, ...values: unknown[]) => Promise<any[]>;
   };
@@ -172,19 +174,143 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     return reply.status(200).send({ ok: true, request_id: requestId, data: subscriptions });
   });
 
-  app.post("/admin/orders/:id/manual-refund-note", async (req, reply) => {
+  app.post("/admin/orders/:id/manual-refund", async (req, reply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     const id = String((req.params as Record<string, unknown>)?.id ?? "").trim();
-    const note = String((req.body as Record<string, unknown>)?.note ?? "").trim();
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const reason = String(body.reason ?? "").trim();
+    const refundReference = String(body.refundReference ?? "").trim();
 
-    if (!id || !note) {
+    if (!id || !reason) {
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
-        error: { code: "REQUEST_INVALID", message: "id and note are required" },
+        error: { code: "REQUEST_INVALID", message: "id and reason are required" },
+      });
+    }
+
+    try {
+      const result = await deps.prisma.$transaction(async (tx) => {
+        const beforeOrder = await tx.paymentOrder.findUnique({ where: { id } });
+        if (!beforeOrder) {
+          throw new AdminBusinessError(404, "RESOURCE_NOT_FOUND", "Order not found");
+        }
+        if (beforeOrder.status !== "paid") {
+          throw new AdminBusinessError(
+            409,
+            "ORDER_STATUS_CONFLICT",
+            "Only paid orders can be manually refunded"
+          );
+        }
+
+        const now = new Date();
+        const nextMetadata = {
+          ...(beforeOrder.metadata && typeof beforeOrder.metadata === "object"
+            ? (beforeOrder.metadata as Record<string, unknown>)
+            : {}),
+          manualRefund: {
+            reason,
+            refundReference: refundReference || null,
+            adminId: admin.adminId,
+            at: now.toISOString(),
+          },
+        };
+
+        const afterOrder = await tx.paymentOrder.update({
+          where: { id },
+          data: {
+            status: "refunded",
+            metadata: nextMetadata,
+          },
+        });
+
+        const activeSubscription = await tx.subscription.findFirst({
+          where: {
+            userId: beforeOrder.userId,
+            status: "active",
+          },
+          orderBy: { expiresAt: "desc" },
+        });
+
+        let beforeSubscription = null;
+        let afterSubscription = null;
+        if (activeSubscription) {
+          beforeSubscription = activeSubscription;
+          afterSubscription = await tx.subscription.update({
+            where: { id: activeSubscription.id },
+            data: {
+              status: "cancelled",
+              expiresAt: now,
+            },
+          });
+        }
+
+        return {
+          beforeOrder,
+          afterOrder,
+          beforeSubscription,
+          afterSubscription,
+        };
+      });
+
+      await writeAuditLog(deps, {
+        adminId: admin.adminId,
+        action: "admin.orders.manual_refund",
+        targetType: "payment_order",
+        targetId: id,
+        requestId,
+        ip: req.ip,
+        reason,
+        beforeData: {
+          order: { status: result.beforeOrder.status, metadata: result.beforeOrder.metadata },
+          subscription: result.beforeSubscription
+            ? { id: result.beforeSubscription.id, status: result.beforeSubscription.status }
+            : null,
+        },
+        afterData: {
+          order: { status: result.afterOrder.status, metadata: result.afterOrder.metadata },
+          subscription: result.afterSubscription
+            ? { id: result.afterSubscription.id, status: result.afterSubscription.status }
+            : null,
+        },
+      });
+
+      return reply.status(200).send({
+        ok: true,
+        request_id: requestId,
+        data: {
+          order: result.afterOrder,
+          subscription: result.afterSubscription,
+        },
+      });
+    } catch (error) {
+      if (error instanceof AdminBusinessError) {
+        return reply.status(error.status).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
+    }
+  });
+
+  app.post("/admin/orders/:id/manual-close", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const id = String((req.params as Record<string, unknown>)?.id ?? "").trim();
+    const reason = String((req.body as Record<string, unknown>)?.reason ?? "").trim();
+
+    if (!id || !reason) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "REQUEST_INVALID", message: "id and reason are required" },
       });
     }
 
@@ -197,10 +323,18 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       });
     }
 
+    if (before.status !== "pending") {
+      return reply.status(409).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "ORDER_STATUS_CONFLICT", message: "Only pending orders can be manually closed" },
+      });
+    }
+
     const nextMetadata = {
       ...(before.metadata && typeof before.metadata === "object" ? (before.metadata as Record<string, unknown>) : {}),
-      manualRefundReview: {
-        note,
+      manualClose: {
+        reason,
         adminId: admin.adminId,
         at: new Date().toISOString(),
       },
@@ -208,19 +342,22 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
 
     const updated = await deps.prisma.paymentOrder.update({
       where: { id },
-      data: { metadata: nextMetadata },
+      data: {
+        status: "closed",
+        metadata: nextMetadata,
+      },
     });
 
     await writeAuditLog(deps, {
       adminId: admin.adminId,
-      action: "admin.orders.manual_refund_note",
+      action: "admin.orders.manual_close",
       targetType: "payment_order",
       targetId: id,
       requestId,
       ip: req.ip,
-      reason: note,
-      beforeData: { metadata: before.metadata },
-      afterData: { metadata: updated.metadata },
+      reason,
+      beforeData: { status: before.status, metadata: before.metadata },
+      afterData: { status: updated.status, metadata: updated.metadata },
     });
 
     return reply.status(200).send({ ok: true, request_id: requestId, data: updated });
@@ -422,4 +559,14 @@ function computeP95(values: number[]): number | null {
   const sorted = [...values].sort((a, b) => a - b);
   const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * 0.95) - 1));
   return sorted[idx] ?? null;
+}
+
+class AdminBusinessError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string
+  ) {
+    super(message);
+  }
 }
