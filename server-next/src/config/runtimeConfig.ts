@@ -8,6 +8,8 @@ export interface RuntimeConfig {
   requireRedis: boolean;
   redisUrl: string | null;
   authingDomain: string | null;
+  authingAppId: string | null;
+  authingAppSecret: string | null;
   authJwtSecret: string;
   authAccessTokenTtlSeconds: number;
   authRefreshTokenTtlSeconds: number;
@@ -25,6 +27,12 @@ export interface RuntimeConfig {
   paymentReconcileBatchSize: number;
   paymentReconcileIntervalMs: number;
   wechatPayNotifyUrl: string | null;
+  appleIapIssuerId: string | null;
+  appleIapKeyId: string | null;
+  appleIapBundleId: string | null;
+  appleIapPrivateKey: string | null;
+  appleIapRootCa: string | null;
+  appleIapProMonthlyProductId: string | null;
   rewriteTaskTtlMs: number;
   rewriteGlobalRateLimit: number;
   rewriteGlobalRateWindowMs: number;
@@ -40,6 +48,8 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     requireRedis: readBoolean(env.LF_REQUIRE_REDIS, mode === "production"),
     redisUrl: trimToNull(env.REDIS_URL),
     authingDomain: trimToNull(env.AUTHING_DOMAIN),
+    authingAppId: trimToNull(env.AUTHING_APP_ID),
+    authingAppSecret: trimToNull(env.AUTHING_APP_SECRET),
     authJwtSecret: env.AUTH_JWT_SECRET?.trim() || "dev-only-change-me",
     authAccessTokenTtlSeconds: readPositiveInt(env.AUTH_ACCESS_TOKEN_TTL_SECONDS, 60 * 30),
     authRefreshTokenTtlSeconds: readPositiveInt(env.AUTH_REFRESH_TOKEN_TTL_SECONDS, 60 * 60 * 24 * 30),
@@ -57,6 +67,12 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     paymentReconcileBatchSize: readPositiveInt(env.LF_PAYMENT_RECONCILE_BATCH_SIZE, 20),
     paymentReconcileIntervalMs: readPositiveInt(env.LF_PAYMENT_RECONCILE_INTERVAL_MS, 60_000),
     wechatPayNotifyUrl: trimToNull(env.WECHAT_PAY_NOTIFY_URL),
+    appleIapIssuerId: trimToNull(env.APPLE_IAP_ISSUER_ID),
+    appleIapKeyId: trimToNull(env.APPLE_IAP_KEY_ID),
+    appleIapBundleId: trimToNull(env.APPLE_IAP_BUNDLE_ID),
+    appleIapPrivateKey: trimToNull(env.APPLE_IAP_PRIVATE_KEY),
+    appleIapRootCa: trimToNull(env.APPLE_IAP_ROOT_CA),
+    appleIapProMonthlyProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_PRODUCT_ID),
     rewriteTaskTtlMs: readPositiveInt(env.REWRITE_TASK_TTL_MS, 60_000),
     rewriteGlobalRateLimit: readPositiveInt(env.REWRITE_GLOBAL_RATE_LIMIT, 30),
     rewriteGlobalRateWindowMs: readPositiveInt(env.REWRITE_GLOBAL_RATE_WINDOW_MS, 60_000),

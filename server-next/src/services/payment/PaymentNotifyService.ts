@@ -2,7 +2,7 @@
 
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
 import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
-import type { SubscriptionService } from "../subscription/SubscriptionService.js";
+import type { PaymentEntitlementService } from "./PaymentEntitlementService.js";
 import {
   decryptWeChatPayResource,
   verifyWeChatPaySignature,
@@ -46,7 +46,7 @@ export class PaymentNotifyService {
   constructor(
     private readonly paymentEventRepository: PaymentEventRepository,
     private readonly paymentOrderRepository: PaymentOrderRepository,
-    private readonly subscriptionService: SubscriptionService
+    private readonly paymentEntitlementService: PaymentEntitlementService
   ) {}
 
   async handleWeChatNotify(input: WeChatNotifyInput): Promise<{ status: "success" | "ignored" }> {
@@ -130,10 +130,11 @@ export class PaymentNotifyService {
         });
       }
 
-      await this.subscriptionService.openOrRenewPro({
+      await this.paymentEntitlementService.grantAfterPayment({
         userId: order.userId,
         sourceOrderId: order.id,
-        months: 1,
+        productCode: "pro_monthly",
+        channel: "wechat",
       });
 
       await this.paymentEventRepository.markProcessed(event.id);

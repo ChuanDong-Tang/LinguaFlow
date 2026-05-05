@@ -18,6 +18,13 @@ export interface AuthRouteDeps {
       userAgent?: string | null;
       ip?: string | null;
     }) => Promise<AuthingLoginResponse>;
+    loginWithAuthingPassword: (input: {
+      account: string;
+      password: string;
+    }, sessionContext?: {
+      userAgent?: string | null;
+      ip?: string | null;
+    }) => Promise<AuthingLoginResponse>;
     createSessionTokens: (input: { userId: string }, sessionContext?: {
       userAgent?: string | null;
       ip?: string | null;
@@ -33,6 +40,7 @@ export interface AuthRouteDeps {
     findById: (userId: string) => Promise<{
       id: string;
       status: "active" | "disabled";
+      role: "user" | "admin";
     } | null>;
     ensureUserExists: (input: {
       id: string;
@@ -171,6 +179,75 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       return reply.status(isDisabled ? 403 : 401).send({
         ok: false,
         error: { code: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID", message },
+      });
+    }
+
+    return reply.status(200).send({
+      ok: true,
+      data: result,
+    });
+  });
+
+  app.post("/auth/admin-password-login", async (req, reply) => {
+    const body = req.body as Record<string, unknown> | null;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const account = typeof body?.account === "string" ? body.account.trim() : "";
+    const password = typeof body?.password === "string" ? body.password : "";
+    if (!account || !password) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.admin_password_login.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "REQUEST_INVALID",
+      });
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "REQUEST_INVALID", message: "account and password are required" },
+      });
+    }
+
+    let result: AuthingLoginResponse;
+    try {
+      result = await deps.authLoginService.loginWithAuthingPassword(
+        { account, password },
+        resolveSessionContext(req)
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unauthorized";
+      const isDisabled = message === "Account is disabled";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.admin_password_login.authing_failed",
+        level: "warn",
+        status: "failed",
+        errorCode: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID",
+        errorMessage: message,
+        metadata: { account },
+      });
+      return reply.status(isDisabled ? 403 : 401).send({
+        ok: false,
+        error: { code: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID", message },
+      });
+    }
+
+    const user = await deps.userRepository.findById(result.user.id);
+    if (!user || user.role !== "admin" || user.status !== "active") {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.admin_password_login.role_denied",
+        level: "warn",
+        status: "failed",
+        errorCode: "ADMIN_FORBIDDEN",
+        userId: result.user.id,
+      });
+      return reply.status(403).send({
+        ok: false,
+        error: { code: "ADMIN_FORBIDDEN", message: "Admin role is required" },
       });
     }
 

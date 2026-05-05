@@ -1,8 +1,9 @@
 /** PaymentReconcileWorker：执行支付对账与补偿任务。 */
 
 import type { PaymentOrderService } from "../../services/payment/PaymentOrderService.js";
-import type { SubscriptionService } from "../../services/subscription/SubscriptionService.js";
+import type { PaymentEntitlementService } from "../../services/payment/PaymentEntitlementService.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 
 export interface PaymentReconcileWorkerOptions {
   intervalMs?: number;
@@ -15,7 +16,8 @@ export class PaymentReconcileWorker {
 
   constructor(
     private readonly paymentOrderService: PaymentOrderService,
-    private readonly subscriptionService: SubscriptionService,
+    private readonly paymentEntitlementService: PaymentEntitlementService,
+    private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly options: PaymentReconcileWorkerOptions = {}
   ) {}
 
@@ -38,26 +40,83 @@ export class PaymentReconcileWorker {
   async runOnce(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    const startedAt = Date.now();
 
     try {
       const result = await this.paymentOrderService.reconcilePendingOrders({
         limit: this.options.batchSize,
         onPaid: async (order) => {
-          await this.subscriptionService.openOrRenewPro({
-            userId: order.userId,
-            sourceOrderId: order.id,
-            months: 1,
-          });
+          try {
+            await this.paymentEntitlementService.grantAfterPayment({
+              userId: order.userId,
+              sourceOrderId: order.id,
+              productCode: "pro_monthly",
+              channel: "wechat",
+            });
+          } catch (error) {
+            await this.writeWorkerLog({
+              module: "payment",
+              event: "payment.worker.grant_failed",
+              level: "error",
+              status: "failed",
+              userId: order.userId,
+              errorCode: "WORKER_GRANT_FAILED",
+              errorMessage: toErrorMessage(error),
+              metadata: {
+                orderId: order.id,
+                providerOrderId: order.providerOrderId,
+              },
+            });
+            throw error;
+          }
         },
       });
 
-      if (result.scanned > 0) {
-        console.log("[payment-reconcile]", result);
-      }
+      const durationMs = Date.now() - startedAt;
+      console.log("[payment-reconcile]", { ...result, durationMs });
     } catch (error) {
       console.error("[payment-reconcile] failed", error);
+      await this.writeWorkerLog({
+        module: "payment",
+        event: "payment.worker.reconcile_failed",
+        level: "error",
+        status: "failed",
+        errorCode: "WORKER_RECONCILE_FAILED",
+        errorMessage: toErrorMessage(error),
+      });
     } finally {
       this.running = false;
     }
   }
+
+  private async writeWorkerLog(input: {
+    module: string;
+    event: string;
+    level: "info" | "warn" | "error";
+    status: "success" | "failed" | "ignored";
+    userId?: string | null;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+    metadata?: unknown;
+  }): Promise<void> {
+    if (!this.systemEventLogRepository) return;
+    try {
+      await this.systemEventLogRepository.create({
+        module: input.module,
+        event: input.event,
+        level: input.level,
+        status: input.status,
+        userId: input.userId ?? null,
+        errorCode: input.errorCode ?? null,
+        errorMessage: input.errorMessage ?? null,
+        metadata: input.metadata ?? null,
+      });
+    } catch (error) {
+      console.error("[payment-reconcile] write system_event_log failed", error);
+    }
+  }
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

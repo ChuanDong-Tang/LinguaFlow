@@ -1,10 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
+import type { SubscriptionService } from "@lf/server-next/services/subscription/SubscriptionService.js";
 import { requireAdmin } from "../auth/adminAuth.js";
 import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 
 export interface AdminRouteDeps {
+  subscriptionService: SubscriptionService;
   prisma: {
     user: {
       findMany: (args: any) => Promise<any[]>;
@@ -431,6 +433,87 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     return reply.status(200).send({ ok: true, request_id: requestId, data: updated });
   });
 
+  app.post("/admin/users/:id/grant-pro-monthly", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const userId = String((req.params as Record<string, unknown>)?.id ?? "").trim();
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const reason = String(body.reason ?? "").trim();
+    const monthsRaw = Number(body.months ?? 1);
+    const months = Number.isFinite(monthsRaw) ? Math.trunc(monthsRaw) : 1;
+
+    if (!userId || !reason) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "REQUEST_INVALID", message: "user id and reason are required" },
+      });
+    }
+
+    if (months < 1 || months > 12) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "REQUEST_INVALID", message: "months must be between 1 and 12" },
+      });
+    }
+
+    const user = await deps.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, status: true },
+    });
+    if (!user) {
+      return reply.status(404).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "RESOURCE_NOT_FOUND", message: "User not found" },
+      });
+    }
+    if (user.status !== "active") {
+      return reply.status(409).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "ACCOUNT_DISABLED", message: "User is not active" },
+      });
+    }
+
+    const sourceOrderId = `admin_grant:${userId}:${Date.now()}:${randomUUID()}`;
+    const result = await deps.subscriptionService.openOrRenewPro({
+      userId,
+      sourceOrderId,
+      months,
+    });
+
+    await writeAuditLog(deps, {
+      adminId: admin.adminId,
+      action: "admin.users.grant_pro_monthly",
+      targetType: "user",
+      targetId: userId,
+      requestId,
+      ip: req.ip,
+      reason,
+      afterData: {
+        months,
+        sourceOrderId,
+        subscriptionId: result.subscription.id,
+        expiresAt: result.subscription.expiresAt,
+      },
+    });
+
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: {
+        userId,
+        months,
+        sourceOrderId,
+        subscription: result.subscription,
+      },
+    });
+  });
+
   app.get("/admin/audit-logs", async (req, reply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
@@ -519,6 +602,47 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     });
 
     return reply.status(200).send({ ok: true, request_id: requestId, data });
+  });
+
+  app.get("/admin/system-event-logs", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const query = req.query as Record<string, unknown>;
+    const module = typeof query.module === "string" ? query.module.trim() : "";
+    const event = typeof query.event === "string" ? query.event.trim() : "";
+    const status = typeof query.status === "string" ? query.status.trim() : "failed";
+    const level = typeof query.level === "string" ? query.level.trim() : "";
+    const limit = Math.min(200, Math.max(1, Number(query.limit ?? 50)));
+
+    const rows = await deps.prisma.$queryRawUnsafe(
+      `SELECT "id","module","event","level","status","errorCode","errorMessage","userId","requestId","metadata","createdAt"
+       FROM "system_event_logs"
+       WHERE ($1::text IS NULL OR "module" = $1)
+         AND ($2::text IS NULL OR "event" = $2)
+         AND ($3::text IS NULL OR "status" = $3)
+         AND ($4::text IS NULL OR "level" = $4)
+       ORDER BY "createdAt" DESC
+       LIMIT $5`,
+      module || null,
+      event || null,
+      status || null,
+      level || null,
+      limit
+    );
+
+    await writeAuditLog(deps, {
+      adminId: admin.adminId,
+      action: "admin.system_event_logs.query",
+      targetType: "system_event_log",
+      requestId,
+      ip: req.ip,
+      reason: `module=${module || "*"},event=${event || "*"},status=${status || "*"},level=${level || "*"},limit=${limit}`,
+      afterData: { count: rows.length },
+    });
+
+    return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
   });
 }
 

@@ -25,6 +25,8 @@ import { EntitlementService } from "@lf/server-next/services/entitlement/Entitle
 import { SubscriptionService } from "@lf/server-next/services/subscription/SubscriptionService.js";
 import { PaymentOrderService } from "@lf/server-next/services/payment/PaymentOrderService.js";
 import { PaymentNotifyService } from "@lf/server-next/services/payment/PaymentNotifyService.js";
+import { AppleIapService } from "@lf/server-next/services/payment/AppleIapService.js";
+import { PaymentEntitlementService } from "@lf/server-next/services/payment/PaymentEntitlementService.js";
 import { WeChatPaymentProvider } from "@lf/server-next/providers/payment/WeChatPaymentProvider.js";
 import { PrismaAiRequestLogRepository } from "@lf/server-next/infrastructure/repository/PrismaAiRequestLogRepository.js";
 import { PrismaSystemEventLogRepository } from "@lf/server-next/infrastructure/repository/PrismaSystemEventLogRepository.js";
@@ -41,6 +43,25 @@ const prisma = new PrismaClient();
 
 export function createApp() {
   const app = Fastify({ logger: true });
+  const corsAllowOrigins = resolveCorsAllowOrigins();
+  app.addHook("onRequest", async (req, reply) => {
+    const requestOrigin = firstHeaderValue(req.headers.origin);
+    const allowOrigin = resolveAllowOrigin(requestOrigin, corsAllowOrigins);
+    if (allowOrigin) {
+      reply.header("Access-Control-Allow-Origin", allowOrigin);
+      reply.header("Vary", "Origin");
+      reply.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-request-id");
+      reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    }
+
+    if (req.method === "OPTIONS") {
+      if (!allowOrigin) {
+        return reply.status(403).send();
+      }
+      return reply.status(204).send();
+    }
+  });
+
   app.addContentTypeParser(
     "application/json",
     { parseAs: "string" },
@@ -83,11 +104,13 @@ export function createApp() {
   const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
   const paymentProvider = new WeChatPaymentProvider();
   const paymentOrderService = new PaymentOrderService(paymentOrderRepository, paymentProvider);
+  const paymentEntitlementService = new PaymentEntitlementService(subscriptionService);
   const paymentNotifyService = new PaymentNotifyService(
     paymentEventRepository,
     paymentOrderRepository,
-    subscriptionService
+    paymentEntitlementService
   );
+  const appleIapService = new AppleIapService(paymentEntitlementService, paymentEventRepository);
   const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
   const rewriteService = new RewriteService(
     aiProvider,
@@ -123,10 +146,11 @@ export function createApp() {
   registerPaymentRoutes(app, {
     paymentOrderService,
     paymentNotifyService,
+    appleIapService,
     userRepository,
     systemEventLogRepository,
   });
-  registerAdminRoutes(app, { prisma, systemEventLogRepository });
+  registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository });
 
   app.get("/health", async (_req, reply) => {
     const db = await prisma
@@ -158,6 +182,28 @@ export function createApp() {
   });
 
   return app;
+}
+
+function resolveCorsAllowOrigins(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  const raw = env.CORS_ALLOW_ORIGINS?.trim();
+  if (!raw) {
+    return new Set(["http://localhost:3103", "http://localhost:8081", "http://localhost:5173"]);
+  }
+  return new Set(
+    raw
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+}
+
+function resolveAllowOrigin(origin: string | undefined, allowOrigins: Set<string>): string | null {
+  if (!origin) return null;
+  return allowOrigins.has(origin) ? origin : null;
+}
+
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 export async function disconnectApp() {

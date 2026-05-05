@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LinguaFlow Admin</title>
+    <style>
+      :root {
+        --bg: #f6f7fb;
+        --card: #ffffff;
+        --border: #e4e6ee;
+        --text: #111111;
+        --muted: #6b7280;
+        --primary: #1f2937;
+        --danger: #b91c1c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 24px auto;
+        padding: 0 16px 24px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px;
+      }
+      h1 {
+        margin: 0 0 14px;
+        font-size: 20px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(160px, 1fr));
+        gap: 10px;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      input, select, textarea, button {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 13px;
+        background: #fff;
+      }
+      textarea { min-height: 70px; resize: vertical; }
+      .row { display: flex; gap: 10px; align-items: end; }
+      .row > div { flex: 1; }
+      .actions { display: flex; gap: 10px; }
+      .actions > * { flex: 1; }
+      .btn {
+        cursor: pointer;
+        border-color: var(--primary);
+        background: var(--primary);
+        color: #fff;
+      }
+      .btn.secondary {
+        background: #fff;
+        color: var(--primary);
+      }
+      .btn.danger {
+        border-color: var(--danger);
+        background: var(--danger);
+      }
+      .meta {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .table-wrap {
+        margin-top: 14px;
+        overflow: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 980px;
+      }
+      th, td {
+        border-bottom: 1px solid var(--border);
+        padding: 8px;
+        font-size: 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th { color: var(--muted); font-weight: 600; }
+      .ops {
+        display: flex;
+        gap: 6px;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        font-size: 11px;
+      }
+      .status-pending { background: #fff7ed; border-color: #fed7aa; }
+      .status-paid { background: #ecfdf5; border-color: #a7f3d0; }
+      .status-refunded { background: #fef2f2; border-color: #fecaca; }
+      .status-closed { background: #f3f4f6; border-color: #d1d5db; }
+      .status-failed { background: #fef2f2; border-color: #fecaca; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .logs-wrap {
+        margin-top: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>LinguaFlow 管理后台（简版）</h1>
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>API Base URL</label>
+            <input id="apiBase" value="http://localhost:3001" />
+          </div>
+          <div>
+            <label>管理员账号</label>
+            <input id="account" placeholder="邮箱 / 手机号 / 用户名" />
+          </div>
+          <div>
+            <label>管理员密码</label>
+            <input id="password" type="password" placeholder="输入密码" />
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div class="actions">
+            <button id="btnAuthingLogin" class="btn">管理员登录</button>
+            <button id="btnLogout" class="btn secondary">清空登录状态</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label>Admin Bearer Token（自动生成）</label>
+            <input id="token" placeholder="登录后自动填充" readonly />
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label>状态过滤</label>
+            <select id="status">
+              <option value="">全部</option>
+              <option value="pending">pending</option>
+              <option value="paid">paid</option>
+              <option value="closed">closed</option>
+              <option value="failed">failed</option>
+              <option value="refunded">refunded</option>
+            </select>
+          </div>
+          <div>
+            <label>用户ID过滤</label>
+            <input id="userId" placeholder="user_xxx" />
+          </div>
+          <div class="actions">
+            <button id="btnLoad" class="btn">查询订单</button>
+            <button id="btnSave" class="btn secondary">保存本地配置</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label>手动开通 Pro 用户ID</label>
+            <input id="grantUserId" placeholder="user_xxx" />
+          </div>
+          <div class="actions">
+            <button id="btnGrantPro" class="btn secondary">开通1个月Pro</button>
+          </div>
+        </div>
+        <div id="meta" class="meta">尚未查询</div>
+      </div>
+
+      <div class="card table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>用户</th>
+              <th>状态</th>
+              <th>产品</th>
+              <th>金额</th>
+              <th>渠道单号</th>
+              <th>创建时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="card logs-wrap">
+        <div class="row">
+          <div>
+            <label>失败日志 Module</label>
+            <input id="logModule" placeholder="payment / auth / admin（可空）" />
+          </div>
+          <div>
+            <label>失败日志 Event</label>
+            <input id="logEvent" placeholder="payment.worker.grant_failed（可空）" />
+          </div>
+          <div class="actions">
+            <button id="btnLoadLogs" class="btn secondary">查询失败日志</button>
+          </div>
+        </div>
+        <div id="logsMeta" class="meta">尚未查询失败日志</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>模块</th>
+                <th>事件</th>
+                <th>级别</th>
+                <th>状态</th>
+                <th>错误码</th>
+                <th>错误信息</th>
+              </tr>
+            </thead>
+            <tbody id="logsTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        orders: [],
+        logs: [],
+      };
+
+      function loadLocal() {
+        const saved = JSON.parse(localStorage.getItem("lf_admin_local") || "{}");
+        if (saved.apiBase) $("apiBase").value = saved.apiBase;
+        if (saved.token) $("token").value = saved.token;
+        if (saved.account) $("account").value = saved.account;
+      }
+
+      function saveLocal() {
+        localStorage.setItem(
+          "lf_admin_local",
+            JSON.stringify({
+              apiBase: $("apiBase").value.trim(),
+              token: $("token").value.trim(),
+              account: $("account").value.trim(),
+            })
+          );
+        $("meta").textContent = "已保存本地配置";
+      }
+
+      async function loginWithAdminPassword() {
+        const apiBase = $("apiBase").value.trim();
+        const account = $("account").value.trim();
+        const password = $("password").value;
+        if (!apiBase || !account || !password) {
+          throw new Error("请先填写 API Base URL、管理员账号和密码");
+        }
+        const res = await fetch(`${apiBase}/auth/admin-password-login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ account, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data?.error?.message || JSON.stringify(data) || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+        const accessToken = data?.data?.accessToken || "";
+        if (!accessToken) {
+          throw new Error("登录成功但未返回 access token");
+        }
+        $("token").value = accessToken;
+        saveLocal();
+      }
+
+      async function request(path, options = {}) {
+        const apiBase = $("apiBase").value.trim();
+        const token = $("token").value.trim();
+        if (!apiBase || !token) {
+          throw new Error("请先完成 Authing 登录");
+        }
+        const res = await fetch(`${apiBase}${path}`, {
+          ...options,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+            ...(options.headers || {}),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data?.error?.message || JSON.stringify(data) || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+        return data;
+      }
+
+      function statusClass(status) {
+        return `pill status-${status || "unknown"}`;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function render() {
+        const tbody = $("tbody");
+        tbody.innerHTML = "";
+        for (const row of state.orders) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td class="mono">${escapeHtml(row.id)}</td>
+            <td class="mono">${escapeHtml(row.userId)}</td>
+            <td><span class="${statusClass(row.status)}">${escapeHtml(row.status)}</span></td>
+            <td>${escapeHtml(row.productCode)}</td>
+            <td>${escapeHtml(row.amount)} ${escapeHtml(row.currency)}</td>
+            <td class="mono">${escapeHtml(row.providerOrderId)}</td>
+            <td>${escapeHtml(row.createdAt)}</td>
+            <td>
+              <div class="ops">
+                <button data-op="refund" data-id="${row.id}" class="btn danger">手动退款</button>
+                <button data-op="close" data-id="${row.id}" class="btn secondary">手动关单</button>
+              </div>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }
+
+      async function loadOrders() {
+        const status = $("status").value.trim();
+        const userId = $("userId").value.trim();
+        const qs = new URLSearchParams();
+        if (status) qs.set("status", status);
+        if (userId) qs.set("userId", userId);
+        $("meta").textContent = "查询中...";
+        const data = await request(`/admin/orders?${qs.toString()}`);
+        state.orders = Array.isArray(data.data) ? data.data : [];
+        render();
+        $("meta").textContent = `查询完成：${state.orders.length} 条`;
+      }
+
+      function renderLogs() {
+        const tbody = $("logsTbody");
+        tbody.innerHTML = "";
+        for (const row of state.logs) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${escapeHtml(row.createdAt)}</td>
+            <td>${escapeHtml(row.module)}</td>
+            <td class="mono">${escapeHtml(row.event)}</td>
+            <td>${escapeHtml(row.level)}</td>
+            <td>${escapeHtml(row.status)}</td>
+            <td>${escapeHtml(row.errorCode)}</td>
+            <td>${escapeHtml(row.errorMessage)}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }
+
+      async function loadSystemLogs() {
+        const module = $("logModule").value.trim();
+        const event = $("logEvent").value.trim();
+        const qs = new URLSearchParams();
+        qs.set("status", "failed");
+        qs.set("limit", "50");
+        if (module) qs.set("module", module);
+        if (event) qs.set("event", event);
+        $("logsMeta").textContent = "失败日志查询中...";
+        const data = await request(`/admin/system-event-logs?${qs.toString()}`);
+        state.logs = Array.isArray(data.data) ? data.data : [];
+        renderLogs();
+        $("logsMeta").textContent = `失败日志：${state.logs.length} 条`;
+      }
+
+      async function runRefund(id) {
+        const reason = prompt("退款原因（必填）");
+        if (!reason) return;
+        const refundReference = prompt("退款凭证号（可空）") || "";
+        await request(`/admin/orders/${encodeURIComponent(id)}/manual-refund`, {
+          method: "POST",
+          body: JSON.stringify({ reason, refundReference }),
+        });
+        await loadOrders();
+      }
+
+      async function runClose(id) {
+        const reason = prompt("关单原因（必填）");
+        if (!reason) return;
+        await request(`/admin/orders/${encodeURIComponent(id)}/manual-close`, {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        });
+        await loadOrders();
+      }
+
+      async function runGrantPro(userId) {
+        const reason = prompt("开通原因（必填）");
+        if (!reason) return;
+        await request(`/admin/users/${encodeURIComponent(userId)}/grant-pro-monthly`, {
+          method: "POST",
+          body: JSON.stringify({ reason, months: 1 }),
+        });
+        alert(`已为用户 ${userId} 开通 1 个月 Pro`);
+      }
+
+      $("btnSave").addEventListener("click", () => {
+        saveLocal();
+      });
+
+      $("btnLoad").addEventListener("click", async () => {
+        try {
+          await loadOrders();
+        } catch (error) {
+          $("meta").textContent = `查询失败：${error.message}`;
+          alert(error.message);
+        }
+      });
+
+      $("btnAuthingLogin").addEventListener("click", async () => {
+        try {
+          $("meta").textContent = "登录中...";
+          await loginWithAdminPassword();
+          $("meta").textContent = "登录成功，请点击“查询订单”";
+        } catch (error) {
+          $("meta").textContent = `登录失败：${error.message}`;
+          alert(error.message);
+        }
+      });
+
+      $("btnLogout").addEventListener("click", () => {
+        $("token").value = "";
+        $("password").value = "";
+        saveLocal();
+        $("meta").textContent = "已清空登录状态";
+      });
+
+      $("tbody").addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+        const id = target.getAttribute("data-id");
+        const op = target.getAttribute("data-op");
+        if (!op) return;
+        try {
+          if (op === "refund" && id) await runRefund(id);
+          if (op === "close" && id) await runClose(id);
+          $("meta").textContent = `操作成功`;
+        } catch (error) {
+          $("meta").textContent = `操作失败：${error.message}`;
+          alert(error.message);
+        }
+      });
+
+      $("btnGrantPro").addEventListener("click", async () => {
+        try {
+          const userId = $("grantUserId").value.trim();
+          if (!userId) {
+            throw new Error("请先填写用户ID");
+          }
+          await runGrantPro(userId);
+          $("meta").textContent = `已开通：${userId}`;
+        } catch (error) {
+          $("meta").textContent = `开通失败：${error.message}`;
+          alert(error.message);
+        }
+      });
+
+      $("btnLoadLogs").addEventListener("click", async () => {
+        try {
+          await loadSystemLogs();
+        } catch (error) {
+          $("logsMeta").textContent = `查询失败：${error.message}`;
+          alert(error.message);
+        }
+      });
+
+      (async () => {
+        loadLocal();
+        try {
+          if ($("token").value.trim()) {
+            await loadOrders();
+          }
+        } catch (error) {
+          $("meta").textContent = `自动查询失败：${error.message}`;
+          alert(error.message);
+        }
+      })();
+    </script>
+  </body>
+</html>

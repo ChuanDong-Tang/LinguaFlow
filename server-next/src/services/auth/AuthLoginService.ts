@@ -14,6 +14,10 @@ import { createHash, randomUUID } from "node:crypto";
 export interface AuthingLoginInput {
   authingToken: string;
 }
+export interface AuthingPasswordLoginInput {
+  account: string;
+  password: string;
+}
 
 export interface SessionContextInput {
   userAgent?: string | null;
@@ -59,6 +63,14 @@ export class AuthLoginService {
     });
 
     return this.buildLoginResult(createdUser, true, sessionContext);
+  }
+
+  async loginWithAuthingPassword(
+    input: AuthingPasswordLoginInput,
+    sessionContext: SessionContextInput = {}
+  ): Promise<AuthingLoginResponse> {
+    const authingToken = await this.resolveAuthingTokenByPassword(input);
+    return this.loginWithAuthing({ authingToken }, sessionContext);
   }
 
   async refreshSession(
@@ -226,6 +238,63 @@ export class AuthLoginService {
       picture: typeof payload.picture === "string" ? payload.picture : null,
     };
   }
+
+  private async resolveAuthingTokenByPassword(input: AuthingPasswordLoginInput): Promise<string> {
+    const config = getRuntimeConfig();
+    const domain = config.authingDomain;
+    const clientId = config.authingAppId;
+    const clientSecret = config.authingAppSecret;
+    if (!domain || !clientId || !clientSecret) {
+      throw new Error("AUTHING_DOMAIN / AUTHING_APP_ID / AUTHING_APP_SECRET is required");
+    }
+    const normalizedDomain = domain.replace(/\/+$/, "");
+    const endpoint = `${normalizedDomain}/oidc/token`;
+    const account = input.account.trim();
+    const form = new URLSearchParams({
+      grant_type: "password",
+      password: input.password,
+      client_id: clientId,
+      client_secret: clientSecret,
+      scope: "openid profile",
+    });
+    if (isEmail(account)) {
+      form.set("email", account);
+    } else if (isPhone(account)) {
+      form.set("phone", account);
+    } else {
+      form.set("username", account);
+    }
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const message =
+        typeof payload.error_description === "string"
+          ? payload.error_description
+          : typeof payload.error === "string"
+            ? payload.error
+            : `Authing password login failed: ${response.status}`;
+      throw new Error(message);
+    }
+    const accessToken = typeof payload.access_token === "string" ? payload.access_token.trim() : "";
+    if (!accessToken) {
+      throw new Error("Authing password login missing access_token");
+    }
+    return accessToken;
+  }
+}
+
+function isEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isPhone(value: string): boolean {
+  return /^\+?\d{6,20}$/.test(value);
 }
 
 function hashRefreshToken(token: string): string {

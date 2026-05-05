@@ -6,6 +6,11 @@ import {
   type PaymentOrderService,
 } from "@lf/server-next/services/payment/PaymentOrderService.js";
 import type { PaymentNotifyService } from "@lf/server-next/services/payment/PaymentNotifyService.js";
+import {
+  AppleIapConfigError,
+  AppleIapService,
+  AppleIapVerifyError,
+} from "@lf/server-next/services/payment/AppleIapService.js";
 import { checkWeChatPayConfig } from "@lf/server-next/providers/payment/wechat/WeChatPayConfig.js";
 import {
   AccountDisabledError,
@@ -19,6 +24,7 @@ import { writeSystemEventLog } from "../lib/systemEventLog.js";
 export interface PaymentRouteDeps {
   paymentOrderService: PaymentOrderService;
   paymentNotifyService: PaymentNotifyService;
+  appleIapService: AppleIapService;
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
@@ -32,6 +38,26 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
   return Array.isArray(value) ? value[0] : value;
 }
 
+function isAppleVerifyTransactionRequest(
+  value: unknown
+): value is { transactionId: string; productCode: "pro_monthly" } {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.transactionId === "string" &&
+    v.transactionId.trim().length > 0 &&
+    v.productCode === "pro_monthly"
+  );
+}
+
+function isAppleServerNotificationRequest(
+  value: unknown
+): value is { signedPayload: string } {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.signedPayload === "string" && v.signedPayload.trim().length > 0;
+}
+
 function isCreatePaymentOrderRequest(value: unknown): value is CreatePaymentOrderRequest {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
@@ -41,12 +67,14 @@ function isCreatePaymentOrderRequest(value: unknown): value is CreatePaymentOrde
 export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDeps): void {
   app.get("/payment/health", async (_req, reply) => {
     const wechat = checkWeChatPayConfig();
+    const appleIap = { ok: deps.appleIapService.isConfigured() };
 
     return reply.status(wechat.ok ? 200 : 503).send({
       ok: wechat.ok,
       data: {
         provider: "wechat",
         wechat,
+        appleIap,
       },
     });
   });
@@ -242,6 +270,120 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         metadata: { path: "/payment/wechat/refund-notify" },
       });
       return reply.status(500).send({ code: "FAIL", message: "失败" });
+    }
+  });
+
+  app.post("/payment/ios/verify-transaction", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    if (!isAppleVerifyTransactionRequest(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.ios.verify.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "VALIDATION_FAILED",
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid iOS verify payload" },
+      });
+    }
+
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+
+    try {
+      const data = await deps.appleIapService.verifyProMonthlyTransaction({
+        userId: userContext.userId,
+        transactionId: body.transactionId.trim(),
+      });
+
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "iOS IAP verify failed";
+      if (error instanceof AppleIapConfigError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.ios.verify.not_configured",
+          level: "warn",
+          status: "failed",
+          errorCode: error.code,
+          errorMessage: message,
+        });
+        return reply.status(503).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message },
+        });
+      }
+
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.ios.verify.failed",
+        level: "warn",
+        status: "failed",
+        errorCode: error instanceof AppleIapVerifyError ? error.code : "IAP_VERIFY_FAILED",
+        errorMessage: message,
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "IAP_VERIFY_FAILED", message },
+      });
+    }
+  });
+
+  app.post("/payment/ios/notify", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    if (!isAppleServerNotificationRequest(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.ios.notify.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "VALIDATION_FAILED",
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid iOS notify payload" },
+      });
+    }
+
+    try {
+      await deps.appleIapService.handleServerNotification({
+        signedPayload: body.signedPayload,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "iOS notify failed";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.ios.notify.failed",
+        level: "error",
+        status: "failed",
+        errorCode: "IAP_NOTIFY_FAILED",
+        errorMessage: message,
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "IAP_NOTIFY_FAILED", message },
+      });
     }
   });
 }
