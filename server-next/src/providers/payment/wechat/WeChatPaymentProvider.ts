@@ -7,8 +7,8 @@ import type {
   QueryProviderOrderInput,
   QueryProviderOrderResult,
 } from "@lf/core/ports/payment/index.js";
-import { WeChatPayClient } from "./wechat/WeChatPayClient.js";
-import { loadWeChatPayConfig } from "./wechat/WeChatPayConfig.js";
+import { WeChatPayClient } from "./WeChatPayClient.js";
+import { loadWeChatPayConfig } from "./WeChatPayConfig.js";
 
 export class WeChatPaymentProvider implements PaymentProvider {
   readonly providerName = "wechat" as const;

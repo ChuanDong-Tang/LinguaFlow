@@ -6,11 +6,11 @@ import {
   type PaymentOrderService,
 } from "@lf/server-next/services/payment/PaymentOrderService.js";
 import type { PaymentNotifyService } from "@lf/server-next/services/payment/PaymentNotifyService.js";
+import { AppleIapService } from "@lf/server-next/providers/payment/apple/AppleIapService.js";
 import {
   AppleIapConfigError,
-  AppleIapService,
   AppleIapVerifyError,
-} from "@lf/server-next/services/payment/AppleIapService.js";
+} from "@lf/server-next/providers/payment/apple/AppleIapErrors.js";
 import { checkWeChatPayConfig } from "@lf/server-next/providers/payment/wechat/WeChatPayConfig.js";
 import {
   AccountDisabledError,
@@ -307,6 +307,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     } catch (error) {
       const message = error instanceof Error ? error.message : "iOS IAP verify failed";
       if (error instanceof AppleIapConfigError) {
+        const configError = error as AppleIapConfigError;
         await writeSystemEventLog(deps.systemEventLogRepository, {
           requestId,
           userId: userContext.userId,
@@ -314,16 +315,20 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
           event: "payment.ios.verify.not_configured",
           level: "warn",
           status: "failed",
-          errorCode: error.code,
+          errorCode: configError.code,
           errorMessage: message,
         });
         return reply.status(503).send({
           ok: false,
           request_id: requestId,
-          error: { code: error.code, message },
+          error: { code: configError.code, message },
         });
       }
 
+      const verifyErrorCode =
+        error instanceof AppleIapVerifyError
+          ? (error as AppleIapVerifyError).code
+          : "IAP_VERIFY_FAILED";
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
         userId: userContext.userId,
@@ -331,7 +336,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         event: "payment.ios.verify.failed",
         level: "warn",
         status: "failed",
-        errorCode: error instanceof AppleIapVerifyError ? error.code : "IAP_VERIFY_FAILED",
+        errorCode: verifyErrorCode,
         errorMessage: message,
       });
       return reply.status(400).send({

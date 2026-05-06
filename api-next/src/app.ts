@@ -25,9 +25,9 @@ import { EntitlementService } from "@lf/server-next/services/entitlement/Entitle
 import { SubscriptionService } from "@lf/server-next/services/subscription/SubscriptionService.js";
 import { PaymentOrderService } from "@lf/server-next/services/payment/PaymentOrderService.js";
 import { PaymentNotifyService } from "@lf/server-next/services/payment/PaymentNotifyService.js";
-import { AppleIapService } from "@lf/server-next/services/payment/AppleIapService.js";
+import { AppleIapService } from "@lf/server-next/providers/payment/apple/AppleIapService.js";
 import { PaymentEntitlementService } from "@lf/server-next/services/payment/PaymentEntitlementService.js";
-import { WeChatPaymentProvider } from "@lf/server-next/providers/payment/WeChatPaymentProvider.js";
+import { WeChatPaymentProvider } from "@lf/server-next/providers/payment/wechat/WeChatPaymentProvider.js";
 import { PrismaAiRequestLogRepository } from "@lf/server-next/infrastructure/repository/PrismaAiRequestLogRepository.js";
 import { PrismaSystemEventLogRepository } from "@lf/server-next/infrastructure/repository/PrismaSystemEventLogRepository.js";
 import {
