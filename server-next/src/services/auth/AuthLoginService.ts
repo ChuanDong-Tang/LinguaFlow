@@ -42,27 +42,18 @@ export class AuthLoginService {
   ): Promise<AuthingLoginResponse> {
     const authingUser = await this.resolveAuthingUserFromToken(input.authingToken);
     const providerUserId = authingUser.sub;
-    const existing = await this.userRepository.findByAuthIdentity("authing", providerUserId);
-
-    if (existing) {
-      if (existing.status !== "active") {
-        throw new Error("Account is disabled");
-      }
-      return this.buildLoginResult(existing, false, sessionContext);
-    }
-
-    const createdUser = await this.userRepository.create({
+    const result = await this.userRepository.findOrCreateByAuthIdentity({
+      provider: "authing",
+      providerUserId,
       nickname: authingUser.nickname,
       avatarUrl: authingUser.picture,
     });
 
-    await this.userRepository.bindAuthIdentity({
-      userId: createdUser.id,
-      provider: "authing",
-      providerUserId,
-    });
+    if (result.user.status !== "active") {
+      throw new Error("Account is disabled");
+    }
 
-    return this.buildLoginResult(createdUser, true, sessionContext);
+    return this.buildLoginResult(result.user, result.isNewUser, sessionContext);
   }
 
   async loginWithAuthingPassword(

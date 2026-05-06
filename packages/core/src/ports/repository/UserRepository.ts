@@ -58,4 +58,11 @@ export interface UserRepository {
   ensureUserExists(input: EnsureUserExistsInput): Promise<void>;
 
   findById(userId: string): Promise<UserEntity | null>;
+
+  findOrCreateByAuthIdentity(input:{
+    provider: AuthProvider;
+    providerUserId: string;
+    nickname?: string | null;
+    avatarUrl?: string | null;
+  }): Promise<{ user: UserEntity; isNewUser: boolean }>;
 }

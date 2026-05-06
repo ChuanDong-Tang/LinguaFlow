@@ -19,11 +19,70 @@ type PrismaUserClient = {
   userAuthIdentity: {
     findUnique: (args: any) => Promise<any>;
     upsert: (args: any) => Promise<any>;
+    create: (args: any) => Promise<any>;
   };
+  $transaction: <T>(fn: (tx: any) => Promise<T>) => Promise<T>;
 };
 
 export class PrismaUserRepository implements UserRepository {
   constructor(private readonly prisma: PrismaUserClient) {}
+  findOrCreateByAuthIdentity(input: {
+    provider: AuthProvider;
+    providerUserId: string;
+    nickname?: string | null;
+    avatarUrl?: string | null; }
+  ):Promise<{ user: UserEntity; isNewUser: boolean; }> {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.userAuthIdentity.findUnique({
+        where: {
+          provider_providerUserId: {
+            provider: input.provider,
+            providerUserId: input.providerUserId,
+          },
+        },
+        include: { user: true },
+      });
+
+      if(existing) {
+        return { user: this.toUserEntity(existing.user), isNewUser: false };
+      }
+
+      const createdUser = await tx.user.create({
+        data: {
+          nickname: input.nickname ?? null,
+          avatarUrl: input.avatarUrl ?? null,
+          status: "active"
+        },
+      });
+
+      try {
+        await tx.userAuthIdentity.create({
+          data: {
+            userId: createdUser.id,
+            provider: input.provider,
+            providerUserId: input.providerUserId,
+          },
+        });
+
+        return { user: this.toUserEntity(createdUser), isNewUser: true };
+      } catch {
+        const winner = await tx.userAuthIdentity.findUnique({
+          where: {
+            provider_providerUserId: {
+              provider: input.provider,
+              providerUserId: input.providerUserId,
+            },
+          },
+          include: { user: true },
+        });
+
+        if (winner?.user) {
+          return { user: this.toUserEntity(winner.user), isNewUser: false };
+        }
+        throw new Error("bind auth identity failed");
+      }
+    });
+  }
 
   async findByAuthIdentity(
     provider: AuthProvider,
