@@ -9,6 +9,7 @@ import { PaymentReconcileWorker } from "./src/workers/payment/PaymentReconcileWo
 import { PrismaSystemEventLogRepository } from "./src/infrastructure/repository/PrismaSystemEventLogRepository.ts";
 import { SessionCleanupWorker } from "./src/workers/session/SessionCleanupWorker.ts";
 import { SystemEventLogCleanupWorker } from "./src/workers/system/SystemEventLogCleanupWorker.ts";
+import { AiRequestLogCleanupWorker } from "./src/workers/ai/AiRequestLogCleanupWorker.ts";
 
 const prisma = new PrismaClient();
 const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
@@ -25,12 +26,14 @@ const worker = new PaymentReconcileWorker(
 );
 const sessionCleanupWorker = new SessionCleanupWorker(prisma, systemEventLogRepository);
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
+const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
 
-console.log("[worker] payment/session/log cleanup workers running");
+console.log("[worker] payment/session/log/ai cleanup workers running");
 try {
   worker.start();
   sessionCleanupWorker.start();
   systemEventLogCleanupWorker.start();
+  aiRequestLogCleanupWorker.start();
 } catch (error) {
   console.error("[worker] start failed", error);
   await systemEventLogRepository.create({
@@ -49,6 +52,7 @@ async function shutdown() {
   worker.stop();
   sessionCleanupWorker.stop();
   systemEventLogCleanupWorker.stop();
+  aiRequestLogCleanupWorker.stop();
   await prisma.$disconnect();
   process.exit(0);
 }

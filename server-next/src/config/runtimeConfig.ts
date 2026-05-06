@@ -34,6 +34,10 @@ export interface RuntimeConfig {
   systemEventLogCleanupIntervalMs: number;
   systemEventLogRetentionDays: number;
   systemEventLogCleanupBatchSize: number;
+  aiRequestLogCleanupEnabled: boolean;
+  aiRequestLogCleanupIntervalMs: number;
+  aiRequestLogRetentionDays: number;
+  aiRequestLogCleanupBatchSize: number;
   wechatPayNotifyUrl: string | null;
   appleIapIssuerId: string | null;
   appleIapKeyId: string | null;
@@ -82,6 +86,10 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     systemEventLogCleanupIntervalMs: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_CLEANUP_INTERVAL_MS, 86_400_000),
     systemEventLogRetentionDays: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_RETENTION_DAYS, 30),
     systemEventLogCleanupBatchSize: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_CLEANUP_BATCH_SIZE, 2000),
+    aiRequestLogCleanupEnabled: readBoolean(env.LF_AI_REQUEST_LOG_CLEANUP_ENABLED, true),
+    aiRequestLogCleanupIntervalMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_INTERVAL_MS, 86_400_000),
+    aiRequestLogRetentionDays: readPositiveInt(env.LF_AI_REQUEST_LOG_RETENTION_DAYS, 90),
+    aiRequestLogCleanupBatchSize: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_BATCH_SIZE, 2000),
     wechatPayNotifyUrl: trimToNull(env.WECHAT_PAY_NOTIFY_URL),
     appleIapIssuerId: trimToNull(env.APPLE_IAP_ISSUER_ID),
     appleIapKeyId: trimToNull(env.APPLE_IAP_KEY_ID),
