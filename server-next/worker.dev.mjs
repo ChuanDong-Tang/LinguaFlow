@@ -1,12 +1,14 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPaymentOrderRepository } from "./src/infrastructure/repository/PrismaPaymentOrderRepository.ts";
 import { PrismaSubscriptionRepository } from "./src/infrastructure/repository/PrismaSubscriptionRepository.ts";
-import { WeChatPaymentProvider } from "./src/providers/payment/WeChatPaymentProvider.ts";
+import { WeChatPaymentProvider } from "./src/providers/payment/index.ts";
 import { PaymentOrderService } from "./src/services/payment/PaymentOrderService.ts";
 import { PaymentEntitlementService } from "./src/services/payment/PaymentEntitlementService.ts";
 import { SubscriptionService } from "./src/services/subscription/SubscriptionService.ts";
 import { PaymentReconcileWorker } from "./src/workers/payment/PaymentReconcileWorker.ts";
 import { PrismaSystemEventLogRepository } from "./src/infrastructure/repository/PrismaSystemEventLogRepository.ts";
+import { SessionCleanupWorker } from "./src/workers/session/SessionCleanupWorker.ts";
+import { SystemEventLogCleanupWorker } from "./src/workers/system/SystemEventLogCleanupWorker.ts";
 
 const prisma = new PrismaClient();
 const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
@@ -21,10 +23,14 @@ const worker = new PaymentReconcileWorker(
   paymentEntitlementService,
   systemEventLogRepository
 );
+const sessionCleanupWorker = new SessionCleanupWorker(prisma, systemEventLogRepository);
+const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 
-console.log("[worker] payment reconcile worker running");
+console.log("[worker] payment/session/log cleanup workers running");
 try {
   worker.start();
+  sessionCleanupWorker.start();
+  systemEventLogCleanupWorker.start();
 } catch (error) {
   console.error("[worker] start failed", error);
   await systemEventLogRepository.create({
@@ -41,6 +47,8 @@ try {
 
 async function shutdown() {
   worker.stop();
+  sessionCleanupWorker.stop();
+  systemEventLogCleanupWorker.stop();
   await prisma.$disconnect();
   process.exit(0);
 }

@@ -10,8 +10,8 @@
     "dev:web": "npm --prefix apps/web run dev",
     "dev:mobile": "npm --prefix apps/mobile run start",
     "dev:api": "npm --prefix api-next run dev",
-    "dev:worker": "npm --prefix server-next run dev:worker",
-    "start:worker": "npm --prefix server-next run start:worker",
+    "dev:worker": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx server-next/worker.dev.mjs",
+    "start:worker": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx server-next/worker.dev.mjs",
     "dev:all": "node scripts/dev-all.mjs",
     "seed:dev-users": "npm --prefix api-next run seed:dev-users"
   },
@@ -27,6 +27,7 @@
     "vite": "^8.0.3"
   },
   "devDependencies": {
-    "prisma": "^6.19.3"
+    "prisma": "^6.19.3",
+    "tsx": "^4.21.0"
   }
 }
