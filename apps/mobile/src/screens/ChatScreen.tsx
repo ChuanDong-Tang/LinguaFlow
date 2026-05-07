@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   ToastAndroid,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Animated from "react-native-reanimated";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { getSession } from "../services/authStorage";
 import { getCurrentEntitlement } from "../services/meApi";
 import { listMessagesByRangeFromCloud } from "../services/chatHistoryApi";
@@ -425,11 +426,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={0}
-      >
+      <Animated.View style={styles.content}>
         <ChatHeader
           onBack={onBack}
           onOpenCalendar={() => setIsDateSheetOpen(true)}
@@ -449,16 +446,18 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           onCopyMessage={(message) => copyAssistantText(message.text)}
         />
 
-        <ChatComposer
-          value={inputText}
-          onChangeText={setInputText}
-          onSend={handleSend}
-          onStop={handleStopGenerating}
-          onFocus={handleComposerFocus}
-          disabled={!canSend}
-          isSending={isSending}
-        />
-      </KeyboardAvoidingView>
+        <KeyboardStickyView offset={{ opened: 0, closed: 0 }}>
+          <ChatComposer
+            value={inputText}
+            onChangeText={setInputText}
+            onSend={handleSend}
+            onStop={handleStopGenerating}
+            onFocus={handleComposerFocus}
+            disabled={!canSend}
+            isSending={isSending}
+          />
+        </KeyboardStickyView>
+      </Animated.View>
 
       <DatePickerSheet
           visible={isDateSheetOpen}
@@ -482,5 +481,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FCFCFD",
+  },
+  content: {
+    flex: 1,
   },
 });

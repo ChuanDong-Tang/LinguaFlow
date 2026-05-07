@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Animated, Image, StyleSheet } from "react-native";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SplashGateScreen } from "./screens/SplashGateScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { initI18n } from "./i18n";
@@ -124,9 +125,11 @@ export default function App() {
   }
 
   return (
-    <Animated.View style={[styles.screen, { opacity: screenOpacity }]}>
-      {content}
-    </Animated.View>
+    <KeyboardProvider>
+      <Animated.View style={[styles.screen, { opacity: screenOpacity }]}>
+        {content}
+      </Animated.View>
+    </KeyboardProvider>
   );
 }
 
