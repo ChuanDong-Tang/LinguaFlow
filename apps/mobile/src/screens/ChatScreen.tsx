@@ -446,7 +446,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           onCopyMessage={(message) => copyAssistantText(message.text)}
         />
 
-        <KeyboardStickyView offset={{ opened: 0, closed: 0 }}>
+        <KeyboardStickyView offset={{ opened: 16, closed: 0 }}>
           <ChatComposer
             value={inputText}
             onChangeText={setInputText}
