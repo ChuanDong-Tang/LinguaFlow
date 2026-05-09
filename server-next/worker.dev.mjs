@@ -10,6 +10,8 @@ import { PrismaSystemEventLogRepository } from "./src/infrastructure/repository/
 import { SessionCleanupWorker } from "./src/workers/session/SessionCleanupWorker.ts";
 import { SystemEventLogCleanupWorker } from "./src/workers/system/SystemEventLogCleanupWorker.ts";
 import { AiRequestLogCleanupWorker } from "./src/workers/ai/AiRequestLogCleanupWorker.ts";
+import { getRuntimeConfig } from "./src/config/runtimeConfig.ts";
+import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
 
 const prisma = new PrismaClient();
 const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
@@ -27,6 +29,20 @@ const worker = new PaymentReconcileWorker(
 const sessionCleanupWorker = new SessionCleanupWorker(prisma, systemEventLogRepository);
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
+
+const runtime = getRuntimeConfig();
+
+if (runtime.requireRedis) {
+  const redisClient = getRedisClient();
+  try {
+    const pong = await redisClient.ping();
+    if (pong !== "PONG") throw new Error(`unexpected ping result: ${pong}`);
+  } catch (error) {
+    console.error("[worker] startup failed: Redis unavailable", error);
+    await prisma.$disconnect();
+    process.exit(1);
+  }
+}
 
 console.log("[worker] payment/session/log/ai cleanup workers running");
 try {
