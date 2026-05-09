@@ -14,6 +14,7 @@ type PrismaMessageClient = {
     update: (args: any) => Promise<any>;
     findFirst: (args: any) => Promise<any>;
     findMany: (args: any) => Promise<any[]>;
+    findUnique: (args: any) => Promise<any>;
   };
 };
 
@@ -99,6 +100,15 @@ export class PrismaMessageRepository implements MessageRepository {
     });
 
     return rows.map((row) => this.toEntity(row));
+  }
+
+  async findById(messageId: string): Promise<MessageEntity | null> {
+    const row = await this.prisma.message.findUnique({
+      where: {
+        id: messageId
+      },
+    });   
+    return row ? this.toEntity(row) : null;
   }
 
   private toEntity(record: {

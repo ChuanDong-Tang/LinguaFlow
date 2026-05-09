@@ -35,7 +35,13 @@ export class ConversationAccessDeniedError extends Error {
   }
 }
 
+export class MessageAccessDeniedError extends Error {
+  readonly code = "MESSAGE_NOT_FOUND";
 
+  constructor() {
+    super("Message not found");
+  }
+}
 
 export class ChatMessageService {
   constructor(
@@ -177,4 +183,28 @@ export class ChatMessageService {
       createdAt: row.createdAt.toISOString(),
     };
   }
+
+  async assertUserMessageOwnership(input: {
+    userId: string;
+    conversationId: string;
+    userMessageId: string;
+  }): Promise<void> {
+    await this.assertConversationBelongsToUser(input.conversationId, input.userId);
+
+    const message = await this.messageRepository.findById(input.userMessageId);
+    if (!message) {
+      throw new MessageAccessDeniedError();
+    }
+
+    if (
+      message.userId !== input.userId ||
+      message.conversationId !== input.conversationId ||
+      message.role !== "user"
+    ) {
+      throw new MessageAccessDeniedError();
+    }
+  }
+
 }
+
+

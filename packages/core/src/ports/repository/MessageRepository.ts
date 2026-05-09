@@ -48,4 +48,5 @@ export interface MessageRepository {
   listByConversation(conversationId: string, limit: number): Promise<MessageEntity[]>;
   listByUserAndDay(userId: string, dayStart: Date, dayEnd: Date): Promise<MessageEntity[]>;
   listByConversationRange(input: ListByConversationRangeInput): Promise<MessageEntity[]>;
+  findById(messageId: string): Promise<MessageEntity | null>;
 }

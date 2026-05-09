@@ -124,6 +124,7 @@ export function createApp() {
   registerChatStreamRoutes(app, {
     rewriteService,
     userRepository,
+    chatMessageService,
     systemEventLogRepository,
   });
   registerAuthRoutes(app, {

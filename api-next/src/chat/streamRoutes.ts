@@ -9,6 +9,7 @@ import {
 } from "../auth/userContext.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
+import type { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService.js";
 
 export interface ChatStreamRouteDeps {
   rewriteService: {
@@ -23,6 +24,7 @@ export interface ChatStreamRouteDeps {
       status: "active" | "disabled";
     } | null>;
   };
+  chatMessageService: ChatMessageService;
   systemEventLogRepository?: SystemEventLogWriter;
 }
 
@@ -91,30 +93,38 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
       throw error;
     }
 
-    reply.raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
-    reply.raw.setHeader("Connection", "keep-alive");
-    reply.raw.setHeader("x-request-id", requestId);
-    reply.raw.flushHeaders?.();
-
-    const abortController = new AbortController();
-    reply.raw.on("close", () => {
-      abortController.abort();
-    });
-
-    const writeEvent = async (event: RewriteStreamEvent) => {
-      if (reply.raw.destroyed || reply.raw.writableEnded) return;
-      reply.raw.write(toSseChunk(event));
-    };
-
     try {
+      // Validate ownership before switching to SSE response.
+      await deps.chatMessageService.assertUserMessageOwnership({
+        userId: userContext.userId,
+        conversationId: body.conversationId,
+        userMessageId: body.userMessageId,
+      });
+
+      // Start streaming only after preflight check passed.
+      reply.raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
+      reply.raw.setHeader("Connection", "keep-alive");
+      reply.raw.setHeader("x-request-id", requestId);
+      reply.raw.flushHeaders?.();
+
+      const abortController = new AbortController();
+      reply.raw.on("close", () => {
+        abortController.abort();
+      });
+
+      const writeEvent = async (event: RewriteStreamEvent) => {
+        if (reply.raw.destroyed || reply.raw.writableEnded) return;
+        reply.raw.write(toSseChunk(event));
+      };
+
       await deps.rewriteService.rewriteStream(
         {
           text: body.text,
           userId: userContext.userId,
           systemPrompt: body.systemPrompt ?? undefined,
-          conversationId:body.conversationId,
-          userMessageId:body.userMessageId,
+          conversationId: body.conversationId,
+          userMessageId: body.userMessageId,
           requestId,
           signal: abortController.signal,
         },
@@ -125,9 +135,27 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
     } catch (error) {
       const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
       const message = error instanceof Error ? error.message : "Unknown stream error";
+      if (
+        code === "MESSAGE_NOT_FOUND" ||
+        code === "CONVERSATION_NOT_FOUND"
+      ) {
+        return reply.status(404).send({
+          ok: false,
+          error: { code: "RESOURCE_NOT_FOUND", message: "Resource not found" },
+        });
+      }
       if (!reply.raw.destroyed && !reply.raw.writableEnded) {
-        reply.raw.write(toSseChunk({ type: "error", message, code }));
-        reply.raw.end();
+        // If SSE already started, write structured stream error; otherwise return JSON 500.
+        const contentType = String(reply.raw.getHeader("Content-Type") ?? "");
+        if (contentType.includes("text/event-stream")) {
+          reply.raw.write(toSseChunk({ type: "error", message, code }));
+          reply.raw.end();
+        } else {
+          return reply.status(500).send({
+            ok: false,
+            error: { code: "INTERNAL_ERROR", message: "Unknown stream error" },
+          });
+        }
       }
     }
   });

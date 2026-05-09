@@ -34,6 +34,13 @@ export class RewriteService {
     onEvent: (event: RewriteTextStreamEvent) => Promise<void> | void
   ): Promise<void> {
     let assistantText = "";
+    
+    await this.chatMessageService.assertUserMessageOwnership({
+      userId: input.userId,
+      conversationId: input.conversationId,
+      userMessageId: input.userMessageId,
+    });
+
     const startedAt = Date.now();
     const taskId = input.userMessageId;
     const config = getRuntimeConfig();
