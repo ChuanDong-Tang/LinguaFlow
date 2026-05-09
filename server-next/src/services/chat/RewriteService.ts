@@ -19,6 +19,13 @@ type RewriteStreamServiceInput = RewriteStreamRequestBody & {
   requestId: string;
 };
 
+type AppErrorCode =
+  | "RATE_LIMITED"
+  | "TASK_IN_PROGRESS"
+  | "INPUT_TOO_LONG";
+
+type AppError = Error & { code: AppErrorCode };
+
 export class RewriteService {
   constructor(
     private readonly aiProvider: AIProvider,
@@ -55,10 +62,48 @@ export class RewriteService {
 
     if (!rateAllowed) {
       await this.chatMessageService.markUserMessageFailed(input.userMessageId);
-      const error = new Error("RATE_LIMITED: Too many rewrite tasks. Please try again later.");
+      const error = createAppError(
+        "RATE_LIMITED",
+        "Too many rewrite tasks. Please try again later."
+      );
       await this.logFailedAiRequest(input, {
         startedAt,
         status: "rate_limited",
+        error,
+        outputChars: 0,
+      });
+      throw error;
+    }
+
+    const userRateLimit = config.rewriteUserRateLimit;
+    const userRateWindowMs = config.rewriteUserRateWindowMs;
+    const userRateAllowed = await this.rateLimiter.consume(
+      this.userRateLimitKey(input.userId),
+      userRateLimit,
+      userRateWindowMs
+    );
+
+    if (!userRateAllowed) {
+      await this.chatMessageService.markUserMessageFailed(input.userMessageId);
+      const error = createAppError(
+        "RATE_LIMITED",
+        "Too many requests for this user. Please try again later."
+      );
+      await this.logFailedAiRequest(input, {
+        startedAt,
+        status: "rate_limited",
+        error,
+        outputChars: 0,
+      });
+      throw error;
+    }
+
+    const rewriteMaxInputChars = getRuntimeConfig().rewriteMaxInputChars;
+    if (input.text.length > rewriteMaxInputChars) {
+      const error = createAppError("INPUT_TOO_LONG", "Input too long");
+      await this.logFailedAiRequest(input, {
+        startedAt,
+        status: "failed",
         error,
         outputChars: 0,
       });
@@ -69,7 +114,10 @@ export class RewriteService {
 
     if (!acquired) {
       await this.chatMessageService.markUserMessageFailed(input.userMessageId);
-      const error = new Error("TASK_IN_PROGRESS: A rewrite task is already running for this user.");
+      const error = createAppError(
+        "TASK_IN_PROGRESS",
+        "A rewrite task is already running for this user."
+      );
       await this.logFailedAiRequest(input, {
         startedAt,
         status: "task_in_progress",
@@ -126,6 +174,12 @@ export class RewriteService {
     return `rewrite:rate:global:${bucket}`;
   }
 
+  private userRateLimitKey(userId: string): string {
+    const windowMs = getRuntimeConfig().rewriteUserRateWindowMs;
+    const bucket = Math.floor(Date.now() / windowMs);
+    return `rewrite:rate:user:${userId}:${bucket}`;
+  }
+
   private async logFailedAiRequest(
     input: RewriteStreamServiceInput,
     params: {
@@ -171,4 +225,10 @@ export class RewriteService {
     }
     return fallback ?? "UNKNOWN";
   }
+}
+
+function createAppError(code: AppErrorCode, message: string): AppError {
+  const error = new Error(message) as AppError;
+  error.code = code;
+  return error;
 }

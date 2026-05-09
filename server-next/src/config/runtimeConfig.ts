@@ -48,6 +48,9 @@ export interface RuntimeConfig {
   rewriteTaskTtlMs: number;
   rewriteGlobalRateLimit: number;
   rewriteGlobalRateWindowMs: number;
+  rewriteUserRateLimit: number;
+  rewriteUserRateWindowMs: number;
+  rewriteMaxInputChars: number;
 }
 
 export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -100,6 +103,9 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     rewriteTaskTtlMs: readPositiveInt(env.REWRITE_TASK_TTL_MS, 60_000),
     rewriteGlobalRateLimit: readPositiveInt(env.REWRITE_GLOBAL_RATE_LIMIT, 30),
     rewriteGlobalRateWindowMs: readPositiveInt(env.REWRITE_GLOBAL_RATE_WINDOW_MS, 60_000),
+    rewriteUserRateLimit: readPositiveInt(env.REWRITE_USER_RATE_LIMIT, 20),
+    rewriteUserRateWindowMs: readPositiveInt(env.REWRITE_USER_RATE_WINDOW_MS, 60_000),
+    rewriteMaxInputChars: readPositiveInt(env.REWRITE_MAX_INPUT_CHARS, 3000),
   };
 }
 

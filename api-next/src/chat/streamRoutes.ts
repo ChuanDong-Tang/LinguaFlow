@@ -48,6 +48,37 @@ function toSseChunk(event: RewriteStreamEvent): string {
   return `event: message\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
+function mapRewriteErrorToHttp(code: string | undefined): {
+  status: number;
+  code: string;
+  message: string;
+} | null {
+  if (code === "MESSAGE_NOT_FOUND" || code === "CONVERSATION_NOT_FOUND") {
+    return { status: 404, code: "RESOURCE_NOT_FOUND", message: "Resource not found" };
+  }
+  if (code === "INPUT_TOO_LONG") {
+    return { status: 400, code: "INPUT_TOO_LONG", message: "Input too long" };
+  }
+  if (code === "UPSTREAM_AI_ERROR") {
+    return {
+      status: 503,
+      code: "UPSTREAM_AI_ERROR",
+      message: "AI service is temporarily unavailable",
+    };
+  }
+  if (code === "RATE_LIMITED") {
+    return { status: 429, code: "RATE_LIMITED", message: "Too many requests" };
+  }
+  if (code === "TASK_IN_PROGRESS") {
+    return {
+      status: 409,
+      code: "TASK_IN_PROGRESS",
+      message: "A rewrite task is already running for this user.",
+    };
+  }
+  return null;
+}
+
 export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamRouteDeps): void {
   app.post("/chat/rewrite/stream", async (req, reply) => {
     const body = req.body as unknown;
@@ -143,15 +174,14 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
         typeof error === "object" && error !== null && "upstreamText" in error
           ? (error as { upstreamText?: unknown }).upstreamText
           : undefined;
-      if (
-        code === "MESSAGE_NOT_FOUND" ||
-        code === "CONVERSATION_NOT_FOUND"
-      ) {
-        return reply.status(404).send({
+      const mapped = mapRewriteErrorToHttp(code);
+      if (mapped && mapped.status !== 503) {
+        return reply.status(mapped.status).send({
           ok: false,
-          error: { code: "RESOURCE_NOT_FOUND", message: "Resource not found" },
+          error: { code: mapped.code, message: mapped.message },
         });
       }
+      
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
         userId: userContext.userId,
@@ -185,11 +215,9 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
         },
         "rewrite stream failed"
       );
-      const safeCode = code === "UPSTREAM_AI_ERROR" ? "UPSTREAM_AI_ERROR" : (code ?? "INTERNAL_ERROR");
-      const safeMessage =
-        code === "UPSTREAM_AI_ERROR"
-          ? "AI service is temporarily unavailable"
-          : "Stream failed";
+      const safeCode = mapped?.code ?? "INTERNAL_ERROR";
+      const safeMessage = mapped?.message ?? "Stream failed";
+      const safeStatus = mapped?.status ?? 500;
       if (!reply.raw.destroyed && !reply.raw.writableEnded) {
         // If SSE already started, write structured stream error; otherwise return JSON 500.
         const contentType = String(reply.raw.getHeader("Content-Type") ?? "");
@@ -197,7 +225,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
           reply.raw.write(toSseChunk({ type: "error", message: safeMessage, code: safeCode }));
           reply.raw.end();
         } else {
-          return reply.status(code === "UPSTREAM_AI_ERROR" ? 503 : 500).send({
+          return reply.status(safeStatus).send({
             ok: false,
             error: { code: safeCode, message: safeMessage },
           });

@@ -11,6 +11,7 @@ import {
 } from "../auth/userContext.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
+import { getRuntimeConfig } from "@lf/server-next/config/runtimeConfig.js";
 
 type SendMessageBody = {
   userId: string;
@@ -78,6 +79,16 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
         error: { code: "VALIDATION_FAILED", message: "Invalid message payload" },
       });
     }
+
+    // 超出字符最大上限拦截
+    if (body.text.trim().length > getRuntimeConfig().rewriteMaxInputChars) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "over max input chars" },
+      });
+    }
+
 
     let userContext;
     try {
