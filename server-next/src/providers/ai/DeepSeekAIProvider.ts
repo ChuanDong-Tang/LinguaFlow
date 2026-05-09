@@ -75,8 +75,12 @@ export class DeepSeekAIProvider implements AIProvider {
       });
 
       if (!response.ok || !response.body) {
-        const text = await response.text();
-        throw new Error(`DeepSeek stream request failed: ${response.status} ${text}`);
+        const upstreamText = await response.text();
+        const err = new Error("UPSTREAM_AI_ERROR");
+        (err as Error & { code?: string; status?: number; upstreamText?: string }).code = "UPSTREAM_AI_ERROR";
+        (err as Error & { code?: string; status?: number; upstreamText?: string }).status = response.status;
+        (err as Error & { code?: string; status?: number; upstreamText?: string }).upstreamText = upstreamText;
+        throw err;
       }
 
       await onEvent({ type: "start" });

@@ -135,6 +135,14 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
     } catch (error) {
       const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
       const message = error instanceof Error ? error.message : "Unknown stream error";
+      const upstreamStatus =
+        typeof error === "object" && error !== null && "status" in error
+          ? (error as { status?: unknown }).status
+          : undefined;
+      const upstreamText =
+        typeof error === "object" && error !== null && "upstreamText" in error
+          ? (error as { upstreamText?: unknown }).upstreamText
+          : undefined;
       if (
         code === "MESSAGE_NOT_FOUND" ||
         code === "CONVERSATION_NOT_FOUND"
@@ -144,16 +152,54 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
           error: { code: "RESOURCE_NOT_FOUND", message: "Resource not found" },
         });
       }
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "chat",
+        event: "chat.rewrite.stream.failed",
+        level: "error",
+        status: "failed",
+        errorCode: code ?? "INTERNAL_ERROR",
+        errorMessage: message,
+        metadata: {
+          path: "/chat/rewrite/stream",
+          conversationId: body.conversationId,
+          userMessageId: body.userMessageId,
+          upstreamStatus,
+          upstreamText:
+            typeof upstreamText === "string"
+              ? upstreamText.slice(0, 500)
+              : upstreamText ?? null,
+        },
+      });
+      req.log.error(
+        {
+          requestId,
+          code,
+          error: message,
+          upstreamStatus,
+          upstreamText:
+            typeof upstreamText === "string"
+              ? upstreamText.slice(0, 500)
+              : upstreamText ?? null,
+        },
+        "rewrite stream failed"
+      );
+      const safeCode = code === "UPSTREAM_AI_ERROR" ? "UPSTREAM_AI_ERROR" : (code ?? "INTERNAL_ERROR");
+      const safeMessage =
+        code === "UPSTREAM_AI_ERROR"
+          ? "AI service is temporarily unavailable"
+          : "Stream failed";
       if (!reply.raw.destroyed && !reply.raw.writableEnded) {
         // If SSE already started, write structured stream error; otherwise return JSON 500.
         const contentType = String(reply.raw.getHeader("Content-Type") ?? "");
         if (contentType.includes("text/event-stream")) {
-          reply.raw.write(toSseChunk({ type: "error", message, code }));
+          reply.raw.write(toSseChunk({ type: "error", message: safeMessage, code: safeCode }));
           reply.raw.end();
         } else {
-          return reply.status(500).send({
+          return reply.status(code === "UPSTREAM_AI_ERROR" ? 503 : 500).send({
             ok: false,
-            error: { code: "INTERNAL_ERROR", message: "Unknown stream error" },
+            error: { code: safeCode, message: safeMessage },
           });
         }
       }
