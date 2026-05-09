@@ -1,5 +1,6 @@
 import { createApp, disconnectApp } from "./app.js";
 import { getRuntimeConfig } from "@lf/server-next/config/runtimeConfig.js";
+import { getRedisClient } from "@lf/server-next/infrastructure/redis/redisClient.js";
 
 
 const runtime = getRuntimeConfig();
@@ -25,6 +26,18 @@ if (runtime.mode === "production") {
 const app = createApp();
 
 async function start() {
+  // check redis 
+  if (runtime.requireRedis) {
+    const redisClient = getRedisClient(); // 这里已覆盖 REDIS_URL 缺失
+    try {
+      const pong = await redisClient!.ping();
+      if (pong !== "PONG") throw new Error(`unexpected ping result: ${pong}`);
+    } catch (err) {
+      console.error("[startup] Redis unavailable", err);
+      process.exit(1);
+    }
+  }
+
   try {
     const port = Number(process.env.PORT ?? process.env.LF_API_PORT ?? 3101);
     await app.listen({ host: "0.0.0.0", port });
