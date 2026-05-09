@@ -32,9 +32,18 @@ export interface UpdateUserSessionInput {
   ip?: string | null;
 }
 
+export interface RotateUserSessionInput {
+  currentSessionId: string;
+  revokedAt: Date;
+  replacedBySessionId: string;
+  lastUsedAt: Date;
+  nextSession: CreateUserSessionInput;
+}
+
 export interface UserSessionRepository {
   create(input: CreateUserSessionInput): Promise<UserSessionEntity>;
   findById(id: string): Promise<UserSessionEntity | null>;
   update(input: UpdateUserSessionInput): Promise<UserSessionEntity>;
+  rotateSession(input: RotateUserSessionInput): Promise<void>;
   listActiveByUserId(userId: string): Promise<UserSessionEntity[]>;
 }

@@ -1,11 +1,13 @@
 import type {
   CreateUserSessionInput,
+  RotateUserSessionInput,
   UpdateUserSessionInput,
   UserSessionEntity,
   UserSessionRepository,
 } from "@lf/core/ports/repository/UserSessionRepository.js";
 
 type PrismaUserSessionClient = {
+  $transaction?: <T>(fn: (tx: any) => Promise<T>) => Promise<T>;
   userSession: {
     create: (args: any) => Promise<any>;
     findUnique: (args: any) => Promise<any>;
@@ -53,6 +55,33 @@ export class PrismaUserSessionRepository implements UserSessionRepository {
     });
 
     return this.toEntity(row);
+  }
+
+  async rotateSession(input: RotateUserSessionInput): Promise<void> {
+    const runInTransaction = this.prisma.$transaction;
+    if (!runInTransaction) {
+      throw new Error("Prisma transaction client is required for rotateSession");
+    }
+    await runInTransaction(async (tx: any) => {
+      await tx.userSession.update({
+        where: { id: input.currentSessionId },
+        data: {
+          revokedAt: input.revokedAt,
+          replacedBySessionId: input.replacedBySessionId,
+          lastUsedAt: input.lastUsedAt,
+        },
+      });
+      await tx.userSession.create({
+        data: {
+          id: input.nextSession.id,
+          userId: input.nextSession.userId,
+          refreshTokenHash: input.nextSession.refreshTokenHash,
+          userAgent: input.nextSession.userAgent ?? null,
+          ip: input.nextSession.ip ?? null,
+          expiresAt: input.nextSession.expiresAt,
+        },
+      });
+    });
   }
 
   async listActiveByUserId(userId: string): Promise<UserSessionEntity[]> {

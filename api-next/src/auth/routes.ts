@@ -1,11 +1,11 @@
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { AuthingLoginResponse, LoginCredential, LoginResponse, RefreshTokenResponse } from "@lf/core/contracts/auth.js";
 import { isAuthingLoginBody, isLoginRequest, isRefreshTokenBody } from "./validators.js";
 import { isAllowedMockUserId, isMockAuthEnabled } from "./userContext.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { resolveRequestId } from "../lib/httpResult.js";
-
+import { getRedisClient } from "@lf/server-next/infrastructure/redis/redisClient.js";
 
 export interface AuthRouteDeps {
   authProvider: {
@@ -54,7 +54,7 @@ export interface AuthRouteDeps {
 
 /** 注册认证相关路由 */
 export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): void {
-  // 兼容旧登录接口（当前仍使用 MockAuthProvider）
+  // 开发调试专用 Mock 登录入口：生产环境必须禁用（LF_ALLOW_MOCK_AUTH=false）
   app.post("/auth/login", async (req, reply) => {
     const body = req.body as unknown;
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -141,6 +141,15 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
 
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "authing_login", limit: 20, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
     if (!isAuthingLoginBody(body)) {
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
@@ -150,10 +159,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         status: "failed",
         errorCode: "REQUEST_INVALID",
       });
-      return reply.status(400).send({
-        ok: false,
-        error: { code: "REQUEST_INVALID", message: "Invalid authing login payload" },
-      });
+      return sendAuthGenericError(reply);
     }
 
     let result: AuthingLoginResponse;
@@ -176,10 +182,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         errorCode: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID",
         errorMessage: message,
       });
-      return reply.status(isDisabled ? 403 : 401).send({
-        ok: false,
-        error: { code: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID", message },
-      });
+      return sendAuthGenericError(reply);
     }
 
     return reply.status(200).send({
@@ -203,10 +206,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         status: "failed",
         errorCode: "REQUEST_INVALID",
       });
-      return reply.status(400).send({
-        ok: false,
-        error: { code: "REQUEST_INVALID", message: "account and password are required" },
-      });
+      return sendAuthGenericError(reply);
     }
 
     let result: AuthingLoginResponse;
@@ -228,10 +228,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         errorMessage: message,
         metadata: { account },
       });
-      return reply.status(isDisabled ? 403 : 401).send({
-        ok: false,
-        error: { code: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID", message },
-      });
+      return sendAuthGenericError(reply);
     }
 
     const user = await deps.userRepository.findById(result.user.id);
@@ -245,10 +242,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         errorCode: "ADMIN_FORBIDDEN",
         userId: result.user.id,
       });
-      return reply.status(403).send({
-        ok: false,
-        error: { code: "ADMIN_FORBIDDEN", message: "Admin role is required" },
-      });
+      return sendAuthGenericError(reply);
     }
 
     return reply.status(200).send({
@@ -262,6 +256,15 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
 
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "refresh", limit: 60, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
     if (!isRefreshTokenBody(body)) {
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
@@ -271,10 +274,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         status: "failed",
         errorCode: "REQUEST_INVALID",
       });
-      return reply.status(400).send({
-        ok: false,
-        error: { code: "REQUEST_INVALID", message: "Invalid refresh token payload" },
-      });
+      return sendAuthGenericError(reply);
     }
 
     try {
@@ -300,10 +300,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         errorCode: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID",
         errorMessage: message,
       });
-      return reply.status(isDisabled ? 403 : 401).send({
-        ok: false,
-        error: { code: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID", message },
-      });
+      return sendAuthGenericError(reply);
     }
   });
 
@@ -311,6 +308,15 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     const body = req.body as unknown;
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
+
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "logout", limit: 120, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
 
     if (!isRefreshTokenBody(body)) {
       await writeSystemEventLog(deps.systemEventLogRepository, {
@@ -321,10 +327,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         status: "failed",
         errorCode: "REQUEST_INVALID",
       });
-      return reply.status(400).send({
-        ok: false,
-        error: { code: "REQUEST_INVALID", message: "Invalid logout payload" },
-      });
+      return sendAuthGenericError(reply);
     }
 
     try {
@@ -341,10 +344,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         errorCode: "AUTH_INVALID",
         errorMessage: message,
       });
-      return reply.status(401).send({
-        ok: false,
-        error: { code: "AUTH_INVALID", message },
-      });
+      return sendAuthGenericError(reply);
     }
   });
 }
@@ -360,7 +360,113 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
   return Array.isArray(value) ? value[0] : value;
 }
 
+// todo:可信代理模式”（仅信任受控入口转发的 `x-forwarded-for`）
 function resolveClientIp(forwardedFor: string | undefined): string | null {
   const first = forwardedFor?.split(",")[0]?.trim();
   return first && first.length > 0 ? first : null;
+}
+
+// redis限流
+type AuthRateLimitRule = {
+  routeKey: "authing_login" | "refresh" | "logout";
+  limit: number;
+  windowSec: number;
+};
+
+//ip限流
+async function checkAuthRateLimit(input: {
+  req: FastifyRequest;
+  reply: FastifyReply;
+  requestId: string;
+  rule: AuthRateLimitRule;
+  systemEventLogRepository?: SystemEventLogWriter;
+}): Promise<boolean> {
+  const redis = getRedisClient();
+  if (!redis) return true; // fail-open: 没有 Redis 直接放行
+
+  const forwardedFor = firstHeaderValue(input.req.headers["x-forwarded-for"]);
+  const ip = resolveClientIp(forwardedFor) ?? "unknown";
+  const nowSec = Math.floor(Date.now() / 1000);
+  const windowStart = Math.floor(nowSec / input.rule.windowSec) * input.rule.windowSec;
+  const key = `rl:auth:${input.rule.routeKey}:${ip}:${windowStart}`;
+  try {
+    const count = await redis.incr(key);
+
+    if (count === 1) {
+      await redis.expire(key, input.rule.windowSec);
+    }
+    else{
+      // 兜底修复：若 key 没有 TTL（-1）或异常（-2），补一次过期
+      const ttl = await redis.ttl(key);
+      if (ttl < 0) {
+        await redis.expire(key, input.rule.windowSec);
+        await writeSystemEventLog(input.systemEventLogRepository, {
+          requestId: input.requestId,
+          module: "auth",
+          event: "auth.rate_limit.ttl_recovered",
+          level: "warn",
+          status: "success",
+          metadata: {
+            path: input.req.url,
+            key,
+            ip,
+            routeKey: input.rule.routeKey,
+            ttlBefore: ttl,
+          },
+        });
+      }
+    }
+
+    if (count > input.rule.limit) {
+      await writeSystemEventLog(input.systemEventLogRepository, {
+        requestId: input.requestId,
+        module: "auth",
+        event: "auth.rate_limit.exceeded",
+        level: "warn",
+        status: "failed",
+        errorCode: "RATE_LIMITED",
+        metadata: {
+          path: input.req.url,
+          ip,
+          routeKey: input.rule.routeKey,
+          limit: input.rule.limit,
+          windowSec: input.rule.windowSec,
+          count,
+        },
+      });
+
+      await input.reply.status(429).send({
+        ok: false,
+        error: { code: "RATE_LIMITED", message: "Too many requests" },
+      });
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    // fail-open: Redis 异常放行，但记日志
+    await writeSystemEventLog(input.systemEventLogRepository, {
+      requestId: input.requestId,
+      module: "auth",
+      event: "auth.rate_limit.redis_unavailable",
+      level: "error",
+      status: "failed",
+      errorCode: "RATE_LIMIT_REDIS_UNAVAILABLE",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      metadata: {
+        path: input.req.url,
+        ip,
+        routeKey: input.rule.routeKey,
+      },
+    });
+    return true;
+  }
+}
+
+// 对外不展示报错细节
+function sendAuthGenericError(reply: FastifyReply) {
+  return reply.status(401).send({
+    ok: false,
+    error: { code: "AUTH_INVALID", message: "Authentication failed" },
+  });
 }

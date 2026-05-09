@@ -1,4 +1,26 @@
 import { createApp, disconnectApp } from "./app.js";
+import { getRuntimeConfig } from "@lf/server-next/config/runtimeConfig.js";
+
+
+const runtime = getRuntimeConfig();
+//生产不允许Mock账号登录
+if (runtime.mode === "production" && runtime.allowMockAuth) {
+  console.error(
+    "[startup] invalid config: LF_ALLOW_MOCK_AUTH must be false in production"
+  );
+  process.exit(1);
+}
+
+//生产检验AUTH_JWT_SECRET是否够强
+if (runtime.mode === "production") {
+  const secret = runtime.authJwtSecret.trim();
+  if (!secret || secret === "dev-only-change-me" || secret.length < 32) {
+     console.error(
+      "[startup] invalid config: AUTH_JWT_SECRET must be non-default and length >= 32 in production"
+    );
+    process.exit(1);
+  }
+}
 
 const app = createApp();
 

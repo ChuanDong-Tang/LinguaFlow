@@ -106,19 +106,19 @@ export class AuthLoginService {
     const now = new Date();
     const nextSessionId = randomUUID();
     const nextRefreshToken = signRefreshTokenWithSession(user.id, nextSessionId);
-    await this.userSessionRepository.update({
-      id: currentSession.id,
+    await this.userSessionRepository.rotateSession({
+      currentSessionId: currentSession.id,
       revokedAt: now,
       replacedBySessionId: nextSessionId,
       lastUsedAt: now,
-    });
-    await this.userSessionRepository.create({
-      id: nextSessionId,
-      userId: user.id,
-      refreshTokenHash: hashRefreshToken(nextRefreshToken),
-      userAgent: sessionContext.userAgent ?? currentSession.userAgent,
-      ip: sessionContext.ip ?? currentSession.ip,
-      expiresAt: resolveRefreshExpiry(now),
+      nextSession: {
+        id: nextSessionId,
+        userId: user.id,
+        refreshTokenHash: hashRefreshToken(nextRefreshToken),
+        userAgent: sessionContext.userAgent ?? currentSession.userAgent,
+        ip: sessionContext.ip ?? currentSession.ip,
+        expiresAt: resolveRefreshExpiry(now),
+      },
     });
 
     return {
