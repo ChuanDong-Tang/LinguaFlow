@@ -389,13 +389,14 @@
       }
 
       async function runRefund(id) {
-        const reason = prompt("退款原因（必填）");
+        const reason = prompt("退款原因（必填，默认次日00:00生效）");
         if (!reason) return;
         const refundReference = prompt("退款凭证号（可空）") || "";
         await request(`/admin/orders/${encodeURIComponent(id)}/manual-refund`, {
           method: "POST",
           body: JSON.stringify({ reason, refundReference }),
         });
+        alert("已提交手动退款：权益默认在次日 00:00 失效（Asia/Shanghai）");
         await loadOrders();
       }
 

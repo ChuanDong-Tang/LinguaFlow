@@ -209,6 +209,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         }
 
         const now = new Date();
+        const effectiveAt = getNextDayStartInShanghai(now);
         const nextMetadata = {
           ...(beforeOrder.metadata && typeof beforeOrder.metadata === "object"
             ? (beforeOrder.metadata as Record<string, unknown>)
@@ -218,6 +219,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
             refundReference: refundReference || null,
             adminId: admin.adminId,
             at: now.toISOString(),
+            entitlementEffectiveAt: effectiveAt.toISOString(),
+            entitlementPolicy: "next_day_00:00_asia_shanghai",
           },
         };
 
@@ -245,7 +248,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
             where: { id: activeSubscription.id },
             data: {
               status: "cancelled",
-              expiresAt: now,
+              expiresAt: effectiveAt,
             },
           });
         }
@@ -275,7 +278,11 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         afterData: {
           order: { status: result.afterOrder.status, metadata: result.afterOrder.metadata },
           subscription: result.afterSubscription
-            ? { id: result.afterSubscription.id, status: result.afterSubscription.status }
+            ? {
+                id: result.afterSubscription.id,
+                status: result.afterSubscription.status,
+                expiresAt: result.afterSubscription.expiresAt,
+              }
             : null,
         },
       });
@@ -644,6 +651,22 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
 
     return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
   });
+}
+
+function getNextDayStartInShanghai(base: Date): Date {
+  const shanghaiDatePart = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(base);
+  const [yearText, monthText, dayText] = shanghaiDatePart.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const shanghaiMidnightUtc = Date.UTC(year, month - 1, day, -8, 0, 0, 0);
+  const nextDayStartUtc = shanghaiMidnightUtc + 24 * 60 * 60 * 1000;
+  return new Date(nextDayStartUtc);
 }
 
 async function writeAuditLog(
