@@ -270,6 +270,26 @@ model SystemEventLog {
   @@map("system_event_logs")
 }
 
+model TrustedCert {
+  id            String   @id @default(cuid())
+  provider      String
+  keyId         String
+  materialType  String
+  pem           String
+  fingerprint   String?
+  notBefore     DateTime?
+  notAfter      DateTime?
+  status        String   @default("active")
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastSyncedAt  DateTime?
+
+  @@unique([provider, keyId, materialType])
+  @@index([provider, status, notAfter])
+  @@map("trusted_certs")
+}
+
 enum UserStatus {
   active
   disabled

@@ -27,6 +27,9 @@ export interface RuntimeConfig {
   paymentPendingExpireMs: number;
   paymentReconcileBatchSize: number;
   paymentReconcileIntervalMs: number;
+  paymentCertSyncIntervalMs: number;
+  paymentCertExpireWarnDays: number;
+  paymentCertRetentionDaysAfterExpire: number;
   benefitGrantRetryEnabled: boolean;
   benefitGrantMaxAttempts: number;
   benefitGrantBackoffMaxMs: number;
@@ -93,6 +96,12 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     paymentPendingExpireMs: readPositiveInt(env.LF_PAYMENT_PENDING_EXPIRE_MS, 1_800_000),
     paymentReconcileBatchSize: readPositiveInt(env.LF_PAYMENT_RECONCILE_BATCH_SIZE, 20),
     paymentReconcileIntervalMs: readPositiveInt(env.LF_PAYMENT_RECONCILE_INTERVAL_MS, 60_000),
+    paymentCertSyncIntervalMs: readPositiveInt(env.LF_PAYMENT_CERT_SYNC_INTERVAL_MS, 900_000),
+    paymentCertExpireWarnDays: readPositiveInt(env.LF_PAYMENT_CERT_EXPIRE_WARN_DAYS, 30),
+    paymentCertRetentionDaysAfterExpire: readPositiveInt(
+      env.LF_PAYMENT_CERT_RETENTION_DAYS_AFTER_EXPIRE,
+      30
+    ),
     benefitGrantRetryEnabled: readBoolean(env.LF_BENEFIT_GRANT_RETRY_ENABLED, true),
     benefitGrantMaxAttempts: readPositiveInt(env.LF_BENEFIT_GRANT_MAX_ATTEMPTS, 6),
     benefitGrantBackoffMaxMs: readPositiveInt(env.LF_BENEFIT_GRANT_BACKOFF_MAX_MS, 60_000),

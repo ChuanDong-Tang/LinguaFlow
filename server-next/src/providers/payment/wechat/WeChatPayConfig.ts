@@ -6,7 +6,6 @@ export interface WeChatPayConfig {
   merchantSerialNo: string;
   merchantPrivateKey: string;
   apiV3Key: string;
-  platformPublicKey: string;
   notifyUrl: string;
   baseUrl: string;
 }
@@ -29,7 +28,6 @@ export interface WeChatPayConfigCheck {
     merchantSerialNo: boolean;
     merchantPrivateKey: boolean;
     apiV3Key: boolean;
-    platformPublicKey: boolean;
     notifyUrl: boolean;
     baseUrl: string;
   };
@@ -42,7 +40,6 @@ export function loadWeChatPayConfig(env: NodeJS.ProcessEnv = process.env): WeCha
     merchantSerialNo: env.WECHAT_PAY_MERCHANT_SERIAL_NO ?? "",
     merchantPrivateKey: normalizePrivateKey(env.WECHAT_PAY_MERCHANT_PRIVATE_KEY ?? ""),
     apiV3Key: env.WECHAT_PAY_API_V3_KEY ?? "",
-    platformPublicKey: normalizePrivateKey(env.WECHAT_PAY_PLATFORM_PUBLIC_KEY ?? ""),
     notifyUrl: env.WECHAT_PAY_NOTIFY_URL ?? "",
     baseUrl: env.WECHAT_PAY_BASE_URL ?? "https://api.mch.weixin.qq.com",
   };
@@ -62,7 +59,6 @@ export function checkWeChatPayConfig(
   env: NodeJS.ProcessEnv = process.env
 ): WeChatPayConfigCheck {
   const merchantPrivateKey = normalizePrivateKey(env.WECHAT_PAY_MERCHANT_PRIVATE_KEY ?? "");
-  const platformPublicKey = normalizePrivateKey(env.WECHAT_PAY_PLATFORM_PUBLIC_KEY ?? "");
   const notifyUrl = env.WECHAT_PAY_NOTIFY_URL ?? "";
   const baseUrl = env.WECHAT_PAY_BASE_URL ?? "https://api.mch.weixin.qq.com";
   const configured = {
@@ -71,7 +67,6 @@ export function checkWeChatPayConfig(
     merchantSerialNo: Boolean(env.WECHAT_PAY_MERCHANT_SERIAL_NO),
     merchantPrivateKey: Boolean(merchantPrivateKey),
     apiV3Key: Boolean(env.WECHAT_PAY_API_V3_KEY),
-    platformPublicKey: Boolean(platformPublicKey),
     notifyUrl: Boolean(notifyUrl),
     baseUrl,
   };
@@ -82,10 +77,6 @@ export function checkWeChatPayConfig(
 
   if (merchantPrivateKey && !merchantPrivateKey.includes("BEGIN PRIVATE KEY")) {
     warnings.push("merchantPrivateKey should be a PEM private key");
-  }
-
-  if (platformPublicKey && !platformPublicKey.includes("BEGIN PUBLIC KEY")) {
-    warnings.push("platformPublicKey should be a PEM public key");
   }
 
   if (notifyUrl && !notifyUrl.startsWith("https://")) {

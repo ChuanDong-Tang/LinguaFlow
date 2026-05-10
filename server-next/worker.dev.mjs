@@ -10,9 +10,11 @@ import { SubscriptionService } from "./src/services/subscription/SubscriptionSer
 import { PaymentReconcileWorker } from "./src/workers/payment/PaymentReconcileWorker.ts";
 import { BenefitGrantWorker } from "./src/workers/payment/BenefitGrantWorker.ts";
 import { PrismaSystemEventLogRepository } from "./src/infrastructure/repository/PrismaSystemEventLogRepository.ts";
+import { PrismaTrustedCertRepository } from "./src/infrastructure/repository/PrismaTrustedCertRepository.ts";
 import { SessionCleanupWorker } from "./src/workers/session/SessionCleanupWorker.ts";
 import { SystemEventLogCleanupWorker } from "./src/workers/system/SystemEventLogCleanupWorker.ts";
 import { AiRequestLogCleanupWorker } from "./src/workers/ai/AiRequestLogCleanupWorker.ts";
+import { PaymentCertSyncWorker } from "./src/workers/payment/PaymentCertSyncWorker.ts";
 import { getRuntimeConfig } from "./src/config/runtimeConfig.ts";
 import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
 
@@ -21,6 +23,7 @@ const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
 const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
 const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
 const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
+const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
 const paymentProvider = new WeChatPaymentProvider();
 const paymentOrderService = new PaymentOrderService(paymentOrderRepository, paymentProvider);
 const subscriptionService = new SubscriptionService(subscriptionRepository);
@@ -40,6 +43,10 @@ const benefitGrantWorker = new BenefitGrantWorker(
 const sessionCleanupWorker = new SessionCleanupWorker(prisma, systemEventLogRepository);
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
+const paymentCertSyncWorker = new PaymentCertSyncWorker(
+  trustedCertRepository,
+  systemEventLogRepository
+);
 
 const runtime = getRuntimeConfig();
 
@@ -55,13 +62,14 @@ if (runtime.requireRedis) {
   }
 }
 
-console.log("[worker] payment/grant/session/log/ai cleanup workers running");
+console.log("[worker] payment/grant/session/log/ai/cert workers running");
 try {
   worker.start();
   benefitGrantWorker.start();
   sessionCleanupWorker.start();
   systemEventLogCleanupWorker.start();
   aiRequestLogCleanupWorker.start();
+  paymentCertSyncWorker.start();
 } catch (error) {
   console.error("[worker] start failed", error);
   await systemEventLogRepository.create({
@@ -82,6 +90,7 @@ async function shutdown() {
   sessionCleanupWorker.stop();
   systemEventLogCleanupWorker.stop();
   aiRequestLogCleanupWorker.stop();
+  paymentCertSyncWorker.stop();
   await prisma.$disconnect();
   process.exit(0);
 }

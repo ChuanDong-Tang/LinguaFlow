@@ -32,6 +32,7 @@ import { BenefitGrantService } from "@lf/server-next/services/payment/BenefitGra
 import { WeChatPaymentProvider } from "@lf/server-next/providers/payment/wechat/WeChatPaymentProvider.js";
 import { PrismaAiRequestLogRepository } from "@lf/server-next/infrastructure/repository/PrismaAiRequestLogRepository.js";
 import { PrismaSystemEventLogRepository } from "@lf/server-next/infrastructure/repository/PrismaSystemEventLogRepository.js";
+import { PrismaTrustedCertRepository } from "@lf/server-next/infrastructure/repository/PrismaTrustedCertRepository.js";
 import {
   InMemoryRewriteRateLimiter,
   RedisRewriteRateLimiter,
@@ -40,6 +41,7 @@ import { registerMeRoutes } from "./me/routes.js";
 import { registerPaymentRoutes } from "./payment/routes.js";
 import { registerAdminRoutes } from "./admin/routes.js";
 import { getRuntimeConfig } from "@lf/server-next/config/runtimeConfig.js";
+import { PaymentCertSyncService } from "@lf/server-next/services/payment/PaymentCertSyncService.js";
 
 const prisma = new PrismaClient();
 
@@ -105,15 +107,19 @@ export function createApp() {
   const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
   const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
   const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
+  const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
   const paymentProvider = new WeChatPaymentProvider();
   const paymentOrderService = new PaymentOrderService(paymentOrderRepository, paymentProvider);
   const paymentEntitlementService = new PaymentEntitlementService(subscriptionService);
   const benefitGrantService = new BenefitGrantService(benefitGrantRepository);
+  const paymentCertSyncService = new PaymentCertSyncService(trustedCertRepository);
   const paymentNotifyService = new PaymentNotifyService(
     paymentEventRepository,
     paymentOrderRepository,
     benefitGrantService,
-    paymentEntitlementService
+    paymentEntitlementService,
+    trustedCertRepository,
+    paymentCertSyncService
   );
   const appleIapService = new AppleIapService(
     benefitGrantService,

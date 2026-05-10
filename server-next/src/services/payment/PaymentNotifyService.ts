@@ -2,8 +2,10 @@
 
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
 import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import type { TrustedCertRepository } from "@lf/core/ports/repository/TrustedCertRepository.js";
 import type { BenefitGrantService } from "./BenefitGrantService.js";
 import type { PaymentEntitlementService } from "./PaymentEntitlementService.js";
+import type { PaymentCertSyncService } from "./PaymentCertSyncService.js";
 import {
   decryptWeChatPayResource,
   verifyWeChatPaySignature,
@@ -49,7 +51,9 @@ export class PaymentNotifyService {
     private readonly paymentEventRepository: PaymentEventRepository,
     private readonly paymentOrderRepository: PaymentOrderRepository,
     private readonly benefitGrantService: BenefitGrantService,
-    private readonly paymentEntitlementService: PaymentEntitlementService
+    private readonly paymentEntitlementService: PaymentEntitlementService,
+    private readonly trustedCertRepository: TrustedCertRepository,
+    private readonly paymentCertSyncService: PaymentCertSyncService
   ) {}
 
   async handleWeChatNotify(input: WeChatNotifyInput): Promise<{ status: "success" | "ignored" }> {
@@ -62,18 +66,26 @@ export class PaymentNotifyService {
     ) {
       throw new Error("WECHAT_NOTIFY_HEADERS_INVALID");
     }
+    if (!input.headers.serial) throw new Error("WECHAT_NOTIFY_SERIAL_MISSING");
+
+    const platformPublicKey = await this.resolveWeChatPublicKeyBySerial(input.headers.serial);
 
     const valid = verifyWeChatPaySignature({
       timestamp: input.headers.timestamp,
       nonce: input.headers.nonce,
       signature: input.headers.signature,
       body: input.rawBody,
-      platformPublicKey: config.platformPublicKey,
+      platformPublicKey,
     });
 
     if (!valid) throw new Error("WECHAT_NOTIFY_SIGNATURE_INVALID");
 
-    const body = JSON.parse(input.rawBody) as WeChatNotifyBody;
+    let body: WeChatNotifyBody;
+    try {
+      body = JSON.parse(input.rawBody) as WeChatNotifyBody;
+    } catch (error) {
+      throw new Error(`WECHAT_NOTIFY_PARSE_FAILED: ${toErrorMessage(error)}`);
+    }
     const existingEvent = await this.paymentEventRepository.findByProviderEventId({
       provider: "wechat",
       providerEventId: body.id,
@@ -84,30 +96,36 @@ export class PaymentNotifyService {
       return { status: "ignored" };
     }
 
-    const resourceText = body.resource
-      ? decryptWeChatPayResource({
-          associatedData: body.resource.associated_data,
-          nonce: body.resource.nonce,
-          ciphertext: body.resource.ciphertext,
-          apiV3Key: config.apiV3Key,
-        })
-      : "{}";
-    const resource = JSON.parse(resourceText) as WeChatTransactionResource;
-    const providerOrderId = resource.out_trade_no;
     const event =
       existingEvent ??
       (await this.paymentEventRepository.create({
         provider: "wechat",
         providerEventId: body.id,
-        providerOrderId,
+        providerOrderId: null,
         eventType: body.event_type,
         rawPayload: {
           body,
-          resource,
+          rawBody: input.rawBody,
         },
       }));
 
     try {
+      const resourceText = body.resource
+        ? decryptWeChatPayResource({
+            associatedData: body.resource.associated_data,
+            nonce: body.resource.nonce,
+            ciphertext: body.resource.ciphertext,
+            apiV3Key: config.apiV3Key,
+          })
+        : "{}";
+      let resource: WeChatTransactionResource;
+      try {
+        resource = JSON.parse(resourceText) as WeChatTransactionResource;
+      } catch (error) {
+        throw new Error(`WECHAT_NOTIFY_DECRYPT_PARSE_FAILED: ${toErrorMessage(error)}`);
+      }
+      const providerOrderId = resource.out_trade_no;
+
       if (body.event_type !== "TRANSACTION.SUCCESS" || resource.trade_state !== "SUCCESS") {
         await this.paymentEventRepository.markIgnored(
           event.id,
@@ -175,18 +193,26 @@ export class PaymentNotifyService {
     ) {
       throw new Error("WECHAT_REFUND_NOTIFY_HEADERS_INVALID");
     }
+    if (!input.headers.serial) throw new Error("WECHAT_REFUND_NOTIFY_SERIAL_MISSING");
+
+    const platformPublicKey = await this.resolveWeChatPublicKeyBySerial(input.headers.serial);
 
     const valid = verifyWeChatPaySignature({
       timestamp: input.headers.timestamp,
       nonce: input.headers.nonce,
       signature: input.headers.signature,
       body: input.rawBody,
-      platformPublicKey: config.platformPublicKey,
+      platformPublicKey,
     });
 
     if (!valid) throw new Error("WECHAT_REFUND_NOTIFY_SIGNATURE_INVALID");
 
-    const body = JSON.parse(input.rawBody) as WeChatNotifyBody;
+    let body: WeChatNotifyBody;
+    try {
+      body = JSON.parse(input.rawBody) as WeChatNotifyBody;
+    } catch (error) {
+      throw new Error(`WECHAT_REFUND_NOTIFY_PARSE_FAILED: ${toErrorMessage(error)}`);
+    }
     const existingEvent = await this.paymentEventRepository.findByProviderEventId({
       provider: "wechat",
       providerEventId: body.id,
@@ -197,30 +223,36 @@ export class PaymentNotifyService {
       return { status: "ignored" };
     }
 
-    const resourceText = body.resource
-      ? decryptWeChatPayResource({
-          associatedData: body.resource.associated_data,
-          nonce: body.resource.nonce,
-          ciphertext: body.resource.ciphertext,
-          apiV3Key: config.apiV3Key,
-        })
-      : "{}";
-    const resource = JSON.parse(resourceText) as WeChatRefundResource;
-    const providerOrderId = resource.out_trade_no;
     const event =
       existingEvent ??
       (await this.paymentEventRepository.create({
         provider: "wechat",
         providerEventId: body.id,
-        providerOrderId,
+        providerOrderId: null,
         eventType: body.event_type,
         rawPayload: {
           body,
-          resource,
+          rawBody: input.rawBody,
         },
       }));
 
     try {
+      const resourceText = body.resource
+        ? decryptWeChatPayResource({
+            associatedData: body.resource.associated_data,
+            nonce: body.resource.nonce,
+            ciphertext: body.resource.ciphertext,
+            apiV3Key: config.apiV3Key,
+          })
+        : "{}";
+      let resource: WeChatRefundResource;
+      try {
+        resource = JSON.parse(resourceText) as WeChatRefundResource;
+      } catch (error) {
+        throw new Error(`WECHAT_REFUND_NOTIFY_DECRYPT_PARSE_FAILED: ${toErrorMessage(error)}`);
+      }
+      const providerOrderId = resource.out_trade_no;
+
       const isRefundSuccess =
         body.event_type.includes("REFUND") &&
         (!resource.refund_status || resource.refund_status === "SUCCESS");
@@ -265,4 +297,26 @@ export class PaymentNotifyService {
       throw error;
     }
   }
+
+  private async resolveWeChatPublicKeyBySerial(serial: string): Promise<string> {
+    let certs = await this.trustedCertRepository.listActiveByProvider("wechat");
+    let matched = certs.find(
+      (item) => item.materialType === "platform_public_key" && item.keyId === serial
+    );
+    if (!matched) {
+      await this.paymentCertSyncService.syncWeChatPlatformCerts();
+      certs = await this.trustedCertRepository.listActiveByProvider("wechat");
+      matched = certs.find(
+        (item) => item.materialType === "platform_public_key" && item.keyId === serial
+      );
+    }
+    if (!matched) {
+      throw new Error("WECHAT_NOTIFY_SERIAL_INVALID");
+    }
+    return matched.pem;
+  }
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

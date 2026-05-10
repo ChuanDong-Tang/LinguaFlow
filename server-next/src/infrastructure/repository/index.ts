@@ -9,3 +9,4 @@ export * from "./PrismaPaymentOrderRepository.js";
 export * from "./PrismaPaymentEventRepository.js";
 export * from "./PrismaBenefitGrantRepository.js";
 export * from "./PrismaSystemEventLogRepository.js";
+export * from "./PrismaTrustedCertRepository.js";

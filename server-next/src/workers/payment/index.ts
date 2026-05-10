@@ -2,3 +2,4 @@
 
 export * from "./PaymentReconcileWorker.js";
 export * from "./BenefitGrantWorker.js";
+export * from "./PaymentCertSyncWorker.js";
