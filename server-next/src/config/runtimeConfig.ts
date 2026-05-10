@@ -21,11 +21,15 @@ export interface RuntimeConfig {
   proDailyTotalLimit: number;
   freeDailyTotalLimit: number;
   proMonthlyPriceCents: number;
+  paymentDescriptionProMonthly: string;
   paymentPendingReuseWindowMs: number;
   paymentReconcileGraceMs: number;
   paymentPendingExpireMs: number;
   paymentReconcileBatchSize: number;
   paymentReconcileIntervalMs: number;
+  benefitGrantRetryEnabled: boolean;
+  benefitGrantMaxAttempts: number;
+  benefitGrantBackoffMaxMs: number;
   paymentRateLimitWebhookLimit: number;
   paymentRateLimitWebhookWindowSec: number;
   paymentRateLimitOrdersCreateLimit: number;
@@ -82,11 +86,16 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     proDailyTotalLimit: readPositiveInt(env.LF_PRO_DAILY_TOTAL_LIMIT, 10_000),
     freeDailyTotalLimit: readPositiveInt(env.LF_FREE_DAILY_TOTAL_LIMIT, 500),
     proMonthlyPriceCents: readPositiveInt(env.LF_PRO_MONTHLY_PRICE_CENTS, 1900),
+    paymentDescriptionProMonthly:
+      env.LF_PAYMENT_DESC_PRO_MONTHLY?.trim() || "LinguaFlow Pro 月卡",
     paymentPendingReuseWindowMs: readPositiveInt(env.LF_PAYMENT_PENDING_REUSE_WINDOW_MS, 300_000),
     paymentReconcileGraceMs: readPositiveInt(env.LF_PAYMENT_RECONCILE_GRACE_MS, 120_000),
     paymentPendingExpireMs: readPositiveInt(env.LF_PAYMENT_PENDING_EXPIRE_MS, 1_800_000),
     paymentReconcileBatchSize: readPositiveInt(env.LF_PAYMENT_RECONCILE_BATCH_SIZE, 20),
     paymentReconcileIntervalMs: readPositiveInt(env.LF_PAYMENT_RECONCILE_INTERVAL_MS, 60_000),
+    benefitGrantRetryEnabled: readBoolean(env.LF_BENEFIT_GRANT_RETRY_ENABLED, true),
+    benefitGrantMaxAttempts: readPositiveInt(env.LF_BENEFIT_GRANT_MAX_ATTEMPTS, 6),
+    benefitGrantBackoffMaxMs: readPositiveInt(env.LF_BENEFIT_GRANT_BACKOFF_MAX_MS, 60_000),
     paymentRateLimitWebhookLimit: readPositiveInt(env.LF_RL_PAYMENT_WEBHOOK_LIMIT, 120),
     paymentRateLimitWebhookWindowSec: readPositiveInt(env.LF_RL_PAYMENT_WEBHOOK_WINDOW_SEC, 60),
     paymentRateLimitOrdersCreateLimit: readPositiveInt(env.LF_RL_PAYMENT_ORDERS_CREATE_LIMIT, 30),

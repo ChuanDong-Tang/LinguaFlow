@@ -2,6 +2,7 @@
 
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
 import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import type { BenefitGrantService } from "./BenefitGrantService.js";
 import type { PaymentEntitlementService } from "./PaymentEntitlementService.js";
 import {
   decryptWeChatPayResource,
@@ -47,6 +48,7 @@ export class PaymentNotifyService {
   constructor(
     private readonly paymentEventRepository: PaymentEventRepository,
     private readonly paymentOrderRepository: PaymentOrderRepository,
+    private readonly benefitGrantService: BenefitGrantService,
     private readonly paymentEntitlementService: PaymentEntitlementService
   ) {}
 
@@ -133,12 +135,22 @@ export class PaymentNotifyService {
         });
       }
 
-      await this.paymentEntitlementService.grantAfterPayment({
-        userId: order.userId,
-        sourceOrderId: order.id,
-        productCode: "pro_monthly",
-        channel: "wechat",
-      });
+      try {
+        await this.paymentEntitlementService.grantAfterPayment({
+          userId: order.userId,
+          sourceOrderId: order.id,
+          productCode: "pro_monthly",
+          channel: "wechat",
+        });
+      } catch (_error) {
+        await this.benefitGrantService.enqueueGrant({
+          userId: order.userId,
+          sourceOrderId: order.id,
+          productCode: "pro_monthly",
+          channel: "wechat",
+          payload: { fallbackReason: "sync_grant_failed", source: "wechat_notify" },
+        });
+      }
 
       await this.paymentEventRepository.markProcessed(event.id);
       return { status: "success" };

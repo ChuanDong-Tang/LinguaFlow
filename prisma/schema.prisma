@@ -208,6 +208,28 @@ model PaymentEvent {
   @@map("payment_events")
 }
 
+model BenefitGrant {
+  id            String             @id @default(cuid())
+  userId        String
+  sourceOrderId String
+  productCode   String
+  channel       String
+  status        BenefitGrantStatus @default(pending)
+  attemptCount  Int                @default(0)
+  nextRetryAt   DateTime?
+  lastErrorCode String?
+  lastErrorMsg  String?
+  payload       Json?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  processedAt   DateTime?
+
+  @@unique([sourceOrderId, productCode])
+  @@index([status, nextRetryAt, createdAt])
+  @@index([userId, createdAt])
+  @@map("benefit_grants")
+}
+
 model AdminAuditLog {
   id          String   @id @default(cuid())
   adminId     String
@@ -297,6 +319,13 @@ enum PaymentEventStatus {
   received
   processed
   ignored
+  failed
+}
+
+enum BenefitGrantStatus {
+  pending
+  processing
+  success
   failed
 }
 

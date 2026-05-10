@@ -10,6 +10,7 @@ import {
   isSameEntitlement,
   setCachedEntitlement,
 } from "../services/entitlementCache";
+import { recoverPendingPaymentIfAny } from "../services/paymentRecovery";
 import { TabBar } from "./shared/TabBar";
 
 type MeScreenProps = {
@@ -27,6 +28,7 @@ export function MeScreen({ onOpenMain, onOpenPro, onLogout }: MeScreenProps) {
     let mounted = true;
 
     async function loadProfile() {
+      await recoverPendingPaymentIfAny();
       const [localSession, cached] = await Promise.all([
         getSession(),
         getCachedEntitlement(),
@@ -41,7 +43,9 @@ export function MeScreen({ onOpenMain, onOpenPro, onLogout }: MeScreenProps) {
 
       try {
         const data = await getCurrentEntitlement();
-        await setCachedEntitlement(data);
+        if (!cached || !isSameEntitlement(cached.data, data)) {
+          await setCachedEntitlement(data);
+        }
 
         if (mounted) {
           setEntitlement((prev) => (isSameEntitlement(prev, data) ? prev : data));

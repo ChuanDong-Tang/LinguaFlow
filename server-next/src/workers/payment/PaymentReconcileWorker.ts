@@ -1,6 +1,7 @@
 /** PaymentReconcileWorker：执行支付对账与补偿任务。 */
 
 import type { PaymentOrderService } from "../../services/payment/PaymentOrderService.js";
+import type { BenefitGrantService } from "../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../services/payment/PaymentEntitlementService.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
@@ -16,6 +17,7 @@ export class PaymentReconcileWorker {
 
   constructor(
     private readonly paymentOrderService: PaymentOrderService,
+    private readonly benefitGrantService: BenefitGrantService,
     private readonly paymentEntitlementService: PaymentEntitlementService,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly options: PaymentReconcileWorkerOptions = {}
@@ -46,28 +48,46 @@ export class PaymentReconcileWorker {
       const result = await this.paymentOrderService.reconcilePendingOrders({
         limit: this.options.batchSize,
         onPaid: async (order) => {
+          let grantEnqueued = false;
           try {
-            await this.paymentEntitlementService.grantAfterPayment({
-              userId: order.userId,
-              sourceOrderId: order.id,
-              productCode: "pro_monthly",
-              channel: "wechat",
-            });
+            try {
+              await this.paymentEntitlementService.grantAfterPayment({
+                userId: order.userId,
+                sourceOrderId: order.id,
+                productCode: "pro_monthly",
+                channel: "wechat",
+              });
+            } catch (_error) {
+              await this.benefitGrantService.enqueueGrant({
+                userId: order.userId,
+                sourceOrderId: order.id,
+                productCode: "pro_monthly",
+                channel: "wechat",
+                payload: { fallbackReason: "sync_grant_failed", source: "payment_reconcile_worker" },
+              });
+              grantEnqueued = true;
+            }
           } catch (error) {
             await this.writeWorkerLog({
               module: "payment",
-              event: "payment.worker.grant_failed",
+              event: "payment.worker.on_paid_failed",
               level: "error",
               status: "failed",
               userId: order.userId,
-              errorCode: "WORKER_GRANT_FAILED",
+              errorCode: "WORKER_ON_PAID_FAILED",
               errorMessage: toErrorMessage(error),
               metadata: {
                 orderId: order.id,
                 providerOrderId: order.providerOrderId,
+                retryEnqueued: grantEnqueued,
               },
             });
-            throw error;
+            console.error("[payment-reconcile] onPaid failed, skip current order", {
+              orderId: order.id,
+              providerOrderId: order.providerOrderId,
+              retryEnqueued: grantEnqueued,
+              error: toErrorMessage(error),
+            });
           }
         },
       });

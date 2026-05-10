@@ -1,11 +1,14 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPaymentOrderRepository } from "./src/infrastructure/repository/PrismaPaymentOrderRepository.ts";
+import { PrismaBenefitGrantRepository } from "./src/infrastructure/repository/PrismaBenefitGrantRepository.ts";
 import { PrismaSubscriptionRepository } from "./src/infrastructure/repository/PrismaSubscriptionRepository.ts";
 import { WeChatPaymentProvider } from "./src/providers/payment/index.ts";
 import { PaymentOrderService } from "./src/services/payment/PaymentOrderService.ts";
 import { PaymentEntitlementService } from "./src/services/payment/PaymentEntitlementService.ts";
+import { BenefitGrantService } from "./src/services/payment/BenefitGrantService.ts";
 import { SubscriptionService } from "./src/services/subscription/SubscriptionService.ts";
 import { PaymentReconcileWorker } from "./src/workers/payment/PaymentReconcileWorker.ts";
+import { BenefitGrantWorker } from "./src/workers/payment/BenefitGrantWorker.ts";
 import { PrismaSystemEventLogRepository } from "./src/infrastructure/repository/PrismaSystemEventLogRepository.ts";
 import { SessionCleanupWorker } from "./src/workers/session/SessionCleanupWorker.ts";
 import { SystemEventLogCleanupWorker } from "./src/workers/system/SystemEventLogCleanupWorker.ts";
@@ -15,14 +18,22 @@ import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
 
 const prisma = new PrismaClient();
 const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
+const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
 const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
 const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
 const paymentProvider = new WeChatPaymentProvider();
 const paymentOrderService = new PaymentOrderService(paymentOrderRepository, paymentProvider);
 const subscriptionService = new SubscriptionService(subscriptionRepository);
 const paymentEntitlementService = new PaymentEntitlementService(subscriptionService);
+const benefitGrantService = new BenefitGrantService(benefitGrantRepository);
 const worker = new PaymentReconcileWorker(
   paymentOrderService,
+  benefitGrantService,
+  paymentEntitlementService,
+  systemEventLogRepository
+);
+const benefitGrantWorker = new BenefitGrantWorker(
+  benefitGrantRepository,
   paymentEntitlementService,
   systemEventLogRepository
 );
@@ -44,9 +55,10 @@ if (runtime.requireRedis) {
   }
 }
 
-console.log("[worker] payment/session/log/ai cleanup workers running");
+console.log("[worker] payment/grant/session/log/ai cleanup workers running");
 try {
   worker.start();
+  benefitGrantWorker.start();
   sessionCleanupWorker.start();
   systemEventLogCleanupWorker.start();
   aiRequestLogCleanupWorker.start();
@@ -66,6 +78,7 @@ try {
 
 async function shutdown() {
   worker.stop();
+  benefitGrantWorker.stop();
   sessionCleanupWorker.stop();
   systemEventLogCleanupWorker.stop();
   aiRequestLogCleanupWorker.stop();

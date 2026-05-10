@@ -1,4 +1,5 @@
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
+import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
 import { APPLE_PROVIDER } from "./AppleIapConstants.js";
 import { isAppleIapConfigured, loadAppleIapConfig } from "./AppleIapConfig.js";
@@ -25,6 +26,7 @@ export interface VerifyAppleIapTransactionResult {
 
 export class AppleIapService {
   constructor(
+    private readonly benefitGrantService: BenefitGrantService,
     private readonly paymentEntitlementService: PaymentEntitlementService,
     private readonly paymentEventRepository: PaymentEventRepository
   ) {}
@@ -62,12 +64,25 @@ export class AppleIapService {
     }
 
     const sourceOrderId = `apple_iap:${originalTransactionId}`;
-    const granted = await this.paymentEntitlementService.grantAfterPayment({
-      userId: input.userId,
-      sourceOrderId,
-      productCode: "pro_monthly",
-      channel: "ios_iap",
-    });
+    let alreadyApplied = false;
+    try {
+      const result = await this.paymentEntitlementService.grantAfterPayment({
+        userId: input.userId,
+        sourceOrderId,
+        productCode: "pro_monthly",
+        channel: "ios_iap",
+      });
+      alreadyApplied = result.alreadyApplied;
+    } catch (_error) {
+      const queued = await this.benefitGrantService.enqueueGrant({
+        userId: input.userId,
+        sourceOrderId,
+        productCode: "pro_monthly",
+        channel: "ios_iap",
+        payload: { fallbackReason: "sync_grant_failed", source: "apple_verify_transaction" },
+      });
+      alreadyApplied = !queued.created;
+    }
 
     return {
       environment: transaction.environment,
@@ -75,7 +90,7 @@ export class AppleIapService {
       originalTransactionId,
       productId: transaction.productId,
       sourceOrderId,
-      alreadyApplied: granted.alreadyApplied,
+      alreadyApplied,
     };
   }
 

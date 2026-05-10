@@ -9,4 +9,5 @@ export * from "./EntitlementRepository.js";
 export * from "./AiRequestLogRepository.js";
 export * from "./PaymentOrderRepository.js";
 export * from "./PaymentEventRepository.js";
+export * from "./BenefitGrantRepository.js";
 export * from "./SystemEventLogRepository.js";

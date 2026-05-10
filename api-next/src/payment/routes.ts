@@ -36,6 +36,15 @@ export interface PaymentRouteDeps {
   systemEventLogRepository?: SystemEventLogWriter;
 }
 
+const CLIENT_ERROR_MESSAGES = {
+  PAYMENT_FAILED: "Payment request failed, please try again later.",
+  RESOURCE_NOT_FOUND: "Payment order not found.",
+  IAP_VERIFY_FAILED: "Unable to verify purchase at the moment.",
+  IAP_NOTIFY_FAILED: "Notification processing failed.",
+  AUTH_UNAUTHORIZED: "Authentication required.",
+  ACCOUNT_DISABLED: "Account is unavailable.",
+} as const;
+
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -71,13 +80,22 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
   app.get("/payment/health", async (_req, reply) => {
     const wechat = checkWeChatPayConfig();
     const appleIap = { ok: deps.appleIapService.isConfigured() };
+    const providers = {
+      wechat: {
+        ok: wechat.ok,
+        detail: wechat,
+      },
+      ios: {
+        ok: appleIap.ok,
+        detail: appleIap,
+      },
+    };
+    const ok = providers.wechat.ok && providers.ios.ok;
 
-    return reply.status(wechat.ok ? 200 : 503).send({
-      ok: wechat.ok,
+    return reply.status(ok ? 200 : 503).send({
+      ok,
       data: {
-        provider: "wechat",
-        wechat,
-        appleIap,
+        providers,
       },
     });
   });
@@ -139,7 +157,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       return reply.status(502).send({
         ok: false,
         request_id: requestId,
-        error: { code: "PAYMENT_FAILED", message },
+        error: { code: "PAYMENT_FAILED", message: CLIENT_ERROR_MESSAGES.PAYMENT_FAILED },
       });
     }
   });
@@ -208,7 +226,10 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         return reply.status(404).send({
           ok: false,
           request_id: requestId,
-          error: { code: "RESOURCE_NOT_FOUND", message: error.message },
+          error: {
+            code: "RESOURCE_NOT_FOUND",
+            message: CLIENT_ERROR_MESSAGES.RESOURCE_NOT_FOUND,
+          },
         });
       }
 
@@ -384,7 +405,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         return reply.status(503).send({
           ok: false,
           request_id: requestId,
-          error: { code: configError.code, message },
+          error: { code: configError.code, message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
         });
       }
 
@@ -405,7 +426,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
-        error: { code: "IAP_VERIFY_FAILED", message },
+        error: { code: "IAP_VERIFY_FAILED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
       });
     }
   });
@@ -464,7 +485,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
-        error: { code: "IAP_NOTIFY_FAILED", message },
+        error: { code: "IAP_NOTIFY_FAILED", message: CLIENT_ERROR_MESSAGES.IAP_NOTIFY_FAILED },
       });
     }
   });
@@ -495,7 +516,7 @@ async function resolvePaymentUserContext(
       void reply.status(401).send({
         ok: false,
         request_id: requestId,
-        error: { code: "AUTH_UNAUTHORIZED", message: error.message },
+        error: { code: "AUTH_UNAUTHORIZED", message: CLIENT_ERROR_MESSAGES.AUTH_UNAUTHORIZED },
       });
       return null;
     }
@@ -512,7 +533,7 @@ async function resolvePaymentUserContext(
       void reply.status(403).send({
         ok: false,
         request_id: requestId,
-        error: { code: error.code, message: error.message },
+        error: { code: error.code, message: CLIENT_ERROR_MESSAGES.ACCOUNT_DISABLED },
       });
       return null;
     }

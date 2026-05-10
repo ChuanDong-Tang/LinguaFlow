@@ -1,13 +1,65 @@
-import React from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { createProMonthlyOrder } from "../services/paymentApi";
+import {
+  clearPendingPaymentOrder,
+  pollPaymentOrderUntilSettled,
+  recoverPendingPaymentIfAny,
+  savePendingPaymentOrder,
+} from "../services/paymentRecovery";
 
 type ProScreenProps = {
   onBack: () => void;
 };
 
 export function ProScreen({ onBack }: ProScreenProps) {
+  const [isPaying, setIsPaying] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const recovered = await recoverPendingPaymentIfAny();
+      if (!mounted) return;
+      if (recovered.status === "paid") {
+        Alert.alert("开通成功", "Pro 权益已生效。");
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  async function handleSubscribe(): Promise<void> {
+    if (isPaying) return;
+    setIsPaying(true);
+    try {
+      const order = await createProMonthlyOrder();
+      await savePendingPaymentOrder({
+        orderId: order.id,
+        providerOrderId: order.providerOrderId,
+      });
+      const settled = await pollPaymentOrderUntilSettled(order.id);
+      if (settled.status === "paid") {
+        await clearPendingPaymentOrder();
+        Alert.alert("开通成功", "Pro 权益已生效。");
+        return;
+      }
+      if (settled.status === "pending") {
+        Alert.alert("支付处理中", "订单状态仍在确认中，稍后会自动继续同步。");
+        return;
+      }
+      await clearPendingPaymentOrder();
+      Alert.alert("支付未完成", `当前状态：${settled.status}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      Alert.alert("支付发起失败", message);
+    } finally {
+      setIsPaying(false);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -54,10 +106,15 @@ export function ProScreen({ onBack }: ProScreenProps) {
           </View>
 
           <Pressable
-            style={styles.subscribeButton}
-            onPress={() => Alert.alert("支付联调待接入", "银行卡和微信支付材料就绪后，这里会发起真实开通流程。")}
+            style={[styles.subscribeButton, isPaying && styles.subscribeButtonDisabled]}
+            onPress={() => void handleSubscribe()}
+            disabled={isPaying}
           >
-            <Text style={styles.subscribeText}>开通 Pro</Text>
+            {isPaying ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.subscribeText}>开通 Pro</Text>
+            )}
           </Pressable>
         </View>
       </ScrollView>
@@ -247,5 +304,8 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "600",
+  },
+  subscribeButtonDisabled: {
+    opacity: 0.7,
   },
 });

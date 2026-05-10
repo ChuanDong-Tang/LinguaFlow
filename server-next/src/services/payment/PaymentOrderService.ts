@@ -28,6 +28,8 @@ export class PaymentOrderAccessDeniedError extends Error {
 }
 
 export class PaymentOrderService {
+  private static readonly REUSE_RECREATE_WARN_THRESHOLD = 3;
+
   constructor(
     private readonly paymentOrderRepository: PaymentOrderRepository,
     private readonly paymentProvider: PaymentProvider
@@ -39,6 +41,7 @@ export class PaymentOrderService {
     const productCode = "pro_monthly" as const;
     const config = getRuntimeConfig();
     const amount = config.proMonthlyPriceCents;
+    const description = config.paymentDescriptionProMonthly;
     const reuseWindowMs = config.paymentPendingReuseWindowMs;
     const since = new Date(Date.now() - reuseWindowMs);
     const existing = await this.paymentOrderRepository.findRecentPending({
@@ -49,17 +52,66 @@ export class PaymentOrderService {
     });
 
     if (existing) {
-      const providerOrder = await this.paymentProvider.createOrder({
+      const providerSnapshot = await this.paymentProvider.queryOrder({
         providerOrderId: existing.providerOrderId,
-        userId: input.userId,
-        productCode,
-        description: "LinguaFlow Pro 月卡",
-        amount: existing.amount,
-        currency: "CNY",
-        notifyUrl: this.resolveNotifyUrl(),
       });
 
-      return this.toCreateResponse(existing, providerOrder.clientPayParams, true);
+      if (providerSnapshot.status !== "pending") {
+        await this.paymentOrderRepository.updateStatus({
+          id: existing.id,
+          status: providerSnapshot.status,
+          expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus(providerSnapshot.status),
+          metadata: {
+            ...this.getOrderMetadata(existing),
+            reuseDecision: {
+              checkedAt: new Date().toISOString(),
+              providerStatus: providerSnapshot.status,
+              action: "skip_recreate",
+            },
+          },
+        });
+      } else {
+        const nowIso = new Date().toISOString();
+        const nextAttempts = this.getProviderCreateAttempts(existing) + 1;
+        const metadata = {
+          ...this.getOrderMetadata(existing),
+          providerCreateAttempts: nextAttempts,
+          lastProviderCreateAt: nowIso,
+          reuseDecision: {
+            checkedAt: nowIso,
+            providerStatus: providerSnapshot.status,
+            action: "recreate",
+          },
+        };
+
+        const providerOrder = await this.paymentProvider.createOrder({
+          providerOrderId: existing.providerOrderId,
+          userId: input.userId,
+          productCode,
+          description,
+          amount: existing.amount,
+          currency: "CNY",
+          notifyUrl: this.resolveNotifyUrl(),
+        });
+        await this.paymentOrderRepository.updateStatus({
+          id: existing.id,
+          status: "pending",
+          expectedCurrentStatuses: ["pending"],
+          metadata,
+        });
+
+        if (nextAttempts >= PaymentOrderService.REUSE_RECREATE_WARN_THRESHOLD) {
+          console.warn("[payment] repeated provider createOrder on reused pending order", {
+            orderId: existing.id,
+            userId: existing.userId,
+            provider: existing.provider,
+            providerOrderId: existing.providerOrderId,
+            attempts: nextAttempts,
+          });
+        }
+
+        return this.toCreateResponse(existing, providerOrder.clientPayParams, true);
+      }
     }
 
     const providerOrderId = this.createProviderOrderId();
@@ -76,7 +128,7 @@ export class PaymentOrderService {
       providerOrderId,
       userId: input.userId,
       productCode,
-      description: "LinguaFlow Pro 月卡",
+      description,
       amount,
       currency: "CNY",
       notifyUrl: this.resolveNotifyUrl(),
@@ -228,6 +280,19 @@ export class PaymentOrderService {
     const notifyUrl = getRuntimeConfig().wechatPayNotifyUrl;
     if (!notifyUrl) throw new Error("WECHAT_PAY_NOTIFY_URL is required");
     return notifyUrl;
+  }
+
+  private getOrderMetadata(order: PaymentOrderEntity): Record<string, unknown> {
+    if (!order.metadata || typeof order.metadata !== "object" || Array.isArray(order.metadata)) {
+      return {};
+    }
+    return order.metadata as Record<string, unknown>;
+  }
+
+  private getProviderCreateAttempts(order: PaymentOrderEntity): number {
+    const metadata = this.getOrderMetadata(order);
+    const raw = metadata.providerCreateAttempts;
+    return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : 1;
   }
 
   private toCreateResponse(
