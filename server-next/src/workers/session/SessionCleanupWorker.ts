@@ -12,6 +12,10 @@ export class SessionCleanupWorker {
   private static readonly LOCK_KEY = 620051;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  // 连续失败计数：用于触发熔断，避免数据库抖动时持续打压
+  private consecutiveFailures = 0;
+  // 熔断打开到期时间戳（毫秒）。now < openUntilMs 代表本轮直接跳过
+  private openUntilMs = 0;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -43,46 +47,69 @@ export class SessionCleanupWorker {
 
   async runOnce(): Promise<void> {
     if (this.running) return;
+    const config = getRuntimeConfig();
+    // 每轮动态读取开关，支持“临时禁用”后立即生效
+    if (!config.sessionCleanupEnabled) {
+      console.log("[session-cleanup] skipped: disabled by config");
+      return;
+    }
+    // 熔断打开期间直接跳过，防止 delete/deleteMany 持续暴增
+    if (Date.now() < this.openUntilMs) {
+      console.log("[session-cleanup] skipped: circuit open", {
+        openUntilMs: this.openUntilMs,
+        consecutiveFailures: this.consecutiveFailures,
+      });
+      return;
+    }
+
     this.running = true;
     const startedAt = Date.now();
 
     try {
-      const lockAcquired = await this.tryAcquireLock();
-      if (!lockAcquired) {
-        console.log("[session-cleanup] skipped: lock not acquired");
-        return;
-      }
+      const { expiredDeleted, revokedDeleted, retentionDays, batchSize } = await this.withRetry(
+        async () => {
+          const lockAcquired = await this.tryAcquireLock();
+          if (!lockAcquired) {
+            console.log("[session-cleanup] skipped: lock not acquired");
+            return { expiredDeleted: 0, revokedDeleted: 0, retentionDays: 0, batchSize: 0 };
+          }
 
-      const now = new Date();
-      const config = getRuntimeConfig();
-      const retentionDays = this.options.revokedRetentionDays ?? config.sessionRevokedRetentionDays;
-      const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
-      const revokedBefore = new Date(now.getTime() - retentionMs);
-      const batchSize = this.options.batchSize ?? config.sessionCleanupBatchSize;
+          const now = new Date();
+          const retentionDays = this.options.revokedRetentionDays ?? config.sessionRevokedRetentionDays;
+          const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
+          const revokedBefore = new Date(now.getTime() - retentionMs);
+          const batchSize = this.options.batchSize ?? config.sessionCleanupBatchSize;
 
-      const expiredDeleted = await this.deleteInBatches({
-        where: {
-          expiresAt: {
-            lt: now,
-          },
+          const expiredDeleted = await this.deleteInBatches({
+            where: {
+              expiresAt: {
+                lt: now,
+              },
+            },
+            batchSize,
+          });
+
+          const revokedDeleted = await this.deleteInBatches({
+            where: {
+              revokedAt: {
+                not: null,
+                lt: revokedBefore,
+              },
+              expiresAt: {
+                gte: now,
+              },
+            },
+            batchSize,
+          });
+          return { expiredDeleted, revokedDeleted, retentionDays, batchSize };
         },
-        batchSize,
-      });
-
-      const revokedDeleted = await this.deleteInBatches({
-        where: {
-          revokedAt: {
-            not: null,
-            lt: revokedBefore,
-          },
-          expiresAt: {
-            gte: now,
-          },
-        },
-        batchSize,
-      });
+        config.sessionCleanupMaxRetryAttempts,
+        config.sessionCleanupRetryBaseDelayMs,
+        config.sessionCleanupRetryMaxDelayMs
+      );
 
       const durationMs = Date.now() - startedAt;
+      this.consecutiveFailures = 0;
       console.log("[session-cleanup]", {
         expiredDeleted,
         revokedDeleted,
@@ -92,6 +119,24 @@ export class SessionCleanupWorker {
       });
     } catch (error) {
       console.error("[session-cleanup] failed", error);
+      this.consecutiveFailures += 1;
+      if (this.consecutiveFailures >= config.sessionCleanupCircuitFailThreshold) {
+        // 连续失败达到阈值：打开熔断窗口，后续轮次先跳过
+        this.openUntilMs = Date.now() + config.sessionCleanupCircuitOpenMs;
+        await this.writeWorkerLog({
+          module: "auth",
+          event: "auth.worker.session_cleanup_circuit_open",
+          level: "warn",
+          status: "ignored",
+          errorCode: "SESSION_CLEANUP_CIRCUIT_OPEN",
+          errorMessage: `consecutive failures=${this.consecutiveFailures}`,
+          metadata: {
+            openUntilMs: this.openUntilMs,
+            threshold: config.sessionCleanupCircuitFailThreshold,
+            openMs: config.sessionCleanupCircuitOpenMs,
+          },
+        });
+      }
       await this.writeWorkerLog({
         module: "auth",
         event: "auth.worker.session_cleanup_failed",
@@ -99,6 +144,10 @@ export class SessionCleanupWorker {
         status: "failed",
         errorCode: "SESSION_CLEANUP_FAILED",
         errorMessage: toErrorMessage(error),
+        metadata: {
+          consecutiveFailures: this.consecutiveFailures,
+          openUntilMs: this.openUntilMs || null,
+        },
       });
     } finally {
       await this.releaseLock();
@@ -163,6 +212,34 @@ export class SessionCleanupWorker {
     }
   }
 
+  private async withRetry<T>(
+    fn: () => Promise<T>,
+    maxAttempts: number,
+    baseDelayMs: number,
+    maxDelayMs: number
+  ): Promise<T> {
+    let attempt = 0;
+    let lastError: unknown;
+    while (attempt < maxAttempts) {
+      attempt += 1;
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts) break;
+        const delayMs = computeBackoffMs(baseDelayMs, maxDelayMs, attempt);
+        console.warn("[session-cleanup] retrying", {
+          attempt,
+          maxAttempts,
+          delayMs,
+          errorMessage: toErrorMessage(error),
+        });
+        await sleep(delayMs);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
   private async tryAcquireLock(): Promise<boolean> {
     try {
       const rows = await this.prisma.$queryRaw<Array<{ pg_try_advisory_lock: boolean }>>`
@@ -188,4 +265,14 @@ export class SessionCleanupWorker {
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function computeBackoffMs(baseDelayMs: number, maxDelayMs: number, attempt: number): number {
+  const exponential = Math.min(maxDelayMs, baseDelayMs * 2 ** Math.max(0, attempt - 1));
+  const jitter = Math.floor(Math.random() * 500);
+  return Math.min(maxDelayMs, exponential + jitter);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

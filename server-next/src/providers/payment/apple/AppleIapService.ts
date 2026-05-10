@@ -1,6 +1,9 @@
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
+import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import type { PaymentOrderStatus } from "@lf/core/ports/payment/PaymentTypes.js";
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
+import { getExpectedCurrentStatusesForNextStatus } from "../../../services/payment/PaymentOrderStateMachine.js";
 import { APPLE_PROVIDER } from "./AppleIapConstants.js";
 import { isAppleIapConfigured, loadAppleIapConfig } from "./AppleIapConfig.js";
 import { AppleIapConfigError, AppleIapVerifyError } from "./AppleIapErrors.js";
@@ -28,7 +31,8 @@ export class AppleIapService {
   constructor(
     private readonly benefitGrantService: BenefitGrantService,
     private readonly paymentEntitlementService: PaymentEntitlementService,
-    private readonly paymentEventRepository: PaymentEventRepository
+    private readonly paymentEventRepository: PaymentEventRepository,
+    private readonly paymentOrderRepository: PaymentOrderRepository
   ) {}
 
   isConfigured(): boolean {
@@ -140,18 +144,44 @@ export class AppleIapService {
       }));
 
     try {
+      let tx: ReturnType<typeof decodeTransactionPayload> | null = null;
       const signedTransactionInfo = notification.data?.signedTransactionInfo?.trim();
       if (signedTransactionInfo) {
         const txDecoded = verifyAndDecodeAppleJws(signedTransactionInfo, config.rootCaPem);
-        const tx = decodeTransactionPayload(txDecoded.payload);
+        tx = decodeTransactionPayload(txDecoded.payload);
         if (tx.bundleId !== config.bundleId) {
           await this.paymentEventRepository.markIgnored(event.id, "Bundle id mismatch");
           return { status: "ignored", eventId, eventType };
         }
+
+        const nextStatus = mapAppleEventToOrderStatus(notification.notificationType);
+        if (nextStatus) {
+          const candidateProviderOrderIds = [
+            tx.originalTransactionId,
+            tx.transactionId,
+            `apple_iap:${tx.originalTransactionId}`,
+          ].filter((value): value is string => Boolean(value));
+          const order = await this.findOrderByProviderOrderIds(candidateProviderOrderIds);
+          if (order) {
+            await this.paymentOrderRepository.updateStatus({
+              id: order.id,
+              status: nextStatus,
+              expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus(nextStatus),
+              metadata: {
+                ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
+                appleIap: {
+                  eventType: notification.notificationType ?? null,
+                  subtype: notification.subtype ?? null,
+                  transactionId: tx.transactionId ?? null,
+                  originalTransactionId: tx.originalTransactionId ?? null,
+                },
+              },
+            });
+          }
+        }
       }
 
-      // V1 骨架：先做签名验证 + 幂等落库。
-      // 续订/退款/撤销等自动权益同步在下一步按事件类型补全。
+      // Apple 回调在本阶段先统一完成：幂等 + 状态前置迁移 + 事件落态。
       await this.paymentEventRepository.markProcessed(event.id);
       return { status: "success", eventId, eventType };
     } catch (error) {
@@ -162,4 +192,31 @@ export class AppleIapService {
       throw error;
     }
   }
+
+  private async findOrderByProviderOrderIds(ids: string[]): Promise<Awaited<ReturnType<PaymentOrderRepository["findByProviderOrderId"]>> | null> {
+    for (const providerOrderId of ids) {
+      const order = await this.paymentOrderRepository.findByProviderOrderId(providerOrderId);
+      if (order) return order;
+    }
+    return null;
+  }
+}
+
+function mapAppleEventToOrderStatus(
+  notificationType: string | undefined
+): PaymentOrderStatus | null {
+  const type = String(notificationType ?? "").toUpperCase();
+  if (["SUBSCRIBED", "DID_RENEW", "DID_RECOVER", "ONE_TIME_CHARGE"].includes(type)) {
+    return "paid";
+  }
+  if (["REFUND", "REVOKE"].includes(type)) {
+    return "refunded";
+  }
+  if (["DID_FAIL_TO_RENEW", "GRACE_PERIOD_EXPIRED"].includes(type)) {
+    return "failed";
+  }
+  if (["EXPIRED"].includes(type)) {
+    return "closed";
+  }
+  return null;
 }

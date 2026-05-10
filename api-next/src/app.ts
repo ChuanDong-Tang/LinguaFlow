@@ -124,7 +124,8 @@ export function createApp() {
   const appleIapService = new AppleIapService(
     benefitGrantService,
     paymentEntitlementService,
-    paymentEventRepository
+    paymentEventRepository,
+    paymentOrderRepository
   );
   const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
   const rewriteService = new RewriteService(

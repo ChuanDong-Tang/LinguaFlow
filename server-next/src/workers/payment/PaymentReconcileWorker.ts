@@ -5,6 +5,7 @@ import type { BenefitGrantService } from "../../services/payment/BenefitGrantSer
 import type { PaymentEntitlementService } from "../../services/payment/PaymentEntitlementService.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
+import type { PaymentChannel } from "../../services/payment/PaymentEntitlementService.js";
 
 export interface PaymentReconcileWorkerOptions {
   intervalMs?: number;
@@ -48,6 +49,23 @@ export class PaymentReconcileWorker {
       const result = await this.paymentOrderService.reconcilePendingOrders({
         limit: this.options.batchSize,
         onPaid: async (order) => {
+          const channel = mapProviderToChannel(order.provider);
+          if (!channel) {
+            await this.writeWorkerLog({
+              module: "payment",
+              event: "payment.worker.provider_channel_unmapped",
+              level: "warn",
+              status: "ignored",
+              userId: order.userId,
+              errorCode: "WORKER_PROVIDER_CHANNEL_UNMAPPED",
+              metadata: {
+                orderId: order.id,
+                provider: order.provider,
+                providerOrderId: order.providerOrderId,
+              },
+            });
+            return;
+          }
           let grantEnqueued = false;
           try {
             try {
@@ -55,14 +73,14 @@ export class PaymentReconcileWorker {
                 userId: order.userId,
                 sourceOrderId: order.id,
                 productCode: "pro_monthly",
-                channel: "wechat",
+                channel,
               });
             } catch (_error) {
               await this.benefitGrantService.enqueueGrant({
                 userId: order.userId,
                 sourceOrderId: order.id,
                 productCode: "pro_monthly",
-                channel: "wechat",
+                channel,
                 payload: { fallbackReason: "sync_grant_failed", source: "payment_reconcile_worker" },
               });
               grantEnqueued = true;
@@ -139,4 +157,10 @@ export class PaymentReconcileWorker {
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function mapProviderToChannel(provider: string): PaymentChannel | null {
+  if (provider === "wechat") return "wechat";
+  if (provider === "apple_iap") return "ios_iap";
+  return null;
 }

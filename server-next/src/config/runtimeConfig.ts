@@ -43,14 +43,29 @@ export interface RuntimeConfig {
   sessionCleanupIntervalMs: number;
   sessionRevokedRetentionDays: number;
   sessionCleanupBatchSize: number;
+  sessionCleanupMaxRetryAttempts: number;
+  sessionCleanupRetryBaseDelayMs: number;
+  sessionCleanupRetryMaxDelayMs: number;
+  sessionCleanupCircuitFailThreshold: number;
+  sessionCleanupCircuitOpenMs: number;
   systemEventLogCleanupEnabled: boolean;
   systemEventLogCleanupIntervalMs: number;
   systemEventLogRetentionDays: number;
   systemEventLogCleanupBatchSize: number;
+  systemEventLogCleanupMaxRetryAttempts: number;
+  systemEventLogCleanupRetryBaseDelayMs: number;
+  systemEventLogCleanupRetryMaxDelayMs: number;
+  systemEventLogCleanupCircuitFailThreshold: number;
+  systemEventLogCleanupCircuitOpenMs: number;
   aiRequestLogCleanupEnabled: boolean;
   aiRequestLogCleanupIntervalMs: number;
   aiRequestLogRetentionDays: number;
   aiRequestLogCleanupBatchSize: number;
+  aiRequestLogCleanupMaxRetryAttempts: number;
+  aiRequestLogCleanupRetryBaseDelayMs: number;
+  aiRequestLogCleanupRetryMaxDelayMs: number;
+  aiRequestLogCleanupCircuitFailThreshold: number;
+  aiRequestLogCleanupCircuitOpenMs: number;
   wechatPayNotifyUrl: string | null;
   appleIapIssuerId: string | null;
   appleIapKeyId: string | null;
@@ -121,14 +136,29 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     sessionCleanupIntervalMs: readPositiveInt(env.LF_SESSION_CLEANUP_INTERVAL_MS, 86_400_000),
     sessionRevokedRetentionDays: readPositiveInt(env.LF_SESSION_REVOKED_RETENTION_DAYS, 14),
     sessionCleanupBatchSize: readPositiveInt(env.LF_SESSION_CLEANUP_BATCH_SIZE, 1000),
+    sessionCleanupMaxRetryAttempts: readPositiveInt(env.LF_SESSION_CLEANUP_MAX_RETRY_ATTEMPTS, 3),
+    sessionCleanupRetryBaseDelayMs: readPositiveInt(env.LF_SESSION_CLEANUP_RETRY_BASE_DELAY_MS, 1000),
+    sessionCleanupRetryMaxDelayMs: readPositiveInt(env.LF_SESSION_CLEANUP_RETRY_MAX_DELAY_MS, 30_000),
+    sessionCleanupCircuitFailThreshold: readPositiveInt(env.LF_SESSION_CLEANUP_CIRCUIT_FAIL_THRESHOLD, 5),
+    sessionCleanupCircuitOpenMs: readPositiveInt(env.LF_SESSION_CLEANUP_CIRCUIT_OPEN_MS, 300_000),
     systemEventLogCleanupEnabled: readBoolean(env.LF_SYSTEM_EVENT_LOG_CLEANUP_ENABLED, true),
     systemEventLogCleanupIntervalMs: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_CLEANUP_INTERVAL_MS, 86_400_000),
     systemEventLogRetentionDays: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_RETENTION_DAYS, 30),
     systemEventLogCleanupBatchSize: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_CLEANUP_BATCH_SIZE, 2000),
+    systemEventLogCleanupMaxRetryAttempts: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_CLEANUP_MAX_RETRY_ATTEMPTS, 3),
+    systemEventLogCleanupRetryBaseDelayMs: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_CLEANUP_RETRY_BASE_DELAY_MS, 1000),
+    systemEventLogCleanupRetryMaxDelayMs: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_CLEANUP_RETRY_MAX_DELAY_MS, 30_000),
+    systemEventLogCleanupCircuitFailThreshold: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_CLEANUP_CIRCUIT_FAIL_THRESHOLD, 5),
+    systemEventLogCleanupCircuitOpenMs: readPositiveInt(env.LF_SYSTEM_EVENT_LOG_CLEANUP_CIRCUIT_OPEN_MS, 300_000),
     aiRequestLogCleanupEnabled: readBoolean(env.LF_AI_REQUEST_LOG_CLEANUP_ENABLED, true),
     aiRequestLogCleanupIntervalMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_INTERVAL_MS, 86_400_000),
     aiRequestLogRetentionDays: readPositiveInt(env.LF_AI_REQUEST_LOG_RETENTION_DAYS, 90),
     aiRequestLogCleanupBatchSize: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_BATCH_SIZE, 2000),
+    aiRequestLogCleanupMaxRetryAttempts: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_MAX_RETRY_ATTEMPTS, 3),
+    aiRequestLogCleanupRetryBaseDelayMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_RETRY_BASE_DELAY_MS, 1000),
+    aiRequestLogCleanupRetryMaxDelayMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_RETRY_MAX_DELAY_MS, 30_000),
+    aiRequestLogCleanupCircuitFailThreshold: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_CIRCUIT_FAIL_THRESHOLD, 5),
+    aiRequestLogCleanupCircuitOpenMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_CIRCUIT_OPEN_MS, 300_000),
     wechatPayNotifyUrl: trimToNull(env.WECHAT_PAY_NOTIFY_URL),
     appleIapIssuerId: trimToNull(env.APPLE_IAP_ISSUER_ID),
     appleIapKeyId: trimToNull(env.APPLE_IAP_KEY_ID),
