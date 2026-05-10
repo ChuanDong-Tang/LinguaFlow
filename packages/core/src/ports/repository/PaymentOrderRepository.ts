@@ -46,5 +46,6 @@ export interface PaymentOrderRepository {
     id: string;
     status: PaymentOrderStatus;
     metadata?: unknown;
-  }): Promise<PaymentOrderEntity>;
+    expectedCurrentStatuses?: PaymentOrderStatus[];
+  }): Promise<PaymentOrderEntity | null>;
 }

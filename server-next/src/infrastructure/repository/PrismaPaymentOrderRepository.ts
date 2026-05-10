@@ -11,6 +11,7 @@ type PrismaPaymentOrderClient = {
     findMany: (args: any) => Promise<any[]>;
     create: (args: any) => Promise<any>;
     update: (args: any) => Promise<any>;
+    updateMany: (args: any) => Promise<{ count: number }>;
   };
 };
 
@@ -97,16 +98,31 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
     id: string;
     status: "pending" | "paid" | "closed" | "failed" | "refunded";
     metadata?: unknown;
-  }): Promise<PaymentOrderEntity> {
-    const row = await this.prisma.paymentOrder.update({
-      where: { id: input.id },
+    expectedCurrentStatuses?: ("pending" | "paid" | "closed" | "failed" | "refunded")[];
+  }): Promise<PaymentOrderEntity | null> {
+    const allowed = input.expectedCurrentStatuses ?? ["pending"];
+    const result = await this.prisma.paymentOrder.updateMany({
+      where: {
+        id: input.id,
+        status: {
+          in: allowed,
+        },
+      },
       data: {
         status: input.status,
         ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       },
     });
 
-    return this.toEntity(row);
+    if (result.count === 0) {
+      return null;
+    }
+    
+    const row = await this.prisma.paymentOrder.findUnique({
+      where: { id: input.id },
+    });
+
+    return row ? this.toEntity(row) : null;
   }
 
   private toEntity(row: {

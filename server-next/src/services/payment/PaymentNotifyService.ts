@@ -8,6 +8,7 @@ import {
   verifyWeChatPaySignature,
 } from "../../providers/payment/wechat/WeChatPaySignature.js";
 import { loadWeChatPayConfig } from "../../providers/payment/wechat/WeChatPayConfig.js";
+import { getExpectedCurrentStatusesForNextStatus } from "./PaymentOrderStateMachine.js";
 
 export interface WeChatNotifyInput {
   headers: {
@@ -74,9 +75,10 @@ export class PaymentNotifyService {
     const existingEvent = await this.paymentEventRepository.findByProviderEventId({
       provider: "wechat",
       providerEventId: body.id,
+      eventType: body.event_type,
     });
 
-    if (existingEvent?.status === "processed" || existingEvent?.status === "ignored") {
+    if (existingEvent && existingEvent.status !== "received") {
       return { status: "ignored" };
     }
 
@@ -123,6 +125,7 @@ export class PaymentNotifyService {
         await this.paymentOrderRepository.updateStatus({
           id: order.id,
           status: "paid",
+          expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus("paid"),
           metadata: {
             ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
             wechatTransactionId: resource.transaction_id ?? null,
@@ -175,9 +178,10 @@ export class PaymentNotifyService {
     const existingEvent = await this.paymentEventRepository.findByProviderEventId({
       provider: "wechat",
       providerEventId: body.id,
+      eventType: body.event_type,
     });
 
-    if (existingEvent?.status === "processed" || existingEvent?.status === "ignored") {
+    if (existingEvent && existingEvent.status !== "received") {
       return { status: "ignored" };
     }
 
@@ -227,6 +231,7 @@ export class PaymentNotifyService {
       await this.paymentOrderRepository.updateStatus({
         id: order.id,
         status: "refunded",
+        expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus("refunded"),
         metadata: {
           ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
           refund: {

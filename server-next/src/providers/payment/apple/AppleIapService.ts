@@ -104,8 +104,10 @@ export class AppleIapService {
     const existing = await this.paymentEventRepository.findByProviderEventId({
       provider: APPLE_PROVIDER,
       providerEventId: eventId,
+      eventType: eventType,
     });
-    if (existing?.status === "processed" || existing?.status === "ignored") {
+    
+    if (existing && existing.status !== "received") {
       return { status: "ignored", eventId, eventType };
     }
 

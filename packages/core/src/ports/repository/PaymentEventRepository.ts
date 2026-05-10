@@ -25,9 +25,21 @@ export interface PaymentEventRepository {
   findByProviderEventId(input: {
     provider: string;
     providerEventId: string;
+    eventType: string;
   }): Promise<PaymentEventEntity | null>;
   create(input: CreatePaymentEventInput): Promise<PaymentEventEntity>;
-  markProcessed(id: string): Promise<PaymentEventEntity>;
-  markIgnored(id: string, errorMessage?: string | null): Promise<PaymentEventEntity>;
-  markFailed(id: string, errorMessage: string): Promise<PaymentEventEntity>;
+  markProcessed(
+    id: string,
+    options?: { expectedCurrentStatuses?: PaymentEventStatus[] }
+  ): Promise<PaymentEventEntity | null>;
+  markIgnored(
+    id: string,
+    errorMessage?: string | null,
+    options?: { expectedCurrentStatuses?: PaymentEventStatus[] }
+  ): Promise<PaymentEventEntity | null>;
+  markFailed(
+    id: string,
+    errorMessage: string,
+    options?: { expectedCurrentStatuses?: PaymentEventStatus[] }
+  ): Promise<PaymentEventEntity | null>;
 }

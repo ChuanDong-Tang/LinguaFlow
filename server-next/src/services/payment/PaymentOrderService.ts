@@ -9,6 +9,7 @@ import type {
   PaymentOrderRepository,
 } from "@lf/core/ports/repository/PaymentOrderRepository.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import { getExpectedCurrentStatusesForNextStatus } from "./PaymentOrderStateMachine.js";
 
 export class PaymentOrderNotFoundError extends Error {
   readonly code = "PAYMENT_ORDER_NOT_FOUND";
@@ -142,6 +143,7 @@ export class PaymentOrderService {
           const updated = await this.paymentOrderRepository.updateStatus({
             id: order.id,
             status: "paid",
+            expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus("paid"),
             metadata: {
               ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
               reconcile: {
@@ -151,6 +153,11 @@ export class PaymentOrderService {
               },
             },
           });
+
+          if (!updated) {
+            continue;
+          }
+
           await input.onPaid(updated);
           result.paid += 1;
           continue;
@@ -158,9 +165,10 @@ export class PaymentOrderService {
 
         const expired = now.getTime() - order.createdAt.getTime() >= expireMs;
         if (expired && providerOrder.status === "pending") {
-          await this.paymentOrderRepository.updateStatus({
+          const closed = await this.paymentOrderRepository.updateStatus({
             id: order.id,
             status: "closed",
+            expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus("closed"),
             metadata: {
               ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
               reconcile: {
@@ -171,14 +179,20 @@ export class PaymentOrderService {
               },
             },
           });
+
+          if (!closed) {
+            continue;
+          }
+
           result.closed += 1;
           continue;
         }
 
         if (["closed", "failed", "refunded"].includes(providerOrder.status)) {
-          await this.paymentOrderRepository.updateStatus({
+          const finalized = await this.paymentOrderRepository.updateStatus({
             id: order.id,
             status: providerOrder.status,
+            expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus(providerOrder.status),
             metadata: {
               ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
               reconcile: {
@@ -188,6 +202,11 @@ export class PaymentOrderService {
               },
             },
           });
+
+          if (!finalized) {
+            continue;
+          }
+          
           if (providerOrder.status === "closed") result.closed += 1;
           else result.failed += 1;
         }
