@@ -26,6 +26,12 @@ export interface RuntimeConfig {
   paymentPendingExpireMs: number;
   paymentReconcileBatchSize: number;
   paymentReconcileIntervalMs: number;
+  paymentRateLimitWebhookLimit: number;
+  paymentRateLimitWebhookWindowSec: number;
+  paymentRateLimitOrdersCreateLimit: number;
+  paymentRateLimitOrdersCreateWindowSec: number;
+  paymentRateLimitOrdersQueryLimit: number;
+  paymentRateLimitOrdersQueryWindowSec: number;
   sessionCleanupEnabled: boolean;
   sessionCleanupIntervalMs: number;
   sessionRevokedRetentionDays: number;
@@ -81,6 +87,18 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     paymentPendingExpireMs: readPositiveInt(env.LF_PAYMENT_PENDING_EXPIRE_MS, 1_800_000),
     paymentReconcileBatchSize: readPositiveInt(env.LF_PAYMENT_RECONCILE_BATCH_SIZE, 20),
     paymentReconcileIntervalMs: readPositiveInt(env.LF_PAYMENT_RECONCILE_INTERVAL_MS, 60_000),
+    paymentRateLimitWebhookLimit: readPositiveInt(env.LF_RL_PAYMENT_WEBHOOK_LIMIT, 120),
+    paymentRateLimitWebhookWindowSec: readPositiveInt(env.LF_RL_PAYMENT_WEBHOOK_WINDOW_SEC, 60),
+    paymentRateLimitOrdersCreateLimit: readPositiveInt(env.LF_RL_PAYMENT_ORDERS_CREATE_LIMIT, 30),
+    paymentRateLimitOrdersCreateWindowSec: readPositiveInt(
+      env.LF_RL_PAYMENT_ORDERS_CREATE_WINDOW_SEC,
+      60
+    ),
+    paymentRateLimitOrdersQueryLimit: readPositiveInt(env.LF_RL_PAYMENT_ORDERS_QUERY_LIMIT, 60),
+    paymentRateLimitOrdersQueryWindowSec: readPositiveInt(
+      env.LF_RL_PAYMENT_ORDERS_QUERY_WINDOW_SEC,
+      60
+    ),
     sessionCleanupEnabled: readBoolean(env.LF_SESSION_CLEANUP_ENABLED, true),
     sessionCleanupIntervalMs: readPositiveInt(env.LF_SESSION_CLEANUP_INTERVAL_MS, 86_400_000),
     sessionRevokedRetentionDays: readPositiveInt(env.LF_SESSION_REVOKED_RETENTION_DAYS, 14),

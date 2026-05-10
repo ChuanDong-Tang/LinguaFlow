@@ -7,6 +7,7 @@ import {
 } from "@lf/server-next/services/payment/PaymentOrderService.js";
 import type { PaymentNotifyService } from "@lf/server-next/services/payment/PaymentNotifyService.js";
 import { AppleIapService } from "@lf/server-next/providers/payment/apple/AppleIapService.js";
+import { getRuntimeConfig } from "@lf/server-next/config/runtimeConfig.js";
 import {
   AppleIapConfigError,
   AppleIapVerifyError,
@@ -20,6 +21,7 @@ import {
 import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
+import { checkIpPathRateLimit } from "../lib/rateLimit.js";
 
 export interface PaymentRouteDeps {
   paymentOrderService: PaymentOrderService;
@@ -65,6 +67,7 @@ function isCreatePaymentOrderRequest(value: unknown): value is CreatePaymentOrde
 }
 
 export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDeps): void {
+  const config = getRuntimeConfig();
   app.get("/payment/health", async (_req, reply) => {
     const wechat = checkWeChatPayConfig();
     const appleIap = { ok: deps.appleIapService.isConfigured() };
@@ -82,6 +85,20 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
   app.post("/payment/orders", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: {
+        routeKey: "orders_create",
+        path: "/payment/orders",
+        limit: config.paymentRateLimitOrdersCreateLimit,
+        windowSec: config.paymentRateLimitOrdersCreateWindowSec,
+        responseType: "api",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
 
     if (!isCreatePaymentOrderRequest(req.body)) {
       await writeSystemEventLog(deps.systemEventLogRepository, {
@@ -130,6 +147,20 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
   app.get("/payment/orders/:id", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: {
+        routeKey: "orders_query",
+        path: "/payment/orders/:id",
+        limit: config.paymentRateLimitOrdersQueryLimit,
+        windowSec: config.paymentRateLimitOrdersQueryWindowSec,
+        responseType: "api",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
     const params = req.params as Partial<{ id: string }>;
     const id = params.id?.trim();
 
@@ -186,6 +217,22 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
   });
 
   app.post("/payment/wechat/notify", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: {
+        routeKey: "wechat_notify",
+        path: "/payment/wechat/notify",
+        limit: config.paymentRateLimitWebhookLimit,
+        windowSec: config.paymentRateLimitWebhookWindowSec,
+        responseType: "webhook",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
     const body = req.body as Partial<{ __rawBody: string }> | null;
     const rawBody = body?.__rawBody;
 
@@ -230,6 +277,22 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
   });
 
   app.post("/payment/wechat/refund-notify", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: {
+        routeKey: "wechat_refund_notify",
+        path: "/payment/wechat/refund-notify",
+        limit: config.paymentRateLimitWebhookLimit,
+        windowSec: config.paymentRateLimitWebhookWindowSec,
+        responseType: "webhook",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
     const body = req.body as Partial<{ __rawBody: string }> | null;
     const rawBody = body?.__rawBody;
 
@@ -351,6 +414,20 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     const body = req.body as unknown;
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: {
+        routeKey: "ios_notify",
+        path: "/payment/ios/notify",
+        limit: config.paymentRateLimitWebhookLimit,
+        windowSec: config.paymentRateLimitWebhookWindowSec,
+        responseType: "api",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
 
     if (!isAppleServerNotificationRequest(body)) {
       await writeSystemEventLog(deps.systemEventLogRepository, {
@@ -442,4 +519,56 @@ async function resolvePaymentUserContext(
 
     throw error;
   }
+}
+
+type PaymentRateLimitRule = {
+  routeKey:
+    | "wechat_notify"
+    | "wechat_refund_notify"
+    | "ios_notify"
+    | "orders_create"
+    | "orders_query";
+  path:
+    | "/payment/wechat/notify"
+    | "/payment/wechat/refund-notify"
+    | "/payment/ios/notify"
+    | "/payment/orders"
+    | "/payment/orders/:id";
+  limit: number;
+  windowSec: number;
+  responseType: "webhook" | "api";
+};
+
+async function checkPaymentRateLimit(input: {
+  req: FastifyRequest;
+  reply: FastifyReply;
+  requestId?: string;
+  rule: PaymentRateLimitRule;
+  systemEventLogRepository?: SystemEventLogWriter;
+}): Promise<boolean> {
+  return checkIpPathRateLimit({
+    req: input.req,
+    reply: input.reply,
+    requestId: input.requestId,
+    systemEventLogRepository: input.systemEventLogRepository,
+    module: "payment",
+    routeKey: input.rule.routeKey,
+    path: input.rule.path,
+    limit: input.rule.limit,
+    windowSec: input.rule.windowSec,
+    keyPrefix: "rl:payment",
+    exceededEvent: "payment.rate_limit.exceeded",
+    redisUnavailableEvent: "payment.rate_limit.redis_unavailable",
+    onExceeded: async () => {
+      if (input.rule.responseType === "webhook") {
+        await input.reply.status(429).send({ code: "RATE_LIMITED", message: "Too many requests" });
+        return;
+      }
+      await input.reply.status(429).send({
+        ok: false,
+        request_id: input.requestId ?? null,
+        error: { code: "RATE_LIMITED", message: "Too many requests" },
+      });
+    },
+  });
 }

@@ -5,7 +5,11 @@ import { isAllowedMockUserId, isMockAuthEnabled } from "./userContext.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { resolveRequestId } from "../lib/httpResult.js";
-import { getRedisClient } from "@lf/server-next/infrastructure/redis/redisClient.js";
+import {
+  checkIpPathRateLimit,
+  firstHeaderValue,
+  resolveClientIp as resolveClientIpFromRequest,
+} from "../lib/rateLimit.js";
 
 export interface AuthRouteDeps {
   authProvider: {
@@ -352,18 +356,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
 function resolveSessionContext(req: FastifyRequest) {
   return {
     userAgent: firstHeaderValue(req.headers["user-agent"]),
-    ip: resolveClientIp(firstHeaderValue(req.headers["x-forwarded-for"])),
+    ip: resolveClientIpFromRequest(req),
   };
-}
-
-function firstHeaderValue(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-// todo:可信代理模式”（仅信任受控入口转发的 `x-forwarded-for`）
-function resolveClientIp(forwardedFor: string | undefined): string | null {
-  const first = forwardedFor?.split(",")[0]?.trim();
-  return first && first.length > 0 ? first : null;
 }
 
 // redis限流
@@ -381,86 +375,26 @@ async function checkAuthRateLimit(input: {
   rule: AuthRateLimitRule;
   systemEventLogRepository?: SystemEventLogWriter;
 }): Promise<boolean> {
-  const redis = getRedisClient();
-  if (!redis) return true; // fail-open: 没有 Redis 直接放行
-
-  const forwardedFor = firstHeaderValue(input.req.headers["x-forwarded-for"]);
-  const ip = resolveClientIp(forwardedFor) ?? "unknown";
-  const nowSec = Math.floor(Date.now() / 1000);
-  const windowStart = Math.floor(nowSec / input.rule.windowSec) * input.rule.windowSec;
-  const key = `rl:auth:${input.rule.routeKey}:${ip}:${windowStart}`;
-  try {
-    const count = await redis.incr(key);
-
-    if (count === 1) {
-      await redis.expire(key, input.rule.windowSec);
-    }
-    else{
-      // 兜底修复：若 key 没有 TTL（-1）或异常（-2），补一次过期
-      const ttl = await redis.ttl(key);
-      if (ttl < 0) {
-        await redis.expire(key, input.rule.windowSec);
-        await writeSystemEventLog(input.systemEventLogRepository, {
-          requestId: input.requestId,
-          module: "auth",
-          event: "auth.rate_limit.ttl_recovered",
-          level: "warn",
-          status: "success",
-          metadata: {
-            path: input.req.url,
-            key,
-            ip,
-            routeKey: input.rule.routeKey,
-            ttlBefore: ttl,
-          },
-        });
-      }
-    }
-
-    if (count > input.rule.limit) {
-      await writeSystemEventLog(input.systemEventLogRepository, {
-        requestId: input.requestId,
-        module: "auth",
-        event: "auth.rate_limit.exceeded",
-        level: "warn",
-        status: "failed",
-        errorCode: "RATE_LIMITED",
-        metadata: {
-          path: input.req.url,
-          ip,
-          routeKey: input.rule.routeKey,
-          limit: input.rule.limit,
-          windowSec: input.rule.windowSec,
-          count,
-        },
-      });
-
+  return checkIpPathRateLimit({
+    req: input.req,
+    reply: input.reply,
+    requestId: input.requestId,
+    systemEventLogRepository: input.systemEventLogRepository,
+    module: "auth",
+    routeKey: input.rule.routeKey,
+    path: input.req.url,
+    limit: input.rule.limit,
+    windowSec: input.rule.windowSec,
+    keyPrefix: "rl:auth",
+    exceededEvent: "auth.rate_limit.exceeded",
+    redisUnavailableEvent: "auth.rate_limit.redis_unavailable",
+    onExceeded: async () => {
       await input.reply.status(429).send({
         ok: false,
         error: { code: "RATE_LIMITED", message: "Too many requests" },
       });
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    // fail-open: Redis 异常放行，但记日志
-    await writeSystemEventLog(input.systemEventLogRepository, {
-      requestId: input.requestId,
-      module: "auth",
-      event: "auth.rate_limit.redis_unavailable",
-      level: "error",
-      status: "failed",
-      errorCode: "RATE_LIMIT_REDIS_UNAVAILABLE",
-      errorMessage: error instanceof Error ? error.message : String(error),
-      metadata: {
-        path: input.req.url,
-        ip,
-        routeKey: input.rule.routeKey,
-      },
-    });
-    return true;
-  }
+    },
+  });
 }
 
 // 对外不展示报错细节
