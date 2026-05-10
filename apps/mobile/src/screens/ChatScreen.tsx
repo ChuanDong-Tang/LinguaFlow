@@ -11,7 +11,10 @@ import Animated from "react-native-reanimated";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { getSession } from "../services/authStorage";
 import { getCurrentEntitlement } from "../services/meApi";
-import { listMessagesByRangeFromCloud } from "../services/chatHistoryApi";
+import {
+  listDateKeysByRangeFromCloud,
+  listDayMessagesFromCloud,
+} from "../services/chatHistoryApi";
 import { createLocalRewritePair } from "../services/chatSyncService";
 import {
   appendRewriteMessages,
@@ -60,10 +63,16 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [windowStart, setWindowStart] = useState(0);
   const [windowEnd, setWindowEnd] = useState(0);
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
+  const [dateSyncState, setDateSyncState] = useState<Record<string, "synced" | "dirty" | "syncing">>({});
   const [autoCopyAfterRewrite, setAutoCopyAfterRewrite] = useState(true);
 
   const scrollRef = useRef<ScrollView>(null);
   const canSend = useMemo(() => inputText.trim().length > 0 && !isSending, [inputText, isSending]);
+  const selectedDateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+  const showCenterLoading = useMemo(
+    () => isLoadingHistory && dayMessages.length === 0,
+    [isLoadingHistory, dayMessages.length]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -136,54 +145,53 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           return;
         }
 
-        // 1) 拉近30天日期键，用于日历可选状态（范围拉取）
+        // 1) 仅拉索引：近30天哪些日期有记录（不预拉正文）
         const now = new Date();
         const from30 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
-        const rangeRows = await listMessagesByRangeFromCloud({
+        const remoteDateKeys = await listDateKeysByRangeFromCloud({
           conversationId: safeConversationId,
           userId,
           fromDateKey: toDateKey(from30),
           toDateKey: toDateKey(now),
         });
         if (cancelled) return;
-        const set = new Set<string>();
-        for (const r of rangeRows) set.add(toDateKey(new Date(r.createdAt)));
-        setCloudDateKeys(set);
+        setCloudDateKeys(remoteDateKeys);
 
-        // 2) 当前选中日期：本地优先；本地没有时再云端补一天
-        const localRows = filterByDate(allLocalMessages, selectedDate);
-        if (localRows.length > 0) {
-          return;
-        }
-
-        setIsLoadingHistory(true);
-        const dateKey = toDateKey(selectedDate);
-        const dayRows = await listMessagesByRangeFromCloud({
-          conversationId: safeConversationId,
-          userId,
-          fromDateKey: dateKey,
-          toDateKey: dateKey,
+        // 索引差异 -> 标脏，正文暂不拉
+        const localKeys = new Set<string>(allLocalMessages.map((row) => toDateKey(new Date(row.createdAt))));
+        setDateSyncState((prev) => {
+          const next = { ...prev };
+          for (const key of remoteDateKeys) {
+            if (!localKeys.has(key) && next[key] !== "syncing") next[key] = "dirty";
+          }
+          return next;
         });
-        if (cancelled) return;
-        const mappedDay: ChatMessage[] = dayRows.map((row) => ({
-          id: row.id,
-          localId: row.id,
-          role: row.role,
-          text: row.content,
-          time: new Date(row.createdAt).toTimeString().slice(0, 5),
-          createdAt: row.createdAt,
-          status: row.status,
-        }));
 
-        if (mappedDay.length > 0) {
+        // 2) 后台静默补齐近30天脏日期（不阻塞 UI）
+        for (const key of remoteDateKeys) {
+          if (cancelled) return;
+          if (key !== selectedDateKey && dateSyncState[key] !== "dirty") continue;
+          const localDayRows = filterByDate(allLocalMessages, new Date(`${key}T00:00:00`));
+          if (localDayRows.length > 0 && dateSyncState[key] !== "dirty") continue;
+          setDateSyncState((prev) => ({ ...prev, [key]: "syncing" }));
+          const dayRows = await listDayMessagesFromCloud({
+            conversationId: safeConversationId,
+            userId,
+            dateKey: key,
+          });
+          const mappedDay: ChatMessage[] = dayRows.map((row) => ({
+            id: row.id,
+            localId: row.id,
+            role: row.role,
+            text: row.content,
+            time: new Date(row.createdAt).toTimeString().slice(0, 5),
+            createdAt: row.createdAt,
+            status: row.status,
+          }));
           const merged = mergeByLocalId(allLocalMessages, mappedDay);
           setAllLocalMessages(merged);
           await replaceRewriteMessages(merged);
-          setDayMessages(mappedDay);
-          const { start, end, items } = getVisibleWindow(mappedDay);
-          setWindowStart(start);
-          setWindowEnd(end);
-          setMessages(items);
+          setDateSyncState((prev) => ({ ...prev, [key]: "synced" }));
         }
       } finally {
         if (!cancelled) setIsLoadingHistory(false);
@@ -194,7 +202,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [conversationId, selectedDate]);
+  }, [conversationId, selectedDateKey]);
 
   function updateLocalMessage(
     localId: string,
@@ -383,14 +391,13 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
       const dateKey = toDateKey(d);
 
-      const cloudRows = await listMessagesByRangeFromCloud({
-        conversationId,
-        userId,
-        fromDateKey: dateKey,
-        toDateKey: dateKey,
-      });
+      setDateSyncState((prev) => ({ ...prev, [dateKey]: "syncing" }));
+      const cloudRows = await listDayMessagesFromCloud({ conversationId, userId, dateKey });
 
-      if (cloudRows.length === 0) return;
+      if (cloudRows.length === 0) {
+        setDateSyncState((prev) => ({ ...prev, [dateKey]: "synced" }));
+        return;
+      }
 
       const mapped: ChatMessage[] = cloudRows.map((row) => ({
         id: row.id,
@@ -406,6 +413,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       setAllLocalMessages(merged);
       await replaceRewriteMessages(merged);
       setDayMessages(mapped);
+      setDateSyncState((prev) => ({ ...prev, [dateKey]: "synced" }));
       const { start, end, items } = getVisibleWindow(mapped);
       setWindowStart(start);
       setWindowEnd(end);
@@ -438,6 +446,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           selectedDateLabel={selectedDateLabelText(selectedDate)}
           scrollRef={scrollRef}
           isLoadingHistory={isLoadingHistory}
+          showCenterLoading={showCenterLoading}
           isLoadingOlder={isLoadingOlder}
           isLoadingNewer={isLoadingNewer}
           onReachTop={handleReachTop}

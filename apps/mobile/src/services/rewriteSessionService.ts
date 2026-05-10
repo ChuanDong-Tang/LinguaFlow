@@ -1,7 +1,8 @@
 import type { ChatMessage } from "../screens/chat/types";
 import { clampMessages, updateMessageByLocalId } from "../screens/chat/messageState";
-import { loadLocalMessages, saveLocalMessages } from "./chatLocalStorage";
+import { loadLocalMessagesScoped, saveLocalMessagesScoped } from "./chatLocalStorage";
 import { runRewriteSync } from "./chatSyncService";
+import { getSession } from "./authStorage";
 
 type RewriteSnapshot = {
   isSending: boolean;
@@ -30,6 +31,8 @@ let activeAssistantLocalId: string | null = null;
 let activeAbortController: AbortController | null = null;
 let stopRequested = false;
 let activeRunId = 0;
+let storageUserId: string | null = null;
+let storageConversationId: string | null = null;
 
 const subscribers = new Set<RewriteSubscriber>();
 
@@ -42,15 +45,25 @@ export function subscribeRewriteSession(subscriber: RewriteSubscriber): () => vo
 }
 
 export async function ensureRewriteMessagesLoaded(): Promise<ChatMessage[]> {
+  const session = await getSession();
+  const uid = session?.user?.id ?? "mock_user_001";
+  const cid = conversationId ?? "default";
+  storageUserId = uid;
+  storageConversationId = cid;
   if (messagesCache) return messagesCache;
-  messagesCache = await loadLocalMessages();
+  messagesCache = await loadLocalMessagesScoped(uid, cid);
   emit();
   return messagesCache;
 }
 
 export async function replaceRewriteMessages(rows: ChatMessage[]): Promise<void> {
   messagesCache = rows;
-  await saveLocalMessages(rows);
+  const session = await getSession();
+  const uid = storageUserId ?? session?.user?.id ?? "mock_user_001";
+  const cid = storageConversationId ?? conversationId ?? "default";
+  storageUserId = uid;
+  storageConversationId = cid;
+  await saveLocalMessagesScoped(uid, cid, rows);
   emit();
 }
 
@@ -58,7 +71,12 @@ export async function appendRewriteMessages(rows: ChatMessage[]): Promise<ChatMe
   const prev = await ensureRewriteMessagesLoaded();
   const next = clampMessages([...prev, ...rows], 10000);
   messagesCache = next;
-  await saveLocalMessages(next);
+  const session = await getSession();
+  const uid = storageUserId ?? session?.user?.id ?? "mock_user_001";
+  const cid = storageConversationId ?? conversationId ?? "default";
+  storageUserId = uid;
+  storageConversationId = cid;
+  await saveLocalMessagesScoped(uid, cid, next);
   emit();
   return next;
 }
@@ -74,7 +92,12 @@ export function updateRewriteMessage(
 
   const next = updateMessageByLocalId(messagesCache, localId, updater);
   messagesCache = next;
-  void saveLocalMessages(next);
+  void (async () => {
+    const session = await getSession();
+    const uid = storageUserId ?? session?.user?.id ?? "mock_user_001";
+    const cid = storageConversationId ?? conversationId ?? "default";
+    await saveLocalMessagesScoped(uid, cid, next);
+  })();
   emit();
 }
 
@@ -96,6 +119,15 @@ export function startRewriteSession(input: StartRewriteInput): void {
   activeAssistantLocalId = input.assistantLocalId;
   stopRequested = false;
   if (input.conversationId) conversationId = input.conversationId;
+  if (conversationId) {
+    void (async () => {
+      const session = await getSession();
+      storageUserId = session?.user?.id ?? "mock_user_001";
+      storageConversationId = conversationId;
+      messagesCache = await loadLocalMessagesScoped(storageUserId, storageConversationId);
+      emit();
+    })();
+  }
   emit();
 
   void (async () => {

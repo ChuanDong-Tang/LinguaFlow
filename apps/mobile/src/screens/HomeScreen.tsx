@@ -6,6 +6,7 @@ import {
   loadDebugSettings,
   saveDebugSettings,
 } from "../services/debugSettingsStorage";
+import { SplashGateScreen } from "./SplashGateScreen";
 
 type HomeScreenProps = {
   onOpenChat: () => void;

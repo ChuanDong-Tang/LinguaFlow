@@ -58,11 +58,10 @@ export class PrismaUserSessionRepository implements UserSessionRepository {
   }
 
   async rotateSession(input: RotateUserSessionInput): Promise<void> {
-    const runInTransaction = this.prisma.$transaction;
-    if (!runInTransaction) {
+    if (!this.prisma.$transaction) {
       throw new Error("Prisma transaction client is required for rotateSession");
     }
-    await runInTransaction(async (tx: any) => {
+    await this.prisma.$transaction(async (tx: any) => {
       await tx.userSession.update({
         where: { id: input.currentSessionId },
         data: {

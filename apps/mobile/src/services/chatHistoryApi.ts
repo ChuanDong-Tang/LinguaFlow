@@ -86,3 +86,27 @@ export async function listMessagesByRangeFromCloud(
 
   return json.data;
 }
+
+export async function listDateKeysByRangeFromCloud(
+  input: ListMessagesByRangeInput
+): Promise<Set<string>> {
+  const rows = await listMessagesByRangeFromCloud(input);
+  const keys = new Set<string>();
+  for (const row of rows) {
+    keys.add(row.createdAt.slice(0, 10));
+  }
+  return keys;
+}
+
+export async function listDayMessagesFromCloud(input: {
+  conversationId: string;
+  userId: string;
+  dateKey: string;
+}): Promise<MessageView[]> {
+  return listMessagesByRangeFromCloud({
+    conversationId: input.conversationId,
+    userId: input.userId,
+    fromDateKey: input.dateKey,
+    toDateKey: input.dateKey,
+  });
+}

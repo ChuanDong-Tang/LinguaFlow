@@ -14,7 +14,7 @@ import { ChatScreen } from "./screens/ChatScreen";
 type Screen = "splash" | "login" | "main" | "chat" | "me" | "pro";
 
 const PRELOAD_IMAGES = [
-  require("../assets/splash/logo.png"),
+  require("../assets/app/logo.png"),
 ];
 
 export default function App() {
@@ -30,6 +30,8 @@ export default function App() {
     }
 
     async function bootstrap() {
+      // setScreen("splash");
+      // return;
       const startAt = Date.now();
       const MIN_SPLASH_MS = 1000;
 

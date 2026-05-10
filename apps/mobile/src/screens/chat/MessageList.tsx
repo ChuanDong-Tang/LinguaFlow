@@ -9,6 +9,7 @@ type MessageListProps = {
   selectedDateLabel: string;
   scrollRef: React.RefObject<ScrollView | null>;
   isLoadingHistory: boolean;
+  showCenterLoading: boolean;
   isLoadingOlder: boolean;
   isLoadingNewer: boolean;
   onReachTop: () => void;
@@ -22,6 +23,7 @@ export function MessageList({
   selectedDateLabel,
   scrollRef,
   isLoadingHistory,
+  showCenterLoading,
   isLoadingOlder,
   isLoadingNewer,
   onReachTop,
@@ -51,12 +53,20 @@ export function MessageList({
 
       {isLoadingOlder ? <ActivityIndicator style={styles.indicator} size="small" color="#9AA0AB" /> : null}
       {isLoadingHistory ? <ActivityIndicator style={styles.indicator} size="small" color="#9AA0AB" /> : null}
+      {showCenterLoading ? (
+        <View style={styles.centerLoadingWrap}>
+          <View style={styles.skeletonCard} />
+          <ActivityIndicator size="small" color="#7F8795" />
+        </View>
+      ) : null}
 
       {messages.map((message, index) =>
         message.role === "user" ? (
           <View key={`u-${index}`} style={styles.userBlock}>
             <View style={styles.userBubble}>
-              <Text style={styles.userText}>{message.text}</Text>
+              <Text selectable selectionColor="#8E7BFF" style={styles.userText}>
+                {message.text}
+              </Text>
             </View>
             <Text style={styles.timeTextRight}>{message.time}</Text>
           </View>
@@ -66,7 +76,9 @@ export function MessageList({
               <MaterialCommunityIcons name="ghost" size={23} color="#111111" />
             </View>
             <View style={styles.assistantCard}>
-              <Text style={styles.assistantCardText}>{message.text || "..."}</Text>
+              <Text selectable selectionColor="#8E7BFF" style={styles.assistantCardText}>
+                {message.text || "..."}
+              </Text>
               <View style={styles.cardActionRow}>
                 {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
                   <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
@@ -127,6 +139,20 @@ const styles = StyleSheet.create({
   },
   indicatorBottom: {
     marginTop: 8,
+  },
+  centerLoadingWrap: {
+    marginVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  skeletonCard: {
+    width: "72%",
+    height: 54,
+    borderRadius: 14,
+    backgroundColor: "#F1F3F7",
+    borderWidth: 1,
+    borderColor: "#E7EAF0",
   },
   userBlock: {
     alignItems: "flex-end",
