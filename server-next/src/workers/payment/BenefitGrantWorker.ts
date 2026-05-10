@@ -12,6 +12,7 @@ export interface BenefitGrantWorkerOptions {
 export class BenefitGrantWorker {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private firstIntervalDueAt = 0;
 
   constructor(
     private readonly benefitGrantRepository: BenefitGrantRepository,
@@ -22,9 +23,14 @@ export class BenefitGrantWorker {
 
   start(): void {
     if (this.timer) return;
-    void this.runOnce();
     const intervalMs = this.options.intervalMs ?? getRuntimeConfig().paymentReconcileIntervalMs;
-    this.timer = setInterval(() => void this.runOnce(), intervalMs);
+    // 启动先跑一次，同时避免与首个周期重叠
+    this.firstIntervalDueAt = Date.now() + intervalMs;
+    void this.runOnce();
+    this.timer = setInterval(() => {
+      if (Date.now() < this.firstIntervalDueAt) return;
+      void this.runOnce();
+    }, intervalMs);
   }
 
   stop(): void {
@@ -85,6 +91,10 @@ export class BenefitGrantWorker {
             errorCode: "BENEFIT_GRANT_FAILED",
             errorMessage: message,
             metadata: {
+              worker: "benefit_grant",
+              batchSize,
+              lockKey: null,
+              skipReason: "grant_failed",
               grantId: grant.id,
               sourceOrderId: grant.sourceOrderId,
               attemptCount: grant.attemptCount,

@@ -12,6 +12,7 @@ export interface PaymentCertSyncWorkerOptions {
 export class PaymentCertSyncWorker {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private firstIntervalDueAt = 0;
 
   constructor(
     private readonly trustedCertRepository: TrustedCertRepository,
@@ -24,10 +25,13 @@ export class PaymentCertSyncWorker {
 
   start(): void {
     if (this.timer) return;
-    void this.runOnce();
     const cfg = getRuntimeConfig();
     const intervalMs = this.options.intervalMs ?? cfg.paymentCertSyncIntervalMs;
+    // 启动先跑一次，同时避免与首个周期重叠
+    this.firstIntervalDueAt = Date.now() + intervalMs;
+    void this.runOnce();
     this.timer = setInterval(() => {
+      if (Date.now() < this.firstIntervalDueAt) return;
       void this.runOnce();
     }, intervalMs);
   }
@@ -48,11 +52,17 @@ export class PaymentCertSyncWorker {
       await this.guardHealth(now);
     } catch (error) {
       await this.writeLog({
-        event: "payment.cert_sync.failed",
+        event: "payment.worker.cert_sync_failed",
         level: "error",
         status: "failed",
         errorCode: "CERT_SYNC_FAILED",
         errorMessage: toErrorMessage(error),
+        metadata: {
+          worker: "payment_cert_sync",
+          batchSize: null,
+          lockKey: null,
+          skipReason: "exception",
+        },
       });
     } finally {
       this.running = false;
@@ -63,10 +73,17 @@ export class PaymentCertSyncWorker {
     const syncedCount = await this.syncService.syncWeChatPlatformCerts();
 
     await this.writeLog({
-      event: "payment.cert_sync.wechat_synced",
+      event: "payment.worker.cert_sync_wechat_synced",
       level: "info",
       status: "success",
-      metadata: { serialCount: syncedCount, syncedAt: now.toISOString() },
+      metadata: {
+        worker: "payment_cert_sync",
+        batchSize: null,
+        lockKey: null,
+        skipReason: null,
+        serialCount: syncedCount,
+        syncedAt: now.toISOString(),
+      },
     });
   }
 
@@ -74,17 +91,29 @@ export class PaymentCertSyncWorker {
     const synced = await this.syncService.syncAppleRootCert();
     if (!synced) {
       await this.writeLog({
-        event: "payment.cert_sync.apple_not_configured",
+        event: "payment.worker.cert_sync_apple_not_configured",
         level: "warn",
         status: "ignored",
+        metadata: {
+          worker: "payment_cert_sync",
+          batchSize: null,
+          lockKey: null,
+          skipReason: "apple_not_configured",
+        },
       });
       return;
     }
     await this.writeLog({
-      event: "payment.cert_sync.apple_synced",
+      event: "payment.worker.cert_sync_apple_synced",
       level: "info",
       status: "success",
-      metadata: { syncedAt: now.toISOString() },
+      metadata: {
+        worker: "payment_cert_sync",
+        batchSize: null,
+        lockKey: null,
+        skipReason: null,
+        syncedAt: now.toISOString(),
+      },
     });
   }
 
@@ -101,11 +130,15 @@ export class PaymentCertSyncWorker {
         const remainMs = cert.notAfter.getTime() - now.getTime();
         if (remainMs <= warnMs) {
           await this.writeLog({
-            event: "payment.cert_health.expiring_soon",
+            event: "payment.worker.cert_health_expiring_soon",
             level: "warn",
             status: "failed",
             errorCode: "CERT_EXPIRING_SOON",
             metadata: {
+              worker: "payment_cert_sync",
+              batchSize: null,
+              lockKey: null,
+              skipReason: "cert_expiring_soon",
               provider,
               keyId: cert.keyId,
               notAfter: cert.notAfter.toISOString(),
@@ -121,10 +154,18 @@ export class PaymentCertSyncWorker {
     });
     if (deletedCount > 0) {
       await this.writeLog({
-        event: "payment.cert_health.expired_deleted",
+        event: "payment.worker.cert_health_expired_deleted",
         level: "info",
         status: "success",
-        metadata: { deletedCount, retentionDays, deleteBefore: deleteBefore.toISOString() },
+        metadata: {
+          worker: "payment_cert_sync",
+          batchSize: null,
+          lockKey: null,
+          skipReason: null,
+          deletedCount,
+          retentionDays,
+          deleteBefore: deleteBefore.toISOString(),
+        },
       });
     }
   }

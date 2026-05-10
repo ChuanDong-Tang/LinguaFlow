@@ -49,6 +49,7 @@ const paymentCertSyncWorker = new PaymentCertSyncWorker(
 );
 
 const runtime = getRuntimeConfig();
+let shuttingDown = false;
 
 if (runtime.requireRedis) {
   const redisClient = getRedisClient();
@@ -85,6 +86,8 @@ try {
 }
 
 async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   worker.stop();
   benefitGrantWorker.stop();
   sessionCleanupWorker.stop();
@@ -92,13 +95,44 @@ async function shutdown() {
   aiRequestLogCleanupWorker.stop();
   paymentCertSyncWorker.stop();
   await prisma.$disconnect();
-  process.exit(0);
 }
 
 process.on("SIGINT", () => {
-  void shutdown();
+  void shutdown().finally(() => process.exit(0));
 });
 
 process.on("SIGTERM", () => {
-  void shutdown();
+  void shutdown().finally(() => process.exit(0));
 });
+
+// 全局未捕获异常兜底：统一记录、统一关闭，避免部分 worker 静默停摆
+process.on("unhandledRejection", (reason) => {
+  void handleFatal("UNHANDLED_REJECTION", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  void handleFatal("UNCAUGHT_EXCEPTION", error);
+});
+
+async function handleFatal(kind, error) {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  console.error(`[worker] ${kind}`, error);
+  try {
+    await systemEventLogRepository.create({
+      module: "infra",
+      event: "infra.worker.process_fatal",
+      level: "error",
+      status: "failed",
+      errorCode: kind,
+      errorMessage,
+      metadata: {
+        kind,
+        at: new Date().toISOString(),
+      },
+    });
+  } catch (logError) {
+    console.error("[worker] write fatal system_event_log failed", logError);
+  }
+  await shutdown();
+  process.exit(1);
+}

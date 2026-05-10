@@ -15,6 +15,7 @@ export interface PaymentReconcileWorkerOptions {
 export class PaymentReconcileWorker {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private firstIntervalDueAt = 0;
 
   constructor(
     private readonly paymentOrderService: PaymentOrderService,
@@ -27,9 +28,12 @@ export class PaymentReconcileWorker {
   start(): void {
     if (this.timer) return;
 
-    void this.runOnce();
     const intervalMs = this.options.intervalMs ?? getRuntimeConfig().paymentReconcileIntervalMs;
+    // 启动先跑一次，同时避免与首个周期触发重叠
+    this.firstIntervalDueAt = Date.now() + intervalMs;
+    void this.runOnce();
     this.timer = setInterval(() => {
+      if (Date.now() < this.firstIntervalDueAt) return;
       void this.runOnce();
     }, intervalMs);
   }
@@ -59,6 +63,10 @@ export class PaymentReconcileWorker {
               userId: order.userId,
               errorCode: "WORKER_PROVIDER_CHANNEL_UNMAPPED",
               metadata: {
+                worker: "payment_reconcile",
+                batchSize: this.options.batchSize ?? getRuntimeConfig().paymentReconcileBatchSize,
+                lockKey: null,
+                skipReason: "provider_channel_unmapped",
                 orderId: order.id,
                 provider: order.provider,
                 providerOrderId: order.providerOrderId,
@@ -95,6 +103,10 @@ export class PaymentReconcileWorker {
               errorCode: "WORKER_ON_PAID_FAILED",
               errorMessage: toErrorMessage(error),
               metadata: {
+                worker: "payment_reconcile",
+                batchSize: this.options.batchSize ?? getRuntimeConfig().paymentReconcileBatchSize,
+                lockKey: null,
+                skipReason: "on_paid_failed",
                 orderId: order.id,
                 providerOrderId: order.providerOrderId,
                 retryEnqueued: grantEnqueued,
@@ -121,6 +133,12 @@ export class PaymentReconcileWorker {
         status: "failed",
         errorCode: "WORKER_RECONCILE_FAILED",
         errorMessage: toErrorMessage(error),
+        metadata: {
+          worker: "payment_reconcile",
+          batchSize: this.options.batchSize ?? getRuntimeConfig().paymentReconcileBatchSize,
+          lockKey: null,
+          skipReason: "exception",
+        },
       });
     } finally {
       this.running = false;
