@@ -7,11 +7,18 @@ export function firstHeaderValue(value: string | string[] | undefined): string |
   return Array.isArray(value) ? value[0] : value;
 }
 
+// warning:不要在业务代码里手动信任 x-forwarded-for。
+// 让 Fastify / 网关层统一处理可信代理。
+// 业务代码只用 req.ip。
 export function resolveClientIp(req: FastifyRequest): string {
   const forwardedFor = firstHeaderValue(req.headers["x-forwarded-for"]);
   const first = forwardedFor?.split(",")[0]?.trim();
   return first && first.length > 0 ? first : req.ip ?? "unknown";
 }
+
+// export function resolveClientIp(req: FastifyRequest): string {
+//   return req.ip ?? "unknown";
+// }
 
 export async function checkIpPathRateLimit(input: {
   req: FastifyRequest;
