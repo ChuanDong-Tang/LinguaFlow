@@ -1,5 +1,6 @@
 import { clearSession, getSession, setSession } from "./authStorage";
 import { refreshAccessToken } from "./authApi";
+import { emitSessionInvalid } from "./authSessionEvents";
 
 const REFRESH_AHEAD_SECONDS = 60;
 let refreshingPromise: Promise<void> | null = null;
@@ -42,6 +43,7 @@ async function ensureFreshSession(): Promise<void> {
       });
     } catch {
       await clearSession();
+      emitSessionInvalid();
     } finally {
       refreshingPromise = null;
     }

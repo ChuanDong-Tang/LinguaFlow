@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Animated, Image, StyleSheet } from "react-native";
+import { Image, StyleSheet, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SplashGateScreen } from "./screens/SplashGateScreen";
 import { LoginScreen } from "./screens/LoginScreen";
@@ -11,6 +11,7 @@ import { MeScreen } from "./screens/MeScreen";
 import { ProScreen } from "./screens/ProScreen";
 import { ChatScreen } from "./screens/ChatScreen";
 import { AboutScreen } from "./screens/AboutScreen";
+import { onSessionInvalid } from "./services/authSessionEvents";
 
 type Screen = "splash" | "login" | "main" | "chat" | "me" | "pro" | "about";
 
@@ -18,8 +19,6 @@ const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("splash");
-  const [visibleScreen, setVisibleScreen] = useState<Screen>("splash");
-  const [screenOpacity] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
     let mounted = true;
@@ -48,13 +47,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (screen === visibleScreen) return;
-    Animated.timing(screenOpacity, { toValue: 0, duration: 240, useNativeDriver: true }).start(({ finished }) => {
-      if (!finished) return;
-      setVisibleScreen(screen);
-      Animated.timing(screenOpacity, { toValue: 1, duration: 320, useNativeDriver: true }).start();
+    return onSessionInvalid(() => {
+      setScreen("login");
     });
-  }, [screen, screenOpacity, visibleScreen]);
+  }, []);
 
   async function handleLogout(): Promise<void> {
     const session = await getSession();
@@ -67,15 +63,15 @@ export default function App() {
   }
 
   let content: React.ReactNode;
-  if (visibleScreen === "splash") content = <SplashGateScreen />;
-  else if (visibleScreen === "login") content = <LoginScreen onLoginSuccess={() => setScreen("main")} />;
-  else if (visibleScreen === "chat") content = <ChatScreen onBack={() => setScreen("main")} />;
-  else if (visibleScreen === "me") content = <MeScreen onOpenMain={() => setScreen("main")} onOpenPro={() => setScreen("pro")} onOpenAbout={() => setScreen("about")} onLogout={handleLogout} />;
-  else if (visibleScreen === "pro") content = <ProScreen onBack={() => setScreen("me")} />;
-  else if (visibleScreen === "about") content = <AboutScreen onBack={() => setScreen("me")} />;
+  if (screen === "splash") content = <SplashGateScreen />;
+  else if (screen === "login") content = <LoginScreen onLoginSuccess={() => setScreen("main")} />;
+  else if (screen === "chat") content = <ChatScreen onBack={() => setScreen("main")} />;
+  else if (screen === "me") content = <MeScreen onOpenMain={() => setScreen("main")} onOpenPro={() => setScreen("pro")} onOpenAbout={() => setScreen("about")} onLogout={handleLogout} />;
+  else if (screen === "pro") content = <ProScreen onBack={() => setScreen("me")} />;
+  else if (screen === "about") content = <AboutScreen onBack={() => setScreen("me")} />;
   else content = <MainScreen onOpenChat={() => setScreen("chat")} onOpenMe={() => setScreen("me")} />;
 
-  return <KeyboardProvider><Animated.View style={[styles.screen, { opacity: screenOpacity }]}>{content}</Animated.View></KeyboardProvider>;
+  return <KeyboardProvider><View style={styles.screen}>{content}</View></KeyboardProvider>;
 }
 
 async function preloadImages(images: Array<ReturnType<typeof require>>): Promise<void> {

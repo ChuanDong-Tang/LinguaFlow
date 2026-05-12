@@ -23,8 +23,6 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [forceAuthingLogin, setForceAuthingLogin] = useState(false);
-  const enterOpacity = useRef(new Animated.Value(0)).current;
-  const enterTranslateY = useRef(new Animated.Value(14)).current;
   const agreementShake = useRef(new Animated.Value(0)).current;
 
   const authingConfigured = isAuthingConfigured();
@@ -46,12 +44,8 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   useEffect(() => {
     let mounted = true;
     void shouldForceAuthingLogin().then((value) => mounted && setForceAuthingLogin(value));
-    Animated.parallel([
-      Animated.timing(enterOpacity, { toValue: 1, duration: 420, useNativeDriver: true }),
-      Animated.timing(enterTranslateY, { toValue: 0, duration: 420, useNativeDriver: true }),
-    ]).start();
     return () => { mounted = false; };
-  }, [enterOpacity, enterTranslateY]);
+  }, []);
 
   async function handlePrimaryLogin() {
     if (loading) return;
@@ -104,7 +98,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Animated.View style={[styles.content, { opacity: enterOpacity, transform: [{ translateY: enterTranslateY }] }]}>
+      <View style={styles.content}>
         <Image source={require("../../assets/app/logo.png")} style={styles.logoImage} resizeMode="contain" />
         <Text style={styles.brandText}>OIO</Text>
         <Text style={styles.tagline}>Output  ·  Input  ·  Output</Text>
@@ -122,7 +116,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           </View>
           {!!statusText && <Text style={styles.statusText}>{statusText}</Text>}
         </Animated.View>
-      </Animated.View>
+      </View>
     </SafeAreaView>
   );
 }
