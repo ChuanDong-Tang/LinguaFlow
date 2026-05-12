@@ -33,6 +33,7 @@ let stopRequested = false;
 let activeRunId = 0;
 let storageUserId: string | null = null;
 let storageConversationId: string | null = null;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
 const subscribers = new Set<RewriteSubscriber>();
 
@@ -92,19 +93,32 @@ export function updateRewriteMessage(
 
   const next = updateMessageByLocalId(messagesCache, localId, updater);
   messagesCache = next;
-  void (async () => {
-    const session = await getSession();
-    const uid = storageUserId ?? session?.user?.id ?? "mock_user_001";
-    const cid = storageConversationId ?? conversationId ?? "default";
-    await saveLocalMessagesScoped(uid, cid, next);
-  })();
+  schedulePersist();
   emit();
+}
+
+function schedulePersist(delayMs = 180): void {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    void flushPersist();
+  }, delayMs);
+}
+
+async function flushPersist(): Promise<void> {
+  if (!messagesCache) return;
+  const snapshot = messagesCache;
+  const session = await getSession();
+  const uid = storageUserId ?? session?.user?.id ?? "mock_user_001";
+  const cid = storageConversationId ?? conversationId ?? "default";
+  await saveLocalMessagesScoped(uid, cid, snapshot);
 }
 
 export function stopRewriteSession(): void {
   if (!activeAbortController || !activeAssistantLocalId) return;
   stopRequested = true;
   activeAbortController.abort();
+  void flushPersist();
   emit();
 }
 
@@ -153,6 +167,7 @@ export function startRewriteSession(input: StartRewriteInput): void {
     }
 
     if (activeRunId !== runId) return;
+    await flushPersist();
     isSending = false;
     activeAbortController = null;
     activeAssistantLocalId = null;

@@ -63,6 +63,28 @@ export async function runRewriteSync(input: RunRewriteInput): Promise<RunRewrite
   let requestSystemPrompt = input.systemPrompt;
   let assistantText = "";
   let streamErrorMessage: string | null = null;
+  let pendingDelta = "";
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const flushDelta = () => {
+    if (!pendingDelta) return;
+    const chunk = pendingDelta;
+    pendingDelta = "";
+    assistantText += chunk;
+    input.onUpdateMessage(input.assistantLocalId, (row) => ({
+      ...row,
+      text: row.text + chunk,
+      createdAt: new Date().toISOString(),
+    }));
+  };
+
+  const scheduleFlush = () => {
+    if (flushTimer) return;
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      flushDelta();
+    }, 40);
+  };
 
   try {
     const session = await getSession();
@@ -87,20 +109,26 @@ export async function runRewriteSync(input: RunRewriteInput): Promise<RunRewrite
       },
       (event) => {
         if (event.type === "delta") {
-          assistantText += event.text;
-          input.onUpdateMessage(input.assistantLocalId, (row) => ({
-            ...row,
-            text: row.text + event.text,
-            createdAt: new Date().toISOString(),
-          }));
+          pendingDelta += event.text;
+          scheduleFlush();
         }
 
         if (event.type === "error") {
+          if (flushTimer) {
+            clearTimeout(flushTimer);
+            flushTimer = null;
+          }
+          flushDelta();
           streamErrorMessage = event.message;
           markFailed(input, `[错误] ${event.message}`, requestSystemPrompt);
         }
 
         if (event.type === "done") {
+          if (flushTimer) {
+            clearTimeout(flushTimer);
+            flushTimer = null;
+          }
+          flushDelta();
           if (input.userLocalId) {
             input.onUpdateMessage(input.userLocalId, (row) => ({ ...row, status: "success" }));
           }
@@ -126,6 +154,11 @@ export async function runRewriteSync(input: RunRewriteInput): Promise<RunRewrite
 
     return { status: "success", assistantText };
   } catch (error) {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    flushDelta();
     const wasStopped = input.isStopRequested?.() === true;
     const message = wasStopped ? "已停止生成" : error instanceof Error ? error.message : "stream failed";
     markFailed(input, `[错误] ${message}`, requestSystemPrompt);

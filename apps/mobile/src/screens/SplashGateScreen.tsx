@@ -31,8 +31,8 @@ const styles = StyleSheet.create({
     marginTop: -72,
   },
   brandText: {
-    marginTop: 10,
-    fontSize: 56,
+    marginTop: -30,
+    fontSize: 20,
     fontWeight: "400",
     color: "#050505",
     letterSpacing: 0.8,
@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   logoImage: {
-    width: 300,
-    height: 300,
+    width: 180,
+    height: 180,
   },
 });

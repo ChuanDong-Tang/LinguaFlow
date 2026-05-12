@@ -13,8 +13,10 @@ type ChatComposerProps = {
   isSending: boolean;
 };
 
-const COLLAPSED_MIN_HEIGHT = 58;
+const COLLAPSED_MIN_HEIGHT = 50;
 const COLLAPSED_MAX_HEIGHT = 160;
+const HEIGHT_CHANGE_EPSILON = 2;
+const SINGLE_LINE_LOCK_HEIGHT = 52;
 
 export function ChatComposer({
   value,
@@ -31,6 +33,7 @@ export function ChatComposer({
   const [expanded, setExpanded] = useState(false);
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
   const shellHeightAnim = useRef(new Animated.Value(COLLAPSED_MIN_HEIGHT)).current;
+  const lastCollapsedShellHeight = useRef(COLLAPSED_MIN_HEIGHT);
   const canExpand = expanded || inputHeight >= COLLAPSED_MAX_HEIGHT;
 
   function setShellHeight(next: number): void {
@@ -45,14 +48,29 @@ export function ChatComposer({
   function handleToggleExpand(): void {
     const next = !expanded;
     setExpanded(next);
-    setShellHeight(next ? expandedHeight : Math.max(COLLAPSED_MIN_HEIGHT, Math.min(COLLAPSED_MAX_HEIGHT, inputHeight)));
+    if (next) {
+      setShellHeight(expandedHeight);
+      return;
+    }
+    const collapsedHeight = Math.max(
+      COLLAPSED_MIN_HEIGHT,
+      Math.min(COLLAPSED_MAX_HEIGHT, inputHeight)
+    );
+    lastCollapsedShellHeight.current = collapsedHeight;
+    shellHeightAnim.setValue(collapsedHeight);
   }
 
   function handleContentSizeChange(nextHeight: number): void {
-    const normalized = Math.max(COLLAPSED_MIN_HEIGHT, Math.ceil(nextHeight));
+    const rawHeight = Math.ceil(nextHeight);
+    const normalized = rawHeight <= SINGLE_LINE_LOCK_HEIGHT
+      ? COLLAPSED_MIN_HEIGHT
+      : Math.max(COLLAPSED_MIN_HEIGHT, rawHeight);
     setInputHeight(normalized);
     if (expanded) return;
-    setShellHeight(Math.min(COLLAPSED_MAX_HEIGHT, normalized));
+    const nextCollapsedHeight = Math.min(COLLAPSED_MAX_HEIGHT, normalized);
+    if (Math.abs(nextCollapsedHeight - lastCollapsedShellHeight.current) < HEIGHT_CHANGE_EPSILON) return;
+    lastCollapsedShellHeight.current = nextCollapsedHeight;
+    shellHeightAnim.setValue(nextCollapsedHeight);
   }
 
   return (
@@ -112,20 +130,18 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     paddingLeft: 20,
     paddingRight: 92,
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 15,
     color: "#111111",
-    includeFontPadding: false,
+    includeFontPadding: true,
+    textAlignVertical: "center",
   },
   inputCollapsed: {
-    textAlignVertical: "center",
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   inputExpanded: {
-    textAlignVertical: "top",
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   expandButton: {
     position: "absolute",
@@ -141,7 +157,7 @@ const styles = StyleSheet.create({
   sendButton: {
     position: "absolute",
     right: 12,
-    bottom: 9,
+    bottom: 5,
     width: 40,
     height: 40,
     borderRadius: 20,

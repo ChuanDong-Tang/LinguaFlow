@@ -68,6 +68,33 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
+  const lastAutoScrollAtRef = useRef(0);
+  const pendingAutoScrollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function scheduleScrollToEnd(animated = true): void {
+    const THROTTLE_MS = 120;
+    const now = Date.now();
+    const elapsed = now - lastAutoScrollAtRef.current;
+    const doScroll = () => {
+      lastAutoScrollAtRef.current = Date.now();
+      scrollRef.current?.scrollToEnd({ animated });
+    };
+
+    if (elapsed >= THROTTLE_MS) {
+      if (pendingAutoScrollRef.current) {
+        clearTimeout(pendingAutoScrollRef.current);
+        pendingAutoScrollRef.current = null;
+      }
+      doScroll();
+      return;
+    }
+
+    if (pendingAutoScrollRef.current) return;
+    pendingAutoScrollRef.current = setTimeout(() => {
+      pendingAutoScrollRef.current = null;
+      doScroll();
+    }, THROTTLE_MS - elapsed);
+  }
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
     return inputText.trim().length > 0 && !isSending && hasQuota;
@@ -138,11 +165,18 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       setWindowStart(start);
       setWindowEnd(end);
       setMessages(items);
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 60);
+      scheduleScrollToEnd(true);
     });
   }, [selectedDate]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingAutoScrollRef.current) {
+        clearTimeout(pendingAutoScrollRef.current);
+        pendingAutoScrollRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -363,9 +397,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     setWindowStart(start);
     setWindowEnd(end);
     setMessages(items);
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, 60);
+    scheduleScrollToEnd(true);
   }
 
   function handleReachTop(): void {

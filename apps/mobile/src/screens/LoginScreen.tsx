@@ -11,6 +11,8 @@ import { logEvent } from "../services/logger";
 import { getCurrentEntitlement } from "../services/meApi";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import type { User } from "@lf/core/types";
+import Ionicons from "@expo/vector-icons/Ionicons";
+
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -103,7 +105,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   return (
     <SafeAreaView style={styles.container}>
       <Animated.View style={[styles.content, { opacity: enterOpacity, transform: [{ translateY: enterTranslateY }] }]}>
-        <Image source={require("../../assets/splash/logo.png")} style={styles.logoImage} resizeMode="contain" />
+        <Image source={require("../../assets/app/logo.png")} style={styles.logoImage} resizeMode="contain" />
         <Text style={styles.brandText}>OIO</Text>
         <Text style={styles.tagline}>Output  ·  Input  ·  Output</Text>
 
@@ -113,7 +115,9 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
         <Animated.View style={[styles.agreementBlock, { transform: [{ translateX: agreementShake.interpolate({ inputRange: [-1, 1], outputRange: [-8, 8] }) }] }]}>
           <View style={styles.agreeRow}>
-            <Pressable style={[styles.checkbox, agreed && styles.checkboxChecked]} onPress={() => setAgreed((v) => !v)} />
+            <Pressable style={[styles.checkbox, agreed && styles.checkboxChecked]} onPress={() => setAgreed((v) => !v)}>
+              {agreed ? <Ionicons name="checkmark" size={20} color="#111111" /> : null}
+            </Pressable>
             <Text style={styles.agreeText}>{t("auth.login.agree_prefix")} <Text style={styles.linkText} onPress={() => void Linking.openURL(TERMS_URL)}>{t("auth.login.terms")}</Text> {t("auth.login.and")} <Text style={styles.linkText} onPress={() => void Linking.openURL(PRIVACY_URL)}>{t("auth.login.privacy")}</Text></Text>
           </View>
           {!!statusText && <Text style={styles.statusText}>{statusText}</Text>}
@@ -129,17 +133,21 @@ function toSessionUser(user: { id: string; nickname: string | null; avatarUrl: s
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FCFCFD" },
   content: { flex: 1, paddingHorizontal: 32, paddingTop: 132, alignItems: "center" },
-  logoImage: { width: 118, height: 118 },
-  brandText: { marginTop: 20, fontSize: 20, fontWeight: "500", color: "#050505", letterSpacing: 1 },
+  logoImage: {
+    width: 180,
+    height: 180,
+    marginTop: 40,
+  },
+  brandText: { marginTop: -30, fontSize: 20, fontWeight: "500", color: "#050505", letterSpacing: 1 },
   tagline: { marginTop: 8, color: "#6E7280", fontSize: 14, letterSpacing: 0.2 },
-  loginButton: { marginTop: 160, width: "100%", maxWidth: 340, height: 56, borderRadius: 28, borderWidth: 1.5, borderColor: "#20222A", alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
+  loginButton: { marginTop: 80, width: "100%", maxWidth: 340, height: 56, borderRadius: 28, borderWidth: 1.5, borderColor: "#20222A", alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
   loginButtonDisabled: { opacity: 0.56 },
   loginText: { color: "#111111", fontSize: 18, fontWeight: "500" },
-  agreementBlock: { marginTop: 36, width: "100%", maxWidth: 340 },
-  agreeRow: { flexDirection: "row", alignItems: "center" },
+  agreementBlock: { marginTop: 36, width: "100%", maxWidth: 340, alignItems: "center" },
+  agreeRow: { width: "100%", maxWidth: 320, flexDirection: "row", alignItems: "center", justifyContent: "center" },
   checkbox: { width: 24, height: 24, borderWidth: 1.2, borderColor: "#6F7078", borderRadius: 6, marginRight: 10, backgroundColor: "#FFFFFF" },
-  checkboxChecked: { backgroundColor: "#111111", borderColor: "#111111" },
-  agreeText: { flex: 1, color: "#545A68", fontSize: 14, lineHeight: 21 },
+  checkboxChecked: { backgroundColor: "#FFFFFF", borderColor: "#111111" },
+  agreeText: { flexShrink: 1, color: "#545A68", fontSize: 14, lineHeight: 21 },
   linkText: { color: "#111111", textDecorationLine: "underline" },
-  statusText: { marginTop: 10, color: "#D14343", fontSize: 12 },
+  statusText: { marginTop: 10, color: "#D14343", fontSize: 12, textAlign: "center" },
 });
