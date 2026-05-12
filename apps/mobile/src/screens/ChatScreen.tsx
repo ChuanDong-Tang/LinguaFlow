@@ -186,12 +186,6 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
   useEffect(() => {
     const today = new Date();
-    setCloudDateKeys((prev) => {
-      const next = new Set(prev);
-      next.add("2026-05-14");
-      next.add("2026-05-15");
-      return next;
-    });
     void syncDayFromCloud(today);
   }, []);
 
