@@ -1,17 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
-import { Animated, Image, Linking, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import { Animated, Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { t } from "../i18n";
 import { login, loginWithAuthing } from "../services/authApi";
-import {
-  getAuthingClientId,
-  getAuthingDiscovery,
-  getAuthingRedirectUri,
-  isAuthingConfigured,
-} from "../services/authingAuth";
+import { getAuthingClientId, getAuthingDiscovery, getAuthingRedirectUri, isAuthingConfigured } from "../services/authingAuth";
 import { clearForceAuthingLogin, setSession, shouldForceAuthingLogin } from "../services/authStorage";
 import { logEvent } from "../services/logger";
 import { getCurrentEntitlement } from "../services/meApi";
@@ -20,10 +14,7 @@ import type { User } from "@lf/core/types";
 
 WebBrowser.maybeCompleteAuthSession();
 
-// 登录页对外暴露一个“登录成功回调”，由 App 决定跳转到哪里
-type LoginScreenProps = {
-  onLoginSuccess: () => void;
-};
+type LoginScreenProps = { onLoginSuccess: () => void };
 
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [agreed, setAgreed] = useState(false);
@@ -33,6 +24,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const enterOpacity = useRef(new Animated.Value(0)).current;
   const enterTranslateY = useRef(new Animated.Value(14)).current;
   const agreementShake = useRef(new Animated.Value(0)).current;
+
   const authingConfigured = isAuthingConfigured();
   const authingDiscovery = authingConfigured ? getAuthingDiscovery() : null;
   const authingClientId = authingConfigured ? getAuthingClientId() : "authing-disabled";
@@ -48,122 +40,43 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     },
     authingDiscovery
   );
+
   useEffect(() => {
     let mounted = true;
-    void shouldForceAuthingLogin().then((value) => {
-      if (mounted) setForceAuthingLogin(value);
-    });
-
-    //console.log("[authing] redirectUri =", authingRedirectUri);
-
+    void shouldForceAuthingLogin().then((value) => mounted && setForceAuthingLogin(value));
     Animated.parallel([
-      Animated.timing(enterOpacity, {
-        toValue: 1,
-        duration: 420,
-        useNativeDriver: true,
-      }),
-      Animated.timing(enterTranslateY, {
-        toValue: 0,
-        duration: 420,
-        useNativeDriver: true,
-      }),
+      Animated.timing(enterOpacity, { toValue: 1, duration: 420, useNativeDriver: true }),
+      Animated.timing(enterTranslateY, { toValue: 0, duration: 420, useNativeDriver: true }),
     ]).start();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [enterOpacity, enterTranslateY]);
 
   async function handlePrimaryLogin() {
     if (loading) return;
-    if (!agreed) {
-      shakeAgreement();
-      return;
-    }
-
+    if (!agreed) return shakeAgreement();
     setLoading(true);
     setStatusText("");
-
     try {
       if (authingConfigured) {
-        if (!authingRequest || !authingDiscovery) {
-          setStatusText("Authing 登录尚未准备好，请稍后重试");
-          return;
-        }
-
+        if (!authingRequest || !authingDiscovery) { setStatusText("Authing 登录尚未准备好，请稍后重试"); return; }
         const result = await promptAuthingAsync();
-        if (result.type !== "success") {
-          setStatusText("已取消登录");
-          return;
-        }
-
-        const code = result.params.code;
-        const tokenResult = await AuthSession.exchangeCodeAsync(
-          {
-            clientId: authingClientId,
-            code,
-            redirectUri: authingRedirectUri,
-            extraParams: {
-              code_verifier: authingRequest.codeVerifier ?? "",
-            },
-          },
-          authingDiscovery
-        );
-
-        const backendSession = await loginWithAuthing({
-          authingToken: tokenResult.accessToken,
-        });
-        const localSession = {
-          accessToken: backendSession.accessToken,
-          refreshToken: backendSession.refreshToken,
-          user: toSessionUser(backendSession.user),
-          sessionFlags: {
-            isPro: false,
-          },
-        };
+        if (result.type !== "success") { setStatusText("已取消登录"); return; }
+        const tokenResult = await AuthSession.exchangeCodeAsync({ clientId: authingClientId, code: result.params.code, redirectUri: authingRedirectUri, extraParams: { code_verifier: authingRequest.codeVerifier ?? "" } }, authingDiscovery);
+        const backendSession = await loginWithAuthing({ authingToken: tokenResult.accessToken });
+        const localSession = { accessToken: backendSession.accessToken, refreshToken: backendSession.refreshToken, user: toSessionUser(backendSession.user), sessionFlags: { isPro: false } };
         await setSession(localSession);
-
         const entitlement = await getCurrentEntitlement().catch(() => null);
-        if (entitlement) {
-          await setSession({
-            ...localSession,
-            sessionFlags: {
-              isPro: entitlement.isPro,
-            },
-          });
-        }
-
-        await logEvent("authing_login_ui_success", "info", undefined, {
-          userId: backendSession.user.id,
-        });
+        if (entitlement) await setSession({ ...localSession, sessionFlags: { isPro: entitlement.isPro } });
+        await logEvent("authing_login_ui_success", "info", undefined, { userId: backendSession.user.id });
         await clearForceAuthingLogin();
         onLoginSuccess();
         return;
       }
-
-      const result = await login({
-        type: "wechat_code",
-        wechatCode: "mock_wechat_code",
-      });
-      const localSession = {
-        accessToken: result.token,
-        refreshToken: result.refreshToken,
-        user: result.user,
-        sessionFlags: {
-          isPro: result.sessionFlags?.isPro ?? false,
-        },
-      };
+      const result = await login({ type: "wechat_code", wechatCode: "mock_wechat_code" });
+      const localSession = { accessToken: result.token, refreshToken: result.refreshToken, user: result.user, sessionFlags: { isPro: result.sessionFlags?.isPro ?? false } };
       await setSession(localSession);
-
       const entitlement = await getCurrentEntitlement().catch(() => null);
-      if (entitlement) {
-        await setSession({
-          ...localSession,
-          sessionFlags: {
-            isPro: entitlement.isPro,
-          },
-        });
-      }
-
+      if (entitlement) await setSession({ ...localSession, sessionFlags: { isPro: entitlement.isPro } });
       await logEvent("login_ui_success", "info", undefined, { userId: result.user.id });
       await clearForceAuthingLogin();
       onLoginSuccess();
@@ -187,81 +100,22 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     ]).start();
   }
 
-  function openLegalUrl(url: string) {
-    void Linking.openURL(url);
-  }
-
   return (
     <SafeAreaView style={styles.container}>
-      <Animated.View
-        style={[
-          styles.content,
-          {
-            opacity: enterOpacity,
-            transform: [{ translateY: enterTranslateY }],
-          },
-        ]}
-      >
-        <View style={styles.doodleLayer} pointerEvents="none">
-          <SketchHeart style={styles.doodleHeart} />
-        </View>
-
+      <Animated.View style={[styles.content, { opacity: enterOpacity, transform: [{ translateY: enterTranslateY }] }]}>
         <Image source={require("../../assets/splash/logo.png")} style={styles.logoImage} resizeMode="contain" />
-
         <Text style={styles.brandText}>OIO</Text>
-        <View style={styles.taglineWrap}>
-          <Text style={styles.tagline}>把中文想法，说成自然英文</Text>
-        </View>
+        <Text style={styles.tagline}>Output  ·  Input  ·  Output</Text>
 
-        <Pressable
-          style={[styles.wechatButton, (!agreed || loading) && styles.wechatButtonDisabled]}
-          onPress={handlePrimaryLogin}
-          disabled={loading}
-        >
-          <SketchButtonFrame />
-          <Text style={styles.wechatText}>{loading ? "登录中..." : "登录"}</Text>
+        <Pressable style={[styles.loginButton, (!agreed || loading) && styles.loginButtonDisabled]} onPress={handlePrimaryLogin} disabled={loading}>
+          <Text style={styles.loginText}>{loading ? "登录中..." : "登录"}</Text>
         </Pressable>
 
-        {/* 协议勾选 */}
-        <Animated.View
-          style={[
-            styles.agreementBlock,
-            {
-              transform: [
-                {
-                  translateX: agreementShake.interpolate({
-                    inputRange: [-1, 1],
-                    outputRange: [-8, 8],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
+        <Animated.View style={[styles.agreementBlock, { transform: [{ translateX: agreementShake.interpolate({ inputRange: [-1, 1], outputRange: [-8, 8] }) }] }]}>
           <View style={styles.agreeRow}>
-            <Pressable
-              style={styles.checkboxPressable}
-              hitSlop={10}
-              onPress={() => setAgreed((v) => !v)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: agreed }}
-            >
-              <SketchCheckbox checked={agreed} />
-            </Pressable>
-
-            <Text style={styles.agreeText}>
-              {t("auth.login.agree_prefix")}{" "}
-              <Text style={styles.linkText} onPress={() => openLegalUrl(TERMS_URL)}>
-                {t("auth.login.terms")}
-              </Text>{" "}
-              {t("auth.login.and")}{" "}
-              <Text style={styles.linkText} onPress={() => openLegalUrl(PRIVACY_URL)}>
-                {t("auth.login.privacy")}
-              </Text>
-            </Text>
+            <Pressable style={[styles.checkbox, agreed && styles.checkboxChecked]} onPress={() => setAgreed((v) => !v)} />
+            <Text style={styles.agreeText}>{t("auth.login.agree_prefix")} <Text style={styles.linkText} onPress={() => void Linking.openURL(TERMS_URL)}>{t("auth.login.terms")}</Text> {t("auth.login.and")} <Text style={styles.linkText} onPress={() => void Linking.openURL(PRIVACY_URL)}>{t("auth.login.privacy")}</Text></Text>
           </View>
-
-          {/* 状态提示 */}
           {!!statusText && <Text style={styles.statusText}>{statusText}</Text>}
         </Animated.View>
       </Animated.View>
@@ -269,512 +123,23 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   );
 }
 
-function normalizeLoginError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : fallback;
-
-  if (message.includes("invalid input value for enum")) {
-    return "登录服务配置正在更新，请稍后重试";
-  }
-
-  if (message.length > 90) {
-    return "登录失败，请稍后重试";
-  }
-
-  return message || fallback;
-}
-
-function toSessionUser(user: {
-  id: string;
-  nickname: string | null;
-  avatarUrl: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}): User {
-  return {
-    id: user.id,
-    phone: null,
-    email: null,
-    wechatOpenId: null,
-    displayName: user.nickname,
-    avatarUrl: user.avatarUrl,
-    createdAt: new Date(user.createdAt).toISOString(),
-    updatedAt: new Date(user.updatedAt).toISOString(),
-  };
-}
-
-function SketchHeart({ style }: { style?: StyleProp<ViewStyle> }) {
-  return (
-    <View style={style}>
-      <Svg width="100%" height="100%" viewBox="0 0 36 34">
-        <Path
-          d="M17.6 29.5c-1.5-1.1-2.8-2.1-4.2-3.4-3.3-3-7-6.8-7-11.4 0-3.8 2.8-6.9 6.4-6.9 2.4 0 4.6 1.2 5.9 3.1 1.2-2 3.5-3.2 6-3.2 3.5 0 6.2 3 6.2 6.8 0 4.8-3.5 8.6-6.8 11.5-1.3 1.2-2.6 2.2-4.1 3.5l-.7.6-.7-.6Z"
-          fill="none"
-          stroke="#A59DF8"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </Svg>
-    </View>
-  );
-}
-
-function SketchButtonFrame() {
-  return (
-    <View style={styles.wechatButtonFrame} pointerEvents="none">
-      <Svg width="100%" height="100%" viewBox="0 0 342 78" preserveAspectRatio="none">
-        <Path
-          d="M22 5.5C88 2.8 179 5.4 320 4.5c11.8-.1 18 7.4 17.1 20.2-.7 9.4-.4 18.6.1 28 .5 11.6-6.8 18.6-18.7 18.9-86.3 2.2-192.6 1.2-296 .8C10.6 72.3 4.4 65.1 4.8 53.1c.4-9.7.5-19.5-.2-29.3C3.9 12.1 10.3 6 22 5.5Z"
-          fill="none"
-          stroke="rgba(255,255,255,0.34)"
-          strokeWidth="2.1"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <Path
-          d="M19.5 9.3c55-3 152.5-1.1 303.3-1.9 9.1 0 14.4 5.2 14.2 14.6-.4 12.5-.2 23.2.4 33.5.5 8.7-5.2 14.3-14.3 14.7-92.5 3.8-204.8.2-302.6.1-8.9 0-14.1-5.6-14.2-14.2-.1-9.9.1-21.1-.3-33.7C5.7 14 10.8 9.8 19.5 9.3Z"
-          fill="none"
-          stroke="rgba(255,255,255,0.16)"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </Svg>
-    </View>
-  );
-}
-
-function SketchCheckbox({ checked }: { checked: boolean }) {
-  return (
-    <View style={styles.checkboxShell}>
-      <Svg width="100%" height="100%" viewBox="0 0 24 24">
-        <Path
-          d="M5 6.2c0-1.2.9-2.1 2.1-2.1h9.7c1.2 0 2.2.9 2.2 2.1v11.6c0 1.2-1 2.1-2.2 2.1H7.1C5.9 19.9 5 19 5 17.8Z"
-          fill={checked ? "#111111" : "white"}
-          stroke="#6F7078"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        {checked ? (
-          <Path
-            d="M8 12.4l2.4 2.4 5-5.4"
-            stroke="#FFFFFF"
-            strokeWidth="1.9"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-          />
-        ) : null}
-      </Svg>
-    </View>
-  );
-}
+function normalizeLoginError(error: unknown, fallback: string): string { const message = error instanceof Error ? error.message : fallback; if (message.includes("invalid input value for enum")) return "登录服务配置正在更新，请稍后重试"; if (message.length > 90) return "登录失败，请稍后重试"; return message || fallback; }
+function toSessionUser(user: { id: string; nickname: string | null; avatarUrl: string | null; createdAt: Date; updatedAt: Date; }): User { return { id: user.id, phone: null, email: null, wechatOpenId: null, displayName: user.nickname, avatarUrl: user.avatarUrl, createdAt: new Date(user.createdAt).toISOString(), updatedAt: new Date(user.updatedAt).toISOString() }; }
 
 const styles = StyleSheet.create({
-  logoImage: {
-    position: 'absolute',
-    top: 104,
-    width: 222,
-    height: 222,
-  },
-  container: { flex: 1, backgroundColor: "#FFFFFF" },
-  content: {
-    flex: 1,
-    paddingHorizontal: 32,
-    paddingTop: 182,
-    alignItems: "center",
-  },
-  doodleLayer: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    right: 0,
-    bottom: 0,
-  },
-  markWrap: {
-    width: 210,
-    height: 214,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  glow: {
-    position: "absolute",
-    width: 126,
-    height: 142,
-    borderRadius: 62,
-    backgroundColor: "rgba(145, 135, 255, 0.18)",
-    transform: [{ rotate: "8deg" }],
-  },
-  sketchOuter: {
-    width: 118,
-    height: 138,
-    borderRadius: 58,
-    borderWidth: 8,
-    borderColor: "#050505",
-    transform: [{ rotate: "10deg" }],
-  },
-  sketchInner: {
-    position: "absolute",
-    width: 102,
-    height: 126,
-    borderRadius: 52,
-    borderWidth: 5,
-    borderColor: "#050505",
-    transform: [{ rotate: "-4deg" }],
-  },
-  markAccentOne: {
-    position: "absolute",
-    right: 28,
-    top: 26,
-    width: 9,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: "#948DF5",
-    transform: [{ rotate: "15deg" }],
-  },
-  markAccentTwo: {
-    position: "absolute",
-    right: 2,
-    top: 44,
-    width: 9,
-    height: 38,
-    borderRadius: 999,
-    backgroundColor: "#948DF5",
-    transform: [{ rotate: "49deg" }],
-  },
-  markShadow: {
-    position: "absolute",
-    bottom: 10,
-    width: 142,
-    height: 18,
-    borderRadius: 999,
-    backgroundColor: "rgba(145, 135, 255, 0.16)",
-  },
-  brandText: {
-    marginTop: 62,
-    fontSize: 36,
-    fontWeight: "600",
-    color: "#050505",
-    letterSpacing: 1,
-  },
-  taglineWrap: {
-    marginTop: 8,
-    alignItems: "center",
-  },
-  tagline: {
-    color: "#8D9097",
-    fontSize: 14,
-    letterSpacing: 0.4,
-  },
-  taglineUnderline: {
-    marginTop: 5,
-    width: 44,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: "#A59DF8",
-  },
-  wechatButton: {
-    marginTop: 58,
-    width: "100%",
-    maxWidth: 300,
-    height: 62,
-    borderRadius: 18,
-    backgroundColor: "#111111",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    shadowColor: "#8F86FF",
-    shadowOpacity: 0.24,
-    shadowRadius: 13,
-    shadowOffset: { width: 0, height: 9 },
-    elevation: 4,
-  },
-  wechatButtonDisabled: { opacity: 0.58 },
-  wechatButtonFrame: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    right: 0,
-    bottom: 0,
-  },
-  wechatIcon: {
-    width: 28,
-    height: 28,
-    marginRight: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  wechatBubbleLarge: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    width: 32,
-    height: 27,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-  },
-  wechatBubbleSmall: {
-    position: "absolute",
-    right: 0,
-    bottom: 0,
-    width: 30,
-    height: 25,
-    borderRadius: 15,
-    backgroundColor: "#FFFFFF",
-  },
-  wechatEyeLeft: {
-    position: "absolute",
-    left: 9,
-    top: 9,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#111111",
-  },
-  wechatEyeRight: {
-    position: "absolute",
-    right: 9,
-    top: 9,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#111111",
-  },
-  wechatEyeSmallLeft: {
-    position: "absolute",
-    left: 8,
-    top: 8,
-    width: 3.5,
-    height: 3.5,
-    borderRadius: 2,
-    backgroundColor: "#111111",
-  },
-  wechatEyeSmallRight: {
-    position: "absolute",
-    right: 8,
-    top: 8,
-    width: 3.5,
-    height: 3.5,
-    borderRadius: 2,
-    backgroundColor: "#111111",
-  },
-  wechatText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "600",
-    letterSpacing: 0,
-  },
-  authingButton: {
-    marginTop: 16,
-    height: 42,
-    paddingHorizontal: 18,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#DADCE3",
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  authingButtonDisabled: {
-    opacity: 0.5,
-  },
-  authingText: {
-    marginLeft: 7,
-    color: "#111111",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  agreeRow: {
-    width: "100%",
-    maxWidth: 300,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  agreementBlock: {
-    position: "absolute",
-    left: 32,
-    right: 32,
-    bottom: 86,
-    alignItems: "center",
-  },
-  checkboxPressable: {
-    width: 32,
-    height: 32,
-    alignItems: "flex-start",
-    justifyContent: "center",
-    marginRight: 8,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderWidth: 1.5,
-    borderColor: "#8E8E93",
-    borderRadius: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 14,
-  },
-  checkboxShell: {
-    width: 24,
-    height: 24,
-  },
-  checkboxChecked: {
-    backgroundColor: "#111111",
-    borderColor: "#111111",
-  },
-  checkboxMark: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  agreeText: {
-    flex: 1,
-    color: "#777A82",
-    fontSize: 13.5,
-    lineHeight: 20,
-  },
-  linkText: {
-    color: "#111111",
-    textDecorationLine: "underline",
-  },
-  statusText: {
-    marginTop: 14,
-    color: "#D14343",
-    fontSize: 13,
-  },
-  doodleHeart: {
-    position: "absolute",
-    left: 70,
-    top: 414,
-    width: 36,
-    height: 34,
-    transform: [{ rotate: "-20deg" }],
-  },
-  heartLoopLeft: {
-    position: "absolute",
-    left: 3,
-    top: 7,
-    width: 18,
-    height: 24,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: 3,
-    borderColor: "#A59DF8",
-    borderBottomWidth: 0,
-    transform: [{ rotate: "-45deg" }],
-  },
-  heartLoopRight: {
-    position: "absolute",
-    right: 3,
-    top: 7,
-    width: 18,
-    height: 24,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: 3,
-    borderColor: "#A59DF8",
-    borderBottomWidth: 0,
-    transform: [{ rotate: "45deg" }],
-  },
-  doodleSparkTop: {
-    position: "absolute",
-    right: 112,
-    top: 208,
-    width: 44,
-    height: 44,
-  },
-  sparkStrokeOne: {
-    position: "absolute",
-    left: 10,
-    top: 2,
-    width: 9,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: "#948DF5",
-    transform: [{ rotate: "15deg" }],
-  },
-  sparkStrokeTwo: {
-    position: "absolute",
-    right: 4,
-    bottom: 2,
-    width: 9,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: "#948DF5",
-    transform: [{ rotate: "50deg" }],
-  },
-  doodleSparkMid: {
-    position: "absolute",
-    right: 54,
-    top: 586,
-    width: 48,
-    height: 42,
-  },
-  sparkStrokeThree: {
-    position: "absolute",
-    left: 0,
-    top: 4,
-    width: 6,
-    height: 24,
-    borderRadius: 999,
-    backgroundColor: "#A59DF8",
-    transform: [{ rotate: "19deg" }],
-  },
-  sparkStrokeFour: {
-    position: "absolute",
-    left: 15,
-    top: 13,
-    width: 6,
-    height: 27,
-    borderRadius: 999,
-    backgroundColor: "#A59DF8",
-    transform: [{ rotate: "65deg" }],
-  },
-  sparkStrokeFive: {
-    position: "absolute",
-    right: 6,
-    top: 19,
-    width: 6,
-    height: 25,
-    borderRadius: 999,
-    backgroundColor: "#A59DF8",
-    transform: [{ rotate: "69deg" }],
-  },
-  doodleWave: {
-    position: "absolute",
-    right: 104,
-    bottom: 118,
-    width: 108,
-    height: 22,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  waveSegmentOne: {
-    width: 38,
-    height: 8,
-    borderTopWidth: 3,
-    borderColor: "#A59DF8",
-    borderRadius: 18,
-    transform: [{ rotate: "-9deg" }],
-  },
-  waveSegmentTwo: {
-    marginLeft: -5,
-    width: 42,
-    height: 9,
-    borderTopWidth: 3,
-    borderColor: "#A59DF8",
-    borderRadius: 18,
-    transform: [{ rotate: "7deg" }],
-  },
-  waveSegmentThree: {
-    marginLeft: -4,
-    width: 36,
-    height: 8,
-    borderTopWidth: 3,
-    borderColor: "#A59DF8",
-    borderRadius: 18,
-    transform: [{ rotate: "-5deg" }],
-  },
+  container: { flex: 1, backgroundColor: "#FCFCFD" },
+  content: { flex: 1, paddingHorizontal: 32, paddingTop: 132, alignItems: "center" },
+  logoImage: { width: 118, height: 118 },
+  brandText: { marginTop: 20, fontSize: 20, fontWeight: "500", color: "#050505", letterSpacing: 1 },
+  tagline: { marginTop: 8, color: "#6E7280", fontSize: 14, letterSpacing: 0.2 },
+  loginButton: { marginTop: 160, width: "100%", maxWidth: 340, height: 56, borderRadius: 28, borderWidth: 1.5, borderColor: "#20222A", alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
+  loginButtonDisabled: { opacity: 0.56 },
+  loginText: { color: "#111111", fontSize: 18, fontWeight: "500" },
+  agreementBlock: { marginTop: 36, width: "100%", maxWidth: 340 },
+  agreeRow: { flexDirection: "row", alignItems: "center" },
+  checkbox: { width: 24, height: 24, borderWidth: 1.2, borderColor: "#6F7078", borderRadius: 6, marginRight: 10, backgroundColor: "#FFFFFF" },
+  checkboxChecked: { backgroundColor: "#111111", borderColor: "#111111" },
+  agreeText: { flex: 1, color: "#545A68", fontSize: 14, lineHeight: 21 },
+  linkText: { color: "#111111", textDecorationLine: "underline" },
+  statusText: { marginTop: 10, color: "#D14343", fontSize: 12 },
 });

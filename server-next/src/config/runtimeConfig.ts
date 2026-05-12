@@ -79,6 +79,8 @@ export interface RuntimeConfig {
   rewriteUserRateLimit: number;
   rewriteUserRateWindowMs: number;
   rewriteMaxInputChars: number;
+  chatMessagesUserRateLimit: number;
+  chatMessagesUserRateWindowMs: number;
 }
 
 export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -172,6 +174,8 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     rewriteUserRateLimit: readPositiveInt(env.REWRITE_USER_RATE_LIMIT, 20),
     rewriteUserRateWindowMs: readPositiveInt(env.REWRITE_USER_RATE_WINDOW_MS, 60_000),
     rewriteMaxInputChars: readPositiveInt(env.REWRITE_MAX_INPUT_CHARS, 3000),
+    chatMessagesUserRateLimit: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_LIMIT, 20),
+    chatMessagesUserRateWindowMs: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_WINDOW_MS, 60_000),
   };
 }
 

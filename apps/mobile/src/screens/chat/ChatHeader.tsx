@@ -1,7 +1,6 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 
 type ChatHeaderProps = {
   onBack: () => void;
@@ -13,11 +12,11 @@ export function ChatHeader({ onBack, onOpenCalendar, onOpenMenu }: ChatHeaderPro
   return (
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
-        <Ionicons name="chevron-back" size={26} color="#111111" />
+        <Ionicons name="chevron-back" size={28} color="#111111" />
       </Pressable>
 
       <View style={styles.headerAvatarWrap}>
-        <MaterialCommunityIcons name="ghost" size={28} color="#111111" />
+        <Text style={styles.logoText}>OIO</Text>
       </View>
 
       <View style={styles.headerBody}>
@@ -26,11 +25,11 @@ export function ChatHeader({ onBack, onOpenCalendar, onOpenMenu }: ChatHeaderPro
       </View>
 
       <Pressable style={styles.calendarButton} hitSlop={8} onPress={onOpenCalendar}>
-        <Ionicons name="calendar-outline" size={26} color="#111111" />
+        <Ionicons name="calendar-outline" size={24} color="#111111" />
       </Pressable>
 
       <Pressable style={styles.menuButton} hitSlop={8} onPress={onOpenMenu}>
-        <Ionicons name="ellipsis-horizontal" size={25} color="#111111" />
+        <Ionicons name="ellipsis-horizontal" size={24} color="#111111" />
       </Pressable>
     </View>
   );
@@ -38,7 +37,7 @@ export function ChatHeader({ onBack, onOpenCalendar, onOpenMenu }: ChatHeaderPro
 
 const styles = StyleSheet.create({
   header: {
-    minHeight: 76,
+    minHeight: 82,
     paddingHorizontal: 16,
     paddingTop: 6,
     paddingBottom: 4,
@@ -46,18 +45,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   backButton: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
   },
   headerAvatarWrap: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#F0ECFF",
+    marginLeft: 8,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: "#B5ACFF",
     alignItems: "center",
     justifyContent: "center",
+  },
+  logoText: {
+    fontSize: 15,
+    color: "#5A5497",
+    letterSpacing: 1,
   },
   headerBody: {
     marginLeft: 10,
@@ -66,22 +72,23 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "700",
+    fontWeight: "600",
     color: "#111111",
   },
   headerSubTitle: {
-    marginTop: 4,
-    color: "#9AA0AB",
+    marginTop: 3,
+    color: "#838AA0",
     fontSize: 12.5,
-    lineHeight: 17,
+    lineHeight: 18,
   },
   calendarButton: {
-    width: 32,
+    width: 34,
     alignItems: "center",
     justifyContent: "center",
   },
   menuButton: {
-    width: 32,
+    marginLeft: 6,
+    width: 34,
     alignItems: "center",
     justifyContent: "center",
   },

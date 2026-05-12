@@ -153,6 +153,8 @@ export function createApp() {
     chatMessageService,
     userRepository,
     systemEventLogRepository,
+    entitlementService,
+    rateLimiter: rewriteRateLimiter,
   });
   registerMeRoutes(app, {
     subscriptionService,

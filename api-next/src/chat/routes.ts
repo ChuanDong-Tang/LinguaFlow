@@ -46,6 +46,12 @@ export interface ChatRouteDeps {
     }) => Promise<void>;
   };
   systemEventLogRepository?: SystemEventLogWriter;
+  entitlementService :{
+    assertCanUse: (userId: string, requestedChars: number) => Promise<void>;
+  };
+  rateLimiter: {
+    consume: (key: string, limit: number, windowMs: number) => Promise<boolean>;
+  };
 }
 
 function isSendMessageBody(value: unknown): value is SendMessageBody {
@@ -62,6 +68,8 @@ function isSendMessageBody(value: unknown): value is SendMessageBody {
 }
 
 export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): void {
+  const runtimeConfig = getRuntimeConfig();
+
   // 发用户消息（先落库 pending）
   app.post("/chat/messages", async (req, reply) => {
     const body = req.body as unknown;
@@ -80,8 +88,8 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       });
     }
 
-    // 超出字符最大上限拦截
-    if (body.text.trim().length > getRuntimeConfig().rewriteMaxInputChars) {
+    // 超出输入的字符最大上限拦截
+    if (body.text.trim().length > runtimeConfig.rewriteMaxInputChars) {
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
@@ -130,6 +138,40 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       { requestId, userId: userContext.userId, source: userContext.source, exists: !!user },
       "user exists before conversation.create"
     );
+
+    const textLen = body.text.trim().length;
+    try {
+      await deps.entitlementService.assertCanUse(userContext.userId, textLen);
+    } catch (error) {
+      if(
+        typeof error === "object" &&
+        error != null &&
+        "code" in error &&
+        String((error as {code : unknown}).code) === "DAILY_QUOTA_EXCEEDED"
+      ){
+        return reply.status(429).send({
+          ok: false,
+          request_id: requestId,
+          error: {code: "DAILY_QUOTA_EXCEEDED", message: "You've reached your daily quota for today."}
+        });
+      }
+      throw error;
+    }
+
+    const windowMs = runtimeConfig.chatMessagesUserRateWindowMs;
+    const limit = runtimeConfig.chatMessagesUserRateLimit;
+    const bucket = Math.floor(Date.now() / windowMs);
+    const key = `chat:messages:user:${userContext.userId}:${bucket}`;
+    const allowed = await deps.rateLimiter.consume(key, limit, windowMs);
+
+    if (!allowed) {
+      return reply.status(429).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "RATE_LIMITED", message: "You're sending requests too quickly. Please try again later." },
+      });
+    }
+
 
     const data = await deps.chatMessageService.sendUserMessage({
       userId: userContext.userId,

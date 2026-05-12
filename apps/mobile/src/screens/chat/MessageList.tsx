@@ -1,7 +1,6 @@
 import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import type { ChatMessage } from "./types";
 
 type MessageListProps = {
@@ -72,31 +71,31 @@ export function MessageList({
           </View>
         ) : (
           <View key={`a-${index}`} style={styles.assistantBlock}>
-            <View style={styles.assistantAvatar}>
-              <MaterialCommunityIcons name="ghost" size={23} color="#111111" />
-            </View>
-            <View style={styles.assistantCard}>
-              <Text selectable selectionColor="#8E7BFF" style={styles.assistantCardText}>
-                {message.text || "..."}
-              </Text>
-              <View style={styles.cardActionRow}>
-                {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
-                  <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
-                    <Text style={styles.retryText}>重试</Text>
+            <View style={styles.assistantRow}>
+              <View style={styles.assistantAvatar}>
+                <Text style={styles.assistantLogo}>OIO</Text>
+              </View>
+              <View style={styles.assistantCard}>
+                <Text selectable selectionColor="#8E7BFF" style={styles.assistantCardText}>
+                  {message.text || "..."}
+                </Text>
+                <View style={styles.cardActionRow}>
+                  {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
+                    <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
+                      <Text style={styles.retryText}>重试</Text>
+                    </Pressable>
+                  ) : (
+                    <View />
+                  )}
+                  <Pressable
+                    style={styles.copyButton}
+                    hitSlop={8}
+                    onPress={() => onCopyMessage(message)}
+                    disabled={!message.text.trim()}
+                  >
+                    <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
                   </Pressable>
-                ) : <View />}
-                <Pressable
-                  style={styles.copyButton}
-                  hitSlop={8}
-                  onPress={() => onCopyMessage(message)}
-                  disabled={!message.text.trim()}
-                >
-                  <Ionicons
-                    name="copy-outline"
-                    size={21}
-                    color={!message.text.trim() ? "#C1C5CE" : "#111111"}
-                  />
-                </Pressable>
+                </View>
               </View>
             </View>
             <Text style={styles.timeTextLeft}>{message.time}</Text>
@@ -115,17 +114,17 @@ const styles = StyleSheet.create({
   },
   messageListContent: {
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 18,
+    paddingTop: 10,
+    paddingBottom: 20,
   },
   dayDivider: {
-    marginBottom: 14,
+    marginBottom: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
   dayLine: {
-    width: 42,
+    width: 76,
     height: 1,
     backgroundColor: "#E7E8EE",
   },
@@ -156,13 +155,13 @@ const styles = StyleSheet.create({
   },
   userBlock: {
     alignItems: "flex-end",
-    marginBottom: 14,
+    marginBottom: 18,
   },
   userBubble: {
-    backgroundColor: "#EDE9FF",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    backgroundColor: "#EFECFD",
+    borderRadius: 24,
+    paddingHorizontal: 22,
+    paddingVertical: 16,
     maxWidth: "78%",
   },
   userText: {
@@ -173,51 +172,57 @@ const styles = StyleSheet.create({
   timeTextRight: {
     marginTop: 8,
     marginRight: 4,
-    color: "#A1A7B2",
-    fontSize: 12,
+    color: "#9CA2B3",
+    fontSize: 13,
   },
   assistantBlock: {
-    marginBottom: 14,
+    marginBottom: 18,
+  },
+  assistantRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
   assistantAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#F0ECFF",
-    marginBottom: 6,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: "#B5ACFF",
+    marginTop: 8,
     alignItems: "center",
     justifyContent: "center",
   },
+  assistantLogo: {
+    color: "#5A5497",
+    fontSize: 15,
+    letterSpacing: 1,
+  },
   assistantCard: {
+    flex: 1,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#E8E9EE",
+    borderColor: "#DBDFE7",
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingTop: 16,
     paddingBottom: 14,
-    marginLeft: 18,
-    shadowColor: "#111111",
-    shadowOpacity: 0.04,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 1,
+    marginLeft: 14,
   },
   assistantCardText: {
     color: "#111111",
     fontSize: 17,
-    lineHeight: 26,
+    lineHeight: 25,
   },
   cardActionRow: {
-    marginTop: 14,
+    marginTop: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   retryButton: {
-    height: 36,
+    height: 34,
     paddingHorizontal: 14,
-    borderRadius: 18,
+    borderRadius: 17,
     backgroundColor: "#111111",
     alignItems: "center",
     justifyContent: "center",
@@ -235,8 +240,8 @@ const styles = StyleSheet.create({
   },
   timeTextLeft: {
     marginTop: 8,
-    marginLeft: 58,
-    color: "#A1A7B2",
-    fontSize: 12,
+    marginLeft: 66,
+    color: "#9CA2B3",
+    fontSize: 13,
   },
 });

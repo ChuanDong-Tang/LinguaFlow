@@ -65,9 +65,13 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
   const [dateSyncState, setDateSyncState] = useState<Record<string, "synced" | "dirty" | "syncing">>({});
   const [autoCopyAfterRewrite, setAutoCopyAfterRewrite] = useState(true);
+  const [remainingChars, setRemainingChars] = useState<number | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
-  const canSend = useMemo(() => inputText.trim().length > 0 && !isSending, [inputText, isSending]);
+  const canSend = useMemo(() => {
+    const hasQuota = remainingChars === null ? true : remainingChars > 0;
+    return inputText.trim().length > 0 && !isSending && hasQuota;
+  }, [inputText, isSending, remainingChars]);
   const selectedDateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
   const showCenterLoading = useMemo(
     () => isLoadingHistory && dayMessages.length === 0,
@@ -81,6 +85,20 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       if (!cancelled) setAutoCopyAfterRewrite(preferences.autoCopyAfterRewrite);
     }
     void bootstrapPreferences();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadEntitlementSnapshot() {
+      const entitlement = await getCurrentEntitlement().catch(() => null);
+      if (!cancelled) {
+        setRemainingChars(entitlement?.remainingChars ?? null);
+      }
+    }
+    void loadEntitlementSnapshot();
     return () => {
       cancelled = true;
     };
@@ -256,6 +274,10 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   async function handleSend(): Promise<void> {
     const text = inputText.trim();
     if (!text || isSending) return;
+    if (remainingChars !== null && remainingChars <= 0) {
+      Alert.alert("You've reached your daily quota.");
+      return;
+    }
 
     const now = new Date();
     const isViewingToday = isSameDate(selectedDate, now);
@@ -289,11 +311,18 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       autoCopyAfterRewrite,
       onSuccessText: (assistantText) => copyAssistantText(assistantText, true),
     });
+
+    const entitlement = await getCurrentEntitlement().catch(() => null);
+    setRemainingChars(entitlement?.remainingChars ?? null);
   }
 
   async function handleRetryMessage(message: ChatMessage): Promise<void> {
     const text = message.retryText?.trim();
     if (!text || isSending || (message.retryCount ?? 0) >= 1) return;
+    if (remainingChars !== null && remainingChars <= 0) {
+      Alert.alert("You've reached your daily quota.");
+      return;
+    }
 
     setIsSending(true);
     const retryCount = (message.retryCount ?? 0) + 1;
@@ -314,6 +343,9 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       autoCopyAfterRewrite,
       onSuccessText: (assistantText) => copyAssistantText(assistantText, true),
     });
+
+    const entitlement = await getCurrentEntitlement().catch(() => null);
+    setRemainingChars(entitlement?.remainingChars ?? null);
   }
 
   function handleStopGenerating(): void {
@@ -462,6 +494,11 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
             onSend={handleSend}
             onStop={handleStopGenerating}
             onFocus={handleComposerFocus}
+            onDisabledPress={() => {
+              if (remainingChars !== null && remainingChars <= 0) {
+                Alert.alert("今日额度已用尽");
+              }
+            }}
             disabled={!canSend}
             isSending={isSending}
           />

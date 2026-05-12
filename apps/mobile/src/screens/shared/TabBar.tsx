@@ -13,20 +13,20 @@ export function TabBar({ activeTab, onPressChat, onPressMe }: TabBarProps) {
     <View style={styles.bar}>
       <Pressable style={styles.tab} onPress={activeTab === "chat" ? undefined : onPressChat}>
         <Ionicons
-          name={activeTab === "chat" ? "chatbubble-ellipses" : "chatbubble-ellipses-outline"}
-          size={25}
-          color={activeTab === "chat" ? "#111111" : "#9A9FAA"}
+          name="chatbubble-ellipses-outline"
+          size={26}
+          color={activeTab === "chat" ? "#111111" : "#8D919B"}
         />
         <Text style={[styles.label, activeTab === "chat" && styles.labelActive]}>对话</Text>
       </Pressable>
 
       <Pressable style={styles.tab} onPress={activeTab === "me" ? undefined : onPressMe}>
         <Ionicons
-          name={activeTab === "me" ? "person" : "person-outline"}
+          name="person-outline"
           size={25}
-          color={activeTab === "me" ? "#111111" : "#9A9FAA"}
+          color={activeTab === "me" ? "#6E63FF" : "#8D919B"}
         />
-        <Text style={[styles.label, activeTab === "me" && styles.labelActive]}>我</Text>
+        <Text style={[styles.label, activeTab === "me" && styles.labelActiveMe]}>我</Text>
       </Pressable>
     </View>
   );
@@ -34,9 +34,9 @@ export function TabBar({ activeTab, onPressChat, onPressMe }: TabBarProps) {
 
 const styles = StyleSheet.create({
   bar: {
-    height: 82,
+    height: 86,
     borderTopWidth: 1,
-    borderTopColor: "#ECEEF2",
+    borderTopColor: "#E6E8ED",
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
@@ -46,14 +46,19 @@ const styles = StyleSheet.create({
   tab: {
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 92,
+    minWidth: 96,
   },
   label: {
     marginTop: 4,
     fontSize: 13,
-    color: "#8F95A1",
+    color: "#8D919B",
   },
   labelActive: {
     color: "#111111",
+    fontWeight: "600",
+  },
+  labelActiveMe: {
+    color: "#6E63FF",
+    fontWeight: "600",
   },
 });
