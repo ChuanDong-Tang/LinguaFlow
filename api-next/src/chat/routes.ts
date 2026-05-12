@@ -31,6 +31,11 @@ type ListMessagesRangeQuery = {
   toDateKey?: string;
 };
 
+type FindConversationByDateQuery = {
+  dateKey: string;
+  contactId?: string;
+};
+
 export interface ChatRouteDeps {
   chatMessageService: ChatMessageService;
   userRepository: {
@@ -336,6 +341,70 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
 
       throw error;
     }
+  });
+
+  app.get("/chat/conversation/by-date", async (req, reply) => {
+    const query = req.query as Partial<FindConversationByDateQuery>;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const dateKey = query.dateKey?.trim();
+    const contactId = query.contactId?.trim() || "rewrite_assistant";
+
+    if (!dateKey) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "dateKey is required" },
+      });
+    }
+
+    let userContext;
+    try {
+      userContext = await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: null,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/conversation/by-date" },
+        });
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+
+      throw error;
+    }
+
+    const conversationId = await deps.chatMessageService.findConversationIdByUserContactDate({
+      userId: userContext.userId,
+      contactId,
+      dateKey,
+    });
+
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: { conversationId },
+    });
   });
 }
 

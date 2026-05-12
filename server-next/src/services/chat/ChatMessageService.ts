@@ -27,6 +27,12 @@ export interface ListMessagesByDateRangeInput {
   toDateKey: string; // YYYY-MM-DD (server timezone)
 }
 
+export interface FindConversationByDateInput {
+  userId: string;
+  contactId: string;
+  dateKey: string;
+}
+
 export class ConversationAccessDeniedError extends Error {
   readonly code = "CONVERSATION_NOT_FOUND";
 
@@ -139,6 +145,17 @@ export class ChatMessageService {
     return rows
       .filter((row) => row.status !== "failed")
       .map((row) => this.toView(row));
+  }
+
+  async findConversationIdByUserContactDate(
+    input: FindConversationByDateInput
+  ): Promise<string | null> {
+    const conversation = await this.conversationRepository.findByUserContactDate(
+      input.userId,
+      input.contactId,
+      input.dateKey
+    );
+    return conversation?.id ?? null;
   }
 
   async listConversationMessagesByDateRange(

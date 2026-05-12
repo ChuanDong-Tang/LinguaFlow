@@ -110,3 +110,23 @@ export async function listDayMessagesFromCloud(input: {
     toDateKey: input.dateKey,
   });
 }
+
+export async function findConversationIdByDateFromCloud(input: {
+  dateKey: string;
+  contactId?: string;
+}): Promise<string | null> {
+  const params = new URLSearchParams();
+  params.set("dateKey", input.dateKey);
+  if (input.contactId) params.set("contactId", input.contactId);
+
+  const res = await fetch(`${BASE_URL}/chat/conversation/by-date?${params.toString()}`, {
+    headers: await getAuthHeaders(),
+  });
+  const json = (await res.json()) as ApiResult<{ conversationId: string | null }>;
+
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+
+  return json.data.conversationId;
+}
