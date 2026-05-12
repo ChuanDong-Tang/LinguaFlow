@@ -14,8 +14,8 @@ import { getSession } from "../services/authStorage";
 import { getCurrentEntitlement } from "../services/meApi";
 import {
   findConversationIdByDateFromCloud,
-  listDateKeysByRangeFromCloud,
-  listDayMessagesFromCloud,
+  listDayMessagesPageFromCloud,
+  type DayPageCursor,
 } from "../services/chatHistoryApi";
 import { createLocalRewritePair } from "../services/chatSyncService";
 import {
@@ -25,7 +25,6 @@ import {
   startRewriteSession,
   stopRewriteSession,
   subscribeRewriteSession,
-  updateRewriteMessage,
 } from "../services/rewriteSessionService";
 import {
   loadAssistantPreferences,
@@ -39,9 +38,7 @@ import { DatePickerSheet } from "./chat/DatePickerSheet";
 import type { ChatMessage } from "./chat/types";
 import {
   filterByDate,
-  getVisibleWindow,
   isSameDate,
-  mergeByLocalId,
   toDateKey,
 } from "./chat/messageState";
 
@@ -55,20 +52,20 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
-  const [isLoadingNewer, setIsLoadingNewer] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isDateSheetOpen, setIsDateSheetOpen] = useState(false);
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [allLocalMessages, setAllLocalMessages] = useState<ChatMessage[]>([]);
   const [dayMessages, setDayMessages] = useState<ChatMessage[]>([]);
-  const [windowStart, setWindowStart] = useState(0);
-  const [windowEnd, setWindowEnd] = useState(0);
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
-  const [dateSyncState, setDateSyncState] = useState<Record<string, "synced" | "dirty" | "syncing">>({});
   const [autoCopyAfterRewrite, setAutoCopyAfterRewrite] = useState(true);
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const allLocalMessagesRef = useRef<ChatMessage[]>([]);
+  const dayCursorRef = useRef<Record<string, DayPageCursor | null>>({});
+  const dayHasMoreRef = useRef<Record<string, boolean>>({});
+  const syncSeqRef = useRef(0);
+  const latestSyncReqByDateRef = useRef<Record<string, number>>({});
 
   const scrollRef = useRef<ScrollView>(null);
   const lastAutoScrollAtRef = useRef(0);
@@ -147,10 +144,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       allLocalMessagesRef.current = rows;
       const byDay = toDisplayRows(filterByDate(rows, selectedDate));
       setDayMessages(byDay);
-      const { start, end, items } = getVisibleWindow(byDay);
-      setWindowStart(start);
-      setWindowEnd(end);
-      setMessages(items);
+      setMessages(byDay);
     }
     void bootstrapLocal();
     return () => {
@@ -170,10 +164,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       allLocalMessagesRef.current = rows;
       const byDay = toDisplayRows(filterByDate(rows, selectedDate));
       setDayMessages(byDay);
-      const { start, end, items } = getVisibleWindow(byDay);
-      setWindowStart(start);
-      setWindowEnd(end);
-      setMessages(items);
+      setMessages(byDay);
       scheduleScrollToEnd(true);
     });
   }, [selectedDate]);
@@ -188,100 +179,12 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   }, []);
 
   useEffect(() => {
-    if (!conversationId) return;
-    const safeConversationId: string = conversationId;
-    let cancelled = false;
-
-    async function loadHistory() {
-      try {
-        if (!cancelled) setIsLoadingHistory(true);
-        const [session, entitlement] = await Promise.all([
-          getSession(),
-          getCurrentEntitlement().catch(() => null),
-        ]);
-        const isPro = entitlement?.isPro ?? session?.sessionFlags?.isPro === true;
-        const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
-
-        if (!isPro) {
-          setCloudDateKeys(new Set());
-          return;
-        }
-
-        // 1) 仅拉索引：近30天哪些日期有记录（不预拉正文）
-        const now = new Date();
-        const from30 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
-        const remoteDateKeys = await listDateKeysByRangeFromCloud({
-          conversationId: safeConversationId,
-          userId,
-          fromDateKey: toDateKey(from30),
-          toDateKey: toDateKey(now),
-        });
-        if (cancelled) return;
-        setCloudDateKeys(remoteDateKeys);
-
-        // 索引差异 -> 标脏，正文暂不拉
-        const localKeys = new Set<string>(allLocalMessagesRef.current.map((row) => toDateKey(new Date(row.createdAt))));
-        setDateSyncState((prev) => {
-          const next = { ...prev };
-          for (const key of remoteDateKeys) {
-            if (!localKeys.has(key) && next[key] !== "syncing") next[key] = "dirty";
-          }
-          return next;
-        });
-
-        // 2) 后台静默补齐近30天脏日期（不阻塞 UI）
-        for (const key of remoteDateKeys) {
-          if (cancelled) return;
-          const isSelectedDate = key === selectedDateKey;
-          if (key !== selectedDateKey && dateSyncState[key] !== "dirty") continue;
-          const localDayRows = filterByDate(allLocalMessagesRef.current, new Date(`${key}T00:00:00`));
-          // 当前选中日期始终强制同步一次，避免本地有旧数据时跳过 merge。
-          if (!isSelectedDate && localDayRows.length > 0 && dateSyncState[key] !== "dirty") continue;
-          setDateSyncState((prev) => ({ ...prev, [key]: "syncing" }));
-          const dayRows = await listDayMessagesFromCloud({
-            conversationId: safeConversationId,
-            userId,
-            dateKey: key,
-          });
-          const mappedDay: ChatMessage[] = dayRows.map((row) => ({
-            id: row.id,
-            localId: row.id,
-            role: row.role,
-            text: row.content,
-            time: new Date(row.createdAt).toTimeString().slice(0, 5),
-            createdAt: row.createdAt,
-            status: row.status,
-          }));
-          // Cloud-first: always merge against the latest local snapshot, with cloud rows applied last.
-          const merged = mergeByLocalId(allLocalMessagesRef.current, mappedDay);
-          setAllLocalMessages(merged);
-          allLocalMessagesRef.current = merged;
-          await replaceRewriteMessages(merged);
-          setDateSyncState((prev) => ({ ...prev, [key]: "synced" }));
-        }
-      } finally {
-        if (!cancelled) setIsLoadingHistory(false);
-      }
-    }
-
-    void loadHistory();
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationId, selectedDateKey]);
-
-  useEffect(() => {
-    if (!conversationId) return;
     const today = new Date();
+    const todayKey = toDateKey(today);
+    dayCursorRef.current[todayKey] = null;
+    dayHasMoreRef.current[todayKey] = true;
     void syncDayFromCloud(today);
-  }, [conversationId]);
-
-  function updateLocalMessage(
-    localId: string,
-    updater: (message: ChatMessage) => ChatMessage
-  ): void {
-    updateRewriteMessage(localId, updater);
-  }
+  }, []);
 
   async function copyAssistantText(text: string, silent = false): Promise<void> {
     try {
@@ -335,7 +238,6 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
     const now = new Date();
     const isViewingToday = isSameDate(selectedDate, now);
-    const baseMessages = isViewingToday ? dayMessages : toDisplayRows(filterByDate(allLocalMessagesRef.current, now));
 
     if (!isViewingToday) {
       setSelectedDate(now);
@@ -350,11 +252,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     const localNextRaw = [...(isViewingToday ? dayMessages : toDisplayRows(filterByDate(allLocalMessagesRef.current, now))), userLocal, assistantLocal];
     const localNext = toDisplayRows(localNextRaw);
     setDayMessages(localNext);
-    const endInit = localNext.length;
-    const startInit = Math.max(0, endInit - 120);
-    setWindowStart(startInit);
-    setWindowEnd(endInit);
-    setMessages(localNext.slice(startInit, endInit));
+    setMessages(localNext);
     const allNext = await appendRewriteMessages([userLocal, assistantLocal]);
     setAllLocalMessages(allNext);
     allLocalMessagesRef.current = allNext;
@@ -388,11 +286,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalRewritePair(text, now);
     const localNext = [...dayMessages, userLocal, assistantLocal];
     setDayMessages(localNext);
-    const endInit = localNext.length;
-    const startInit = Math.max(0, endInit - 120);
-    setWindowStart(startInit);
-    setWindowEnd(endInit);
-    setMessages(localNext.slice(startInit, endInit));
+    setMessages(toDisplayRows(localNext));
     const allNext = await appendRewriteMessages([userLocal, assistantLocal]);
     setAllLocalMessages(allNext);
     allLocalMessagesRef.current = allNext;
@@ -423,37 +317,17 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     setMonthCursor(new Date(now.getFullYear(), now.getMonth(), 1));
     const byDay = toDisplayRows(filterByDate(allLocalMessagesRef.current, now));
     setDayMessages(byDay);
-    const { start, end, items } = getVisibleWindow(byDay);
-    setWindowStart(start);
-    setWindowEnd(end);
-    setMessages(items);
+    setMessages(byDay);
     scheduleScrollToEnd(true);
-    void syncDayFromCloud(now);
   }
 
   function handleReachTop(): void {
-    if (isLoadingOlder) return;
-    if (windowStart <= 0) return; // 到上限直接无反应
-    setIsLoadingOlder(true);
-    const nextStart = Math.max(0, windowStart - 30);
-    const nextEnd = Math.min(dayMessages.length, nextStart + 120);
-    setWindowStart(nextStart);
-    setWindowEnd(nextEnd);
-    setMessages(dayMessages.slice(nextStart, nextEnd));
-    setTimeout(() => setIsLoadingOlder(false), 120);
+    if (isLoadingHistory || isLoadingMore) return;
+    if (dayHasMoreRef.current[selectedDateKey] === false) return;
+    void syncDayFromCloud(selectedDate, { loadMore: true });
   }
 
-  function handleReachBottom(): void {
-    if (isLoadingNewer) return;
-    if (windowEnd >= dayMessages.length) return; // 到上限直接无反应
-    setIsLoadingNewer(true);
-    const nextEnd = Math.min(dayMessages.length, windowEnd + 30);
-    const nextStart = Math.max(0, nextEnd - 120);
-    setWindowStart(nextStart);
-    setWindowEnd(nextEnd);
-    setMessages(dayMessages.slice(nextStart, nextEnd));
-    setTimeout(() => setIsLoadingNewer(false), 120);
-  }
+  function handleReachBottom(): void {}
 
   function selectedDateLabelText(d: Date): string {
     const today = new Date();
@@ -461,123 +335,166 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     return `${d.getMonth() + 1}月${d.getDate()}日`;
   }
 
-  async function syncDayFromCloud(d: Date): Promise<void> {
+  async function resolveConversationIdForDate(dateKey: string): Promise<string | null> {
+    const resolved = await findConversationIdByDateFromCloud({
+      dateKey,
+      contactId: "rewrite_assistant",
+    });
+    const todayKey = toDateKey(new Date());
+    const fallback = dateKey === todayKey ? conversationId : null;
+    const finalId = resolved ?? fallback ?? null;
+    if (finalId && finalId !== conversationId) {
+      setConversationId(finalId);
+    }
+    return finalId;
+  }
+
+  function mapCloudRows(
+    rows: Awaited<ReturnType<typeof listDayMessagesPageFromCloud>>["items"]
+  ): ChatMessage[] {
+    return rows.map((row) => ({
+      id: row.id,
+      localId: row.id,
+      role: row.role,
+      text: row.content,
+      time: new Date(row.createdAt).toTimeString().slice(0, 5),
+      createdAt: row.createdAt,
+      status: row.status,
+    }));
+  }
+
+  function isSameDayContent(localRows: ChatMessage[], cloudRows: ChatMessage[]): boolean {
+    if (localRows.length !== cloudRows.length) return false;
+    for (let i = 0; i < localRows.length; i += 1) {
+      const l = localRows[i];
+      const c = cloudRows[i];
+      if (
+        l.id !== c.id ||
+        l.localId !== c.localId ||
+        l.role !== c.role ||
+        l.status !== c.status ||
+        l.text !== c.text ||
+        l.createdAt !== c.createdAt
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async function syncDayFromCloud(
+    d: Date,
+    options?: { loadMore?: boolean; force?: boolean }
+  ): Promise<void> {
     try {
-      setIsLoadingHistory(true);
+      const loadMore = options?.loadMore === true;
+      if (loadMore) {
+        setIsLoadingMore(true);
+      } else {
+        setIsLoadingHistory(true);
+      }
       const [session, entitlement] = await Promise.all([
         getSession(),
         getCurrentEntitlement().catch(() => null),
       ]);
       const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
+      const isPro = entitlement?.isPro === true;
       const dateKey = toDateKey(d);
-      let resolvedConversationId = conversationId;
+      const reqId = ++syncSeqRef.current;
+      latestSyncReqByDateRef.current[dateKey] = reqId;
 
-      if (!resolvedConversationId) {
-        resolvedConversationId = await findConversationIdByDateFromCloud({
-          dateKey,
-          contactId: "rewrite_assistant",
-        });
-        if (resolvedConversationId) {
-          setConversationId(resolvedConversationId);
-        }
-      }
-
-      if (!resolvedConversationId) {
-        setDateSyncState((prev) => ({ ...prev, [dateKey]: "synced" }));
+      if (!isPro) {
+        dayHasMoreRef.current[dateKey] = false;
         return;
       }
 
-      setDateSyncState((prev) => ({ ...prev, [dateKey]: "syncing" }));
-      const cloudRows = await listDayMessagesFromCloud({
+      const resolvedConversationId = await resolveConversationIdForDate(dateKey);
+
+      if (!resolvedConversationId) {
+        dayHasMoreRef.current[dateKey] = false;
+        return;
+      }
+
+      if (
+        loadMore &&
+        dayHasMoreRef.current[dateKey] === false &&
+        !options?.force
+      ) {
+        return;
+      }
+
+      const cursor = loadMore ? dayCursorRef.current[dateKey] ?? null : null;
+      const page = await listDayMessagesPageFromCloud({
         conversationId: resolvedConversationId,
-        userId,
         dateKey,
+        limit: 30,
+        cursor,
       });
 
-      if (cloudRows.length === 0) {
-        setDateSyncState((prev) => ({ ...prev, [dateKey]: "synced" }));
+      if (latestSyncReqByDateRef.current[dateKey] !== reqId) {
         return;
       }
 
-      const mapped: ChatMessage[] = cloudRows.map((row) => ({
-        id: row.id,
-        localId: row.id,
-        role: row.role,
-        text: row.content,
-        time: new Date(row.createdAt).toTimeString().slice(0, 5),
-        createdAt: row.createdAt,
-        status: row.status,
-      }));
-
-      // console.log(
-      //   "[chat][selectDate] mapped",
-      //   JSON.stringify({
-      //     dateKey,
-      //     conversationId: resolvedConversationId,
-      //     cloudCount: cloudRows.length,
-      //     mappedCount: mapped.length,
-      //     tail: mapped.slice(-8).map((m) => ({
-      //       id: m.id,
-      //       role: m.role,
-      //       status: m.status,
-      //       createdAt: m.createdAt,
-      //       textPreview: m.text.slice(0, 40),
-      //     })),
-      //   })
-      // );
+      const mapped = mapCloudRows(page.items);
+      const visibleMapped = toDisplayRows(mapped);
+      dayCursorRef.current[dateKey] = page.nextCursor;
+      dayHasMoreRef.current[dateKey] = page.nextCursor !== null;
+      setCloudDateKeys((prev) => {
+        const next = new Set(prev);
+        next.add(dateKey);
+        return next;
+      });
 
       const dayKey = toDateKey(d);
-      const baseRows = allLocalMessagesRef.current.filter(
-        (row) => toDateKey(new Date(row.createdAt)) !== dayKey
-      );
-      const replaced = [...baseRows, ...mapped].sort((a, b) =>
+      const baseRows = allLocalMessagesRef.current.filter((row) => {
+        return toDateKey(new Date(row.createdAt)) !== dayKey;
+      });
+      const localDayRows = allLocalMessagesRef.current.filter((row) => {
+        return toDateKey(new Date(row.createdAt)) === dayKey;
+      });
+      const localVisibleDay = toDisplayRows(localDayRows).sort((a, b) =>
         a.createdAt < b.createdAt ? -1 : 1
       );
+      const nextVisibleDay = loadMore
+        ? toDisplayRows([...mapped, ...localVisibleDay]).sort((a, b) =>
+            a.createdAt < b.createdAt ? -1 : 1
+          )
+        : visibleMapped.slice().sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 
-      // console.log(
-      //   "[chat][selectDate] replaced-tail",
-      //   JSON.stringify({
-      //     replacedCount: replaced.length,
-      //     dayTail: replaced
-      //       .filter((r) => toDateKey(new Date(r.createdAt)) === dateKey)
-      //       .slice(-8)
-      //       .map((m) => ({
-      //         id: m.id,
-      //         role: m.role,
-      //         status: m.status,
-      //         createdAt: m.createdAt,
-      //         textPreview: m.text.slice(0, 40),
-      //       })),
-      //   })
-      // );
-      
+      if (!loadMore && !options?.force && isSameDayContent(localVisibleDay, nextVisibleDay)) {
+        return;
+      }
+
+      const replaced = [...baseRows, ...nextVisibleDay].sort((a, b) =>
+        a.createdAt < b.createdAt ? -1 : 1
+      );
       setAllLocalMessages(replaced);
       allLocalMessagesRef.current = replaced;
       await replaceRewriteMessages(replaced);
-      const visibleMapped = toDisplayRows(mapped);
-      setDayMessages(visibleMapped);
-      setDateSyncState((prev) => ({ ...prev, [dateKey]: "synced" }));
-      const { start, end, items } = getVisibleWindow(visibleMapped);
-      setWindowStart(start);
-      setWindowEnd(end);
-      setMessages(items);
+      setDayMessages(nextVisibleDay);
+      setMessages(nextVisibleDay);
     } finally {
-      setIsLoadingHistory(false);
+      if (options?.loadMore) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoadingHistory(false);
+      }
     }
   }
 
   async function handleSelectDate(d: Date): Promise<void> {
     setSelectedDate(d);
     setIsDateSheetOpen(false);
+    setMonthCursor(new Date(d.getFullYear(), d.getMonth(), 1));
+    const dateKey = toDateKey(d);
+    dayCursorRef.current[dateKey] = null;
+    dayHasMoreRef.current[dateKey] = true;
 
     const localRows = filterByDate(allLocalMessagesRef.current, d);
     const visibleLocalRows = toDisplayRows(localRows);
     if (visibleLocalRows.length > 0) {
       setDayMessages(visibleLocalRows);
-      const { start, end, items } = getVisibleWindow(visibleLocalRows);
-      setWindowStart(start);
-      setWindowEnd(end);
-      setMessages(items);
+      setMessages(visibleLocalRows);
     }
 
     await syncDayFromCloud(d);
@@ -607,8 +524,8 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           scrollRef={scrollRef}
           isLoadingHistory={isLoadingHistory}
           showCenterLoading={showCenterLoading}
-          isLoadingOlder={isLoadingOlder}
-          isLoadingNewer={isLoadingNewer}
+          isLoadingOlder={isLoadingMore}
+          isLoadingNewer={false}
           onReachTop={handleReachTop}
           onReachBottom={handleReachBottom}
           onRetryMessage={handleRetryMessage}

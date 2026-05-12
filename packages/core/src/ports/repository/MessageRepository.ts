@@ -35,6 +35,15 @@ export interface ListByConversationRangeInput {
   limit?: number;
 }
 
+export interface ListByConversationDayPageInput {
+  conversationId: string;
+  from: Date;
+  to: Date;
+  limit: number;
+  beforeCreatedAt?: Date;
+  beforeId?: string;
+}
+
 export interface UpdateMessageStatusInput {
   messageId: string;
   status: MessageStatus;
@@ -48,5 +57,6 @@ export interface MessageRepository {
   listByConversation(conversationId: string, limit: number): Promise<MessageEntity[]>;
   listByUserAndDay(userId: string, dayStart: Date, dayEnd: Date): Promise<MessageEntity[]>;
   listByConversationRange(input: ListByConversationRangeInput): Promise<MessageEntity[]>;
+  listByConversationDayPage(input: ListByConversationDayPageInput): Promise<MessageEntity[]>;
   findById(messageId: string): Promise<MessageEntity | null>;
 }

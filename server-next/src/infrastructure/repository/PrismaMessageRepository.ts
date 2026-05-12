@@ -2,6 +2,7 @@
 
 import type {
   CreateMessageInput,
+  ListByConversationDayPageInput,
   ListByConversationRangeInput,
   MessageEntity,
   MessageRepository,
@@ -97,6 +98,24 @@ export class PrismaMessageRepository implements MessageRepository {
       },
       orderBy: [{ createdAt: "asc" }],
       take: input.limit ?? 500,
+    });
+
+    return rows.map((row) => this.toEntity(row));
+  }
+
+  async listByConversationDayPage(input: ListByConversationDayPageInput): Promise<MessageEntity[]> {
+    const rows = await this.prisma.message.findMany({
+      where: {
+        conversationId: input.conversationId,
+        status: { not: "failed" },
+        createdAt: {
+          gte: input.from,
+          lte: input.to,
+          ...(input.beforeCreatedAt ? { lt: input.beforeCreatedAt } : {}),
+        },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit,
     });
 
     return rows.map((row) => this.toEntity(row));

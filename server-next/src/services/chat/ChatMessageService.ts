@@ -33,6 +33,23 @@ export interface FindConversationByDateInput {
   dateKey: string;
 }
 
+export interface ListDayMessagesPageInput {
+  conversationId: string;
+  userId: string;
+  dateKey: string;
+  limit: number;
+  beforeCreatedAt?: string;
+  beforeId?: string;
+}
+
+export interface ListDayMessagesPageResult {
+  items: MessageView[];
+  nextCursor: {
+    beforeCreatedAt: string;
+    beforeId: string;
+  } | null;
+}
+
 export class ConversationAccessDeniedError extends Error {
   readonly code = "CONVERSATION_NOT_FOUND";
 
@@ -176,6 +193,38 @@ export class ChatMessageService {
     return rows
       .filter((row) => row.status !== "failed")
       .map((row) => this.toView(row));
+  }
+
+  async listDayMessagesPage(input: ListDayMessagesPageInput): Promise<ListDayMessagesPageResult> {
+    await this.assertConversationBelongsToUser(input.conversationId, input.userId);
+
+    const dayStart = new Date(`${input.dateKey}T00:00:00+08:00`);
+    const dayEnd = new Date(`${input.dateKey}T23:59:59.999+08:00`);
+    const beforeCreatedAt = input.beforeCreatedAt ? new Date(input.beforeCreatedAt) : undefined;
+
+    const rows = await this.messageRepository.listByConversationDayPage({
+      conversationId: input.conversationId,
+      from: dayStart,
+      to: dayEnd,
+      limit: input.limit,
+      beforeCreatedAt,
+      beforeId: input.beforeId,
+    });
+
+    const itemsDesc = rows.map((row) => this.toView(row));
+    const itemsAsc = itemsDesc.slice().reverse();
+    const tail = itemsDesc[itemsDesc.length - 1];
+
+    return {
+      items: itemsAsc,
+      nextCursor:
+        itemsDesc.length < input.limit || !tail
+          ? null
+          : {
+              beforeCreatedAt: tail.createdAt,
+              beforeId: tail.id,
+            },
+    };
   }
 
   private async assertConversationBelongsToUser(

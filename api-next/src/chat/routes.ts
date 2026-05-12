@@ -36,6 +36,15 @@ type FindConversationByDateQuery = {
   contactId?: string;
 };
 
+type ListDayPageQuery = {
+  conversationId: string;
+  dateKey: string;
+  userId?: string;
+  limit?: string;
+  beforeCreatedAt?: string;
+  beforeId?: string;
+};
+
 export interface ChatRouteDeps {
   chatMessageService: ChatMessageService;
   userRepository: {
@@ -405,6 +414,82 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       request_id: requestId,
       data: { conversationId },
     });
+  });
+
+  app.get("/chat/messages/day-page", async (req, reply) => {
+    const query = req.query as Partial<ListDayPageQuery>;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const conversationId = query.conversationId?.trim();
+    const dateKey = query.dateKey?.trim();
+    const limitRaw = Number(query.limit ?? "30");
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 30;
+    const beforeCreatedAt = query.beforeCreatedAt?.trim();
+    const beforeId = query.beforeId?.trim();
+
+    if (!conversationId || !dateKey) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "conversationId and dateKey are required" },
+      });
+    }
+
+    let userContext;
+    try {
+      userContext = await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: null,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/messages/day-page" },
+        });
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
+    }
+
+    try {
+      const data = await deps.chatMessageService.listDayMessagesPage({
+        conversationId,
+        userId: userContext.userId,
+        dateKey,
+        limit,
+        beforeCreatedAt,
+        beforeId,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (error instanceof ConversationAccessDeniedError) {
+        return reply.status(404).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
+    }
   });
 }
 
