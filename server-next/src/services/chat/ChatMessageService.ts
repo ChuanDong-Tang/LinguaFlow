@@ -136,7 +136,9 @@ export class ChatMessageService {
     await this.assertConversationBelongsToUser(input.conversationId, input.userId);
 
     const rows = await this.messageRepository.listByConversation(input.conversationId, 200);
-    return rows.map((row) => this.toView(row));
+    return rows
+      .filter((row) => row.status !== "failed")
+      .map((row) => this.toView(row));
   }
 
   async listConversationMessagesByDateRange(
@@ -154,7 +156,9 @@ export class ChatMessageService {
       limit: 500,
     });
 
-    return rows.map((row) => this.toView(row));
+    return rows
+      .filter((row) => row.status !== "failed")
+      .map((row) => this.toView(row));
   }
 
   private async assertConversationBelongsToUser(

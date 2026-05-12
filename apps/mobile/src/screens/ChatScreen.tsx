@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Keyboard,
   Platform,
   ScrollView,
   StyleSheet,
@@ -185,6 +186,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
     async function loadHistory() {
       try {
+        if (!cancelled) setIsLoadingHistory(true);
         const [session, entitlement] = await Promise.all([
           getSession(),
           getCurrentEntitlement().catch(() => null),
@@ -222,9 +224,11 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         // 2) 后台静默补齐近30天脏日期（不阻塞 UI）
         for (const key of remoteDateKeys) {
           if (cancelled) return;
+          const isSelectedDate = key === selectedDateKey;
           if (key !== selectedDateKey && dateSyncState[key] !== "dirty") continue;
           const localDayRows = filterByDate(allLocalMessages, new Date(`${key}T00:00:00`));
-          if (localDayRows.length > 0 && dateSyncState[key] !== "dirty") continue;
+          // 当前选中日期始终强制同步一次，避免本地有旧数据时跳过 merge。
+          if (!isSelectedDate && localDayRows.length > 0 && dateSyncState[key] !== "dirty") continue;
           setDateSyncState((prev) => ({ ...prev, [key]: "syncing" }));
           const dayRows = await listDayMessagesFromCloud({
             conversationId: safeConversationId,
@@ -323,6 +327,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     }
 
     setInputText("");
+    Keyboard.dismiss();
     setIsSending(true);
 
     const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalRewritePair(text, now);
@@ -358,19 +363,25 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       return;
     }
 
+    Keyboard.dismiss();
     setIsSending(true);
+    const now = new Date();
     const retryCount = (message.retryCount ?? 0) + 1;
-    updateLocalMessage(message.localId, (row) => ({
-      ...row,
-      text: "",
-      status: "pending",
-      retryCount,
-      createdAt: new Date().toISOString(),
-    }));
+    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalRewritePair(text, now);
+    const localNext = [...dayMessages, userLocal, assistantLocal];
+    setDayMessages(localNext);
+    const endInit = localNext.length;
+    const startInit = Math.max(0, endInit - 120);
+    setWindowStart(startInit);
+    setWindowEnd(endInit);
+    setMessages(localNext.slice(startInit, endInit));
+    const allNext = await appendRewriteMessages([userLocal, assistantLocal]);
+    setAllLocalMessages(allNext);
 
     startRewriteSession({
       text,
-      assistantLocalId: message.localId,
+      userLocalId: userLocal.localId,
+      assistantLocalId: assistantLocal.localId,
       retryCount,
       systemPrompt: message.retrySystemPrompt,
       conversationId,
