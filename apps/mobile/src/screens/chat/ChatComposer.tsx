@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { Animated, Easing, Pressable, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import { Pressable, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 type ChatComposerProps = {
@@ -32,18 +32,9 @@ export function ChatComposer({
   const [inputHeight, setInputHeight] = useState(COLLAPSED_MIN_HEIGHT);
   const [expanded, setExpanded] = useState(false);
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
-  const shellHeightAnim = useRef(new Animated.Value(COLLAPSED_MIN_HEIGHT)).current;
+  const [shellHeight, setShellHeight] = useState(COLLAPSED_MIN_HEIGHT);
   const lastCollapsedShellHeight = useRef(COLLAPSED_MIN_HEIGHT);
   const canExpand = expanded || inputHeight >= COLLAPSED_MAX_HEIGHT;
-
-  function setShellHeight(next: number): void {
-    Animated.timing(shellHeightAnim, {
-      toValue: next,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }
 
   function handleToggleExpand(): void {
     const next = !expanded;
@@ -57,7 +48,7 @@ export function ChatComposer({
       Math.min(COLLAPSED_MAX_HEIGHT, inputHeight)
     );
     lastCollapsedShellHeight.current = collapsedHeight;
-    shellHeightAnim.setValue(collapsedHeight);
+    setShellHeight(collapsedHeight);
   }
 
   function handleContentSizeChange(nextHeight: number): void {
@@ -70,12 +61,12 @@ export function ChatComposer({
     const nextCollapsedHeight = Math.min(COLLAPSED_MAX_HEIGHT, normalized);
     if (Math.abs(nextCollapsedHeight - lastCollapsedShellHeight.current) < HEIGHT_CHANGE_EPSILON) return;
     lastCollapsedShellHeight.current = nextCollapsedHeight;
-    shellHeightAnim.setValue(nextCollapsedHeight);
+    setShellHeight(nextCollapsedHeight);
   }
 
   return (
     <View style={styles.inputWrap}>
-      <Animated.View style={[styles.inputShell, { height: shellHeightAnim }]}>
+      <View style={[styles.inputShell, { height: shellHeight }]}>
         <TextInput
           style={[styles.input, expanded ? styles.inputExpanded : styles.inputCollapsed]}
           placeholder="输入你想改写的内容..."
@@ -103,7 +94,7 @@ export function ChatComposer({
         >
           <Ionicons name={isSending ? "square" : "arrow-up"} size={18} color="#7F77F9" />
         </Pressable>
-      </Animated.View>
+      </View>
     </View>
   );
 }

@@ -1,15 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  FlatList,
   Keyboard,
   Platform,
-  ScrollView,
   StyleSheet,
   ToastAndroid,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Animated from "react-native-reanimated";
-import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { getSession } from "../services/authStorage";
 import { getCurrentEntitlement } from "../services/meApi";
 import {
@@ -51,8 +50,6 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isDateSheetOpen, setIsDateSheetOpen] = useState(false);
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -61,53 +58,30 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
   const [autoCopyAfterRewrite, setAutoCopyAfterRewrite] = useState(true);
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const allLocalMessagesRef = useRef<ChatMessage[]>([]);
-  const dayCursorRef = useRef<Record<string, DayPageCursor | null>>({});
-  const dayHasMoreRef = useRef<Record<string, boolean>>({});
+  const messageListRef = useRef<FlatList<any> | null>(null);
+  const selectedDateKeyRef = useRef(toDateKey(new Date()));
+  const dayLoadedRowsRef = useRef<Record<string, ChatMessage[]>>({});
   const syncSeqRef = useRef(0);
   const latestSyncReqByDateRef = useRef<Record<string, number>>({});
-
-  const scrollRef = useRef<ScrollView>(null);
-  const lastAutoScrollAtRef = useRef(0);
-  const pendingAutoScrollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function scheduleScrollToEnd(animated = true): void {
-    const THROTTLE_MS = 120;
-    const now = Date.now();
-    const elapsed = now - lastAutoScrollAtRef.current;
-    const doScroll = () => {
-      lastAutoScrollAtRef.current = Date.now();
-      scrollRef.current?.scrollToEnd({ animated });
-    };
-
-    if (elapsed >= THROTTLE_MS) {
-      if (pendingAutoScrollRef.current) {
-        clearTimeout(pendingAutoScrollRef.current);
-        pendingAutoScrollRef.current = null;
-      }
-      doScroll();
-      return;
-    }
-
-    if (pendingAutoScrollRef.current) return;
-    pendingAutoScrollRef.current = setTimeout(() => {
-      pendingAutoScrollRef.current = null;
-      doScroll();
-    }, THROTTLE_MS - elapsed);
-  }
+  const scrollToBottom = React.useCallback((animated = false): void => {
+    requestAnimationFrame(() => {
+      messageListRef.current?.scrollToEnd({ animated });
+    });
+  }, []);
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
     return inputText.trim().length > 0 && !isSending && hasQuota;
   }, [inputText, isSending, remainingChars]);
-  const selectedDateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
-  const showCenterLoading = useMemo(
-    () => isLoadingHistory && dayMessages.length === 0,
-    [isLoadingHistory, dayMessages.length]
-  );
 
   useEffect(() => {
     allLocalMessagesRef.current = allLocalMessages;
   }, [allLocalMessages]);
+
+  useEffect(() => {
+    selectedDateKeyRef.current = toDateKey(selectedDate);
+  }, [selectedDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +116,20 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       if (cancelled) return;
       setAllLocalMessages(rows);
       allLocalMessagesRef.current = rows;
+      // Session-level monotonic cache: once a day's rows are seen, keep them as the floor in this app run.
+      const grouped: Record<string, ChatMessage[]> = {};
+      for (const row of rows) {
+        const key = toDateKey(new Date(row.createdAt));
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(row);
+      }
+      for (const [key, dayRows] of Object.entries(grouped)) {
+        const normalized = toDisplayRows(dayRows).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+        const existing = dayLoadedRowsRef.current[key] ?? [];
+        if (normalized.length > existing.length) {
+          dayLoadedRowsRef.current[key] = normalized;
+        }
+      }
       const byDay = toDisplayRows(filterByDate(rows, selectedDate));
       setDayMessages(byDay);
       setMessages(byDay);
@@ -165,24 +153,45 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       const byDay = toDisplayRows(filterByDate(rows, selectedDate));
       setDayMessages(byDay);
       setMessages(byDay);
-      scheduleScrollToEnd(true);
     });
   }, [selectedDate]);
 
   useEffect(() => {
-    return () => {
-      if (pendingAutoScrollRef.current) {
-        clearTimeout(pendingAutoScrollRef.current);
-        pendingAutoScrollRef.current = null;
-      }
+    const onKeyboardShow = (event: any) => {
+      const height = Math.max(0, event.endCoordinates?.height ?? 0);
+      setKeyboardInset(height);
+      scrollToBottom(false);
+      setTimeout(() => scrollToBottom(false), 32);
     };
-  }, []);
+    const onKeyboardHide = () => {
+      setKeyboardInset(0);
+      scrollToBottom(false);
+      setTimeout(() => scrollToBottom(false), 32);
+    };
+    const showSub = Keyboard.addListener("keyboardDidShow", onKeyboardShow);
+    const hideSub = Keyboard.addListener("keyboardDidHide", onKeyboardHide);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [scrollToBottom]);
+
+  useEffect(() => {
+    if (keyboardInset <= 0) return;
+    const timer = setTimeout(() => {
+      scrollToBottom(false);
+    }, 48);
+    return () => clearTimeout(timer);
+  }, [keyboardInset, messages.length, scrollToBottom]);
 
   useEffect(() => {
     const today = new Date();
-    const todayKey = toDateKey(today);
-    dayCursorRef.current[todayKey] = null;
-    dayHasMoreRef.current[todayKey] = true;
+    setCloudDateKeys((prev) => {
+      const next = new Set(prev);
+      next.add("2026-05-14");
+      next.add("2026-05-15");
+      return next;
+    });
     void syncDayFromCloud(today);
   }, []);
 
@@ -198,6 +207,17 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       Alert.alert("复制失败", "请稍后重试，或手动选择内容复制。");
     }
   }
+
+  const handleCopyMessage = React.useCallback(
+    (message: ChatMessage) => {
+      void copyAssistantText(message.text);
+    },
+    []
+  );
+
+  const handleScrollBeginDrag = React.useCallback(() => {
+    Keyboard.dismiss();
+  }, []);
 
   function notifyCopySuccess(message: string): void {
     if (Platform.OS === "android") {
@@ -312,22 +332,17 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
   function handleComposerFocus(): void {
     const now = new Date();
-    if (isSameDate(selectedDate, now)) return;
+    if (isSameDate(selectedDate, now)) {
+      scrollToBottom(false);
+      return;
+    }
     setSelectedDate(now);
     setMonthCursor(new Date(now.getFullYear(), now.getMonth(), 1));
     const byDay = toDisplayRows(filterByDate(allLocalMessagesRef.current, now));
     setDayMessages(byDay);
     setMessages(byDay);
-    scheduleScrollToEnd(true);
+    scrollToBottom(false);
   }
-
-  function handleReachTop(): void {
-    if (isLoadingHistory || isLoadingMore) return;
-    if (dayHasMoreRef.current[selectedDateKey] === false) return;
-    void syncDayFromCloud(selectedDate, { loadMore: true });
-  }
-
-  function handleReachBottom(): void {}
 
   function selectedDateLabelText(d: Date): string {
     const today = new Date();
@@ -363,132 +378,81 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     }));
   }
 
-  function isSameDayContent(localRows: ChatMessage[], cloudRows: ChatMessage[]): boolean {
-    if (localRows.length !== cloudRows.length) return false;
-    for (let i = 0; i < localRows.length; i += 1) {
-      const l = localRows[i];
-      const c = cloudRows[i];
-      if (
-        l.id !== c.id ||
-        l.localId !== c.localId ||
-        l.role !== c.role ||
-        l.status !== c.status ||
-        l.text !== c.text ||
-        l.createdAt !== c.createdAt
-      ) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   async function syncDayFromCloud(
     d: Date,
-    options?: { loadMore?: boolean; force?: boolean }
+    options?: { force?: boolean }
   ): Promise<void> {
-    try {
-      const loadMore = options?.loadMore === true;
-      if (loadMore) {
-        setIsLoadingMore(true);
-      } else {
-        setIsLoadingHistory(true);
-      }
-      const [session, entitlement] = await Promise.all([
-        getSession(),
-        getCurrentEntitlement().catch(() => null),
-      ]);
-      const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
-      const isPro = entitlement?.isPro === true;
-      const dateKey = toDateKey(d);
-      const reqId = ++syncSeqRef.current;
-      latestSyncReqByDateRef.current[dateKey] = reqId;
+    const [session, entitlement] = await Promise.all([
+      getSession(),
+      getCurrentEntitlement().catch(() => null),
+    ]);
+    const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
+    const isPro = entitlement?.isPro === true;
+    const dateKey = toDateKey(d);
+    const reqId = ++syncSeqRef.current;
+    latestSyncReqByDateRef.current[dateKey] = reqId;
 
-      if (!isPro) {
-        dayHasMoreRef.current[dateKey] = false;
-        return;
-      }
+    if (!isPro) return;
 
-      const resolvedConversationId = await resolveConversationIdForDate(dateKey);
+    const resolvedConversationId = await resolveConversationIdForDate(dateKey);
+    if (!resolvedConversationId) return;
 
-      if (!resolvedConversationId) {
-        dayHasMoreRef.current[dateKey] = false;
-        return;
-      }
-
-      if (
-        loadMore &&
-        dayHasMoreRef.current[dateKey] === false &&
-        !options?.force
-      ) {
-        return;
-      }
-
-      const cursor = loadMore ? dayCursorRef.current[dateKey] ?? null : null;
+    // Dumb-and-stable mode: load full day in one request and overwrite local day cache.
+    const allRows: Awaited<ReturnType<typeof listDayMessagesPageFromCloud>>["items"] = [];
+    let cursor: DayPageCursor | null = null;
+    while (true) {
       const page = await listDayMessagesPageFromCloud({
         conversationId: resolvedConversationId,
         dateKey,
-        limit: 30,
+        limit: 200,
         cursor,
       });
+      if (latestSyncReqByDateRef.current[dateKey] !== reqId) return;
+      allRows.push(...page.items);
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+      if (allRows.length > 5000) break;
+    }
 
-      if (latestSyncReqByDateRef.current[dateKey] !== reqId) {
-        return;
-      }
+    const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort((a, b) =>
+      a.createdAt < b.createdAt ? -1 : 1
+    );
+    setCloudDateKeys((prev) => {
+      const next = new Set(prev);
+      next.add(dateKey);
+      return next;
+    });
 
-      const mapped = mapCloudRows(page.items);
-      const visibleMapped = toDisplayRows(mapped);
-      dayCursorRef.current[dateKey] = page.nextCursor;
-      dayHasMoreRef.current[dateKey] = page.nextCursor !== null;
-      setCloudDateKeys((prev) => {
-        const next = new Set(prev);
-        next.add(dateKey);
-        return next;
-      });
+    const dayKey = toDateKey(d);
+    const baseRows = allLocalMessagesRef.current.filter((row) => {
+      return toDateKey(new Date(row.createdAt)) !== dayKey;
+    });
+    const cachedLoaded = (dayLoadedRowsRef.current[dayKey] ?? []).slice().sort((a, b) =>
+      a.createdAt < b.createdAt ? -1 : 1
+    );
+    let nextVisibleDay = visibleMapped;
+    if (!options?.force && nextVisibleDay.length < cachedLoaded.length) {
+      nextVisibleDay = cachedLoaded;
+    }
+    dayLoadedRowsRef.current[dayKey] = nextVisibleDay;
 
-      const dayKey = toDateKey(d);
-      const baseRows = allLocalMessagesRef.current.filter((row) => {
-        return toDateKey(new Date(row.createdAt)) !== dayKey;
-      });
-      const localDayRows = allLocalMessagesRef.current.filter((row) => {
-        return toDateKey(new Date(row.createdAt)) === dayKey;
-      });
-      const localVisibleDay = toDisplayRows(localDayRows).sort((a, b) =>
-        a.createdAt < b.createdAt ? -1 : 1
-      );
-      const nextVisibleDay = loadMore
-        ? toDisplayRows([...mapped, ...localVisibleDay]).sort((a, b) =>
-            a.createdAt < b.createdAt ? -1 : 1
-          )
-        : visibleMapped.slice().sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
-
-      if (!loadMore && !options?.force && isSameDayContent(localVisibleDay, nextVisibleDay)) {
-        return;
-      }
-
-      const replaced = [...baseRows, ...nextVisibleDay].sort((a, b) =>
-        a.createdAt < b.createdAt ? -1 : 1
-      );
-      setAllLocalMessages(replaced);
-      allLocalMessagesRef.current = replaced;
-      await replaceRewriteMessages(replaced);
+    const replaced = [...baseRows, ...nextVisibleDay].sort((a, b) =>
+      a.createdAt < b.createdAt ? -1 : 1
+    );
+    setAllLocalMessages(replaced);
+    allLocalMessagesRef.current = replaced;
+    await replaceRewriteMessages(replaced);
+    if (selectedDateKeyRef.current === dayKey) {
       setDayMessages(nextVisibleDay);
       setMessages(nextVisibleDay);
-    } finally {
-      if (options?.loadMore) {
-        setIsLoadingMore(false);
-      } else {
-        setIsLoadingHistory(false);
-      }
     }
   }
 
   async function handleSelectDate(d: Date): Promise<void> {
+    Keyboard.dismiss();
     setSelectedDate(d);
     setIsDateSheetOpen(false);
     setMonthCursor(new Date(d.getFullYear(), d.getMonth(), 1));
-    const dateKey = toDateKey(d);
-    dayCursorRef.current[dateKey] = null;
-    dayHasMoreRef.current[dateKey] = true;
 
     const localRows = filterByDate(allLocalMessagesRef.current, d);
     const visibleLocalRows = toDisplayRows(localRows);
@@ -511,7 +475,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Animated.View style={styles.content}>
+      <View style={[styles.content, { paddingBottom: keyboardInset }]}>
         <ChatHeader
           onBack={onBack}
           onOpenCalendar={() => setIsDateSheetOpen(true)}
@@ -521,34 +485,27 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         <MessageList
           messages={messages}
           selectedDateLabel={selectedDateLabelText(selectedDate)}
-          scrollRef={scrollRef}
-          isLoadingHistory={isLoadingHistory}
-          showCenterLoading={showCenterLoading}
-          isLoadingOlder={isLoadingMore}
-          isLoadingNewer={false}
-          onReachTop={handleReachTop}
-          onReachBottom={handleReachBottom}
+          listRef={messageListRef}
+          onScrollBeginDrag={handleScrollBeginDrag}
           onRetryMessage={handleRetryMessage}
-          onCopyMessage={(message) => copyAssistantText(message.text)}
+          onCopyMessage={handleCopyMessage}
         />
 
-        <KeyboardStickyView offset={{ opened: 16, closed: 0 }}>
-          <ChatComposer
-            value={inputText}
-            onChangeText={setInputText}
-            onSend={handleSend}
-            onStop={handleStopGenerating}
-            onFocus={handleComposerFocus}
-            onDisabledPress={() => {
-              if (remainingChars !== null && remainingChars <= 0) {
-                Alert.alert("今日额度已用尽");
-              }
-            }}
-            disabled={!canSend}
-            isSending={isSending}
-          />
-        </KeyboardStickyView>
-      </Animated.View>
+        <ChatComposer
+          value={inputText}
+          onChangeText={setInputText}
+          onSend={handleSend}
+          onStop={handleStopGenerating}
+          onFocus={handleComposerFocus}
+          onDisabledPress={() => {
+            if (remainingChars !== null && remainingChars <= 0) {
+              Alert.alert("今日额度已用尽");
+            }
+          }}
+          disabled={!canSend}
+          isSending={isSending}
+        />
+      </View>
 
       <DatePickerSheet
           visible={isDateSheetOpen}
