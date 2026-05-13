@@ -13,8 +13,7 @@ import { getSession } from "../services/authStorage";
 import { getCurrentEntitlement } from "../services/meApi";
 import {
   findConversationIdByDateFromCloud,
-  listDayMessagesPageFromCloud,
-  type DayPageCursor,
+  listDayMessagesFromCloud,
 } from "../services/chatHistoryApi";
 import { createLocalRewritePair } from "../services/chatSyncService";
 import {
@@ -359,7 +358,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   }
 
   function mapCloudRows(
-    rows: Awaited<ReturnType<typeof listDayMessagesPageFromCloud>>["items"]
+    rows: Awaited<ReturnType<typeof listDayMessagesFromCloud>>
   ): ChatMessage[] {
     return rows.map((row) => ({
       id: row.id,
@@ -391,22 +390,12 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     const resolvedConversationId = await resolveConversationIdForDate(dateKey);
     if (!resolvedConversationId) return;
 
-    // Dumb-and-stable mode: load full day in one request and overwrite local day cache.
-    const allRows: Awaited<ReturnType<typeof listDayMessagesPageFromCloud>>["items"] = [];
-    let cursor: DayPageCursor | null = null;
-    while (true) {
-      const page = await listDayMessagesPageFromCloud({
-        conversationId: resolvedConversationId,
-        dateKey,
-        limit: 200,
-        cursor,
-      });
-      if (latestSyncReqByDateRef.current[dateKey] !== reqId) return;
-      allRows.push(...page.items);
-      if (!page.nextCursor) break;
-      cursor = page.nextCursor;
-      if (allRows.length > 5000) break;
-    }
+    const allRows = await listDayMessagesFromCloud({
+      conversationId: resolvedConversationId,
+      userId,
+      dateKey,
+    });
+    if (latestSyncReqByDateRef.current[dateKey] !== reqId) return;
 
     const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : 1

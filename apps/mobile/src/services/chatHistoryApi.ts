@@ -22,24 +22,6 @@ export type ListMessagesByRangeInput = {
   toDateKey?: string;
 };
 
-export type DayPageCursor = {
-  beforeCreatedAt: string;
-  beforeId: string;
-};
-
-export type ListDayMessagesPageInput = {
-  conversationId: string;
-  dateKey: string;
-  limit?: number;
-  cursor?: DayPageCursor | null;
-};
-
-export type ListDayMessagesPageResult = {
-  items: MessageView[];
-  nextCursor: DayPageCursor | null;
-};
-
-
 export type SendMessageResult = {
   conversationId: string;
   userMessage: MessageView;
@@ -146,25 +128,4 @@ export async function findConversationIdByDateFromCloud(input: {
   }
 
   return json.data.conversationId;
-}
-
-export async function listDayMessagesPageFromCloud(
-  input: ListDayMessagesPageInput
-): Promise<ListDayMessagesPageResult> {
-  const params = new URLSearchParams();
-  params.set("conversationId", input.conversationId);
-  params.set("dateKey", input.dateKey);
-  params.set("limit", String(input.limit ?? 30));
-  if (input.cursor?.beforeCreatedAt) params.set("beforeCreatedAt", input.cursor.beforeCreatedAt);
-  if (input.cursor?.beforeId) params.set("beforeId", input.cursor.beforeId);
-
-  const res = await fetch(`${BASE_URL}/chat/messages/day-page?${params.toString()}`, {
-    headers: await getAuthHeaders(),
-  });
-
-  const json = (await res.json()) as ApiResult<ListDayMessagesPageResult>;
-  if (!json.ok) {
-    throw new Error(json.error.message);
-  }
-  return json.data;
 }
