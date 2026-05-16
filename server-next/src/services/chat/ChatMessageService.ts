@@ -36,6 +36,13 @@ export interface FindConversationByDateInput {
   dateKey: string;
 }
 
+export interface ListConversationDateKeysInput {
+  userId: string;
+  contactId: string;
+  fromDateKey: string;
+  toDateKey: string;
+}
+
 export interface ListDayMessagesPageInput {
   conversationId: string;
   userId: string;
@@ -211,6 +218,10 @@ export class ChatMessageService {
       input.dateKey
     );
     return conversation?.id ?? null;
+  }
+
+  async listConversationDateKeys(input: ListConversationDateKeysInput): Promise<string[]> {
+    return this.messageRepository.listDateKeysByUserContactRange(input);
   }
 
   async listConversationMessagesByDateRange(

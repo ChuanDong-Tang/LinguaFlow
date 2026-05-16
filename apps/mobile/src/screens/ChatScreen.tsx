@@ -15,6 +15,7 @@ import { getCurrentEntitlement } from "../services/api/meApi";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import {
   findConversationIdByDateFromCloud,
+  listConversationDateKeysFromCloud,
   listDayMessagesFromCloud,
   updateMessageClozeState,
 } from "../services/api/chatHistoryApi";
@@ -64,6 +65,17 @@ import {
   toDateKey,
 } from "../domain/chat/messageState";
 
+function getMonthRange(cursor: Date): { monthKey: string; fromDateKey: string; toDateKey: string } {
+  const firstDay = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+
+  return {
+    monthKey: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
+    fromDateKey: toDateKey(firstDay),
+    toDateKey: toDateKey(lastDay),
+  };
+}
+
 type ChatScreenProps = {
   onBack: () => void;
 };
@@ -97,6 +109,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const syncSeqRef = useRef(0);
   const latestSyncReqByDateRef = useRef<Record<string, number>>({});
   const lastCloudSyncAtByDateRef = useRef<Record<string, number>>({});
+  const loadedCloudMonthKeysRef = useRef<Set<string>>(new Set());
   const clozeSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isProEntitledRef = useRef(false);
   const clozeSaveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
@@ -238,6 +251,11 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     const today = new Date();
     void syncDayFromCloud(today);
   }, []);
+
+  useEffect(() => {
+    if (!isDateSheetOpen) return;
+    void preloadCloudMonthDateKeys(monthCursor);
+  }, [isDateSheetOpen, monthCursor]);
 
   async function copyAssistantText(text: string, silent = false): Promise<void> {
     try {
@@ -587,6 +605,30 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     const today = new Date();
     if (isSameDate(d, today)) return "今天";
     return `${d.getMonth() + 1}月${d.getDate()}日`;
+  }
+
+  async function preloadCloudMonthDateKeys(cursor: Date): Promise<void> {
+    if (!(await hasLocalProAccess())) return;
+
+    const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
+    if (loadedCloudMonthKeysRef.current.has(monthKey)) return;
+    loadedCloudMonthKeysRef.current.add(monthKey);
+
+    try {
+      const keys = await listConversationDateKeysFromCloud({
+        contactId: "rewrite_assistant",
+        fromDateKey,
+        toDateKey: monthEndDateKey,
+      });
+      setCloudDateKeys((prev) => {
+        const next = new Set(prev);
+        keys.forEach((key) => next.add(key));
+        return next;
+      });
+    } catch {
+      console.warn("preloadCloudMonthDateKeys failed", { monthKey, fromDateKey, toDateKey: monthEndDateKey });
+      loadedCloudMonthKeysRef.current.delete(monthKey);
+    }
   }
 
   async function resolveConversationIdForDate(dateKey: string): Promise<string | null> {

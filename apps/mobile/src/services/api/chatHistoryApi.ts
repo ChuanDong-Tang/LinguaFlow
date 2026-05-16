@@ -139,6 +139,28 @@ export async function findConversationIdByDateFromCloud(input: {
   return json.data.conversationId;
 }
 
+export async function listConversationDateKeysFromCloud(input: {
+  contactId?: string;
+  fromDateKey: string;
+  toDateKey: string;
+}): Promise<Set<string>> {
+  const params = new URLSearchParams();
+  params.set("fromDateKey", input.fromDateKey);
+  params.set("toDateKey", input.toDateKey);
+  if (input.contactId) params.set("contactId", input.contactId);
+
+  const res = await fetch(`${BASE_URL}/chat/conversations/date-keys?${params.toString()}`, {
+    headers: await getAuthHeaders(),
+  });
+  const json = (await res.json()) as ApiResult<string[]>;
+
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+
+  return new Set(json.data);
+}
+
 export async function updateMessageClozeState(input: {
   messageId: string;
   baseVersion: number;

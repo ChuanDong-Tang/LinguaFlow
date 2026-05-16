@@ -4,6 +4,7 @@ import type {
   CreateMessageInput,
   ListByConversationDayPageInput,
   ListByConversationRangeInput,
+  ListDateKeysByUserContactRangeInput,
   MessageEntity,
   MessageRepository,
   UpdateMessageClozeInput,
@@ -159,6 +160,35 @@ export class PrismaMessageRepository implements MessageRepository {
     return rows.map((row) => this.toEntity(row));
   }
 
+  async listDateKeysByUserContactRange(input: ListDateKeysByUserContactRangeInput): Promise<string[]> {
+    const from = new Date(`${input.fromDateKey}T00:00:00+08:00`);
+    const to = new Date(`${input.toDateKey}T23:59:59.999+08:00`);
+    const rows = await this.prisma.message.findMany({
+      where: {
+        userId: input.userId,
+        status: { not: "failed" },
+        createdAt: {
+          gte: from,
+          lte: to,
+        },
+        conversation: {
+          contactId: input.contactId,
+          archivedAt: null,
+        },
+      },
+      select: {
+        createdAt: true,
+      },
+      orderBy: [{ createdAt: "asc" }],
+    });
+
+    const keys = new Set<string>();
+    for (const row of rows) {
+      keys.add(formatDateKey(row.createdAt));
+    }
+    return Array.from(keys);
+  }
+
   async findById(messageId: string): Promise<MessageEntity | null> {
     const row = await this.prisma.message.findUnique({
       where: {
@@ -218,4 +248,14 @@ function normalizeClozeState(value: unknown): MessageEntity["clozeState"] {
     ? raw.correctTokenIndexes.filter(Number.isInteger).map(Number)
     : [];
   return { groups, correctTokenIndexes };
+}
+
+function formatDateKey(date: Date): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(date);
 }
