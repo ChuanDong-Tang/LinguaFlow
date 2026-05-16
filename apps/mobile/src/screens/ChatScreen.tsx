@@ -43,6 +43,7 @@ import {
   type BlockingLoadingOptions,
   runWithDeferredBlockingLoading,
 } from "./shared/BlockingLoading";
+import { useFloatingNotice } from "./shared/FloatingNotice";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import {
   ClozeControls,
@@ -82,6 +83,7 @@ type ChatScreenProps = {
 
 export function ChatScreen({ onBack }: ChatScreenProps) {
   const window = useWindowDimensions();
+  const { showNotice } = useFloatingNotice();
   const [inputText, setInputText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -102,6 +104,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [clozeDelete, setClozeDelete] = useState<ClozeDeleteState | null>(null);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
+  const [isTodaySyncing, setIsTodaySyncing] = useState(false);
   const allLocalMessagesRef = useRef<ChatMessage[]>([]);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const selectedDateKeyRef = useRef(toDateKey(new Date()));
@@ -112,6 +115,8 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const loadedCloudMonthKeysRef = useRef<Set<string>>(new Set());
   const clozeSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isProEntitledRef = useRef(false);
+  const todaySyncCountRef = useRef(0);
+  const isTodaySyncingRef = useRef(false);
   const clozeSaveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
   const scrollToBottom = React.useCallback((animated = false): void => {
     requestAnimationFrame(() => {
@@ -120,8 +125,8 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   }, []);
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
-    return inputText.trim().length > 0 && !isSending && hasQuota;
-  }, [inputText, isSending, remainingChars]);
+    return inputText.trim().length > 0 && !isSending && !isTodaySyncing && hasQuota;
+  }, [inputText, isSending, isTodaySyncing, remainingChars]);
 
   useEffect(() => {
     allLocalMessagesRef.current = allLocalMessages;
@@ -134,6 +139,10 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   useEffect(() => {
     isProEntitledRef.current = isProEntitled;
   }, [isProEntitled]);
+
+  useEffect(() => {
+    isTodaySyncingRef.current = isTodaySyncing;
+  }, [isTodaySyncing]);
 
   useEffect(() => {
     let cancelled = false;
@@ -249,7 +258,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
   useEffect(() => {
     const today = new Date();
-    void syncDayFromCloud(today);
+    void syncDateQuietly(today);
   }, []);
 
   useEffect(() => {
@@ -511,6 +520,15 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   async function handleSend(): Promise<void> {
     const text = inputText.trim();
     if (!text || isSending) return;
+    if (isTodaySyncingRef.current) {
+      showNotice({
+        message: "正在同步消息，请稍后发送",
+        type: "info",
+        position: "top-right",
+        durationMs: 1500,
+      });
+      return;
+    }
     if (remainingChars !== null && remainingChars <= 0) {
       Alert.alert("You've reached your daily quota.");
       return;
@@ -522,6 +540,11 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     if (!isViewingToday) {
       setSelectedDate(now);
       setMonthCursor(new Date(now.getFullYear(), now.getMonth(), 1));
+      const byDay = toDisplayRows(filterByDate(allLocalMessagesRef.current, now));
+      setDayMessages(byDay);
+      setMessages(byDay);
+      void syncDateQuietly(now, { force: true });
+      return;
     }
 
     setInputText("");
@@ -695,7 +718,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   async function syncDayFromCloud(
     d: Date,
     options?: { force?: boolean }
-  ): Promise<void> {
+  ): Promise<{ synced: boolean; changed: boolean }> {
     const localPro = await hasLocalProAccess();
     const [session, entitlement] = await Promise.all([
       getSession(),
@@ -708,17 +731,17 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     const reqId = ++syncSeqRef.current;
     latestSyncReqByDateRef.current[dateKey] = reqId;
 
-    if (!isPro) return;
+    if (!isPro) return { synced: false, changed: false };
 
     const resolvedConversationId = await resolveConversationIdForDate(dateKey);
-    if (!resolvedConversationId) return;
+    if (!resolvedConversationId) return { synced: false, changed: false };
 
     const allRows = await listDayMessagesFromCloud({
       conversationId: resolvedConversationId,
       userId,
       dateKey,
     });
-    if (latestSyncReqByDateRef.current[dateKey] !== reqId) return;
+    if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
 
     const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : 1
@@ -740,6 +763,10 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     if (!options?.force && nextVisibleDay.length < cachedLoaded.length) {
       nextVisibleDay = cachedLoaded;
     }
+    const previousVisibleDay = toDisplayRows(filterByDate(allLocalMessagesRef.current, d)).sort((a, b) =>
+      a.createdAt < b.createdAt ? -1 : 1
+    );
+    const changed = !areMessageRowsEquivalent(previousVisibleDay, nextVisibleDay);
     dayLoadedRowsRef.current[dayKey] = nextVisibleDay;
 
     const replaced = [...baseRows, ...nextVisibleDay].sort((a, b) =>
@@ -752,6 +779,46 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     if (selectedDateKeyRef.current === dayKey) {
       setDayMessages(nextVisibleDay);
       setMessages(nextVisibleDay);
+    }
+    return { synced: true, changed };
+  }
+
+  async function syncDateQuietly(d: Date, options?: { force?: boolean }): Promise<void> {
+    const isTodaySync = isSameDate(d, new Date());
+    if (isTodaySync) {
+      todaySyncCountRef.current += 1;
+      setIsTodaySyncing(true);
+    }
+    const notice = showNotice({
+      message: "正在同步最新消息...",
+      type: "info",
+      position: "top-right",
+      durationMs: 0,
+    });
+    try {
+      const result = await syncDayFromCloud(d, options);
+      if (!result.synced || !result.changed) {
+        notice.hide();
+        return;
+      }
+      notice.update({
+        message: "消息已更新",
+        type: "success",
+        durationMs: 1800,
+      });
+    } catch {
+      notice.update({
+        message: "同步失败，稍后再试",
+        type: "warning",
+        durationMs: 2200,
+      });
+    } finally {
+      if (isTodaySync) {
+        todaySyncCountRef.current = Math.max(0, todaySyncCountRef.current - 1);
+        if (todaySyncCountRef.current === 0) {
+          setIsTodaySyncing(false);
+        }
+      }
     }
   }
 
@@ -768,12 +835,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       setMessages(visibleLocalRows);
     }
 
-    const dayKey = toDateKey(d);
-    const lastSyncedAt = lastCloudSyncAtByDateRef.current[dayKey] ?? 0;
-    const shouldForceSync = Date.now() - lastSyncedAt > 5 * 60 * 1000;
-    if (shouldForceSync) {
-      await runHistoryLoading(() => syncDayFromCloud(d, { force: true }));
-    }
+    void syncDateQuietly(d, { force: true });
   }
 
   const recordDateKeys = useMemo(() => {
@@ -813,6 +875,15 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           onStop={handleStopGenerating}
           onFocus={handleComposerFocus}
           onDisabledPress={() => {
+            if (isTodaySyncing) {
+              showNotice({
+                message: "正在同步消息，请稍后发送",
+                type: "info",
+                position: "top-right",
+                durationMs: 1500,
+              });
+              return;
+            }
             if (remainingChars !== null && remainingChars <= 0) {
               Alert.alert("今日额度已用尽");
             }
@@ -862,6 +933,27 @@ function toDisplayRows(rows: ChatMessage[]): ChatMessage[] {
 
 function isSameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
   return (a.id !== undefined && b.id !== undefined && a.id === b.id) || a.localId === b.localId;
+}
+
+function areMessageRowsEquivalent(a: ChatMessage[], b: ChatMessage[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.id !== right.id ||
+      left.localId !== right.localId ||
+      left.role !== right.role ||
+      left.text !== right.text ||
+      left.status !== right.status ||
+      left.createdAt !== right.createdAt ||
+      (left.clozeVersion ?? 0) !== (right.clozeVersion ?? 0) ||
+      JSON.stringify(left.clozeState ?? null) !== JSON.stringify(right.clozeState ?? null)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function autoCopyModeLabel(mode: AutoCopyMode): string {

@@ -13,6 +13,7 @@ import { ChatScreen } from "./screens/ChatScreen";
 import { PracticeScreen } from "./screens/PracticeScreen";
 import { PracticeSessionScreen } from "./screens/PracticeSessionScreen";
 import { AboutScreen } from "./screens/AboutScreen";
+import { FloatingNoticeProvider } from "./screens/shared/FloatingNotice";
 import { onSessionInvalid } from "./services/auth/authSessionEvents";
 import type { ChatMessage } from "./domain/chat/types";
 import type { PracticeCard } from "./domain/practice/practiceService";
@@ -125,7 +126,9 @@ export default function App() {
 
   return (
     <KeyboardProvider>
-      <View style={styles.screen}>{content}</View>
+      <FloatingNoticeProvider>
+        <View style={styles.screen}>{content}</View>
+      </FloatingNoticeProvider>
     </KeyboardProvider>
   );
 }
