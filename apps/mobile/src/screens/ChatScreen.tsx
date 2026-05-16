@@ -7,15 +7,18 @@ import {
   StyleSheet,
   ToastAndroid,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getSession } from "../services/authStorage";
-import { getCurrentEntitlement } from "../services/meApi";
+import { getSession } from "../services/auth/authStorage";
+import { getCurrentEntitlement } from "../services/api/meApi";
+import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import {
   findConversationIdByDateFromCloud,
   listDayMessagesFromCloud,
-} from "../services/chatHistoryApi";
-import { createLocalRewritePair } from "../services/chatSyncService";
+  updateMessageClozeState,
+} from "../services/api/chatHistoryApi";
+import { createLocalRewritePair } from "../services/chat/chatSyncService";
 import {
   appendRewriteMessages,
   ensureRewriteMessagesLoaded,
@@ -23,28 +26,50 @@ import {
   startRewriteSession,
   stopRewriteSession,
   subscribeRewriteSession,
-} from "../services/rewriteSessionService";
+} from "../services/chat/rewriteSessionService";
 import {
+  type AutoCopyMode,
   loadAssistantPreferences,
   saveAssistantPreferences,
-} from "../services/assistantPreferences";
-import { copyTextToClipboard } from "../services/clipboardService";
+} from "../services/preferences/assistantPreferences";
+import { copyTextToClipboard } from "../services/device/clipboardService";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatComposer } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
 import { DatePickerSheet } from "./chat/DatePickerSheet";
-import type { ChatMessage } from "./chat/types";
+import {
+  BlockingLoading,
+  type BlockingLoadingOptions,
+  runWithDeferredBlockingLoading,
+} from "./shared/BlockingLoading";
+import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
+import {
+  ClozeControls,
+  type ClozeDeleteState,
+  type ClozeEditorState,
+  type ClozeFabState,
+} from "./chat/ClozeControls";
+import type { ChatMessage } from "../domain/chat/types";
+import type { NativeTextSelectionPayload } from "./chat/SelectableMessageText";
+import {
+  expandSelectionToTokenRange,
+  normalizeClozeState,
+  removeClozeGroup,
+  replaceClozeGroup,
+} from "../domain/cloze/clozeUtils";
+import { getRewriteChinese, getRewriteEnglish } from "../domain/rewrite/taggedRewrite";
 import {
   filterByDate,
   isSameDate,
   toDateKey,
-} from "./chat/messageState";
+} from "../domain/chat/messageState";
 
 type ChatScreenProps = {
   onBack: () => void;
 };
 
 export function ChatScreen({ onBack }: ChatScreenProps) {
+  const window = useWindowDimensions();
   const [inputText, setInputText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -56,14 +81,25 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [dayMessages, setDayMessages] = useState<ChatMessage[]>([]);
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
   const [autoCopyAfterRewrite, setAutoCopyAfterRewrite] = useState(true);
+  const [autoCopyMode, setAutoCopyMode] = useState<AutoCopyMode>("en");
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
+  const [isProEntitled, setIsProEntitled] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const [clozeFab, setClozeFab] = useState<ClozeFabState | null>(null);
+  const [clozeEditor, setClozeEditor] = useState<ClozeEditorState | null>(null);
+  const [clozeDelete, setClozeDelete] = useState<ClozeDeleteState | null>(null);
+  const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
+  const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const allLocalMessagesRef = useRef<ChatMessage[]>([]);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const selectedDateKeyRef = useRef(toDateKey(new Date()));
   const dayLoadedRowsRef = useRef<Record<string, ChatMessage[]>>({});
   const syncSeqRef = useRef(0);
   const latestSyncReqByDateRef = useRef<Record<string, number>>({});
+  const lastCloudSyncAtByDateRef = useRef<Record<string, number>>({});
+  const clozeSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isProEntitledRef = useRef(false);
+  const clozeSaveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
   const scrollToBottom = React.useCallback((animated = false): void => {
     requestAnimationFrame(() => {
       messageListRef.current?.scrollToEnd({ animated });
@@ -83,10 +119,17 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   }, [selectedDate]);
 
   useEffect(() => {
+    isProEntitledRef.current = isProEntitled;
+  }, [isProEntitled]);
+
+  useEffect(() => {
     let cancelled = false;
     async function bootstrapPreferences() {
       const preferences = await loadAssistantPreferences();
-      if (!cancelled) setAutoCopyAfterRewrite(preferences.autoCopyAfterRewrite);
+      if (!cancelled) {
+        setAutoCopyAfterRewrite(preferences.autoCopyAfterRewrite);
+        setAutoCopyMode(preferences.autoCopyMode);
+      }
     }
     void bootstrapPreferences();
     return () => {
@@ -97,9 +140,17 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   useEffect(() => {
     let cancelled = false;
     async function loadEntitlementSnapshot() {
+      if (!(await hasLocalProAccess())) {
+        if (!cancelled) {
+          setRemainingChars(null);
+          setIsProEntitled(false);
+        }
+        return;
+      }
       const entitlement = await getCurrentEntitlement().catch(() => null);
       if (!cancelled) {
         setRemainingChars(entitlement?.remainingChars ?? null);
+        setIsProEntitled(entitlement?.isPro === true);
       }
     }
     void loadEntitlementSnapshot();
@@ -201,16 +252,192 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     }
   }
 
+  async function copyAssistantTaggedText(text: string, mode: AutoCopyMode, silent = false): Promise<void> {
+    const en = getRewriteEnglish(text).trim();
+    const zh = getRewriteChinese(text).trim();
+    const copyText =
+      mode === "en"
+        ? en
+        : mode === "zh"
+          ? zh
+          : [en, zh].filter(Boolean).join("\n");
+    await copyAssistantText(copyText || text, silent);
+  }
+
   const handleCopyMessage = React.useCallback(
     (message: ChatMessage) => {
-      void copyAssistantText(message.text);
+      void copyAssistantTaggedText(message.text, autoCopyMode);
     },
-    []
+    [autoCopyMode]
   );
 
   const handleScrollBeginDrag = React.useCallback(() => {
     Keyboard.dismiss();
+    setClozeFab(null);
   }, []);
+
+  const handleTextSelection = React.useCallback(
+    (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
+      if (clozeSelectionTimerRef.current) {
+        clearTimeout(clozeSelectionTimerRef.current);
+      }
+      if (payload.start === payload.end) {
+        setClozeFab(null);
+        return;
+      }
+      const expanded = expandSelectionToTokenRange(
+        getRewriteEnglish(message.text),
+        payload.start,
+        payload.end,
+        message.clozeState,
+        payload.isBackward === true,
+      );
+      if (!expanded) {
+        setClozeFab(null);
+        return;
+      }
+      clozeSelectionTimerRef.current = setTimeout(() => {
+        setClozeFab({
+          message,
+          tokenIndexes: expanded.tokenIndexes,
+          x: payload.endX,
+          y: payload.endY,
+          clearSelection,
+        });
+      }, 180);
+    },
+    [],
+  );
+
+  function openNewClozeEditor(): void {
+    if (!clozeFab) return;
+    clozeFab.clearSelection();
+    setClozeEditor({
+      message: clozeFab.message,
+      groupIndex: null,
+      tokenIndexes: clozeFab.tokenIndexes,
+      draftBlankIndexes: [], // 默认没有空
+    });
+    setClozeFab(null);
+  }
+
+  const handleEditClozeGroup = React.useCallback((message: ChatMessage, groupIndex: number) => {
+    const group = normalizeClozeState(message.clozeState)?.groups[groupIndex];
+    if (!group) return;
+    setClozeEditor({
+      message,
+      groupIndex,
+      tokenIndexes: group.tokenIndexes,
+      draftBlankIndexes: group.blankTokenIndexes,
+    });
+  }, []);
+
+  const handleDeleteClozeGroup = React.useCallback((message: ChatMessage, groupIndex: number) => {
+    setClozeDelete({ message, groupIndex });
+  }, []);
+
+  async function confirmDeleteCloze(): Promise<void> {
+    if (!clozeDelete) return;
+    const target = clozeDelete;
+    setClozeDelete(null);
+    await runHistoryLoading(() =>
+      saveMessageCloze(target.message, removeClozeGroup(target.message.clozeState, target.groupIndex))
+    );
+  }
+
+  function toggleDraftToken(tokenIndex: number): void {
+    setClozeEditor((current) => {
+      if (!current) return current;
+      const set = new Set(current.draftBlankIndexes);
+      if (set.has(tokenIndex)) set.delete(tokenIndex);
+      else set.add(tokenIndex);
+      return { ...current, draftBlankIndexes: Array.from(set).sort((a, b) => a - b) };
+    });
+  }
+
+  async function confirmClozeEditor(): Promise<void> {
+    if (!clozeEditor) return;
+    const nextState = replaceClozeGroup(
+      clozeEditor.message.clozeState,
+      clozeEditor.groupIndex,
+      clozeEditor.tokenIndexes,
+      clozeEditor.draftBlankIndexes,
+    );
+    const target = clozeEditor.message;
+    setClozeEditor(null);
+    await runHistoryLoading(() => saveMessageCloze(target, nextState));
+  }
+
+  async function saveMessageCloze(message: ChatMessage, clozeState: ChatMessage["clozeState"]): Promise<void> {
+    const key = message.id ?? message.localId;
+    const previous = clozeSaveQueueRef.current.get(key) ?? Promise.resolve();
+    const queued = previous
+      .catch(() => undefined)
+      .then(() => persistMessageCloze(message, clozeState));
+    clozeSaveQueueRef.current.set(key, queued);
+    try {
+      await queued;
+    } finally {
+      if (clozeSaveQueueRef.current.get(key) === queued) {
+        clozeSaveQueueRef.current.delete(key);
+      }
+    }
+  }
+
+  async function persistMessageCloze(message: ChatMessage, clozeState: ChatMessage["clozeState"]): Promise<void> {
+    const matches = (row: ChatMessage) => isSameChatMessage(row, message);
+    const currentMessage = allLocalMessagesRef.current.find(matches) ?? message;
+    const baseVersion = currentMessage.clozeVersion ?? 0;
+    const optimistic = { ...currentMessage, clozeState, clozeVersion: baseVersion + 1 };
+    await applyMessageUpdate(optimistic);
+
+    if (currentMessage.id) {
+      const isPro = await hasLocalProAccess();
+      isProEntitledRef.current = isPro;
+      setIsProEntitled(isPro);
+    }
+
+    if (!isProEntitledRef.current || !currentMessage.id) {
+      return;
+    }
+
+    try {
+      const saved = await updateMessageClozeState({
+        messageId: currentMessage.id,
+        baseVersion,
+        clozeState,
+      });
+      await applyMessageUpdate({
+        ...optimistic,
+        clozeState: saved.clozeState ?? null,
+        clozeVersion: saved.clozeVersion,
+      });
+    } catch (error) {
+      const latest = (error as { latest?: { clozeState: ChatMessage["clozeState"]; clozeVersion: number } }).latest;
+      if (latest) {
+        await applyMessageUpdate({
+          ...currentMessage,
+          clozeState: latest.clozeState ?? null,
+          clozeVersion: latest.clozeVersion,
+        });
+        return;
+      }
+      await applyMessageUpdate(currentMessage);
+      setDialog({ message: "保存填空失败，请稍后重试。" });
+    }
+  }
+
+  async function applyMessageUpdate(nextMessage: ChatMessage): Promise<void> {
+    const replace = (rows: ChatMessage[]) =>
+      rows.map((row) => (isSameChatMessage(row, nextMessage) ? nextMessage : row));
+    const nextAll = replace(allLocalMessagesRef.current);
+    const nextDay = replace(dayMessages);
+    allLocalMessagesRef.current = nextAll;
+    setAllLocalMessages(nextAll);
+    setDayMessages(nextDay);
+    setMessages(nextDay);
+    await replaceRewriteMessages(nextAll);
+  }
 
   function notifyCopySuccess(message: string): void {
     if (Platform.OS === "android") {
@@ -222,19 +449,30 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     }
   }
 
-  async function handleToggleAutoCopy(): Promise<void> {
-    const next = !autoCopyAfterRewrite;
-    setAutoCopyAfterRewrite(next);
-    await saveAssistantPreferences({ autoCopyAfterRewrite: next });
-    Alert.alert(next ? "自动复制已开启" : "自动复制已关闭");
+  async function handleSetAutoCopyMode(mode: AutoCopyMode): Promise<void> {
+    setAutoCopyAfterRewrite(true);
+    setAutoCopyMode(mode);
+    await saveAssistantPreferences({ autoCopyAfterRewrite: true, autoCopyMode: mode });
   }
 
   function handleOpenMenu(): void {
-    Alert.alert("聊天设置", autoCopyAfterRewrite ? "自动复制已开启" : "自动复制已关闭", [
+    Alert.alert("自动复制", autoCopyModeLabel(autoCopyMode), [
       {
-        text: autoCopyAfterRewrite ? "关闭自动复制" : "开启自动复制",
+        text: "只自动复制英文",
         onPress: () => {
-          void handleToggleAutoCopy();
+          void handleSetAutoCopyMode("en");
+        },
+      },
+      {
+        text: "只自动复制中文",
+        onPress: () => {
+          void handleSetAutoCopyMode("zh");
+        },
+      },
+      {
+        text: "两个都自动复制",
+        onPress: () => {
+          void handleSetAutoCopyMode("both");
         },
       },
       { text: "取消", style: "cancel" },
@@ -277,11 +515,15 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       retryCount: 0,
       conversationId,
       autoCopyAfterRewrite,
-      onSuccessText: (assistantText) => copyAssistantText(assistantText, true),
+      autoCopyMode,
+      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
     });
 
-    const entitlement = await getCurrentEntitlement().catch(() => null);
-    setRemainingChars(entitlement?.remainingChars ?? null);
+    if (await hasLocalProAccess()) {
+      const entitlement = await getCurrentEntitlement().catch(() => null);
+      setRemainingChars(entitlement?.remainingChars ?? null);
+      setIsProEntitled(entitlement?.isPro === true);
+    }
   }
 
   async function handleRetryMessage(message: ChatMessage): Promise<void> {
@@ -312,11 +554,15 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       systemPrompt: message.retrySystemPrompt,
       conversationId,
       autoCopyAfterRewrite,
-      onSuccessText: (assistantText) => copyAssistantText(assistantText, true),
+      autoCopyMode,
+      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
     });
 
-    const entitlement = await getCurrentEntitlement().catch(() => null);
-    setRemainingChars(entitlement?.remainingChars ?? null);
+    if (await hasLocalProAccess()) {
+      const entitlement = await getCurrentEntitlement().catch(() => null);
+      setRemainingChars(entitlement?.remainingChars ?? null);
+      setIsProEntitled(entitlement?.isPro === true);
+    }
   }
 
   function handleStopGenerating(): void {
@@ -368,19 +614,38 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       time: new Date(row.createdAt).toTimeString().slice(0, 5),
       createdAt: row.createdAt,
       status: row.status,
+      clozeState: row.clozeState ?? null,
+      clozeVersion: row.clozeVersion ?? 0,
+      clozePracticeDiscardedAt: row.clozePracticeDiscardedAt ?? null,
     }));
+  }
+
+  async function runHistoryLoading<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    return runWithDeferredBlockingLoading(
+      task,
+      { show: setLoadingOptions, hide: () => setLoadingOptions(null) },
+      {
+        blocking: true,
+        abortable: true,
+        cancelableAfterMs: 10000,
+        timeoutMs: 20000,
+        onTimeout: () => setDialog({ message: "同步超时，请稍后重试。" }),
+      },
+    );
   }
 
   async function syncDayFromCloud(
     d: Date,
     options?: { force?: boolean }
   ): Promise<void> {
+    const localPro = await hasLocalProAccess();
     const [session, entitlement] = await Promise.all([
       getSession(),
-      getCurrentEntitlement().catch(() => null),
+      localPro ? getCurrentEntitlement().catch(() => null) : Promise.resolve(null),
     ]);
     const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
     const isPro = entitlement?.isPro === true;
+    setIsProEntitled(isPro);
     const dateKey = toDateKey(d);
     const reqId = ++syncSeqRef.current;
     latestSyncReqByDateRef.current[dateKey] = reqId;
@@ -425,6 +690,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     setAllLocalMessages(replaced);
     allLocalMessagesRef.current = replaced;
     await replaceRewriteMessages(replaced);
+    lastCloudSyncAtByDateRef.current[dayKey] = Date.now();
     if (selectedDateKeyRef.current === dayKey) {
       setDayMessages(nextVisibleDay);
       setMessages(nextVisibleDay);
@@ -444,7 +710,12 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       setMessages(visibleLocalRows);
     }
 
-    await syncDayFromCloud(d);
+    const dayKey = toDateKey(d);
+    const lastSyncedAt = lastCloudSyncAtByDateRef.current[dayKey] ?? 0;
+    const shouldForceSync = Date.now() - lastSyncedAt > 5 * 60 * 1000;
+    if (shouldForceSync) {
+      await runHistoryLoading(() => syncDayFromCloud(d, { force: true }));
+    }
   }
 
   const recordDateKeys = useMemo(() => {
@@ -472,6 +743,9 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           onScrollBeginDrag={handleScrollBeginDrag}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
+          onTextSelection={handleTextSelection}
+          onEditClozeGroup={handleEditClozeGroup}
+          onDeleteClozeGroup={handleDeleteClozeGroup}
         />
 
         <ChatComposer
@@ -504,12 +778,38 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         }
           onSelectDate={handleSelectDate}
       />
+      <ClozeControls
+        fab={clozeFab}
+        editor={clozeEditor}
+        deleteTarget={clozeDelete}
+        screenWidth={window.width}
+        screenHeight={window.height}
+        onCloseFab={() => setClozeFab(null)}
+        onOpenNewEditor={openNewClozeEditor}
+        onCloseEditor={() => setClozeEditor(null)}
+        onToggleDraftToken={toggleDraftToken}
+        onConfirmEditor={() => void confirmClozeEditor()}
+        onCloseDelete={() => setClozeDelete(null)}
+        onConfirmDelete={() => void confirmDeleteCloze()}
+      />
+      <BlockingLoading visible={!!loadingOptions} options={loadingOptions} />
+      <InfoDialog config={dialog} onClose={() => setDialog(null)} />
     </SafeAreaView>
   );
 }
 
 function toDisplayRows(rows: ChatMessage[]): ChatMessage[] {
   return rows.filter((row) => row.status === "success" || row.status === "pending");
+}
+
+function isSameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
+  return (a.id !== undefined && b.id !== undefined && a.id === b.id) || a.localId === b.localId;
+}
+
+function autoCopyModeLabel(mode: AutoCopyMode): string {
+  if (mode === "zh") return "当前：只自动复制中文";
+  if (mode === "both") return "当前：英文和中文都自动复制";
+  return "当前：只自动复制英文";
 }
 
 const styles = StyleSheet.create({

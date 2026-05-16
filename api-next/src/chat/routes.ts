@@ -1,6 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import {
   ConversationAccessDeniedError,
+  InvalidClozeStateError,
+  MessageAccessDeniedError,
+  MessageClozeConflictError,
   type ChatMessageService,
 } from "@lf/server-next/services/chat/ChatMessageService.js";
 import { resolveRequestId } from "../lib/httpResult.js";
@@ -45,6 +48,22 @@ type ListDayPageQuery = {
   beforeId?: string;
 };
 
+type UpdateClozeBody = {
+  messageId: string;
+  baseVersion: number;
+  clozeState: {
+    groups: Array<{
+      tokenIndexes: number[];
+      blankTokenIndexes: number[];
+    }>;
+    correctTokenIndexes: number[];
+  } | null;
+};
+
+type DiscardClozePracticeBody = {
+  messageId: string;
+};
+
 export interface ChatRouteDeps {
   chatMessageService: ChatMessageService;
   userRepository: {
@@ -62,6 +81,7 @@ export interface ChatRouteDeps {
   systemEventLogRepository?: SystemEventLogWriter;
   entitlementService :{
     assertCanUse: (userId: string, requestedChars: number) => Promise<void>;
+    getCurrentEntitlement: (userId: string) => Promise<{ isPro: boolean }>;
   };
   rateLimiter: {
     consume: (key: string, limit: number, windowMs: number) => Promise<boolean>;
@@ -79,6 +99,24 @@ function isSendMessageBody(value: unknown): value is SendMessageBody {
     typeof v.text === "string" &&
     v.text.trim().length > 0
   );
+}
+
+function isUpdateClozeBody(value: unknown): value is UpdateClozeBody {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.messageId === "string" &&
+    v.messageId.trim().length > 0 &&
+    Number.isFinite(v.baseVersion) &&
+    (v.clozeState === null || typeof v.clozeState === "object")
+  );
+}
+
+// 练习丢弃目前只需要 messageId；用户身份和 assistant-message 约束在 service 层校验。
+function isDiscardClozePracticeBody(value: unknown): value is DiscardClozePracticeBody {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.messageId === "string" && v.messageId.trim().length > 0;
 }
 
 export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): void {
@@ -248,12 +286,20 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     try {
+      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.listConversationMessages({
         conversationId,
         userId: userContext.userId,
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
+      if (isProRequiredError(error)) {
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "PRO_REQUIRED", message: "Pro access required" },
+        });
+      }
       if (error instanceof ConversationAccessDeniedError) {
         return reply.status(404).send({
           ok: false,
@@ -331,6 +377,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     const toDateKey = query.toDateKey?.trim() || defaultTo;
 
     try {
+      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.listConversationMessagesByDateRange({
         conversationId,
         userId: userContext.userId,
@@ -340,6 +387,13 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
 
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
+      if (isProRequiredError(error)) {
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "PRO_REQUIRED", message: "Pro access required" },
+        });
+      }
       if (error instanceof ConversationAccessDeniedError) {
         return reply.status(404).send({
           ok: false,
@@ -403,11 +457,24 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       throw error;
     }
 
-    const conversationId = await deps.chatMessageService.findConversationIdByUserContactDate({
-      userId: userContext.userId,
-      contactId,
-      dateKey,
-    });
+    let conversationId: string | null;
+    try {
+      await assertProCloudAccess(deps, userContext.userId);
+      conversationId = await deps.chatMessageService.findConversationIdByUserContactDate({
+        userId: userContext.userId,
+        contactId,
+        dateKey,
+      });
+    } catch (error) {
+      if (isProRequiredError(error)) {
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "PRO_REQUIRED", message: "Pro access required" },
+        });
+      }
+      throw error;
+    }
 
     return reply.status(200).send({
       ok: true,
@@ -471,6 +538,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     try {
+      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.listDayMessagesPage({
         conversationId,
         userId: userContext.userId,
@@ -481,7 +549,217 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
+      if (isProRequiredError(error)) {
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "PRO_REQUIRED", message: "Pro access required" },
+        });
+      }
       if (error instanceof ConversationAccessDeniedError) {
+        return reply.status(404).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
+    }
+  });
+
+  // 保存挖空状态：聊天页新增/删除挖空，以及练习页答对空，最终都走这个接口。
+  app.patch("/chat/messages/cloze", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    if (!isUpdateClozeBody(body)) {
+      await logClozeSaveFailure(deps.systemEventLogRepository, {
+        requestId,
+        userId: null,
+        errorCode: "VALIDATION_FAILED",
+        errorMessage: "Invalid cloze payload",
+        metadata: { reason: "invalid_payload" },
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid cloze payload" },
+      });
+    }
+
+    let userContext;
+    try {
+      userContext = await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: null,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/messages/cloze" },
+        });
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
+    }
+
+    try {
+      await assertProCloudAccess(deps, userContext.userId);
+      const data = await deps.chatMessageService.updateMessageCloze({
+        userId: userContext.userId,
+        messageId: body.messageId.trim(),
+        baseVersion: Math.max(0, Math.floor(Number(body.baseVersion))),
+        clozeState: body.clozeState,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (isProRequiredError(error)) {
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "PRO_REQUIRED", message: "Pro access required" },
+        });
+      }
+      if (error instanceof MessageClozeConflictError) {
+        await logClozeSaveFailure(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          errorCode: error.code,
+          errorMessage: error.message,
+          metadata: buildClozeSaveFailureMetadata(body, {
+            latestVersion: error.latest.clozeVersion,
+            reason: "version_conflict",
+          }),
+        });
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+          data: error.latest,
+        });
+      }
+      if (error instanceof InvalidClozeStateError) {
+        await logClozeSaveFailure(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          errorCode: error.code,
+          errorMessage: error.message,
+          metadata: buildClozeSaveFailureMetadata(body, { reason: "invalid_state" }),
+        });
+        return reply.status(400).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof MessageAccessDeniedError) {
+        await logClozeSaveFailure(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          errorCode: error.code,
+          errorMessage: error.message,
+          metadata: buildClozeSaveFailureMetadata(body, { reason: "message_access_denied" }),
+        });
+        return reply.status(404).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      await logClozeSaveFailure(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        errorCode: "CLOZE_SAVE_FAILED",
+        errorMessage: error instanceof Error ? error.message : "Unknown cloze save failure",
+        metadata: buildClozeSaveFailureMetadata(body, { reason: "unexpected_error" }),
+      });
+      throw error;
+    }
+  });
+
+  // 练习卡右滑丢弃：写入 message.clozePracticeDiscardedAt，之后所有练习入口统一过滤。
+  app.patch("/chat/messages/cloze-practice-discard", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    if (!isDiscardClozePracticeBody(body)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid discard payload" },
+      });
+    }
+
+    let userContext;
+    try {
+      userContext = await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: null,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/messages/cloze-practice-discard" },
+        });
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
+    }
+
+    try {
+      await assertProCloudAccess(deps, userContext.userId);
+      const data = await deps.chatMessageService.discardClozePractice({
+        userId: userContext.userId,
+        messageId: body.messageId.trim(),
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (isProRequiredError(error)) {
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "PRO_REQUIRED", message: "Pro access required" },
+        });
+      }
+      if (error instanceof MessageAccessDeniedError) {
         return reply.status(404).send({
           ok: false,
           request_id: requestId,
@@ -493,9 +771,61 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
   });
 }
 
+async function assertProCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {
+  const entitlement = await deps.entitlementService.getCurrentEntitlement(userId);
+  if (entitlement.isPro) return;
+  const error = new Error("Pro access required") as Error & { code: string; statusCode: number };
+  error.code = "PRO_REQUIRED";
+  error.statusCode = 403;
+  throw error;
+}
+
+function isProRequiredError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && String(error.code) === "PRO_REQUIRED";
+}
+
 function formatDateKey(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+async function logClozeSaveFailure(
+  systemEventLogRepository: SystemEventLogWriter | undefined,
+  input: {
+    requestId: string;
+    userId: string | null;
+    errorCode: string;
+    errorMessage: string;
+    metadata: Record<string, unknown>;
+  }
+): Promise<void> {
+  await writeSystemEventLog(systemEventLogRepository, {
+    requestId: input.requestId,
+    userId: input.userId,
+    module: "chat",
+    event: "chat.cloze.save_failed",
+    level: "warn",
+    status: "failed",
+    errorCode: input.errorCode,
+    errorMessage: input.errorMessage,
+    metadata: {
+      path: "/chat/messages/cloze",
+      ...input.metadata,
+    },
+  });
+}
+
+function buildClozeSaveFailureMetadata(
+  body: UpdateClozeBody,
+  extra: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    messageId: body.messageId,
+    baseVersion: body.baseVersion,
+    hasClozeState: body.clozeState !== null,
+    groupCount: body.clozeState?.groups.length ?? 0,
+    ...extra,
+  };
 }

@@ -1,8 +1,9 @@
-import type { ChatMessage } from "../screens/chat/types";
-import { clampMessages, updateMessageByLocalId } from "../screens/chat/messageState";
+import type { ChatMessage } from "../../domain/chat/types";
+import { clampMessages, updateMessageByLocalId } from "../../domain/chat/messageState";
 import { loadLocalMessagesScoped, saveLocalMessagesScoped } from "./chatLocalStorage";
 import { runRewriteSync } from "./chatSyncService";
-import { getSession } from "./authStorage";
+import { getSession } from "../auth/authStorage";
+import type { AutoCopyMode } from "../preferences/assistantPreferences";
 
 type RewriteSnapshot = {
   isSending: boolean;
@@ -21,7 +22,8 @@ type StartRewriteInput = {
   userLocalId?: string;
   conversationId?: string | null;
   autoCopyAfterRewrite: boolean;
-  onSuccessText?: (text: string) => Promise<void>;
+  autoCopyMode: AutoCopyMode;
+  onSuccessText?: (text: string, mode: AutoCopyMode) => Promise<void>;
 };
 
 let messagesCache: ChatMessage[] | null = null;
@@ -163,7 +165,7 @@ export function startRewriteSession(input: StartRewriteInput): void {
     });
 
     if (result.status === "success" && input.autoCopyAfterRewrite && result.assistantText) {
-      await input.onSuccessText?.(result.assistantText);
+      await input.onSuccessText?.(result.assistantText, input.autoCopyMode);
     }
 
     if (activeRunId !== runId) return;

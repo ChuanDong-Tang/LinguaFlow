@@ -2,8 +2,13 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createProMonthlyOrder } from "../services/paymentApi";
-import { clearPendingPaymentOrder, pollPaymentOrderUntilSettled, recoverPendingPaymentIfAny, savePendingPaymentOrder } from "../services/paymentRecovery";
+import { createProMonthlyOrder } from "../services/api/paymentApi";
+import {
+  clearPendingPaymentOrder,
+  pollPaymentOrderUntilSettled,
+  recoverPendingPaymentIfAny,
+  savePendingPaymentOrder,
+} from "../services/payment/paymentRecovery";
 
 type ProScreenProps = { onBack: () => void };
 
@@ -14,6 +19,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
   useEffect(() => {
     let mounted = true;
     void (async () => {
+      // 页面打开时先恢复未完成订单，处理用户支付后返回 App 的场景。
       const recovered = await recoverPendingPaymentIfAny();
       if (!mounted) return;
       if (recovered.status === "paid") {
@@ -21,7 +27,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
         Alert.alert("开通成功", "Pro 权益已生效。");
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   async function handleSubscribe(): Promise<void> {
@@ -30,6 +38,8 @@ export function ProScreen({ onBack }: ProScreenProps) {
     try {
       const order = await createProMonthlyOrder();
       await savePendingPaymentOrder({ orderId: order.id, providerOrderId: order.providerOrderId });
+
+      // 支付完成通常需要后端确认，这里轮询到终态再更新本地展示。
       const settled = await pollPaymentOrderUntilSettled(order.id);
       if (settled.status === "paid") {
         await clearPendingPaymentOrder();
@@ -53,19 +63,87 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}><Pressable style={styles.backButton} onPress={onBack} hitSlop={10}><Ionicons name="arrow-back" size={30} color="#111111" /></Pressable><Text style={styles.headerTitle}>OIO Pro</Text><View style={styles.backButton} /></View>
+      <View style={styles.header}>
+        <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
+          <Ionicons name="arrow-back" size={30} color="#111111" />
+        </Pressable>
+        <Text style={styles.headerTitle}>OIO Pro</Text>
+        <View style={styles.backButton} />
+      </View>
+
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.heroCard}><View><Text style={styles.heroTitle}>OIO Pro</Text><Text style={styles.heroCopy}>更充足的字符额度，</Text><Text style={styles.heroCopy}>让表达练习更自由。</Text></View><View style={styles.heroShape}><View style={styles.heroCircle} /><View style={styles.heroSquare} /></View></View>
+        <View style={styles.heroCard}>
+          <View>
+            <Text style={styles.heroTitle}>OIO Pro</Text>
+            <Text style={styles.heroCopy}>更充足的字符额度，</Text>
+            <Text style={styles.heroCopy}>让表达练习更自由。</Text>
+          </View>
+          <View style={styles.heroShape}>
+            <View style={styles.heroCircle} />
+            <View style={styles.heroSquare} />
+          </View>
+        </View>
+
         <Text style={styles.sectionTitle}>Pro 权益</Text>
-        <View style={styles.benefitCard}><BenefitItem icon="text-outline" title="更多每日字符额度" subtitle="普通版：每日 10,000 字\nPro 版：每日 100,000 字" /><BenefitItem icon="leaf-outline" title="支持更长文本改写" subtitle="更适合长句、长段落改写" /><BenefitItem icon="flash-outline" title="更高频使用" subtitle="适合每天持续练习和记录" isLast /></View>
-        <View style={styles.priceCard}><View style={styles.priceHead}><Text style={styles.priceTitle}>Pro 月度</Text>{isRenew ? <Text style={styles.expire}>到期时间：2026年6月11日</Text> : null}</View><View style={styles.priceRow}><Text style={styles.price}>¥ xx</Text><Text style={styles.priceUnit}> / 月</Text></View><View style={styles.noteBox}><Text style={styles.noteText}>测试说明：后续接入更多功能后，{"\n"}Pro 权益与价格可能会调整，具体请以当前页面展示为准。</Text></View><Pressable style={[styles.subscribeButton, isPaying && styles.subscribeButtonDisabled]} onPress={() => void handleSubscribe()} disabled={isPaying}>{isPaying ? <ActivityIndicator color="#111111" /> : <Text style={styles.subscribeText}>{isRenew ? "续费 Pro" : "开通 Pro"}</Text>}</Pressable></View>
+        <View style={styles.benefitCard}>
+          <BenefitItem icon="text-outline" title="更多每日字符额度" subtitle="普通版：每日 10,000 字\nPro 版：每日 100,000 字" />
+          <BenefitItem icon="leaf-outline" title="支持更长文本改写" subtitle="更适合长句、长段落改写" />
+          <BenefitItem icon="flash-outline" title="更高频使用" subtitle="适合每天持续练习和记录" isLast />
+        </View>
+
+        <View style={styles.priceCard}>
+          <View style={styles.priceHead}>
+            <Text style={styles.priceTitle}>Pro 月度</Text>
+            {isRenew ? <Text style={styles.expire}>到期时间：2026年6月11日</Text> : null}
+          </View>
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>¥ xx</Text>
+            <Text style={styles.priceUnit}> / 月</Text>
+          </View>
+          <View style={styles.noteBox}>
+            <Text style={styles.noteText}>
+              测试说明：后续接入更多功能后，{"\n"}Pro 权益与价格可能会调整，具体请以当前页面展示为准。
+            </Text>
+          </View>
+          <Pressable
+            style={[styles.subscribeButton, isPaying && styles.subscribeButtonDisabled]}
+            onPress={() => void handleSubscribe()}
+            disabled={isPaying}
+          >
+            {isPaying ? (
+              <ActivityIndicator color="#111111" />
+            ) : (
+              <Text style={styles.subscribeText}>{isRenew ? "续费 Pro" : "开通 Pro"}</Text>
+            )}
+          </Pressable>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function BenefitItem({ icon, title, subtitle, isLast }: { icon: React.ComponentProps<typeof Ionicons>["name"]; title: string; subtitle: string; isLast?: boolean; }) {
-  return <View style={[styles.benefitItem, !isLast && styles.benefitItemBorder]}><View style={styles.benefitIcon}><Ionicons name={icon} size={22} color="#111111" /></View><View style={styles.benefitCopy}><Text style={styles.benefitTitle}>{title}</Text><Text style={styles.benefitSubtitle}>{subtitle}</Text></View></View>;
+function BenefitItem({
+  icon,
+  title,
+  subtitle,
+  isLast,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  title: string;
+  subtitle: string;
+  isLast?: boolean;
+}) {
+  return (
+    <View style={[styles.benefitItem, !isLast && styles.benefitItemBorder]}>
+      <View style={styles.benefitIcon}>
+        <Ionicons name={icon} size={22} color="#111111" />
+      </View>
+      <View style={styles.benefitCopy}>
+        <Text style={styles.benefitTitle}>{title}</Text>
+        <Text style={styles.benefitSubtitle}>{subtitle}</Text>
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

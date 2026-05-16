@@ -1,5 +1,5 @@
-import { getSession } from "./authStorage";
-import { getAuthHeaders } from "./authHeaders";
+import { getSession } from "../auth/authStorage";
+import { getAuthHeaders } from "../auth/authHeaders";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -13,6 +13,15 @@ export type MessageView = {
   status: "pending" | "success" | "failed";
   content: string;
   createdAt: string;
+  clozeState?: {
+    groups: Array<{
+      tokenIndexes: number[];
+      blankTokenIndexes: number[];
+    }>;
+    correctTokenIndexes: number[];
+  } | null;
+  clozeVersion?: number;
+  clozePracticeDiscardedAt?: string | null;
 };
 
 export type ListMessagesByRangeInput = {
@@ -128,4 +137,47 @@ export async function findConversationIdByDateFromCloud(input: {
   }
 
   return json.data.conversationId;
+}
+
+export async function updateMessageClozeState(input: {
+  messageId: string;
+  baseVersion: number;
+  clozeState: MessageView["clozeState"];
+}): Promise<{ clozeState: MessageView["clozeState"]; clozeVersion: number }> {
+  const res = await fetch(`${BASE_URL}/chat/messages/cloze`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+    body: JSON.stringify(input),
+  });
+  const json = (await res.json()) as ApiResult<{ clozeState: MessageView["clozeState"]; clozeVersion: number }> & {
+    data?: { clozeState: MessageView["clozeState"]; clozeVersion: number };
+  };
+
+  if (!json.ok) {
+    const error = new Error(json.error.message) as Error & {
+      status?: number;
+      latest?: { clozeState: MessageView["clozeState"]; clozeVersion: number };
+    };
+    error.status = res.status;
+    error.latest = json.data;
+    throw error;
+  }
+  return json.data;
+}
+
+// 练习右滑丢弃是云端权威状态：成功写入后，这条消息以后不再进入任何练习入口。
+export async function discardMessageClozePractice(input: {
+  messageId: string;
+}): Promise<{ messageId: string; clozePracticeDiscardedAt: string }> {
+  const res = await fetch(`${BASE_URL}/chat/messages/cloze-practice-discard`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+    body: JSON.stringify(input),
+  });
+  const json = (await res.json()) as ApiResult<{ messageId: string; clozePracticeDiscardedAt: string }>;
+
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+  return json.data;
 }

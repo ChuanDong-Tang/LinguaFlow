@@ -1,5 +1,5 @@
 import { clearSession, getSession, setSession } from "./authStorage";
-import { refreshAccessToken } from "./authApi";
+import { refreshAccessToken } from "../api/authApi";
 import { emitSessionInvalid } from "./authSessionEvents";
 
 const REFRESH_AHEAD_SECONDS = 60;

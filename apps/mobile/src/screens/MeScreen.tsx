@@ -3,20 +3,22 @@ import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, Vi
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
-import { getSession, type AuthSession } from "../services/authStorage";
-import { getCurrentEntitlement, type CurrentEntitlement } from "../services/meApi";
-import { getCachedEntitlement, isSameEntitlement, setCachedEntitlement } from "../services/entitlementCache";
-import { recoverPendingPaymentIfAny } from "../services/paymentRecovery";
+import { getSession, type AuthSession } from "../services/auth/authStorage";
+import type { CurrentEntitlement } from "../services/api/meApi";
+import { getCachedEntitlement, isSameEntitlement } from "../services/entitlement/entitlementCache";
+import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
+import { recoverPendingPaymentIfAny } from "../services/payment/paymentRecovery";
 import { TabBar } from "./shared/TabBar";
 
 type MeScreenProps = {
   onOpenMain: () => void;
+  onOpenPractice: () => void;
   onOpenPro: () => void;
   onOpenAbout: () => void;
   onLogout: () => Promise<void> | void;
 };
 
-export function MeScreen({ onOpenMain, onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
+export function MeScreen({ onOpenMain, onOpenPractice, onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
   const [isLoadingEntitlement, setIsLoadingEntitlement] = useState(true);
@@ -24,28 +26,35 @@ export function MeScreen({ onOpenMain, onOpenPro, onOpenAbout, onLogout }: MeScr
   useEffect(() => {
     let mounted = true;
     async function loadProfile() {
+      // 先恢复支付状态，再读取会话和权益，保证个人页展示尽量接近最新状态。
       await recoverPendingPaymentIfAny();
       const [localSession, cached] = await Promise.all([getSession(), getCachedEntitlement()]);
       if (mounted) setSession(localSession);
       if (cached && mounted) setEntitlement(cached.data);
       if (mounted) setIsLoadingEntitlement(!cached);
       try {
-        const data = await getCurrentEntitlement();
-        if (!cached || !isSameEntitlement(cached.data, data)) await setCachedEntitlement(data);
-        if (mounted) setEntitlement((prev) => (isSameEntitlement(prev, data) ? prev : data));
+        const refreshed = await refreshEntitlementAndSessionSafe();
+        if (mounted && refreshed) {
+          const data = refreshed.entitlement;
+          setEntitlement((prev) => (isSameEntitlement(prev, data) ? prev : data));
+        }
       } catch {
       } finally {
         if (mounted) setIsLoadingEntitlement(false);
       }
     }
     void loadProfile();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const quota = useMemo(() => {
     const dailyTotalLimit = entitlement?.dailyTotalLimit ?? (session?.sessionFlags?.isPro ? 100000 : 10000);
     const remainingChars = entitlement?.remainingChars ?? null;
     const ratio = remainingChars === null || dailyTotalLimit <= 0 ? 0 : remainingChars / dailyTotalLimit;
+
+    // 进度条只接受 0-1，避免异常数据把布局撑出容器。
     return { dailyTotalLimit, remainingChars, ratio: Math.max(0, Math.min(1, ratio)) };
   }, [entitlement, session?.sessionFlags?.isPro]);
 
@@ -56,8 +65,13 @@ export function MeScreen({ onOpenMain, onOpenPro, onOpenAbout, onLogout }: MeScr
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scroller} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileRow}>
-          <View style={styles.profileAvatar}><Ionicons name="person-outline" size={58} color="#111111" /></View>
-          <View style={styles.profileBody}><Text style={styles.profileName}>{userName}</Text><Text style={styles.profilePlan}>{planLabel}</Text></View>
+          <View style={styles.profileAvatar}>
+            <Ionicons name="person-outline" size={58} color="#111111" />
+          </View>
+          <View style={styles.profileBody}>
+            <Text style={styles.profileName}>{userName}</Text>
+            <Text style={styles.profilePlan}>{planLabel}</Text>
+          </View>
         </View>
 
         <View style={styles.quotaCard}>
@@ -68,17 +82,31 @@ export function MeScreen({ onOpenMain, onOpenPro, onOpenAbout, onLogout }: MeScr
             <Text style={styles.quotaUnit}>字</Text>
             {isLoadingEntitlement ? <ActivityIndicator size="small" color="#6E63FF" style={styles.quotaLoading} /> : null}
           </View>
-          <View style={styles.progressRow}><View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${quota.ratio * 100}%` }]} /></View><Text style={styles.progressText}>{quota.remainingChars === null ? "--" : formatNumber(quota.remainingChars)} / {formatNumber(quota.dailyTotalLimit)}</Text></View>
+          <View style={styles.progressRow}>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${quota.ratio * 100}%` }]} />
+            </View>
+            <Text style={styles.progressText}>
+              {quota.remainingChars === null ? "--" : formatNumber(quota.remainingChars)} /{" "}
+              {formatNumber(quota.dailyTotalLimit)}
+            </Text>
+          </View>
           <Text style={styles.resetText}>每天 24:00 自动恢复</Text>
         </View>
 
         <View style={styles.proCard}>
           <Text style={styles.proTitle}>OIO Pro</Text>
           <Text style={styles.proSubtitle}>更充足的字符额度，更自由地表达</Text>
-          { ["更多每日字符额度", "支持更长文本改写", "更高频使用"].map((item) => (
-            <View key={item} style={styles.benefitRow}><Ionicons name="checkmark-circle-outline" size={18} color="#6E63FF" /><Text style={styles.benefitText}>{item}</Text></View>
+          {["更多每日字符额度", "支持更长文本改写", "更高频使用"].map((item) => (
+            <View key={item} style={styles.benefitRow}>
+              <Ionicons name="checkmark-circle-outline" size={18} color="#6E63FF" />
+              <Text style={styles.benefitText}>{item}</Text>
+            </View>
           ))}
-          <Pressable style={styles.proButton} onPress={onOpenPro}><Text style={styles.proButtonText}>查看 Pro</Text><Ionicons name="chevron-forward" size={20} color="#111111" /></Pressable>
+          <Pressable style={styles.proButton} onPress={onOpenPro}>
+            <Text style={styles.proButtonText}>查看 Pro</Text>
+            <Ionicons name="chevron-forward" size={20} color="#111111" />
+          </Pressable>
         </View>
 
         <Text style={styles.sectionTitle}>更多</Text>
@@ -89,16 +117,38 @@ export function MeScreen({ onOpenMain, onOpenPro, onOpenAbout, onLogout }: MeScr
           <SettingsRow icon="log-out-outline" label="退出登录" onPress={onLogout} isLast />
         </View>
       </ScrollView>
-      <TabBar activeTab="me" onPressChat={onOpenMain} onPressMe={onOpenMain} />
+      <TabBar activeTab="me" onPressChat={onOpenMain} onPressPractice={onOpenPractice} onPressMe={onOpenMain} />
     </SafeAreaView>
   );
 }
 
-function SettingsRow({ icon, label, onPress, isLast }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void | Promise<void>; isLast?: boolean; }) {
-  return <Pressable style={[styles.settingsRow, !isLast && styles.settingsRowBorder]} onPress={onPress}><Ionicons name={icon} size={20} color="#111111" /><Text style={styles.settingsLabel}>{label}</Text><Ionicons name="chevron-forward" size={18} color="#111111" /></Pressable>;
+function SettingsRow({
+  icon,
+  label,
+  onPress,
+  isLast,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  onPress: () => void | Promise<void>;
+  isLast?: boolean;
+}) {
+  return (
+    <Pressable style={[styles.settingsRow, !isLast && styles.settingsRowBorder]} onPress={onPress}>
+      <Ionicons name={icon} size={20} color="#111111" />
+      <Text style={styles.settingsLabel}>{label}</Text>
+      <Ionicons name="chevron-forward" size={18} color="#111111" />
+    </Pressable>
+  );
 }
-function openUrl(url: string): void { void Linking.openURL(url); }
-function formatNumber(value: number): string { return new Intl.NumberFormat("en-US").format(value); }
+
+function openUrl(url: string): void {
+  void Linking.openURL(url);
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value);
+}
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FCFCFD" },

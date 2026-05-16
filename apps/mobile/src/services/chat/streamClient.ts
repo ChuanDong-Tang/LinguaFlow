@@ -8,7 +8,24 @@ type AbortSignalLike = {
 export type RewriteStreamEvent =
   | { type: "start" }
   | { type: "delta"; text: string }
-  | { type: "done" }
+  | {
+      type: "done";
+      assistantMessage?: {
+        id: string;
+        role: "user" | "assistant";
+        status: "pending" | "success" | "failed";
+        content: string;
+        createdAt: string;
+        clozeState: {
+          groups: Array<{
+            tokenIndexes: number[];
+            blankTokenIndexes: number[];
+          }>;
+          correctTokenIndexes: number[];
+        } | null;
+        clozeVersion: number;
+      };
+    }
   | { type: "error"; message: string; code?: string };
 
 //发起流式改写时需要的参数。

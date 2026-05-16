@@ -1,4 +1,4 @@
-import { getAuthHeaders } from "./authHeaders";
+import { getAuthHeaders } from "../auth/authHeaders";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 

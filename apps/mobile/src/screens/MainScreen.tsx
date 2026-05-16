@@ -3,10 +3,11 @@ import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-nativ
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TabBar } from "./shared/TabBar";
-import { type DebugModelProvider, loadDebugSettings, saveDebugSettings } from "../services/debugSettingsStorage";
+import { type DebugModelProvider, loadDebugSettings, saveDebugSettings } from "../services/preferences/debugSettingsStorage";
 
 type MainScreenProps = {
   onOpenChat: () => void;
+  onOpenPractice: () => void;
   onOpenMe: () => void;
 };
 
@@ -17,7 +18,7 @@ const MODEL_OPTIONS: Array<{ label: string; value: DebugModelProvider; disabled?
   { label: "讯飞", value: "xunfei", disabled: true },
 ];
 
-export function MainScreen({ onOpenChat, onOpenMe }: MainScreenProps) {
+export function MainScreen({ onOpenChat, onOpenPractice, onOpenMe }: MainScreenProps) {
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [systemPromptDraft, setSystemPromptDraft] = useState("");
   const [modelProvider, setModelProvider] = useState<DebugModelProvider>("deepseek");
@@ -39,6 +40,8 @@ export function MainScreen({ onOpenChat, onOpenMe }: MainScreenProps) {
 
   async function handleSaveDebugSystemPrompt(): Promise<void> {
     const current = await loadDebugSettings();
+
+    // 调试面板只覆盖当前编辑项，避免把未来新增的调试配置误清空。
     await saveDebugSettings({ ...current, systemPrompt: systemPromptDraft, modelProvider });
     setIsDebugOpen(false);
   }
@@ -56,7 +59,9 @@ export function MainScreen({ onOpenChat, onOpenMe }: MainScreenProps) {
         </View>
 
         <Pressable style={styles.conversationRow} onPress={onOpenChat}>
-          <View style={styles.avatarCircle}><Text style={styles.avatarText}>OIO</Text></View>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarText}>OIO</Text>
+          </View>
           <View style={styles.conversationBody}>
             <Text style={styles.conversationTitle}>好奇输入助手</Text>
             <Text style={styles.conversationSubtitle}>把中文想法，说成自然英文</Text>
@@ -75,11 +80,40 @@ export function MainScreen({ onOpenChat, onOpenMe }: MainScreenProps) {
         </View>
       </View>
 
-      <TabBar activeTab="chat" onPressChat={onOpenChat} onPressMe={onOpenMe} />
+      <TabBar activeTab="chat" onPressChat={onOpenChat} onPressPractice={onOpenPractice} onPressMe={onOpenMe} />
 
       {SHOW_DEBUG_PROMPT_PANEL ? (
         <Modal visible={isDebugOpen} transparent animationType="fade" onRequestClose={() => setIsDebugOpen(false)}>
-          <View style={styles.modalBackdrop}><View style={styles.debugPanel}><Text style={styles.debugTitle}>调试设置</Text><TextInput style={styles.promptInput} value={systemPromptDraft} onChangeText={setSystemPromptDraft} multiline textAlignVertical="top" /><View style={styles.modelRow}>{MODEL_OPTIONS.map((option) => (<Pressable key={option.value} style={[styles.modelOption, modelProvider === option.value && styles.modelOptionActive]} onPress={() => !option.disabled && setModelProvider(option.value)}><Text style={[styles.modelText, modelProvider === option.value && styles.modelTextActive]}>{option.label}</Text></Pressable>))}</View><Pressable style={styles.saveButton} onPress={() => void handleSaveDebugSystemPrompt()}><Text style={styles.saveText}>保存</Text></Pressable></View></View>
+          <View style={styles.modalBackdrop}>
+            <View style={styles.debugPanel}>
+              <Text style={styles.debugTitle}>调试设置</Text>
+              <TextInput
+                style={styles.promptInput}
+                value={systemPromptDraft}
+                onChangeText={setSystemPromptDraft}
+                multiline
+                textAlignVertical="top"
+              />
+              <View style={styles.modelRow}>
+                {MODEL_OPTIONS.map((option) => {
+                  const active = modelProvider === option.value;
+
+                  return (
+                    <Pressable
+                      key={option.value}
+                      style={[styles.modelOption, active && styles.modelOptionActive]}
+                      onPress={() => !option.disabled && setModelProvider(option.value)}
+                    >
+                      <Text style={[styles.modelText, active && styles.modelTextActive]}>{option.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Pressable style={styles.saveButton} onPress={() => void handleSaveDebugSystemPrompt()}>
+                <Text style={styles.saveText}>保存</Text>
+              </Pressable>
+            </View>
+          </View>
         </Modal>
       ) : null}
     </SafeAreaView>

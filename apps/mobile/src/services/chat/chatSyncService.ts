@@ -1,9 +1,9 @@
-import { getSession } from "./authStorage";
-import { loadDebugSettings } from "./debugSettingsStorage";
-import { sendMessageToCloud } from "./chatHistoryApi";
+import { getSession } from "../auth/authStorage";
+import { loadDebugSettings } from "../preferences/debugSettingsStorage";
+import { sendMessageToCloud } from "../api/chatHistoryApi";
 import { startRewriteStream } from "./chatStream";
-import type { ChatMessage } from "../screens/chat/types";
-import { nowHHMM } from "../screens/chat/messageState";
+import type { ChatMessage } from "../../domain/chat/types";
+import { nowHHMM } from "../../domain/chat/messageState";
 
 const CONTACT_ID = "rewrite_assistant";
 
@@ -134,11 +134,15 @@ export async function runRewriteSync(input: RunRewriteInput): Promise<RunRewrite
           }
           input.onUpdateMessage(input.assistantLocalId, (row) => ({
             ...row,
+            id: event.assistantMessage?.id ?? row.id,
+            localId: event.assistantMessage?.id ?? row.localId,
             status: "success",
+            clozeState: event.assistantMessage?.clozeState ?? row.clozeState ?? null,
+            clozeVersion: event.assistantMessage?.clozeVersion ?? row.clozeVersion ?? 0,
             retryText: input.text,
             retryCount: input.retryCount,
             retrySystemPrompt: requestSystemPrompt,
-            createdAt: new Date().toISOString(),
+            createdAt: event.assistantMessage?.createdAt ?? new Date().toISOString(),
           }));
         }
       }

@@ -4,11 +4,16 @@ import * as WebBrowser from "expo-web-browser";
 import { Animated, Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { t } from "../i18n";
-import { login, loginWithAuthing } from "../services/authApi";
-import { getAuthingClientId, getAuthingDiscovery, getAuthingRedirectUri, isAuthingConfigured } from "../services/authingAuth";
-import { clearForceAuthingLogin, setSession, shouldForceAuthingLogin } from "../services/authStorage";
+import { login, loginWithAuthing } from "../services/api/authApi";
+import {
+  getAuthingClientId,
+  getAuthingDiscovery,
+  getAuthingRedirectUri,
+  isAuthingConfigured,
+} from "../services/auth/authingAuth";
+import { clearForceAuthingLogin, setSession, shouldForceAuthingLogin } from "../services/auth/authStorage";
 import { logEvent } from "../services/logger";
-import { getCurrentEntitlement } from "../services/meApi";
+import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import type { User } from "@lf/core/types";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -44,7 +49,9 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   useEffect(() => {
     let mounted = true;
     void shouldForceAuthingLogin().then((value) => mounted && setForceAuthingLogin(value));
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   async function handlePrimaryLogin() {
@@ -53,26 +60,49 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setLoading(true);
     setStatusText("");
     try {
+      // 优先走真实 Authing OAuth；未配置时回落到本地 mock 登录，方便开发环境调试。
       if (authingConfigured) {
-        if (!authingRequest || !authingDiscovery) { setStatusText("Authing 登录尚未准备好，请稍后重试"); return; }
+        if (!authingRequest || !authingDiscovery) {
+          setStatusText("Authing 登录尚未准备好，请稍后重试");
+          return;
+        }
         const result = await promptAuthingAsync();
-        if (result.type !== "success") { setStatusText("已取消登录"); return; }
-        const tokenResult = await AuthSession.exchangeCodeAsync({ clientId: authingClientId, code: result.params.code, redirectUri: authingRedirectUri, extraParams: { code_verifier: authingRequest.codeVerifier ?? "" } }, authingDiscovery);
+        if (result.type !== "success") {
+          setStatusText("已取消登录");
+          return;
+        }
+        const tokenResult = await AuthSession.exchangeCodeAsync(
+          {
+            clientId: authingClientId,
+            code: result.params.code,
+            redirectUri: authingRedirectUri,
+            extraParams: { code_verifier: authingRequest.codeVerifier ?? "" },
+          },
+          authingDiscovery,
+        );
         const backendSession = await loginWithAuthing({ authingToken: tokenResult.accessToken });
-        const localSession = { accessToken: backendSession.accessToken, refreshToken: backendSession.refreshToken, user: toSessionUser(backendSession.user), sessionFlags: { isPro: false } };
+        const localSession = {
+          accessToken: backendSession.accessToken,
+          refreshToken: backendSession.refreshToken,
+          user: toSessionUser(backendSession.user),
+          sessionFlags: { isPro: false },
+        };
         await setSession(localSession);
-        const entitlement = await getCurrentEntitlement().catch(() => null);
-        if (entitlement) await setSession({ ...localSession, sessionFlags: { isPro: entitlement.isPro } });
+        await refreshEntitlementAndSessionSafe();
         await logEvent("authing_login_ui_success", "info", undefined, { userId: backendSession.user.id });
         await clearForceAuthingLogin();
         onLoginSuccess();
         return;
       }
       const result = await login({ type: "wechat_code", wechatCode: "mock_wechat_code" });
-      const localSession = { accessToken: result.token, refreshToken: result.refreshToken, user: result.user, sessionFlags: { isPro: result.sessionFlags?.isPro ?? false } };
+      const localSession = {
+        accessToken: result.token,
+        refreshToken: result.refreshToken,
+        user: result.user,
+        sessionFlags: { isPro: result.sessionFlags?.isPro ?? false },
+      };
       await setSession(localSession);
-      const entitlement = await getCurrentEntitlement().catch(() => null);
-      if (entitlement) await setSession({ ...localSession, sessionFlags: { isPro: entitlement.isPro } });
+      await refreshEntitlementAndSessionSafe();
       await logEvent("login_ui_success", "info", undefined, { userId: result.user.id });
       await clearForceAuthingLogin();
       onLoginSuccess();
@@ -103,16 +133,43 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <Text style={styles.brandText}>OIO</Text>
         <Text style={styles.tagline}>Output  ·  Input  ·  Output</Text>
 
-        <Pressable style={[styles.loginButton, (!agreed || loading) && styles.loginButtonDisabled]} onPress={handlePrimaryLogin} disabled={loading}>
+        <Pressable
+          style={[styles.loginButton, (!agreed || loading) && styles.loginButtonDisabled]}
+          onPress={handlePrimaryLogin}
+          disabled={loading}
+        >
           <Text style={styles.loginText}>{loading ? "登录中..." : "登录"}</Text>
         </Pressable>
 
-        <Animated.View style={[styles.agreementBlock, { transform: [{ translateX: agreementShake.interpolate({ inputRange: [-1, 1], outputRange: [-8, 8] }) }] }]}>
+        <Animated.View
+          style={[
+            styles.agreementBlock,
+            {
+              transform: [
+                {
+                  translateX: agreementShake.interpolate({
+                    inputRange: [-1, 1],
+                    outputRange: [-8, 8],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
           <View style={styles.agreeRow}>
             <Pressable style={[styles.checkbox, agreed && styles.checkboxChecked]} onPress={() => setAgreed((v) => !v)}>
               {agreed ? <Ionicons name="checkmark" size={20} color="#111111" /> : null}
             </Pressable>
-            <Text style={styles.agreeText}>{t("auth.login.agree_prefix")} <Text style={styles.linkText} onPress={() => void Linking.openURL(TERMS_URL)}>{t("auth.login.terms")}</Text> {t("auth.login.and")} <Text style={styles.linkText} onPress={() => void Linking.openURL(PRIVACY_URL)}>{t("auth.login.privacy")}</Text></Text>
+            <Text style={styles.agreeText}>
+              {t("auth.login.agree_prefix")}{" "}
+              <Text style={styles.linkText} onPress={() => void Linking.openURL(TERMS_URL)}>
+                {t("auth.login.terms")}
+              </Text>{" "}
+              {t("auth.login.and")}{" "}
+              <Text style={styles.linkText} onPress={() => void Linking.openURL(PRIVACY_URL)}>
+                {t("auth.login.privacy")}
+              </Text>
+            </Text>
           </View>
           {!!statusText && <Text style={styles.statusText}>{statusText}</Text>}
         </Animated.View>
@@ -121,8 +178,34 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   );
 }
 
-function normalizeLoginError(error: unknown, fallback: string): string { const message = error instanceof Error ? error.message : fallback; if (message.includes("invalid input value for enum")) return "登录服务配置正在更新，请稍后重试"; if (message.length > 90) return "登录失败，请稍后重试"; return message || fallback; }
-function toSessionUser(user: { id: string; nickname: string | null; avatarUrl: string | null; createdAt: Date; updatedAt: Date; }): User { return { id: user.id, phone: null, email: null, wechatOpenId: null, displayName: user.nickname, avatarUrl: user.avatarUrl, createdAt: new Date(user.createdAt).toISOString(), updatedAt: new Date(user.updatedAt).toISOString() }; }
+function normalizeLoginError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback;
+
+  // 后端枚举迁移期间的报错对用户不可读，这里转成稳定提示。
+  if (message.includes("invalid input value for enum")) return "登录服务配置正在更新，请稍后重试";
+  if (message.length > 90) return "登录失败，请稍后重试";
+  return message || fallback;
+}
+
+function toSessionUser(user: {
+  id: string;
+  nickname: string | null;
+  avatarUrl: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): User {
+  // Authing 返回字段和本地 User 类型不同，在写入会话前统一成 App 内部结构。
+  return {
+    id: user.id,
+    phone: null,
+    email: null,
+    wechatOpenId: null,
+    displayName: user.nickname,
+    avatarUrl: user.avatarUrl,
+    createdAt: new Date(user.createdAt).toISOString(),
+    updatedAt: new Date(user.updatedAt).toISOString(),
+  };
+}
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FCFCFD" },

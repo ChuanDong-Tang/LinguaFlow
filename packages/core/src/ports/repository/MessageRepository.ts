@@ -3,6 +3,14 @@
 export type MessageRole = "user" | "assistant";
 export type MessageStatus = "pending" | "success" | "failed";
 
+export interface ClozeState {
+  groups: Array<{
+    tokenIndexes: number[];
+    blankTokenIndexes: number[];
+  }>;
+  correctTokenIndexes: number[];
+}
+
 export interface MessageEntity {
   id: string;
   conversationId: string;
@@ -13,6 +21,9 @@ export interface MessageEntity {
   inputChars: number;
   outputChars: number;
   sourceMessageId?: string | null;
+  clozeState?: ClozeState | null;
+  clozeVersion: number;
+  clozePracticeDiscardedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -50,9 +61,22 @@ export interface UpdateMessageStatusInput {
   outputChars?: number;
 }
 
+export interface UpdateMessageClozeInput {
+  messageId: string;
+  baseVersion: number;
+  clozeState: ClozeState | null;
+}
+
+export interface UpdateMessageClozeResult {
+  ok: boolean;
+  message: MessageEntity;
+}
+
 export interface MessageRepository {
   create(input: CreateMessageInput): Promise<MessageEntity>;
   updateStatus(input: UpdateMessageStatusInput): Promise<MessageEntity>;
+  updateClozeState(input: UpdateMessageClozeInput): Promise<UpdateMessageClozeResult>;
+  discardClozePractice(messageId: string): Promise<MessageEntity>;
   findAssistantBySourceMessageId(sourceMessageId: string): Promise<MessageEntity | null>;
   listByConversation(conversationId: string, limit: number): Promise<MessageEntity[]>;
   listByUserAndDay(userId: string, dayStart: Date, dayEnd: Date): Promise<MessageEntity[]>;

@@ -3,7 +3,7 @@ import type {
   StartRewriteStreamInput,
   StreamClient,
 } from "./streamClient";
-import { getAuthHeaders } from "./authHeaders";
+import { getAuthHeaders } from "../auth/authHeaders";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const DEFAULT_STREAM_TIMEOUT_MS = 45_000;

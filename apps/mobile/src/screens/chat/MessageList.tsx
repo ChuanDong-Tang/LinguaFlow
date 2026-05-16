@@ -1,7 +1,10 @@
 import React from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { ChatMessage } from "./types";
+import type { ChatMessage } from "../../domain/chat/types";
+import { getClozeBlankRanges, getClozeHighlightRanges, normalizeClozeState } from "../../domain/cloze/clozeUtils";
+import { SelectableMessageText, type NativeTextSelectionPayload } from "./SelectableMessageText";
+import { parseTaggedRewrite } from "../../domain/rewrite/taggedRewrite";
 
 type MessageListProps = {
   messages: ChatMessage[];
@@ -11,6 +14,13 @@ type MessageListProps = {
   onScrollMetrics?: (metrics: { y: number; contentHeight: number; layoutHeight: number }) => void;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage) => void;
+  onTextSelection: (
+    message: ChatMessage,
+    payload: NativeTextSelectionPayload,
+    clearSelection: () => void,
+  ) => void;
+  onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
+  onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
 };
 
 type RowItem =
@@ -44,11 +54,37 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   message,
   onRetryMessage,
   onCopyMessage,
+  onTextSelection,
+  onEditClozeGroup,
+  onDeleteClozeGroup,
 }: {
   message: ChatMessage;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage) => void;
+  onTextSelection: (
+    message: ChatMessage,
+    payload: NativeTextSelectionPayload,
+    clearSelection: () => void,
+  ) => void;
+  onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
+  onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
 }) {
+  const selectableRef = React.useRef<{ clearSelection: () => void } | null>(null);
+  const [answersVisible, setAnswersVisible] = React.useState(false);
+  const tagged = React.useMemo(() => parseTaggedRewrite(message.text), [message.text]);
+  const displayText = tagged.en || "...";
+  const clozeState = React.useMemo(() => normalizeClozeState(message.clozeState), [message.clozeState]);
+  const hasClozeGroup = !!clozeState?.groups.length;
+  const hasBlank = !!clozeState?.groups.some((group) => group.blankTokenIndexes.length > 0);
+  const highlightRanges = React.useMemo(
+    () => (hasClozeGroup ? getClozeHighlightRanges(displayText, clozeState) : undefined),
+    [clozeState, displayText, hasClozeGroup],
+  );
+  const blankRanges = React.useMemo(
+    () => (hasBlank ? getClozeBlankRanges(displayText, clozeState, answersVisible) : undefined),
+    [answersVisible, clozeState, displayText, hasBlank],
+  );
+
   return (
     <View style={styles.assistantBlock}>
       <View style={styles.assistantRow}>
@@ -56,13 +92,26 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
           <Text style={styles.assistantLogo}>OIO</Text>
         </View>
         <View style={styles.assistantCard}>
-          <Text selectable selectionColor="#8E7BFF" style={styles.assistantCardText}>
-            {message.text || "..."}
-          </Text>
+          <SelectableMessageText
+            ref={selectableRef}
+            text={displayText}
+            style={styles.assistantCardText}
+            highlightRanges={highlightRanges}
+            blankRanges={blankRanges}
+            onSelectionChange={(payload) => {
+              onTextSelection(message, payload, () => selectableRef.current?.clearSelection());
+            }}
+            onClozeRangePress={hasClozeGroup ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined}
+            onClozeRangeLongPress={hasClozeGroup ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined}
+          />
           <View style={styles.cardActionRow}>
             {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
               <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
                 <Text style={styles.retryText}>重试</Text>
+              </Pressable>
+            ) : hasBlank ? (
+              <Pressable style={styles.eyeButton} hitSlop={8} onPress={() => setAnswersVisible((value) => !value)}>
+                <Ionicons name={answersVisible ? "eye-off-outline" : "eye-outline"} size={22} color="#111111" />
               </Pressable>
             ) : (
               <View />
@@ -76,6 +125,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
             </Pressable>
           </View>
+          {tagged.zh ? <Text style={styles.translationText}>{tagged.zh}</Text> : null}
         </View>
       </View>
       <Text style={styles.timeTextLeft}>{message.time}</Text>
@@ -91,6 +141,9 @@ export function MessageList({
   onScrollMetrics,
   onRetryMessage,
   onCopyMessage,
+  onTextSelection,
+  onEditClozeGroup,
+  onDeleteClozeGroup,
 }: MessageListProps) {
   const rows = React.useMemo<RowItem[]>(() => {
     const items: RowItem[] = [{ kind: "header", id: "header" }];
@@ -117,10 +170,13 @@ export function MessageList({
           message={message}
           onRetryMessage={onRetryMessage}
           onCopyMessage={onCopyMessage}
+          onTextSelection={onTextSelection}
+          onEditClozeGroup={onEditClozeGroup}
+          onDeleteClozeGroup={onDeleteClozeGroup}
         />
       );
     },
-    [onCopyMessage, onRetryMessage, selectedDateLabel]
+    [onCopyMessage, onDeleteClozeGroup, onEditClozeGroup, onRetryMessage, onTextSelection, selectedDateLabel]
   );
 
   return (
@@ -237,6 +293,12 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 25,
   },
+  translationText: {
+    marginTop: 12,
+    color: "#727988",
+    fontSize: 14,
+    lineHeight: 21,
+  },
   cardActionRow: {
     marginTop: 12,
     flexDirection: "row",
@@ -257,6 +319,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   copyButton: {
+    minWidth: 40,
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  eyeButton: {
     minWidth: 40,
     minHeight: 40,
     alignItems: "center",

@@ -1,15 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getCurrentEntitlement } from "./meApi";
-import {
-  getCachedEntitlement,
-  isSameEntitlement,
-  setCachedEntitlement,
-} from "./entitlementCache";
+import { refreshEntitlementAndSessionSafe } from "../entitlement/entitlementSync";
 import {
   queryPaymentOrder,
   type MobilePaymentOrderResult,
   type MobilePaymentOrderStatus,
-} from "./paymentApi";
+} from "../api/paymentApi";
 
 const PENDING_PAYMENT_ORDER_KEY = "lf_pending_payment_order_v1";
 
@@ -68,7 +63,7 @@ export async function pollPaymentOrderUntilSettled(
       consecutiveErrors = 0;
       if (order.status !== "pending") {
         if (isSuccessfulStatus(order.status)) {
-          await refreshEntitlementCacheSafe();
+          await refreshEntitlementAndSessionSafe();
         }
         return order;
       }
@@ -117,18 +112,6 @@ export async function recoverPendingPaymentIfAny(): Promise<{
     return { recovered: false, status: "pending" };
   } catch {
     return { recovered: false, status: "pending" };
-  }
-}
-
-async function refreshEntitlementCacheSafe(): Promise<void> {
-  try {
-    const entitlement = await getCurrentEntitlement();
-    const cached = await getCachedEntitlement();
-    if (!cached || !isSameEntitlement(cached.data, entitlement)) {
-      await setCachedEntitlement(entitlement);
-    }
-  } catch {
-    // Ignore transient failures; next refresh/reopen will retry.
   }
 }
 

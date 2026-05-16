@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { CurrentEntitlement } from "./meApi";
+import type { CurrentEntitlement } from "../api/meApi";
 
 const ENTITLEMENT_CACHE_KEY = "lf_current_entitlement_v1";
 

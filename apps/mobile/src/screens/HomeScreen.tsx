@@ -5,7 +5,7 @@ import {
   DebugModelProvider,
   loadDebugSettings,
   saveDebugSettings,
-} from "../services/debugSettingsStorage";
+} from "../services/preferences/debugSettingsStorage";
 import { SplashGateScreen } from "./SplashGateScreen";
 
 type HomeScreenProps = {

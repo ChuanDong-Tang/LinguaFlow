@@ -6,6 +6,8 @@ import type {
   ListByConversationRangeInput,
   MessageEntity,
   MessageRepository,
+  UpdateMessageClozeInput,
+  UpdateMessageClozeResult,
   UpdateMessageStatusInput,
 } from "@lf/core/ports/repository/MessageRepository.js";
 
@@ -45,6 +47,42 @@ export class PrismaMessageRepository implements MessageRepository {
       data: {
         status: input.status,
         outputChars: input.outputChars,
+      },
+    });
+
+    return this.toEntity(updated);
+  }
+
+  async updateClozeState(input: UpdateMessageClozeInput): Promise<UpdateMessageClozeResult> {
+    const rows = await (this.prisma.message as any).updateMany({
+      where: {
+        id: input.messageId,
+        clozeVersion: input.baseVersion,
+      },
+      data: {
+        clozeState: input.clozeState,
+        clozeVersion: { increment: 1 },
+      },
+    });
+
+    const row = await this.prisma.message.findUnique({
+      where: { id: input.messageId },
+    });
+    if (!row) {
+      throw new Error("Message not found after cloze update");
+    }
+
+    return {
+      ok: Number(rows?.count ?? 0) === 1,
+      message: this.toEntity(row),
+    };
+  }
+
+  async discardClozePractice(messageId: string): Promise<MessageEntity> {
+    const updated = await this.prisma.message.update({
+      where: { id: messageId },
+      data: {
+        clozePracticeDiscardedAt: new Date(),
       },
     });
 
@@ -140,6 +178,9 @@ export class PrismaMessageRepository implements MessageRepository {
     inputChars: number;
     outputChars: number;
     sourceMessageId: string | null;
+    clozeState?: unknown;
+    clozeVersion?: number;
+    clozePracticeDiscardedAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }): MessageEntity {
@@ -153,8 +194,28 @@ export class PrismaMessageRepository implements MessageRepository {
       inputChars: record.inputChars,
       outputChars: record.outputChars,
       sourceMessageId: record.sourceMessageId,
+      clozeState: normalizeClozeState(record.clozeState),
+      clozeVersion: Number.isFinite(record.clozeVersion) ? Number(record.clozeVersion) : 0,
+      clozePracticeDiscardedAt: record.clozePracticeDiscardedAt ?? null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
   }
+}
+
+function normalizeClozeState(value: unknown): MessageEntity["clozeState"] {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as { groups?: unknown; correctTokenIndexes?: unknown };
+  const groups = Array.isArray(raw.groups)
+    ? raw.groups
+      .filter((group): group is { tokenIndexes?: unknown; blankTokenIndexes?: unknown } => !!group && typeof group === "object")
+      .map((group) => ({
+        tokenIndexes: Array.isArray(group.tokenIndexes) ? group.tokenIndexes.filter(Number.isInteger).map(Number) : [],
+        blankTokenIndexes: Array.isArray(group.blankTokenIndexes) ? group.blankTokenIndexes.filter(Number.isInteger).map(Number) : [],
+      }))
+    : [];
+  const correctTokenIndexes = Array.isArray(raw.correctTokenIndexes)
+    ? raw.correctTokenIndexes.filter(Number.isInteger).map(Number)
+    : [];
+  return { groups, correctTokenIndexes };
 }

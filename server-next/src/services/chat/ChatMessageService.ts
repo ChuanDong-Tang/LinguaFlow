@@ -1,5 +1,5 @@
 import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository.js";
-import type { MessageRepository } from "@lf/core/ports/repository/MessageRepository.js";
+import type { ClozeState, MessageRepository } from "@lf/core/ports/repository/MessageRepository.js";
 
 export interface SendMessageInput {
   userId: string;
@@ -13,6 +13,9 @@ export interface MessageView {
   status: "pending" | "success" | "failed";
   content: string;
   createdAt: string;
+  clozeState: ClozeState | null;
+  clozeVersion: number;
+  clozePracticeDiscardedAt: string | null;
 }
 
 export interface SendMessageResult {
@@ -50,6 +53,23 @@ export interface ListDayMessagesPageResult {
   } | null;
 }
 
+export interface UpdateMessageClozeInput {
+  userId: string;
+  messageId: string;
+  baseVersion: number;
+  clozeState: ClozeState | null;
+}
+
+export interface UpdateMessageClozeResult {
+  clozeState: ClozeState | null;
+  clozeVersion: number;
+}
+
+export interface DiscardClozePracticeResult {
+  messageId: string;
+  clozePracticeDiscardedAt: string;
+}
+
 export class ConversationAccessDeniedError extends Error {
   readonly code = "CONVERSATION_NOT_FOUND";
 
@@ -63,6 +83,24 @@ export class MessageAccessDeniedError extends Error {
 
   constructor() {
     super("Message not found");
+  }
+}
+
+export class MessageClozeConflictError extends Error {
+  readonly code = "CLOZE_VERSION_CONFLICT";
+  readonly latest: UpdateMessageClozeResult;
+
+  constructor(latest: UpdateMessageClozeResult) {
+    super("Cloze state has changed");
+    this.latest = latest;
+  }
+}
+
+export class InvalidClozeStateError extends Error {
+  readonly code = "INVALID_CLOZE_STATE";
+
+  constructor(message = "Invalid cloze state") {
+    super(message);
   }
 }
 
@@ -227,6 +265,45 @@ export class ChatMessageService {
     };
   }
 
+  async updateMessageCloze(input: UpdateMessageClozeInput): Promise<UpdateMessageClozeResult> {
+    const message = await this.messageRepository.findById(input.messageId);
+    if (!message || message.userId !== input.userId || message.role !== "assistant") {
+      throw new MessageAccessDeniedError();
+    }
+
+    const normalized = normalizeClozeState(input.clozeState, message.content);
+    const result = await this.messageRepository.updateClozeState({
+      messageId: input.messageId,
+      baseVersion: Math.max(0, Math.floor(input.baseVersion)),
+      clozeState: normalized,
+    });
+
+    const latest = {
+      clozeState: result.message.clozeState ?? null,
+      clozeVersion: result.message.clozeVersion,
+    };
+    if (!result.ok) {
+      throw new MessageClozeConflictError(latest);
+    }
+    return latest;
+  }
+
+  async discardClozePractice(input: {
+    userId: string;
+    messageId: string;
+  }): Promise<DiscardClozePracticeResult> {
+    const message = await this.messageRepository.findById(input.messageId);
+    if (!message || message.userId !== input.userId || message.role !== "assistant") {
+      throw new MessageAccessDeniedError();
+    }
+
+    const updated = await this.messageRepository.discardClozePractice(input.messageId);
+    return {
+      messageId: updated.id,
+      clozePracticeDiscardedAt: (updated.clozePracticeDiscardedAt ?? new Date()).toISOString(),
+    };
+  }
+
   private async assertConversationBelongsToUser(
     conversationId: string,
     userId: string
@@ -243,6 +320,9 @@ export class ChatMessageService {
     role: "user" | "assistant";
     status: "pending" | "success" | "failed";
     content: string;
+    clozeState?: ClozeState | null;
+    clozeVersion?: number;
+    clozePracticeDiscardedAt?: Date | null;
     createdAt: Date;
   }): MessageView {
     return {
@@ -251,6 +331,9 @@ export class ChatMessageService {
       status: row.status,
       content: row.content,
       createdAt: row.createdAt.toISOString(),
+      clozeState: row.clozeState ?? null,
+      clozeVersion: Number.isFinite(row.clozeVersion) ? Number(row.clozeVersion) : 0,
+      clozePracticeDiscardedAt: row.clozePracticeDiscardedAt?.toISOString() ?? null,
     };
   }
 
@@ -277,4 +360,74 @@ export class ChatMessageService {
 
 }
 
+function normalizeClozeState(input: ClozeState | null, messageContent: string): ClozeState | null {
+  if (input === null) return null;
+  if (!input || typeof input !== "object") {
+    throw new InvalidClozeStateError();
+  }
+  const rawGroups = Array.isArray(input.groups) ? input.groups : null;
+  if (!Array.isArray(rawGroups) || !Array.isArray(input.correctTokenIndexes)) {
+    throw new InvalidClozeStateError();
+  }
 
+  const used = new Set<number>();
+  const blankUsed = new Set<number>();
+  const tokenCount = tokenizeForCloze(messageContent).length;
+  const groups = rawGroups.map((group) => {
+    if (!group || typeof group !== "object") throw new InvalidClozeStateError();
+    if (!Array.isArray(group.tokenIndexes) || !Array.isArray(group.blankTokenIndexes)) {
+      throw new InvalidClozeStateError();
+    }
+    const tokenIndexes: number[] = [];
+    const local = new Set<number>();
+    for (const raw of group.tokenIndexes) {
+      if (!Number.isInteger(raw) || raw < 0 || raw >= tokenCount) throw new InvalidClozeStateError();
+      const value = Number(raw);
+      if (local.has(value) || used.has(value)) throw new InvalidClozeStateError();
+      local.add(value);
+      used.add(value);
+      tokenIndexes.push(value);
+    }
+    if (!tokenIndexes.length) throw new InvalidClozeStateError();
+
+    const tokenSet = new Set(tokenIndexes);
+    const blankTokenIndexes: number[] = [];
+    const blankLocal = new Set<number>();
+    for (const raw of group.blankTokenIndexes) {
+      if (!Number.isInteger(raw) || raw < 0 || raw >= tokenCount) throw new InvalidClozeStateError();
+      const value = Number(raw);
+      if (blankLocal.has(value) || !tokenSet.has(value)) throw new InvalidClozeStateError();
+      blankLocal.add(value);
+      blankUsed.add(value);
+      blankTokenIndexes.push(value);
+    }
+    return {
+      tokenIndexes: tokenIndexes.sort((a, b) => a - b),
+      blankTokenIndexes: blankTokenIndexes.sort((a, b) => a - b),
+    };
+  });
+
+  const correctLocal = new Set<number>();
+  const correctTokenIndexes = input.correctTokenIndexes.map((raw) => {
+    if (!Number.isInteger(raw) || raw < 0 || raw >= tokenCount) throw new InvalidClozeStateError();
+    const value = Number(raw);
+    if (correctLocal.has(value) || !blankUsed.has(value)) throw new InvalidClozeStateError();
+    correctLocal.add(value);
+    return value;
+  }).sort((a, b) => a - b);
+
+  if (!groups.length) return null;
+  return { groups, correctTokenIndexes };
+}
+
+function tokenizeForCloze(text: string): Array<{ start: number; end: number }> {
+  const tokens: Array<{ start: number; end: number }> = [];
+  const tokenRe = /[\p{L}\p{N}'’-]+|[^\s\p{L}\p{N}'’-]/gu;
+  for (const match of text.matchAll(tokenRe)) {
+    const value = match[0] ?? "";
+    const start = match.index ?? 0;
+    if (!value) continue;
+    tokens.push({ start, end: start + value.length });
+  }
+  return tokens;
+}

@@ -103,6 +103,9 @@ model Message {
   inputChars       Int           @default(0)
   outputChars      Int           @default(0)
   sourceMessageId  String?       @unique
+  clozeState       Json?
+  clozeVersion     Int           @default(0)
+  clozePracticeDiscardedAt DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 

@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { ChatMessage } from "../screens/chat/types";
+import type { ChatMessage } from "../../domain/chat/types";
 
 const CHAT_LOCAL_KEY = "lf_chat_local_messages_v1";
 const CHAT_LOCAL_SCOPE_PREFIX = "lf_chat_local_messages_v2";

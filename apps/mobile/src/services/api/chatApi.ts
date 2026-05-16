@@ -1,5 +1,5 @@
-import { getSession } from "./authStorage";
-import { getAuthHeaders } from "./authHeaders";
+import { getSession } from "../auth/authStorage";
+import { getAuthHeaders } from "../auth/authHeaders";
 
 type RewriteStreamEvent =
   | { type: "start" }

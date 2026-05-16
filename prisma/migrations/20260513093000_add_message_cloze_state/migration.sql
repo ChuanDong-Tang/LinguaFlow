@@ -1,0 +1,2 @@
+ALTER TABLE "messages" ADD COLUMN "clozeState" JSONB;
+ALTER TABLE "messages" ADD COLUMN "clozeVersion" INTEGER NOT NULL DEFAULT 0;

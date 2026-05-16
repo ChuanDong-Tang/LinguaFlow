@@ -7,7 +7,7 @@ import type {
   RefreshTokenRequestBody,
   RefreshTokenResponse,
 } from "@lf/core/contracts/auth";
-import { logEvent } from "./logger";
+import { logEvent } from "../logger";
 
 // 登录接口返回外层结构
 type ApiOk<T> = { ok: true; data: T };

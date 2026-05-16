@@ -1,8 +1,7 @@
-import type { RewriteStreamRequestBody } from "@lf/core/contracts/chatStream.js";
+import type { RewriteStreamEvent, RewriteStreamRequestBody } from "@lf/core/contracts/chatStream.js";
 import type {
   AbortSignalLike,
   AIProvider,
-  RewriteTextStreamEvent,
 } from "@lf/core/ports/ai/AIProvider.js";
 import type { ChatMessageService } from "./ChatMessageService.js";
 import type { RewriteTaskGuard } from "./RewriteTaskGuard.js";
@@ -38,7 +37,7 @@ export class RewriteService {
   
   async rewriteStream(
     input: RewriteStreamServiceInput,
-    onEvent: (event: RewriteTextStreamEvent) => Promise<void> | void
+    onEvent: (event: RewriteStreamEvent) => Promise<void> | void
   ): Promise<void> {
     let assistantText = "";
     
@@ -141,19 +140,23 @@ export class RewriteService {
           if (event.type === "delta" && typeof event.text === "string") {
             assistantText += event.text;
           }
+          if (event.type === "done") {
+            return;
+          }
           await onEvent(event);
         }
       );
       await this.chatMessageService.markUserMessageSuccess(input.userMessageId);
       const totalChars = input.text.length + assistantText.length;
       await this.entitlementService.assertCanUse(input.userId, totalChars);
-      await this.chatMessageService.createAssistantMessage(
+      const assistantMessage = await this.chatMessageService.createAssistantMessage(
         input.conversationId,
         input.userId,
         assistantText,
         input.userMessageId
       );
       await this.entitlementService.consume(input.userId, totalChars);
+      await onEvent({ type: "done", assistantMessage });
     }catch(error){
       await this.chatMessageService.markUserMessageFailed(input.userMessageId);
       await this.logFailedAiRequest(input, {

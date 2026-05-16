@@ -1,3 +1,11 @@
+export type ClozeState = {
+  groups: Array<{
+    tokenIndexes: number[];
+    blankTokenIndexes: number[];
+  }>;
+  correctTokenIndexes: number[];
+};
+
 export type ChatMessage = {
   id?: string;
   localId: string;
@@ -9,4 +17,7 @@ export type ChatMessage = {
   retryText?: string;
   retryCount?: number;
   retrySystemPrompt?: string;
+  clozeState?: ClozeState | null;
+  clozeVersion?: number;
+  clozePracticeDiscardedAt?: string | null;
 };
