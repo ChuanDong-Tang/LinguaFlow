@@ -44,24 +44,35 @@ export function buildPracticeCards(
     if (!englishText) continue;
     const translation = tagged.zh || findPreviousUserText(messages, i);
     const dateKey = toDateKey(new Date(message.createdAt));
-    state.groups.forEach((group, groupIndex) => {
-      const correctTokenIndexes = state.correctTokenIndexes.filter((index) => group.blankTokenIndexes.includes(index));
-      const remainingBlankTokenIndexes = group.blankTokenIndexes.filter((index) => !correctTokenIndexes.includes(index));
+    const phraseTokenIndexes = new Set<number>();
+    const blankTokenIndexes = new Set<number>();
+    const sourceBlankIndexes = new Set<number>();
+
+    state.groups.forEach((group) => {
       if (!group.blankTokenIndexes.length) return;
-      // 默认练习池跳过已经全部答对的卡；日历统计会用 includeCompleted 把它们算进去。
+      group.tokenIndexes.forEach((index) => phraseTokenIndexes.add(index));
+      group.blankTokenIndexes.forEach((index) => sourceBlankIndexes.add(index));
+      const correctInGroup = new Set(state.correctTokenIndexes.filter((index) => group.blankTokenIndexes.includes(index)));
+      const remainingBlankTokenIndexes = group.blankTokenIndexes.filter((index) => !correctInGroup.has(index));
+      // 默认练习池跳过已经全部答对的组；日历统计会用 includeCompleted 把它们算进去。
       if (!options?.includeCompleted && !remainingBlankTokenIndexes.length) return;
-      cards.push({
-        id: `${message.id ?? message.localId}:${groupIndex}`,
-        messageId: message.id ?? message.localId,
-        message,
-        dateKey,
-        text: englishText,
-        translation,
-        groupIndex,
-        phraseTokenIndexes: group.tokenIndexes,
-        blankTokenIndexes: options?.includeCompleted ? group.blankTokenIndexes : remainingBlankTokenIndexes,
-        correctTokenIndexes,
-      });
+      const visibleBlankIndexes = options?.includeCompleted ? group.blankTokenIndexes : remainingBlankTokenIndexes;
+      visibleBlankIndexes.forEach((index) => blankTokenIndexes.add(index));
+    });
+
+    if (!blankTokenIndexes.size) continue;
+    const correctTokenIndexes = state.correctTokenIndexes.filter((index) => sourceBlankIndexes.has(index));
+    cards.push({
+      id: `${message.id ?? message.localId}:all`,
+      messageId: message.id ?? message.localId,
+      message,
+      dateKey,
+      text: englishText,
+      translation,
+      groupIndex: 0,
+      phraseTokenIndexes: Array.from(phraseTokenIndexes).sort((a, b) => a - b),
+      blankTokenIndexes: Array.from(blankTokenIndexes).sort((a, b) => a - b),
+      correctTokenIndexes,
     });
   }
   return cards;

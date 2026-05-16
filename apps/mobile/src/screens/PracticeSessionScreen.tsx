@@ -42,30 +42,49 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const translate = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const gestureAxis = useRef<"x" | "y" | null>(null);
   const card = cards[index] ?? null;
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 8 || Math.abs(gesture.dx) > 8,
-        onPanResponderMove: Animated.event([null, { dx: translate.x, dy: translate.y }], { useNativeDriver: false }),
-        onPanResponderRelease: (_, gesture) => {
-          const verticalThreshold = window.height * 0.18;
-          const discardThreshold = window.width * 0.35;
-          // 丢弃是写库动作：先回弹卡片，再等待云端确认，成功后才移除。
-          if (gesture.dx > discardThreshold && Math.abs(gesture.dy) < window.height * 0.2) {
-            Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
-            void discardCurrentCard();
+        onPanResponderGrant: () => {
+          gestureAxis.current = null;
+        },
+        onPanResponderMove: (_, gesture) => {
+          if (!gestureAxis.current) {
+            gestureAxis.current = Math.abs(gesture.dx) > Math.abs(gesture.dy) ? "x" : "y";
+          }
+          if (gestureAxis.current === "x") {
+            translate.setValue({ x: Math.max(0, gesture.dx), y: 0 });
             return;
           }
-          if (gesture.dy < -verticalThreshold) {
+          translate.setValue({ x: 0, y: gesture.dy });
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const verticalThreshold = Math.max(42, window.height * 0.07);
+          const discardThreshold = window.width * 0.25;
+          // 丢弃是写库动作：先回弹卡片，再等待云端确认，成功后才移除。
+          if (gestureAxis.current === "x" && gesture.dx > discardThreshold) {
+            Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
+            gestureAxis.current = null;
+            askDiscardCurrentCard();
+            return;
+          }
+          if (gestureAxis.current === "y" && gesture.dy < -verticalThreshold) {
             goNext();
             return;
           }
-          if (gesture.dy > verticalThreshold) {
+          if (gestureAxis.current === "y" && gesture.dy > verticalThreshold) {
             goPrev();
             return;
           }
+          Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
+          gestureAxis.current = null;
+        },
+        onPanResponderTerminate: () => {
+          gestureAxis.current = null;
           Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
         },
       }),
@@ -96,7 +115,19 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     });
   }
 
+  function askDiscardCurrentCard(): void {
+    setDialog({
+      message: "是否丢弃这张卡片？丢弃后不会再进入练习。",
+      cancelText: "取消",
+      confirmText: "丢弃",
+      onConfirm: () => {
+        void discardCurrentCard();
+      },
+    });
+  }
+
   function resetMotion(): void {
+    gestureAxis.current = null;
     translate.setValue({ x: 0, y: 0 });
   }
 
@@ -227,9 +258,9 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
 
       {rulesOpen ? (
         <View style={styles.rulesPanel}>
-          <Text style={styles.ruleText}>上滑，下一张</Text>
-          <Text style={styles.ruleText}>下滑，上一张</Text>
-          <Text style={styles.ruleText}>右滑，丢弃，不会再进入练习</Text>
+          <Text style={styles.ruleText}>上滑：下一张</Text>
+          <Text style={styles.ruleText}>下滑：上一张</Text>
+          <Text style={styles.ruleText}>右滑：丢弃此卡片</Text>
         </View>
       ) : null}
 
@@ -245,13 +276,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
         </Animated.View>
       </View>
 
-      <View style={styles.hintRow}>
-        <Hint icon="arrow-up" title="上滑" subtitle="下一张" />
-        <View style={styles.hintDivider} />
-        <Hint icon="arrow-down" title="下滑" subtitle="上一张" />
-        <View style={styles.hintDivider} />
-        <Hint icon="arrow-forward" title="右滑" subtitle="丢弃此卡片" />
-      </View>
+      <Text style={styles.progressText}>{index + 1}/{cards.length}</Text>
 
       <Pressable style={styles.checkButton} onPress={() => void checkAnswers()}>
         <Text style={styles.checkText}>检查</Text>
@@ -281,6 +306,7 @@ function PracticeEnglish({
     <View style={styles.englishFlow}>
       {tokens.map((token, index) => {
         const isPhrase = phraseSet.has(token.index);
+        const isAnsweredBlank = blankSet.has(token.index) && correctSet.has(token.index);
         const isBlank = blankSet.has(token.index) && !correctSet.has(token.index);
         const previous = tokens[index - 1];
         const spacer = previous && token.kind === "word" && previous.kind === "word" ? " " : "";
@@ -289,11 +315,9 @@ function PracticeEnglish({
             <React.Fragment key={token.index}>
               {spacer ? <Text style={styles.englishText}> </Text> : null}
               <TextInput
-                style={styles.blankInput}
+                style={[styles.blankInput, { width: Math.max(36, token.text.length * 10) }]}
                 value={answers[token.index] ?? ""}
                 onChangeText={(value) => onChangeAnswer(token.index, value)}
-                placeholder="___"
-                placeholderTextColor="#111111"
                 autoCapitalize="none"
                 autoCorrect={false}
               />
@@ -301,21 +325,11 @@ function PracticeEnglish({
           );
         }
         return (
-          <Text key={token.index} style={[styles.tokenText, isPhrase && styles.phraseText]}>
+          <Text key={token.index} style={[styles.tokenText, (isPhrase || isAnsweredBlank) && styles.phraseText]}>
             {spacer}{token.text}
           </Text>
         );
       })}
-    </View>
-  );
-}
-
-function Hint({ icon, title, subtitle }: { icon: keyof typeof Ionicons.glyphMap; title: string; subtitle: string }) {
-  return (
-    <View style={styles.hint}>
-      <Ionicons name={icon} size={30} color="#B9B0FF" />
-      <Text style={styles.hintTitle}>{title}</Text>
-      <Text style={styles.hintSubtitle}>{subtitle}</Text>
     </View>
   );
 }
@@ -325,27 +339,23 @@ const styles = StyleSheet.create({
   header: { height: 78, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerTitle: { color: "#111111", fontSize: 24, fontWeight: "500" },
-  rulesPanel: { position: "absolute", zIndex: 3, top: 78, left: 0, backgroundColor: "#FFFFFF", borderTopRightRadius: 16, borderBottomRightRadius: 16, borderWidth: 1, borderLeftWidth: 0, borderColor: "#E2E4EC", paddingVertical: 12, paddingHorizontal: 16, gap: 8 },
+  rulesPanel: { position: "absolute", zIndex: 3, top: 93, right: 18, backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E2E4EC", paddingVertical: 12, paddingHorizontal: 16, gap: 8, shadowColor: "#111111", shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
   ruleText: { color: "#303541", fontSize: 14, lineHeight: 20 },
-  deck: { height: 590, alignItems: "center", justifyContent: "flex-start", paddingHorizontal: 52, paddingTop: 74 },
-  card: { width: "100%", height: 460, borderWidth: 1, borderColor: "#DDE1E8", borderRadius: 28, backgroundColor: "#FFFFFF", overflow: "hidden", shadowColor: "#111111", shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
-  englishPane: { height: 280, flexGrow: 0 },
-  englishContent: { minHeight: 280, justifyContent: "center", paddingHorizontal: 34, paddingTop: 34, paddingBottom: 24 },
-  englishText: { color: "#080808", fontSize: 35, lineHeight: 55, fontWeight: "500" },
+  deck: { flex: 1, minHeight: 0, alignItems: "center", justifyContent: "center", paddingHorizontal: 52, paddingTop: 28, paddingBottom: 18 },
+  card: { width: "100%", height: "100%", maxHeight: 470, borderWidth: 1, borderColor: "#DDE1E8", borderRadius: 28, backgroundColor: "#FFFFFF", overflow: "hidden", shadowColor: "#111111", shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
+  englishPane: { flex: 1.08, flexGrow: 1 },
+  englishContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 24, paddingTop: 24, paddingBottom: 18 },
+  englishText: { color: "#080808", fontSize: 17, lineHeight: 25, fontWeight: "500" },
   englishFlow: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline" },
-  tokenText: { color: "#080808", fontSize: 35, lineHeight: 55, fontWeight: "500" },
-  phraseText: { backgroundColor: "#FFF2B8", color: "#080808", fontSize: 35, lineHeight: 55, fontWeight: "500" },
-  blankInput: { minWidth: 84, borderBottomWidth: 2, borderBottomColor: "#111111", color: "#111111", fontSize: 32, lineHeight: 42, paddingHorizontal: 3, paddingVertical: 0 },
+  tokenText: { color: "#080808", fontSize: 17, lineHeight: 25, fontWeight: "500" },
+  phraseText: { backgroundColor: "#FFF2B8", color: "#080808", fontSize: 17, lineHeight: 25, fontWeight: "500" },
+  blankInput: { height: 25, borderBottomWidth: 1.5, borderBottomColor: "#111111", color: "#111111", fontSize: 17, lineHeight: 23, paddingHorizontal: 1, paddingVertical: 0, marginHorizontal: 2, textAlign: "center", fontWeight: "500" },
   divider: { height: 1, backgroundColor: "#E1E3EA" },
-  translationPane: { height: 179, flexGrow: 0, backgroundColor: "#FFFDF9" },
-  translationContent: { minHeight: 179, justifyContent: "center", paddingHorizontal: 34, paddingVertical: 26 },
-  translationText: { color: "#111111", fontSize: 24, lineHeight: 34 },
-  hintRow: { marginHorizontal: 44, marginTop: 2, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  hint: { flex: 1, alignItems: "center", justifyContent: "center" },
-  hintTitle: { marginTop: 8, color: "#111111", fontSize: 15, fontWeight: "700" },
-  hintSubtitle: { marginTop: 5, color: "#7C8290", fontSize: 15, lineHeight: 21, textAlign: "center" },
-  hintDivider: { width: 1, height: 45, backgroundColor: "#DADDE5" },
-  checkButton: { height: 64, marginHorizontal: 34, marginTop: 46, marginBottom: 24, borderRadius: 28, backgroundColor: "#EAE6FF", alignItems: "center", justifyContent: "center" },
+  translationPane: { flex: 0.92, flexGrow: 1, backgroundColor: "#FFFDF9" },
+  translationContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 24, paddingVertical: 18 },
+  translationText: { color: "#111111", fontSize: 14, lineHeight: 21 },
+  progressText: { marginTop: 2, color: "#8A90A0", fontSize: 13, lineHeight: 18, textAlign: "center" },
+  checkButton: { height: 54, marginHorizontal: 34, marginTop: 8, marginBottom: 18, borderRadius: 24, backgroundColor: "#EAE6FF", alignItems: "center", justifyContent: "center" },
   checkText: { color: "#111111", fontSize: 20, fontWeight: "600" },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   emptyText: { color: "#111111", fontSize: 18 },

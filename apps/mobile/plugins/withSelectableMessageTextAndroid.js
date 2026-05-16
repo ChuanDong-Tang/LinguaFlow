@@ -24,8 +24,8 @@ import android.widget.TextView
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
 import com.facebook.react.bridge.WritableMap
-import com.facebook.react.uimanager.common.ViewUtil
-import com.facebook.react.uimanager.events.RCTModernEventEmitter
+import com.facebook.react.uimanager.UIManagerHelper
+import com.facebook.react.uimanager.events.Event
 import kotlin.math.max
 import kotlin.math.min
 
@@ -167,9 +167,10 @@ class SelectableMessageTextView(context: Context) : TextView(context) {
   }
 
   private fun emitEvent(eventName: String, payload: WritableMap) {
-    (context as? ReactContext)
-      ?.getJSModule(RCTModernEventEmitter::class.java)
-      ?.receiveEvent(ViewUtil.NO_SURFACE_ID, id, eventName, payload)
+    val reactContext = context as? ReactContext ?: return
+    val surfaceId = UIManagerHelper.getSurfaceId(reactContext)
+    val eventDispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, id) ?: return
+    eventDispatcher.dispatchEvent(SelectableMessageTextEvent(surfaceId, id, eventName, payload))
   }
 
   private fun findRangeAt(x: Float, y: Float): HighlightRange? {
@@ -221,6 +222,17 @@ class SelectableMessageTextView(context: Context) : TextView(context) {
     private fun blankText(start: Int, end: Int): String {
       return "_".repeat(max(1, end - start))
     }
+  }
+
+  private class SelectableMessageTextEvent(
+    surfaceId: Int,
+    viewId: Int,
+    private val reactEventName: String,
+    private val payload: WritableMap,
+  ) : Event<SelectableMessageTextEvent>(surfaceId, viewId) {
+    override fun getEventName(): String = reactEventName
+
+    override fun getEventData(): WritableMap = payload
   }
 }
 `;

@@ -2,6 +2,7 @@ import React from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { ChatMessage } from "../../domain/chat/types";
 import { tokenizeForCloze } from "../../domain/cloze/clozeUtils";
+import { getRewriteEnglish } from "../../domain/rewrite/taggedRewrite";
 
 export type ClozeFabState = {
   message: ChatMessage;
@@ -60,7 +61,7 @@ export function ClozeControls({
     : null;
 
   const editorTokens = editor
-    ? tokenizeForCloze(editor.message.text).filter((token) => editor.tokenIndexes.includes(token.index))
+    ? tokenizeForCloze(getRewriteEnglish(editor.message.text)).filter((token) => editor.tokenIndexes.includes(token.index))
     : [];
 
   return (

@@ -140,7 +140,9 @@ export function startRewriteSession(input: StartRewriteInput): void {
       const session = await getSession();
       storageUserId = session?.user?.id ?? "mock_user_001";
       storageConversationId = conversationId;
-      messagesCache = await loadLocalMessagesScoped(storageUserId, storageConversationId);
+      if (!messagesCache || messagesCache.length === 0) {
+        messagesCache = await loadLocalMessagesScoped(storageUserId, storageConversationId);
+      }
       emit();
     })();
   }
@@ -157,6 +159,7 @@ export function startRewriteSession(input: StartRewriteInput): void {
       isStopRequested: () => stopRequested,
       onConversationReady: (nextConversationId) => {
         conversationId = nextConversationId;
+        storageConversationId = nextConversationId;
         emit();
       },
       onUpdateMessage: (localId, updater) => {

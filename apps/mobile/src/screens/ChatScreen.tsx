@@ -314,6 +314,17 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         setClozeFab(null);
         return;
       }
+      if (payload.endX === 0 && payload.endY === 0) {
+        clearSelection();
+        setClozeFab(null);
+        setClozeEditor({
+          message,
+          groupIndex: null,
+          tokenIndexes: expanded.tokenIndexes,
+          draftBlankIndexes: [],
+        });
+        return;
+      }
       clozeSelectionTimerRef.current = setTimeout(() => {
         setClozeFab({
           message,
@@ -625,8 +636,13 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         keys.forEach((key) => next.add(key));
         return next;
       });
-    } catch {
-      console.warn("preloadCloudMonthDateKeys failed", { monthKey, fromDateKey, toDateKey: monthEndDateKey });
+    } catch (error) {
+      console.warn("preloadCloudMonthDateKeys failed", {
+        monthKey,
+        fromDateKey,
+        toDateKey: monthEndDateKey,
+        message: error instanceof Error ? error.message : String(error),
+      });
       loadedCloudMonthKeysRef.current.delete(monthKey);
     }
   }
