@@ -208,23 +208,97 @@ function toSessionUser(user: {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FCFCFD" },
-  content: { flex: 1, paddingHorizontal: 32, paddingTop: 132, alignItems: "center" },
+  container: {
+    flex: 1,
+    backgroundColor: "#FCFCFD",
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 32,
+    paddingTop: 132,
+    alignItems: "center",
+  },
+
   logoImage: {
     width: 180,
     height: 180,
     marginTop: 40,
   },
-  brandText: { marginTop: -30, fontSize: 20, fontWeight: "500", color: "#050505", letterSpacing: 1 },
-  tagline: { marginTop: 8, color: "#6E7280", fontSize: 14, letterSpacing: 0.2 },
-  loginButton: { marginTop: 80, width: "100%", maxWidth: 340, height: 56, borderRadius: 28, borderWidth: 1.5, borderColor: "#20222A", alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
-  loginButtonDisabled: { opacity: 0.56 },
-  loginText: { color: "#111111", fontSize: 18, fontWeight: "500" },
-  agreementBlock: { marginTop: 36, width: "100%", maxWidth: 340, alignItems: "center" },
-  agreeRow: { width: "100%", maxWidth: 320, flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  checkbox: { width: 24, height: 24, borderWidth: 1.2, borderColor: "#6F7078", borderRadius: 6, marginRight: 10, backgroundColor: "#FFFFFF" },
-  checkboxChecked: { backgroundColor: "#FFFFFF", borderColor: "#111111" },
-  agreeText: { flexShrink: 1, color: "#545A68", fontSize: 14, lineHeight: 21 },
-  linkText: { color: "#111111", textDecorationLine: "underline" },
-  statusText: { marginTop: 10, color: "#D14343", fontSize: 12, textAlign: "center" },
+  brandText: {
+    marginTop: -30,
+    color: "#050505",
+    fontSize: 20,
+    fontWeight: "500",
+    letterSpacing: 1,
+  },
+  tagline: {
+    marginTop: 8,
+    color: "#6E7280",
+    fontSize: 14,
+    letterSpacing: 0.2,
+  },
+
+  loginButton: {
+    marginTop: 80,
+    width: "100%",
+    maxWidth: 340,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1.5,
+    borderColor: "#20222A",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loginButtonDisabled: {
+    opacity: 0.56,
+  },
+  loginText: {
+    color: "#111111",
+    fontSize: 18,
+    fontWeight: "500",
+  },
+
+  agreementBlock: {
+    marginTop: 36,
+    width: "100%",
+    maxWidth: 340,
+    alignItems: "center",
+  },
+  agreeRow: {
+    width: "100%",
+    maxWidth: 320,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    marginRight: 10,
+    borderRadius: 6,
+    borderWidth: 1.2,
+    borderColor: "#6F7078",
+    backgroundColor: "#FFFFFF",
+  },
+  checkboxChecked: {
+    borderColor: "#111111",
+    backgroundColor: "#FFFFFF",
+  },
+  agreeText: {
+    flexShrink: 1,
+    color: "#545A68",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  linkText: {
+    color: "#111111",
+    textDecorationLine: "underline",
+  },
+  statusText: {
+    marginTop: 10,
+    color: "#D14343",
+    fontSize: 12,
+    textAlign: "center",
+  },
 });

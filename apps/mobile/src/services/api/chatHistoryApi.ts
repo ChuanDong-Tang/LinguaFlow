@@ -29,6 +29,7 @@ export type ListMessagesByRangeInput = {
   userId: string;
   fromDateKey?: string;
   toDateKey?: string;
+  signal?: AbortSignal;
 };
 
 export type SendMessageResult = {
@@ -85,6 +86,7 @@ export async function listMessagesByRangeFromCloud(
 
   const res = await fetch(`${BASE_URL}/chat/messages/range?${params.toString()}`, {
     headers: await getAuthHeaders(),
+    signal: input.signal,
   });
   const json = (await res.json()) as ApiResult<MessageView[]>;
 
@@ -110,18 +112,21 @@ export async function listDayMessagesFromCloud(input: {
   conversationId: string;
   userId: string;
   dateKey: string;
+  signal?: AbortSignal;
 }): Promise<MessageView[]> {
   return listMessagesByRangeFromCloud({
     conversationId: input.conversationId,
     userId: input.userId,
     fromDateKey: input.dateKey,
     toDateKey: input.dateKey,
+    signal: input.signal,
   });
 }
 
 export async function findConversationIdByDateFromCloud(input: {
   dateKey: string;
   contactId?: string;
+  signal?: AbortSignal;
 }): Promise<string | null> {
   const params = new URLSearchParams();
   params.set("dateKey", input.dateKey);
@@ -129,6 +134,7 @@ export async function findConversationIdByDateFromCloud(input: {
 
   const res = await fetch(`${BASE_URL}/chat/conversation/by-date?${params.toString()}`, {
     headers: await getAuthHeaders(),
+    signal: input.signal,
   });
   const json = (await res.json()) as ApiResult<{ conversationId: string | null }>;
 
@@ -143,6 +149,7 @@ export async function listConversationDateKeysFromCloud(input: {
   contactId?: string;
   fromDateKey: string;
   toDateKey: string;
+  signal?: AbortSignal;
 }): Promise<Set<string>> {
   const params = new URLSearchParams();
   params.set("fromDateKey", input.fromDateKey);
@@ -151,6 +158,7 @@ export async function listConversationDateKeysFromCloud(input: {
 
   const res = await fetch(`${BASE_URL}/chat/conversations/date-keys?${params.toString()}`, {
     headers: await getAuthHeaders(),
+    signal: input.signal,
   });
   const json = (await res.json()) as ApiResult<string[]>;
 

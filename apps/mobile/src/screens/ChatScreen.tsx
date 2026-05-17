@@ -114,9 +114,12 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const lastCloudSyncAtByDateRef = useRef<Record<string, number>>({});
   const loadedCloudMonthKeysRef = useRef<Set<string>>(new Set());
   const clozeSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
   const isProEntitledRef = useRef(false);
   const todaySyncCountRef = useRef(0);
   const isTodaySyncingRef = useRef(false);
+  const syncNoticeHandlesRef = useRef<Array<{ hide: () => void }>>([]);
+  const syncAbortControllersRef = useRef<AbortController[]>([]);
   const clozeSaveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
   const scrollToBottom = React.useCallback((animated = false): void => {
     requestAnimationFrame(() => {
@@ -128,22 +131,42 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     return inputText.trim().length > 0 && !isSending && !isTodaySyncing && hasQuota;
   }, [inputText, isSending, isTodaySyncing, remainingChars]);
 
+  // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示。
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      todaySyncCountRef.current = 0;
+      // 用户快速进出聊天页时，历史同步请求可能还在进行；退出时主动取消，
+      // 避免旧同步继续占用网络/服务端资源，或在页面卸载后更新全局提示气泡。
+      syncAbortControllersRef.current.forEach((controller) => controller.abort());
+      syncAbortControllersRef.current = [];
+      syncNoticeHandlesRef.current.forEach((notice) => notice.hide());
+      syncNoticeHandlesRef.current = [];
+    };
+  }, []);
+
+  // Ref 镜像：给异步回调读取最新的本地消息，避免闭包拿到旧 state。
   useEffect(() => {
     allLocalMessagesRef.current = allLocalMessages;
   }, [allLocalMessages]);
 
+  // Ref 镜像：同步回包时用它判断用户当前还停在哪一天。
   useEffect(() => {
     selectedDateKeyRef.current = toDateKey(selectedDate);
   }, [selectedDate]);
 
+  // Ref 镜像：填空保存等异步逻辑需要读取最新 Pro 状态。
   useEffect(() => {
     isProEntitledRef.current = isProEntitled;
   }, [isProEntitled]);
 
+  // Ref 镜像：发送入口用它即时判断今天同步锁，避免按钮状态刷新前抢发。
   useEffect(() => {
     isTodaySyncingRef.current = isTodaySyncing;
   }, [isTodaySyncing]);
 
+  // 启动初始化：加载自动复制偏好。
   useEffect(() => {
     let cancelled = false;
     async function bootstrapPreferences() {
@@ -159,6 +182,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     };
   }, []);
 
+  // 启动初始化：加载本地权益快照，用于额度和 Pro 历史同步开关。
   useEffect(() => {
     let cancelled = false;
     async function loadEntitlementSnapshot() {
@@ -181,6 +205,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     };
   }, []);
 
+  // 本地历史：按当前日期加载缓存，并建立本轮会话内的按天最小显示缓存。
   useEffect(() => {
     let cancelled = false;
     async function bootstrapLocal() {
@@ -188,7 +213,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       if (cancelled) return;
       setAllLocalMessages(rows);
       allLocalMessagesRef.current = rows;
-      // Session-level monotonic cache: once a day's rows are seen, keep them as the floor in this app run.
+      // 会话级单调缓存：某天已经展示过的行数，作为本次 app 运行期间的保底显示。
       const grouped: Record<string, ChatMessage[]> = {};
       for (const row of rows) {
         const key = toDateKey(new Date(row.createdAt));
@@ -212,6 +237,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     };
   }, [selectedDate]);
 
+  // 生成会话订阅：接收流式改写状态和消息列表更新。
   useEffect(() => {
     return subscribeRewriteSession((snapshot) => {
       setIsSending(snapshot.isSending);
@@ -228,6 +254,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     });
   }, [selectedDate]);
 
+  // 键盘监听：键盘弹出/收起时调整底部间距并滚动到底部。
   useEffect(() => {
     const onKeyboardShow = (event: any) => {
       const height = Math.max(0, event.endCoordinates?.height ?? 0);
@@ -248,6 +275,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     };
   }, [scrollToBottom]);
 
+  // 键盘补偿滚动：键盘高度或消息数变化后，再补一次滚动，避免末尾被遮挡。
   useEffect(() => {
     if (keyboardInset <= 0) return;
     const timer = setTimeout(() => {
@@ -256,11 +284,13 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     return () => clearTimeout(timer);
   }, [keyboardInset, messages.length, scrollToBottom]);
 
+  // 启动同步：进入聊天页后静默同步今天，兼顾多端新增消息。
   useEffect(() => {
     const today = new Date();
     void syncDateQuietly(today);
   }, []);
 
+  // 日期面板：打开日历时预加载当前月份云端有记录的日期。
   useEffect(() => {
     if (!isDateSheetOpen) return;
     void preloadCloudMonthDateKeys(monthCursor);
@@ -647,19 +677,24 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
     if (loadedCloudMonthKeysRef.current.has(monthKey)) return;
     loadedCloudMonthKeysRef.current.add(monthKey);
+    const controller = new AbortController();
+    syncAbortControllersRef.current.push(controller);
 
     try {
       const keys = await listConversationDateKeysFromCloud({
         contactId: "rewrite_assistant",
         fromDateKey,
         toDateKey: monthEndDateKey,
+        signal: controller.signal,
       });
+      if (!isMountedRef.current) return;
       setCloudDateKeys((prev) => {
         const next = new Set(prev);
         keys.forEach((key) => next.add(key));
         return next;
       });
     } catch (error) {
+      if (controller.signal.aborted) return;
       console.warn("preloadCloudMonthDateKeys failed", {
         monthKey,
         fromDateKey,
@@ -667,18 +702,21 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         message: error instanceof Error ? error.message : String(error),
       });
       loadedCloudMonthKeysRef.current.delete(monthKey);
+    } finally {
+      syncAbortControllersRef.current = syncAbortControllersRef.current.filter((item) => item !== controller);
     }
   }
 
-  async function resolveConversationIdForDate(dateKey: string): Promise<string | null> {
+  async function resolveConversationIdForDate(dateKey: string, signal?: AbortSignal): Promise<string | null> {
     const resolved = await findConversationIdByDateFromCloud({
       dateKey,
       contactId: "rewrite_assistant",
+      signal,
     });
     const todayKey = toDateKey(new Date());
     const fallback = dateKey === todayKey ? conversationId : null;
     const finalId = resolved ?? fallback ?? null;
-    if (finalId && finalId !== conversationId) {
+    if (isMountedRef.current && finalId && finalId !== conversationId) {
       setConversationId(finalId);
     }
     return finalId;
@@ -717,7 +755,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
   async function syncDayFromCloud(
     d: Date,
-    options?: { force?: boolean }
+    options?: { force?: boolean; signal?: AbortSignal }
   ): Promise<{ synced: boolean; changed: boolean }> {
     const localPro = await hasLocalProAccess();
     const [session, entitlement] = await Promise.all([
@@ -726,6 +764,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     ]);
     const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
     const isPro = entitlement?.isPro === true;
+    if (!isMountedRef.current) return { synced: false, changed: false };
     setIsProEntitled(isPro);
     const dateKey = toDateKey(d);
     const reqId = ++syncSeqRef.current;
@@ -733,14 +772,17 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
     if (!isPro) return { synced: false, changed: false };
 
-    const resolvedConversationId = await resolveConversationIdForDate(dateKey);
+    const resolvedConversationId = await resolveConversationIdForDate(dateKey, options?.signal);
+    if (!isMountedRef.current) return { synced: false, changed: false };
     if (!resolvedConversationId) return { synced: false, changed: false };
 
     const allRows = await listDayMessagesFromCloud({
       conversationId: resolvedConversationId,
       userId,
       dateKey,
+      signal: options?.signal,
     });
+    if (!isMountedRef.current) return { synced: false, changed: false };
     if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
 
     const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort((a, b) =>
@@ -784,6 +826,8 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   }
 
   async function syncDateQuietly(d: Date, options?: { force?: boolean }): Promise<void> {
+    const controller = new AbortController();
+    syncAbortControllersRef.current.push(controller);
     const isTodaySync = isSameDate(d, new Date());
     if (isTodaySync) {
       todaySyncCountRef.current += 1;
@@ -795,8 +839,13 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       position: "top-right",
       durationMs: 0,
     });
+    syncNoticeHandlesRef.current.push(notice);
     try {
-      const result = await syncDayFromCloud(d, options);
+      const result = await syncDayFromCloud(d, { ...options, signal: controller.signal });
+      if (!isMountedRef.current) {
+        notice.hide();
+        return;
+      }
       if (!result.synced || !result.changed) {
         notice.hide();
         return;
@@ -807,15 +856,25 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         durationMs: 1800,
       });
     } catch {
+      if (controller.signal.aborted) {
+        notice.hide();
+        return;
+      }
+      if (!isMountedRef.current) {
+        notice.hide();
+        return;
+      }
       notice.update({
         message: "同步失败，稍后再试",
         type: "warning",
         durationMs: 2200,
       });
     } finally {
+      syncAbortControllersRef.current = syncAbortControllersRef.current.filter((item) => item !== controller);
+      syncNoticeHandlesRef.current = syncNoticeHandlesRef.current.filter((item) => item !== notice);
       if (isTodaySync) {
         todaySyncCountRef.current = Math.max(0, todaySyncCountRef.current - 1);
-        if (todaySyncCountRef.current === 0) {
+        if (isMountedRef.current && todaySyncCountRef.current === 0) {
           setIsTodaySyncing(false);
         }
       }
