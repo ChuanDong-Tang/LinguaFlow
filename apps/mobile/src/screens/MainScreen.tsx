@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TabBar } from "./shared/TabBar";
 import { type DebugModelProvider, loadDebugSettings, saveDebugSettings } from "../services/preferences/debugSettingsStorage";
+import { useMountedGuard } from "../hooks/useMountedGuard";
 
 type MainScreenProps = {
   onOpenChat: () => void;
@@ -19,24 +20,21 @@ const MODEL_OPTIONS: Array<{ label: string; value: DebugModelProvider; disabled?
 ];
 
 export function MainScreen({ onOpenChat, onOpenPractice, onOpenMe }: MainScreenProps) {
+  const { isMounted } = useMountedGuard();
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [systemPromptDraft, setSystemPromptDraft] = useState("");
   const [modelProvider, setModelProvider] = useState<DebugModelProvider>("deepseek");
 
   useEffect(() => {
     if (!SHOW_DEBUG_PROMPT_PANEL) return;
-    let mounted = true;
     async function bootstrapDebugSettings() {
       const settings = await loadDebugSettings();
-      if (!mounted) return;
+      if (!isMounted()) return;
       setSystemPromptDraft(settings.systemPrompt);
       setModelProvider(settings.modelProvider);
     }
     void bootstrapDebugSettings();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  }, [isMounted]);
 
   async function handleSaveDebugSystemPrompt(): Promise<void> {
     const current = await loadDebugSettings();

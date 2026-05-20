@@ -1,0 +1,2 @@
+-- Empty migration placeholder.
+-- The directory existed without migration.sql, which prevents Prisma from applying later migrations.

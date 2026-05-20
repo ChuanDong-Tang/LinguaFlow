@@ -30,9 +30,11 @@ import { AppleIapService } from "@lf/server-next/providers/payment/apple/AppleIa
 import { PaymentEntitlementService } from "@lf/server-next/services/payment/PaymentEntitlementService.js";
 import { BenefitGrantService } from "@lf/server-next/services/payment/BenefitGrantService.js";
 import { WeChatPaymentProvider } from "@lf/server-next/providers/payment/wechat/WeChatPaymentProvider.js";
+import { WeChatAutoRenewProvider } from "@lf/server-next/providers/payment/wechat/WeChatAutoRenewProvider.js";
 import { PrismaAiRequestLogRepository } from "@lf/server-next/infrastructure/repository/PrismaAiRequestLogRepository.js";
 import { PrismaSystemEventLogRepository } from "@lf/server-next/infrastructure/repository/PrismaSystemEventLogRepository.js";
 import { PrismaTrustedCertRepository } from "@lf/server-next/infrastructure/repository/PrismaTrustedCertRepository.js";
+import { PrismaAutoRenewRepository } from "@lf/server-next/infrastructure/repository/PrismaAutoRenewRepository.js";
 import {
   InMemoryRewriteRateLimiter,
   RedisRewriteRateLimiter,
@@ -42,6 +44,8 @@ import { registerPaymentRoutes } from "./payment/routes.js";
 import { registerAdminRoutes } from "./admin/routes.js";
 import { getRuntimeConfig } from "@lf/server-next/config/runtimeConfig.js";
 import { PaymentCertSyncService } from "@lf/server-next/services/payment/PaymentCertSyncService.js";
+import { AutoRenewService } from "@lf/server-next/services/payment/AutoRenewService.js";
+import { PaymentEntitlementRefreshService } from "@lf/server-next/services/payment/PaymentEntitlementRefreshService.js";
 
 const prisma = new PrismaClient();
 
@@ -108,8 +112,14 @@ export function createApp() {
   const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
   const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
   const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
+  const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
   const paymentProvider = new WeChatPaymentProvider();
-  const paymentOrderService = new PaymentOrderService(paymentOrderRepository, paymentProvider);
+  const weChatAutoRenewProvider = new WeChatAutoRenewProvider();
+  const paymentOrderService = new PaymentOrderService(
+    paymentOrderRepository,
+    paymentProvider,
+    subscriptionService
+  );
   const paymentEntitlementService = new PaymentEntitlementService(subscriptionService);
   const benefitGrantService = new BenefitGrantService(benefitGrantRepository);
   const paymentCertSyncService = new PaymentCertSyncService(trustedCertRepository);
@@ -121,11 +131,26 @@ export function createApp() {
     trustedCertRepository,
     paymentCertSyncService
   );
+  const autoRenewService = new AutoRenewService(
+    autoRenewRepository,
+    paymentEntitlementService,
+    weChatAutoRenewProvider,
+    systemEventLogRepository,
+    subscriptionService
+  );
+  const paymentEntitlementRefreshService = new PaymentEntitlementRefreshService(
+    paymentOrderService,
+    autoRenewService,
+    entitlementService,
+    paymentEntitlementService,
+    benefitGrantService
+  );
   const appleIapService = new AppleIapService(
     benefitGrantService,
     paymentEntitlementService,
     paymentEventRepository,
-    paymentOrderRepository
+    paymentOrderRepository,
+    autoRenewService
   );
   const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
   const rewriteService = new RewriteService(
@@ -159,12 +184,14 @@ export function createApp() {
   registerMeRoutes(app, {
     subscriptionService,
     entitlementService,
+    paymentEntitlementRefreshService,
     userRepository,
     systemEventLogRepository,
   });
   registerPaymentRoutes(app, {
     paymentOrderService,
     paymentNotifyService,
+    autoRenewService,
     appleIapService,
     userRepository,
     systemEventLogRepository,

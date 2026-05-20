@@ -11,12 +11,16 @@ import { PaymentReconcileWorker } from "./src/workers/payment/PaymentReconcileWo
 import { BenefitGrantWorker } from "./src/workers/payment/BenefitGrantWorker.ts";
 import { PrismaSystemEventLogRepository } from "./src/infrastructure/repository/PrismaSystemEventLogRepository.ts";
 import { PrismaTrustedCertRepository } from "./src/infrastructure/repository/PrismaTrustedCertRepository.ts";
+import { PrismaAutoRenewRepository } from "./src/infrastructure/repository/PrismaAutoRenewRepository.ts";
 import { SessionCleanupWorker } from "./src/workers/session/SessionCleanupWorker.ts";
 import { SystemEventLogCleanupWorker } from "./src/workers/system/SystemEventLogCleanupWorker.ts";
 import { AiRequestLogCleanupWorker } from "./src/workers/ai/AiRequestLogCleanupWorker.ts";
 import { PaymentCertSyncWorker } from "./src/workers/payment/PaymentCertSyncWorker.ts";
+import { WeChatAutoRenewBillingWorker } from "./src/workers/payment/WeChatAutoRenewBillingWorker.ts";
 import { getRuntimeConfig } from "./src/config/runtimeConfig.ts";
 import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
+import { AutoRenewService } from "./src/services/payment/AutoRenewService.ts";
+import { WeChatAutoRenewProvider } from "./src/providers/payment/index.ts";
 
 const prisma = new PrismaClient();
 const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
@@ -24,10 +28,23 @@ const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
 const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
 const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
 const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
+const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
 const paymentProvider = new WeChatPaymentProvider();
-const paymentOrderService = new PaymentOrderService(paymentOrderRepository, paymentProvider);
 const subscriptionService = new SubscriptionService(subscriptionRepository);
+const paymentOrderService = new PaymentOrderService(
+  paymentOrderRepository,
+  paymentProvider,
+  subscriptionService
+);
 const paymentEntitlementService = new PaymentEntitlementService(subscriptionService);
+const weChatAutoRenewProvider = new WeChatAutoRenewProvider();
+const autoRenewService = new AutoRenewService(
+  autoRenewRepository,
+  paymentEntitlementService,
+  weChatAutoRenewProvider,
+  systemEventLogRepository,
+  subscriptionService
+);
 const benefitGrantService = new BenefitGrantService(benefitGrantRepository);
 const worker = new PaymentReconcileWorker(
   paymentOrderService,
@@ -45,6 +62,10 @@ const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, syst
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
 const paymentCertSyncWorker = new PaymentCertSyncWorker(
   trustedCertRepository,
+  systemEventLogRepository
+);
+const weChatAutoRenewBillingWorker = new WeChatAutoRenewBillingWorker(
+  autoRenewService,
   systemEventLogRepository
 );
 
@@ -71,6 +92,7 @@ try {
   systemEventLogCleanupWorker.start();
   aiRequestLogCleanupWorker.start();
   paymentCertSyncWorker.start();
+  weChatAutoRenewBillingWorker.start();
 } catch (error) {
   console.error("[worker] start failed", error);
   await systemEventLogRepository.create({
@@ -94,6 +116,7 @@ async function shutdown() {
   systemEventLogCleanupWorker.stop();
   aiRequestLogCleanupWorker.stop();
   paymentCertSyncWorker.stop();
+  weChatAutoRenewBillingWorker.stop();
   await prisma.$disconnect();
 }
 

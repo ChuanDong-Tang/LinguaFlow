@@ -23,7 +23,7 @@ export class BenefitGrantWorker {
 
   start(): void {
     if (this.timer) return;
-    const intervalMs = this.options.intervalMs ?? getRuntimeConfig().paymentReconcileIntervalMs;
+    const intervalMs = this.options.intervalMs ?? getRuntimeConfig().payment.reconcileIntervalMs;
     // 启动先跑一次，同时避免与首个周期重叠
     this.firstIntervalDueAt = Date.now() + intervalMs;
     void this.runOnce();
@@ -44,7 +44,7 @@ export class BenefitGrantWorker {
     this.running = true;
     try {
       const config = getRuntimeConfig();
-      const batchSize = this.options.batchSize ?? config.paymentReconcileBatchSize;
+      const batchSize = this.options.batchSize ?? config.payment.reconcileBatchSize;
       const maxAttempts = this.options.maxAttempts ?? config.benefitGrantMaxAttempts;
       const retryEnabled = config.benefitGrantRetryEnabled;
       const backoffMaxMs = config.benefitGrantBackoffMaxMs;

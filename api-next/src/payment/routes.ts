@@ -3,9 +3,18 @@ import type { CreatePaymentOrderRequest } from "@lf/core/contracts/payment/Creat
 import {
   PaymentOrderAccessDeniedError,
   PaymentOrderNotFoundError,
+  ProRenewalTooEarlyError,
   type PaymentOrderService,
 } from "@lf/server-next/services/payment/PaymentOrderService.js";
 import type { PaymentNotifyService } from "@lf/server-next/services/payment/PaymentNotifyService.js";
+import {
+  AutoRenewAccessDeniedError,
+  AutoRenewAlreadyActiveError,
+  AutoRenewConcurrentCreateError,
+  AutoRenewNotFoundError,
+  AutoRenewSwitchBlockedError,
+  type AutoRenewService,
+} from "@lf/server-next/services/payment/AutoRenewService.js";
 import { AppleIapService } from "@lf/server-next/providers/payment/apple/AppleIapService.js";
 import { getRuntimeConfig } from "@lf/server-next/config/runtimeConfig.js";
 import {
@@ -26,6 +35,7 @@ import { checkIpPathRateLimit } from "../lib/rateLimit.js";
 export interface PaymentRouteDeps {
   paymentOrderService: PaymentOrderService;
   paymentNotifyService: PaymentNotifyService;
+  autoRenewService: AutoRenewService;
   appleIapService: AppleIapService;
   userRepository: {
     findById: (userId: string) => Promise<{
@@ -38,11 +48,15 @@ export interface PaymentRouteDeps {
 
 const CLIENT_ERROR_MESSAGES = {
   PAYMENT_FAILED: "Payment request failed, please try again later.",
+  PRO_RENEWAL_TOO_EARLY: "Pro can be prepaid for at most 2 months.",
   RESOURCE_NOT_FOUND: "Payment order not found.",
   IAP_VERIFY_FAILED: "Unable to verify purchase at the moment.",
   IAP_NOTIFY_FAILED: "Notification processing failed.",
   AUTH_UNAUTHORIZED: "Authentication required.",
   ACCOUNT_DISABLED: "Account is unavailable.",
+  AUTO_RENEW_NOT_FOUND: "Auto renew subscription not found.",
+  AUTO_RENEW_ALREADY_ACTIVE: "Auto renew is already active.",
+  AUTO_RENEW_SWITCH_BLOCKED: "Current Pro period is still active. Switch auto renew after it expires.",
 } as const;
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
@@ -75,6 +89,21 @@ function isCreatePaymentOrderRequest(value: unknown): value is CreatePaymentOrde
   return v.productCode === "pro_monthly";
 }
 
+function isCancelAutoRenewRequest(value: unknown): value is { autoRenewSubscriptionId: string } {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.autoRenewSubscriptionId === "string" &&
+    v.autoRenewSubscriptionId.trim().length > 0
+  );
+}
+
+function isCreateWechatAutoRenewRequest(value: unknown): value is { productCode: "pro_monthly" } {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return v.productCode === "pro_monthly";
+}
+
 export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDeps): void {
   const config = getRuntimeConfig();
   app.get("/payment/health", async (_req, reply) => {
@@ -100,6 +129,278 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     });
   });
 
+  app.get("/payment/autorenew/current", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+
+    const data = await deps.autoRenewService.getCurrent(userContext.userId);
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: {
+        subscription: data.subscription
+          ? {
+              id: data.subscription.id,
+              provider: data.subscription.provider,
+              productCode: data.subscription.productCode,
+              status: data.subscription.status,
+              currentPeriodStart: data.subscription.currentPeriodStart?.toISOString() ?? null,
+              currentPeriodEnd: data.subscription.currentPeriodEnd?.toISOString() ?? null,
+              nextBillingAt: data.subscription.nextBillingAt?.toISOString() ?? null,
+              cancelledAt: data.subscription.cancelledAt?.toISOString() ?? null,
+            }
+          : null,
+      },
+    });
+  });
+
+  app.post("/payment/autorenew/wechat/pre-sign", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!isCreateWechatAutoRenewRequest(req.body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.autorenew.wechat.pre_sign_invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "VALIDATION_FAILED",
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid auto renew payload" },
+      });
+    }
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+
+    try {
+      const data = await deps.autoRenewService.createWeChatPreSign({
+        userId: userContext.userId,
+      });
+      return reply.status(200).send({
+        ok: true,
+        request_id: requestId,
+        data: {
+          autoRenewSubscriptionId: data.subscription.id,
+          provider: data.subscription.provider,
+          outContractCode: data.outContractCode,
+          providerOrderId: data.providerOrderId,
+          clientPayParams: data.clientPayParams,
+          redirectUrl: data.redirectUrl,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof AutoRenewAlreadyActiveError ||
+        error instanceof AutoRenewConcurrentCreateError ||
+        error instanceof AutoRenewSwitchBlockedError
+      ) {
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message:
+              error instanceof AutoRenewAlreadyActiveError
+                ? `Auto renew is already active via ${error.provider}.`
+                : error instanceof AutoRenewSwitchBlockedError
+                  // 用户取消自动续费后，当前 Pro 仍未过期；这里明确返回业务冲突，不当成支付/签约失败。
+                  ? CLIENT_ERROR_MESSAGES.AUTO_RENEW_SWITCH_BLOCKED
+                  : "Auto renew is already active.",
+            ...(error instanceof AutoRenewSwitchBlockedError
+              ? {
+                  provider: error.provider,
+                  currentPeriodEnd: error.currentPeriodEnd.toISOString(),
+                }
+              : {}),
+          },
+        });
+      }
+      const message = error instanceof Error ? error.message : "Auto renew pre sign failed";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.autorenew.wechat.pre_sign_failed",
+        level: "error",
+        status: "failed",
+        errorCode: "AUTO_RENEW_PRE_SIGN_FAILED",
+        errorMessage: message,
+      });
+      return reply.status(502).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "AUTO_RENEW_PRE_SIGN_FAILED", message: "Auto renew request failed" },
+      });
+    }
+  });
+
+  app.post("/payment/autorenew/cancel", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!isCancelAutoRenewRequest(req.body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.autorenew.cancel_invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "VALIDATION_FAILED",
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid auto renew cancel payload" },
+      });
+    }
+
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+
+    try {
+      const subscription = await deps.autoRenewService.cancelWithProvider({
+        userId: userContext.userId,
+        autoRenewSubscriptionId: req.body.autoRenewSubscriptionId.trim(),
+      });
+
+      return reply.status(200).send({
+        ok: true,
+        request_id: requestId,
+        data: {
+          id: subscription.id,
+          provider: subscription.provider,
+          status: subscription.status,
+          cancelledAt: subscription.cancelledAt?.toISOString() ?? null,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof AutoRenewNotFoundError ||
+        error instanceof AutoRenewAccessDeniedError
+      ) {
+        return reply.status(404).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: "AUTO_RENEW_NOT_FOUND",
+            message: CLIENT_ERROR_MESSAGES.AUTO_RENEW_NOT_FOUND,
+          },
+        });
+      }
+      const message = error instanceof Error ? error.message : "Auto renew cancel failed";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.autorenew.cancel_failed",
+        level: "error",
+        status: "failed",
+        errorCode: "AUTO_RENEW_CANCEL_FAILED",
+        errorMessage: message,
+        metadata: { autoRenewSubscriptionId: req.body.autoRenewSubscriptionId.trim() },
+      });
+      return reply.status(502).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "AUTO_RENEW_CANCEL_FAILED", message: "Auto renew cancel failed" },
+      });
+    }
+  });
+
+  app.post("/payment/autorenew/wechat/contract-notify", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const body = req.body as Partial<{ __rawBody: string }> | null;
+    const rawBody = body?.__rawBody;
+    if (!rawBody) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.autorenew.wechat.contract_notify_missing_raw_body",
+        level: "warn",
+        status: "failed",
+        errorCode: "PAYMENT_NOTIFY_INVALID",
+        metadata: { path: "/payment/autorenew/wechat/contract-notify" },
+      });
+      return reply.status(400).send({ code: "FAIL", message: "Missing raw body" });
+    }
+
+    try {
+      await deps.paymentNotifyService.verifyWeChatNotifySignature({
+        headers: {
+          timestamp: firstHeaderValue(req.headers["wechatpay-timestamp"]),
+          nonce: firstHeaderValue(req.headers["wechatpay-nonce"]),
+          signature: firstHeaderValue(req.headers["wechatpay-signature"]),
+          serial: firstHeaderValue(req.headers["wechatpay-serial"]),
+        },
+        rawBody,
+      });
+      await deps.autoRenewService.handleWeChatContractRawNotify(rawBody);
+      return reply.status(200).send({ code: "SUCCESS", message: "成功" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "WeChat contract notify failed";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.autorenew.wechat.contract_notify_failed",
+        level: "error",
+        status: "failed",
+        errorCode: "AUTO_RENEW_NOTIFY_FAILED",
+        errorMessage: message,
+      });
+      return reply.status(500).send({ code: "FAIL", message: "失败" });
+    }
+  });
+
+  app.post("/payment/autorenew/wechat/debit-notify", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const body = req.body as Partial<{ __rawBody: string }> | null;
+    const rawBody = body?.__rawBody;
+    if (!rawBody) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.autorenew.wechat.debit_notify_missing_raw_body",
+        level: "warn",
+        status: "failed",
+        errorCode: "PAYMENT_NOTIFY_INVALID",
+        metadata: { path: "/payment/autorenew/wechat/debit-notify" },
+      });
+      return reply.status(400).send({ code: "FAIL", message: "Missing raw body" });
+    }
+
+    try {
+      await deps.paymentNotifyService.verifyWeChatNotifySignature({
+        headers: {
+          timestamp: firstHeaderValue(req.headers["wechatpay-timestamp"]),
+          nonce: firstHeaderValue(req.headers["wechatpay-nonce"]),
+          signature: firstHeaderValue(req.headers["wechatpay-signature"]),
+          serial: firstHeaderValue(req.headers["wechatpay-serial"]),
+        },
+        rawBody,
+      });
+      await deps.autoRenewService.handleWeChatDebitRawNotify(rawBody);
+      return reply.status(200).send({ code: "SUCCESS", message: "成功" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "WeChat debit notify failed";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.autorenew.wechat.debit_notify_failed",
+        level: "error",
+        status: "failed",
+        errorCode: "AUTO_RENEW_NOTIFY_FAILED",
+        errorMessage: message,
+      });
+      return reply.status(500).send({ code: "FAIL", message: "失败" });
+    }
+  });
+
   app.post("/payment/orders", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
@@ -110,8 +411,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       rule: {
         routeKey: "orders_create",
         path: "/payment/orders",
-        limit: config.paymentRateLimitOrdersCreateLimit,
-        windowSec: config.paymentRateLimitOrdersCreateWindowSec,
+        limit: config.payment.rateLimitOrdersCreateLimit,
+        windowSec: config.payment.rateLimitOrdersCreateWindowSec,
         responseType: "api",
       },
       systemEventLogRepository: deps.systemEventLogRepository,
@@ -143,6 +444,19 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
+      if (error instanceof ProRenewalTooEarlyError) {
+        // 用户当前剩余 Pro 已接近上限：不创建单次月卡订单，避免未来调价后被长期囤月卡。
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY,
+            expiresAt: error.expiresAt.toISOString(),
+            maxAllowedExpiresAt: error.maxAllowedExpiresAt.toISOString(),
+          },
+        });
+      }
       const message = error instanceof Error ? error.message : "Payment order failed";
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
@@ -172,8 +486,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       rule: {
         routeKey: "orders_query",
         path: "/payment/orders/:id",
-        limit: config.paymentRateLimitOrdersQueryLimit,
-        windowSec: config.paymentRateLimitOrdersQueryWindowSec,
+        limit: config.payment.rateLimitOrdersQueryLimit,
+        windowSec: config.payment.rateLimitOrdersQueryWindowSec,
         responseType: "api",
       },
       systemEventLogRepository: deps.systemEventLogRepository,
@@ -247,8 +561,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       rule: {
         routeKey: "wechat_notify",
         path: "/payment/wechat/notify",
-        limit: config.paymentRateLimitWebhookLimit,
-        windowSec: config.paymentRateLimitWebhookWindowSec,
+        limit: config.payment.rateLimitWebhookLimit,
+        windowSec: config.payment.rateLimitWebhookWindowSec,
         responseType: "webhook",
       },
       systemEventLogRepository: deps.systemEventLogRepository,
@@ -307,8 +621,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       rule: {
         routeKey: "wechat_refund_notify",
         path: "/payment/wechat/refund-notify",
-        limit: config.paymentRateLimitWebhookLimit,
-        windowSec: config.paymentRateLimitWebhookWindowSec,
+        limit: config.payment.rateLimitWebhookLimit,
+        windowSec: config.payment.rateLimitWebhookWindowSec,
         responseType: "webhook",
       },
       systemEventLogRepository: deps.systemEventLogRepository,
@@ -390,6 +704,19 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       const message = error instanceof Error ? error.message : "iOS IAP verify failed";
+      if (error instanceof AutoRenewSwitchBlockedError) {
+        // Apple 首次验单也要遵守同一条规则：取消旧渠道后，当前 Pro 周期内不能马上换渠道重签。
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.AUTO_RENEW_SWITCH_BLOCKED,
+            provider: error.provider,
+            currentPeriodEnd: error.currentPeriodEnd.toISOString(),
+          },
+        });
+      }
       if (error instanceof AppleIapConfigError) {
         const configError = error as AppleIapConfigError;
         await writeSystemEventLog(deps.systemEventLogRepository, {
@@ -442,8 +769,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       rule: {
         routeKey: "ios_notify",
         path: "/payment/ios/notify",
-        limit: config.paymentRateLimitWebhookLimit,
-        windowSec: config.paymentRateLimitWebhookWindowSec,
+        limit: config.payment.rateLimitWebhookLimit,
+        windowSec: config.payment.rateLimitWebhookWindowSec,
         responseType: "api",
       },
       systemEventLogRepository: deps.systemEventLogRepository,

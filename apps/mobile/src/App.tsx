@@ -22,6 +22,7 @@ type Screen = "splash" | "login" | "main" | "chat" | "practice" | "practiceSessi
 
 const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
 
+// 每次setScreen就重新执行App()，因为useState是代表状态值[值，该表状态值的函数]
 export default function App() {
   const [screen, setScreen] = useState<Screen>("splash");
   const [practiceSession, setPracticeSession] = useState<{
@@ -29,6 +30,7 @@ export default function App() {
     messages: ChatMessage[];
   } | null>(null);
 
+  // 初始化，决定进入main还是login页面
   useEffect(() => {
     let mounted = true;
     function sleep(ms: number): Promise<void> {
@@ -59,6 +61,7 @@ export default function App() {
     };
   }, []);
 
+  // 订阅/取消订阅事件，跳回登录页。
   useEffect(() => {
     return onSessionInvalid(() => {
       setScreen("login");
@@ -77,6 +80,7 @@ export default function App() {
     setScreen("login");
   }
 
+  // 导航逻辑
   let content: React.ReactNode;
   if (screen === "splash") content = <SplashGateScreen />;
   else if (screen === "login") content = <LoginScreen onLoginSuccess={() => setScreen("main")} />;

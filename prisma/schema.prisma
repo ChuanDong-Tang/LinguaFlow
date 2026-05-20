@@ -21,6 +21,7 @@ model User {
   messages       Message[]
   entitlements   Entitlement[]
   subscriptions  Subscription[]
+  autoRenewSubscriptions AutoRenewSubscription[]
 
   @@map("users")
 }
@@ -149,6 +150,63 @@ model Subscription {
 
   @@index([userId, status, expiresAt])
   @@map("subscriptions")
+}
+
+model AutoRenewSubscription {
+  id                  String                  @id @default(cuid())
+  userId              String
+  provider            AutoRenewProvider
+  productCode          String
+  status              AutoRenewStatus
+  providerAgreementId String
+  latestTransactionId String?
+  currentPeriodStart  DateTime?
+  currentPeriodEnd    DateTime?
+  nextBillingAt       DateTime?
+  cancelledAt         DateTime?
+  metadata            Json?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  charges AutoRenewCharge[]
+
+  @@unique([provider, providerAgreementId])
+  @@index([userId, status])
+  @@index([status, nextBillingAt])
+  @@map("auto_renew_subscriptions")
+}
+
+model AutoRenewCharge {
+  id                      String                @id @default(cuid())
+  autoRenewSubscriptionId String
+  userId                  String
+  provider                AutoRenewProvider
+  productCode             String
+  providerChargeId        String
+  periodKey               String?
+  status                  AutoRenewChargeStatus
+  amount                  Int?
+  currency                String?
+  periodStart             DateTime?
+  periodEnd               DateTime?
+  paidAt                  DateTime?
+  failedAt                DateTime?
+  refundedAt              DateTime?
+  errorCode               String?
+  errorMessage            String?
+  rawPayload              Json?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  subscription AutoRenewSubscription @relation(fields: [autoRenewSubscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerChargeId])
+  @@unique([autoRenewSubscriptionId, periodKey])
+  @@index([autoRenewSubscriptionId, createdAt])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("auto_renew_charges")
 }
 
 model AiRequestLog {
@@ -360,6 +418,28 @@ enum SubscriptionStatus {
   active
   expired
   cancelled
+}
+
+enum AutoRenewProvider {
+  wechat
+  apple
+}
+
+enum AutoRenewStatus {
+  pending
+  active
+  cancelled
+  expired
+  billing_retry
+  paused
+}
+
+enum AutoRenewChargeStatus {
+  scheduled
+  pending
+  paid
+  failed
+  refunded
 }
 
 enum SystemEventLogLevel {

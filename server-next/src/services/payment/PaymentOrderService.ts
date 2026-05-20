@@ -10,6 +10,7 @@ import type {
 } from "@lf/core/ports/repository/PaymentOrderRepository.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import { getExpectedCurrentStatusesForNextStatus } from "./PaymentOrderStateMachine.js";
+import type { SubscriptionService } from "../subscription/SubscriptionService.js";
 
 export class PaymentOrderNotFoundError extends Error {
   readonly code = "PAYMENT_ORDER_NOT_FOUND";
@@ -27,12 +28,25 @@ export class PaymentOrderAccessDeniedError extends Error {
   }
 }
 
+export class ProRenewalTooEarlyError extends Error {
+  readonly code = "PRO_RENEWAL_TOO_EARLY";
+  readonly expiresAt: Date;
+  readonly maxAllowedExpiresAt: Date;
+
+  constructor(input: { expiresAt: Date; maxAllowedExpiresAt: Date }) {
+    super("Pro prepaid months limit reached");
+    this.expiresAt = input.expiresAt;
+    this.maxAllowedExpiresAt = input.maxAllowedExpiresAt;
+  }
+}
+
 export class PaymentOrderService {
   private static readonly REUSE_RECREATE_WARN_THRESHOLD = 3;
 
   constructor(
     private readonly paymentOrderRepository: PaymentOrderRepository,
-    private readonly paymentProvider: PaymentProvider
+    private readonly paymentProvider: PaymentProvider,
+    private readonly subscriptionService?: SubscriptionService
   ) {}
 
   async createProMonthlyOrder(input: {
@@ -40,9 +54,25 @@ export class PaymentOrderService {
   }): Promise<CreatePaymentOrderResponse> {
     const productCode = "pro_monthly" as const;
     const config = getRuntimeConfig();
-    const amount = config.proMonthlyPriceCents;
-    const description = config.paymentDescriptionProMonthly;
-    const reuseWindowMs = config.paymentPendingReuseWindowMs;
+    const now = new Date();
+    if (this.subscriptionService) {
+      const current = await this.subscriptionService.getCurrentSubscription(input.userId, now);
+      if (current.isPro && current.expiresAt) {
+        const maxAllowedExpiresAt = addMonths(now, config.payment.proMonthlyMaxPrepaidMonths - 1);
+        if (current.expiresAt > maxAllowedExpiresAt) {
+          // 单次月卡最多只能把 Pro 权益预存到“现在 + maxPrepaidMonths”附近。
+          // 因为本次购买会再顺延 1 个月，所以这里用 maxPrepaidMonths - 1 判断当前剩余权益。
+          // 这样既允许用户提前续一个月，又避免未来调价后用旧价格长期囤月卡。
+          throw new ProRenewalTooEarlyError({
+            expiresAt: current.expiresAt,
+            maxAllowedExpiresAt,
+          });
+        }
+      }
+    }
+    const amount = config.payment.proMonthlyPriceCents;
+    const description = config.payment.descriptionProMonthly;
+    const reuseWindowMs = config.payment.pendingReuseWindowMs;
     const since = new Date(Date.now() - reuseWindowMs);
     const existing = await this.paymentOrderRepository.findRecentPending({
       userId: input.userId,
@@ -115,15 +145,38 @@ export class PaymentOrderService {
     }
 
     const providerOrderId = this.createProviderOrderId();
-    const created = await this.paymentOrderRepository.create({
-      userId: input.userId,
-      productCode,
-      provider: this.paymentProvider.providerName,
-      providerOrderId,
-      amount,
-      currency: "CNY",
-      status: "pending",
-    });
+    let created: PaymentOrderEntity;
+    try {
+      created = await this.paymentOrderRepository.create({
+        userId: input.userId,
+        productCode,
+        provider: this.paymentProvider.providerName,
+        providerOrderId,
+        amount,
+        currency: "CNY",
+        status: "pending",
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      const pending = await this.paymentOrderRepository.findPendingByUserProductProvider({
+        userId: input.userId,
+        productCode,
+        provider: this.paymentProvider.providerName,
+      });
+      if (!pending) throw error;
+      // 双端同时创建单次订单时，数据库 pending 唯一索引是最后防线；
+      // 这里回查并复用已经创建成功的待支付单，避免同一用户拿到两张待支付月卡订单。
+      const providerOrder = await this.paymentProvider.createOrder({
+        providerOrderId: pending.providerOrderId,
+        userId: input.userId,
+        productCode,
+        description,
+        amount: pending.amount,
+        currency: "CNY",
+        notifyUrl: this.resolveNotifyUrl(),
+      });
+      return this.toCreateResponse(pending, providerOrder.clientPayParams, true);
+    }
     const providerOrder = await this.paymentProvider.createOrder({
       providerOrderId,
       userId: input.userId,
@@ -171,12 +224,12 @@ export class PaymentOrderService {
   }> {
     const now = input.now ?? new Date();
     const config = getRuntimeConfig();
-    const graceMs = config.paymentReconcileGraceMs;
-    const expireMs = config.paymentPendingExpireMs;
+    const graceMs = config.payment.reconcileGraceMs;
+    const expireMs = config.payment.pendingExpireMs;
     const before = new Date(now.getTime() - graceMs);
     const orders = await this.paymentOrderRepository.listPendingCreatedBefore({
       before,
-      limit: input.limit ?? config.paymentReconcileBatchSize,
+      limit: input.limit ?? config.payment.reconcileBatchSize,
     });
     const result = {
       scanned: orders.length,
@@ -270,6 +323,87 @@ export class PaymentOrderService {
     return result;
   }
 
+  async reconcileUserPendingOrders(input: {
+    userId: string;
+    limit?: number;
+    onPaid: (order: PaymentOrderEntity) => Promise<void>;
+  }): Promise<{
+    scanned: number;
+    paid: number;
+    closed: number;
+    failed: number;
+  }> {
+    const config = getRuntimeConfig();
+    // 用户手动刷新也是一次局部对账，先复用支付对账批量上限；后续压力大再拆独立配置。
+    const orders = await this.paymentOrderRepository.listUserPending({
+      userId: input.userId,
+      limit: input.limit ?? config.payment.reconcileBatchSize,
+    });
+
+    const result = {
+      scanned: orders.length,
+      paid: 0,
+      closed: 0,
+      failed: 0,
+    };
+
+    for (const order of orders) {
+      try {
+        const providerOrder = await this.paymentProvider.queryOrder({
+          providerOrderId: order.providerOrderId,
+        });
+
+        if (providerOrder.status === "paid") {
+          const updated = await this.paymentOrderRepository.updateStatus({
+            id: order.id,
+            status: "paid",
+            expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus("paid"),
+            metadata: {
+              ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
+              reconcile: {
+                source: "user_refresh",
+                checkedAt: new Date().toISOString(),
+                providerStatus: providerOrder.status,
+              },
+            },
+          });
+
+          if (!updated) continue;
+
+          await input.onPaid(updated);
+          result.paid += 1;
+          continue;
+        }
+
+        if (providerOrder.status === "closed" || providerOrder.status === "failed") {
+          const updated = await this.paymentOrderRepository.updateStatus({
+            id: order.id,
+            status: providerOrder.status,
+            expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus(providerOrder.status),
+            metadata: {
+              ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
+              reconcile: {
+                source: "user_refresh",
+                checkedAt: new Date().toISOString(),
+                providerStatus: providerOrder.status,
+              },
+            },
+          });
+
+          if (!updated) continue;
+
+          if (providerOrder.status === "closed") result.closed += 1;
+          else result.failed += 1;
+          continue;
+        }
+      } catch {
+        result.failed += 1;
+      }
+    }
+
+    return result;
+  }
+
   private createProviderOrderId(): string {
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const suffix = randomUUID().replace(/-/g, "").slice(0, 18);
@@ -277,7 +411,7 @@ export class PaymentOrderService {
   }
 
   private resolveNotifyUrl(): string {
-    const notifyUrl = getRuntimeConfig().wechatPayNotifyUrl;
+    const notifyUrl = getRuntimeConfig().payment.wechatPayNotifyUrl;
     if (!notifyUrl) throw new Error("WECHAT_PAY_NOTIFY_URL is required");
     return notifyUrl;
   }
@@ -312,4 +446,16 @@ export class PaymentOrderService {
       reused,
     };
   }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const maybeCode = (error as { code?: unknown }).code;
+  return maybeCode === "P2002";
+}
+
+function addMonths(base: Date, months: number): Date {
+  const next = new Date(base);
+  next.setMonth(next.getMonth() + months);
+  return next;
 }

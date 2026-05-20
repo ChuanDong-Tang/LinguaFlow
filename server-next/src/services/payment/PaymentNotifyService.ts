@@ -181,6 +181,28 @@ export class PaymentNotifyService {
     }
   }
 
+  async verifyWeChatNotifySignature(input: WeChatNotifyInput): Promise<void> {
+    if (
+      !input.headers.timestamp ||
+      !input.headers.nonce ||
+      !input.headers.signature
+    ) {
+      throw new Error("WECHAT_NOTIFY_HEADERS_INVALID");
+    }
+    if (!input.headers.serial) throw new Error("WECHAT_NOTIFY_SERIAL_MISSING");
+
+    const platformPublicKey = await this.resolveWeChatPublicKeyBySerial(input.headers.serial);
+    const valid = verifyWeChatPaySignature({
+      timestamp: input.headers.timestamp,
+      nonce: input.headers.nonce,
+      signature: input.headers.signature,
+      body: input.rawBody,
+      platformPublicKey,
+    });
+
+    if (!valid) throw new Error("WECHAT_NOTIFY_SIGNATURE_INVALID");
+  }
+
   async handleWeChatRefundNotify(
     input: WeChatNotifyInput
   ): Promise<{ status: "success" | "ignored" }> {

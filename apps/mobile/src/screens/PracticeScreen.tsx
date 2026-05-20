@@ -12,6 +12,7 @@ import { findConversationIdByDateFromCloud, listDayMessagesFromCloud } from "../
 import { getSession } from "../services/auth/authStorage";
 import { getCurrentEntitlement } from "../services/api/meApi";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
+import { useMountedGuard } from "../hooks/useMountedGuard";
 import {
   buildPracticeCards,
   filterPracticeCards,
@@ -35,6 +36,7 @@ const BAND_OPTIONS: Array<{ label: string; value: PracticeAccuracyBand; color: s
 ];
 
 export function PracticeScreen({ onOpenChat, onOpenMe, onOpenPracticeSession }: PracticeScreenProps) {
+  const { isMounted } = useMountedGuard();
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
@@ -46,14 +48,10 @@ export function PracticeScreen({ onOpenChat, onOpenMe, onOpenPracticeSession }: 
   const lastCloudSyncAtByDateRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
-    let cancelled = false;
     void ensureRewriteMessagesLoaded().then((rows) => {
-      if (!cancelled) setMessages(rows);
+      if (isMounted()) setMessages(rows);
     });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [isMounted]);
 
   const dayStats = useMemo(() => summarizePracticeDays(messages), [messages]);
   const cells = useMemo(() => buildCalendarCells(monthCursor), [monthCursor]);

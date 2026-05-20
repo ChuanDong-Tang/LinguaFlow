@@ -7,6 +7,7 @@ import {
   saveDebugSettings,
 } from "../services/preferences/debugSettingsStorage";
 import { SplashGateScreen } from "./SplashGateScreen";
+import { useMountedGuard } from "../hooks/useMountedGuard";
 
 type HomeScreenProps = {
   onOpenChat: () => void;
@@ -14,23 +15,20 @@ type HomeScreenProps = {
 };
 
 export function HomeScreen({ onOpenChat, onLogout }: HomeScreenProps) {
+  const { isMounted } = useMountedGuard();
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [modelProvider, setModelProvider] = useState<DebugModelProvider>("deepseek");
 
   useEffect(() => {
-    let mounted = true;
     async function loadSettings() {
       const settings = await loadDebugSettings();
-      if (!mounted) return;
+      if (!isMounted()) return;
       setSystemPrompt(settings.systemPrompt);
       setModelProvider(settings.modelProvider);
     }
     void loadSettings();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  }, [isMounted]);
 
   async function handleSaveDebugSettings(): Promise<void> {
     await saveDebugSettings({

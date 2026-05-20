@@ -13,25 +13,25 @@ export interface AppleIapRuntimeConfig {
 export function isAppleIapConfigured(): boolean {
   const config = getRuntimeConfig();
   return Boolean(
-    config.appleIapIssuerId &&
-      config.appleIapKeyId &&
-      config.appleIapBundleId &&
-      config.appleIapPrivateKey &&
-      config.appleIapRootCa &&
-      config.appleIapProMonthlyProductId
+    config.payment.appleIap.issuerId &&
+      config.payment.appleIap.keyId &&
+      config.payment.appleIap.bundleId &&
+      config.payment.appleIap.privateKey &&
+      config.payment.appleIap.rootCa &&
+      config.payment.appleIap.proMonthlyProductId
   );
 }
 
 export function loadAppleIapConfig(): AppleIapRuntimeConfig {
   const config = getRuntimeConfig();
   return {
-    issuerId: requireConfig(config.appleIapIssuerId, "APPLE_IAP_ISSUER_ID"),
-    keyId: requireConfig(config.appleIapKeyId, "APPLE_IAP_KEY_ID"),
-    bundleId: requireConfig(config.appleIapBundleId, "APPLE_IAP_BUNDLE_ID"),
-    privateKeyPem: normalizePem(requireConfig(config.appleIapPrivateKey, "APPLE_IAP_PRIVATE_KEY")),
-    rootCaPem: normalizePem(requireConfig(config.appleIapRootCa, "APPLE_IAP_ROOT_CA")),
+    issuerId: requireConfig(config.payment.appleIap.issuerId, "APPLE_IAP_ISSUER_ID"),
+    keyId: requireConfig(config.payment.appleIap.keyId, "APPLE_IAP_KEY_ID"),
+    bundleId: requireConfig(config.payment.appleIap.bundleId, "APPLE_IAP_BUNDLE_ID"),
+    privateKeyPem: normalizePem(requireConfig(config.payment.appleIap.privateKey, "APPLE_IAP_PRIVATE_KEY")),
+    rootCaPem: normalizePem(requireConfig(config.payment.appleIap.rootCa, "APPLE_IAP_ROOT_CA")),
     proProductId: requireConfig(
-      config.appleIapProMonthlyProductId,
+      config.payment.appleIap.proMonthlyProductId,
       "APPLE_IAP_PRO_MONTHLY_PRODUCT_ID"
     ),
   };

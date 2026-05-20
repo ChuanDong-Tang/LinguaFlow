@@ -30,13 +30,15 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
+      "wechatAppId": "${EXPO_PUBLIC_WECHAT_APP_ID}",
       "eas": {
         "projectId": "0ca8f6d6-e389-43ec-8389-352d41df897b"
       }
     },
     "plugins": [
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/with-wechat-pay"
     ]
   }
 }

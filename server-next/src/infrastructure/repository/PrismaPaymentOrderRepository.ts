@@ -78,6 +78,44 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
     return rows.map((row: any) => this.toEntity(row));
   }
 
+  // 手动刷新权益只查当前用户自己的 pending 订单
+  async listUserPending(input: { userId: string; limit: number; }): Promise<PaymentOrderEntity[]> {
+    const rows = await this.prisma.paymentOrder.findMany({
+      where: {
+        userId: input.userId,
+        status: "pending",
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: input.limit
+    });
+
+    return rows.map((row: any) => this.toEntity(row));
+  }
+
+  async findPendingByUserProductProvider(input: {
+    userId: string;
+    productCode: "pro_monthly";
+    provider: "wechat";
+  }): Promise<PaymentOrderEntity | null> {
+    // 配合 payment_orders 的 pending 部分唯一索引使用：
+    // 并发创建时失败的一方回查这里，拿到已经存在的待支付单并复用。
+    const row = await this.prisma.paymentOrder.findFirst({
+      where: {
+        userId: input.userId,
+        productCode: input.productCode,
+        provider: input.provider,
+        status: "pending",
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return row ? this.toEntity(row) : null;
+  }
+
   async create(input: CreatePaymentOrderRecordInput): Promise<PaymentOrderEntity> {
     const row = await this.prisma.paymentOrder.create({
       data: {

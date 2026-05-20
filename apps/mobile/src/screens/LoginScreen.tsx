@@ -17,6 +17,7 @@ import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitl
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import type { User } from "@lf/core/types";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useMountedGuard } from "../hooks/useMountedGuard";
 
 
 WebBrowser.maybeCompleteAuthSession();
@@ -24,6 +25,7 @@ WebBrowser.maybeCompleteAuthSession();
 type LoginScreenProps = { onLoginSuccess: () => void };
 
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
+  const { isMounted } = useMountedGuard();
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
@@ -47,12 +49,10 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   );
 
   useEffect(() => {
-    let mounted = true;
-    void shouldForceAuthingLogin().then((value) => mounted && setForceAuthingLogin(value));
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    void shouldForceAuthingLogin().then((value) => {
+      if (isMounted()) setForceAuthingLogin(value);
+    });
+  }, [isMounted]);
 
   async function handlePrimaryLogin() {
     if (loading) return;
@@ -63,10 +63,12 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       // 优先走真实 Authing OAuth；未配置时回落到本地 mock 登录，方便开发环境调试。
       if (authingConfigured) {
         if (!authingRequest || !authingDiscovery) {
+          if (!isMounted()) return;
           setStatusText("Authing 登录尚未准备好，请稍后重试");
           return;
         }
         const result = await promptAuthingAsync();
+        if (!isMounted()) return;
         if (result.type !== "success") {
           setStatusText("已取消登录");
           return;
@@ -91,6 +93,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         await refreshEntitlementAndSessionSafe();
         await logEvent("authing_login_ui_success", "info", undefined, { userId: backendSession.user.id });
         await clearForceAuthingLogin();
+        if (!isMounted()) return;
         onLoginSuccess();
         return;
       }
@@ -105,13 +108,15 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       await refreshEntitlementAndSessionSafe();
       await logEvent("login_ui_success", "info", undefined, { userId: result.user.id });
       await clearForceAuthingLogin();
+      if (!isMounted()) return;
       onLoginSuccess();
     } catch (err) {
+      if (!isMounted()) return;
       const message = normalizeLoginError(err, t("auth.login.failed"));
       setStatusText(message);
       await logEvent("login_ui_failed", "warn", err instanceof Error ? err.message : message);
     } finally {
-      setLoading(false);
+      if (isMounted()) setLoading(false);
     }
   }
 

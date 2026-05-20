@@ -8,6 +8,7 @@ import type { CurrentEntitlement } from "../services/api/meApi";
 import { getCachedEntitlement, isSameEntitlement } from "../services/entitlement/entitlementCache";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
 import { recoverPendingPaymentIfAny } from "../services/payment/paymentRecovery";
+import { useMountedGuard } from "../hooks/useMountedGuard";
 import { TabBar } from "./shared/TabBar";
 
 type MeScreenProps = {
@@ -19,35 +20,32 @@ type MeScreenProps = {
 };
 
 export function MeScreen({ onOpenMain, onOpenPractice, onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
+  const { isMounted } = useMountedGuard();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
   const [isLoadingEntitlement, setIsLoadingEntitlement] = useState(true);
 
   useEffect(() => {
-    let mounted = true;
     async function loadProfile() {
       // 先恢复支付状态，再读取会话和权益，保证个人页展示尽量接近最新状态。
       await recoverPendingPaymentIfAny();
       const [localSession, cached] = await Promise.all([getSession(), getCachedEntitlement()]);
-      if (mounted) setSession(localSession);
-      if (cached && mounted) setEntitlement(cached.data);
-      if (mounted) setIsLoadingEntitlement(!cached);
+      if (isMounted()) setSession(localSession);
+      if (cached && isMounted()) setEntitlement(cached.data);
+      if (isMounted()) setIsLoadingEntitlement(!cached);
       try {
         const refreshed = await refreshEntitlementAndSessionSafe();
-        if (mounted && refreshed) {
+        if (isMounted() && refreshed) {
           const data = refreshed.entitlement;
           setEntitlement((prev) => (isSameEntitlement(prev, data) ? prev : data));
         }
       } catch {
       } finally {
-        if (mounted) setIsLoadingEntitlement(false);
+        if (isMounted()) setIsLoadingEntitlement(false);
       }
     }
     void loadProfile();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  }, [isMounted]);
 
   const quota = useMemo(() => {
     const dailyTotalLimit = entitlement?.dailyTotalLimit ?? (session?.sessionFlags?.isPro ? 100000 : 10000);

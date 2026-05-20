@@ -3,6 +3,7 @@ import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOr
 import type { PaymentOrderStatus } from "@lf/core/ports/payment/PaymentTypes.js";
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
+import type { AutoRenewService } from "../../../services/payment/AutoRenewService.js";
 import { getExpectedCurrentStatusesForNextStatus } from "../../../services/payment/PaymentOrderStateMachine.js";
 import { APPLE_PROVIDER } from "./AppleIapConstants.js";
 import { isAppleIapConfigured, loadAppleIapConfig } from "./AppleIapConfig.js";
@@ -32,7 +33,8 @@ export class AppleIapService {
     private readonly benefitGrantService: BenefitGrantService,
     private readonly paymentEntitlementService: PaymentEntitlementService,
     private readonly paymentEventRepository: PaymentEventRepository,
-    private readonly paymentOrderRepository: PaymentOrderRepository
+    private readonly paymentOrderRepository: PaymentOrderRepository,
+    private readonly autoRenewService?: AutoRenewService
   ) {}
 
   isConfigured(): boolean {
@@ -67,7 +69,21 @@ export class AppleIapService {
       throw new AppleIapVerifyError("Missing originalTransactionId");
     }
 
-    const sourceOrderId = `apple_iap:${originalTransactionId}`;
+    const sourceOrderId = `apple_iap:${transaction.transactionId}`;
+    await this.autoRenewService?.register({
+      userId: input.userId,
+      provider: "apple",
+      providerAgreementId: originalTransactionId,
+      latestTransactionId: transaction.transactionId,
+      currentPeriodStart: transaction.purchaseDate ? new Date(transaction.purchaseDate) : null,
+      currentPeriodEnd: transaction.expiresDate ? new Date(transaction.expiresDate) : null,
+      nextPeriodEnd: transaction.expiresDate ? new Date(transaction.expiresDate) : null,
+      metadata: {
+        source: "apple_verify_transaction",
+        environment: transaction.environment,
+        productId: transaction.productId,
+      },
+    });
     let alreadyApplied = false;
     try {
       const result = await this.paymentEntitlementService.grantAfterPayment({
@@ -154,6 +170,29 @@ export class AppleIapService {
           return { status: "ignored", eventId, eventType };
         }
 
+        if (this.autoRenewService && tx.productId === config.proProductId && tx.originalTransactionId) {
+          const periodStart = tx.purchaseDate ? new Date(tx.purchaseDate) : null;
+          const periodEnd = tx.expiresDate ? new Date(tx.expiresDate) : null;
+          if (isApplePaidRenewal(notification.notificationType)) {
+            // Apple 自动续订由 Apple 扣款；服务端收到 DID_RENEW 等通知后再补发本期权益。
+            await this.autoRenewService.handleApplePaidTransaction({
+              originalTransactionId: tx.originalTransactionId,
+              transactionId: tx.transactionId,
+              periodStart,
+              periodEnd,
+              rawPayload: {
+                notification,
+                transaction: tx,
+              },
+            });
+          } else if (["EXPIRED", "REFUND", "REVOKE"].includes(String(notification.notificationType ?? "").toUpperCase())) {
+            await this.autoRenewService.handleAppleCancelled({
+              originalTransactionId: tx.originalTransactionId,
+              rawPayload: { notification, transaction: tx },
+            });
+          }
+        }
+
         const nextStatus = mapAppleEventToOrderStatus(notification.notificationType);
         if (nextStatus) {
           const candidateProviderOrderIds = [
@@ -200,6 +239,11 @@ export class AppleIapService {
     }
     return null;
   }
+}
+
+function isApplePaidRenewal(notificationType: string | undefined): boolean {
+  const type = String(notificationType ?? "").toUpperCase();
+  return ["SUBSCRIBED", "DID_RENEW", "DID_RECOVER", "ONE_TIME_CHARGE"].includes(type);
 }
 
 function mapAppleEventToOrderStatus(

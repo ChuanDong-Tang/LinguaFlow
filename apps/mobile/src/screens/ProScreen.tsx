@@ -1,63 +1,243 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useIAP, type Purchase } from "expo-iap";
+import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createProMonthlyOrder } from "../services/api/paymentApi";
+import {
+  createWeChatAutoRenewPreSign,
+  createProMonthlyOrder,
+  getCurrentAutoRenewSubscription,
+  verifyAppleProMonthlyTransaction,
+  type MobileAutoRenewSubscription,
+} from "../services/api/paymentApi";
 import {
   clearPendingPaymentOrder,
   pollPaymentOrderUntilSettled,
   recoverPendingPaymentIfAny,
   savePendingPaymentOrder,
 } from "../services/payment/paymentRecovery";
+import {
+  APPLE_PRO_MONTHLY_PRODUCT_ID,
+  assertAppleIapAvailable,
+  getAppleTransactionId,
+} from "../services/payment/appleIap";
+import { payWithWechat, toWeChatClientPayParams } from "../services/payment/wechatPay";
+import { useMountedGuard } from "../hooks/useMountedGuard";
 
 type ProScreenProps = { onBack: () => void };
 
 export function ProScreen({ onBack }: ProScreenProps) {
+  const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
   const [isPaying, setIsPaying] = useState(false);
   const [isRenew, setIsRenew] = useState(false);
+  const [autoRenew, setAutoRenew] = useState<MobileAutoRenewSubscription | null>(null);
+  const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
+  const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
+  const { connected, fetchProducts, finishTransaction, requestPurchase } = useIAP({
+    onPurchaseSuccess: (purchase) => {
+      void handleApplePurchaseSuccess(purchase);
+    },
+    onPurchaseError: (error) => {
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : "Apple 支付失败";
+      safeAlert("Apple 支付失败", message);
+      setIsPaying(false);
+      setIsAutoRenewLoading(false);
+    },
+  });
 
   useEffect(() => {
-    let mounted = true;
     void (async () => {
       // 页面打开时先恢复未完成订单，处理用户支付后返回 App 的场景。
       const recovered = await recoverPendingPaymentIfAny();
-      if (!mounted) return;
+      if (!isScreenAlive()) return;
       if (recovered.status === "paid") {
         setIsRenew(true);
-        Alert.alert("开通成功", "Pro 权益已生效。");
+        safeAlert("开通成功", "Pro 权益已生效。");
       }
+      try {
+        const currentAutoRenew = await getCurrentAutoRenewSubscription();
+        if (!isScreenAlive()) return;
+        setAutoRenew(currentAutoRenew);
+      } catch {}
     })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  }, [isScreenAlive, safeAlert]);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios" || !connected) return;
+    void fetchProducts({ skus: [APPLE_PRO_MONTHLY_PRODUCT_ID], type: "subs" });
+  }, [connected, fetchProducts]);
 
   async function handleSubscribe(): Promise<void> {
     if (isPaying) return;
+
+    if (Platform.OS === "ios") {
+      await startAppleIapPurchase("single_purchase");
+      return;
+    }
+
+    if (Platform.OS === "android") {
+      await startWechatOneTimePurchase();
+      return;
+    }
+
+    safeAlert("暂不支持", "当前平台暂不支持购买 Pro。");
+  }
+
+  async function startWechatOneTimePurchase(): Promise<void> {
     setIsPaying(true);
     try {
       const order = await createProMonthlyOrder();
       await savePendingPaymentOrder({ orderId: order.id, providerOrderId: order.providerOrderId });
 
+      await payWithWechat(toWeChatClientPayParams(order.clientPayParams));
+      if (!isScreenAlive()) return;
+
       // 支付完成通常需要后端确认，这里轮询到终态再更新本地展示。
       const settled = await pollPaymentOrderUntilSettled(order.id);
+      if (!isScreenAlive()) return;
       if (settled.status === "paid") {
         await clearPendingPaymentOrder();
+        if (!isScreenAlive()) return;
         setIsRenew(true);
-        Alert.alert("开通成功", "Pro 权益已生效。");
+        safeAlert("开通成功", "Pro 权益已生效。");
         return;
       }
       if (settled.status === "pending") {
-        Alert.alert("支付处理中", "订单状态仍在确认中，稍后会自动继续同步。");
+        safeAlert("支付处理中", "订单状态仍在确认中，稍后会自动继续同步。");
         return;
       }
       await clearPendingPaymentOrder();
-      Alert.alert("支付未完成", `当前状态：${settled.status}`);
+      if (!isScreenAlive()) return;
+      safeAlert("支付未完成", `当前状态：${settled.status}`);
     } catch (error) {
+      if (!isScreenAlive()) return;
       const message = error instanceof Error ? error.message : "请稍后重试";
-      Alert.alert("支付发起失败", message);
+      safeAlert("支付发起失败", message);
     } finally {
+      if (isScreenAlive()) setIsPaying(false);
+    }
+  }
+
+  async function handleStartAutoRenew(): Promise<void> {
+    if (isAutoRenewLoading) return;
+
+    if (hasActiveAutoRenew(autoRenew)) {
+      safeAlert("已开通自动续费", `当前已通过${formatProviderName(autoRenew.provider)}开通自动续费。`);
+      return;
+    }
+
+    if (Platform.OS === "ios") {
+      await startAppleIapPurchase("auto_renew");
+      return;
+    }
+
+    if (Platform.OS === "android") {
+      await startWechatAutoRenew();
+      return;
+    }
+
+    safeAlert("暂不支持", "当前平台暂不支持自动续费。");
+  }
+
+  async function startWechatAutoRenew(): Promise<void> {
+    setIsAutoRenewLoading(true);
+    try {
+      const preSign = await createWeChatAutoRenewPreSign();
+
+      if (preSign.clientPayParams) {
+        // App-with-contract：用户支付首期时同时完成微信自动续费签约。
+        await payWithWechat(toWeChatClientPayParams(preSign.clientPayParams));
+      } else {
+        await openWechatContractOnlyFlow(preSign.redirectUrl);
+      }
+      if (!isScreenAlive()) return;
+
+      const currentAutoRenew = await getCurrentAutoRenewSubscription();
+      if (!isScreenAlive()) return;
+      setAutoRenew(currentAutoRenew);
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      safeAlert("自动续费发起失败", message);
+    } finally {
+      if (isScreenAlive()) setIsAutoRenewLoading(false);
+    }
+  }
+
+  async function openWechatContractOnlyFlow(redirectUrl: string | null): Promise<void> {
+    if (redirectUrl) {
+      // 已有 Pro 时不能再扣首期，走 H5 预签约只建立下周期自动续费协议。
+      await WebBrowser.openBrowserAsync(redirectUrl);
+    }
+    if (!isScreenAlive()) return;
+    safeAlert("签约处理中", "已有 Pro 权益，本次只创建自动续费签约，后续周期会自动衔接。");
+  }
+
+  function handleManageAutoRenew(): void {
+    if (!autoRenew) return;
+    if (autoRenew.provider === "apple") {
+      // Apple 订阅只能去 Apple ID 订阅管理里取消，服务端不能替用户直接取消平台订阅。
+      safeAlert("前往 Apple 管理", "请在 iOS 的 Apple ID 订阅管理中取消自动续费。");
+      return;
+    }
+    // 微信签约也应该回到微信支付/签约记录里取消；App 只展示入口提示，不直接代替用户解约。
+    safeAlert("前往微信管理", "请在微信支付的自动续费/扣费服务中取消本服务。");
+  }
+
+  async function startAppleIapPurchase(_source: "single_purchase" | "auto_renew"): Promise<void> {
+    assertAppleIapAvailable();
+    if (!connected) {
+      safeAlert("Apple 支付初始化中", "请稍后重试。");
+      return;
+    }
+    setIsPaying(true);
+    setIsAutoRenewLoading(true);
+    try {
+      // iOS 侧统一购买 Apple 的 Pro 月度自动续费商品；真正权益以后端验单结果为准。
+      await requestPurchase({
+        type: "subs",
+        request: {
+          apple: {
+            sku: APPLE_PRO_MONTHLY_PRODUCT_ID,
+            andDangerouslyFinishTransactionAutomatically: false,
+          },
+        },
+      });
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      safeAlert("Apple 支付发起失败", message);
       setIsPaying(false);
+      setIsAutoRenewLoading(false);
+    }
+  }
+
+  async function handleApplePurchaseSuccess(purchase: Purchase): Promise<void> {
+    if (isApplePurchaseFinishing) return;
+    setIsApplePurchaseFinishing(true);
+    try {
+      const transactionId = getAppleTransactionId(purchase);
+      // 先让服务端用 App Store Server API 验单并发权益，再 finish transaction。
+      await verifyAppleProMonthlyTransaction(transactionId);
+      await finishTransaction({ purchase, isConsumable: false });
+      if (!isScreenAlive()) return;
+      setIsRenew(true);
+      const currentAutoRenew = await getCurrentAutoRenewSubscription();
+      if (!isScreenAlive()) return;
+      setAutoRenew(currentAutoRenew);
+      safeAlert("开通成功", "Pro 权益已生效。");
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      safeAlert("Apple 验单失败", message);
+    } finally {
+      if (isScreenAlive()) {
+        setIsApplePurchaseFinishing(false);
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+      }
     }
   }
 
@@ -105,6 +285,42 @@ export function ProScreen({ onBack }: ProScreenProps) {
               测试说明：后续接入更多功能后，{"\n"}Pro 权益与价格可能会调整，具体请以当前页面展示为准。
             </Text>
           </View>
+          <View style={styles.autoRenewBox}>
+            <View style={styles.autoRenewCopy}>
+              <Text style={styles.autoRenewTitle}>自动续费</Text>
+              <Text style={styles.autoRenewText}>
+                {autoRenew && autoRenew.status !== "cancelled"
+                  ? `已通过${formatProviderName(autoRenew.provider)}开启，${formatNullableDate(autoRenew.nextBillingAt) || "下次扣款时间待同步"}`
+                  : `${formatAutoRenewProviderLabel()}自动续费，可随时取消。`}
+              </Text>
+            </View>
+            {autoRenew && autoRenew.status !== "cancelled" ? (
+              <Pressable
+                style={[styles.secondaryButton, isAutoRenewLoading && styles.subscribeButtonDisabled]}
+                onPress={handleManageAutoRenew}
+                disabled={isAutoRenewLoading}
+              >
+                {isAutoRenewLoading ? (
+                  <ActivityIndicator color="#111111" />
+                ) : (
+                  <Text style={styles.secondaryButtonText}>管理</Text>
+                )}
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.secondaryButton, isAutoRenewLoading && styles.subscribeButtonDisabled]}
+                onPress={() => void handleStartAutoRenew()}
+                disabled={isAutoRenewLoading}
+              >
+                {isAutoRenewLoading ? (
+                  <ActivityIndicator color="#111111" />
+                ) : (
+                  <Text style={styles.secondaryButtonText}>{formatAutoRenewButtonLabel()}</Text>
+                )}
+              </Pressable>
+            )}
+          </View>
+
           <Pressable
             style={[styles.subscribeButton, isPaying && styles.subscribeButtonDisabled]}
             onPress={() => void handleSubscribe()}
@@ -113,13 +329,40 @@ export function ProScreen({ onBack }: ProScreenProps) {
             {isPaying ? (
               <ActivityIndicator color="#111111" />
             ) : (
-              <Text style={styles.subscribeText}>{isRenew ? "续费 Pro" : "开通 Pro"}</Text>
+              <Text style={styles.subscribeText}>{isRenew ? "仅续费 1 个月" : "仅购买 1 个月"}</Text>
             )}
           </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function formatNullableDate(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `下次扣款：${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): string {
+  return provider === "apple" ? "Apple" : "微信";
+}
+
+function hasActiveAutoRenew(autoRenew: MobileAutoRenewSubscription | null): autoRenew is MobileAutoRenewSubscription {
+  return Boolean(autoRenew && autoRenew.status !== "cancelled");
+}
+
+function formatAutoRenewProviderLabel(): string {
+  if (Platform.OS === "ios") return "Apple ";
+  if (Platform.OS === "android") return "微信";
+  return "";
+}
+
+function formatAutoRenewButtonLabel(): string {
+  if (Platform.OS === "ios") return "Apple 开通";
+  if (Platform.OS === "android") return "微信开通";
+  return "开通";
 }
 
 function BenefitItem({
@@ -324,6 +567,47 @@ const styles = StyleSheet.create({
     color: "#59617B",
     fontSize: 14,
     lineHeight: 22,
+  },
+  autoRenewBox: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#DDE2EC",
+    backgroundColor: "#FAFBFF",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  autoRenewCopy: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  autoRenewTitle: {
+    color: "#111111",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  autoRenewText: {
+    marginTop: 5,
+    color: "#59617B",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  secondaryButton: {
+    minWidth: 72,
+    height: 40,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#111111",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  secondaryButtonText: {
+    color: "#111111",
+    fontSize: 15,
+    fontWeight: "600",
   },
   subscribeButton: {
     marginTop: 16,

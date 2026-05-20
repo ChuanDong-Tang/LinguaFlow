@@ -1,0 +1,4 @@
+-- Historical migration placeholder.
+-- This migration is already recorded as applied in the shared database.
+-- The original local migration file was missing from the workspace; keep this
+-- directory so Prisma's local migration history matches the database history.

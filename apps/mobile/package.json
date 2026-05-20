@@ -18,6 +18,7 @@
     "expo-clipboard": "^55.0.13",
     "expo-crypto": "~15.0.9",
     "expo-dev-client": "~6.0.21",
+    "expo-iap": "^4.3.1",
     "expo-secure-store": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.11",
@@ -26,7 +27,8 @@
     "react-native-keyboard-controller": "^1.21.7",
     "react-native-reanimated": "^4.3.0",
     "react-native-safe-area-context": "^5.7.0",
-    "react-native-svg": "^15.15.4"
+    "react-native-svg": "^15.15.4",
+    "react-native-wechat-lib": "^1.1.27"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",

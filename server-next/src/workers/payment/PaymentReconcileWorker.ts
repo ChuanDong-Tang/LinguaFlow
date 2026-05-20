@@ -28,7 +28,7 @@ export class PaymentReconcileWorker {
   start(): void {
     if (this.timer) return;
 
-    const intervalMs = this.options.intervalMs ?? getRuntimeConfig().paymentReconcileIntervalMs;
+    const intervalMs = this.options.intervalMs ?? getRuntimeConfig().payment.reconcileIntervalMs;
     // 启动先跑一次，同时避免与首个周期触发重叠
     this.firstIntervalDueAt = Date.now() + intervalMs;
     void this.runOnce();
@@ -64,7 +64,7 @@ export class PaymentReconcileWorker {
               errorCode: "WORKER_PROVIDER_CHANNEL_UNMAPPED",
               metadata: {
                 worker: "payment_reconcile",
-                batchSize: this.options.batchSize ?? getRuntimeConfig().paymentReconcileBatchSize,
+                batchSize: this.options.batchSize ?? getRuntimeConfig().payment.reconcileBatchSize,
                 lockKey: null,
                 skipReason: "provider_channel_unmapped",
                 orderId: order.id,
@@ -104,7 +104,7 @@ export class PaymentReconcileWorker {
               errorMessage: toErrorMessage(error),
               metadata: {
                 worker: "payment_reconcile",
-                batchSize: this.options.batchSize ?? getRuntimeConfig().paymentReconcileBatchSize,
+                batchSize: this.options.batchSize ?? getRuntimeConfig().payment.reconcileBatchSize,
                 lockKey: null,
                 skipReason: "on_paid_failed",
                 orderId: order.id,
@@ -135,7 +135,7 @@ export class PaymentReconcileWorker {
         errorMessage: toErrorMessage(error),
         metadata: {
           worker: "payment_reconcile",
-          batchSize: this.options.batchSize ?? getRuntimeConfig().paymentReconcileBatchSize,
+          batchSize: this.options.batchSize ?? getRuntimeConfig().payment.reconcileBatchSize,
           lockKey: null,
           skipReason: "exception",
         },

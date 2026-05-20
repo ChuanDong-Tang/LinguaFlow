@@ -5,6 +5,8 @@ export type AppleTransactionPayload = {
   originalTransactionId: string;
   bundleId: string;
   productId: string;
+  purchaseDate: number | null;
+  expiresDate: number | null;
 };
 
 export type AppleServerNotificationPayload = {
@@ -21,6 +23,8 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
   const originalTransactionId = String(payload.originalTransactionId ?? "").trim();
   const bundleId = String(payload.bundleId ?? "").trim();
   const productId = String(payload.productId ?? "").trim();
+  const purchaseDate = readNullableNumber(payload.purchaseDate);
+  const expiresDate = readNullableNumber(payload.expiresDate);
 
   if (!transactionId || !bundleId || !productId) {
     throw new AppleIapVerifyError("Transaction payload missing required fields");
@@ -31,5 +35,16 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
     originalTransactionId,
     bundleId,
     productId,
+    purchaseDate,
+    expiresDate,
   };
+}
+
+function readNullableNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
 }

@@ -10,6 +10,13 @@ export interface WeChatPayConfig {
   baseUrl: string;
 }
 
+export interface WeChatAutoRenewConfig extends WeChatPayConfig {
+  contractNotifyUrl: string;
+  debitNotifyUrl: string;
+  planId: string;
+  contractReturnUrl: string;
+}
+
 export class WeChatPayConfigError extends Error {
   readonly code = "WECHAT_PAY_CONFIG_INVALID";
 
@@ -50,6 +57,34 @@ export function loadWeChatPayConfig(env: NodeJS.ProcessEnv = process.env): WeCha
 
   if (missing.length > 0) {
     throw new WeChatPayConfigError(`Missing WeChat Pay config: ${missing.join(", ")}`);
+  }
+
+  return config;
+}
+
+export function loadWeChatAutoRenewConfig(
+  env: NodeJS.ProcessEnv = process.env
+): WeChatAutoRenewConfig {
+  const base = loadWeChatPayConfig(env);
+  const config = {
+    ...base,
+    contractNotifyUrl: env.WECHAT_AUTORENEW_CONTRACT_NOTIFY_URL ?? "",
+    debitNotifyUrl: env.WECHAT_AUTORENEW_DEBIT_NOTIFY_URL ?? "",
+    planId: env.WECHAT_AUTORENEW_PLAN_ID ?? "",
+    contractReturnUrl: env.WECHAT_AUTORENEW_CONTRACT_RETURN_URL ?? "",
+  };
+
+  const missing = [
+    ["contractNotifyUrl", config.contractNotifyUrl],
+    ["debitNotifyUrl", config.debitNotifyUrl],
+    ["planId", config.planId],
+    ["contractReturnUrl", config.contractReturnUrl],
+  ]
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
+
+  if (missing.length > 0) {
+    throw new WeChatPayConfigError(`Missing WeChat auto renew config: ${missing.join(", ")}`);
   }
 
   return config;

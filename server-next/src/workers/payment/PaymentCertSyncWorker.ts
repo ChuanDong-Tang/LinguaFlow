@@ -26,7 +26,7 @@ export class PaymentCertSyncWorker {
   start(): void {
     if (this.timer) return;
     const cfg = getRuntimeConfig();
-    const intervalMs = this.options.intervalMs ?? cfg.paymentCertSyncIntervalMs;
+    const intervalMs = this.options.intervalMs ?? cfg.payment.certSyncIntervalMs;
     // 启动先跑一次，同时避免与首个周期重叠
     this.firstIntervalDueAt = Date.now() + intervalMs;
     void this.runOnce();
@@ -119,9 +119,9 @@ export class PaymentCertSyncWorker {
 
   private async guardHealth(now: Date): Promise<void> {
     const cfg = getRuntimeConfig();
-    const warnDays = this.options.expireWarnDays ?? cfg.paymentCertExpireWarnDays;
+    const warnDays = this.options.expireWarnDays ?? cfg.payment.certExpireWarnDays;
     const retentionDays =
-      this.options.retentionDaysAfterExpire ?? cfg.paymentCertRetentionDaysAfterExpire;
+      this.options.retentionDaysAfterExpire ?? cfg.payment.certRetentionDaysAfterExpire;
     const warnMs = warnDays * 24 * 60 * 60 * 1000;
     for (const provider of ["wechat", "apple"] as const) {
       const certs = await this.trustedCertRepository.listActiveByProvider(provider);
