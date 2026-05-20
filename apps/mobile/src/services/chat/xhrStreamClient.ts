@@ -109,8 +109,8 @@ export class XhrStreamClient implements StreamClient {
             JSON.stringify({
               userId: input.userId,
               text: input.text,
-              conversationId: input.conversationId,
-              userMessageId: input.userMessageId,
+              ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+              ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
               systemPrompt: input.systemPrompt,
             })
           );

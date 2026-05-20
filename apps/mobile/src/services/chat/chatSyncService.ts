@@ -1,7 +1,9 @@
 import { getSession } from "../auth/authStorage";
 import { loadDebugSettings } from "../preferences/debugSettingsStorage";
 import { sendMessageToCloud } from "../api/chatHistoryApi";
+import { getCurrentEntitlement } from "../api/meApi";
 import { startRewriteStream } from "./chatStream";
+import { hasLocalProAccess } from "../entitlement/proAccess";
 import type { ChatMessage } from "../../domain/chat/types";
 import { nowHHMM } from "../../domain/chat/messageState";
 
@@ -92,18 +94,22 @@ export async function runRewriteSync(input: RunRewriteInput): Promise<RunRewrite
     const debugSettings = await loadDebugSettings();
     requestSystemPrompt = input.systemPrompt ?? debugSettings.systemPrompt.trim();
 
-    const cloud = await sendMessageToCloud({
-      text: input.text,
-      contactId: CONTACT_ID,
-    });
-    input.onConversationReady?.(cloud.conversationId);
+    const localPro = await hasLocalProAccess();
+    const entitlement = localPro ? await getCurrentEntitlement().catch(() => null) : null;
+    const cloud = entitlement?.isPro === true
+      ? await sendMessageToCloud({
+          text: input.text,
+          contactId: CONTACT_ID,
+        })
+      : null;
+    if (cloud) input.onConversationReady?.(cloud.conversationId);
 
     await startRewriteStream(
       {
         userId,
         text: input.text,
-        conversationId: cloud.conversationId,
-        userMessageId: cloud.userMessage.id,
+        conversationId: cloud?.conversationId,
+        userMessageId: cloud?.userMessage.id,
         systemPrompt: requestSystemPrompt || undefined,
         signal: input.signal,
       },

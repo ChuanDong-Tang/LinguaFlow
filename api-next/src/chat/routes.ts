@@ -200,6 +200,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     const textLen = body.text.trim().length;
     try {
       await deps.entitlementService.assertCanUse(userContext.userId, textLen);
+      await assertProCloudAccess(deps, userContext.userId);
     } catch (error) {
       if(
         typeof error === "object" &&
@@ -211,6 +212,13 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
           ok: false,
           request_id: requestId,
           error: {code: "DAILY_QUOTA_EXCEEDED", message: "You've reached your daily quota for today."}
+        });
+      }
+      if (isProRequiredError(error)) {
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "PRO_REQUIRED", message: "Pro access required" },
         });
       }
       throw error;

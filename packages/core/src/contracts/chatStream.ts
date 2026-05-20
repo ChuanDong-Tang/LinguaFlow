@@ -3,8 +3,8 @@ export interface RewriteStreamRequestBody {
   text: string;
   userId: string; // 当前先用 mock userId
   systemPrompt?: string;
-  conversationId: string;
-  userMessageId: string;
+  conversationId?: string;
+  userMessageId?: string;
 }
 
 

@@ -33,8 +33,8 @@ export interface StartRewriteStreamInput {
   userId: string;
   text: string;
   systemPrompt?: string;
-  conversationId: string;
-  userMessageId: string;
+  conversationId?: string;
+  userMessageId?: string;
   signal?: AbortSignalLike;
 }
 

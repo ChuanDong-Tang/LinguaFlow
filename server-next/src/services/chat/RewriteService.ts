@@ -3,7 +3,7 @@ import type {
   AbortSignalLike,
   AIProvider,
 } from "@lf/core/ports/ai/AIProvider.js";
-import type { ChatMessageService } from "./ChatMessageService.js";
+import type { ChatMessageService, MessageView } from "./ChatMessageService.js";
 import type { RewriteTaskGuard } from "./RewriteTaskGuard.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type {
@@ -40,15 +40,18 @@ export class RewriteService {
     onEvent: (event: RewriteStreamEvent) => Promise<void> | void
   ): Promise<void> {
     let assistantText = "";
-    
-    await this.chatMessageService.assertUserMessageOwnership({
-      userId: input.userId,
-      conversationId: input.conversationId,
-      userMessageId: input.userMessageId,
-    });
+    const shouldPersist = Boolean(input.conversationId && input.userMessageId);
+
+    if (shouldPersist) {
+      await this.chatMessageService.assertUserMessageOwnership({
+        userId: input.userId,
+        conversationId: input.conversationId!,
+        userMessageId: input.userMessageId!,
+      });
+    }
 
     const startedAt = Date.now();
-    const taskId = input.userMessageId;
+    const taskId = input.userMessageId ?? input.requestId;
     const config = getRuntimeConfig();
     const taskTtlMs = config.rewriteTaskTtlMs;
     const rateLimit = config.rewriteGlobalRateLimit;
@@ -60,7 +63,7 @@ export class RewriteService {
     );
 
     if (!rateAllowed) {
-      await this.chatMessageService.markUserMessageFailed(input.userMessageId);
+      if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       const error = createAppError(
         "RATE_LIMITED",
         "Too many rewrite tasks. Please try again later."
@@ -83,7 +86,7 @@ export class RewriteService {
     );
 
     if (!userRateAllowed) {
-      await this.chatMessageService.markUserMessageFailed(input.userMessageId);
+      if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       const error = createAppError(
         "RATE_LIMITED",
         "Too many requests for this user. Please try again later."
@@ -112,7 +115,7 @@ export class RewriteService {
     const acquired = await this.taskGuard.acquire(input.userId, taskId, taskTtlMs);
 
     if (!acquired) {
-      await this.chatMessageService.markUserMessageFailed(input.userMessageId);
+      if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       const error = createAppError(
         "TASK_IN_PROGRESS",
         "A rewrite task is already running for this user."
@@ -146,19 +149,15 @@ export class RewriteService {
           await onEvent(event);
         }
       );
-      await this.chatMessageService.markUserMessageSuccess(input.userMessageId);
       const totalChars = input.text.length + assistantText.length;
       await this.entitlementService.assertCanUse(input.userId, totalChars);
-      const assistantMessage = await this.chatMessageService.createAssistantMessage(
-        input.conversationId,
-        input.userId,
-        assistantText,
-        input.userMessageId
-      );
+      const assistantMessage = shouldPersist
+        ? await this.createPersistedAssistantMessage(input, assistantText)
+        : undefined;
       await this.entitlementService.consume(input.userId, totalChars);
       await onEvent({ type: "done", assistantMessage });
     }catch(error){
-      await this.chatMessageService.markUserMessageFailed(input.userMessageId);
+      if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       await this.logFailedAiRequest(input, {
         startedAt,
         status: this.resolveFailureStatus(error),
@@ -181,6 +180,19 @@ export class RewriteService {
     const windowMs = getRuntimeConfig().rewriteUserRateWindowMs;
     const bucket = Math.floor(Date.now() / windowMs);
     return `rewrite:rate:user:${userId}:${bucket}`;
+  }
+
+  private async createPersistedAssistantMessage(
+    input: RewriteStreamServiceInput,
+    assistantText: string
+  ): Promise<MessageView> {
+    await this.chatMessageService.markUserMessageSuccess(input.userMessageId!);
+    return this.chatMessageService.createAssistantMessage(
+      input.conversationId!,
+      input.userId,
+      assistantText,
+      input.userMessageId!
+    );
   }
 
   private async logFailedAiRequest(

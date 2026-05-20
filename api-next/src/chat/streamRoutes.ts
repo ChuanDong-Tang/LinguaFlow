@@ -31,15 +31,14 @@ export interface ChatStreamRouteDeps {
 function isRewriteStreamBody(value: unknown): value is RewriteStreamRequestBody {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
+  const hasConversationId = typeof v.conversationId === "string" && v.conversationId.trim().length > 0;
+  const hasUserMessageId = typeof v.userMessageId === "string" && v.userMessageId.trim().length > 0;
   return (
     typeof v.text === "string" &&
     v.text.trim().length > 0 &&
     typeof v.userId === "string" &&
     v.userId.trim().length > 0 &&
-    typeof v.conversationId === "string" &&
-    v.conversationId.trim().length > 0 &&
-    typeof v.userMessageId === "string" &&
-    v.userMessageId.trim().length > 0 &&
+    hasConversationId === hasUserMessageId &&
     (v.systemPrompt === undefined || v.systemPrompt === null || typeof v.systemPrompt === "string")
   );
 }
@@ -125,12 +124,15 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
     }
 
     try {
-      // Validate ownership before switching to SSE response.
-      await deps.chatMessageService.assertUserMessageOwnership({
-        userId: userContext.userId,
-        conversationId: body.conversationId,
-        userMessageId: body.userMessageId,
-      });
+      // Validate ownership before switching to SSE response when the caller
+      // asks the stream to persist into cloud chat history.
+      if (body.conversationId && body.userMessageId) {
+        await deps.chatMessageService.assertUserMessageOwnership({
+          userId: userContext.userId,
+          conversationId: body.conversationId,
+          userMessageId: body.userMessageId,
+        });
+      }
 
       // Start streaming only after preflight check passed.
       reply.raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -175,7 +177,9 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
           ? (error as { upstreamText?: unknown }).upstreamText
           : undefined;
       const mapped = mapRewriteErrorToHttp(code);
-      if (mapped && mapped.status !== 503) {
+      const contentType = String(reply.raw.getHeader("Content-Type") ?? "");
+      const sseStarted = contentType.includes("text/event-stream");
+      if (mapped && mapped.status !== 503 && !sseStarted) {
         return reply.status(mapped.status).send({
           ok: false,
           error: { code: mapped.code, message: mapped.message },
@@ -220,8 +224,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
       const safeStatus = mapped?.status ?? 500;
       if (!reply.raw.destroyed && !reply.raw.writableEnded) {
         // If SSE already started, write structured stream error; otherwise return JSON 500.
-        const contentType = String(reply.raw.getHeader("Content-Type") ?? "");
-        if (contentType.includes("text/event-stream")) {
+        if (sseStarted) {
           reply.raw.write(toSseChunk({ type: "error", message: safeMessage, code: safeCode }));
           reply.raw.end();
         } else {
