@@ -5,17 +5,17 @@ import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 export class DailyQuotaExceededError extends Error {
   readonly code = "DAILY_QUOTA_EXCEEDED";
   readonly remainingChars: number;
-  readonly dailyTotalLimit: number;
+  readonly totalLimit: number;
   readonly usedTotalChars: number;
 
   constructor(input: {
     remainingChars: number;
-    dailyTotalLimit: number;
+    totalLimit: number;
     usedTotalChars: number;
   }) {
-    super(`今日额度已用完。剩余额度 ${input.remainingChars} 字符。`);
+    super(`额度已用完。剩余额度 ${input.remainingChars} 字符。`);
     this.remainingChars = input.remainingChars;
-    this.dailyTotalLimit = input.dailyTotalLimit;
+    this.totalLimit = input.totalLimit;
     this.usedTotalChars = input.usedTotalChars;
   }
 }
@@ -27,6 +27,7 @@ export interface CurrentEntitlementView {
   expiresAt: string | null;
   dateKey: string;
   dailyTotalLimit: number;
+  validUntil: string | null;
   usedTotalChars: number;
   remainingChars: number;
 }
@@ -38,19 +39,21 @@ export class EntitlementService {
   ) {}
 
   async assertCanUse(userId: string, requestedChars: number): Promise<void> {
-    const dateKey = this.currentDateKey();
-    const dailyTotalLimit = await this.resolveDailyLimit(userId);
+    const quota = await this.resolveQuota(userId);
+    // Pro 仍按自然日额度；免费用户复用一条固定 free_trial 记录作为总额度池。
     const entitlement = await this.entitlementRepository.ensureDaily({
       userId,
-      dateKey,
-      dailyTotalLimit,
+      dateKey: quota.dateKey,
+      dailyTotalLimit: quota.totalLimit,
     });
+    // 免费额度有效期从该额度记录首次创建时间开始计算，避免每次查询/使用都重新续期。
+    this.assertQuotaNotExpired(quota, entitlement.createdAt);
 
     const remainingChars = entitlement.dailyTotalLimit - entitlement.usedTotalChars;
     if (requestedChars > remainingChars) {
       throw new DailyQuotaExceededError({
         remainingChars: Math.max(0, remainingChars),
-        dailyTotalLimit: entitlement.dailyTotalLimit,
+        totalLimit: entitlement.dailyTotalLimit,
         usedTotalChars: entitlement.usedTotalChars,
       });
     }
@@ -59,46 +62,48 @@ export class EntitlementService {
   async consume(userId: string, chars: number): Promise<void> {
     if (chars <= 0) return;
 
-    const dateKey = this.currentDateKey();
-    const dailyTotalLimit = await this.resolveDailyLimit(userId);
+    const quota = await this.resolveQuota(userId);
 
-    await this.entitlementRepository.ensureDaily({
+    // 先确保额度记录存在，再基于记录 createdAt 判断免费试用是否过期。
+    const ensured = await this.entitlementRepository.ensureDaily({
       userId,
-      dateKey,
-      dailyTotalLimit,
+      dateKey: quota.dateKey,
+      dailyTotalLimit: quota.totalLimit,
     });
+    this.assertQuotaNotExpired(quota, ensured.createdAt);
 
     const entitlement = await this.entitlementRepository.tryConsumeDaily({
       userId,
-      dateKey,
+      dateKey: quota.dateKey,
       chars,
     });
 
     if (!entitlement) {
       const latest = await this.entitlementRepository.ensureDaily({
         userId,
-        dateKey,
-        dailyTotalLimit,
+        dateKey: quota.dateKey,
+        dailyTotalLimit: quota.totalLimit,
       });
       const remainingChars = latest.dailyTotalLimit - latest.usedTotalChars;
 
       throw new DailyQuotaExceededError({
         remainingChars: Math.max(0, remainingChars),
-        dailyTotalLimit: latest.dailyTotalLimit,
+        totalLimit: latest.dailyTotalLimit,
         usedTotalChars: latest.usedTotalChars,
       });
     }
   }
 
   async getCurrentEntitlement(userId: string): Promise<CurrentEntitlementView> {
-    const dateKey = this.currentDateKey();
     const subscription = await this.subscriptionService.getCurrentSubscription(userId);
-    const dailyTotalLimit = this.dailyLimitForPlan(subscription.isPro);
+    const quota = this.quotaForPlan(subscription.isPro);
     const entitlement = await this.entitlementRepository.ensureDaily({
       userId,
-      dateKey,
-      dailyTotalLimit,
+      dateKey: quota.dateKey,
+      dailyTotalLimit: quota.totalLimit,
     });
+    const validUntil = this.resolveValidUntil(quota, entitlement.createdAt);
+    const isExpired = validUntil !== null && validUntil.getTime() <= Date.now();
     const remainingChars = entitlement.dailyTotalLimit - entitlement.usedTotalChars;
 
     return {
@@ -106,10 +111,11 @@ export class EntitlementService {
       plan: subscription.plan,
       isPro: subscription.isPro,
       expiresAt: subscription.expiresAt?.toISOString() ?? null,
-      dateKey,
+      dateKey: quota.dateKey,
       dailyTotalLimit: entitlement.dailyTotalLimit,
+      validUntil: validUntil?.toISOString() ?? null,
       usedTotalChars: entitlement.usedTotalChars,
-      remainingChars: Math.max(0, remainingChars),
+      remainingChars: isExpired ? 0 : Math.max(0, remainingChars),
     };
   }
 
@@ -124,14 +130,53 @@ export class EntitlementService {
     return formatter.format(now);
   }
 
-  private async resolveDailyLimit(userId: string): Promise<number> {
+  private async resolveQuota(userId: string): Promise<QuotaWindow> {
     const subscription = await this.subscriptionService.getCurrentSubscription(userId);
 
-    return this.dailyLimitForPlan(subscription.isPro);
+    return this.quotaForPlan(subscription.isPro);
   }
 
-  private dailyLimitForPlan(isPro: boolean): number {
+  private quotaForPlan(isPro: boolean): QuotaWindow {
     const config = getRuntimeConfig();
-    return isPro ? config.proDailyTotalLimit : config.freeDailyTotalLimit;
+    if (isPro) {
+      // Pro 额度仍然按业务时区的每日 dateKey 滚动恢复。
+      return {
+        dateKey: this.currentDateKey(),
+        totalLimit: config.proDailyTotalLimit,
+        validDays: null,
+      };
+    }
+
+    // 免费用户不是每日恢复，而是一个总试用额度池：free_trial + 总额度 + 有效天数。
+    return {
+      dateKey: FREE_TRIAL_DATE_KEY,
+      totalLimit: config.freeTrialTotalLimit,
+      validDays: config.freeTrialValidDays,
+    };
+  }
+
+  private assertQuotaNotExpired(quota: QuotaWindow, entitlementCreatedAt: Date): void {
+    const validUntil = this.resolveValidUntil(quota, entitlementCreatedAt);
+    if (!validUntil || validUntil.getTime() > Date.now()) return;
+    throw new DailyQuotaExceededError({
+      remainingChars: 0,
+      totalLimit: quota.totalLimit,
+      usedTotalChars: quota.totalLimit,
+    });
+  }
+
+  private resolveValidUntil(quota: QuotaWindow, entitlementCreatedAt: Date): Date | null {
+    if (!quota.validDays) return null;
+    // 免费试用有效期以首次创建 free_trial entitlement 的时间为起点。
+    return new Date(entitlementCreatedAt.getTime() + quota.validDays * 24 * 60 * 60 * 1000);
   }
 }
+
+// 历史表结构仍叫 dailyTotalLimit/dateKey；这里用固定 dateKey 表示“免费试用总额度”。
+const FREE_TRIAL_DATE_KEY = "free_trial";
+
+type QuotaWindow = {
+  dateKey: string;
+  totalLimit: number;
+  validDays: number | null;
+};

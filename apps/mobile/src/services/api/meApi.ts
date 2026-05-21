@@ -13,6 +13,7 @@ export type CurrentEntitlement = {
   expiresAt: string | null;
   dateKey: string;
   dailyTotalLimit: number;
+  validUntil: string | null;
   usedTotalChars: number;
   remainingChars: number;
   source?: "authing" | "mock";

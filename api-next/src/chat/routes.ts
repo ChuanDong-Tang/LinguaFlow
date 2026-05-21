@@ -211,7 +211,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
         return reply.status(429).send({
           ok: false,
           request_id: requestId,
-          error: {code: "DAILY_QUOTA_EXCEEDED", message: "You've reached your daily quota for today."}
+          error: {code: "DAILY_QUOTA_EXCEEDED", message: "You've reached your character quota."}
         });
       }
       if (isProRequiredError(error)) {

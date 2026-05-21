@@ -31,6 +31,9 @@ export interface AdminRouteDeps {
       count: (args: any) => Promise<number>;
       findMany: (args: any) => Promise<any[]>;
     };
+    adminAuditLog: {
+      create: (args: any) => Promise<any>;
+    };
     $transaction: <T>(fn: (tx: any) => Promise<T>) => Promise<T>;
     $executeRawUnsafe: (query: string, ...values: unknown[]) => Promise<number>;
     $queryRawUnsafe: (query: string, ...values: unknown[]) => Promise<any[]>;
@@ -683,22 +686,20 @@ async function writeAuditLog(
     reason?: string;
   }
 ): Promise<void> {
-  await deps.prisma.$executeRawUnsafe(
-    `INSERT INTO "admin_audit_logs"
-      ("id", "adminId", "action", "targetType", "targetId", "requestId", "ip", "beforeData", "afterData", "reason", "createdAt")
-     VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, NOW())`,
-    randomUUID(),
-    input.adminId,
-    input.action,
-    input.targetType,
-    input.targetId ?? null,
-    input.requestId ?? null,
-    input.ip ?? null,
-    input.beforeData === undefined ? null : JSON.stringify(input.beforeData),
-    input.afterData === undefined ? null : JSON.stringify(input.afterData),
-    input.reason ?? null
-  );
+  await deps.prisma.adminAuditLog.create({
+    data: {
+      id: randomUUID(),
+      adminId: input.adminId,
+      action: input.action,
+      targetType: input.targetType,
+      targetId: input.targetId ?? null,
+      requestId: input.requestId ?? null,
+      ip: input.ip ?? null,
+      beforeData: input.beforeData === undefined ? undefined : input.beforeData,
+      afterData: input.afterData === undefined ? undefined : input.afterData,
+      reason: input.reason ?? null,
+    },
+  });
 }
 
 function computeP95(values: number[]): number | null {

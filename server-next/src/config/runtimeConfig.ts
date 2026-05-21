@@ -60,7 +60,8 @@ export interface RuntimeConfig {
   deepSeekTimeoutMs: number;
   quotaTimeZone: string;
   proDailyTotalLimit: number;
-  freeDailyTotalLimit: number;
+  freeTrialTotalLimit: number;
+  freeTrialValidDays: number;
   benefitGrantRetryEnabled: boolean;
   benefitGrantMaxAttempts: number;
   benefitGrantBackoffMaxMs: number;
@@ -123,7 +124,8 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     deepSeekTimeoutMs: readPositiveInt(env.DEEPSEEK_TIMEOUT_MS, 20_000),
     quotaTimeZone: env.LF_QUOTA_TIME_ZONE?.trim() || "Asia/Shanghai",
     proDailyTotalLimit: readPositiveInt(env.LF_PRO_DAILY_TOTAL_LIMIT, 10_000),
-    freeDailyTotalLimit: readPositiveInt(env.LF_FREE_DAILY_TOTAL_LIMIT, 500),
+    freeTrialTotalLimit: readPositiveInt(env.LF_FREE_TRIAL_TOTAL_LIMIT, 5000),
+    freeTrialValidDays: readPositiveInt(env.LF_FREE_TRIAL_VALID_DAYS, 7),
     payment: readPaymentRuntimeConfig(env),
     benefitGrantRetryEnabled: readBoolean(env.LF_BENEFIT_GRANT_RETRY_ENABLED, true),
     benefitGrantMaxAttempts: readPositiveInt(env.LF_BENEFIT_GRANT_MAX_ATTEMPTS, 6),

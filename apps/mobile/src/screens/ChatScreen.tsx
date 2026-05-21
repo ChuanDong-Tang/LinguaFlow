@@ -536,7 +536,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return;
     }
     if (remainingChars !== null && remainingChars <= 0) {
-      Alert.alert("You've reached your daily quota.");
+      Alert.alert("字符额度已用尽");
       return;
     }
 
@@ -589,7 +589,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const text = message.retryText?.trim();
     if (!text || activeGenerationContactId || (message.retryCount ?? 0) >= 1) return;
     if (remainingChars !== null && remainingChars <= 0) {
-      Alert.alert("You've reached your daily quota.");
+      Alert.alert("字符额度已用尽");
       return;
     }
 
@@ -932,7 +932,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
               return;
             }
             if (remainingChars !== null && remainingChars <= 0) {
-              Alert.alert("今日额度已用尽");
+              Alert.alert("字符额度已用尽");
             }
           }}
           disabled={!canSend}

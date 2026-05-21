@@ -58,6 +58,13 @@ export function MeScreen({ onOpenMain, onOpenPractice, onOpenPro, onOpenAbout, o
 
   const userName = session?.user.displayName || "微信用户";
   const planLabel = (entitlement?.isPro ?? session?.sessionFlags?.isPro === true) ? "Pro" : "普通版";
+  const quotaTitle = entitlement?.isPro ? "今日字符额度" : "免费字符额度";
+  const quotaLabel = entitlement?.isPro ? "今日剩余" : "剩余额度";
+  const quotaResetText = entitlement?.isPro
+    ? "每天 24:00 自动恢复"
+    : entitlement?.validUntil
+      ? `有效期至 ${formatDateTime(entitlement.validUntil)}`
+      : "首次使用后 7 天内有效";
 
   return (
     <SafeAreaView style={styles.container}>
@@ -73,9 +80,9 @@ export function MeScreen({ onOpenMain, onOpenPractice, onOpenPro, onOpenAbout, o
         </View>
 
         <View style={styles.quotaCard}>
-          <Text style={styles.cardTitle}>今日字符额度</Text>
+          <Text style={styles.cardTitle}>{quotaTitle}</Text>
           <View style={styles.quotaRow}>
-            <Text style={styles.quotaLabel}>今日剩余</Text>
+            <Text style={styles.quotaLabel}>{quotaLabel}</Text>
             <Text style={styles.quotaNumber}>{quota.remainingChars === null ? "--" : formatNumber(quota.remainingChars)}</Text>
             <Text style={styles.quotaUnit}>字</Text>
             {isLoadingEntitlement ? <ActivityIndicator size="small" color="#6E63FF" style={styles.quotaLoading} /> : null}
@@ -89,7 +96,7 @@ export function MeScreen({ onOpenMain, onOpenPractice, onOpenPro, onOpenAbout, o
               {formatNumber(quota.dailyTotalLimit)}
             </Text>
           </View>
-          <Text style={styles.resetText}>每天 24:00 自动恢复</Text>
+          <Text style={styles.resetText}>{quotaResetText}</Text>
         </View>
 
         <View style={styles.proCard}>
@@ -146,6 +153,17 @@ function openUrl(url: string): void {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 const styles = StyleSheet.create({
