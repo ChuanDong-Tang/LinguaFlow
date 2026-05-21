@@ -237,7 +237,7 @@ export function createApp() {
 function resolveCorsAllowOrigins(env: NodeJS.ProcessEnv = process.env): Set<string> {
   const raw = env.CORS_ALLOW_ORIGINS?.trim();
   if (!raw) {
-    return new Set(["http://localhost:3103", "http://localhost:8081", "http://localhost:5173"]);
+    return new Set();
   }
   return new Set(
     raw

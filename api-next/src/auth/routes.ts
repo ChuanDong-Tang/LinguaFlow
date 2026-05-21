@@ -199,6 +199,16 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     const body = req.body as Record<string, unknown> | null;
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
+
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "admin_password_login", limit: 5, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
     const account = typeof body?.account === "string" ? body.account.trim() : "";
     const password = typeof body?.password === "string" ? body.password : "";
     if (!account || !password) {
@@ -362,7 +372,7 @@ function resolveSessionContext(req: FastifyRequest) {
 
 // redis限流
 type AuthRateLimitRule = {
-  routeKey: "authing_login" | "refresh" | "logout";
+  routeKey: "authing_login" | "admin_password_login" | "refresh" | "logout";
   limit: number;
   windowSec: number;
 };
