@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Image, StyleSheet, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SplashGateScreen } from "./screens/SplashGateScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { initI18n } from "./i18n";
@@ -140,11 +141,13 @@ export default function App() {
   }
 
   return (
-    <KeyboardProvider>
-      <FloatingNoticeProvider>
-        <View style={styles.screen}>{content}</View>
-      </FloatingNoticeProvider>
-    </KeyboardProvider>
+    <SafeAreaProvider>
+      <KeyboardProvider>
+        <FloatingNoticeProvider>
+          <View style={styles.screen}>{content}</View>
+        </FloatingNoticeProvider>
+      </KeyboardProvider>
+    </SafeAreaProvider>
   );
 }
 

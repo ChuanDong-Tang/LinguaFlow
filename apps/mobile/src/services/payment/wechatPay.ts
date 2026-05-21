@@ -1,5 +1,17 @@
 import { Platform } from "react-native";
-import * as WeChat from "react-native-wechat-lib";
+
+type WeChatNativeModule = {
+  isWXAppInstalled: () => Promise<boolean>;
+  pay: (params: {
+    partnerId: string;
+    prepayId: string;
+    nonceStr: string;
+    timeStamp: string;
+    package: "Sign=WXPay";
+    sign: string;
+  }) => Promise<{ errCode?: number | string; errStr?: string }>;
+  registerApp: (appId: string, universalLink?: string) => Promise<boolean>;
+};
 
 export type WeChatClientPayParams = {
   appId: string;
@@ -19,7 +31,8 @@ export async function payWithWechat(params: WeChatClientPayParams): Promise<void
     throw new Error("当前平台不支持微信支付");
   }
 
-  await ensureWeChatRegistered(params.appId);
+  const WeChat = await loadWeChatModule();
+  await ensureWeChatRegistered(WeChat, params.appId);
 
   const installed = await WeChat.isWXAppInstalled();
   if (!installed) {
@@ -67,10 +80,19 @@ export function toWeChatClientPayParams(value: Record<string, unknown>): WeChatC
   return params as WeChatClientPayParams;
 }
 
-async function ensureWeChatRegistered(appId: string): Promise<void> {
+async function ensureWeChatRegistered(WeChat: WeChatNativeModule, appId: string): Promise<void> {
   if (registeredAppId === appId) return;
   const universalLink = process.env.EXPO_PUBLIC_WECHAT_UNIVERSAL_LINK || undefined;
   const ok = await WeChat.registerApp(appId, universalLink);
   if (!ok) throw new Error("微信 SDK 注册失败");
   registeredAppId = appId;
+}
+
+async function loadWeChatModule(): Promise<WeChatNativeModule> {
+  const mod = await import("react-native-wechat-lib");
+  const candidate = (mod.default ?? mod) as Partial<WeChatNativeModule> | null;
+  if (!candidate?.registerApp || !candidate.isWXAppInstalled || !candidate.pay) {
+    throw new Error("当前安装包未包含微信支付能力，请使用正式原生包");
+  }
+  return candidate as WeChatNativeModule;
 }
