@@ -17,6 +17,10 @@ import { FloatingNoticeProvider } from "./screens/shared/FloatingNotice";
 import { onSessionInvalid } from "./services/auth/authSessionEvents";
 import type { ChatMessage } from "./domain/chat/types";
 import type { PracticeCard } from "./domain/practice/practiceService";
+import {
+  DEFAULT_CHAT_CONTACT,
+  type ChatContact,
+} from "./domain/chat/contacts";
 
 type Screen = "splash" | "login" | "main" | "chat" | "practice" | "practiceSession" | "me" | "pro" | "about";
 
@@ -29,6 +33,7 @@ export default function App() {
     cards: PracticeCard[];
     messages: ChatMessage[];
   } | null>(null);
+  const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
 
   // 初始化，决定进入main还是login页面
   useEffect(() => {
@@ -84,11 +89,14 @@ export default function App() {
   let content: React.ReactNode;
   if (screen === "splash") content = <SplashGateScreen />;
   else if (screen === "login") content = <LoginScreen onLoginSuccess={() => setScreen("main")} />;
-  else if (screen === "chat") content = <ChatScreen onBack={() => setScreen("main")} />;
+  else if (screen === "chat") content = <ChatScreen contact={activeContact} onBack={() => setScreen("main")} />;
   else if (screen === "practice") {
     content = (
       <PracticeScreen
-        onOpenChat={() => setScreen("chat")}
+        onOpenChat={() => {
+          setActiveContact(DEFAULT_CHAT_CONTACT);
+          setScreen("chat");
+        }}
         onOpenMe={() => setScreen("me")}
         onOpenPracticeSession={(cards, messages) => {
           setPracticeSession({ cards, messages });
@@ -121,7 +129,10 @@ export default function App() {
   else {
     content = (
       <MainScreen
-        onOpenChat={() => setScreen("chat")}
+        onOpenChat={(contact) => {
+          setActiveContact(contact);
+          setScreen("chat");
+        }}
         onOpenPractice={() => setScreen("practice")}
         onOpenMe={() => setScreen("me")}
       />

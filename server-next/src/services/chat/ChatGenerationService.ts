@@ -1,19 +1,19 @@
-import type { RewriteStreamEvent, RewriteStreamRequestBody } from "@lf/core/contracts/chatStream.js";
+import type { ChatGenerationStreamEvent, ChatGenerationStreamRequestBody } from "@lf/core/contracts/chatStream.js";
 import type {
   AbortSignalLike,
   AIProvider,
 } from "@lf/core/ports/ai/AIProvider.js";
 import type { ChatMessageService, MessageView } from "./ChatMessageService.js";
-import type { RewriteTaskGuard } from "./RewriteTaskGuard.js";
+import type { ChatGenerationTaskGuard } from "./ChatGenerationTaskGuard.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type {
   AiRequestLogRepository,
   AiRequestLogStatus,
 } from "@lf/core/ports/repository/AiRequestLogRepository.js";
-import type { RewriteRateLimiter } from "./RewriteRateLimiter.js";
+import type { ChatGenerationRateLimiter } from "./ChatGenerationRateLimiter.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 
-type RewriteStreamServiceInput = RewriteStreamRequestBody & {
+type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
   signal?: AbortSignalLike;
   requestId: string;
 };
@@ -25,19 +25,19 @@ type AppErrorCode =
 
 type AppError = Error & { code: AppErrorCode };
 
-export class RewriteService {
+export class ChatGenerationService {
   constructor(
     private readonly aiProvider: AIProvider,
     private readonly chatMessageService: ChatMessageService,
-    private readonly taskGuard: RewriteTaskGuard,
+    private readonly taskGuard: ChatGenerationTaskGuard,
     private readonly entitlementService: EntitlementService,
     private readonly aiRequestLogRepository: AiRequestLogRepository,
-    private readonly rateLimiter: RewriteRateLimiter,
+    private readonly rateLimiter: ChatGenerationRateLimiter,
   ) {}
   
-  async rewriteStream(
-    input: RewriteStreamServiceInput,
-    onEvent: (event: RewriteStreamEvent) => Promise<void> | void
+  async generateChatStream(
+    input: ChatGenerationStreamServiceInput,
+    onEvent: (event: ChatGenerationStreamEvent) => Promise<void> | void
   ): Promise<void> {
     let assistantText = "";
     const shouldPersist = Boolean(input.conversationId && input.userMessageId);
@@ -53,9 +53,9 @@ export class RewriteService {
     const startedAt = Date.now();
     const taskId = input.userMessageId ?? input.requestId;
     const config = getRuntimeConfig();
-    const taskTtlMs = config.rewriteTaskTtlMs;
-    const rateLimit = config.rewriteGlobalRateLimit;
-    const rateWindowMs = config.rewriteGlobalRateWindowMs;
+    const taskTtlMs = config.chatGenerationTaskTtlMs;
+    const rateLimit = config.chatGenerationGlobalRateLimit;
+    const rateWindowMs = config.chatGenerationGlobalRateWindowMs;
     const rateAllowed = await this.rateLimiter.consume(
       this.currentRateLimitKey(),
       rateLimit,
@@ -66,7 +66,7 @@ export class RewriteService {
       if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       const error = createAppError(
         "RATE_LIMITED",
-        "Too many rewrite tasks. Please try again later."
+        "Too many chat generation tasks. Please try again later."
       );
       await this.logFailedAiRequest(input, {
         startedAt,
@@ -77,8 +77,8 @@ export class RewriteService {
       throw error;
     }
 
-    const userRateLimit = config.rewriteUserRateLimit;
-    const userRateWindowMs = config.rewriteUserRateWindowMs;
+    const userRateLimit = config.chatGenerationUserRateLimit;
+    const userRateWindowMs = config.chatGenerationUserRateWindowMs;
     const userRateAllowed = await this.rateLimiter.consume(
       this.userRateLimitKey(input.userId),
       userRateLimit,
@@ -100,8 +100,8 @@ export class RewriteService {
       throw error;
     }
 
-    const rewriteMaxInputChars = getRuntimeConfig().rewriteMaxInputChars;
-    if (input.text.length > rewriteMaxInputChars) {
+    const chatGenerationMaxInputChars = getRuntimeConfig().chatGenerationMaxInputChars;
+    if (input.text.length > chatGenerationMaxInputChars) {
       const error = createAppError("INPUT_TOO_LONG", "Input too long");
       await this.logFailedAiRequest(input, {
         startedAt,
@@ -118,7 +118,7 @@ export class RewriteService {
       if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       const error = createAppError(
         "TASK_IN_PROGRESS",
-        "A rewrite task is already running for this user."
+        "A chat generation task is already running for this user."
       );
       await this.logFailedAiRequest(input, {
         startedAt,
@@ -132,10 +132,11 @@ export class RewriteService {
     try {
       await this.entitlementService.assertCanUse(input.userId, input.text.length);
 
-      await this.aiProvider.rewriteTextStream(
+      await this.aiProvider.generateChatTextStream(
         {
           userId: input.userId,
           text: input.text,
+          contactId: input.contactId,
           systemPrompt: input.systemPrompt,
           signal: input.signal,
         },
@@ -157,10 +158,14 @@ export class RewriteService {
       await this.entitlementService.consume(input.userId, totalChars);
       await onEvent({ type: "done", assistantMessage });
     }catch(error){
+      const failureStatus = this.resolveFailureStatus(error);
+      if (failureStatus === "cancelled") {
+        await this.consumeCancelledUsage(input, assistantText);
+      }
       if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       await this.logFailedAiRequest(input, {
         startedAt,
-        status: this.resolveFailureStatus(error),
+        status: failureStatus,
         error,
         outputChars: assistantText.length,
       });
@@ -171,19 +176,19 @@ export class RewriteService {
   }
   
   private currentRateLimitKey(): string {
-    const windowMs = getRuntimeConfig().rewriteGlobalRateWindowMs;
+    const windowMs = getRuntimeConfig().chatGenerationGlobalRateWindowMs;
     const bucket = Math.floor(Date.now() / windowMs);
-    return `rewrite:rate:global:${bucket}`;
+    return `chat-generation:rate:global:${bucket}`;
   }
 
   private userRateLimitKey(userId: string): string {
-    const windowMs = getRuntimeConfig().rewriteUserRateWindowMs;
+    const windowMs = getRuntimeConfig().chatGenerationUserRateWindowMs;
     const bucket = Math.floor(Date.now() / windowMs);
-    return `rewrite:rate:user:${userId}:${bucket}`;
+    return `chat-generation:rate:user:${userId}:${bucket}`;
   }
 
   private async createPersistedAssistantMessage(
-    input: RewriteStreamServiceInput,
+    input: ChatGenerationStreamServiceInput,
     assistantText: string
   ): Promise<MessageView> {
     await this.chatMessageService.markUserMessageSuccess(input.userMessageId!);
@@ -196,7 +201,7 @@ export class RewriteService {
   }
 
   private async logFailedAiRequest(
-    input: RewriteStreamServiceInput,
+    input: ChatGenerationStreamServiceInput,
     params: {
       startedAt: number;
       status: AiRequestLogStatus;
@@ -222,6 +227,14 @@ export class RewriteService {
     } catch {
       // Logging must never hide the original AI failure from the caller.
     }
+  }
+
+  private async consumeCancelledUsage(
+    input: ChatGenerationStreamServiceInput,
+    assistantText: string
+  ): Promise<void> {
+    const chargeChars = input.text.length + assistantText.length;
+    await this.entitlementService.consume(input.userId, chargeChars);
   }
 
   private resolveFailureStatus(error: unknown): AiRequestLogStatus {

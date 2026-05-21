@@ -147,7 +147,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     // 超出输入的字符最大上限拦截
-    if (body.text.trim().length > runtimeConfig.rewriteMaxInputChars) {
+    if (body.text.trim().length > runtimeConfig.chatGenerationMaxInputChars) {
       return reply.status(400).send({
         ok: false,
         request_id: requestId,

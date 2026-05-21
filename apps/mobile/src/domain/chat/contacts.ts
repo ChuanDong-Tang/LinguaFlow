@@ -1,0 +1,37 @@
+export type ChatContactId = "rewrite_assistant" | "english_friend";
+
+export type ChatContact = {
+  id: ChatContactId;
+  name: string;
+  description: string;
+  avatarLabel: string;
+  clozeSource: "tagged_en" | "full_text";
+  practiceEnabled: boolean;
+};
+
+export const CHAT_CONTACTS: ChatContact[] = [
+  {
+    id: "rewrite_assistant",
+    name: "改写助手",
+    description: "帮你把英文说得更自然",
+    avatarLabel: "OIO",
+    clozeSource: "tagged_en",
+    practiceEnabled: true,
+  },
+  {
+    id: "english_friend",
+    name: "好奇宝宝",
+    description: "只用英文陪你聊天",
+    avatarLabel: "WHY",
+    clozeSource: "full_text",
+    practiceEnabled: true,
+  },
+];
+
+export const DEFAULT_CHAT_CONTACT = CHAT_CONTACTS[0];
+
+export const PRACTICE_CONTACTS = CHAT_CONTACTS.filter((contact) => contact.practiceEnabled);
+
+export function getChatContact(contactId: string | null | undefined): ChatContact {
+  return CHAT_CONTACTS.find((contact) => contact.id === contactId) ?? DEFAULT_CHAT_CONTACT;
+}

@@ -62,19 +62,6 @@ export async function sendMessageToCloud(input: {
   return json.data;
 }
 
-export async function listMessagesFromCloud(conversationId: string): Promise<MessageView[]> {
-  const res = await fetch(
-    `${BASE_URL}/chat/messages?conversationId=${encodeURIComponent(conversationId)}`,
-    { headers: await getAuthHeaders() }
-  );
-
-  const json = (await res.json()) as ApiResult<MessageView[]>;
-  if (!json.ok) {
-    throw new Error(json.error.message);
-  }
-  return json.data;
-}
-
 export async function listMessagesByRangeFromCloud(
   input: ListMessagesByRangeInput
 ): Promise<MessageView[]> {
@@ -95,17 +82,6 @@ export async function listMessagesByRangeFromCloud(
   }
 
   return json.data;
-}
-
-export async function listDateKeysByRangeFromCloud(
-  input: ListMessagesByRangeInput
-): Promise<Set<string>> {
-  const rows = await listMessagesByRangeFromCloud(input);
-  const keys = new Set<string>();
-  for (const row of rows) {
-    keys.add(row.createdAt.slice(0, 10));
-  }
-  return keys;
 }
 
 export async function listDayMessagesFromCloud(input: {

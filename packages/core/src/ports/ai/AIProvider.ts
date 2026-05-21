@@ -4,18 +4,19 @@ export interface AbortSignalLike {
     removeEventListener(type: "abort", listener: () => void): void;
 }
 
-export interface RewriteTextInput{
+export interface ChatTextGenerationInput{
     userId: string;
     text: string;
+    contactId?: string;
     systemPrompt?: string;
     signal?: AbortSignalLike;
 }
 
-export interface RewriteTextOutput{
-    rewrittenText: string;
+export interface ChatTextGenerationOutput{
+    text: string;
 }
 
-export type RewriteTextStreamEvent =
+export type ChatTextGenerationStreamEvent =
   | { type: "start" }
   | { type: "delta"; text: string }
   | { type: "done" };
@@ -30,8 +31,8 @@ export interface AIProvider{
     readonly providerName: string;
     readonly modelName: string;
 
-    rewriteTextStream(
-        input: RewriteTextInput,
-        onEvent: (event: RewriteTextStreamEvent) => Promise<void> | void
+    generateChatTextStream(
+        input: ChatTextGenerationInput,
+        onEvent: (event: ChatTextGenerationStreamEvent) => Promise<void> | void
     ): Promise<void>;
 }

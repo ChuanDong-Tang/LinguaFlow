@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { RewriteStreamEvent, RewriteStreamRequestBody } from "@lf/core/contracts/chatStream.js";
+import type { ChatGenerationStreamEvent, ChatGenerationStreamRequestBody } from "@lf/core/contracts/chatStream.js";
 import type { AbortSignalLike } from "@lf/core/ports/ai/AIProvider.js";
 import { resolveRequestId } from "../lib/httpResult.js";
 import {
@@ -12,10 +12,10 @@ import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import type { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService.js";
 
 export interface ChatStreamRouteDeps {
-  rewriteService: {
-    rewriteStream: (
-      input: RewriteStreamRequestBody & { requestId: string; signal?: AbortSignalLike },
-      onEvent: (event: RewriteStreamEvent) => Promise<void> | void
+  chatGenerationService: {
+    generateChatStream: (
+      input: ChatGenerationStreamRequestBody & { requestId: string; signal?: AbortSignalLike },
+      onEvent: (event: ChatGenerationStreamEvent) => Promise<void> | void
     ) => Promise<void>;
   };
   userRepository: {
@@ -28,7 +28,7 @@ export interface ChatStreamRouteDeps {
   systemEventLogRepository?: SystemEventLogWriter;
 }
 
-function isRewriteStreamBody(value: unknown): value is RewriteStreamRequestBody {
+function isChatGenerationStreamBody(value: unknown): value is ChatGenerationStreamRequestBody {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   const hasConversationId = typeof v.conversationId === "string" && v.conversationId.trim().length > 0;
@@ -39,15 +39,16 @@ function isRewriteStreamBody(value: unknown): value is RewriteStreamRequestBody 
     typeof v.userId === "string" &&
     v.userId.trim().length > 0 &&
     hasConversationId === hasUserMessageId &&
+    (v.contactId === undefined || v.contactId === null || typeof v.contactId === "string") &&
     (v.systemPrompt === undefined || v.systemPrompt === null || typeof v.systemPrompt === "string")
   );
 }
 
-function toSseChunk(event: RewriteStreamEvent): string {
+function toSseChunk(event: ChatGenerationStreamEvent): string {
   return `event: message\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
-function mapRewriteErrorToHttp(code: string | undefined): {
+function mapChatGenerationErrorToHttp(code: string | undefined): {
   status: number;
   code: string;
   message: string;
@@ -72,21 +73,21 @@ function mapRewriteErrorToHttp(code: string | undefined): {
     return {
       status: 409,
       code: "TASK_IN_PROGRESS",
-      message: "A rewrite task is already running for this user.",
+      message: "A chat generation task is already running for this user.",
     };
   }
   return null;
 }
 
 export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamRouteDeps): void {
-  app.post("/chat/rewrite/stream", async (req, reply) => {
+  app.post("/chat/generation/stream", async (req, reply) => {
     const body = req.body as unknown;
     const requestId = resolveRequestId(req.headers["x-request-id"]);
 
-    if (!isRewriteStreamBody(body)) {
+    if (!isChatGenerationStreamBody(body)) {
       return reply.status(400).send({
         ok: false,
-        error: { code: "REQUEST_INVALID", message: "Invalid rewrite stream payload" },
+        error: { code: "REQUEST_INVALID", message: "Invalid chat generation stream payload" },
       });
     }
 
@@ -112,7 +113,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
           level: "warn",
           status: "failed",
           errorCode: "ACCOUNT_DISABLED",
-          metadata: { path: "/chat/rewrite/stream" },
+          metadata: { path: "/chat/generation/stream" },
         });
         return reply.status(403).send({
           ok: false,
@@ -146,15 +147,16 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
         abortController.abort();
       });
 
-      const writeEvent = async (event: RewriteStreamEvent) => {
+      const writeEvent = async (event: ChatGenerationStreamEvent) => {
         if (reply.raw.destroyed || reply.raw.writableEnded) return;
         reply.raw.write(toSseChunk(event));
       };
 
-      await deps.rewriteService.rewriteStream(
+      await deps.chatGenerationService.generateChatStream(
         {
           text: body.text,
           userId: userContext.userId,
+          contactId: body.contactId?.trim() || "rewrite_assistant",
           systemPrompt: body.systemPrompt ?? undefined,
           conversationId: body.conversationId,
           userMessageId: body.userMessageId,
@@ -176,7 +178,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
         typeof error === "object" && error !== null && "upstreamText" in error
           ? (error as { upstreamText?: unknown }).upstreamText
           : undefined;
-      const mapped = mapRewriteErrorToHttp(code);
+      const mapped = mapChatGenerationErrorToHttp(code);
       const contentType = String(reply.raw.getHeader("Content-Type") ?? "");
       const sseStarted = contentType.includes("text/event-stream");
       if (mapped && mapped.status !== 503 && !sseStarted) {
@@ -190,13 +192,13 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
         requestId,
         userId: userContext.userId,
         module: "chat",
-        event: "chat.rewrite.stream.failed",
+        event: "chat.generation.stream.failed",
         level: "error",
         status: "failed",
         errorCode: code ?? "INTERNAL_ERROR",
         errorMessage: message,
         metadata: {
-          path: "/chat/rewrite/stream",
+          path: "/chat/generation/stream",
           conversationId: body.conversationId,
           userMessageId: body.userMessageId,
           upstreamStatus,
@@ -217,7 +219,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
               ? upstreamText.slice(0, 500)
               : upstreamText ?? null,
         },
-        "rewrite stream failed"
+        "chat generation stream failed"
       );
       const safeCode = mapped?.code ?? "INTERNAL_ERROR";
       const safeMessage = mapped?.message ?? "Stream failed";

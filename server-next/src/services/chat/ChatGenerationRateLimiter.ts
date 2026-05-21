@@ -1,4 +1,4 @@
-export interface RewriteRateLimiter {
+export interface ChatGenerationRateLimiter {
   consume(key: string, limit: number, windowMs: number): Promise<boolean>;
 }
 
@@ -7,7 +7,7 @@ type RateBucket = {
   expiresAt: number;
 };
 
-export class InMemoryRewriteRateLimiter implements RewriteRateLimiter {
+export class InMemoryChatGenerationRateLimiter implements ChatGenerationRateLimiter {
   private readonly buckets = new Map<string, RateBucket>();
 
   async consume(key: string, limit: number, windowMs: number): Promise<boolean> {
@@ -35,7 +35,7 @@ type RedisLike = {
   eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
 };
 
-export class RedisRewriteRateLimiter implements RewriteRateLimiter {
+export class RedisChatGenerationRateLimiter implements ChatGenerationRateLimiter {
   constructor(private readonly redis: RedisLike) {}
 
   async consume(key: string, limit: number, windowMs: number): Promise<boolean> {

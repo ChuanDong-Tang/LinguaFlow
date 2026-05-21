@@ -7,8 +7,9 @@ import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLo
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import type { ChatMessage } from "../domain/chat/types";
 import { filterByDate, isSameDate, toDateKey } from "../domain/chat/messageState";
-import { ensureRewriteMessagesLoaded, replaceRewriteMessages } from "../services/chat/rewriteSessionService";
+import { ensureChatMessagesLoaded, replaceChatMessages } from "../services/chat/chatSessionService";
 import { findConversationIdByDateFromCloud, listDayMessagesFromCloud } from "../services/api/chatHistoryApi";
+import { PRACTICE_CONTACTS, type ChatContact } from "../domain/chat/contacts";
 import { getSession } from "../services/auth/authStorage";
 import { getCurrentEntitlement } from "../services/api/meApi";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
@@ -39,6 +40,7 @@ export function PracticeScreen({ onOpenChat, onOpenMe, onOpenPracticeSession }: 
   const { isMounted } = useMountedGuard();
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [contactByMessageId, setContactByMessageId] = useState<Map<string, ChatContact>>(new Map());
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -48,12 +50,14 @@ export function PracticeScreen({ onOpenChat, onOpenMe, onOpenPracticeSession }: 
   const lastCloudSyncAtByDateRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
-    void ensureRewriteMessagesLoaded().then((rows) => {
-      if (isMounted()) setMessages(rows);
+    void loadPracticeMessagesFromLocal().then(({ rows, contactMap }) => {
+      if (!isMounted()) return;
+      setMessages(rows);
+      setContactByMessageId(contactMap);
     });
   }, [isMounted]);
 
-  const dayStats = useMemo(() => summarizePracticeDays(messages), [messages]);
+  const dayStats = useMemo(() => summarizePracticeDays(messages, { contactByMessageId }), [contactByMessageId, messages]);
   const cells = useMemo(() => buildCalendarCells(monthCursor), [monthCursor]);
   const today = new Date();
   const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
@@ -74,32 +78,48 @@ export function PracticeScreen({ onOpenChat, onOpenMe, onOpenPracticeSession }: 
   }
 
   // 历史/练习数据以云端为准，但 5 分钟内重复进入同一天不再强拉，减少等待感。
-  async function syncDateIfNeeded(date: Date): Promise<ChatMessage[]> {
+  async function syncDateIfNeeded(date: Date): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
     const dateKey = toDateKey(date);
     const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
-    if (Date.now() - lastSyncedAt <= 5 * 60 * 1000) return messages;
-    if (!(await hasLocalProAccess())) return messages;
+    if (Date.now() - lastSyncedAt <= 5 * 60 * 1000) return { rows: messages, contactMap: contactByMessageId };
+    if (!(await hasLocalProAccess())) return { rows: messages, contactMap: contactByMessageId };
     const session = await getSession();
     const entitlement = await getCurrentEntitlement().catch(() => null);
     const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
-    if (entitlement?.isPro !== true) return messages;
-    const conversationId = await findConversationIdByDateFromCloud({ dateKey, contactId: "rewrite_assistant" });
-    if (!conversationId) return messages;
-    const rows = await listDayMessagesFromCloud({ conversationId, userId, dateKey });
-    const mapped = rows.map(mapCloudMessage);
+    if (entitlement?.isPro !== true) return { rows: messages, contactMap: contactByMessageId };
+    const syncedByContact = await Promise.all(
+      PRACTICE_CONTACTS.map(async (contact) => {
+        const conversationId = await findConversationIdByDateFromCloud({ dateKey, contactId: contact.id });
+        if (!conversationId) return { contact, rows: [] as ChatMessage[] };
+        const rows = await listDayMessagesFromCloud({ conversationId, userId, dateKey });
+        return { contact, rows: rows.map(mapCloudMessage) };
+      }),
+    );
     const rest = messages.filter((row) => toDateKey(new Date(row.createdAt)) !== dateKey);
-    const next = [...rest, ...mapped].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+    const mergedRows = syncedByContact.flatMap((item) => item.rows);
+    const next = [...rest, ...mergedRows].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+    const nextContactMap = new Map(contactByMessageId);
+    for (const item of syncedByContact) {
+      item.rows.forEach((row) => nextContactMap.set(row.id ?? row.localId, item.contact));
+    }
     setMessages(next);
-    await replaceRewriteMessages(next);
+    setContactByMessageId(nextContactMap);
+    await Promise.all(
+      syncedByContact.map(async (item) => {
+        const existing = await ensureChatMessagesLoaded(item.contact.id);
+        const restForContact = existing.filter((row) => toDateKey(new Date(row.createdAt)) !== dateKey);
+        await replaceChatMessages(item.contact.id, [...restForContact, ...item.rows].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)));
+      }),
+    );
     lastCloudSyncAtByDateRef.current[dateKey] = Date.now();
-    return next;
+    return { rows: next, contactMap: nextContactMap };
   }
 
   // 日期入口：先确保该日数据新鲜，再按当天消息生成练习卡。
   async function openDatePractice(date: Date): Promise<void> {
     await runWithLoading(async () => {
-      const nextMessages = await syncDateIfNeeded(date);
-      const nextCards = buildPracticeCards(filterByDate(nextMessages, date));
+      const { rows: nextMessages, contactMap } = await syncDateIfNeeded(date);
+      const nextCards = buildPracticeCards(filterByDate(nextMessages, date), { contactByMessageId: contactMap });
       if (!nextCards.length) {
         setDialog({ message: "这一天没有可练习的填空。" });
         return;
@@ -111,10 +131,11 @@ export function PracticeScreen({ onOpenChat, onOpenMe, onOpenPracticeSession }: 
   // 快速练习只随机挑选符合条件的现有练习卡，不记忆用户这次的筛选条件。
   async function openQuickPractice(): Promise<void> {
     await runWithLoading(async () => {
-      const nextMessages = await ensureRewriteMessagesLoaded();
+      const { rows: nextMessages, contactMap } = await loadPracticeMessagesFromLocal();
       setMessages(nextMessages);
+      setContactByMessageId(contactMap);
       const picked = filterPracticeCards({
-        cards: buildPracticeCards(nextMessages),
+        cards: buildPracticeCards(nextMessages, { contactByMessageId: contactMap }),
         recentDays,
         limit: quickLimit,
         band,
@@ -202,6 +223,23 @@ export function PracticeScreen({ onOpenChat, onOpenMe, onOpenPracticeSession }: 
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
     </SafeAreaView>
   );
+}
+
+async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
+  const chunks = await Promise.all(
+    PRACTICE_CONTACTS.map(async (contact) => ({
+      contact,
+      rows: await ensureChatMessagesLoaded(contact.id),
+    })),
+  );
+  const contactMap = new Map<string, ChatContact>();
+  const rows = chunks
+    .flatMap((chunk) => {
+      chunk.rows.forEach((row) => contactMap.set(row.id ?? row.localId, chunk.contact));
+      return chunk.rows;
+    })
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  return { rows, contactMap };
 }
 
 function ReviewCard({ title, subtitle, body, onPress }: { title: string; subtitle: string; body: string; onPress: () => void }) {

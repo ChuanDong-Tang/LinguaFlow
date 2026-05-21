@@ -5,12 +5,12 @@ const ASSISTANT_PREFERENCES_KEY = "linguaflow.assistant.preferences.v1";
 export type AutoCopyMode = "en" | "zh" | "both";
 
 export type AssistantPreferences = {
-  autoCopyAfterRewrite: boolean;
+  autoCopyAfterGeneration: boolean;
   autoCopyMode: AutoCopyMode;
 };
 
 const DEFAULT_PREFERENCES: AssistantPreferences = {
-  autoCopyAfterRewrite: true,
+  autoCopyAfterGeneration: true,
   autoCopyMode: "en",
 };
 
@@ -20,14 +20,14 @@ export async function loadAssistantPreferences(): Promise<AssistantPreferences> 
 
   try {
     const parsed = JSON.parse(raw) as Partial<AssistantPreferences>;
-    const legacyAutoCopy = typeof parsed.autoCopyAfterRewrite === "boolean"
-      ? parsed.autoCopyAfterRewrite
-      : DEFAULT_PREFERENCES.autoCopyAfterRewrite;
+    const autoCopy = typeof parsed.autoCopyAfterGeneration === "boolean"
+      ? parsed.autoCopyAfterGeneration
+      : DEFAULT_PREFERENCES.autoCopyAfterGeneration;
     return {
-      autoCopyAfterRewrite: legacyAutoCopy,
+      autoCopyAfterGeneration: autoCopy,
       autoCopyMode: isAutoCopyMode(parsed.autoCopyMode)
         ? parsed.autoCopyMode
-        : legacyAutoCopy
+        : autoCopy
           ? DEFAULT_PREFERENCES.autoCopyMode
           : "en",
     };

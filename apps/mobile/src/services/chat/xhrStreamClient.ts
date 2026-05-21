@@ -1,6 +1,6 @@
 import type {
-  RewriteStreamEvent,
-  StartRewriteStreamInput,
+  ChatGenerationStreamEvent,
+  StartChatGenerationStreamInput,
   StreamClient,
 } from "./streamClient";
 import { getAuthHeaders } from "../auth/authHeaders";
@@ -9,14 +9,14 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const DEFAULT_STREAM_TIMEOUT_MS = 45_000;
 
 function getStreamTimeoutMs(): number {
-  const parsed = Number.parseInt(process.env.EXPO_PUBLIC_REWRITE_STREAM_TIMEOUT_MS ?? "", 10);
+  const parsed = Number.parseInt(process.env.EXPO_PUBLIC_CHAT_GENERATION_STREAM_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_STREAM_TIMEOUT_MS;
 }
 
 export class XhrStreamClient implements StreamClient {
-  startRewriteStream(
-    input: StartRewriteStreamInput,
-    onEvent: (event: RewriteStreamEvent) => void
+  startChatGenerationStream(
+    input: StartChatGenerationStreamInput,
+    onEvent: (event: ChatGenerationStreamEvent) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -28,7 +28,7 @@ export class XhrStreamClient implements StreamClient {
         xhr.abort();
       }, getStreamTimeoutMs());
 
-      xhr.open("POST", `${BASE_URL}/chat/rewrite/stream`);
+      xhr.open("POST", `${BASE_URL}/chat/generation/stream`);
       xhr.setRequestHeader("Content-Type", "application/json");
 
       const abortRequest = () => xhr.abort();
@@ -63,7 +63,7 @@ export class XhrStreamClient implements StreamClient {
           if (!raw) continue;
 
           try {
-            const event = JSON.parse(raw) as RewriteStreamEvent;
+            const event = JSON.parse(raw) as ChatGenerationStreamEvent;
             onEvent(event);
           } catch {
             // 忽略单条解析失败，继续处理后续流片段
@@ -109,6 +109,7 @@ export class XhrStreamClient implements StreamClient {
             JSON.stringify({
               userId: input.userId,
               text: input.text,
+              contactId: input.contactId,
               ...(input.conversationId ? { conversationId: input.conversationId } : {}),
               ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
               systemPrompt: input.systemPrompt,

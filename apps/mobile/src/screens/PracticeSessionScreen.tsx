@@ -23,7 +23,7 @@ import {
   type PracticeCard,
 } from "../domain/practice/practiceService";
 import { discardMessageClozePractice, updateMessageClozeState } from "../services/api/chatHistoryApi";
-import { replaceRewriteMessages } from "../services/chat/rewriteSessionService";
+import { ensureChatMessagesLoaded, replaceChatMessages } from "../services/chat/chatSessionService";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
 
 type PracticeSessionScreenProps = {
@@ -192,10 +192,11 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
           ? { ...row, clozeState: saved.clozeState ?? null, clozeVersion: saved.clozeVersion }
           : row,
       );
+      const updatedMessage = nextMessages.find(matchesCardMessage);
       const nextCards = buildPracticeCards(nextMessages);
       setMessages(nextMessages);
       setCards(nextCards);
-      await replaceRewriteMessages(nextMessages);
+      if (updatedMessage) await persistPracticeMessageUpdate(card.contactId, updatedMessage);
       setAnswers({});
       if (index >= nextCards.length) setIndex(Math.max(0, nextCards.length - 1));
     }, "正在处理...");
@@ -219,10 +220,11 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
           ? { ...row, clozePracticeDiscardedAt: result.clozePracticeDiscardedAt }
           : row,
       );
+      const updatedMessage = nextMessages.find(matchesCardMessage);
       const nextCards = buildPracticeCards(nextMessages);
       setMessages(nextMessages);
       setCards(nextCards);
-      await replaceRewriteMessages(nextMessages);
+      if (updatedMessage) await persistPracticeMessageUpdate(card.contactId, updatedMessage);
       setAnswers({});
       if (index >= nextCards.length) setIndex(Math.max(0, nextCards.length - 1));
     }, "正在处理...").catch(() => {
@@ -286,6 +288,14 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
     </SafeAreaView>
   );
+}
+
+async function persistPracticeMessageUpdate(contactId: string, message: ChatMessage): Promise<void> {
+  const rows = await ensureChatMessagesLoaded(contactId);
+  const next = rows.map((row) =>
+    (message.id && row.id === message.id) || row.localId === message.localId ? message : row,
+  );
+  await replaceChatMessages(contactId, next);
 }
 
 function PracticeEnglish({

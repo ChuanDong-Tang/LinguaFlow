@@ -1,1 +1,1 @@
-export * from "./rewritePrompt.js";
+export * from "./rewriteAssistantPrompt.js";

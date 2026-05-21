@@ -92,12 +92,12 @@ export interface RuntimeConfig {
   aiRequestLogCleanupRetryMaxDelayMs: number;
   aiRequestLogCleanupCircuitFailThreshold: number;
   aiRequestLogCleanupCircuitOpenMs: number;
-  rewriteTaskTtlMs: number;
-  rewriteGlobalRateLimit: number;
-  rewriteGlobalRateWindowMs: number;
-  rewriteUserRateLimit: number;
-  rewriteUserRateWindowMs: number;
-  rewriteMaxInputChars: number;
+  chatGenerationTaskTtlMs: number;
+  chatGenerationGlobalRateLimit: number;
+  chatGenerationGlobalRateWindowMs: number;
+  chatGenerationUserRateLimit: number;
+  chatGenerationUserRateWindowMs: number;
+  chatGenerationMaxInputChars: number;
   chatMessagesUserRateLimit: number;
   chatMessagesUserRateWindowMs: number;
 }
@@ -155,12 +155,12 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     aiRequestLogCleanupRetryMaxDelayMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_RETRY_MAX_DELAY_MS, 30_000),
     aiRequestLogCleanupCircuitFailThreshold: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_CIRCUIT_FAIL_THRESHOLD, 5),
     aiRequestLogCleanupCircuitOpenMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_CIRCUIT_OPEN_MS, 300_000),
-    rewriteTaskTtlMs: readPositiveInt(env.REWRITE_TASK_TTL_MS, 60_000),
-    rewriteGlobalRateLimit: readPositiveInt(env.REWRITE_GLOBAL_RATE_LIMIT, 30),
-    rewriteGlobalRateWindowMs: readPositiveInt(env.REWRITE_GLOBAL_RATE_WINDOW_MS, 60_000),
-    rewriteUserRateLimit: readPositiveInt(env.REWRITE_USER_RATE_LIMIT, 20),
-    rewriteUserRateWindowMs: readPositiveInt(env.REWRITE_USER_RATE_WINDOW_MS, 60_000),
-    rewriteMaxInputChars: readPositiveInt(env.REWRITE_MAX_INPUT_CHARS, 3000),
+    chatGenerationTaskTtlMs: readPositiveInt(env.CHAT_GENERATION_TASK_TTL_MS, 60_000),
+    chatGenerationGlobalRateLimit: readPositiveInt(env.CHAT_GENERATION_GLOBAL_RATE_LIMIT, 30),
+    chatGenerationGlobalRateWindowMs: readPositiveInt(env.CHAT_GENERATION_GLOBAL_RATE_WINDOW_MS, 60_000),
+    chatGenerationUserRateLimit: readPositiveInt(env.CHAT_GENERATION_USER_RATE_LIMIT, 20),
+    chatGenerationUserRateWindowMs: readPositiveInt(env.CHAT_GENERATION_USER_RATE_WINDOW_MS, 60_000),
+    chatGenerationMaxInputChars: readPositiveInt(env.CHAT_GENERATION_MAX_INPUT_CHARS, 3000),
     chatMessagesUserRateLimit: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_LIMIT, 20),
     chatMessagesUserRateWindowMs: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_WINDOW_MS, 60_000),
   };

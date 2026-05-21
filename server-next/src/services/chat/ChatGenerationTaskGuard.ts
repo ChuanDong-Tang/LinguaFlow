@@ -1,4 +1,4 @@
-export interface RewriteTaskGuard {
+export interface ChatGenerationTaskGuard {
   acquire(userId: string, taskId: string, ttlMs: number): Promise<boolean>;
   release(userId: string, taskId: string): Promise<void>;
 }
@@ -8,7 +8,7 @@ type InFlightTask = {
   expiresAt: number;
 };
 
-export class InMemoryRewriteTaskGuard implements RewriteTaskGuard {
+export class InMemoryChatGenerationTaskGuard implements ChatGenerationTaskGuard {
   private readonly tasks = new Map<string, InFlightTask>();
 
   async acquire(userId: string, taskId: string, ttlMs: number): Promise<boolean> {
@@ -39,7 +39,7 @@ type RedisLike = {
   eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
 };
 
-export class RedisRewriteTaskGuard implements RewriteTaskGuard {
+export class RedisChatGenerationTaskGuard implements ChatGenerationTaskGuard {
   constructor(private readonly redis: RedisLike) {}
 
   async acquire(userId: string, taskId: string, ttlMs: number): Promise<boolean> {
@@ -62,6 +62,6 @@ export class RedisRewriteTaskGuard implements RewriteTaskGuard {
   }
 
   private keyForUser(userId: string): string {
-    return `rewrite:inflight:${userId}`;
+    return `chat-generation:inflight:${userId}`;
   }
 }

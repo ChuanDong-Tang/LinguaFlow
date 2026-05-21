@@ -1,14 +1,16 @@
 import type {
   AIProvider,
   AIProviderConfig,
-  RewriteTextInput,
-  RewriteTextStreamEvent,
+  ChatTextGenerationInput,
+  ChatTextGenerationStreamEvent,
 } from "@lf/core/ports/ai/AIProvider.js";
 
 import {
   DEFAULT_REWRITE_SYSTEM_PROMPT,
+  ENGLISH_FRIEND_SYSTEM_PROMPT,
+  buildEnglishFriendUserPrompt,
   buildRewriteUserPrompt,
-} from "@lf/core/Prompts/rewritePrompt.js";
+} from "@lf/core/Prompts/rewriteAssistantPrompt.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 
 /** DeepSeekAIProvider：调用 DeepSeek 流式接口实现改写能力。 */
@@ -35,14 +37,16 @@ export class DeepSeekAIProvider implements AIProvider {
     return this.model;
   }
 
-  async rewriteTextStream(
-    input: RewriteTextInput,
-    onEvent: (event: RewriteTextStreamEvent) => Promise<void> | void
+  async generateChatTextStream(
+    input: ChatTextGenerationInput,
+    onEvent: (event: ChatTextGenerationStreamEvent) => Promise<void> | void
   ): Promise<void> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     const abortFromCaller = () => controller.abort();
-    const systemPrompt = input.systemPrompt?.trim() || DEFAULT_REWRITE_SYSTEM_PROMPT;
+    const isEnglishFriend = input.contactId === "english_friend";
+    const systemPrompt = input.systemPrompt?.trim() || (isEnglishFriend ? ENGLISH_FRIEND_SYSTEM_PROMPT : DEFAULT_REWRITE_SYSTEM_PROMPT);
+    const userPrompt = isEnglishFriend ? buildEnglishFriendUserPrompt(input.text) : buildRewriteUserPrompt(input.text);
     try {
       if (input.signal?.aborted) {
         controller.abort();
@@ -67,7 +71,7 @@ export class DeepSeekAIProvider implements AIProvider {
             },
             {
               role: "user",
-              content: buildRewriteUserPrompt(input.text),
+              content: userPrompt,
             },
           ],
         }),
@@ -135,4 +139,3 @@ export class DeepSeekAIProvider implements AIProvider {
     }
   }
 }
-

@@ -1,8 +1,9 @@
 import React from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { ChatMessage } from "../../domain/chat/types";
+import type { ChatContact } from "../../domain/chat/contacts";
 import { tokenizeForCloze } from "../../domain/cloze/clozeUtils";
-import { getRewriteEnglish } from "../../domain/rewrite/taggedRewrite";
+import { getAssistantClozeText } from "../../domain/cloze/clozeText";
 
 export type ClozeEditorState = {
   message: ChatMessage;
@@ -17,6 +18,7 @@ export type ClozeDeleteState = {
 };
 
 type ClozeControlsProps = {
+  contact: ChatContact;
   editor: ClozeEditorState | null;
   deleteTarget: ClozeDeleteState | null;
   onCloseEditor: () => void;
@@ -27,6 +29,7 @@ type ClozeControlsProps = {
 };
 
 export function ClozeControls({
+  contact,
   editor,
   deleteTarget,
   onCloseEditor,
@@ -36,7 +39,7 @@ export function ClozeControls({
   onConfirmDelete,
 }: ClozeControlsProps) {
   const editorTokens = editor
-    ? tokenizeForCloze(getRewriteEnglish(editor.message.text)).filter((token) => editor.tokenIndexes.includes(token.index))
+    ? tokenizeForCloze(getAssistantClozeText(editor.message, contact).text).filter((token) => editor.tokenIndexes.includes(token.index))
     : [];
 
   return (

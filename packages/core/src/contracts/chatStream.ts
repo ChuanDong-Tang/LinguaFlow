@@ -1,7 +1,8 @@
 /** 流式改写请求 */
-export interface RewriteStreamRequestBody {
+export interface ChatGenerationStreamRequestBody {
   text: string;
   userId: string; // 当前先用 mock userId
+  contactId?: string;
   systemPrompt?: string;
   conversationId?: string;
   userMessageId?: string;
@@ -9,7 +10,7 @@ export interface RewriteStreamRequestBody {
 
 
 /** 服务端推送的流式事件 */
-export type RewriteStreamEvent =
+export type ChatGenerationStreamEvent =
   | { type: "start" }
   | { type: "delta"; text: string }
   | {

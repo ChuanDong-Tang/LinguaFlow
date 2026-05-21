@@ -7,16 +7,16 @@ import { AuthLoginService } from "@lf/server-next/services/auth/AuthLoginService
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
 import { DeepSeekAIProvider } from "@lf/server-next/providers/ai/DeepSeekAIProvider.js";
-import { RewriteService } from "@lf/server-next/services/chat/RewriteService.js";
+import { ChatGenerationService } from "@lf/server-next/services/chat/ChatGenerationService.js";
 import { registerChatRoutes } from "./chat/routes.js";
 import { PrismaConversationRepository } from "@lf/server-next/infrastructure/repository/PrismaConversationRepository.js";
 import { PrismaMessageRepository } from "@lf/server-next/infrastructure/repository/PrismaMessageRepository.js";
 import { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService.js";
 import { getRedisClient } from "@lf/server-next/infrastructure/redis/redisClient.js";
 import {
-  InMemoryRewriteTaskGuard,
-  RedisRewriteTaskGuard,
-} from "@lf/server-next/services/chat/RewriteTaskGuard.js";
+  InMemoryChatGenerationTaskGuard,
+  RedisChatGenerationTaskGuard,
+} from "@lf/server-next/services/chat/ChatGenerationTaskGuard.js";
 import { PrismaEntitlementRepository } from "@lf/server-next/infrastructure/repository/PrismaEntitlementRepository.js";
 import { PrismaSubscriptionRepository } from "@lf/server-next/infrastructure/repository/PrismaSubscriptionRepository.js";
 import { PrismaPaymentOrderRepository } from "@lf/server-next/infrastructure/repository/PrismaPaymentOrderRepository.js";
@@ -36,9 +36,9 @@ import { PrismaSystemEventLogRepository } from "@lf/server-next/infrastructure/r
 import { PrismaTrustedCertRepository } from "@lf/server-next/infrastructure/repository/PrismaTrustedCertRepository.js";
 import { PrismaAutoRenewRepository } from "@lf/server-next/infrastructure/repository/PrismaAutoRenewRepository.js";
 import {
-  InMemoryRewriteRateLimiter,
-  RedisRewriteRateLimiter,
-} from "@lf/server-next/services/chat/RewriteRateLimiter.js";
+  InMemoryChatGenerationRateLimiter,
+  RedisChatGenerationRateLimiter,
+} from "@lf/server-next/services/chat/ChatGenerationRateLimiter.js";
 import { registerMeRoutes } from "./me/routes.js";
 import { registerPaymentRoutes } from "./payment/routes.js";
 import { registerAdminRoutes } from "./admin/routes.js";
@@ -97,12 +97,12 @@ export function createApp() {
   const messageRepository = new PrismaMessageRepository(prisma);
   const chatMessageService = new ChatMessageService(conversationRepository, messageRepository);
   const redisClient = getRedisClient();
-  const rewriteTaskGuard = redisClient
-    ? new RedisRewriteTaskGuard(redisClient)
-    : new InMemoryRewriteTaskGuard();
-  const rewriteRateLimiter = redisClient
-    ? new RedisRewriteRateLimiter(redisClient)
-    : new InMemoryRewriteRateLimiter();
+  const chatGenerationTaskGuard = redisClient
+    ? new RedisChatGenerationTaskGuard(redisClient)
+    : new InMemoryChatGenerationTaskGuard();
+  const chatGenerationRateLimiter = redisClient
+    ? new RedisChatGenerationRateLimiter(redisClient)
+    : new InMemoryChatGenerationRateLimiter();
   const entitlementRepository = new PrismaEntitlementRepository(prisma);
   const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
   const subscriptionService = new SubscriptionService(subscriptionRepository);
@@ -153,17 +153,17 @@ export function createApp() {
     autoRenewService
   );
   const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
-  const rewriteService = new RewriteService(
+  const chatGenerationService = new ChatGenerationService(
     aiProvider,
     chatMessageService,
-    rewriteTaskGuard,
+    chatGenerationTaskGuard,
     entitlementService,
     aiRequestLogRepository,
-    rewriteRateLimiter
+    chatGenerationRateLimiter
   );
 
   registerChatStreamRoutes(app, {
-    rewriteService,
+    chatGenerationService,
     userRepository,
     chatMessageService,
     systemEventLogRepository,
@@ -179,7 +179,7 @@ export function createApp() {
     userRepository,
     systemEventLogRepository,
     entitlementService,
-    rateLimiter: rewriteRateLimiter,
+    rateLimiter: chatGenerationRateLimiter,
   });
   registerMeRoutes(app, {
     subscriptionService,

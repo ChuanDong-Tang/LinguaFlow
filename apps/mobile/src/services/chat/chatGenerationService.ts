@@ -2,21 +2,20 @@ import { getSession } from "../auth/authStorage";
 import { loadDebugSettings } from "../preferences/debugSettingsStorage";
 import { sendMessageToCloud } from "../api/chatHistoryApi";
 import { getCurrentEntitlement } from "../api/meApi";
-import { startRewriteStream } from "./chatStream";
+import { startChatGenerationStream } from "./chatGenerationStream";
 import { hasLocalProAccess } from "../entitlement/proAccess";
 import type { ChatMessage } from "../../domain/chat/types";
 import { nowHHMM } from "../../domain/chat/messageState";
 
-const CONTACT_ID = "rewrite_assistant";
+export type ChatGenerationStatus = "success" | "failed" | "stopped";
 
-export type RewriteStatus = "success" | "failed" | "stopped";
-
-export type LocalRewritePair = {
+export type LocalChatPair = {
   userMessage: ChatMessage;
   assistantMessage: ChatMessage;
 };
 
-export type RunRewriteInput = {
+export type RunChatGenerationInput = {
+  contactId: string;
   text: string;
   assistantLocalId: string;
   retryCount: number;
@@ -28,13 +27,13 @@ export type RunRewriteInput = {
   onUpdateMessage: (localId: string, updater: (message: ChatMessage) => ChatMessage) => void;
 };
 
-export type RunRewriteResult = {
-  status: RewriteStatus;
+export type RunChatGenerationResult = {
+  status: ChatGenerationStatus;
   assistantText: string;
   errorMessage?: string;
 };
 
-export function createLocalRewritePair(text: string, now = new Date()): LocalRewritePair {
+export function createLocalChatPair(text: string, now = new Date()): LocalChatPair {
   const stamp = now.getTime();
   const time = nowHHMM();
   const createdAt = now.toISOString();
@@ -61,7 +60,7 @@ export function createLocalRewritePair(text: string, now = new Date()): LocalRew
   };
 }
 
-export async function runRewriteSync(input: RunRewriteInput): Promise<RunRewriteResult> {
+export async function runChatGeneration(input: RunChatGenerationInput): Promise<RunChatGenerationResult> {
   let requestSystemPrompt = input.systemPrompt;
   let assistantText = "";
   let streamErrorMessage: string | null = null;
@@ -92,22 +91,24 @@ export async function runRewriteSync(input: RunRewriteInput): Promise<RunRewrite
     const session = await getSession();
     const userId = session?.user?.id ?? "mock_user_001";
     const debugSettings = await loadDebugSettings();
-    requestSystemPrompt = input.systemPrompt ?? debugSettings.systemPrompt.trim();
+    const contactPrompt = debugSettings.systemPromptsByContactId[input.contactId as keyof typeof debugSettings.systemPromptsByContactId]?.trim();
+    requestSystemPrompt = input.systemPrompt ?? contactPrompt ?? "";
 
     const localPro = await hasLocalProAccess();
     const entitlement = localPro ? await getCurrentEntitlement().catch(() => null) : null;
     const cloud = entitlement?.isPro === true
       ? await sendMessageToCloud({
           text: input.text,
-          contactId: CONTACT_ID,
+          contactId: input.contactId,
         })
       : null;
     if (cloud) input.onConversationReady?.(cloud.conversationId);
 
-    await startRewriteStream(
+    await startChatGenerationStream(
       {
         userId,
         text: input.text,
+        contactId: input.contactId,
         conversationId: cloud?.conversationId,
         userMessageId: cloud?.userMessage.id,
         systemPrompt: requestSystemPrompt || undefined,
@@ -180,7 +181,7 @@ export async function runRewriteSync(input: RunRewriteInput): Promise<RunRewrite
   }
 }
 
-function markFailed(input: RunRewriteInput, text: string, systemPrompt?: string): void {
+function markFailed(input: RunChatGenerationInput, text: string, systemPrompt?: string): void {
   if (input.userLocalId) {
     input.onUpdateMessage(input.userLocalId, (row) => ({ ...row, status: "failed" }));
   }

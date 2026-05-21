@@ -2,15 +2,17 @@ import React from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatMessage } from "../../domain/chat/types";
+import type { ChatContact } from "../../domain/chat/contacts";
 import { getClozeBlankRanges, getClozeHighlightRanges, normalizeClozeState } from "../../domain/cloze/clozeUtils";
+import { getAssistantClozeText } from "../../domain/cloze/clozeText";
 import {
   SelectableMessageText,
   type NativeTextSelectionPayload,
   type SelectableMessageTextRef,
 } from "./SelectableMessageText";
-import { parseTaggedRewrite } from "../../domain/rewrite/taggedRewrite";
 
 type MessageListProps = {
+  contact: ChatContact;
   messages: ChatMessage[];
   selectedDateLabel: string;
   listRef?: React.RefObject<FlatList<RowItem> | null>;
@@ -56,6 +58,7 @@ const UserMessageRow = React.memo(function UserMessageRow({ message }: { message
 
 const AssistantMessageRow = React.memo(function AssistantMessageRow({
   message,
+  contact,
   onRetryMessage,
   onCopyMessage,
   onTextSelection,
@@ -63,6 +66,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onDeleteClozeGroup,
 }: {
   message: ChatMessage;
+  contact: ChatContact;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage) => void;
   onTextSelection: (
@@ -75,8 +79,8 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
 }) {
   const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
   const [answersVisible, setAnswersVisible] = React.useState(false);
-  const tagged = React.useMemo(() => parseTaggedRewrite(message.text), [message.text]);
-  const displayText = tagged.en || "...";
+  const clozeText = React.useMemo(() => getAssistantClozeText(message, contact), [contact, message]);
+  const displayText = clozeText.text || "...";
   const clozeState = React.useMemo(() => normalizeClozeState(message.clozeState), [message.clozeState]);
   const hasClozeGroup = !!clozeState?.groups.length;
   const hasBlank = !!clozeState?.groups.some((group) => group.blankTokenIndexes.length > 0);
@@ -108,7 +112,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
             onClozeRangePress={hasClozeGroup ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined}
             onClozeRangeLongPress={hasClozeGroup ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined}
           />
-          {tagged.zh ? <Text style={styles.translationText}>{tagged.zh}</Text> : null}
+          {clozeText.translation ? <Text style={styles.translationText}>{clozeText.translation}</Text> : null}
           <View style={styles.cardActionRow}>
             {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
               <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
@@ -139,6 +143,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
 
 export function MessageList({
   messages,
+  contact,
   selectedDateLabel,
   listRef,
   onScrollBeginDrag,
@@ -172,6 +177,7 @@ export function MessageList({
       return (
         <AssistantMessageRow
           message={message}
+          contact={contact}
           onRetryMessage={onRetryMessage}
           onCopyMessage={onCopyMessage}
           onTextSelection={onTextSelection}
@@ -180,7 +186,7 @@ export function MessageList({
         />
       );
     },
-    [onCopyMessage, onDeleteClozeGroup, onEditClozeGroup, onRetryMessage, onTextSelection, selectedDateLabel]
+    [contact, onCopyMessage, onDeleteClozeGroup, onEditClozeGroup, onRetryMessage, onTextSelection, selectedDateLabel]
   );
 
   return (

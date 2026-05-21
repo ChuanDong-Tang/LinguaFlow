@@ -18,15 +18,16 @@ import {
   listDayMessagesFromCloud,
   updateMessageClozeState,
 } from "../services/api/chatHistoryApi";
-import { createLocalRewritePair } from "../services/chat/chatSyncService";
+import { createLocalChatPair } from "../services/chat/chatGenerationService";
 import {
-  appendRewriteMessages,
-  ensureRewriteMessagesLoaded,
-  replaceRewriteMessages,
-  startRewriteSession,
-  stopRewriteSession,
-  subscribeRewriteSession,
-} from "../services/chat/rewriteSessionService";
+  appendChatMessages,
+  ensureChatMessagesLoaded,
+  replaceChatMessages,
+  startChatSession,
+  stopChatSession,
+  subscribeChatGenerationActivity,
+  subscribeChatSession,
+} from "../services/chat/chatSessionService";
 import {
   type AutoCopyMode,
   loadAssistantPreferences,
@@ -57,12 +58,14 @@ import {
   removeClozeGroup,
   replaceClozeGroup,
 } from "../domain/cloze/clozeUtils";
+import { getAssistantClozeText } from "../domain/cloze/clozeText";
 import { getRewriteChinese, getRewriteEnglish } from "../domain/rewrite/taggedRewrite";
 import {
   filterByDate,
   isSameDate,
   toDateKey,
 } from "../domain/chat/messageState";
+import type { ChatContact } from "../domain/chat/contacts";
 
 function getMonthRange(cursor: Date): { monthKey: string; fromDateKey: string; toDateKey: string } {
   const firstDay = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
@@ -76,13 +79,16 @@ function getMonthRange(cursor: Date): { monthKey: string; fromDateKey: string; t
 }
 
 type ChatScreenProps = {
+  contact: ChatContact;
   onBack: () => void;
 };
 
-export function ChatScreen({ onBack }: ChatScreenProps) {
+export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
+  const contactId = contact.id;
   const [inputText, setInputText] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [activeGenerationContactId, setActiveGenerationContactId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isDateSheetOpen, setIsDateSheetOpen] = useState(false);
@@ -91,7 +97,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [allLocalMessages, setAllLocalMessages] = useState<ChatMessage[]>([]);
   const [dayMessages, setDayMessages] = useState<ChatMessage[]>([]);
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
-  const [autoCopyAfterRewrite, setAutoCopyAfterRewrite] = useState(true);
+  const [autoCopyAfterGeneration, setAutoCopyAfterGeneration] = useState(true);
   const [autoCopyMode, setAutoCopyMode] = useState<AutoCopyMode>("en");
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
@@ -123,8 +129,9 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   }, []);
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
-    return inputText.trim().length > 0 && !isSending && !isTodaySyncing && hasQuota;
-  }, [inputText, isSending, isTodaySyncing, remainingChars]);
+    return inputText.trim().length > 0 && !activeGenerationContactId && !isTodaySyncing && hasQuota;
+  }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars]);
+  const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
 
   // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示。
   useEffect(() => {
@@ -167,7 +174,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     async function bootstrapPreferences() {
       const preferences = await loadAssistantPreferences();
       if (!cancelled) {
-        setAutoCopyAfterRewrite(preferences.autoCopyAfterRewrite);
+        setAutoCopyAfterGeneration(preferences.autoCopyAfterGeneration);
         setAutoCopyMode(preferences.autoCopyMode);
       }
     }
@@ -204,7 +211,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   useEffect(() => {
     let cancelled = false;
     async function bootstrapLocal() {
-      const rows = await ensureRewriteMessagesLoaded();
+      const rows = await ensureChatMessagesLoaded(contactId);
       if (cancelled) return;
       setAllLocalMessages(rows);
       allLocalMessagesRef.current = rows;
@@ -230,11 +237,11 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedDate]);
+  }, [contactId, selectedDate]);
 
   // 生成会话订阅：接收流式改写状态和消息列表更新。
   useEffect(() => {
-    return subscribeRewriteSession((snapshot) => {
+    return subscribeChatSession(contactId, (snapshot) => {
       setIsSending(snapshot.isSending);
       if (snapshot.conversationId) setConversationId(snapshot.conversationId);
 
@@ -247,7 +254,13 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
       setDayMessages(byDay);
       setMessages(byDay);
     });
-  }, [selectedDate]);
+  }, [contactId, selectedDate]);
+
+  useEffect(() => {
+    return subscribeChatGenerationActivity((snapshot) => {
+      setActiveGenerationContactId(snapshot.activeContactId);
+    });
+  }, []);
 
   // 键盘监听：键盘弹出/收起时调整底部间距并滚动到底部。
   useEffect(() => {
@@ -333,7 +346,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         return;
       }
       const expanded = expandSelectionToTokenRange(
-        getRewriteEnglish(message.text),
+        getAssistantClozeText(message, contact).text,
         payload.start,
         payload.end,
         message.clozeState,
@@ -349,7 +362,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         draftBlankIndexes: [],
       });
     },
-    [],
+    [contact],
   );
 
   const handleEditClozeGroup = React.useCallback((message: ChatMessage, groupIndex: number) => {
@@ -467,7 +480,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     setAllLocalMessages(nextAll);
     setDayMessages(nextDay);
     setMessages(nextDay);
-    await replaceRewriteMessages(nextAll);
+    await replaceChatMessages(contactId, nextAll);
   }
 
   function notifyCopySuccess(message: string): void {
@@ -481,9 +494,9 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   }
 
   async function handleSetAutoCopyMode(mode: AutoCopyMode): Promise<void> {
-    setAutoCopyAfterRewrite(true);
+    setAutoCopyAfterGeneration(true);
     setAutoCopyMode(mode);
-    await saveAssistantPreferences({ autoCopyAfterRewrite: true, autoCopyMode: mode });
+    await saveAssistantPreferences({ autoCopyAfterGeneration: true, autoCopyMode: mode });
   }
 
   function handleOpenMenu(): void {
@@ -512,7 +525,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
   async function handleSend(): Promise<void> {
     const text = inputText.trim();
-    if (!text || isSending) return;
+    if (!text || activeGenerationContactId) return;
     if (isTodaySyncingRef.current) {
       showNotice({
         message: "正在同步消息，请稍后发送",
@@ -544,22 +557,23 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     Keyboard.dismiss();
     setIsSending(true);
 
-    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalRewritePair(text, now);
+    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalChatPair(text, now);
     const localNextRaw = [...(isViewingToday ? dayMessages : toDisplayRows(filterByDate(allLocalMessagesRef.current, now))), userLocal, assistantLocal];
     const localNext = toDisplayRows(localNextRaw);
     setDayMessages(localNext);
     setMessages(localNext);
-    const allNext = await appendRewriteMessages([userLocal, assistantLocal]);
+    const allNext = await appendChatMessages(contactId, [userLocal, assistantLocal]);
     setAllLocalMessages(allNext);
     allLocalMessagesRef.current = allNext;
 
-    startRewriteSession({
+    startChatSession({
+      contactId,
       text,
       userLocalId: userLocal.localId,
       assistantLocalId: assistantLocal.localId,
       retryCount: 0,
       conversationId,
-      autoCopyAfterRewrite,
+      autoCopyAfterGeneration,
       autoCopyMode,
       onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
     });
@@ -573,7 +587,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
   async function handleRetryMessage(message: ChatMessage): Promise<void> {
     const text = message.retryText?.trim();
-    if (!text || isSending || (message.retryCount ?? 0) >= 1) return;
+    if (!text || activeGenerationContactId || (message.retryCount ?? 0) >= 1) return;
     if (remainingChars !== null && remainingChars <= 0) {
       Alert.alert("You've reached your daily quota.");
       return;
@@ -583,22 +597,23 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     setIsSending(true);
     const now = new Date();
     const retryCount = (message.retryCount ?? 0) + 1;
-    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalRewritePair(text, now);
+    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalChatPair(text, now);
     const localNext = [...dayMessages, userLocal, assistantLocal];
     setDayMessages(localNext);
     setMessages(toDisplayRows(localNext));
-    const allNext = await appendRewriteMessages([userLocal, assistantLocal]);
+    const allNext = await appendChatMessages(contactId, [userLocal, assistantLocal]);
     setAllLocalMessages(allNext);
     allLocalMessagesRef.current = allNext;
 
-    startRewriteSession({
+    startChatSession({
+      contactId,
       text,
       userLocalId: userLocal.localId,
       assistantLocalId: assistantLocal.localId,
       retryCount,
       systemPrompt: message.retrySystemPrompt,
       conversationId,
-      autoCopyAfterRewrite,
+      autoCopyAfterGeneration,
       autoCopyMode,
       onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
     });
@@ -611,7 +626,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   }
 
   function handleStopGenerating(): void {
-    stopRewriteSession();
+    stopChatSession(contactId);
   }
 
   function handleComposerFocus(): void {
@@ -645,7 +660,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
     try {
       const keys = await listConversationDateKeysFromCloud({
-        contactId: "rewrite_assistant",
+        contactId,
         fromDateKey,
         toDateKey: monthEndDateKey,
         signal: controller.signal,
@@ -673,7 +688,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   async function resolveConversationIdForDate(dateKey: string, signal?: AbortSignal): Promise<string | null> {
     const resolved = await findConversationIdByDateFromCloud({
       dateKey,
-      contactId: "rewrite_assistant",
+      contactId,
       signal,
     });
     const todayKey = toDateKey(new Date());
@@ -779,7 +794,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
     );
     setAllLocalMessages(replaced);
     allLocalMessagesRef.current = replaced;
-    await replaceRewriteMessages(replaced);
+    await replaceChatMessages(contactId, replaced);
     lastCloudSyncAtByDateRef.current[dayKey] = Date.now();
     if (selectedDateKeyRef.current === dayKey) {
       setDayMessages(nextVisibleDay);
@@ -879,6 +894,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         />
 
         <MessageList
+          contact={contact}
           messages={messages}
           selectedDateLabel={selectedDateLabelText(selectedDate)}
           listRef={messageListRef}
@@ -897,6 +913,15 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           onStop={handleStopGenerating}
           onFocus={handleComposerFocus}
           onDisabledPress={() => {
+            if (isAnotherContactGenerating) {
+              showNotice({
+                message: "另一个好友正在回复，请稍后再发",
+                type: "info",
+                position: "top-right",
+                durationMs: 1500,
+              });
+              return;
+            }
             if (isTodaySyncing) {
               showNotice({
                 message: "正在同步消息，请稍后发送",
@@ -930,6 +955,7 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           onSelectDate={handleSelectDate}
       />
       <ClozeControls
+        contact={contact}
         editor={clozeEditor}
         deleteTarget={clozeDelete}
         onCloseEditor={() => setClozeEditor(null)}

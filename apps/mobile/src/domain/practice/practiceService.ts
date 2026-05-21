@@ -1,13 +1,15 @@
 import type { ChatMessage, ClozeState } from "../chat/types";
+import { DEFAULT_CHAT_CONTACT, type ChatContact } from "../chat/contacts";
 import { toDateKey } from "../chat/messageState";
 import { normalizeClozeState, tokenizeForCloze } from "../cloze/clozeUtils";
-import { parseTaggedRewrite } from "../rewrite/taggedRewrite";
+import { getAssistantClozeText } from "../cloze/clozeText";
 
 export type PracticeAccuracyBand = "low" | "mid" | "high" | "any";
 
 export type PracticeCard = {
   id: string;
   messageId: string;
+  contactId: string;
   message: ChatMessage;
   dateKey: string;
   text: string;
@@ -30,19 +32,21 @@ export type PracticeDayStats = {
 // 索引也必须对应英文正文；<zh></zh> 仅作为卡片下方的中文对照。
 export function buildPracticeCards(
   messages: ChatMessage[],
-  options?: { includeCompleted?: boolean },
+  options?: { includeCompleted?: boolean; contact?: ChatContact; contactByMessageId?: Map<string, ChatContact> },
 ): PracticeCard[] {
   const cards: PracticeCard[] = [];
   for (let i = 0; i < messages.length; i += 1) {
     const message = messages[i];
     if (message.role !== "assistant" || message.status !== "success") continue;
+    const messageKey = message.id ?? message.localId;
+    const contact = options?.contactByMessageId?.get(messageKey) ?? options?.contact ?? DEFAULT_CHAT_CONTACT;
     if (message.clozePracticeDiscardedAt) continue;
     const state = normalizeClozeState(message.clozeState);
     if (!state) continue;
-    const tagged = parseTaggedRewrite(message.text);
-    const englishText = tagged.en;
+    const clozeText = getAssistantClozeText(message, contact);
+    const englishText = clozeText.text;
     if (!englishText) continue;
-    const translation = tagged.zh || findPreviousUserText(messages, i);
+    const translation = clozeText.translation || findPreviousUserText(messages, i);
     const dateKey = toDateKey(new Date(message.createdAt));
     const phraseTokenIndexes = new Set<number>();
     const blankTokenIndexes = new Set<number>();
@@ -63,8 +67,9 @@ export function buildPracticeCards(
     if (!blankTokenIndexes.size) continue;
     const correctTokenIndexes = state.correctTokenIndexes.filter((index) => sourceBlankIndexes.has(index));
     cards.push({
-      id: `${message.id ?? message.localId}:all`,
-      messageId: message.id ?? message.localId,
+      id: `${contact.id}:${messageKey}:all`,
+      messageId: messageKey,
+      contactId: contact.id,
       message,
       dateKey,
       text: englishText,
@@ -79,9 +84,12 @@ export function buildPracticeCards(
 }
 
 // 日历正确率需要包含已完成卡，否则某天全做完后会从日历上消失。
-export function summarizePracticeDays(messages: ChatMessage[]): Map<string, PracticeDayStats> {
+export function summarizePracticeDays(
+  messages: ChatMessage[],
+  options?: { contact?: ChatContact; contactByMessageId?: Map<string, ChatContact> },
+): Map<string, PracticeDayStats> {
   const map = new Map<string, PracticeDayStats>();
-  for (const card of buildPracticeCards(messages, { includeCompleted: true })) {
+  for (const card of buildPracticeCards(messages, { ...options, includeCompleted: true })) {
     const current = map.get(card.dateKey) ?? {
       dateKey: card.dateKey,
       total: 0,

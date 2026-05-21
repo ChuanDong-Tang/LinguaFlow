@@ -5,7 +5,7 @@ type AbortSignalLike = {
 };
 
 // 前端统一接收的事件类型
-export type RewriteStreamEvent =
+export type ChatGenerationStreamEvent =
   | { type: "start" }
   | { type: "delta"; text: string }
   | {
@@ -28,10 +28,11 @@ export type RewriteStreamEvent =
     }
   | { type: "error"; message: string; code?: string };
 
-//发起流式改写时需要的参数。
-export interface StartRewriteStreamInput {
+// 发起流式 AI 回复时需要的参数。
+export interface StartChatGenerationStreamInput {
   userId: string;
   text: string;
+  contactId?: string;
   systemPrompt?: string;
   conversationId?: string;
   userMessageId?: string;
@@ -40,8 +41,8 @@ export interface StartRewriteStreamInput {
 
 // 页面只依赖这个接口
 export interface StreamClient {
-  startRewriteStream(
-    input: StartRewriteStreamInput,
-    onEvent: (event: RewriteStreamEvent) => void
+  startChatGenerationStream(
+    input: StartChatGenerationStreamInput,
+    onEvent: (event: ChatGenerationStreamEvent) => void
   ): Promise<void>;
 }

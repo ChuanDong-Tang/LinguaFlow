@@ -5,9 +5,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { TabBar } from "./shared/TabBar";
 import { type DebugModelProvider, loadDebugSettings, saveDebugSettings } from "../services/preferences/debugSettingsStorage";
 import { useMountedGuard } from "../hooks/useMountedGuard";
+import { CHAT_CONTACTS, type ChatContact } from "../domain/chat/contacts";
 
 type MainScreenProps = {
-  onOpenChat: () => void;
+  onOpenChat: (contact: ChatContact) => void;
   onOpenPractice: () => void;
   onOpenMe: () => void;
 };
@@ -22,7 +23,8 @@ const MODEL_OPTIONS: Array<{ label: string; value: DebugModelProvider; disabled?
 export function MainScreen({ onOpenChat, onOpenPractice, onOpenMe }: MainScreenProps) {
   const { isMounted } = useMountedGuard();
   const [isDebugOpen, setIsDebugOpen] = useState(false);
-  const [systemPromptDraft, setSystemPromptDraft] = useState("");
+  const [rewriteAssistantPromptDraft, setRewriteAssistantPromptDraft] = useState("");
+  const [englishFriendPromptDraft, setEnglishFriendPromptDraft] = useState("");
   const [modelProvider, setModelProvider] = useState<DebugModelProvider>("deepseek");
 
   useEffect(() => {
@@ -30,7 +32,8 @@ export function MainScreen({ onOpenChat, onOpenPractice, onOpenMe }: MainScreenP
     async function bootstrapDebugSettings() {
       const settings = await loadDebugSettings();
       if (!isMounted()) return;
-      setSystemPromptDraft(settings.systemPrompt);
+      setRewriteAssistantPromptDraft(settings.systemPromptsByContactId.rewrite_assistant ?? "");
+      setEnglishFriendPromptDraft(settings.systemPromptsByContactId.english_friend ?? "");
       setModelProvider(settings.modelProvider);
     }
     void bootstrapDebugSettings();
@@ -40,7 +43,15 @@ export function MainScreen({ onOpenChat, onOpenPractice, onOpenMe }: MainScreenP
     const current = await loadDebugSettings();
 
     // 调试面板只覆盖当前编辑项，避免把未来新增的调试配置误清空。
-    await saveDebugSettings({ ...current, systemPrompt: systemPromptDraft, modelProvider });
+    await saveDebugSettings({
+      ...current,
+      systemPromptsByContactId: {
+        ...current.systemPromptsByContactId,
+        rewrite_assistant: rewriteAssistantPromptDraft,
+        english_friend: englishFriendPromptDraft,
+      },
+      modelProvider,
+    });
     setIsDebugOpen(false);
   }
 
@@ -56,21 +67,24 @@ export function MainScreen({ onOpenChat, onOpenPractice, onOpenMe }: MainScreenP
           ) : null}
         </View>
 
-        <Pressable style={styles.conversationRow} onPress={onOpenChat}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>OIO</Text>
-          </View>
-          <View style={styles.conversationBody}>
-            <Text style={styles.conversationTitle}>好奇输入助手</Text>
-            <Text style={styles.conversationSubtitle}>把中文想法，说成自然英文</Text>
-          </View>
-          <View style={styles.conversationMeta}>
-            <Text style={styles.time}>09:41</Text>
-            <Ionicons name="chevron-forward" size={20} color="#8C8F97" />
-          </View>
-        </Pressable>
-
-        <View style={styles.divider} />
+        {CHAT_CONTACTS.map((contact, index) => (
+          <React.Fragment key={contact.id}>
+            <Pressable style={styles.conversationRow} onPress={() => onOpenChat(contact)}>
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarText}>{contact.avatarLabel}</Text>
+              </View>
+              <View style={styles.conversationBody}>
+                <Text style={styles.conversationTitle}>{contact.name}</Text>
+                <Text style={styles.conversationSubtitle}>{contact.description}</Text>
+              </View>
+              <View style={styles.conversationMeta}>
+                <Text style={styles.time}>09:41</Text>
+                <Ionicons name="chevron-forward" size={20} color="#8C8F97" />
+              </View>
+            </Pressable>
+            {index < CHAT_CONTACTS.length - 1 ? <View style={styles.divider} /> : null}
+          </React.Fragment>
+        ))}
 
         <View style={styles.emptyArea}>
           <Ionicons name="chatbubble-ellipses-outline" size={60} color="#222222" />
@@ -78,17 +92,30 @@ export function MainScreen({ onOpenChat, onOpenPractice, onOpenMe }: MainScreenP
         </View>
       </View>
 
-      <TabBar activeTab="chat" onPressChat={onOpenChat} onPressPractice={onOpenPractice} onPressMe={onOpenMe} />
+      <TabBar activeTab="chat" onPressChat={() => onOpenChat(CHAT_CONTACTS[0])} onPressPractice={onOpenPractice} onPressMe={onOpenMe} />
 
       {SHOW_DEBUG_PROMPT_PANEL ? (
         <Modal visible={isDebugOpen} transparent animationType="fade" onRequestClose={() => setIsDebugOpen(false)}>
           <View style={styles.modalBackdrop}>
             <View style={styles.debugPanel}>
               <Text style={styles.debugTitle}>调试设置</Text>
+              <Text style={styles.fieldLabel}>改写助手 Prompt</Text>
               <TextInput
                 style={styles.promptInput}
-                value={systemPromptDraft}
-                onChangeText={setSystemPromptDraft}
+                value={rewriteAssistantPromptDraft}
+                onChangeText={setRewriteAssistantPromptDraft}
+                placeholder="留空则使用服务端默认改写助手 prompt"
+                placeholderTextColor="#A5ABB5"
+                multiline
+                textAlignVertical="top"
+              />
+              <Text style={styles.fieldLabel}>好奇宝宝 Prompt</Text>
+              <TextInput
+                style={styles.promptInput}
+                value={englishFriendPromptDraft}
+                onChangeText={setEnglishFriendPromptDraft}
+                placeholder="留空则使用服务端默认好奇宝宝 prompt"
+                placeholderTextColor="#A5ABB5"
                 multiline
                 textAlignVertical="top"
               />
@@ -149,7 +176,7 @@ const styles = StyleSheet.create({
   },
 
   conversationRow: {
-    marginTop: 44,
+    marginTop: 30,
     minHeight: 74,
     flexDirection: "row",
     alignItems: "center",
@@ -223,13 +250,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   debugTitle: {
-    marginBottom: 10,
     color: "#111111",
     fontSize: 20,
     fontWeight: "700",
   },
+  fieldLabel: {
+    marginTop: 14,
+    marginBottom: 8,
+    color: "#343A45",
+    fontSize: 13,
+    fontWeight: "700",
+  },
   promptInput: {
-    minHeight: 160,
+    minHeight: 120,
+    maxHeight: 190,
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderRadius: 12,
