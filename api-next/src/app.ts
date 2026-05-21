@@ -12,6 +12,7 @@ import { registerChatRoutes } from "./chat/routes.js";
 import { PrismaConversationRepository } from "@lf/server-next/infrastructure/repository/PrismaConversationRepository.js";
 import { PrismaMessageRepository } from "@lf/server-next/infrastructure/repository/PrismaMessageRepository.js";
 import { ChatMessageService } from "@lf/server-next/services/chat/ChatMessageService.js";
+import { seedSystemContacts } from "@lf/server-next/services/chat/SystemContactSeeder.js";
 import { getRedisClient } from "@lf/server-next/infrastructure/redis/redisClient.js";
 import {
   InMemoryChatGenerationTaskGuard,
@@ -51,6 +52,9 @@ const prisma = new PrismaClient();
 
 export function createApp() {
   const app = Fastify({ logger: true });
+  app.addHook("onReady", async () => {
+    await seedSystemContacts(prisma);
+  });
   const corsAllowOrigins = resolveCorsAllowOrigins();
   app.addHook("onRequest", async (req, reply) => {
     const requestOrigin = firstHeaderValue(req.headers.origin);
