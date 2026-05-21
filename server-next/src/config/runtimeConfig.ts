@@ -213,10 +213,7 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv): PaymentRuntimeConfig 
       intervalMs: readPositiveInt(env.WECHAT_AUTORENEW_INTERVAL_MS, 300_000),
       batchSize: readPositiveInt(env.WECHAT_AUTORENEW_BATCH_SIZE, 20),
       chargeDescription: env.WECHAT_AUTORENEW_CHARGE_DESC?.trim() || "OIO Pro 自动续费",
-      billingLeadMs: readPositiveInt(
-        env.WECHAT_AUTORENEW_BILLING_LEAD_MS ?? env.WECHAT_AUTORENEW_SCHEDULE_LEAD_MS,
-        172_800_000
-      ),
+      billingLeadMs: readPositiveInt(env.WECHAT_AUTORENEW_BILLING_LEAD_MS, 172_800_000),
       reconcileGraceMs: readPositiveInt(env.WECHAT_AUTORENEW_RECONCILE_GRACE_MS, 600_000),
     },
     appleIap: {
