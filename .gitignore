@@ -24,3 +24,5 @@ scripts/
 /start_api.bat
 /build_mobile_apk.bat
 /build_mobile_debug_apk.bat
+
+.tmp/

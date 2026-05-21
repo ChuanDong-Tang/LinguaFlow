@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@lf/core/*.js": ["../packages/core/src/*.ts"],
+      "@lf/core/*": ["../packages/core/src/*"],
+      "@lf/server/*.js": ["../server/src/*.ts"],
+      "@lf/server/*": ["../server/src/*"]
+    },
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "serverless-source.ts"]
+}
