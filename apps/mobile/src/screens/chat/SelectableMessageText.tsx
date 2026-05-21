@@ -1,13 +1,10 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from "react-native";
+import { StyleSheet, Text, View, type StyleProp, type TextStyle } from "react-native";
 
 export type NativeTextSelectionPayload = {
   start: number;
   end: number;
   selectedText: string;
-  endX: number;
-  endY: number;
-  isBackward?: boolean;
 };
 
 export type NativeClozeHighlightRange = {
@@ -23,7 +20,6 @@ export type NativeClozeBlankRange = {
 
 export type SelectableMessageTextRef = {
   clearSelection: () => void;
-  startSelection: () => void;
 };
 
 type Props = {
@@ -66,6 +62,7 @@ type SelectionDraft = {
   segmentIndex: number;
   startWordIndex: number;
   endWordIndex: number;
+  isComplete: boolean;
 };
 
 const WORD_RE = /[\p{L}\p{N}'’-]+/gu;
@@ -254,28 +251,19 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     onClozeRangePress,
     onClozeRangeLongPress,
   }, ref) {
-    const [isSelecting, setIsSelecting] = React.useState(false);
     const [selection, setSelection] = React.useState<SelectionDraft | null>(null);
     const parts = React.useMemo(() => buildTextParts(text, highlightRanges), [highlightRanges, text]);
     const blanks = React.useMemo(() => normalizeBlankRanges(text, blankRanges), [blankRanges, text]);
 
-    const startSelection = React.useCallback(() => {
-      setIsSelecting((current) => {
-        if (current) return current;
-        setSelection(null);
-        return true;
-      });
-    }, []);
-
     const clearSelection = React.useCallback(() => {
-      setIsSelecting(false);
       setSelection(null);
     }, []);
 
-    React.useImperativeHandle(ref, () => ({ clearSelection, startSelection }), [clearSelection, startSelection]);
+    React.useImperativeHandle(ref, () => ({ clearSelection }), [clearSelection]);
 
     const selectedRange = React.useMemo(() => {
       if (!selection) return null;
+      if (!selection.isComplete) return null;
       const part = parts.find((item) => item.kind === "selectable" && item.segmentIndex === selection.segmentIndex);
       if (!part || part.kind !== "selectable") return null;
       const [firstWord, lastWord] = getSelectedWordBounds(selection);
@@ -292,32 +280,33 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const handleWordPress = React.useCallback((token: SelectableToken) => {
       if (token.kind !== "word" || token.wordIndex === null) return;
       const wordIndex = token.wordIndex;
-      setIsSelecting(true);
       setSelection((current) => {
         if (!current || current.segmentIndex !== token.segmentIndex) {
           return {
             segmentIndex: token.segmentIndex,
             startWordIndex: wordIndex,
             endWordIndex: wordIndex,
+            isComplete: false,
           };
         }
         return {
           ...current,
           endWordIndex: wordIndex,
+          isComplete: true,
         };
       });
     }, []);
 
-    const handleAddCloze = React.useCallback(() => {
+    React.useEffect(() => {
       if (!selectedRange) return;
-      onSelectionChange?.({
-        start: selectedRange.start,
-        end: selectedRange.end,
-        selectedText: text.slice(selectedRange.start, selectedRange.end),
-        endX: 0,
-        endY: 0,
-        isBackward: false,
-      });
+      const timer = setTimeout(() => {
+        onSelectionChange?.({
+          start: selectedRange.start,
+          end: selectedRange.end,
+          selectedText: text.slice(selectedRange.start, selectedRange.end),
+        });
+      }, 0);
+      return () => clearTimeout(timer);
     }, [onSelectionChange, selectedRange, text]);
 
     const renderSelectableToken = (token: SelectableToken, index: number) => {
@@ -339,7 +328,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           key={`${token.start}:${index}`}
           suppressHighlighting
           style={active ? styles.selectedWordText : undefined}
-          onPress={() => (isSelecting ? handleWordPress(token) : undefined)}
+          onPress={() => handleWordPress(token)}
         >
           {token.text}
         </Text>
@@ -348,8 +337,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
 
     return (
       <View>
-        {isSelecting ? <Text style={styles.selectionHint}>{selection ? "再点击短语结尾" : "点选短语的开始和结束"}</Text> : null}
-        <Text style={style} onLongPress={startSelection}>
+        <Text style={style}>
           {parts.map((part, index) => {
             if (part.kind === "blocked") {
               return (
@@ -372,32 +360,12 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
             );
           })}
         </Text>
-        {isSelecting ? (
-          <View style={styles.selectionActions}>
-            <Pressable style={styles.cancelButton} onPress={clearSelection}>
-              <Text style={styles.cancelButtonText}>取消</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.addButton, !selectedRange && styles.addButtonDisabled]}
-              disabled={!selectedRange}
-              onPress={handleAddCloze}
-            >
-              <Text style={[styles.addButtonText, !selectedRange && styles.addButtonTextDisabled]}>添加填空</Text>
-            </Pressable>
-          </View>
-        ) : null}
       </View>
     );
   },
 );
 
 const styles = StyleSheet.create({
-  selectionHint: {
-    marginBottom: 8,
-    color: "#6B7280",
-    fontSize: 13,
-    lineHeight: 18,
-  },
   blockedRangeText: {
     backgroundColor: "#FFF0B8",
     color: "#3D3420",
@@ -408,45 +376,5 @@ const styles = StyleSheet.create({
   },
   blankText: {
     letterSpacing: 0,
-  },
-  selectionActions: {
-    marginTop: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  cancelButton: {
-    minHeight: 36,
-    minWidth: 84,
-    borderRadius: 18,
-    backgroundColor: "#F1F3F7",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  cancelButtonText: {
-    color: "#515866",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  addButton: {
-    minHeight: 36,
-    minWidth: 104,
-    borderRadius: 18,
-    backgroundColor: "#111111",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  addButtonDisabled: {
-    backgroundColor: "#E4E7EE",
-  },
-  addButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  addButtonTextDisabled: {
-    color: "#9CA2B3",
   },
 });

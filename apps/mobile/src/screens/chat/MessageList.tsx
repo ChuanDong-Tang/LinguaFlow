@@ -96,15 +96,6 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
           <Text style={styles.assistantLogo}>OIO</Text>
         </View>
         <View style={styles.assistantCard}>
-          <Pressable
-            style={styles.clozeModeButton}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="进入填空选择"
-            onPress={() => selectableRef.current?.startSelection()}
-          >
-            <Ionicons name="add-circle-outline" size={21} color="#5A5497" />
-          </Pressable>
           <SelectableMessageText
             ref={selectableRef}
             text={displayText}
@@ -301,20 +292,7 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     marginLeft: 14,
   },
-  clozeModeButton: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F5F3FF",
-    zIndex: 1,
-  },
   assistantCardText: {
-    paddingRight: 30,
     color: "#111111",
     fontSize: 17,
     lineHeight: 25,

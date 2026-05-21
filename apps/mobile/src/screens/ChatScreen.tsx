@@ -7,7 +7,6 @@ import {
   StyleSheet,
   ToastAndroid,
   View,
-  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession } from "../services/auth/authStorage";
@@ -49,7 +48,6 @@ import {
   ClozeControls,
   type ClozeDeleteState,
   type ClozeEditorState,
-  type ClozeFabState,
 } from "./chat/ClozeControls";
 import type { ChatMessage } from "../domain/chat/types";
 import type { NativeTextSelectionPayload } from "./chat/SelectableMessageText";
@@ -82,7 +80,6 @@ type ChatScreenProps = {
 };
 
 export function ChatScreen({ onBack }: ChatScreenProps) {
-  const window = useWindowDimensions();
   const { showNotice } = useFloatingNotice();
   const [inputText, setInputText] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -99,7 +96,6 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
-  const [clozeFab, setClozeFab] = useState<ClozeFabState | null>(null);
   const [clozeEditor, setClozeEditor] = useState<ClozeEditorState | null>(null);
   const [clozeDelete, setClozeDelete] = useState<ClozeDeleteState | null>(null);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
@@ -113,7 +109,6 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
   const latestSyncReqByDateRef = useRef<Record<string, number>>({});
   const lastCloudSyncAtByDateRef = useRef<Record<string, number>>({});
   const loadedCloudMonthKeysRef = useRef<Set<string>>(new Set());
-  const clozeSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
   const isProEntitledRef = useRef(false);
   const todaySyncCountRef = useRef(0);
@@ -330,16 +325,11 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
 
   const handleScrollBeginDrag = React.useCallback(() => {
     Keyboard.dismiss();
-    setClozeFab(null);
   }, []);
 
   const handleTextSelection = React.useCallback(
     (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
-      if (clozeSelectionTimerRef.current) {
-        clearTimeout(clozeSelectionTimerRef.current);
-      }
       if (payload.start === payload.end) {
-        setClozeFab(null);
         return;
       }
       const expanded = expandSelectionToTokenRange(
@@ -347,47 +337,20 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
         payload.start,
         payload.end,
         message.clozeState,
-        payload.isBackward === true,
       );
       if (!expanded) {
-        setClozeFab(null);
         return;
       }
-      if (payload.endX === 0 && payload.endY === 0) {
-        clearSelection();
-        setClozeFab(null);
-        setClozeEditor({
-          message,
-          groupIndex: null,
-          tokenIndexes: expanded.tokenIndexes,
-          draftBlankIndexes: [],
-        });
-        return;
-      }
-      clozeSelectionTimerRef.current = setTimeout(() => {
-        setClozeFab({
-          message,
-          tokenIndexes: expanded.tokenIndexes,
-          x: payload.endX,
-          y: payload.endY,
-          clearSelection,
-        });
-      }, 180);
+      clearSelection();
+      setClozeEditor({
+        message,
+        groupIndex: null,
+        tokenIndexes: expanded.tokenIndexes,
+        draftBlankIndexes: [],
+      });
     },
     [],
   );
-
-  function openNewClozeEditor(): void {
-    if (!clozeFab) return;
-    clozeFab.clearSelection();
-    setClozeEditor({
-      message: clozeFab.message,
-      groupIndex: null,
-      tokenIndexes: clozeFab.tokenIndexes,
-      draftBlankIndexes: [], // 默认没有空
-    });
-    setClozeFab(null);
-  }
 
   const handleEditClozeGroup = React.useCallback((message: ChatMessage, groupIndex: number) => {
     const group = normalizeClozeState(message.clozeState)?.groups[groupIndex];
@@ -967,13 +930,8 @@ export function ChatScreen({ onBack }: ChatScreenProps) {
           onSelectDate={handleSelectDate}
       />
       <ClozeControls
-        fab={clozeFab}
         editor={clozeEditor}
         deleteTarget={clozeDelete}
-        screenWidth={window.width}
-        screenHeight={window.height}
-        onCloseFab={() => setClozeFab(null)}
-        onOpenNewEditor={openNewClozeEditor}
         onCloseEditor={() => setClozeEditor(null)}
         onToggleDraftToken={toggleDraftToken}
         onConfirmEditor={() => void confirmClozeEditor()}

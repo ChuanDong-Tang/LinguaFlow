@@ -4,14 +4,6 @@ import type { ChatMessage } from "../../domain/chat/types";
 import { tokenizeForCloze } from "../../domain/cloze/clozeUtils";
 import { getRewriteEnglish } from "../../domain/rewrite/taggedRewrite";
 
-export type ClozeFabState = {
-  message: ChatMessage;
-  tokenIndexes: number[];
-  x: number;
-  y: number;
-  clearSelection: () => void;
-};
-
 export type ClozeEditorState = {
   message: ChatMessage;
   groupIndex: number | null;
@@ -25,13 +17,8 @@ export type ClozeDeleteState = {
 };
 
 type ClozeControlsProps = {
-  fab: ClozeFabState | null;
   editor: ClozeEditorState | null;
   deleteTarget: ClozeDeleteState | null;
-  screenWidth: number;
-  screenHeight: number;
-  onCloseFab: () => void;
-  onOpenNewEditor: () => void;
   onCloseEditor: () => void;
   onToggleDraftToken: (tokenIndex: number) => void;
   onConfirmEditor: () => void;
@@ -40,42 +27,20 @@ type ClozeControlsProps = {
 };
 
 export function ClozeControls({
-  fab,
   editor,
   deleteTarget,
-  screenWidth,
-  screenHeight,
-  onCloseFab,
-  onOpenNewEditor,
   onCloseEditor,
   onToggleDraftToken,
   onConfirmEditor,
   onCloseDelete,
   onConfirmDelete,
 }: ClozeControlsProps) {
-  const fabPosition = fab
-    ? {
-        left: Math.max(12, Math.min(screenWidth - 156, fab.x - 72)),
-        top: Math.max(12, Math.min(screenHeight - 64, fab.y + 8)),
-      }
-    : null;
-
   const editorTokens = editor
     ? tokenizeForCloze(getRewriteEnglish(editor.message.text)).filter((token) => editor.tokenIndexes.includes(token.index))
     : [];
 
   return (
     <>
-      <Modal visible={!!fab} transparent animationType="fade" onRequestClose={onCloseFab}>
-        <Pressable style={styles.selectionOverlay} onPress={onCloseFab}>
-          {fabPosition ? (
-            <Pressable style={[styles.addClozeButton, fabPosition]} onPress={onOpenNewEditor}>
-              <Text style={styles.addClozeText}>新增填空</Text>
-            </Pressable>
-          ) : null}
-        </Pressable>
-      </Modal>
-
       <Modal visible={!!editor} transparent animationType="fade" onRequestClose={onCloseEditor}>
         <View style={styles.editorScrim}>
           <View style={styles.editorCard}>
@@ -125,25 +90,6 @@ export function ClozeControls({
 const styles = StyleSheet.create({
   selectionOverlay: {
     flex: 1,
-  },
-  addClozeButton: {
-    position: "absolute",
-    minHeight: 38,
-    paddingHorizontal: 16,
-    borderRadius: 19,
-    backgroundColor: "#169BFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000000",
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  addClozeText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "800",
   },
   deleteClozeDock: {
     position: "absolute",
