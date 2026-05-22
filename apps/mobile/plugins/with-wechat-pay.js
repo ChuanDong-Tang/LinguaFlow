@@ -53,13 +53,20 @@ module.exports = function withWechatPay(config) {
 };
 
 function withWechatAndroidNativeLink(config) {
+  const androidPackage = config.android?.package;
+  if (!androidPackage) {
+    throw new Error("with-wechat-pay requires expo.android.package to locate MainApplication.kt");
+  }
+
   return withDangerousMod(config, [
     "android",
     (androidConfig) => {
       const androidRoot = androidConfig.modRequest.platformProjectRoot;
       patchSettingsGradle(path.join(androidRoot, "settings.gradle"));
       patchAppBuildGradle(path.join(androidRoot, "app", "build.gradle"));
-      patchMainApplication(path.join(androidRoot, "app", "src", "main", "java", "com", "oio", "linguaflow", "MainApplication.kt"));
+      patchMainApplication(
+        path.join(androidRoot, "app", "src", "main", "java", ...androidPackage.split("."), "MainApplication.kt")
+      );
       return androidConfig;
     },
   ]);
