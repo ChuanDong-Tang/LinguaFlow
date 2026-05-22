@@ -9,7 +9,7 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/app/Splash_1.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -20,14 +20,14 @@
     "android": {
       "package": "com.yueyantech.oio",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/app/logo.png",
+        "foregroundImage": "./assets/app/logo_128.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/app/logo.png"
+      "favicon": "./assets/app/logo_128.png"
     },
     "extra": {
       "wechatAppId": "${EXPO_PUBLIC_WECHAT_APP_ID}",

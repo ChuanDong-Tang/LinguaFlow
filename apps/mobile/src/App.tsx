@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { Animated, Image, StyleSheet, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
-import { SplashGateScreen } from "./screens/SplashGateScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { initI18n } from "./i18n";
 import { clearSession, getSession, markForceAuthingLogin } from "./services/auth/authStorage";
@@ -30,7 +29,6 @@ const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("login");
-  const [showSplashOverlay, setShowSplashOverlay] = useState(true);
   const [selectedTab, setSelectedTab] = useState<"main" | "practice" | "me">("main");
   const [visitedTabs, setVisitedTabs] = useState<Record<"main" | "practice" | "me", boolean>>({
     main: true,
@@ -59,14 +57,12 @@ export default function App() {
         if (remain > 0) await sleep(remain);
         if (!mounted) return;
         setScreen(session ? "main" : "login");
-        setShowSplashOverlay(false);
       } catch {
         const elapsed = Date.now() - startAt;
         const remain = MIN_SPLASH_MS - elapsed;
         if (remain > 0) await sleep(remain);
         if (!mounted) return;
         setScreen("login");
-        setShowSplashOverlay(false);
       }
     }
     void bootstrap();
@@ -182,43 +178,10 @@ export default function App() {
                 />
               </View>
             ) : null}
-            <SplashOverlay visible={showSplashOverlay} />
           </View>
         </FloatingNoticeProvider>
       </KeyboardProvider>
     </SafeAreaProvider>
-  );
-}
-
-function SplashOverlay({ visible }: { visible: boolean }) {
-  const opacity = React.useRef(new Animated.Value(1)).current;
-  const [mounted, setMounted] = useState(true);
-
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-      opacity.setValue(1);
-      return;
-    }
-
-    // 启动页是覆盖层：底下目标页面先正常挂载，Splash 只负责淡出离场。
-    // 这样不再发生 splash 页面和 login/main 页面直接替换造成的首帧位移感。
-    const animation = Animated.timing(opacity, {
-      toValue: 0,
-      duration: 180,
-      useNativeDriver: true,
-    });
-    animation.start(({ finished }) => {
-      if (finished) setMounted(false);
-    });
-    return () => animation.stop();
-  }, [opacity, visible]);
-
-  if (!mounted) return null;
-  return (
-    <Animated.View pointerEvents={visible ? "auto" : "none"} style={[styles.splashOverlay, { opacity }]}>
-      <SplashGateScreen />
-    </Animated.View>
   );
 }
 
@@ -296,7 +259,6 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   appStack: { flex: 1 },
   overlayScreen: { ...StyleSheet.absoluteFillObject },
-  splashOverlay: { ...StyleSheet.absoluteFillObject },
   fadingScreen: { flex: 1, backgroundColor: "#FCFCFD" },
   tabHost: { flex: 1, paddingBottom: 86 },
   tabPage: { ...StyleSheet.absoluteFillObject },
