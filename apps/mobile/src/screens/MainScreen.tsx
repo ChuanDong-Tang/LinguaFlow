@@ -2,15 +2,12 @@ import React, { useEffect, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { TabBar } from "./shared/TabBar";
 import { type DebugModelProvider, loadDebugSettings, saveDebugSettings } from "../services/preferences/debugSettingsStorage";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import { CHAT_CONTACTS, type ChatContact } from "../domain/chat/contacts";
 
 type MainScreenProps = {
   onOpenChat: (contact: ChatContact) => void;
-  onOpenPractice: () => void;
-  onOpenMe: () => void;
 };
 
 const SHOW_DEBUG_PROMPT_PANEL = process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
@@ -20,7 +17,7 @@ const MODEL_OPTIONS: Array<{ label: string; value: DebugModelProvider; disabled?
   { label: "讯飞", value: "xunfei", disabled: true },
 ];
 
-export function MainScreen({ onOpenChat, onOpenPractice, onOpenMe }: MainScreenProps) {
+export function MainScreen({ onOpenChat }: MainScreenProps) {
   const { isMounted } = useMountedGuard();
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [rewriteAssistantPromptDraft, setRewriteAssistantPromptDraft] = useState("");
@@ -91,8 +88,6 @@ export function MainScreen({ onOpenChat, onOpenPractice, onOpenMe }: MainScreenP
           <Text style={styles.emptyText}>想到什么，就从一句话开始</Text>
         </View>
       </View>
-
-      <TabBar activeTab="chat" onPressChat={() => onOpenChat(CHAT_CONTACTS[0])} onPressPractice={onOpenPractice} onPressMe={onOpenMe} />
 
       {SHOW_DEBUG_PROMPT_PANEL ? (
         <Modal visible={isDebugOpen} transparent animationType="fade" onRequestClose={() => setIsDebugOpen(false)}>

@@ -3,22 +3,22 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 type TabBarProps = {
-  activeTab: "chat" | "practice" | "me";
-  onPressChat: () => void;
+  activeTab: "main" | "practice" | "me";
+  onPressMain: () => void;
   onPressPractice: () => void;
   onPressMe: () => void;
 };
 
-export function TabBar({ activeTab, onPressChat, onPressPractice, onPressMe }: TabBarProps) {
+export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: TabBarProps) {
   return (
     <View style={styles.bar}>
-      <Pressable style={styles.tab} onPress={activeTab === "chat" ? undefined : onPressChat}>
+      <Pressable style={styles.tab} onPress={activeTab === "main" ? undefined : onPressMain}>
         <Ionicons
           name="chatbubble-ellipses-outline"
           size={26}
-          color={activeTab === "chat" ? "#111111" : "#8D919B"}
+          color={activeTab === "main" ? "#111111" : "#8D919B"}
         />
-        <Text style={[styles.label, activeTab === "chat" && styles.labelActive]}>对话</Text>
+        <Text style={[styles.label, activeTab === "main" && styles.labelActive]}>对话</Text>
       </Pressable>
 
       <Pressable style={styles.tab} onPress={activeTab === "practice" ? undefined : onPressPractice}>

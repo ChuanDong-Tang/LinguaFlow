@@ -15,6 +15,7 @@ import { PracticeScreen } from "./screens/PracticeScreen";
 import { PracticeSessionScreen } from "./screens/PracticeSessionScreen";
 import { AboutScreen } from "./screens/AboutScreen";
 import { FloatingNoticeProvider } from "./screens/shared/FloatingNotice";
+import { TabBar } from "./screens/shared/TabBar";
 import { onSessionInvalid } from "./services/auth/authSessionEvents";
 import type { ChatMessage } from "./domain/chat/types";
 import type { PracticeCard } from "./domain/practice/practiceService";
@@ -27,7 +28,6 @@ type Screen = "splash" | "login" | "main" | "chat" | "practice" | "practiceSessi
 
 const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
 
-// 每次setScreen就重新执行App()，因为useState是代表状态值[值，该表状态值的函数]
 export default function App() {
   const [screen, setScreen] = useState<Screen>("splash");
   const [practiceSession, setPracticeSession] = useState<{
@@ -36,7 +36,6 @@ export default function App() {
   } | null>(null);
   const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
 
-  // 初始化，决定进入main还是login页面
   useEffect(() => {
     let mounted = true;
     function sleep(ms: number): Promise<void> {
@@ -67,7 +66,6 @@ export default function App() {
     };
   }, []);
 
-  // 订阅/取消订阅事件，跳回登录页。
   useEffect(() => {
     return onSessionInvalid(() => {
       setScreen("login");
@@ -86,7 +84,6 @@ export default function App() {
     setScreen("login");
   }
 
-  // 导航逻辑
   let content: React.ReactNode;
   if (screen === "splash") content = <SplashGateScreen />;
   else if (screen === "login") content = <LoginScreen onLoginSuccess={() => setScreen("main")} />;
@@ -94,19 +91,13 @@ export default function App() {
   else if (screen === "practice") {
     content = (
       <PracticeScreen
-        onOpenChat={() => {
-          setActiveContact(DEFAULT_CHAT_CONTACT);
-          setScreen("chat");
-        }}
-        onOpenMe={() => setScreen("me")}
         onOpenPracticeSession={(cards, messages) => {
           setPracticeSession({ cards, messages });
           setScreen("practiceSession");
         }}
       />
     );
-  }
-  else if (screen === "practiceSession" && practiceSession) {
+  } else if (screen === "practiceSession" && practiceSession) {
     content = (
       <PracticeSessionScreen
         initialCards={practiceSession.cards}
@@ -117,15 +108,12 @@ export default function App() {
   } else if (screen === "me") {
     content = (
       <MeScreen
-        onOpenMain={() => setScreen("main")}
-        onOpenPractice={() => setScreen("practice")}
         onOpenPro={() => setScreen("pro")}
         onOpenAbout={() => setScreen("about")}
         onLogout={handleLogout}
       />
     );
-  }
-  else if (screen === "pro") content = <ProScreen onBack={() => setScreen("me")} />;
+  } else if (screen === "pro") content = <ProScreen onBack={() => setScreen("me")} />;
   else if (screen === "about") content = <AboutScreen onBack={() => setScreen("me")} />;
   else {
     content = (
@@ -134,17 +122,28 @@ export default function App() {
           setActiveContact(contact);
           setScreen("chat");
         }}
-        onOpenPractice={() => setScreen("practice")}
-        onOpenMe={() => setScreen("me")}
       />
     );
   }
+
+  const showTabBar = screen === "main" || screen === "practice" || screen === "me";
+  const activeTab = screen === "practice" ? "practice" : screen === "me" ? "me" : "main";
 
   return (
     <SafeAreaProvider>
       <KeyboardProvider>
         <FloatingNoticeProvider>
-          <View style={styles.screen}>{content}</View>
+          <View style={styles.screen}>
+            <View style={styles.content}>{content}</View>
+            {showTabBar ? (
+              <TabBar
+                activeTab={activeTab}
+                onPressMain={() => setScreen("main")}
+                onPressPractice={() => setScreen("practice")}
+                onPressMe={() => setScreen("me")}
+              />
+            ) : null}
+          </View>
         </FloatingNoticeProvider>
       </KeyboardProvider>
     </SafeAreaProvider>
@@ -152,7 +151,6 @@ export default function App() {
 }
 
 async function preloadImages(images: Array<ReturnType<typeof require>>): Promise<void> {
-  // 预加载首屏图片，降低登录页首次展示时的空白感。
   await Promise.all(
     images.map(async (image) => {
       const source = Image.resolveAssetSource(image);
@@ -164,4 +162,7 @@ async function preloadImages(images: Array<ReturnType<typeof require>>): Promise
   );
 }
 
-const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: "#FFFFFF" } });
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: "#FFFFFF" },
+  content: { flex: 1 },
+});

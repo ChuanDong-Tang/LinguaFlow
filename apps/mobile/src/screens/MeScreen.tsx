@@ -9,17 +9,14 @@ import { getCachedEntitlement, isSameEntitlement } from "../services/entitlement
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
 import { recoverPendingPaymentIfAny } from "../services/payment/paymentRecovery";
 import { useMountedGuard } from "../hooks/useMountedGuard";
-import { TabBar } from "./shared/TabBar";
 
 type MeScreenProps = {
-  onOpenMain: () => void;
-  onOpenPractice: () => void;
   onOpenPro: () => void;
   onOpenAbout: () => void;
   onLogout: () => Promise<void> | void;
 };
 
-export function MeScreen({ onOpenMain, onOpenPractice, onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
+export function MeScreen({ onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
@@ -122,7 +119,6 @@ export function MeScreen({ onOpenMain, onOpenPractice, onOpenPro, onOpenAbout, o
           <SettingsRow icon="log-out-outline" label="退出登录" onPress={onLogout} isLast />
         </View>
       </ScrollView>
-      <TabBar activeTab="me" onPressChat={onOpenMain} onPressPractice={onOpenPractice} onPressMe={onOpenMain} />
     </SafeAreaView>
   );
 }

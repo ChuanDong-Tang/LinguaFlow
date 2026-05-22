@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { TabBar } from "./shared/TabBar";
 import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLoading } from "./shared/BlockingLoading";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import type { ChatMessage } from "../domain/chat/types";
@@ -23,8 +22,6 @@ import {
 } from "../domain/practice/practiceService";
 
 type PracticeScreenProps = {
-  onOpenChat: () => void;
-  onOpenMe: () => void;
   onOpenPracticeSession: (cards: PracticeCard[], allMessages: ChatMessage[]) => void;
 };
 
@@ -36,7 +33,7 @@ const BAND_OPTIONS: Array<{ label: string; value: PracticeAccuracyBand; color: s
   { label: "60%+", value: "high", color: "#AFA5FF" },
 ];
 
-export function PracticeScreen({ onOpenChat, onOpenMe, onOpenPracticeSession }: PracticeScreenProps) {
+export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
   const { isMounted } = useMountedGuard();
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -205,8 +202,6 @@ export function PracticeScreen({ onOpenChat, onOpenMe, onOpenPracticeSession }: 
           <Ionicons name="chevron-forward" size={25} color="#111111" />
         </Pressable>
       </ScrollView>
-
-      <TabBar activeTab="practice" onPressChat={onOpenChat} onPressPractice={() => undefined} onPressMe={onOpenMe} />
 
       <QuickPracticeSheet
         visible={quickOpen}
