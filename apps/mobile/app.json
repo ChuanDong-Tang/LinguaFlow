@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "mobile-expo",
-    "slug": "mobile-expo",
+    "name": "OIO",
+    "slug": "oio",
     "scheme": "linguaflow",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,20 +14,20 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "bundleIdentifier": "com.oio.linguaflow",
+      "bundleIdentifier": "com.yueyantech.oio",
       "supportsTablet": true
     },
     "android": {
-      "package": "com.oio.linguaflow",
+      "package": "com.yueyantech.oio",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/app/logo.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/app/logo.png"
     },
     "extra": {
       "wechatAppId": "${EXPO_PUBLIC_WECHAT_APP_ID}",
