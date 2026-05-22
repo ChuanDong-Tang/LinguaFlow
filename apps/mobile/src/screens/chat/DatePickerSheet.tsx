@@ -44,7 +44,7 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={styles.scrim} onPress={onClose} />
 

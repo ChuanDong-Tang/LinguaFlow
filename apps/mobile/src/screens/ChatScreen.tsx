@@ -107,6 +107,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const [isTodaySyncing, setIsTodaySyncing] = useState(false);
+  const [syncingDateKey, setSyncingDateKey] = useState<string | null>(null);
   const allLocalMessagesRef = useRef<ChatMessage[]>([]);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const selectedDateKeyRef = useRef(toDateKey(new Date()));
@@ -131,6 +132,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
     return inputText.trim().length > 0 && !activeGenerationContactId && !isTodaySyncing && hasQuota;
   }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars]);
+  const selectedDateKey = toDateKey(selectedDate);
+  const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
 
   // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示。
@@ -295,7 +298,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   // 启动同步：进入聊天页后静默同步今天，兼顾多端新增消息。
   useEffect(() => {
     const today = new Date();
-    void syncDateQuietly(today);
+    void syncDateQuietly(today, { force: true });
   }, []);
 
   // 日期面板：打开日历时预加载当前月份云端有记录的日期。
@@ -340,8 +343,16 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     Keyboard.dismiss();
   }, []);
 
+  const blockClozeWhenSelectedDateSyncing = React.useCallback((): boolean => {
+    return isSelectedDateSyncing;
+  }, [isSelectedDateSyncing]);
+
   const handleTextSelection = React.useCallback(
     (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
+      if (blockClozeWhenSelectedDateSyncing()) {
+        clearSelection();
+        return;
+      }
       if (payload.start === payload.end) {
         return;
       }
@@ -362,10 +373,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         draftBlankIndexes: [],
       });
     },
-    [contact],
+    [blockClozeWhenSelectedDateSyncing, contact],
   );
 
   const handleEditClozeGroup = React.useCallback((message: ChatMessage, groupIndex: number) => {
+    if (blockClozeWhenSelectedDateSyncing()) return;
     const group = normalizeClozeState(message.clozeState)?.groups[groupIndex];
     if (!group) return;
     setClozeEditor({
@@ -374,11 +386,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       tokenIndexes: group.tokenIndexes,
       draftBlankIndexes: group.blankTokenIndexes,
     });
-  }, []);
+  }, [blockClozeWhenSelectedDateSyncing]);
 
   const handleDeleteClozeGroup = React.useCallback((message: ChatMessage, groupIndex: number) => {
+    if (blockClozeWhenSelectedDateSyncing()) return;
     setClozeDelete({ message, groupIndex });
-  }, []);
+  }, [blockClozeWhenSelectedDateSyncing]);
 
   async function confirmDeleteCloze(): Promise<void> {
     if (!clozeDelete) return;
@@ -748,6 +761,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const reqId = ++syncSeqRef.current;
     latestSyncReqByDateRef.current[dateKey] = reqId;
 
+    // 五分钟内同步过的别再同步了
+    const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
+    if (!options?.force && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
+      return { synced: true, changed: false };
+    }
+
     if (!isPro) return { synced: false, changed: false };
 
     const resolvedConversationId = await resolveConversationIdForDate(dateKey, options?.signal);
@@ -804,6 +823,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }
 
   async function syncDateQuietly(d: Date, options?: { force?: boolean }): Promise<void> {
+    const dateKey = toDateKey(d);
+    const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
+    if (!options?.force && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
+      return;
+    }
+
     const controller = new AbortController();
     syncAbortControllersRef.current.push(controller);
     const isTodaySync = isSameDate(d, new Date());
@@ -811,6 +836,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       todaySyncCountRef.current += 1;
       setIsTodaySyncing(true);
     }
+    setSyncingDateKey(dateKey);
+
     const notice = showNotice({
       message: "正在同步最新消息...",
       type: "info",
@@ -856,6 +883,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           setIsTodaySyncing(false);
         }
       }
+      if (isMountedRef.current) {
+        setSyncingDateKey((current) => (current === dateKey ? null : current));
+      }
     }
   }
 
@@ -872,7 +902,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       setMessages(visibleLocalRows);
     }
 
-    void syncDateQuietly(d, { force: true });
+    void syncDateQuietly(d);
   }
 
   const recordDateKeys = useMemo(() => {
@@ -941,18 +971,18 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       </View>
 
       <DatePickerSheet
-          visible={isDateSheetOpen}
-          monthCursor={monthCursor}
-          selectedDate={selectedDate}
-          hasRecordDateKeys={recordDateKeys}
-          onClose={() => setIsDateSheetOpen(false)}
+        visible={isDateSheetOpen}
+        monthCursor={monthCursor}
+        selectedDate={selectedDate}
+        hasRecordDateKeys={recordDateKeys}
+        onClose={() => setIsDateSheetOpen(false)}
         onPrevMonth={() =>
           setMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
         }
         onNextMonth={() =>
           setMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
         }
-          onSelectDate={handleSelectDate}
+        onSelectDate={handleSelectDate}
       />
       <ClozeControls
         contact={contact}

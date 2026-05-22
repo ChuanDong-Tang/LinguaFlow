@@ -22,10 +22,18 @@ import {
   assertAppleIapAvailable,
   getAppleTransactionId,
 } from "../services/payment/appleIap";
-import { payWithWechat, toWeChatClientPayParams } from "../services/payment/wechatPay";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 
 type ProScreenProps = { onBack: () => void };
+type AppleIapBridgeState = Pick<
+  ReturnType<typeof useIAP>,
+  "connected" | "fetchProducts" | "finishTransaction" | "requestPurchase"
+>;
+type AppleIapBridgeProps = {
+  onReady: (bridge: AppleIapBridgeState) => void;
+  onPurchaseSuccess: (purchase: Purchase) => void;
+  onPurchaseError: (error: unknown) => void;
+};
 
 export function ProScreen({ onBack }: ProScreenProps) {
   const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
@@ -34,18 +42,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [autoRenew, setAutoRenew] = useState<MobileAutoRenewSubscription | null>(null);
   const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
   const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
-  const { connected, fetchProducts, finishTransaction, requestPurchase } = useIAP({
-    onPurchaseSuccess: (purchase) => {
-      void handleApplePurchaseSuccess(purchase);
-    },
-    onPurchaseError: (error) => {
-      if (!isScreenAlive()) return;
-      const message = error instanceof Error ? error.message : "Apple 支付失败";
-      safeAlert("Apple 支付失败", message);
-      setIsPaying(false);
-      setIsAutoRenewLoading(false);
-    },
-  });
+  const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -64,11 +61,6 @@ export function ProScreen({ onBack }: ProScreenProps) {
     })();
   }, [isScreenAlive, safeAlert]);
 
-  useEffect(() => {
-    if (Platform.OS !== "ios" || !connected) return;
-    void fetchProducts({ skus: [APPLE_PRO_MONTHLY_PRODUCT_ID], type: "subs" });
-  }, [connected, fetchProducts]);
-
   async function handleSubscribe(): Promise<void> {
     if (isPaying) return;
 
@@ -86,12 +78,13 @@ export function ProScreen({ onBack }: ProScreenProps) {
   }
 
   async function startWechatOneTimePurchase(): Promise<void> {
+    assertWechatPayAvailable();
     setIsPaying(true);
     try {
       const order = await createProMonthlyOrder();
       await savePendingPaymentOrder({ orderId: order.id, providerOrderId: order.providerOrderId });
 
-      await payWithWechat(toWeChatClientPayParams(order.clientPayParams));
+      await payWithWechatParams(order.clientPayParams);
       if (!isScreenAlive()) return;
 
       // 支付完成通常需要后端确认，这里轮询到终态再更新本地展示。
@@ -142,13 +135,14 @@ export function ProScreen({ onBack }: ProScreenProps) {
   }
 
   async function startWechatAutoRenew(): Promise<void> {
+    assertWechatPayAvailable();
     setIsAutoRenewLoading(true);
     try {
       const preSign = await createWeChatAutoRenewPreSign();
 
       if (preSign.clientPayParams) {
         // App-with-contract：用户支付首期时同时完成微信自动续费签约。
-        await payWithWechat(toWeChatClientPayParams(preSign.clientPayParams));
+        await payWithWechatParams(preSign.clientPayParams);
       } else {
         await openWechatContractOnlyFlow(preSign.redirectUrl);
       }
@@ -188,7 +182,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   async function startAppleIapPurchase(_source: "single_purchase" | "auto_renew"): Promise<void> {
     assertAppleIapAvailable();
-    if (!connected) {
+    if (!appleIap?.connected) {
       safeAlert("Apple 支付初始化中", "请稍后重试。");
       return;
     }
@@ -196,7 +190,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
     setIsAutoRenewLoading(true);
     try {
       // iOS 侧统一购买 Apple 的 Pro 月度自动续费商品；真正权益以后端验单结果为准。
-      await requestPurchase({
+      await appleIap.requestPurchase({
         type: "subs",
         request: {
           apple: {
@@ -221,7 +215,8 @@ export function ProScreen({ onBack }: ProScreenProps) {
       const transactionId = getAppleTransactionId(purchase);
       // 先让服务端用 App Store Server API 验单并发权益，再 finish transaction。
       await verifyAppleProMonthlyTransaction(transactionId);
-      await finishTransaction({ purchase, isConsumable: false });
+      if (!appleIap) throw new Error("Apple 支付未初始化");
+      await appleIap.finishTransaction({ purchase, isConsumable: false });
       if (!isScreenAlive()) return;
       setIsRenew(true);
       const currentAutoRenew = await getCurrentAutoRenewSubscription();
@@ -243,6 +238,21 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
+      {Platform.OS === "ios" ? (
+        <AppleIapBridge
+          onReady={setAppleIap}
+          onPurchaseSuccess={(purchase) => {
+            void handleApplePurchaseSuccess(purchase);
+          }}
+          onPurchaseError={(error) => {
+            if (!isScreenAlive()) return;
+            const message = error instanceof Error ? error.message : "Apple 支付失败";
+            safeAlert("Apple 支付失败", message);
+            setIsPaying(false);
+            setIsAutoRenewLoading(false);
+          }}
+        />
+      ) : null}
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
           <Ionicons name="arrow-back" size={30} color="#111111" />
@@ -336,6 +346,41 @@ export function ProScreen({ onBack }: ProScreenProps) {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError }: AppleIapBridgeProps) {
+  const iap = useIAP({
+    onPurchaseSuccess,
+    onPurchaseError,
+  });
+
+  useEffect(() => {
+    onReady({
+      connected: iap.connected,
+      fetchProducts: iap.fetchProducts,
+      finishTransaction: iap.finishTransaction,
+      requestPurchase: iap.requestPurchase,
+    });
+  }, [iap.connected, iap.fetchProducts, iap.finishTransaction, iap.requestPurchase, onReady]);
+
+  useEffect(() => {
+    if (!iap.connected) return;
+    void iap.fetchProducts({ skus: [APPLE_PRO_MONTHLY_PRODUCT_ID], type: "subs" });
+  }, [iap.connected, iap.fetchProducts]);
+
+  return null;
+}
+
+function assertWechatPayAvailable(): void {
+  if (Platform.OS !== "android") {
+    throw new Error("当前平台不支持微信支付");
+  }
+}
+
+async function payWithWechatParams(clientPayParams: Record<string, unknown>): Promise<void> {
+  assertWechatPayAvailable();
+  const { payWithWechat, toWeChatClientPayParams } = await import("../services/payment/wechatPay");
+  await payWithWechat(toWeChatClientPayParams(clientPayParams));
 }
 
 function formatNullableDate(value: string | null): string {

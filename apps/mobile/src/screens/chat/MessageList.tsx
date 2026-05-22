@@ -47,7 +47,7 @@ const UserMessageRow = React.memo(function UserMessageRow({ message }: { message
   return (
     <View style={styles.userBlock}>
       <View style={styles.userBubble}>
-        <Text selectable selectionColor="#8E7BFF" style={styles.userText}>
+        <Text style={styles.userText}>
           {message.text}
         </Text>
       </View>
@@ -59,6 +59,7 @@ const UserMessageRow = React.memo(function UserMessageRow({ message }: { message
 const AssistantMessageRow = React.memo(function AssistantMessageRow({
   message,
   contact,
+  onSelectionRefChange,
   onRetryMessage,
   onCopyMessage,
   onTextSelection,
@@ -67,6 +68,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
 }: {
   message: ChatMessage;
   contact: ChatContact;
+  onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage) => void;
   onTextSelection: (
@@ -99,14 +101,16 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
         <View style={styles.assistantAvatar}>
           <Text style={styles.assistantLogo}>OIO</Text>
         </View>
-        <View style={styles.assistantCard}>
+        <Pressable style={styles.assistantCard} onPress={() => undefined}>
           <SelectableMessageText
             ref={selectableRef}
             text={displayText}
             style={styles.assistantCardText}
             highlightRanges={highlightRanges}
             blankRanges={blankRanges}
+            onSelectionStart={() => onSelectionRefChange(selectableRef.current)}
             onSelectionChange={(payload) => {
+              onSelectionRefChange(selectableRef.current);
               onTextSelection(message, payload, () => selectableRef.current?.clearSelection());
             }}
             onClozeRangePress={hasClozeGroup ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined}
@@ -134,7 +138,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
             </Pressable>
           </View>
-        </View>
+        </Pressable>
       </View>
       <Text style={styles.timeTextLeft}>{message.time}</Text>
     </View>
@@ -154,6 +158,7 @@ export function MessageList({
   onEditClozeGroup,
   onDeleteClozeGroup,
 }: MessageListProps) {
+  const activeSelectionRef = React.useRef<SelectableMessageTextRef | null>(null);
   const rows = React.useMemo<RowItem[]>(() => {
     const items: RowItem[] = [{ kind: "header", id: "header" }];
     for (let i = 0; i < messages.length; i += 1) {
@@ -164,6 +169,13 @@ export function MessageList({
   }, [messages]);
 
   const keyExtractor = React.useCallback((item: RowItem) => item.id, []);
+  const clearActiveSelection = React.useCallback(() => {
+    activeSelectionRef.current?.clearSelection();
+    activeSelectionRef.current = null;
+  }, []);
+  const handleSelectionRefChange = React.useCallback((ref: SelectableMessageTextRef | null) => {
+    activeSelectionRef.current = ref;
+  }, []);
 
   const renderItem = React.useCallback(
     ({ item }: { item: RowItem }) => {
@@ -178,6 +190,7 @@ export function MessageList({
         <AssistantMessageRow
           message={message}
           contact={contact}
+          onSelectionRefChange={handleSelectionRefChange}
           onRetryMessage={onRetryMessage}
           onCopyMessage={onCopyMessage}
           onTextSelection={onTextSelection}
@@ -186,35 +199,47 @@ export function MessageList({
         />
       );
     },
-    [contact, onCopyMessage, onDeleteClozeGroup, onEditClozeGroup, onRetryMessage, onTextSelection, selectedDateLabel]
+    [
+      contact,
+      handleSelectionRefChange,
+      onCopyMessage,
+      onDeleteClozeGroup,
+      onEditClozeGroup,
+      onRetryMessage,
+      onTextSelection,
+      selectedDateLabel,
+    ]
   );
 
   return (
-    <FlatList
-      ref={listRef}
-      style={styles.messageList}
-      contentContainerStyle={styles.messageListContent}
-      data={rows}
-      keyExtractor={keyExtractor}
-      renderItem={renderItem}
-      windowSize={9}
-      initialNumToRender={16}
-      maxToRenderPerBatch={16}
-      updateCellsBatchingPeriod={50}
-      removeClippedSubviews
-      keyboardDismissMode="on-drag"
-      onScrollBeginDrag={() => {
-        onScrollBeginDrag?.();
-      }}
-      onScroll={(e) => {
-        const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-        onScrollMetrics?.({
-          y: contentOffset.y,
-          contentHeight: contentSize.height,
-          layoutHeight: layoutMeasurement.height,
-        });
-      }}
-    />
+    <Pressable style={styles.messageList} onPress={clearActiveSelection}>
+      <FlatList
+        ref={listRef}
+        style={styles.messageList}
+        contentContainerStyle={styles.messageListContent}
+        data={rows}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        windowSize={9}
+        initialNumToRender={16}
+        maxToRenderPerBatch={16}
+        updateCellsBatchingPeriod={50}
+        removeClippedSubviews
+        keyboardDismissMode="on-drag"
+        onScrollBeginDrag={() => {
+          clearActiveSelection();
+          onScrollBeginDrag?.();
+        }}
+        onScroll={(e) => {
+          const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+          onScrollMetrics?.({
+            y: contentOffset.y,
+            contentHeight: contentSize.height,
+            layoutHeight: layoutMeasurement.height,
+          });
+        }}
+      />
+    </Pressable>
   );
 }
 

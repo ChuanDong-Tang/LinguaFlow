@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   PanResponder,
@@ -38,19 +38,54 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const [messages, setMessages] = useState(allMessages);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [isFlipped, setIsFlipped] = useState(false);
+  const [isFlipping, setIsFlipping] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const translate = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const flipAnim = useRef(new Animated.Value(0)).current;
+  const cardMotionLocked = useRef(false);
   const gestureAxis = useRef<"x" | "y" | null>(null);
   const card = cards[index] ?? null;
+  const canFlipCard = !!card?.translation.trim();
+
+  useEffect(() => {
+    setIsFlipping(false);
+    cardMotionLocked.current = false;
+    if (isFlipped && canFlipCard) {
+      flipAnim.setValue(1);
+      return;
+    }
+    if (isFlipped) setIsFlipped(false);
+    flipAnim.setValue(0);
+  }, [card?.id, canFlipCard, flipAnim, isFlipped]);
+
+  const frontRotateY = flipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "180deg"],
+  });
+  const backRotateY = flipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["180deg", "360deg"],
+  });
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 8 || Math.abs(gesture.dx) > 8,
+        onMoveShouldSetPanResponder: (_, gesture) => {
+          if (cardMotionLocked.current || isFlipping) return false;
+          return Math.abs(gesture.dy) > 8 || Math.abs(gesture.dx) > 8;
+        },
+        onMoveShouldSetPanResponderCapture: (_, gesture) => {
+          if (cardMotionLocked.current || isFlipping) return false;
+          const absX = Math.abs(gesture.dx);
+          const absY = Math.abs(gesture.dy);
+          return absY > 14 || absX > 18;
+        },
         onPanResponderGrant: () => {
           gestureAxis.current = null;
+          translate.setValue({ x: 0, y: 0 });
         },
         onPanResponderMove: (_, gesture) => {
           if (!gestureAxis.current) {
@@ -60,7 +95,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
             translate.setValue({ x: Math.max(0, gesture.dx), y: 0 });
             return;
           }
-          translate.setValue({ x: 0, y: gesture.dy });
+          translate.setValue({ x: 0, y: 0 });
         },
         onPanResponderRelease: (_, gesture) => {
           const verticalThreshold = Math.max(42, window.height * 0.07);
@@ -88,7 +123,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
           Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
         },
       }),
-    [index, cards.length, window.height, window.width],
+    [index, cards.length, isFlipping, window.height, window.width],
   );
 
   async function runWithLoading<T>(task: (signal: AbortSignal) => Promise<T>, text?: string): Promise<T> {
@@ -131,28 +166,73 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     translate.setValue({ x: 0, y: 0 });
   }
 
+  function resetCardState(): void {
+    setAnswers({});
+    setIsFlipped(false);
+    setIsFlipping(false);
+    flipAnim.setValue(0);
+  }
+
+  function resetPracticeInputs(nextIndex?: number): void {
+    setAnswers({});
+    setIsFlipping(false);
+    if (nextIndex == null) return;
+    const nextCardCanFlip = !!cards[nextIndex]?.translation.trim();
+    if (isFlipped && nextCardCanFlip) {
+      flipAnim.setValue(1);
+      return;
+    }
+    if (isFlipped) setIsFlipped(false);
+    flipAnim.setValue(0);
+  }
+
+  function beginCardMotion(): boolean {
+    if (cardMotionLocked.current) return false;
+    cardMotionLocked.current = true;
+    return true;
+  }
+
+  function endCardMotion(): void {
+    cardMotionLocked.current = false;
+  }
+
+  function toggleFlip(): void {
+    if (!canFlipCard || isFlipping || !beginCardMotion()) return;
+    const nextValue = isFlipped ? 0 : 1;
+    setIsFlipping(true);
+    Animated.timing(flipAnim, {
+      toValue: nextValue,
+      duration: 280,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setIsFlipped((value) => !value);
+      setIsFlipping(false);
+      endCardMotion();
+    });
+  }
+
   function goNext(): void {
+    if (isFlipping || cardMotionLocked.current) return;
     if (index >= cards.length - 1) {
       resetMotion();
       return;
     }
-    Animated.timing(translate, { toValue: { x: 0, y: -window.height }, duration: 180, useNativeDriver: true }).start(() => {
-      setAnswers({});
-      setIndex((value) => Math.min(cards.length - 1, value + 1));
-      resetMotion();
-    });
+    const nextIndex = Math.min(cards.length - 1, index + 1);
+    resetMotion();
+    resetPracticeInputs(nextIndex);
+    setIndex(nextIndex);
   }
 
   function goPrev(): void {
+    if (isFlipping || cardMotionLocked.current) return;
     if (index <= 0) {
       resetMotion();
       return;
     }
-    Animated.timing(translate, { toValue: { x: 0, y: window.height }, duration: 180, useNativeDriver: true }).start(() => {
-      setAnswers({});
-      setIndex((value) => Math.max(0, value - 1));
-      resetMotion();
-    });
+    const nextIndex = Math.max(0, index - 1);
+    resetMotion();
+    resetPracticeInputs(nextIndex);
+    setIndex(nextIndex);
   }
 
   async function checkAnswers(): Promise<void> {
@@ -198,12 +278,13 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       setCards(nextCards);
       if (updatedMessage) await persistPracticeMessageUpdate(card.contactId, updatedMessage);
       setAnswers({});
+      setIsFlipped(false);
       if (index >= nextCards.length) setIndex(Math.max(0, nextCards.length - 1));
     }, "正在处理...");
   }
 
   async function discardCurrentCard(): Promise<void> {
-    if (!card) return;
+    if (!card || isFlipping || cardMotionLocked.current) return;
     // Pro 用户右滑丢弃必须以云端成功为准；非 Pro 只写本地，不产生云端交互。
     await runWithLoading(async () => {
       const isPro = await hasLocalProAccess();
@@ -226,6 +307,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       setCards(nextCards);
       if (updatedMessage) await persistPracticeMessageUpdate(card.contactId, updatedMessage);
       setAnswers({});
+      setIsFlipped(false);
       if (index >= nextCards.length) setIndex(Math.max(0, nextCards.length - 1));
     }, "正在处理...").catch(() => {
       setDialog({ message: "丢弃失败，请稍后重试。" });
@@ -236,7 +318,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <Pressable style={styles.headerButton} onPress={onBack}><Ionicons name="chevron-back" size={30} color="#111111" /></Pressable>
+          <Pressable style={styles.headerButton} onPress={onBack}><Ionicons name="chevron-back" size={26} color="#111111" /></Pressable>
           <Text style={styles.headerTitle}>卡片练习</Text>
           <View style={styles.headerButton} />
         </View>
@@ -251,10 +333,10 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Pressable style={styles.headerButton} onPress={askExit}><Ionicons name="chevron-back" size={30} color="#111111" /></Pressable>
+        <Pressable style={styles.headerButton} onPress={askExit}><Ionicons name="chevron-back" size={26} color="#111111" /></Pressable>
         <Text style={styles.headerTitle}>卡片练习</Text>
         <Pressable style={styles.headerButton} onPress={() => setRulesOpen((value) => !value)}>
-          <Ionicons name="help-circle-outline" size={25} color="#111111" />
+          <Ionicons name="help-circle-outline" size={22} color="#111111" />
         </Pressable>
       </View>
 
@@ -267,18 +349,60 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       ) : null}
 
       <View style={styles.deck}>
-        <Animated.View style={[styles.card, { transform: translate.getTranslateTransform() }]} {...panResponder.panHandlers}>
-          <ScrollView style={styles.englishPane} contentContainerStyle={styles.englishContent}>
-            <PracticeEnglish card={card} answers={answers} onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))} />
-          </ScrollView>
-          <View style={styles.divider} />
-          <ScrollView style={styles.translationPane} contentContainerStyle={styles.translationContent}>
-            <Text style={styles.translationText}>{card.translation || " "}</Text>
-          </ScrollView>
+        <Animated.View style={[styles.cardShell, { transform: translate.getTranslateTransform() }]} {...panResponder.panHandlers}>
+          <View style={styles.cardShadow}>
+            <Animated.View
+              pointerEvents={isFlipping || isFlipped ? "none" : "auto"}
+              style={[
+                styles.cardFace,
+                styles.cardFrontFace,
+                {
+                  transform: [{ perspective: 900 }, { rotateY: frontRotateY }],
+                },
+              ]}
+            >
+              <View style={styles.englishPane}>
+                <ScrollView contentContainerStyle={styles.englishContent}>
+                  <PracticeEnglish card={card} answers={answers} onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))} />
+                </ScrollView>
+              </View>
+            </Animated.View>
+
+            {canFlipCard ? (
+              <Animated.View
+                pointerEvents={isFlipping || !isFlipped ? "none" : "auto"}
+                style={[
+                  styles.cardFace,
+                  styles.cardBackFace,
+                  {
+                    transform: [{ perspective: 900 }, { rotateY: backRotateY }],
+                  },
+                ]}
+              >
+                <View style={styles.translationPane}>
+                  <ScrollView contentContainerStyle={styles.translationContent}>
+                    <Text style={styles.translationText}>{card.translation}</Text>
+                  </ScrollView>
+                </View>
+              </Animated.View>
+            ) : null}
+          </View>
         </Animated.View>
       </View>
 
       <Text style={styles.progressText}>{index + 1}/{cards.length}</Text>
+
+      {canFlipCard ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={isFlipped ? "翻到英文" : "翻到中文"}
+          style={[isFlipping && styles.flipButtonDisabled, styles.flipButton]}
+          onPress={toggleFlip}
+          disabled={isFlipping}
+        >
+          <Ionicons name="sync-outline" size={20} color="#111111" />
+        </Pressable>
+      ) : null}
 
       <Pressable style={styles.checkButton} onPress={() => void checkAnswers()}>
         <Text style={styles.checkText}>检查</Text>
@@ -351,31 +475,31 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    height: 78,
+    height: 64,
     paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   headerButton: {
-    width: 44,
-    height: 44,
+    width: 38,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
   },
   headerTitle: {
     color: "#111111",
-    fontSize: 24,
-    fontWeight: "500",
+    fontSize: 20,
+    fontWeight: "400",
   },
   rulesPanel: {
     position: "absolute",
     zIndex: 3,
-    top: 93,
+    top: 76,
     right: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#E2E4EC",
     backgroundColor: "#FFFFFF",
@@ -388,51 +512,57 @@ const styles = StyleSheet.create({
   },
   ruleText: {
     color: "#303541",
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
 
   deck: {
     flex: 1,
     minHeight: 0,
-    paddingHorizontal: 52,
-    paddingTop: 28,
-    paddingBottom: 18,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 6,
     alignItems: "center",
     justifyContent: "center",
   },
-  card: {
+  cardShell: {
     width: "100%",
     height: "100%",
-    maxHeight: 470,
-    borderRadius: 28,
+  },
+  cardShadow: {
+    flex: 1,
+    borderRadius: 18,
+  },
+  cardFace: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#DDE1E8",
-    backgroundColor: "#FFFFFF",
+    borderColor: "#E3E6ED",
     overflow: "hidden",
-    shadowColor: "#111111",
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    backfaceVisibility: "hidden",
+  },
+  cardFrontFace: {
+    backgroundColor: "#FFFFFF",
+  },
+  cardBackFace: {
+    backgroundColor: "#FFFDF8",
   },
 
   englishPane: {
-    flex: 1.08,
-    flexGrow: 1,
+    flex: 1,
   },
   englishContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 18,
-    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+    justifyContent: "flex-start",
   },
   englishText: {
     color: "#080808",
-    fontSize: 17,
-    lineHeight: 25,
-    fontWeight: "500",
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: "400",
   },
   englishFlow: {
     flexDirection: "row",
@@ -441,73 +571,84 @@ const styles = StyleSheet.create({
   },
   tokenText: {
     color: "#080808",
-    fontSize: 17,
-    lineHeight: 25,
-    fontWeight: "500",
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: "400",
   },
   phraseText: {
     backgroundColor: "#FFF2B8",
     color: "#080808",
-    fontSize: 17,
-    lineHeight: 25,
-    fontWeight: "500",
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: "400",
   },
   blankInput: {
-    height: 25,
+    height: 24,
     marginHorizontal: 2,
     paddingHorizontal: 1,
     paddingVertical: 0,
-    borderBottomWidth: 1.5,
+    borderBottomWidth: 1,
     borderBottomColor: "#111111",
     color: "#111111",
-    fontSize: 17,
-    lineHeight: 23,
-    fontWeight: "500",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "400",
     textAlign: "center",
   },
 
-  divider: {
-    height: 1,
-    backgroundColor: "#E1E3EA",
-  },
   translationPane: {
-    flex: 0.92,
-    flexGrow: 1,
-    backgroundColor: "#FFFDF9",
+    flex: 1,
+    backgroundColor: "#FFFDF8",
   },
   translationContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 18,
-    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+    justifyContent: "flex-start",
   },
   translationText: {
     color: "#111111",
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 16,
+    lineHeight: 25,
+    fontWeight: "400",
   },
-
   progressText: {
-    marginTop: 2,
+    marginTop: 0,
     color: "#8A90A0",
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     textAlign: "center",
   },
+  flipButton: {
+    alignSelf: "center",
+    width: 40,
+    height: 40,
+    marginTop: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#E3E6ED",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  flipButtonDisabled: {
+    opacity: 0.7,
+  },
   checkButton: {
-    height: 54,
-    marginHorizontal: 34,
-    marginTop: 8,
-    marginBottom: 18,
-    borderRadius: 24,
+    height: 48,
+    marginHorizontal: 38,
+    marginTop: 6,
+    marginBottom: 14,
+    borderRadius: 20,
     backgroundColor: "#EAE6FF",
     alignItems: "center",
     justifyContent: "center",
   },
   checkText: {
     color: "#111111",
-    fontSize: 20,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "500",
   },
 
   empty: {

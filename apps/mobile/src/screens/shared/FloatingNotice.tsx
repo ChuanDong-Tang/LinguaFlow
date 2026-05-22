@@ -39,6 +39,8 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(-8)).current;
+  const spin = useRef(new Animated.Value(0)).current;
+  const spinAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const nextIdRef = useRef(1);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -51,22 +53,15 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
   const hideById = useCallback(
     (id: number) => {
       clearHideTimer();
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: 140,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: -8,
-          duration: 140,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 160,
+        useNativeDriver: true,
+      }).start(() => {
         setNotice((current) => (current?.id === id ? null : current));
       });
     },
-    [clearHideTimer, opacity, translateY],
+    [clearHideTimer, opacity],
   );
 
   const scheduleHide = useCallback(
@@ -132,6 +127,29 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
 
   useEffect(() => clearHideTimer, [clearHideTimer]);
 
+  useEffect(() => {
+    spinAnimationRef.current?.stop();
+    spin.setValue(0);
+    if (notice?.type !== "info") return;
+
+    const animation = Animated.loop(
+      Animated.timing(spin, {
+        toValue: 1,
+        duration: 900,
+        useNativeDriver: true,
+      }),
+    );
+    spinAnimationRef.current = animation;
+    animation.start();
+
+    return () => {
+      animation.stop();
+      if (spinAnimationRef.current === animation) {
+        spinAnimationRef.current = null;
+      }
+    };
+  }, [notice?.id, notice?.type, spin]);
+
   const value = useMemo(() => ({ showNotice }), [showNotice]);
   const placement = notice ? getPlacementStyle(notice, insets.top, insets.bottom, window.height) : null;
   const palette = notice ? NOTICE_PALETTE[notice.type] : NOTICE_PALETTE.info;
@@ -158,7 +176,24 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
               onPress={() => hideById(notice.id)}
               style={[styles.notice, { borderColor: palette.border, backgroundColor: palette.background }]}
             >
-              <Ionicons name={palette.icon} size={17} color={palette.iconColor} />
+              {notice.type === "info" ? (
+                <Animated.View
+                  style={{
+                    transform: [
+                      {
+                        rotate: spin.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ["0deg", "360deg"],
+                        }),
+                      },
+                    ],
+                  }}
+                >
+                  <Ionicons name={palette.icon} size={17} color={palette.iconColor} />
+                </Animated.View>
+              ) : (
+                <Ionicons name={palette.icon} size={17} color={palette.iconColor} />
+              )}
               <Text numberOfLines={2} style={styles.message}>
                 {notice.message}
               </Text>
@@ -240,11 +275,6 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     flexDirection: "row",
     alignItems: "center",
-    shadowColor: "#111111",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 5,
   },
   message: {
     marginLeft: 7,

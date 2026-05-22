@@ -27,6 +27,7 @@ type Props = {
   style?: StyleProp<TextStyle>;
   highlightRanges?: NativeClozeHighlightRange[];
   blankRanges?: NativeClozeBlankRange[];
+  onSelectionStart?: () => void;
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
   onClozeRangePress?: (groupIndex: number) => void;
   onClozeRangeLongPress?: (groupIndex: number) => void;
@@ -247,6 +248,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     style,
     highlightRanges,
     blankRanges,
+    onSelectionStart,
     onSelectionChange,
     onClozeRangePress,
     onClozeRangeLongPress,
@@ -279,6 +281,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
 
     const handleWordPress = React.useCallback((token: SelectableToken) => {
       if (token.kind !== "word" || token.wordIndex === null) return;
+      onSelectionStart?.();
       const wordIndex = token.wordIndex;
       setSelection((current) => {
         if (!current || current.segmentIndex !== token.segmentIndex) {
@@ -295,7 +298,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           isComplete: true,
         };
       });
-    }, []);
+    }, [onSelectionStart]);
 
     React.useEffect(() => {
       if (!selectedRange) return;

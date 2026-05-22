@@ -71,7 +71,7 @@ export async function runWithDeferredBlockingLoading<T>(
   let settled = false;
   let loadingShown = false;
   let ignoreResult = false;
-  const delayMs = options?.delayMs ?? 1000;
+  const delayMs = options?.delayMs ?? 200;
 
   const showTimer = setTimeout(() => {
     if (settled) return;
