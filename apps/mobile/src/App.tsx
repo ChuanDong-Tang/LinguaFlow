@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Animated, Image, StyleSheet, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { SplashGateScreen } from "./screens/SplashGateScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { initI18n } from "./i18n";
@@ -24,12 +24,19 @@ import {
   type ChatContact,
 } from "./domain/chat/contacts";
 
-type Screen = "splash" | "login" | "main" | "chat" | "practice" | "practiceSession" | "me" | "pro" | "about";
+type Screen = "login" | "main" | "chat" | "practice" | "practiceSession" | "me" | "pro" | "about";
 
 const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("splash");
+  const [screen, setScreen] = useState<Screen>("login");
+  const [showSplashOverlay, setShowSplashOverlay] = useState(true);
+  const [selectedTab, setSelectedTab] = useState<"main" | "practice" | "me">("main");
+  const [visitedTabs, setVisitedTabs] = useState<Record<"main" | "practice" | "me", boolean>>({
+    main: true,
+    practice: true,
+    me: true,
+  });
   const [practiceSession, setPracticeSession] = useState<{
     cards: PracticeCard[];
     messages: ChatMessage[];
@@ -52,12 +59,14 @@ export default function App() {
         if (remain > 0) await sleep(remain);
         if (!mounted) return;
         setScreen(session ? "main" : "login");
+        setShowSplashOverlay(false);
       } catch {
         const elapsed = Date.now() - startAt;
         const remain = MIN_SPLASH_MS - elapsed;
         if (remain > 0) await sleep(remain);
         if (!mounted) return;
         setScreen("login");
+        setShowSplashOverlay(false);
       }
     }
     void bootstrap();
@@ -72,6 +81,12 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (screen === "main" || screen === "practice" || screen === "me") {
+      setSelectedTab(screen);
+    }
+  }, [screen]);
+
   async function handleLogout(): Promise<void> {
     const session = await getSession();
     if (session?.refreshToken) {
@@ -84,69 +99,183 @@ export default function App() {
     setScreen("login");
   }
 
+  const showTabBar = screen === "main" || screen === "practice" || screen === "me";
+  const activeTab = showTabBar ? screen : selectedTab;
+
   let content: React.ReactNode;
-  if (screen === "splash") content = <SplashGateScreen />;
-  else if (screen === "login") content = <LoginScreen onLoginSuccess={() => setScreen("main")} />;
-  else if (screen === "chat") content = <ChatScreen contact={activeContact} onBack={() => setScreen("main")} />;
-  else if (screen === "practice") {
+  if (screen === "login") {
     content = (
-      <PracticeScreen
-        onOpenPracticeSession={(cards, messages) => {
-          setPracticeSession({ cards, messages });
-          setScreen("practiceSession");
-        }}
-      />
+      <FadingScreen>
+        <LoginScreen onLoginSuccess={() => setScreen("main")} />
+      </FadingScreen>
     );
-  } else if (screen === "practiceSession" && practiceSession) {
-    content = (
-      <PracticeSessionScreen
-        initialCards={practiceSession.cards}
-        allMessages={practiceSession.messages}
-        onBack={() => setScreen("practice")}
-      />
-    );
-  } else if (screen === "me") {
-    content = (
-      <MeScreen
-        onOpenPro={() => setScreen("pro")}
-        onOpenAbout={() => setScreen("about")}
-        onLogout={handleLogout}
-      />
-    );
-  } else if (screen === "pro") content = <ProScreen onBack={() => setScreen("me")} />;
-  else if (screen === "about") content = <AboutScreen onBack={() => setScreen("me")} />;
+  }
   else {
+    let overlay: React.ReactNode = null;
+    if (screen === "chat") {
+      overlay = (
+        <FadingScreen>
+          <ChatScreen contact={activeContact} onBack={() => setScreen("main")} />
+        </FadingScreen>
+      );
+    } else if (screen === "practiceSession" && practiceSession) {
+      overlay = (
+        <FadingScreen>
+          <PracticeSessionScreen
+            initialCards={practiceSession.cards}
+            allMessages={practiceSession.messages}
+            onBack={() => setScreen("practice")}
+          />
+        </FadingScreen>
+      );
+    } else if (screen === "pro") {
+      overlay = (
+        <FadingScreen>
+          <ProScreen onBack={() => setScreen("me")} />
+        </FadingScreen>
+      );
+    } else if (screen === "about") {
+      overlay = (
+        <FadingScreen>
+          <AboutScreen onBack={() => setScreen("me")} />
+        </FadingScreen>
+      );
+    }
+
     content = (
-      <MainScreen
-        onOpenChat={(contact) => {
-          setActiveContact(contact);
-          setScreen("chat");
-        }}
-      />
+      <View style={styles.appStack}>
+        <FadingScreen>
+          <TabScreens
+            activeTab={activeTab}
+            visitedTabs={visitedTabs}
+            onOpenChat={(contact) => {
+              setActiveContact(contact);
+              setScreen("chat");
+            }}
+            onOpenPracticeSession={(cards, messages) => {
+              setPracticeSession({ cards, messages });
+              setScreen("practiceSession");
+            }}
+            onOpenPro={() => setScreen("pro")}
+            onOpenAbout={() => setScreen("about")}
+            onLogout={handleLogout}
+          />
+        </FadingScreen>
+        {overlay ? <View style={styles.overlayScreen}>{overlay}</View> : null}
+      </View>
     );
   }
 
-  const showTabBar = screen === "main" || screen === "practice" || screen === "me";
-  const activeTab = screen === "practice" ? "practice" : screen === "me" ? "me" : "main";
-
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <KeyboardProvider>
         <FloatingNoticeProvider>
           <View style={styles.screen}>
             <View style={styles.content}>{content}</View>
             {showTabBar ? (
-              <TabBar
-                activeTab={activeTab}
-                onPressMain={() => setScreen("main")}
-                onPressPractice={() => setScreen("practice")}
-                onPressMe={() => setScreen("me")}
-              />
+              <View style={styles.tabBarOverlay}>
+                <TabBar
+                  activeTab={activeTab}
+                  onPressMain={() => setScreen("main")}
+                  onPressPractice={() => setScreen("practice")}
+                  onPressMe={() => setScreen("me")}
+                />
+              </View>
             ) : null}
+            <SplashOverlay visible={showSplashOverlay} />
           </View>
         </FloatingNoticeProvider>
       </KeyboardProvider>
     </SafeAreaProvider>
+  );
+}
+
+function SplashOverlay({ visible }: { visible: boolean }) {
+  const opacity = React.useRef(new Animated.Value(1)).current;
+  const [mounted, setMounted] = useState(true);
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      opacity.setValue(1);
+      return;
+    }
+
+    // 启动页是覆盖层：底下目标页面先正常挂载，Splash 只负责淡出离场。
+    // 这样不再发生 splash 页面和 login/main 页面直接替换造成的首帧位移感。
+    const animation = Animated.timing(opacity, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished) setMounted(false);
+    });
+    return () => animation.stop();
+  }, [opacity, visible]);
+
+  if (!mounted) return null;
+  return (
+    <Animated.View pointerEvents={visible ? "auto" : "none"} style={[styles.splashOverlay, { opacity }]}>
+      <SplashGateScreen />
+    </Animated.View>
+  );
+}
+
+function FadingScreen({ children }: { children: React.ReactNode }) {
+  const opacity = React.useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // 页面仍然正常挂载，只用极短的透明度淡入遮住首帧布局抖动。
+    // 不做 Y 轴位移，也不延迟渲染内容，避免出现“页面从上往下掉”的感觉。
+    opacity.setValue(0);
+    const animation = Animated.timing(opacity, {
+      toValue: 1,
+      duration: 90,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [opacity]);
+
+  return <Animated.View style={[styles.fadingScreen, { opacity }]}>{children}</Animated.View>;
+}
+
+function TabScreens({
+  activeTab,
+  visitedTabs,
+  onOpenChat,
+  onOpenPracticeSession,
+  onOpenPro,
+  onOpenAbout,
+  onLogout,
+}: {
+  activeTab: "main" | "practice" | "me";
+  visitedTabs: Record<"main" | "practice" | "me", boolean>;
+  onOpenChat: (contact: ChatContact) => void;
+  onOpenPracticeSession: (cards: PracticeCard[], allMessages: ChatMessage[]) => void;
+  onOpenPro: () => void;
+  onOpenAbout: () => void;
+  onLogout: () => Promise<void>;
+}) {
+  return (
+    <View style={styles.tabHost}>
+      {visitedTabs.main ? (
+        <View style={[styles.tabPage, activeTab !== "main" && styles.tabPageHidden]}>
+          <MainScreen onOpenChat={onOpenChat} />
+        </View>
+      ) : null}
+      {visitedTabs.practice ? (
+        <View style={[styles.tabPage, activeTab !== "practice" && styles.tabPageHidden]}>
+          <PracticeScreen onOpenPracticeSession={onOpenPracticeSession} />
+        </View>
+      ) : null}
+      {visitedTabs.me ? (
+        <View style={[styles.tabPage, activeTab !== "me" && styles.tabPageHidden]}>
+          <MeScreen onOpenPro={onOpenPro} onOpenAbout={onOpenAbout} onLogout={onLogout} />
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -165,4 +294,17 @@ async function preloadImages(images: Array<ReturnType<typeof require>>): Promise
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#FFFFFF" },
   content: { flex: 1 },
+  appStack: { flex: 1 },
+  overlayScreen: { ...StyleSheet.absoluteFillObject },
+  splashOverlay: { ...StyleSheet.absoluteFillObject },
+  fadingScreen: { flex: 1, backgroundColor: "#FCFCFD" },
+  tabHost: { flex: 1, paddingBottom: 86 },
+  tabPage: { ...StyleSheet.absoluteFillObject },
+  tabPageHidden: { display: "none" },
+  tabBarOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
 });

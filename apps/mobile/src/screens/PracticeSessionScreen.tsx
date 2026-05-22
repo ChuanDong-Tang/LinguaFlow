@@ -13,7 +13,6 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ChatMessage } from "../domain/chat/types";
-import { tokenizeForCloze } from "../domain/cloze/clozeUtils";
 import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLoading } from "./shared/BlockingLoading";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import {
@@ -32,6 +31,38 @@ type PracticeSessionScreenProps = {
   onBack: () => void;
 };
 
+type PracticeEnglishSegment =
+  | { type: "text"; key: string; text: string; highlighted: boolean }
+  | { type: "blank"; key: string; tokenIndex: number; width: number; spacer: boolean };
+
+function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegment[] {
+  const phraseSet = new Set(card.phraseTokenIndexes);
+  const blankSet = new Set(card.blankTokenIndexes);
+  const correctSet = new Set(card.correctTokenIndexes);
+  return card.tokens.map((token, tokenListIndex) => {
+    const isPhrase = phraseSet.has(token.index);
+    const isAnsweredBlank = blankSet.has(token.index) && correctSet.has(token.index);
+    const isBlank = blankSet.has(token.index) && !correctSet.has(token.index);
+    const previous = card.tokens[tokenListIndex - 1];
+    const spacer = !!previous && token.kind === "word" && previous.kind === "word";
+    if (isBlank) {
+      return {
+        type: "blank",
+        key: `blank-${token.index}`,
+        tokenIndex: token.index,
+        width: Math.max(36, token.text.length * 10),
+        spacer,
+      };
+    }
+    return {
+      type: "text",
+      key: `text-${token.index}`,
+      text: `${spacer ? " " : ""}${token.text}`,
+      highlighted: isPhrase || isAnsweredBlank,
+    };
+  });
+}
+
 export function PracticeSessionScreen({ initialCards, allMessages, onBack }: PracticeSessionScreenProps) {
   const window = useWindowDimensions();
   const [cards, setCards] = useState(initialCards);
@@ -46,9 +77,18 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const translate = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const flipAnim = useRef(new Animated.Value(0)).current;
   const cardMotionLocked = useRef(false);
+  const segmentCacheRef = useRef(new Map<string, PracticeEnglishSegment[]>());
   const gestureAxis = useRef<"x" | "y" | null>(null);
   const card = cards[index] ?? null;
   const canFlipCard = !!card?.translation.trim();
+
+  const getCardSegments = (target: PracticeCard): PracticeEnglishSegment[] => {
+    const cached = segmentCacheRef.current.get(target.id);
+    if (cached) return cached;
+    const segments = buildPracticeEnglishSegments(target);
+    segmentCacheRef.current.set(target.id, segments);
+    return segments;
+  };
 
   useEffect(() => {
     setIsFlipping(false);
@@ -60,6 +100,18 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     if (isFlipped) setIsFlipped(false);
     flipAnim.setValue(0);
   }, [card?.id, canFlipCard, flipAnim, isFlipped]);
+
+  useEffect(() => {
+    const keepIds = new Set<string>();
+    [cards[index - 1], cards[index], cards[index + 1]].forEach((row) => {
+      if (!row) return;
+      keepIds.add(row.id);
+      getCardSegments(row);
+    });
+    for (const key of segmentCacheRef.current.keys()) {
+      if (!keepIds.has(key)) segmentCacheRef.current.delete(key);
+    }
+  }, [cards, index]);
 
   const frontRotateY = flipAnim.interpolate({
     inputRange: [0, 1],
@@ -363,7 +415,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
             >
               <View style={styles.englishPane}>
                 <ScrollView contentContainerStyle={styles.englishContent}>
-                  <PracticeEnglish card={card} answers={answers} onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))} />
+                  <PracticeEnglish segments={getCardSegments(card)} answers={answers} onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))} />
                 </ScrollView>
               </View>
             </Animated.View>
@@ -423,35 +475,25 @@ async function persistPracticeMessageUpdate(contactId: string, message: ChatMess
 }
 
 function PracticeEnglish({
-  card,
+  segments,
   answers,
   onChangeAnswer,
 }: {
-  card: PracticeCard;
+  segments: PracticeEnglishSegment[];
   answers: Record<number, string>;
   onChangeAnswer: (tokenIndex: number, value: string) => void;
 }) {
-  // card.text 已经是 <en></en> 中间的英文正文，所以这里的 token 索引可直接对应 clozeState。
-  const tokens = tokenizeForCloze(card.text);
-  const phraseSet = new Set(card.phraseTokenIndexes);
-  const blankSet = new Set(card.blankTokenIndexes);
-  const correctSet = new Set(card.correctTokenIndexes);
   return (
     <View style={styles.englishFlow}>
-      {tokens.map((token, index) => {
-        const isPhrase = phraseSet.has(token.index);
-        const isAnsweredBlank = blankSet.has(token.index) && correctSet.has(token.index);
-        const isBlank = blankSet.has(token.index) && !correctSet.has(token.index);
-        const previous = tokens[index - 1];
-        const spacer = previous && token.kind === "word" && previous.kind === "word" ? " " : "";
-        if (isBlank) {
+      {segments.map((segment) => {
+        if (segment.type === "blank") {
           return (
-            <React.Fragment key={token.index}>
-              {spacer ? <Text style={styles.englishText}> </Text> : null}
+            <React.Fragment key={segment.key}>
+              {segment.spacer ? <Text style={styles.englishText}> </Text> : null}
               <TextInput
-                style={[styles.blankInput, { width: Math.max(36, token.text.length * 10) }]}
-                value={answers[token.index] ?? ""}
-                onChangeText={(value) => onChangeAnswer(token.index, value)}
+                style={[styles.blankInput, { width: segment.width }]}
+                value={answers[segment.tokenIndex] ?? ""}
+                onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
@@ -459,8 +501,8 @@ function PracticeEnglish({
           );
         }
         return (
-          <Text key={token.index} style={[styles.tokenText, (isPhrase || isAnsweredBlank) && styles.phraseText]}>
-            {spacer}{token.text}
+          <Text key={segment.key} style={[styles.tokenText, segment.highlighted && styles.phraseText]}>
+            {segment.text}
           </Text>
         );
       })}

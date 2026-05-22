@@ -255,7 +255,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       ) : null}
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
-          <Ionicons name="arrow-back" size={30} color="#111111" />
+          <Ionicons name="arrow-back" size={24} color="#111111" />
         </Pressable>
         <Text style={styles.headerTitle}>OIO Pro</Text>
         <View style={styles.backButton} />
@@ -276,7 +276,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
         <Text style={styles.sectionTitle}>Pro 权益</Text>
         <View style={styles.benefitCard}>
-          <BenefitItem icon="text-outline" title="更多每日字符额度" subtitle="普通版：每日 10,000 字\nPro 版：每日 100,000 字" />
+        <BenefitItem icon="text-outline" title="更多每日字符额度" subtitle="普通版：每日 10,000 字\nPro 版：每日 100,000 字" />
           <BenefitItem icon="leaf-outline" title="支持更长文本改写" subtitle="更适合长句、长段落改写" />
           <BenefitItem icon="flash-outline" title="更高频使用" subtitle="适合每天持续练习和记录" isLast />
         </View>
@@ -424,7 +424,7 @@ function BenefitItem({
   return (
     <View style={[styles.benefitItem, !isLast && styles.benefitItemBorder]}>
       <View style={styles.benefitIcon}>
-        <Ionicons name={icon} size={22} color="#111111" />
+        <Ionicons name={icon} size={18} color="#111111" />
       </View>
       <View style={styles.benefitCopy}>
         <Text style={styles.benefitTitle}>{title}</Text>
@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    height: 60,
+    height: 56,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -455,23 +455,23 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: "#111111",
-    fontSize: 21,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "500",
   },
 
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 32,
+    paddingHorizontal: 18,
+    paddingBottom: 26,
   },
 
   heroCard: {
-    minHeight: 170,
-    paddingHorizontal: 22,
-    paddingVertical: 28,
-    borderRadius: 20,
+    minHeight: 124,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#E5E2FF",
     backgroundColor: "#F8F7FF",
@@ -481,59 +481,59 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     color: "#111111",
-    fontSize: 24,
-    fontWeight: "600",
+    fontSize: 18,
+    fontWeight: "500",
   },
   heroCopy: {
-    marginTop: 10,
+    marginTop: 7,
     color: "#44527E",
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 13,
+    lineHeight: 19,
   },
   heroShape: {
-    width: 140,
+    width: 92,
     alignItems: "center",
     justifyContent: "center",
   },
   heroCircle: {
     position: "absolute",
-    top: 12,
-    left: 20,
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 2,
+    top: 14,
+    left: 14,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1.5,
     borderColor: "#6C62FF",
   },
   heroSquare: {
     position: "absolute",
-    top: 44,
-    left: 52,
-    width: 68,
-    height: 68,
-    borderRadius: 14,
-    borderWidth: 2,
+    top: 38,
+    left: 42,
+    width: 46,
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: "#6C62FF",
   },
 
   sectionTitle: {
-    marginTop: 24,
-    marginBottom: 12,
+    marginTop: 18,
+    marginBottom: 10,
     color: "#111111",
-    fontSize: 20,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "500",
   },
   benefitCard: {
-    borderRadius: 18,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "#E2E5EB",
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
   benefitItem: {
-    minHeight: 86,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    minHeight: 70,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -542,9 +542,9 @@ const styles = StyleSheet.create({
     borderBottomColor: "#ECEEF2",
   },
   benefitIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#DDE2EC",
     alignItems: "center",
@@ -556,20 +556,20 @@ const styles = StyleSheet.create({
   },
   benefitTitle: {
     color: "#111111",
-    fontSize: 17,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "500",
   },
   benefitSubtitle: {
-    marginTop: 6,
+    marginTop: 4,
     color: "#44527E",
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 12,
+    lineHeight: 17,
   },
 
   priceCard: {
-    marginTop: 22,
-    padding: 18,
-    borderRadius: 18,
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "#E2E5EB",
     backgroundColor: "#FFFFFF",
@@ -581,22 +581,22 @@ const styles = StyleSheet.create({
   },
   priceTitle: {
     color: "#111111",
-    fontSize: 20,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "500",
   },
   expire: {
     color: "#6A7290",
-    fontSize: 15,
+    fontSize: 12,
   },
   priceRow: {
-    marginTop: 14,
+    marginTop: 10,
     flexDirection: "row",
     alignItems: "baseline",
   },
   price: {
     color: "#6E63FF",
-    fontSize: 46,
-    fontWeight: "700",
+    fontSize: 32,
+    fontWeight: "500",
   },
   priceUnit: {
     color: "#3E4761",
@@ -610,13 +610,13 @@ const styles = StyleSheet.create({
   },
   noteText: {
     color: "#59617B",
-    fontSize: 14,
-    lineHeight: 22,
+    fontSize: 12,
+    lineHeight: 18,
   },
   autoRenewBox: {
-    marginTop: 16,
-    padding: 14,
-    borderRadius: 14,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#DDE2EC",
     backgroundColor: "#FAFBFF",
@@ -629,8 +629,8 @@ const styles = StyleSheet.create({
   },
   autoRenewTitle: {
     color: "#111111",
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "500",
   },
   autoRenewText: {
     marginTop: 5,
@@ -639,9 +639,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   secondaryButton: {
-    minWidth: 72,
-    height: 40,
-    paddingHorizontal: 14,
+    minWidth: 66,
+    height: 36,
+    paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#111111",
@@ -651,14 +651,14 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: "#111111",
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "500",
   },
   subscribeButton: {
-    marginTop: 16,
-    height: 54,
-    borderRadius: 16,
-    borderWidth: 2,
+    marginTop: 14,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
     borderColor: "#111111",
     backgroundColor: "#FFFFFF",
     alignItems: "center",
@@ -669,7 +669,7 @@ const styles = StyleSheet.create({
   },
   subscribeText: {
     color: "#111111",
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: "500",
   },
 });

@@ -13,7 +13,7 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
-          <Ionicons name="chevron-back" size={28} color="#111111" />
+          <Ionicons name="chevron-back" size={24} color="#111111" />
         </Pressable>
         <Text style={styles.headerTitle}>关于 OIO</Text>
         <View style={styles.backButton} />
@@ -70,10 +70,10 @@ function InfoRow({
 }) {
   return (
     <Pressable style={[styles.row, !isLast && styles.rowBorder]} onPress={onPress} disabled={!onPress}>
-      <Ionicons name={icon} size={22} color="#111111" />
+      <Ionicons name={icon} size={19} color="#111111" />
       <Text style={styles.rowLabel}>{label}</Text>
       {!!value && <Text style={styles.rowValue}>{value}</Text>}
-      <Ionicons name="chevron-forward" size={20} color="#3C3F48" />
+      <Ionicons name="chevron-forward" size={17} color="#3C3F48" />
     </Pressable>
   );
 }
@@ -92,31 +92,31 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   backButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: { color: "#111111", fontSize: 21, fontWeight: "600" },
+  headerTitle: { color: "#111111", fontSize: 17, fontWeight: "500" },
   scroll: { flex: 1 },
   content: { paddingHorizontal: 20, paddingBottom: 26 },
-  brandBlock: { alignItems: "center", marginTop: 22, marginBottom: 24 },
-  logo: { fontSize: 42, color: "#111111", letterSpacing: 2 },
-  brand: { marginTop: 6, fontSize: 16, color: "#111111", fontWeight: "600" },
-  tagline: { marginTop: 10, fontSize: 13, color: "#656B78" },
-  slogan: { marginTop: 18, fontSize: 14, color: "#656B78" },
-  section: { marginBottom: 18 },
-  sectionTitle: { marginBottom: 10, fontSize: 16, color: "#111111", fontWeight: "600" },
+  brandBlock: { alignItems: "center", marginTop: 14, marginBottom: 18 },
+  logo: { fontSize: 30, color: "#111111", letterSpacing: 1 },
+  brand: { marginTop: 4, fontSize: 14, color: "#111111", fontWeight: "500" },
+  tagline: { marginTop: 8, fontSize: 12, color: "#656B78" },
+  slogan: { marginTop: 12, fontSize: 13, color: "#656B78" },
+  section: { marginBottom: 14 },
+  sectionTitle: { marginBottom: 8, fontSize: 14, color: "#111111", fontWeight: "500" },
   card: {
-    borderRadius: 18,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "#E2E5EB",
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
   row: {
-    minHeight: 62,
+    minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
   },
   rowBorder: { borderBottomWidth: 1, borderBottomColor: "#ECEEF2" },
-  rowLabel: { marginLeft: 14, color: "#111111", fontSize: 16 },
-  rowValue: { marginLeft: "auto", marginRight: 10, color: "#575E6E", fontSize: 15 },
+  rowLabel: { marginLeft: 12, color: "#111111", fontSize: 14 },
+  rowValue: { marginLeft: "auto", marginRight: 8, color: "#575E6E", fontSize: 13 },
   footer: { marginTop: 12, textAlign: "center", color: "#767C89", fontSize: 12 },
 });

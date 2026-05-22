@@ -1,35 +1,37 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import type { ChatContact } from "../../domain/chat/contacts";
 
 type ChatHeaderProps = {
+  contact: ChatContact;
   onBack: () => void;
   onOpenCalendar: () => void;
   onOpenMenu: () => void;
 };
 
-export function ChatHeader({ onBack, onOpenCalendar, onOpenMenu }: ChatHeaderProps) {
+export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: ChatHeaderProps) {
   return (
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
-        <Ionicons name="chevron-back" size={28} color="#111111" />
+        <Ionicons name="chevron-back" size={24} color="#111111" />
       </Pressable>
 
       <View style={styles.headerAvatarWrap}>
-        <Text style={styles.logoText}>OIO</Text>
+        <Text style={styles.logoText}>{contact.avatarLabel}</Text>
       </View>
 
       <View style={styles.headerBody}>
-        <Text style={styles.headerTitle}>好奇改写助手</Text>
-        <Text style={styles.headerSubTitle}>帮你把话说得更自然，尤其是英文</Text>
+        <Text style={styles.headerTitle}>{contact.name}</Text>
+        <Text style={styles.headerSubTitle}>{contact.description}</Text>
       </View>
 
       <Pressable style={styles.calendarButton} hitSlop={8} onPress={onOpenCalendar}>
-        <Ionicons name="calendar-outline" size={24} color="#111111" />
+        <Ionicons name="calendar-outline" size={22} color="#111111" />
       </Pressable>
 
       <Pressable style={styles.menuButton} hitSlop={8} onPress={onOpenMenu}>
-        <Ionicons name="ellipsis-horizontal" size={24} color="#111111" />
+        <Ionicons name="ellipsis-horizontal" size={22} color="#111111" />
       </Pressable>
     </View>
   );
@@ -37,9 +39,9 @@ export function ChatHeader({ onBack, onOpenCalendar, onOpenMenu }: ChatHeaderPro
 
 const styles = StyleSheet.create({
   header: {
-    minHeight: 82,
+    minHeight: 68,
     paddingHorizontal: 16,
-    paddingTop: 6,
+    paddingTop: 4,
     paddingBottom: 4,
     flexDirection: "row",
     alignItems: "center",
@@ -51,35 +53,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerAvatarWrap: {
-    marginLeft: 8,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    marginLeft: 6,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: "#B5ACFF",
     alignItems: "center",
     justifyContent: "center",
   },
   logoText: {
-    fontSize: 15,
+    fontSize: 12,
     color: "#5A5497",
-    letterSpacing: 1,
+    letterSpacing: 0,
   },
   headerBody: {
-    marginLeft: 10,
+    marginLeft: 9,
     flex: 1,
     paddingRight: 10,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 16,
+    fontWeight: "500",
     color: "#111111",
   },
   headerSubTitle: {
-    marginTop: 3,
+    marginTop: 2,
     color: "#838AA0",
-    fontSize: 12.5,
-    lineHeight: 18,
+    fontSize: 11.5,
+    lineHeight: 16,
   },
   calendarButton: {
     width: 34,

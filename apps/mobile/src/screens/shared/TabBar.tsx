@@ -22,23 +22,23 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
       </Pressable>
 
       <Pressable style={styles.tab} onPress={activeTab === "practice" ? undefined : onPressPractice}>
-        <View style={[styles.practiceIconWrap, activeTab === "practice" && styles.practiceIconWrapActive]}>
+        <View style={styles.practiceIconWrap}>
           <Ionicons
             name="list-outline"
             size={25}
-            color={activeTab === "practice" ? "#6E63FF" : "#8D919B"}
+            color={activeTab === "practice" ? "#111111" : "#8D919B"}
           />
         </View>
-        <Text style={[styles.label, activeTab === "practice" && styles.labelActivePractice]}>练习</Text>
+        <Text style={[styles.label, activeTab === "practice" && styles.labelActive]}>练习</Text>
       </Pressable>
 
       <Pressable style={styles.tab} onPress={activeTab === "me" ? undefined : onPressMe}>
         <Ionicons
           name="person-outline"
           size={25}
-          color={activeTab === "me" ? "#6E63FF" : "#8D919B"}
+          color={activeTab === "me" ? "#111111" : "#8D919B"}
         />
-        <Text style={[styles.label, activeTab === "me" && styles.labelActiveMe]}>我</Text>
+        <Text style={[styles.label, activeTab === "me" && styles.labelActive]}>我</Text>
       </Pressable>
     </View>
   );
@@ -69,22 +69,11 @@ const styles = StyleSheet.create({
     color: "#111111",
     fontWeight: "600",
   },
-  labelActivePractice: {
-    color: "#6E63FF",
-    fontWeight: "600",
-  },
-  labelActiveMe: {
-    color: "#6E63FF",
-    fontWeight: "600",
-  },
   practiceIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-  },
-  practiceIconWrapActive: {
-    backgroundColor: "#EEEAFE",
   },
 });

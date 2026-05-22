@@ -43,16 +43,20 @@ const DayHeader = React.memo(function DayHeader({ selectedDateLabel }: { selecte
   );
 });
 
-const UserMessageRow = React.memo(function UserMessageRow({ message }: { message: ChatMessage }) {
+const UserMessageRow = React.memo(function UserMessageRow({
+  message,
+  onBlankPress,
+}: {
+  message: ChatMessage;
+  onBlankPress: () => void;
+}) {
   return (
-    <View style={styles.userBlock}>
-      <View style={styles.userBubble}>
-        <Text style={styles.userText}>
-          {message.text}
-        </Text>
-      </View>
+    <Pressable style={styles.userBlock} onPress={onBlankPress}>
+      <Pressable style={styles.userBubble} onPress={() => undefined}>
+        <Text style={styles.userText}>{message.text}</Text>
+      </Pressable>
       <Text style={styles.timeTextRight}>{message.time}</Text>
-    </View>
+    </Pressable>
   );
 });
 
@@ -65,10 +69,12 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onTextSelection,
   onEditClozeGroup,
   onDeleteClozeGroup,
+  onBlankPress,
 }: {
   message: ChatMessage;
   contact: ChatContact;
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
+  onBlankPress: () => void;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage) => void;
   onTextSelection: (
@@ -96,7 +102,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   );
 
   return (
-    <View style={styles.assistantBlock}>
+    <Pressable style={styles.assistantBlock} onPress={onBlankPress}>
       <View style={styles.assistantRow}>
         <View style={styles.assistantAvatar}>
           <Text style={styles.assistantLogo}>OIO</Text>
@@ -141,7 +147,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
         </Pressable>
       </View>
       <Text style={styles.timeTextLeft}>{message.time}</Text>
-    </View>
+    </Pressable>
   );
 });
 
@@ -184,13 +190,14 @@ export function MessageList({
       }
       const message = item.message;
       if (message.role === "user") {
-        return <UserMessageRow message={message} />;
+        return <UserMessageRow message={message} onBlankPress={clearActiveSelection} />;
       }
       return (
         <AssistantMessageRow
           message={message}
           contact={contact}
           onSelectionRefChange={handleSelectionRefChange}
+          onBlankPress={clearActiveSelection}
           onRetryMessage={onRetryMessage}
           onCopyMessage={onCopyMessage}
           onTextSelection={onTextSelection}
@@ -201,6 +208,7 @@ export function MessageList({
     },
     [
       contact,
+      clearActiveSelection,
       handleSelectionRefChange,
       onCopyMessage,
       onDeleteClozeGroup,
@@ -212,34 +220,33 @@ export function MessageList({
   );
 
   return (
-    <Pressable style={styles.messageList} onPress={clearActiveSelection}>
-      <FlatList
-        ref={listRef}
-        style={styles.messageList}
-        contentContainerStyle={styles.messageListContent}
-        data={rows}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        windowSize={9}
-        initialNumToRender={16}
-        maxToRenderPerBatch={16}
-        updateCellsBatchingPeriod={50}
-        removeClippedSubviews
-        keyboardDismissMode="on-drag"
-        onScrollBeginDrag={() => {
-          clearActiveSelection();
-          onScrollBeginDrag?.();
-        }}
-        onScroll={(e) => {
-          const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-          onScrollMetrics?.({
-            y: contentOffset.y,
-            contentHeight: contentSize.height,
-            layoutHeight: layoutMeasurement.height,
-          });
-        }}
-      />
-    </Pressable>
+    <FlatList
+      ref={listRef}
+      style={styles.messageList}
+      contentContainerStyle={styles.messageListContent}
+      data={rows}
+      keyExtractor={keyExtractor}
+      renderItem={renderItem}
+      ListFooterComponent={<Pressable style={styles.blankTapArea} onPress={clearActiveSelection} />}
+      windowSize={9}
+      initialNumToRender={16}
+      maxToRenderPerBatch={16}
+      updateCellsBatchingPeriod={50}
+      removeClippedSubviews
+      keyboardDismissMode="on-drag"
+      onScrollBeginDrag={() => {
+        clearActiveSelection();
+        onScrollBeginDrag?.();
+      }}
+      onScroll={(e) => {
+        const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+        onScrollMetrics?.({
+          y: contentOffset.y,
+          contentHeight: contentSize.height,
+          layoutHeight: layoutMeasurement.height,
+        });
+      }}
+    />
   );
 }
 
@@ -251,6 +258,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 20,
+  },
+  blankTapArea: {
+    height: 24,
   },
   dayDivider: {
     marginBottom: 16,
@@ -298,19 +308,19 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   assistantAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: "#B5ACFF",
-    marginTop: 8,
+    marginTop: 6,
     alignItems: "center",
     justifyContent: "center",
   },
   assistantLogo: {
     color: "#5A5497",
-    fontSize: 15,
-    letterSpacing: 1,
+    fontSize: 12,
+    letterSpacing: 0,
   },
   assistantCard: {
     flex: 1,
@@ -321,7 +331,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 16,
     paddingBottom: 14,
-    marginLeft: 14,
+    marginLeft: 10,
   },
   assistantCardText: {
     color: "#111111",
@@ -367,7 +377,7 @@ const styles = StyleSheet.create({
   },
   timeTextLeft: {
     marginTop: 8,
-    marginLeft: 66,
+    marginLeft: 50,
     color: "#9CA2B3",
     fontSize: 13,
   },

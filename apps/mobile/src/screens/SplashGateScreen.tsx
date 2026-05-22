@@ -1,10 +1,9 @@
 import React from "react";
 import { StyleSheet, Text, View, Image } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
 export function SplashGateScreen() {
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.centerWrap}>
         <Image
           source={require("../../assets/app/logo.png")}
@@ -14,7 +13,7 @@ export function SplashGateScreen() {
         <Text style={styles.brandText}>OIO</Text>
         <Text style={styles.tagline}>Output ・ Input ・ Output</Text>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -25,10 +24,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   centerWrap: {
-    flex: 1,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: "50%",
+    transform: [{ translateY: -175 }],
     alignItems: "center",
-    justifyContent: "center",
-    marginTop: -72,
   },
   brandText: {
     marginTop: -30,

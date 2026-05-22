@@ -1,7 +1,7 @@
 import type { ChatMessage, ClozeState } from "../chat/types";
 import { DEFAULT_CHAT_CONTACT, type ChatContact } from "../chat/contacts";
 import { toDateKey } from "../chat/messageState";
-import { normalizeClozeState, tokenizeForCloze } from "../cloze/clozeUtils";
+import { normalizeClozeState, tokenizeForCloze, type ClozeToken } from "../cloze/clozeUtils";
 import { getAssistantClozeText } from "../cloze/clozeText";
 
 export type PracticeAccuracyBand = "low" | "mid" | "high" | "any";
@@ -14,6 +14,7 @@ export type PracticeCard = {
   dateKey: string;
   text: string;
   translation: string;
+  tokens: ClozeToken[];
   groupIndex: number;
   phraseTokenIndexes: number[];
   blankTokenIndexes: number[];
@@ -46,6 +47,7 @@ export function buildPracticeCards(
     const clozeText = getAssistantClozeText(message, contact);
     const englishText = clozeText.text;
     if (!englishText) continue;
+    const tokens = tokenizeForCloze(englishText);
     const translation = clozeText.translation || findPreviousUserText(messages, i);
     const dateKey = toDateKey(new Date(message.createdAt));
     const phraseTokenIndexes = new Set<number>();
@@ -74,6 +76,7 @@ export function buildPracticeCards(
       dateKey,
       text: englishText,
       translation,
+      tokens,
       groupIndex: 0,
       phraseTokenIndexes: Array.from(phraseTokenIndexes).sort((a, b) => a - b),
       blankTokenIndexes: Array.from(blankTokenIndexes).sort((a, b) => a - b),

@@ -918,6 +918,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     <SafeAreaView style={styles.container}>
       <View style={[styles.content, { paddingBottom: keyboardInset }]}>
         <ChatHeader
+          contact={contact}
           onBack={onBack}
           onOpenCalendar={() => setIsDateSheetOpen(true)}
           onOpenMenu={handleOpenMenu}

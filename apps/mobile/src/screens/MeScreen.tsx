@@ -68,7 +68,7 @@ export function MeScreen({ onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
       <ScrollView style={styles.scroller} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileRow}>
           <View style={styles.profileAvatar}>
-            <Ionicons name="person-outline" size={58} color="#111111" />
+            <Ionicons name="person-outline" size={38} color="#111111" />
           </View>
           <View style={styles.profileBody}>
             <Text style={styles.profileName}>{userName}</Text>
@@ -181,9 +181,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   profileAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: "#F0ECFF",
     alignItems: "center",
     justifyContent: "center",
@@ -193,8 +193,8 @@ const styles = StyleSheet.create({
   },
   profileName: {
     color: "#111111",
-    fontSize: 20,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "500",
   },
   profilePlan: {
     marginTop: 4,
@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: "#111111",
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   quotaRow: {
     marginTop: 12,
@@ -227,8 +227,8 @@ const styles = StyleSheet.create({
   quotaNumber: {
     marginLeft: 8,
     color: "#6E63FF",
-    fontSize: 24,
-    fontWeight: "600",
+    fontSize: 20,
+    fontWeight: "500",
   },
   quotaUnit: {
     marginLeft: 4,
@@ -278,8 +278,8 @@ const styles = StyleSheet.create({
   },
   proTitle: {
     color: "#111111",
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 16,
+    fontWeight: "500",
   },
   proSubtitle: {
     marginTop: 6,
@@ -310,7 +310,7 @@ const styles = StyleSheet.create({
   proButtonText: {
     color: "#111111",
     fontSize: 15,
-    fontWeight: "500",
+    fontWeight: "400",
   },
 
   sectionTitle: {

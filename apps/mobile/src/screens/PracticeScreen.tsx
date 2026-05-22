@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -6,12 +6,8 @@ import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLo
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import type { ChatMessage } from "../domain/chat/types";
 import { filterByDate, isSameDate, toDateKey } from "../domain/chat/messageState";
-import { ensureChatMessagesLoaded, replaceChatMessages } from "../services/chat/chatSessionService";
-import { findConversationIdByDateFromCloud, listDayMessagesFromCloud } from "../services/api/chatHistoryApi";
+import { ensureChatMessagesLoaded } from "../services/chat/chatSessionService";
 import { PRACTICE_CONTACTS, type ChatContact } from "../domain/chat/contacts";
-import { getSession } from "../services/auth/authStorage";
-import { getCurrentEntitlement } from "../services/api/meApi";
-import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import {
   buildPracticeCards,
@@ -32,6 +28,8 @@ const BAND_OPTIONS: Array<{ label: string; value: PracticeAccuracyBand; color: s
   { label: "20-60%", value: "mid", color: "#DED9FF" },
   { label: "60%+", value: "high", color: "#AFA5FF" },
 ];
+const RECENT_DAY_OPTIONS = [3, 7, 14, 30];
+const QUICK_LIMIT_OPTIONS = [5, 10, 20, 30];
 
 export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
   const { isMounted } = useMountedGuard();
@@ -44,7 +42,6 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
   const [recentDays, setRecentDays] = useState(7);
   const [quickLimit, setQuickLimit] = useState(10);
   const [band, setBand] = useState<PracticeAccuracyBand>("any");
-  const lastCloudSyncAtByDateRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     void loadPracticeMessagesFromLocal().then(({ rows, contactMap }) => {
@@ -74,48 +71,14 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
     );
   }
 
-  // 历史/练习数据以云端为准，但 5 分钟内重复进入同一天不再强拉，减少等待感。
-  async function syncDateIfNeeded(date: Date): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
-    const dateKey = toDateKey(date);
-    const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
-    if (Date.now() - lastSyncedAt <= 5 * 60 * 1000) return { rows: messages, contactMap: contactByMessageId };
-    if (!(await hasLocalProAccess())) return { rows: messages, contactMap: contactByMessageId };
-    const session = await getSession();
-    const entitlement = await getCurrentEntitlement().catch(() => null);
-    const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
-    if (entitlement?.isPro !== true) return { rows: messages, contactMap: contactByMessageId };
-    const syncedByContact = await Promise.all(
-      PRACTICE_CONTACTS.map(async (contact) => {
-        const conversationId = await findConversationIdByDateFromCloud({ dateKey, contactId: contact.id });
-        if (!conversationId) return { contact, rows: [] as ChatMessage[] };
-        const rows = await listDayMessagesFromCloud({ conversationId, userId, dateKey });
-        return { contact, rows: rows.map(mapCloudMessage) };
-      }),
-    );
-    const rest = messages.filter((row) => toDateKey(new Date(row.createdAt)) !== dateKey);
-    const mergedRows = syncedByContact.flatMap((item) => item.rows);
-    const next = [...rest, ...mergedRows].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
-    const nextContactMap = new Map(contactByMessageId);
-    for (const item of syncedByContact) {
-      item.rows.forEach((row) => nextContactMap.set(row.id ?? row.localId, item.contact));
-    }
-    setMessages(next);
-    setContactByMessageId(nextContactMap);
-    await Promise.all(
-      syncedByContact.map(async (item) => {
-        const existing = await ensureChatMessagesLoaded(item.contact.id);
-        const restForContact = existing.filter((row) => toDateKey(new Date(row.createdAt)) !== dateKey);
-        await replaceChatMessages(item.contact.id, [...restForContact, ...item.rows].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)));
-      }),
-    );
-    lastCloudSyncAtByDateRef.current[dateKey] = Date.now();
-    return { rows: next, contactMap: nextContactMap };
-  }
-
-  // 日期入口：先确保该日数据新鲜，再按当天消息生成练习卡。
+  // 练习模块只消费聊天模块维护好的本地消息，不在打开练习前重复拉云端历史。
+  // 聊天页负责按天同步、挖空保存和冲突处理；练习页只从本地缓存生成卡片。
+  // 练习过程中产生的答题/丢弃仍在 PracticeSessionScreen 里按需写云端。
   async function openDatePractice(date: Date): Promise<void> {
     await runWithLoading(async () => {
-      const { rows: nextMessages, contactMap } = await syncDateIfNeeded(date);
+      const { rows: nextMessages, contactMap } = await loadPracticeMessagesFromLocal();
+      setMessages(nextMessages);
+      setContactByMessageId(contactMap);
       const nextCards = buildPracticeCards(filterByDate(nextMessages, date), { contactByMessageId: contactMap });
       if (!nextCards.length) {
         setDialog({ message: "这一天没有可练习的填空。" });
@@ -162,11 +125,11 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
           <Text style={styles.sectionTitle}>日历</Text>
           <View style={styles.monthRow}>
             <Pressable style={styles.arrowButton} onPress={() => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>
-              <Ionicons name="chevron-back" size={27} color="#111111" />
+              <Ionicons name="chevron-back" size={22} color="#111111" />
             </Pressable>
             <Text style={styles.monthTitle}>{monthCursor.getFullYear()}年 {monthCursor.getMonth() + 1}月</Text>
             <Pressable style={styles.arrowButton} onPress={() => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>
-              <Ionicons name="chevron-forward" size={27} color="#111111" />
+              <Ionicons name="chevron-forward" size={22} color="#111111" />
             </Pressable>
           </View>
           <View style={styles.weekRow}>{WEEK_LABELS.map((label) => <Text key={label} style={styles.weekText}>{label}</Text>)}</View>
@@ -188,18 +151,17 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
           </View>
         </View>
 
-        <View style={styles.reviewRow}>
-          <ReviewCard title="今日回顾" subtitle={`今天 · ${today.getMonth() + 1}月${today.getDate()}日`} body="进入今天需要复习的内容" onPress={() => void openDatePractice(today)} />
-          <ReviewCard title="昨日回顾" subtitle={`昨天 · ${yesterday.getMonth() + 1}月${yesterday.getDate()}日`} body="查看昨天的复习记录" onPress={() => void openDatePractice(yesterday)} />
+        <View style={styles.reviewStack}>
+          <ReviewButton title="今日回顾" subtitle={`今天 · ${today.getMonth() + 1}月${today.getDate()}日`} onPress={() => void openDatePractice(today)} />
+          <ReviewButton title="昨日回顾" subtitle={`昨天 · ${yesterday.getMonth() + 1}月${yesterday.getDate()}日`} onPress={() => void openDatePractice(yesterday)} />
         </View>
 
         <Pressable style={styles.quickCard} onPress={resetAndOpenQuick}>
-          <View style={styles.quickIcon}><Ionicons name="shuffle-outline" size={30} color="#111111" /></View>
+          <View style={styles.quickIcon}><Ionicons name="shuffle-outline" size={22} color="#111111" /></View>
           <View style={styles.quickBody}>
             <Text style={styles.quickTitle}>快速练习</Text>
             <Text style={styles.quickSubtitle}>随机开始一组练习</Text>
           </View>
-          <Ionicons name="chevron-forward" size={25} color="#111111" />
         </Pressable>
       </ScrollView>
 
@@ -220,6 +182,8 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
   );
 }
 
+// 练习页的历史数据来源只有本地缓存。这个本地缓存由聊天页同步/保存后写入，
+// 避免练习入口再次请求云端，减少进入练习时的等待和重复同步。
 async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
   const chunks = await Promise.all(
     PRACTICE_CONTACTS.map(async (contact) => ({
@@ -237,15 +201,13 @@ async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; c
   return { rows, contactMap };
 }
 
-function ReviewCard({ title, subtitle, body, onPress }: { title: string; subtitle: string; body: string; onPress: () => void }) {
+function ReviewButton({ title, subtitle, onPress }: { title: string; subtitle: string; onPress: () => void }) {
   return (
-    <Pressable style={styles.reviewCard} onPress={onPress}>
-      <Text style={styles.reviewTitle}>{title}</Text>
-      <Text style={styles.reviewSubtitle}>{subtitle}</Text>
-      <Text style={styles.reviewBody}>{body}</Text>
-      <View style={styles.reviewFoot}>
-        <View style={styles.reviewIcon}><Ionicons name="calendar-outline" size={22} color="#111111" /></View>
-        <Ionicons name="chevron-forward" size={24} color="#111111" />
+    <Pressable style={styles.reviewButton} onPress={onPress}>
+      <View style={styles.reviewIcon}><Ionicons name="calendar-outline" size={18} color="#111111" /></View>
+      <View style={styles.reviewBody}>
+        <Text style={styles.reviewTitle}>{title}</Text>
+        <Text style={styles.reviewSubtitle}>{subtitle}</Text>
       </View>
     </Pressable>
   );
@@ -263,34 +225,30 @@ function QuickPracticeSheet(props: {
   onStart: () => void;
 }) {
   return (
-    <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
+    <Modal visible={props.visible} transparent animationType="fade" onRequestClose={props.onClose}>
       <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetScrim} onPress={props.onClose} />
         <View style={styles.sheet}>
           <View style={styles.sheetGrab} />
           <Text style={styles.sheetTitle}>快速练习</Text>
-          <View style={styles.pickerRow}>
-            <NumberColumn title="最近天数" value={props.recentDays} onChange={props.onChangeRecentDays} />
-            <NumberColumn title="练习条数" value={props.limit} onChange={props.onChangeLimit} />
-            <View style={styles.column}>
-              <Text style={styles.columnTitle}>正确率</Text>
-              <ScrollView style={styles.columnScroll} showsVerticalScrollIndicator={false}>
-                {BAND_OPTIONS.map((option) => (
-                  <Pressable
-                    key={option.value}
-                    style={[
-                      styles.bandOption,
-                      { backgroundColor: option.color },
-                      props.band === option.value && styles.optionSelected,
-                    ]}
-                    onPress={() => props.onChangeBand(option.value)}
-                  >
-                    <Text style={styles.optionText}>{option.label}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
+          <OptionGroup
+            title="最近天数"
+            options={RECENT_DAY_OPTIONS.map((value) => ({ label: `${value}天`, value }))}
+            value={props.recentDays}
+            onChange={props.onChangeRecentDays}
+          />
+          <OptionGroup
+            title="练习条数"
+            options={QUICK_LIMIT_OPTIONS.map((value) => ({ label: `${value}条`, value }))}
+            value={props.limit}
+            onChange={props.onChangeLimit}
+          />
+          <OptionGroup
+            title="正确率"
+            options={BAND_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
+            value={props.band}
+            onChange={props.onChangeBand}
+          />
           <Pressable style={styles.startButton} onPress={props.onStart}>
             <Text style={styles.startButtonText}>开始</Text>
           </Pressable>
@@ -300,43 +258,36 @@ function QuickPracticeSheet(props: {
   );
 }
 
-function NumberColumn({ title, value, onChange }: { title: string; value: number; onChange: (value: number) => void }) {
+function OptionGroup<T extends string | number>({
+  title,
+  options,
+  value,
+  onChange,
+}: {
+  title: string;
+  options: Array<{ label: string; value: T }>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
   return (
-    <View style={styles.column}>
-      <Text style={styles.columnTitle}>{title}</Text>
-      <ScrollView style={styles.columnScroll} showsVerticalScrollIndicator={false}>
-        {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
-          <Pressable key={n} style={[styles.numberOption, value === n && styles.optionSelected]} onPress={() => onChange(n)}>
-            <Text style={styles.optionText}>{n}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+    <View style={styles.optionGroup}>
+      <Text style={styles.optionGroupTitle}>{title}</Text>
+      <View style={styles.optionRow}>
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <Pressable
+              key={String(option.value)}
+              style={[styles.chipOption, selected && styles.chipOptionSelected]}
+              onPress={() => onChange(option.value)}
+            >
+              <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{option.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
-}
-
-function mapCloudMessage(row: {
-  id: string;
-  role: "user" | "assistant";
-  status: "pending" | "success" | "failed";
-  content: string;
-  createdAt: string;
-  clozeState?: ChatMessage["clozeState"];
-  clozeVersion?: number;
-  clozePracticeDiscardedAt?: string | null;
-}): ChatMessage {
-  return {
-    id: row.id,
-    localId: row.id,
-    role: row.role,
-    text: row.content,
-    time: new Date(row.createdAt).toTimeString().slice(0, 5),
-    createdAt: row.createdAt,
-    status: row.status,
-    clozeState: row.clozeState ?? null,
-    clozeVersion: row.clozeVersion ?? 0,
-    clozePracticeDiscardedAt: row.clozePracticeDiscardedAt ?? null,
-  };
 }
 
 function buildCalendarCells(monthCursor: Date): Array<{ date: Date | null }> {
@@ -374,172 +325,165 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 26,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 22,
   },
   title: {
-    marginBottom: 28,
+    marginBottom: 16,
     color: "#111111",
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: "500",
     textAlign: "center",
   },
 
   calendarPanel: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 20,
-    borderRadius: 24,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#DDE1E8",
+    borderColor: "#E3E6ED",
     backgroundColor: "#FFFFFF",
   },
   sectionTitle: {
     color: "#111111",
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "500",
   },
   monthRow: {
-    marginTop: 22,
+    marginTop: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   arrowButton: {
-    width: 44,
-    height: 44,
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
   },
   monthTitle: {
     color: "#111111",
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 17,
+    fontWeight: "500",
   },
   weekRow: {
-    marginTop: 22,
+    marginTop: 12,
     flexDirection: "row",
   },
   weekText: {
     width: "14.28%",
     color: "#686E7C",
-    fontSize: 16,
+    fontSize: 12,
     textAlign: "center",
   },
   grid: {
-    marginTop: 12,
+    marginTop: 8,
     flexDirection: "row",
     flexWrap: "wrap",
   },
   dayCell: {
     width: "14.28%",
-    height: 47,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
   },
   dayBubble: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
   dayBubbleLow: {
-    backgroundColor: "#F2EFFF",
+    backgroundColor: "#EAF3FF",
   },
   dayBubbleMid: {
-    backgroundColor: "#DDD8FF",
+    backgroundColor: "#E3F6EC",
   },
   dayBubbleHigh: {
-    backgroundColor: "#9185FF",
+    backgroundColor: "#FFE6C7",
   },
   dayText: {
     color: "#111111",
-    fontSize: 18,
-    fontWeight: "500",
+    fontSize: 14,
+    fontWeight: "400",
   },
   dayTextMuted: {
     color: "#B7BCC7",
   },
 
-  reviewRow: {
-    marginTop: 14,
-    flexDirection: "row",
-    gap: 12,
+  reviewStack: {
+    marginTop: 12,
+    gap: 8,
   },
-  reviewCard: {
-    flex: 1,
-    minHeight: 150,
-    padding: 16,
-    borderRadius: 20,
+  reviewButton: {
+    minHeight: 62,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#DDE1E8",
+    borderColor: "#E3E6ED",
     backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
   },
   reviewTitle: {
     color: "#111111",
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "500",
   },
   reviewSubtitle: {
-    marginTop: 10,
+    marginTop: 2,
     color: "#616777",
-    fontSize: 15,
+    fontSize: 12,
   },
   reviewBody: {
-    marginTop: 18,
-    color: "#616777",
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  reviewFoot: {
-    marginTop: "auto",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flex: 1,
+    marginLeft: 12,
   },
   reviewIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: "#F0ECFF",
     alignItems: "center",
     justifyContent: "center",
   },
 
   quickCard: {
-    marginTop: 16,
-    minHeight: 94,
-    paddingHorizontal: 18,
-    borderRadius: 20,
+    marginTop: 12,
+    minHeight: 62,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#DDE1E8",
+    borderColor: "#E3E6ED",
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
   },
   quickIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: "#F0ECFF",
     alignItems: "center",
     justifyContent: "center",
   },
   quickBody: {
     flex: 1,
-    marginLeft: 18,
+    marginLeft: 12,
   },
   quickTitle: {
     color: "#111111",
-    fontSize: 23,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "500",
   },
   quickSubtitle: {
-    marginTop: 5,
+    marginTop: 2,
     color: "#697080",
-    fontSize: 15,
+    fontSize: 12,
   },
 
   sheetBackdrop: {
@@ -551,81 +495,73 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.18)",
   },
   sheet: {
-    paddingHorizontal: 20,
-    paddingBottom: 26,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
+    paddingHorizontal: 18,
+    paddingBottom: 22,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     backgroundColor: "#FFFFFF",
   },
   sheetGrab: {
     alignSelf: "center",
-    marginTop: 9,
-    width: 56,
-    height: 5,
+    marginTop: 8,
+    width: 46,
+    height: 4,
     borderRadius: 999,
     backgroundColor: "#E1E3EA",
   },
   sheetTitle: {
-    marginTop: 16,
+    marginTop: 14,
     color: "#111111",
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "500",
     textAlign: "center",
   },
-  pickerRow: {
-    marginTop: 18,
-    flexDirection: "row",
-    gap: 10,
+  optionGroup: {
+    marginTop: 16,
   },
-  column: {
-    flex: 1,
-  },
-  columnTitle: {
+  optionGroupTitle: {
     marginBottom: 8,
     color: "#5D6472",
-    fontSize: 13,
-    fontWeight: "700",
-    textAlign: "center",
+    fontSize: 12,
+    fontWeight: "500",
   },
-  columnScroll: {
-    height: 190,
+  optionRow: {
+    flexDirection: "row",
+    gap: 8,
   },
-  numberOption: {
-    height: 42,
-    marginBottom: 8,
-    borderRadius: 12,
-    backgroundColor: "#F6F7FA",
+  chipOption: {
+    flex: 1,
+    height: 38,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#DFE3EA",
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
   },
-  bandOption: {
-    minHeight: 42,
-    marginBottom: 8,
-    paddingHorizontal: 6,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  optionSelected: {
-    borderWidth: 2,
+  chipOptionSelected: {
     borderColor: "#111111",
+    backgroundColor: "#111111",
   },
   optionText: {
-    color: "#111111",
-    fontSize: 15,
-    fontWeight: "700",
+    color: "#5D6470",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  optionTextSelected: {
+    color: "#FFFFFF",
   },
   startButton: {
-    marginTop: 20,
-    height: 52,
-    borderRadius: 18,
+    marginTop: 16,
+    height: 46,
+    borderRadius: 16,
     backgroundColor: "#111111",
     alignItems: "center",
     justifyContent: "center",
   },
   startButtonText: {
     color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "600",
   },
 });
