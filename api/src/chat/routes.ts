@@ -45,6 +45,12 @@ type ListConversationDateKeysQuery = {
   toDateKey?: string;
 };
 
+type ListPracticeDateKeysQuery = {
+  contactIds?: string;
+  fromDateKey?: string;
+  toDateKey?: string;
+};
+
 type ListDayPageQuery = {
   conversationId: string;
   dateKey: string;
@@ -558,6 +564,82 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
         toDateKey,
       });
 
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (isProRequiredError(error)) {
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "PRO_REQUIRED", message: "Pro access required" },
+        });
+      }
+      throw error;
+    }
+  });
+
+  // 练习页先拿“哪些天有练习”，再按这些天拉消息；不要为了日历盲扫整月消息。
+  app.get("/chat/practice/date-keys", async (req, reply) => {
+    const query = req.query as Partial<ListPracticeDateKeysQuery>;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const contactIds = (query.contactIds ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const fromDateKey = query.fromDateKey?.trim();
+    const toDateKey = query.toDateKey?.trim();
+
+    if (!contactIds.length || !fromDateKey || !toDateKey) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "contactIds, fromDateKey and toDateKey are required" },
+      });
+    }
+
+    let userContext;
+    try {
+      userContext = await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: null,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/practice/date-keys" },
+        });
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
+    }
+
+    try {
+      await assertProCloudAccess(deps, userContext.userId);
+      const data = await deps.chatMessageService.listPracticeDateKeys({
+        userId: userContext.userId,
+        contactIds,
+        fromDateKey,
+        toDateKey,
+      });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       if (isProRequiredError(error)) {

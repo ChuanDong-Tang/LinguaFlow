@@ -1,12 +1,20 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLoading } from "./shared/BlockingLoading";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
+import { useFloatingNotice, type FloatingNoticeOptions } from "./shared/FloatingNotice";
 import type { ChatMessage } from "../domain/chat/types";
 import { filterByDate, isSameDate, toDateKey } from "../domain/chat/messageState";
 import { listStoredChatDateKeys, loadChatMessagesByDate } from "../services/chat/chatSessionService";
+import {
+  findConversationIdByDateFromCloud,
+  listDayMessagesFromCloud,
+  listPracticeDateKeysFromCloud,
+  type MessageView,
+} from "../services/api/chatHistoryApi";
+import { getSession } from "../services/auth/authStorage";
 import { PRACTICE_CONTACTS, type ChatContact } from "../domain/chat/contacts";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import {
@@ -32,26 +40,42 @@ const RECENT_DAY_OPTIONS = [3, 7, 14, 30];
 const QUICK_LIMIT_OPTIONS = [5, 10, 20, 30];
 
 export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
+  const { showNotice } = useFloatingNotice();
   const { isMounted } = useMountedGuard();
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [contactByMessageId, setContactByMessageId] = useState<Map<string, ChatContact>>(new Map());
+  const [isSyncingPracticeDateKeys, setIsSyncingPracticeDateKeys] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   const [recentDays, setRecentDays] = useState(7);
   const [quickLimit, setQuickLimit] = useState(10);
   const [band, setBand] = useState<PracticeAccuracyBand>("any");
+  const loadedPracticeMonthKeysRef = useRef<Set<string>>(new Set());
+  const practiceDateKeyAbortRef = useRef<AbortController | null>(null);
+  const practiceDateKeyNoticeRef = useRef<{ hide: () => void; update: (next: Partial<FloatingNoticeOptions>) => void } | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const contactByMessageIdRef = useRef<Map<string, ChatContact>>(new Map());
 
   useEffect(() => {
     void loadPracticeMessagesFromLocal().then(({ rows, contactMap }) => {
       if (!isMounted()) return;
-      setMessages(rows);
-      setContactByMessageId(contactMap);
+      applyPracticeMessages(rows, contactMap);
     });
   }, [isMounted]);
 
-  const dayStats = useMemo(() => summarizePracticeDays(messages, { contactByMessageId }), [contactByMessageId, messages]);
+  useEffect(() => {
+    void syncPracticeMonthDateKeys(monthCursor);
+    return () => {
+      practiceDateKeyAbortRef.current?.abort();
+      practiceDateKeyAbortRef.current = null;
+      practiceDateKeyNoticeRef.current?.hide();
+      practiceDateKeyNoticeRef.current = null;
+    };
+  }, [monthCursor]);
+
+  const localDayStats = useMemo(() => summarizePracticeDays(messages, { contactByMessageId }), [contactByMessageId, messages]);
   const cells = useMemo(() => buildCalendarCells(monthCursor), [monthCursor]);
   const today = new Date();
   const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
@@ -71,14 +95,36 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
     );
   }
 
-  // 练习模块只消费聊天模块维护好的本地消息，不在打开练习前重复拉云端历史。
-  // 聊天页负责按天同步、挖空保存和冲突处理；练习页只从本地缓存生成卡片。
-  // 练习过程中产生的答题/丢弃仍在 PracticeSessionScreen 里按需写云端。
+  function applyPracticeMessages(rows: ChatMessage[], contactMap: Map<string, ChatContact>): void {
+    messagesRef.current = rows;
+    contactByMessageIdRef.current = contactMap;
+    setMessages(rows);
+    setContactByMessageId(contactMap);
+  }
+
+  function mergeIntoPracticeMessages(rows: ChatMessage[], contactMap: Map<string, ChatContact>): void {
+    const merged = mergePracticeMessages(
+      messagesRef.current,
+      contactByMessageIdRef.current,
+      rows,
+      contactMap
+    );
+    applyPracticeMessages(merged.rows, merged.contactMap);
+  }
+
+  // 点击入口时再扫一遍本地桶，吃到刚刚聊天页同步/练习页写回的最新数据。
+  // 同步日期和拉练习消息还没结束时直接无反应，右上角转圈提示负责告诉用户正在做什么。
   async function openDatePractice(date: Date): Promise<void> {
+    if (isSyncingPracticeDateKeys) return;
     await runWithLoading(async () => {
-      const { rows: nextMessages, contactMap } = await loadPracticeMessagesFromLocal();
-      setMessages(nextMessages);
-      setContactByMessageId(contactMap);
+      const { rows: localRows, contactMap: localContactMap } = await loadPracticeMessagesFromLocal();
+      const { rows: nextMessages, contactMap } = mergePracticeMessages(
+        messagesRef.current,
+        contactByMessageIdRef.current,
+        localRows,
+        localContactMap
+      );
+      applyPracticeMessages(nextMessages, contactMap);
       const nextCards = buildPracticeCards(filterByDate(nextMessages, date), { contactByMessageId: contactMap });
       if (!nextCards.length) {
         setDialog({ message: "这一天没有可练习的填空。" });
@@ -90,10 +136,16 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
 
   // 快速练习只随机挑选符合条件的现有练习卡，不记忆用户这次的筛选条件。
   async function openQuickPractice(): Promise<void> {
+    if (isSyncingPracticeDateKeys) return;
     await runWithLoading(async () => {
-      const { rows: nextMessages, contactMap } = await loadPracticeMessagesFromLocal();
-      setMessages(nextMessages);
-      setContactByMessageId(contactMap);
+      const { rows: localRows, contactMap: localContactMap } = await loadPracticeMessagesFromLocal();
+      const { rows: nextMessages, contactMap } = mergePracticeMessages(
+        messagesRef.current,
+        contactByMessageIdRef.current,
+        localRows,
+        localContactMap
+      );
+      applyPracticeMessages(nextMessages, contactMap);
       const picked = filterPracticeCards({
         cards: buildPracticeCards(nextMessages, { contactByMessageId: contactMap }),
         recentDays,
@@ -110,10 +162,59 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
   }
 
   function resetAndOpenQuick(): void {
+    if (isSyncingPracticeDateKeys) return;
     setRecentDays(7);
     setQuickLimit(10);
     setBand("any");
     setQuickOpen(true);
+  }
+
+  async function syncPracticeMonthDateKeys(cursor: Date): Promise<void> {
+    const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
+    if (loadedPracticeMonthKeysRef.current.has(monthKey)) return;
+    loadedPracticeMonthKeysRef.current.add(monthKey);
+    practiceDateKeyAbortRef.current?.abort();
+    practiceDateKeyNoticeRef.current?.hide();
+    const controller = new AbortController();
+    practiceDateKeyAbortRef.current = controller;
+    setIsSyncingPracticeDateKeys(true);
+    const notice = showNotice({
+      message: "正在同步练习日期...",
+      type: "info",
+      position: "top-right",
+      durationMs: 0,
+    });
+    practiceDateKeyNoticeRef.current = notice;
+
+    try {
+      const keys = await listPracticeDateKeysFromCloud({
+        contactIds: PRACTICE_CONTACTS.map((contact) => contact.id),
+        fromDateKey,
+        toDateKey: monthEndDateKey,
+        signal: controller.signal,
+      });
+      // 只同步“这个月有练习的日期”和这些日期上的练习消息；不拉全量聊天历史。
+      // 这样日历能直接用真实正确率上色，换设备也不会因为本地缓存为空而看不到练习。
+      const synced = await loadPracticeMessagesFromCloud(Array.from(keys), controller.signal);
+      if (!isMounted()) return;
+      mergeIntoPracticeMessages(synced.rows, synced.contactMap);
+      notice.update({ message: "练习日期已更新", type: "success", durationMs: 1200 });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        loadedPracticeMonthKeysRef.current.delete(monthKey);
+        notice.hide();
+        return;
+      }
+      loadedPracticeMonthKeysRef.current.delete(monthKey);
+      notice.update({ message: "练习日期同步失败", type: "warning", durationMs: 1800 });
+    } finally {
+      // 切换月份会 abort 上一次同步；旧请求收尾时不能关闭新请求的转圈提示/禁点状态。
+      if (practiceDateKeyAbortRef.current === controller) {
+        practiceDateKeyAbortRef.current = null;
+        if (isMounted()) setIsSyncingPracticeDateKeys(false);
+      }
+      if (practiceDateKeyNoticeRef.current === notice) practiceDateKeyNoticeRef.current = null;
+    }
   }
 
   return (
@@ -137,9 +238,9 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
             {cells.map((cell, index) => {
               if (!cell.date) return <View key={`blank-${index}`} style={styles.dayCell} />;
               const key = toDateKey(cell.date);
-              const stats = dayStats.get(key);
+              const stats = localDayStats.get(key);
               const isCurrentMonth = cell.date.getMonth() === monthCursor.getMonth();
-              const enabled = isCurrentMonth && !!stats?.total;
+              const enabled = isCurrentMonth && !!stats;
               return (
                 <Pressable key={key} style={styles.dayCell} disabled={!enabled} onPress={() => void openDatePractice(cell.date!)}>
                   <View style={[styles.dayBubble, enabled && bandBubble(stats.band)]}>
@@ -182,8 +283,8 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
   );
 }
 
-// 练习页的历史数据来源只有本地缓存。这个本地缓存由聊天页同步/保存后写入，
-// 避免练习入口再次请求云端，减少进入练习时的等待和重复同步。
+// 本地桶仍是练习的基础快照；打开月份时会额外按 dateKey 轻量拉云端练习消息，
+// 用来补齐换设备/本地缓存缺失的场景，并让日历正确率颜色可信。
 async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
   const chunks = await Promise.all(PRACTICE_CONTACTS.map(async (contact) => {
     const days = await listStoredChatDateKeys(contact.id);
@@ -201,6 +302,72 @@ async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; c
     })
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
   return { rows, contactMap };
+}
+
+async function loadPracticeMessagesFromCloud(
+  dateKeys: string[],
+  signal: AbortSignal
+): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
+  const session = await getSession();
+  const userId = session?.user?.id ?? "mock_user_001";
+  const chunks = await Promise.all(PRACTICE_CONTACTS.flatMap((contact) =>
+    dateKeys.map(async (dateKey) => {
+      const conversationId = await findConversationIdByDateFromCloud({ contactId: contact.id, dateKey, signal });
+      if (!conversationId) return { contact, rows: [] as ChatMessage[] };
+      const rows = await listDayMessagesFromCloud({ conversationId, userId, dateKey, signal });
+      return {
+        contact,
+        rows: rows.map(mapCloudMessage),
+      };
+    })
+  ));
+  const contactMap = new Map<string, ChatContact>();
+  const rows = chunks
+    .flatMap((chunk) => {
+      chunk.rows.forEach((row) => contactMap.set(row.id ?? row.localId, chunk.contact));
+      return chunk.rows;
+    })
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  return { rows, contactMap };
+}
+
+function mapCloudMessage(row: MessageView): ChatMessage {
+  return {
+    id: row.id,
+    localId: row.id,
+    role: row.role,
+    text: row.content,
+    time: new Date(row.createdAt).toTimeString().slice(0, 5),
+    createdAt: row.createdAt,
+    conversationDateKey: row.conversationDateKey ?? null,
+    status: row.status,
+    clozeState: row.clozeState ?? null,
+    clozeVersion: row.clozeVersion ?? 0,
+    clozePracticeDiscardedAt: row.clozePracticeDiscardedAt ?? null,
+  };
+}
+
+function mergePracticeMessages(
+  leftRows: ChatMessage[],
+  leftMap: Map<string, ChatContact>,
+  rightRows: ChatMessage[],
+  rightMap: Map<string, ChatContact>
+): { rows: ChatMessage[]; contactMap: Map<string, ChatContact> } {
+  const byKey = new Map<string, ChatMessage>();
+  for (const row of [...leftRows, ...rightRows]) {
+    byKey.set(row.id ?? row.localId, row);
+  }
+  const contactMap = mergeContactMaps(leftMap, rightMap);
+  return {
+    rows: Array.from(byKey.values()).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
+    contactMap,
+  };
+}
+
+function mergeContactMaps(left: Map<string, ChatContact>, right: Map<string, ChatContact>): Map<string, ChatContact> {
+  const next = new Map(left);
+  right.forEach((contact, messageId) => next.set(messageId, contact));
+  return next;
 }
 
 function ReviewButton({ title, subtitle, onPress }: { title: string; subtitle: string; onPress: () => void }) {
@@ -310,6 +477,16 @@ function buildCalendarCells(monthCursor: Date): Array<{ date: Date | null }> {
     nextDay += 1;
   }
   return cells;
+}
+
+function getMonthRange(cursor: Date): { monthKey: string; fromDateKey: string; toDateKey: string } {
+  const firstDay = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+  return {
+    monthKey: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
+    fromDateKey: toDateKey(firstDay),
+    toDateKey: toDateKey(lastDay),
+  };
 }
 
 function bandBubble(band: "low" | "mid" | "high") {

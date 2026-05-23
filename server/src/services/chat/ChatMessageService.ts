@@ -44,6 +44,13 @@ export interface ListConversationDateKeysInput {
   toDateKey: string;
 }
 
+export interface ListPracticeDateKeysInput {
+  userId: string;
+  contactIds: string[];
+  fromDateKey: string;
+  toDateKey: string;
+}
+
 export interface ListDayMessagesPageInput {
   conversationId: string;
   userId: string;
@@ -229,6 +236,10 @@ export class ChatMessageService {
 
   async listConversationDateKeys(input: ListConversationDateKeysInput): Promise<string[]> {
     return this.messageRepository.listDateKeysByUserContactRange(input);
+  }
+
+  async listPracticeDateKeys(input: ListPracticeDateKeysInput): Promise<string[]> {
+    return this.messageRepository.listPracticeDateKeysByUserRange(input);
   }
 
   async listConversationMessagesByDateRange(

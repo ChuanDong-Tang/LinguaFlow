@@ -146,6 +146,30 @@ export async function listConversationDateKeysFromCloud(input: {
   return new Set(json.data);
 }
 
+export async function listPracticeDateKeysFromCloud(input: {
+  contactIds: string[];
+  fromDateKey: string;
+  toDateKey: string;
+  signal?: AbortSignal;
+}): Promise<Set<string>> {
+  const params = new URLSearchParams();
+  params.set("contactIds", input.contactIds.join(","));
+  params.set("fromDateKey", input.fromDateKey);
+  params.set("toDateKey", input.toDateKey);
+
+  const res = await fetch(`${BASE_URL}/chat/practice/date-keys?${params.toString()}`, {
+    headers: await getAuthHeaders(),
+    signal: input.signal,
+  });
+  const json = (await res.json()) as ApiResult<string[]>;
+
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+
+  return new Set(json.data);
+}
+
 export async function updateMessageClozeState(input: {
   messageId: string;
   baseVersion: number;

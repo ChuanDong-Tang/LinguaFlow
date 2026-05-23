@@ -5,6 +5,7 @@ import type {
   ListByConversationDayPageInput,
   ListByConversationRangeInput,
   ListDateKeysByUserContactRangeInput,
+  ListPracticeDateKeysByUserRangeInput,
   MessageEntity,
   MessageRepository,
   UpdateMessageClozeInput,
@@ -208,6 +209,52 @@ export class PrismaMessageRepository implements MessageRepository {
         ],
         conversation: {
           contactId: input.contactId,
+          archivedAt: null,
+        },
+      },
+      select: {
+        createdAt: true,
+        conversationDateKey: true,
+      },
+      orderBy: [{ createdAt: "asc" }],
+    });
+
+    const keys = new Set<string>();
+    for (const row of rows) {
+      keys.add(row.conversationDateKey ?? formatDateKey(row.createdAt));
+    }
+    return Array.from(keys);
+  }
+
+  async listPracticeDateKeysByUserRange(input: ListPracticeDateKeysByUserRangeInput): Promise<string[]> {
+    const from = new Date(`${input.fromDateKey}T00:00:00+08:00`);
+    const to = new Date(`${input.toDateKey}T23:59:59.999+08:00`);
+    // 练习日历只需要知道哪些天有可练习的 assistant 消息；
+    // 先查 dateKey，前端再按这些天拉消息，避免盲扫整个月每天。
+    const rows = await this.prisma.message.findMany({
+      where: {
+        userId: input.userId,
+        role: "assistant",
+        status: "success",
+        clozeState: { not: null },
+        clozePracticeDiscardedAt: null,
+        OR: [
+          {
+            conversationDateKey: {
+              gte: input.fromDateKey,
+              lte: input.toDateKey,
+            },
+          },
+          {
+            conversationDateKey: null,
+            createdAt: {
+              gte: from,
+              lte: to,
+            },
+          },
+        ],
+        conversation: {
+          contactId: { in: input.contactIds },
           archivedAt: null,
         },
       },
