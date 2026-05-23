@@ -29,7 +29,7 @@ export function useExclusiveSyncMachine<TKind extends string>() {
   const setPhase = useCallback((token: number, phase: Exclude<SyncPhase, "idle">): void => {
     const active = activeRef.current;
     if (!active || active.token !== token) return;
-    // 中文注释：状态机只记录业务阶段，不直接管 UI；notice / loading 在外面根据 phase 做副作用。
+    // 状态机只记录业务阶段，不直接管 UI；notice / loading 在外面根据 phase 做副作用。
     setState({
       kind: active.kind,
       phase,
@@ -41,7 +41,7 @@ export function useExclusiveSyncMachine<TKind extends string>() {
   const peek = useCallback((): ExclusiveSyncState<TKind> => state, [state]);
 
   const begin = useCallback((kind: TKind, scopeKey: string): { token: number; controller: AbortController } => {
-    // 中文注释：新任务进来时，直接让旧任务退场，避免旧同步和新同步同时抢 state / notice。
+    // 新任务进来时，直接让旧任务退场，避免旧同步和新同步同时抢 state / notice。
     activeRef.current?.controller.abort();
     const token = nextTokenRef.current++;
     const controller = new AbortController();
@@ -54,7 +54,7 @@ export function useExclusiveSyncMachine<TKind extends string>() {
     const active = activeRef.current;
     if (!active || active.token !== token) return;
     activeRef.current = null;
-    // 中文注释：settle 只是把业务任务收尾，外层提示该 hide 还是 update 由页面自己决定。
+    // settle 只是把业务任务收尾，外层提示该 hide 还是 update 由页面自己决定。
     setState({ kind: "idle", phase: "idle", scopeKey: null, token });
   }, []);
 
