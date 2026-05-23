@@ -14,7 +14,6 @@ import {
   findConversationIdByDateFromCloud,
   listConversationDateKeysFromCloud,
   listDayMessagesFromCloud,
-  updateMessageClozeState,
 } from "../services/api/chatHistoryApi";
 import { createLocalChatPair } from "../services/chat/chatGenerationService";
 import {
@@ -27,12 +26,12 @@ import {
   subscribeChatGenerationActivity,
   subscribeChatSession,
 } from "../services/chat/chatSessionService";
-import {
-  type AutoCopyMode,
-  loadAssistantPreferences,
-  saveAssistantPreferences,
-} from "../services/preferences/assistantPreferences";
-import { copyTextToClipboard } from "../services/device/clipboardService";
+import { copyAssistantTaggedText } from "../services/chat/assistantCopyService";
+import { getMonthRange, selectedDateLabelText } from "../services/chat/chatDateRange";
+import { getChatGenerationInputLimits } from "../services/chat/chatInputLimits";
+import { areMessageRowsEquivalent, toDisplayRows } from "../services/chat/chatMessageView";
+import { useAssistantAutoCopyPreferences } from "../hooks/useAssistantAutoCopyPreferences";
+import { useKeyboardAwareChatScroll } from "../hooks/useKeyboardAwareChatScroll";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatComposer } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
@@ -44,64 +43,19 @@ import {
 } from "./shared/BlockingLoading";
 import { useFloatingNotice } from "./shared/FloatingNotice";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
-import {
-  ClozeControls,
-  type ClozeDeleteState,
-  type ClozeEditorState,
-} from "./chat/ClozeControls";
+import { ClozeControls } from "./chat/ClozeControls";
 import type { ChatMessage } from "../domain/chat/types";
-import type { NativeTextSelectionPayload } from "./chat/SelectableMessageText";
+import { useChatClozeEditing } from "../hooks/useChatClozeEditing";
 import {
-  expandSelectionToTokenRange,
-  normalizeClozeState,
-  removeClozeGroup,
-  replaceClozeGroup,
-} from "../domain/cloze/clozeUtils";
-import { getAssistantClozeText } from "../domain/cloze/clozeText";
-import { getRewriteChinese, getRewriteEnglish } from "../domain/rewrite/taggedRewrite";
-import {
-  getMessageDateKey,
   isSameDate,
   toDateKey,
 } from "../domain/chat/messageState";
 import type { ChatContact } from "../domain/chat/contacts";
 
-function getMonthRange(cursor: Date): { monthKey: string; fromDateKey: string; toDateKey: string } {
-  const firstDay = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
-
-  return {
-    monthKey: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
-    fromDateKey: toDateKey(firstDay),
-    toDateKey: toDateKey(lastDay),
-  };
-}
-
 type ChatScreenProps = {
   contact: ChatContact;
   onBack: () => void;
 };
-
-const DEFAULT_CHAT_GENERATION_MIN_INPUT_CHARS = 10;
-const DEFAULT_CHAT_GENERATION_MAX_INPUT_CHARS = 3000;
-
-function readPositiveIntEnv(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function getChatGenerationInputLimits(): { min: number; max: number } {
-  return {
-    min: readPositiveIntEnv(
-      process.env.EXPO_PUBLIC_CHAT_GENERATION_MIN_INPUT_CHARS,
-      DEFAULT_CHAT_GENERATION_MIN_INPUT_CHARS
-    ),
-    max: readPositiveIntEnv(
-      process.env.EXPO_PUBLIC_CHAT_GENERATION_MAX_INPUT_CHARS,
-      DEFAULT_CHAT_GENERATION_MAX_INPUT_CHARS
-    ),
-  };
-}
 
 export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
@@ -117,13 +71,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [dayMessages, setDayMessages] = useState<ChatMessage[]>([]);
   const [localDateKeys, setLocalDateKeys] = useState<Set<string>>(new Set());
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
-  const [autoCopyAfterGeneration, setAutoCopyAfterGeneration] = useState(true);
-  const [autoCopyMode, setAutoCopyMode] = useState<AutoCopyMode>("en");
+  const { autoCopyAfterGeneration, autoCopyMode, openAutoCopyMenu } = useAssistantAutoCopyPreferences();
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
-  const [keyboardInset, setKeyboardInset] = useState(0);
-  const [clozeEditor, setClozeEditor] = useState<ClozeEditorState | null>(null);
-  const [clozeDelete, setClozeDelete] = useState<ClozeDeleteState | null>(null);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const [isTodaySyncing, setIsTodaySyncing] = useState(false);
@@ -141,12 +91,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const isTodaySyncingRef = useRef(false);
   const syncNoticeRef = useRef<{ hide: () => void; update: (next: any) => void; kind: "calendar" | "messages" | "cloze" } | null>(null);
   const syncAbortControllersRef = useRef<AbortController[]>([]);
-  const clozeSaveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
   const scrollToBottom = React.useCallback((animated = false): void => {
     requestAnimationFrame(() => {
       messageListRef.current?.scrollToEnd({ animated });
     });
   }, []);
+  const keyboardInset = useKeyboardAwareChatScroll(scrollToBottom, messages.length);
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
     const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
@@ -192,22 +142,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   useEffect(() => {
     isTodaySyncingRef.current = isTodaySyncing;
   }, [isTodaySyncing]);
-
-  // 启动初始化：加载自动复制偏好。
-  useEffect(() => {
-    let cancelled = false;
-    async function bootstrapPreferences() {
-      const preferences = await loadAssistantPreferences();
-      if (!cancelled) {
-        setAutoCopyAfterGeneration(preferences.autoCopyAfterGeneration);
-        setAutoCopyMode(preferences.autoCopyMode);
-      }
-    }
-    void bootstrapPreferences();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // 启动初始化：加载本地权益快照，用于额度和 Pro 历史同步开关。
   useEffect(() => {
@@ -272,36 +206,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     });
   }, []);
 
-  // 键盘监听：键盘弹出/收起时调整底部间距并滚动到底部。
-  useEffect(() => {
-    const onKeyboardShow = (event: any) => {
-      const height = Math.max(0, event.endCoordinates?.height ?? 0);
-      setKeyboardInset(height);
-      scrollToBottom(false);
-      setTimeout(() => scrollToBottom(false), 32);
-    };
-    const onKeyboardHide = () => {
-      setKeyboardInset(0);
-      scrollToBottom(false);
-      setTimeout(() => scrollToBottom(false), 32);
-    };
-    const showSub = Keyboard.addListener("keyboardDidShow", onKeyboardShow);
-    const hideSub = Keyboard.addListener("keyboardDidHide", onKeyboardHide);
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [scrollToBottom]);
-
-  // 键盘补偿滚动：键盘高度或消息数变化后，再补一次滚动，避免末尾被遮挡。
-  useEffect(() => {
-    if (keyboardInset <= 0) return;
-    const timer = setTimeout(() => {
-      scrollToBottom(false);
-    }, 48);
-    return () => clearTimeout(timer);
-  }, [keyboardInset, messages.length, scrollToBottom]);
-
   // 启动同步：进入聊天页后静默同步今天，兼顾多端新增消息。
   useEffect(() => {
     const today = new Date();
@@ -320,29 +224,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     void preloadCloudMonthDateKeys(monthCursor);
   }, [isDateSheetOpen, monthCursor]);
 
-  async function copyAssistantText(text: string, silent = false): Promise<void> {
-    try {
-      const ok = await copyTextToClipboard(text);
-      if (!ok && !silent) {
-        Alert.alert("没有可复制的内容");
-      }
-    } catch {
-      Alert.alert("复制失败", "请稍后重试，或手动选择内容复制。");
-    }
-  }
-
-  async function copyAssistantTaggedText(text: string, mode: AutoCopyMode, silent = false): Promise<void> {
-    const en = getRewriteEnglish(text).trim();
-    const zh = getRewriteChinese(text).trim();
-    const copyText =
-      mode === "en"
-        ? en
-        : mode === "zh"
-          ? zh
-          : [en, zh].filter(Boolean).join("\n");
-    await copyAssistantText(copyText || text, silent);
-  }
-
   const handleCopyMessage = React.useCallback(
     (message: ChatMessage) => {
       void copyAssistantTaggedText(message.text, autoCopyMode);
@@ -353,212 +234,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const handleScrollBeginDrag = React.useCallback(() => {
     Keyboard.dismiss();
   }, []);
-
-  const blockClozeWhenSelectedDateSyncing = React.useCallback((): boolean => {
-    return isSelectedDateSyncing;
-  }, [isSelectedDateSyncing]);
-
-  const handleTextSelection = React.useCallback(
-    (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
-      if (blockClozeWhenSelectedDateSyncing()) {
-        clearSelection();
-        return;
-      }
-      if (payload.start === payload.end) {
-        return;
-      }
-      const expanded = expandSelectionToTokenRange(
-        getAssistantClozeText(message, contact).text,
-        payload.start,
-        payload.end,
-        message.clozeState,
-      );
-      if (!expanded) {
-        return;
-      }
-      clearSelection();
-      setClozeEditor({
-        message,
-        groupIndex: null,
-        tokenIndexes: expanded.tokenIndexes,
-        draftBlankIndexes: [],
-      });
-    },
-    [blockClozeWhenSelectedDateSyncing, contact],
-  );
-
-  const handleEditClozeGroup = React.useCallback((message: ChatMessage, groupIndex: number) => {
-    if (blockClozeWhenSelectedDateSyncing()) return;
-    const group = normalizeClozeState(message.clozeState)?.groups[groupIndex];
-    if (!group) return;
-    setClozeEditor({
-      message,
-      groupIndex,
-      tokenIndexes: group.tokenIndexes,
-      draftBlankIndexes: group.blankTokenIndexes,
-    });
-  }, [blockClozeWhenSelectedDateSyncing]);
-
-  const handleDeleteClozeGroup = React.useCallback((message: ChatMessage, groupIndex: number) => {
-    if (blockClozeWhenSelectedDateSyncing()) return;
-    setClozeDelete({ message, groupIndex });
-  }, [blockClozeWhenSelectedDateSyncing]);
-
-  async function confirmDeleteCloze(): Promise<void> {
-    if (!clozeDelete) return;
-    const target = clozeDelete;
-    setClozeDelete(null);
-    await runHistoryLoading(() =>
-      saveMessageCloze(target.message, removeClozeGroup(target.message.clozeState, target.groupIndex))
-    );
-  }
-
-  function toggleDraftToken(tokenIndex: number): void {
-    setClozeEditor((current) => {
-      if (!current) return current;
-      const set = new Set(current.draftBlankIndexes);
-      if (set.has(tokenIndex)) set.delete(tokenIndex);
-      else set.add(tokenIndex);
-      return { ...current, draftBlankIndexes: Array.from(set).sort((a, b) => a - b) };
-    });
-  }
-
-  async function confirmClozeEditor(): Promise<void> {
-    if (!clozeEditor) return;
-    const nextState = replaceClozeGroup(
-      clozeEditor.message.clozeState,
-      clozeEditor.groupIndex,
-      clozeEditor.tokenIndexes,
-      clozeEditor.draftBlankIndexes,
-    );
-    const target = clozeEditor.message;
-    setClozeEditor(null);
-    syncNoticeRef.current?.hide();
-    const notice = {
-      kind: "cloze" as const,
-      ...showNotice({
-        message: "正在保存...",
-        type: "info",
-        position: "top-right",
-        durationMs: 0,
-      }),
-    };
-    syncNoticeRef.current = notice;
-    try {
-      await saveMessageCloze(target, nextState);
-      notice.update({ message: "已保存", type: "success", durationMs: 1200 });
-    } catch (error) {
-      notice.update({ message: "保存失败", type: "warning", durationMs: 1800 });
-      setDialog({ message: "保存填空失败，请稍后重试。" });
-    } finally {
-      if (syncNoticeRef.current === notice) {
-        syncNoticeRef.current = null;
-      }
-    }
-  }
-
-  async function saveMessageCloze(message: ChatMessage, clozeState: ChatMessage["clozeState"]): Promise<void> {
-    const key = message.id ?? message.localId;
-    const previous = clozeSaveQueueRef.current.get(key) ?? Promise.resolve();
-    const queued = previous
-      .catch(() => undefined)
-      .then(() => persistMessageCloze(message, clozeState));
-    clozeSaveQueueRef.current.set(key, queued);
-    try {
-      await queued;
-    } finally {
-      if (clozeSaveQueueRef.current.get(key) === queued) {
-        clozeSaveQueueRef.current.delete(key);
-      }
-    }
-  }
-
-  async function persistMessageCloze(message: ChatMessage, clozeState: ChatMessage["clozeState"]): Promise<void> {
-    const matches = (row: ChatMessage) => isSameChatMessage(row, message);
-    const currentDay = await loadChatMessagesByDate(contactId, getMessageDateKey(message));
-    const currentMessage = currentDay.find(matches) ?? message;
-    const baseVersion = currentMessage.clozeVersion ?? 0;
-    const optimistic = { ...currentMessage, clozeState, clozeVersion: baseVersion + 1 };
-    await applyMessageUpdate(optimistic);
-
-    if (currentMessage.id) {
-      const isPro = await hasLocalProAccess();
-      isProEntitledRef.current = isPro;
-      setIsProEntitled(isPro);
-    }
-
-    if (!isProEntitledRef.current || !currentMessage.id) {
-      return;
-    }
-
-    try {
-      const saved = await updateMessageClozeState({
-        messageId: currentMessage.id,
-        baseVersion,
-        clozeState,
-      });
-      await applyMessageUpdate({
-        ...optimistic,
-        clozeState: saved.clozeState ?? null,
-        clozeVersion: saved.clozeVersion,
-      });
-    } catch (error) {
-      const latest = (error as { latest?: { clozeState: ChatMessage["clozeState"]; clozeVersion: number } }).latest;
-      if (latest) {
-        await applyMessageUpdate({
-          ...currentMessage,
-          clozeState: latest.clozeState ?? null,
-          clozeVersion: latest.clozeVersion,
-        });
-        return;
-      }
-      await applyMessageUpdate(currentMessage);
-      throw error;
-    }
-  }
-
-  async function applyMessageUpdate(nextMessage: ChatMessage): Promise<void> {
-    const replace = (rows: ChatMessage[]) =>
-      rows.map((row) => (isSameChatMessage(row, nextMessage) ? nextMessage : row));
-    const dayKey = getMessageDateKey(nextMessage);
-    const currentDay = await loadChatMessagesByDate(contactId, dayKey);
-    const nextDayFromStorage = replace(currentDay);
-    await replaceChatMessagesByDate(contactId, dayKey, nextDayFromStorage);
-    const nextDay = replace(dayMessages);
-    setDayMessages(nextDay);
-    setMessages(nextDay);
-    setLocalDateKeys((prev) => new Set([...prev, dayKey]));
-  }
-
-  async function handleSetAutoCopyMode(mode: AutoCopyMode): Promise<void> {
-    setAutoCopyAfterGeneration(true);
-    setAutoCopyMode(mode);
-    await saveAssistantPreferences({ autoCopyAfterGeneration: true, autoCopyMode: mode });
-  }
-
-  function handleOpenMenu(): void {
-    Alert.alert("自动复制", autoCopyModeLabel(autoCopyMode), [
-      {
-        text: "只自动复制英文",
-        onPress: () => {
-          void handleSetAutoCopyMode("en");
-        },
-      },
-      {
-        text: "只自动复制中文",
-        onPress: () => {
-          void handleSetAutoCopyMode("zh");
-        },
-      },
-      {
-        text: "两个都自动复制",
-        onPress: () => {
-          void handleSetAutoCopyMode("both");
-        },
-      },
-      { text: "取消", style: "cancel" },
-    ]);
-  }
 
   async function handleSend(): Promise<void> {
     const text = inputText.trim();
@@ -705,12 +380,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     scrollToBottom(false);
   }
 
-  function selectedDateLabelText(d: Date): string {
-    const today = new Date();
-    if (isSameDate(d, today)) return "今天";
-    return `${d.getMonth() + 1}月${d.getDate()}日`;
-  }
-
   async function preloadCloudMonthDateKeys(cursor: Date): Promise<void> {
     if (!(await hasLocalProAccess())) return;
 
@@ -828,6 +497,33 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       },
     );
   }
+
+  const {
+    clozeEditor,
+    clozeDelete,
+    setClozeEditor,
+    setClozeDelete,
+    handleTextSelection,
+    handleEditClozeGroup,
+    handleDeleteClozeGroup,
+    confirmDeleteCloze,
+    toggleDraftToken,
+    confirmClozeEditor,
+  } = useChatClozeEditing({
+    contact,
+    contactId,
+    dayMessages,
+    isSelectedDateSyncing,
+    isProEntitledRef,
+    syncNoticeRef,
+    setDayMessages,
+    setMessages,
+    setLocalDateKeys,
+    setIsProEntitled,
+    setDialog,
+    showNotice,
+    runHistoryLoading,
+  });
 
   async function syncDayFromCloud(
     d: Date,
@@ -1002,7 +698,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           contact={contact}
           onBack={onBack}
           onOpenCalendar={() => setIsDateSheetOpen(true)}
-          onOpenMenu={handleOpenMenu}
+          onOpenMenu={openAutoCopyMenu}
         />
 
         <MessageList
@@ -1100,41 +796,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
     </SafeAreaView>
   );
-}
-
-function toDisplayRows(rows: ChatMessage[]): ChatMessage[] {
-  return rows.filter((row) => row.status === "success" || row.status === "pending");
-}
-
-function isSameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
-  return (a.id !== undefined && b.id !== undefined && a.id === b.id) || a.localId === b.localId;
-}
-
-function areMessageRowsEquivalent(a: ChatMessage[], b: ChatMessage[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    const left = a[i];
-    const right = b[i];
-    if (
-      left.id !== right.id ||
-      left.localId !== right.localId ||
-      left.role !== right.role ||
-      left.text !== right.text ||
-      left.status !== right.status ||
-      left.createdAt !== right.createdAt ||
-      (left.clozeVersion ?? 0) !== (right.clozeVersion ?? 0) ||
-      JSON.stringify(left.clozeState ?? null) !== JSON.stringify(right.clozeState ?? null)
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function autoCopyModeLabel(mode: AutoCopyMode): string {
-  if (mode === "zh") return "当前：只自动复制中文";
-  if (mode === "both") return "当前：英文和中文都自动复制";
-  return "当前：只自动复制英文";
 }
 
 const styles = StyleSheet.create({
