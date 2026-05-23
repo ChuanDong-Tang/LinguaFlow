@@ -32,6 +32,7 @@ import { getChatGenerationInputLimits } from "../services/chat/chatInputLimits";
 import { areMessageRowsEquivalent, toDisplayRows } from "../services/chat/chatMessageView";
 import { useAssistantAutoCopyPreferences } from "../hooks/useAssistantAutoCopyPreferences";
 import { useKeyboardAwareChatScroll } from "../hooks/useKeyboardAwareChatScroll";
+import { useExclusiveSyncMachine } from "../hooks/useExclusiveSyncMachine";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatComposer } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
@@ -87,10 +88,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const loadedCloudMonthKeysRef = useRef<Set<string>>(new Set());
   const isMountedRef = useRef(true);
   const isProEntitledRef = useRef(false);
-  const todaySyncCountRef = useRef(0);
   const isTodaySyncingRef = useRef(false);
   const syncNoticeRef = useRef<{ hide: () => void; update: (next: any) => void; kind: "calendar" | "messages" | "cloze" } | null>(null);
-  const syncAbortControllersRef = useRef<AbortController[]>([]);
+  const daySyncMachine = useExclusiveSyncMachine<"chat_day">();
+  const calendarSyncMachine = useExclusiveSyncMachine<"chat_calendar">();
+  const clozeSaveMachine = useExclusiveSyncMachine<"cloze_save">();
   const scrollToBottom = React.useCallback((animated = false): void => {
     requestAnimationFrame(() => {
       messageListRef.current?.scrollToEnd({ animated });
@@ -112,33 +114,31 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const selectedDateKey = toDateKey(selectedDate);
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
-
-  // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示。
+  
+  // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示
   useEffect(() => {
-    isMountedRef.current = true;
     return () => {
+      // 页面退出时取消所有业务同步；页面内不同类型同步彼此独立，不在这里混成一条队列。
       isMountedRef.current = false;
-      todaySyncCountRef.current = 0;
-      // 用户快速进出聊天页时，历史同步请求可能还在进行；退出时主动取消，
-      // 避免旧同步继续占用网络/服务端资源，或在页面卸载后更新全局提示气泡。
-      syncAbortControllersRef.current.forEach((controller) => controller.abort());
-      syncAbortControllersRef.current = [];
       syncNoticeRef.current?.hide();
       syncNoticeRef.current = null;
+      daySyncMachine.cancel();
+      calendarSyncMachine.cancel();
+      clozeSaveMachine.cancel();
     };
   }, []);
 
-  // Ref 镜像：同步回包时用它判断用户当前还停在哪一天。
+  // 同步回包时用它判断用户当前还停在哪一天。
   useEffect(() => {
     selectedDateKeyRef.current = toDateKey(selectedDate);
   }, [selectedDate]);
 
-  // Ref 镜像：填空保存等异步逻辑需要读取最新 Pro 状态。
+  // 填空保存等异步逻辑需要读取最新 Pro 状态。
   useEffect(() => {
     isProEntitledRef.current = isProEntitled;
   }, [isProEntitled]);
 
-  // Ref 镜像：发送入口用它即时判断今天同步锁，避免按钮状态刷新前抢发。
+  // 发送入口用它即时判断今天同步锁，避免按钮状态刷新前抢发。
   useEffect(() => {
     isTodaySyncingRef.current = isTodaySyncing;
   }, [isTodaySyncing]);
@@ -215,10 +215,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   // 日期面板：打开日历时预加载当前月份云端有记录的日期。
   useEffect(() => {
     if (!isDateSheetOpen) {
-      if (syncNoticeRef.current?.kind === "calendar") {
-        syncNoticeRef.current.hide();
-        syncNoticeRef.current = null;
-      }
       return;
     }
     void preloadCloudMonthDateKeys(monthCursor);
@@ -240,30 +236,15 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (!text || activeGenerationContactId) return;
     const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
     if (text.length < minInputChars) {
-      showNotice({
-        message: `至少输入 ${minInputChars} 个字符`,
-        type: "info",
-        position: "top-right",
-        durationMs: 1500,
-      });
+      Alert.alert(`至少输入 ${minInputChars} 个字符`)
       return;
     }
     if (text.length > maxInputChars) {
-      showNotice({
-        message: `最多输入 ${maxInputChars} 个字符`,
-        type: "info",
-        position: "top-right",
-        durationMs: 1500,
-      });
+      Alert.alert(`最多输入 ${maxInputChars} 个字符`)
       return;
     }
     if (isTodaySyncingRef.current) {
-      showNotice({
-        message: "正在同步消息，请稍后发送",
-        type: "info",
-        position: "top-right",
-        durationMs: 1500,
-      });
+      Alert.alert("正在同步消息，请稍后发送")
       return;
     }
     if (remainingChars !== null && remainingChars <= 0) {
@@ -384,23 +365,32 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (!(await hasLocalProAccess())) return;
 
     const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
-    if (loadedCloudMonthKeysRef.current.has(monthKey)) return;
-    loadedCloudMonthKeysRef.current.add(monthKey);
-    const controller = new AbortController();
-    syncAbortControllersRef.current.push(controller);
+    // 月索引和 day 同步是两条业务线，但 notice 仍共用一个入口，后来的提示会顶掉前面的。
+    const { token, controller } = calendarSyncMachine.begin("chat_calendar", monthKey);
+    // 日历同步只顶掉上一轮日历同步；notice 单通道另行处理，不取消消息同步。
     syncNoticeRef.current?.hide();
     const notice = {
       kind: "calendar" as const,
       ...showNotice({
-      message: "正在同步日历记录...",
-      type: "info",
-      position: "top-right",
-      durationMs: 0,
+        message: "正在同步日历记录...",
+        type: "info",
+        position: "top-right",
+        durationMs: 0,
       }),
     };
     syncNoticeRef.current = notice;
 
     try {
+      if (loadedCloudMonthKeysRef.current.has(monthKey)) {
+        notice.update({
+          message: "日历记录已就绪",
+          type: "success",
+          durationMs: 1200,
+        });
+        return;
+      }
+      calendarSyncMachine.setPhase(token, "fetching");
+      loadedCloudMonthKeysRef.current.add(monthKey);
       const keys = await listConversationDateKeysFromCloud({
         contactId,
         fromDateKey,
@@ -408,6 +398,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         signal: controller.signal,
       });
       if (!isMountedRef.current) return;
+      calendarSyncMachine.setPhase(token, "merging");
       setCloudDateKeys((prev) => {
         const next = new Set(prev);
         keys.forEach((key) => next.add(key));
@@ -444,10 +435,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         notice.hide();
       }
     } finally {
-      syncAbortControllersRef.current = syncAbortControllersRef.current.filter((item) => item !== controller);
       if (syncNoticeRef.current === notice) {
         syncNoticeRef.current = null;
       }
+      calendarSyncMachine.setPhase(token, "settling");
+      calendarSyncMachine.settle(token);
     }
   }
 
@@ -516,6 +508,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     isSelectedDateSyncing,
     isProEntitledRef,
     syncNoticeRef,
+    syncMachine: clozeSaveMachine,
     setDayMessages,
     setMessages,
     setLocalDateKeys,
@@ -527,7 +520,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   async function syncDayFromCloud(
     d: Date,
-    options?: { force?: boolean; signal?: AbortSignal }
+    options?: { force?: boolean; signal?: AbortSignal; syncToken?: number }
   ): Promise<{ synced: boolean; changed: boolean }> {
     const localPro = await hasLocalProAccess();
     const [session, entitlement] = await Promise.all([
@@ -541,8 +534,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const dateKey = toDateKey(d);
     const reqId = ++syncSeqRef.current;
     latestSyncReqByDateRef.current[dateKey] = reqId;
-
-    // 五分钟内同步过的别再同步了
+    // 同一天 5 分钟内只允许命中一次拉取，避免进出页面时反复打云端。
     const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
     if (!options?.force && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
       return { synced: true, changed: false };
@@ -550,10 +542,17 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
     if (!isPro) return { synced: false, changed: false };
 
+    // 这里只推进 day 业务状态，不负责弹什么提示；提示逻辑在 syncDateQuietly 里统一做。
+    if (options?.syncToken) {
+      daySyncMachine.setPhase(options.syncToken, "checking");
+    }
     const resolvedConversationId = await resolveConversationIdForDate(dateKey, options?.signal);
     if (!isMountedRef.current) return { synced: false, changed: false };
     if (!resolvedConversationId) return { synced: false, changed: false };
 
+    if (options?.syncToken) {
+      daySyncMachine.setPhase(options.syncToken, "fetching");
+    }
     const allRows = await listDayMessagesFromCloud({
       conversationId: resolvedConversationId,
       userId,
@@ -563,6 +562,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (!isMountedRef.current) return { synced: false, changed: false };
     if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
 
+    if (options?.syncToken) {
+      daySyncMachine.setPhase(options.syncToken, "merging");
+    }
     const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : 1
     );
@@ -603,15 +605,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return;
     }
 
-    const controller = new AbortController();
-    syncAbortControllersRef.current.push(controller);
+    const { token, controller } = daySyncMachine.begin("chat_day", dateKey);
     const isTodaySync = isSameDate(d, new Date());
     if (isTodaySync) {
-      todaySyncCountRef.current += 1;
       setIsTodaySyncing(true);
     }
     setSyncingDateKey(dateKey);
 
+    // notice 是一条单独的 UI 通道，不看业务分类，谁后发谁顶掉前面的。
     syncNoticeRef.current?.hide();
     const notice = {
       kind: "messages" as const,
@@ -624,7 +625,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     };
     syncNoticeRef.current = notice;
     try {
-      const result = await syncDayFromCloud(d, { ...options, signal: controller.signal });
+      daySyncMachine.setPhase(token, "fetching");
+      const result = await syncDayFromCloud(d, { ...options, signal: controller.signal, syncToken: token });
       if (!isMountedRef.current) {
         notice.hide();
         return;
@@ -633,6 +635,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         notice.hide();
         return;
       }
+      daySyncMachine.setPhase(token, "settling");
+      // 业务已经更新完了，再把 notice 收成成功态；这里和业务阶段是两条线。
       notice.update({
         message: "消息已更新",
         type: "success",
@@ -653,19 +657,16 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         durationMs: 2200,
       });
     } finally {
-      syncAbortControllersRef.current = syncAbortControllersRef.current.filter((item) => item !== controller);
       if (syncNoticeRef.current === notice) {
         syncNoticeRef.current = null;
       }
       if (isTodaySync) {
-        todaySyncCountRef.current = Math.max(0, todaySyncCountRef.current - 1);
-        if (isMountedRef.current && todaySyncCountRef.current === 0) {
-          setIsTodaySyncing(false);
-        }
+        if (isMountedRef.current) setIsTodaySyncing(false);
       }
       if (isMountedRef.current) {
         setSyncingDateKey((current) => (current === dateKey ? null : current));
       }
+      daySyncMachine.settle(token);
     }
   }
 
@@ -722,21 +723,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onFocus={handleComposerFocus}
           onDisabledPress={() => {
             if (isAnotherContactGenerating) {
-              showNotice({
-                message: "另一个好友正在回复，请稍后再发",
-                type: "info",
-                position: "top-right",
-                durationMs: 1500,
-              });
+              Alert.alert("另一个好友正在回复，请稍后再发")
               return;
             }
             if (isTodaySyncing) {
-              showNotice({
-                message: "正在同步消息，请稍后发送",
-                type: "info",
-                position: "top-right",
-                durationMs: 1500,
-              });
+              Alert.alert("正在同步消息，请稍后发送")
               return;
             }
             if (remainingChars !== null && remainingChars <= 0) {
@@ -746,21 +737,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             const inputLength = inputText.trim().length;
             const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
             if (inputLength > 0 && inputLength < minInputChars) {
-              showNotice({
-                message: `至少输入 ${minInputChars} 个字符`,
-                type: "info",
-                position: "top-right",
-                durationMs: 1500,
-              });
+              Alert.alert(`至少输入 ${minInputChars} 个字符`)
               return;
             }
             if (inputLength > maxInputChars) {
-              showNotice({
-                message: `最多输入 ${maxInputChars} 个字符`,
-                type: "info",
-                position: "top-right",
-                durationMs: 1500,
-              });
+              Alert.alert(`最多输入 ${maxInputChars} 个字符`)
             }
           }}
           disabled={!canSend}

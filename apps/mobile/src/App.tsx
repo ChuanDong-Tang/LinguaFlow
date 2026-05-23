@@ -230,7 +230,7 @@ function TabScreens({
       ) : null}
       {visitedTabs.practice ? (
         <View style={[styles.tabPage, activeTab !== "practice" && styles.tabPageHidden]}>
-          <PracticeScreen onOpenPracticeSession={onOpenPracticeSession} />
+          <PracticeScreen isActive={activeTab === "practice"} onOpenPracticeSession={onOpenPracticeSession} />
         </View>
       ) : null}
       {visitedTabs.me ? (

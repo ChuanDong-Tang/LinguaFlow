@@ -1,5 +1,4 @@
 import React, { useCallback, useRef, useState } from "react";
-import type { MutableRefObject } from "react";
 import type { FloatingNoticeOptions } from "../screens/shared/FloatingNotice";
 import type { ChatContact } from "../domain/chat/contacts";
 import type { ChatMessage } from "../domain/chat/types";
@@ -28,13 +27,24 @@ type ChatNotice = {
   kind: "calendar" | "messages" | "cloze";
 };
 
+type MutableRef<T> = {
+  current: T;
+};
+
+type SyncMachineLike = {
+  begin: (kind: "cloze_save", scopeKey: string) => { token: number; controller: AbortController };
+  setPhase: (token: number, phase: "checking" | "fetching" | "merging" | "settling") => void;
+  settle: (token: number) => void;
+};
+
 type UseChatClozeEditingInput = {
   contact: ChatContact;
   contactId: string;
   dayMessages: ChatMessage[];
   isSelectedDateSyncing: boolean;
-  isProEntitledRef: MutableRefObject<boolean>;
-  syncNoticeRef: MutableRefObject<ChatNotice | null>;
+  isProEntitledRef: MutableRef<boolean>;
+  syncNoticeRef: MutableRef<ChatNotice | null>;
+  syncMachine: SyncMachineLike;
   setDayMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setLocalDateKeys: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -51,6 +61,7 @@ export function useChatClozeEditing({
   isSelectedDateSyncing,
   isProEntitledRef,
   syncNoticeRef,
+  syncMachine,
   setDayMessages,
   setMessages,
   setLocalDateKeys,
@@ -245,6 +256,8 @@ export function useChatClozeEditing({
     );
     const target = clozeEditor.message;
     setClozeEditor(null);
+    const key = target.id ?? target.localId;
+    const { token } = syncMachine.begin("cloze_save", key);
     syncNoticeRef.current?.hide();
     const notice = {
       kind: "cloze" as const,
@@ -257,7 +270,9 @@ export function useChatClozeEditing({
     };
     syncNoticeRef.current = notice;
     try {
+      syncMachine.setPhase(token, "fetching");
       await saveMessageCloze(target, nextState);
+      syncMachine.setPhase(token, "settling");
       notice.update({ message: "已保存", type: "success", durationMs: 1200 });
     } catch (error) {
       notice.update({ message: "保存失败", type: "warning", durationMs: 1800 });
@@ -266,6 +281,7 @@ export function useChatClozeEditing({
       if (syncNoticeRef.current === notice) {
         syncNoticeRef.current = null;
       }
+      syncMachine.settle(token);
     }
   }
 

@@ -17,6 +17,7 @@ import {
 import { getSession } from "../services/auth/authStorage";
 import { PRACTICE_CONTACTS, type ChatContact } from "../domain/chat/contacts";
 import { useMountedGuard } from "../hooks/useMountedGuard";
+import { useExclusiveSyncMachine } from "../hooks/useExclusiveSyncMachine";
 import {
   buildPracticeCards,
   filterPracticeCards,
@@ -26,20 +27,21 @@ import {
 } from "../domain/practice/practiceService";
 
 type PracticeScreenProps = {
+  isActive: boolean;
   onOpenPracticeSession: (cards: PracticeCard[], allMessages: ChatMessage[]) => void;
 };
 
 const WEEK_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
 const BAND_OPTIONS: Array<{ label: string; value: PracticeAccuracyBand; color: string }> = [
-  { label: "都可以", value: "any", color: "#F0F1F5" },
-  { label: "0-20%", value: "low", color: "#F1EEFF" },
-  { label: "20-60%", value: "mid", color: "#DED9FF" },
-  { label: "60%+", value: "high", color: "#AFA5FF" },
+  { label: "都可以", value: "any", color: "#F1F5F2" },
+  { label: "0-20%", value: "low", color: "#D7E6D9" },
+  { label: "20-60%", value: "mid", color: "#ABD1B0" },
+  { label: "60%+", value: "high", color: "#6FAE78" },
 ];
 const RECENT_DAY_OPTIONS = [3, 7, 14, 30];
 const QUICK_LIMIT_OPTIONS = [5, 10, 20, 30];
 
-export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
+export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScreenProps) {
   const { showNotice } = useFloatingNotice();
   const { isMounted } = useMountedGuard();
   const [monthCursor, setMonthCursor] = useState(new Date());
@@ -53,10 +55,12 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
   const [quickLimit, setQuickLimit] = useState(10);
   const [band, setBand] = useState<PracticeAccuracyBand>("any");
   const loadedPracticeMonthKeysRef = useRef<Set<string>>(new Set());
-  const practiceDateKeyAbortRef = useRef<AbortController | null>(null);
-  const practiceDateKeyNoticeRef = useRef<{ hide: () => void; update: (next: Partial<FloatingNoticeOptions>) => void } | null>(null);
+  const lastPracticeSyncAtByDateKeyRef = useRef<Record<string, number>>({});
   const messagesRef = useRef<ChatMessage[]>([]);
   const contactByMessageIdRef = useRef<Map<string, ChatContact>>(new Map());
+  const practiceMonthMachine = useExclusiveSyncMachine<"practice_month">();
+  const practiceDayMachine = useExclusiveSyncMachine<"practice_day">();
+  const practiceQuickMachine = useExclusiveSyncMachine<"practice_quick">();
 
   useEffect(() => {
     void loadPracticeMessagesFromLocal().then(({ rows, contactMap }) => {
@@ -66,14 +70,25 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
   }, [isMounted]);
 
   useEffect(() => {
-    void syncPracticeMonthDateKeys(monthCursor);
+    if (!isActive) {
+      // 练习页失活就取消当前同步，避免用户切走后旧请求继续回写页面状态。
+      practiceMonthMachine.cancel();
+      practiceDayMachine.cancel();
+      practiceQuickMachine.cancel();
+      setIsSyncingPracticeDateKeys(false);
+      setLoadingOptions(null);
+      return;
+    }
+    void syncPracticeMonthDateKeys(monthCursor, { force: true });
+  }, [isActive, monthCursor]);
+
+  useEffect(() => {
     return () => {
-      practiceDateKeyAbortRef.current?.abort();
-      practiceDateKeyAbortRef.current = null;
-      practiceDateKeyNoticeRef.current?.hide();
-      practiceDateKeyNoticeRef.current = null;
+      practiceMonthMachine.cancel();
+      practiceDayMachine.cancel();
+      practiceQuickMachine.cancel();
     };
-  }, [monthCursor]);
+  }, [practiceDayMachine.cancel, practiceMonthMachine.cancel, practiceQuickMachine.cancel, isActive, monthCursor]);
 
   const localDayStats = useMemo(() => summarizePracticeDays(messages, { contactByMessageId }), [contactByMessageId, messages]);
   const cells = useMemo(() => buildCalendarCells(monthCursor), [monthCursor]);
@@ -112,11 +127,59 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
     applyPracticeMessages(merged.rows, merged.contactMap);
   }
 
+  async function syncPracticeDate(date: Date, options?: { force?: boolean; signal?: AbortSignal }): Promise<void> {
+    const dateKey = toDateKey(date);
+    if (!options?.force && Date.now() - (lastPracticeSyncAtByDateKeyRef.current[dateKey] ?? 0) <= 5 * 60 * 1000) {
+      return;
+    }
+    // 单日练习、快速练习、月索引是三条业务线，各自有自己的 machine，互不误伤。
+    const { token, controller } = practiceDayMachine.begin("practice_day", dateKey);
+    options?.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+    try {
+      // 点某一天进入练习时，只走全屏 loading，不再额外挂右上角 notice。
+      practiceDayMachine.setPhase(token, "fetching");
+      await syncPracticeDateKeys([dateKey], { ...options, syncToken: token, signal: controller.signal });
+      lastPracticeSyncAtByDateKeyRef.current[dateKey] = Date.now();
+      practiceDayMachine.setPhase(token, "settling");
+    } finally {
+      practiceDayMachine.settle(token);
+    }
+  }
+
+  async function syncPracticeDateKeys(
+    dateKeys: string[],
+    options?: { force?: boolean; signal?: AbortSignal; syncToken?: number }
+  ): Promise<void> {
+    if (!dateKeys.length) return;
+    const eligibleDateKeys = options?.force
+      ? dateKeys
+      : dateKeys.filter((dateKey) => Date.now() - (lastPracticeSyncAtByDateKeyRef.current[dateKey] ?? 0) > 5 * 60 * 1000);
+    if (!eligibleDateKeys.length) return;
+    if (options?.syncToken) {
+      // 这里推进的是 day 业务 machine 的阶段，说明“真正要拉哪些日”的业务进度。
+      practiceDayMachine.setPhase(options.syncToken, "fetching");
+    }
+    const { rows, contactMap } = await loadPracticeMessagesFromCloudByDateKeys(eligibleDateKeys, options?.signal);
+    if (!isMounted()) return;
+    if (options?.syncToken) {
+      practiceDayMachine.setPhase(options.syncToken, "merging");
+    }
+    mergeIntoPracticeMessages(rows, contactMap);
+    const now = Date.now();
+    eligibleDateKeys.forEach((dateKey) => {
+      lastPracticeSyncAtByDateKeyRef.current[dateKey] = now;
+    });
+    if (options?.syncToken) {
+      practiceDayMachine.setPhase(options.syncToken, "settling");
+    }
+  }
+
   // 点击入口时再扫一遍本地桶，吃到刚刚聊天页同步/练习页写回的最新数据。
   // 同步日期和拉练习消息还没结束时直接无反应，右上角转圈提示负责告诉用户正在做什么。
   async function openDatePractice(date: Date): Promise<void> {
     if (isSyncingPracticeDateKeys) return;
-    await runWithLoading(async () => {
+    await runWithLoading(async (signal) => {
+      await syncPracticeDate(date, { force: false, signal });
       const { rows: localRows, contactMap: localContactMap } = await loadPracticeMessagesFromLocal();
       const { rows: nextMessages, contactMap } = mergePracticeMessages(
         messagesRef.current,
@@ -137,7 +200,15 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
   // 快速练习只随机挑选符合条件的现有练习卡，不记忆用户这次的筛选条件。
   async function openQuickPractice(): Promise<void> {
     if (isSyncingPracticeDateKeys) return;
-    await runWithLoading(async () => {
+    await runWithLoading(async (signal) => {
+      const recentDateKeys = collectRecentPracticeDateKeys(recentDays, new Date());
+      const { token, controller } = practiceQuickMachine.begin("practice_quick", recentDateKeys.join(","));
+      signal.addEventListener("abort", () => controller.abort(), { once: true });
+      try {
+        await syncPracticeDateKeys(recentDateKeys, { force: false, signal: controller.signal, syncToken: token });
+      } finally {
+        practiceQuickMachine.settle(token);
+      }
       const { rows: localRows, contactMap: localContactMap } = await loadPracticeMessagesFromLocal();
       const { rows: nextMessages, contactMap } = mergePracticeMessages(
         messagesRef.current,
@@ -169,24 +240,16 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
     setQuickOpen(true);
   }
 
-  async function syncPracticeMonthDateKeys(cursor: Date): Promise<void> {
+  async function syncPracticeMonthDateKeys(cursor: Date, options?: { force?: boolean }): Promise<void> {
     const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
-    if (loadedPracticeMonthKeysRef.current.has(monthKey)) return;
+    if (!options?.force && loadedPracticeMonthKeysRef.current.has(monthKey)) return;
     loadedPracticeMonthKeysRef.current.add(monthKey);
-    practiceDateKeyAbortRef.current?.abort();
-    practiceDateKeyNoticeRef.current?.hide();
-    const controller = new AbortController();
-    practiceDateKeyAbortRef.current = controller;
+    // 月索引只负责“哪些天有练习”，它和 day 线分开，但 notice 仍然共用页面上的阻塞层。
+    const { token, controller } = practiceMonthMachine.begin("practice_month", monthKey);
     setIsSyncingPracticeDateKeys(true);
-    const notice = showNotice({
-      message: "正在同步练习日期...",
-      type: "info",
-      position: "top-right",
-      durationMs: 0,
-    });
-    practiceDateKeyNoticeRef.current = notice;
 
     try {
+      practiceMonthMachine.setPhase(token, "fetching");
       const keys = await listPracticeDateKeysFromCloud({
         contactIds: PRACTICE_CONTACTS.map((contact) => contact.id),
         fromDateKey,
@@ -195,25 +258,21 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
       });
       // 只同步“这个月有练习的日期”和这些日期上的练习消息；不拉全量聊天历史。
       // 这样日历能直接用真实正确率上色，换设备也不会因为本地缓存为空而看不到练习。
+      practiceMonthMachine.setPhase(token, "merging");
       const synced = await loadPracticeMessagesFromCloud(Array.from(keys), controller.signal);
       if (!isMounted()) return;
       mergeIntoPracticeMessages(synced.rows, synced.contactMap);
-      notice.update({ message: "练习日期已更新", type: "success", durationMs: 1200 });
     } catch (error) {
       if (controller.signal.aborted) {
         loadedPracticeMonthKeysRef.current.delete(monthKey);
-        notice.hide();
         return;
       }
       loadedPracticeMonthKeysRef.current.delete(monthKey);
-      notice.update({ message: "练习日期同步失败", type: "warning", durationMs: 1800 });
     } finally {
       // 切换月份会 abort 上一次同步；旧请求收尾时不能关闭新请求的转圈提示/禁点状态。
-      if (practiceDateKeyAbortRef.current === controller) {
-        practiceDateKeyAbortRef.current = null;
-        if (isMounted()) setIsSyncingPracticeDateKeys(false);
-      }
-      if (practiceDateKeyNoticeRef.current === notice) practiceDateKeyNoticeRef.current = null;
+      if (isMounted()) setIsSyncingPracticeDateKeys(false);
+      practiceMonthMachine.setPhase(token, "settling");
+      practiceMonthMachine.settle(token);
     }
   }
 
@@ -329,6 +388,42 @@ async function loadPracticeMessagesFromCloud(
     })
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
   return { rows, contactMap };
+}
+
+async function loadPracticeMessagesFromCloudByDateKeys(
+  dateKeys: string[],
+  signal?: AbortSignal
+): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
+  const session = await getSession();
+  const userId = session?.user?.id ?? "mock_user_001";
+  const chunks = await Promise.all(PRACTICE_CONTACTS.flatMap((contact) =>
+    dateKeys.map(async (dateKey) => {
+      const conversationId = await findConversationIdByDateFromCloud({ contactId: contact.id, dateKey, signal });
+      if (!conversationId) return { contact, rows: [] as ChatMessage[] };
+      const rows = await listDayMessagesFromCloud({ conversationId, userId, dateKey, signal });
+      return {
+        contact,
+        rows: rows.map(mapCloudMessage),
+      };
+    })
+  ));
+  const contactMap = new Map<string, ChatContact>();
+  const rows = chunks
+    .flatMap((chunk) => {
+      chunk.rows.forEach((row) => contactMap.set(row.id ?? row.localId, chunk.contact));
+      return chunk.rows;
+    })
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  return { rows, contactMap };
+}
+
+function collectRecentPracticeDateKeys(recentDays: number, today = new Date()): string[] {
+  const keys: string[] = [];
+  for (let offset = 0; offset < recentDays; offset += 1) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
+    keys.push(toDateKey(d));
+  }
+  return keys;
 }
 
 function mapCloudMessage(row: MessageView): ChatMessage {
@@ -577,13 +672,13 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   dayBubbleLow: {
-    backgroundColor: "#EAF3FF",
+    backgroundColor: "#E8F1E8",
   },
   dayBubbleMid: {
-    backgroundColor: "#E3F6EC",
+    backgroundColor: "#BFDDBF",
   },
   dayBubbleHigh: {
-    backgroundColor: "#FFE6C7",
+    backgroundColor: "#6DAE75",
   },
   dayText: {
     color: "#111111",
