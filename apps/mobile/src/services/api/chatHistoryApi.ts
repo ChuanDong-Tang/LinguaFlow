@@ -170,6 +170,38 @@ export async function listPracticeDateKeysFromCloud(input: {
   return new Set(json.data);
 }
 
+export type PracticeDayStatsView = {
+  dateKey: string;
+  total: number;
+  correct: number;
+  accuracy: number;
+  band: "low" | "mid" | "high";
+};
+
+export async function listPracticeDayStatsFromCloud(input: {
+  contactIds: string[];
+  fromDateKey: string;
+  toDateKey: string;
+  signal?: AbortSignal;
+}): Promise<PracticeDayStatsView[]> {
+  const params = new URLSearchParams();
+  params.set("contactIds", input.contactIds.join(","));
+  params.set("fromDateKey", input.fromDateKey);
+  params.set("toDateKey", input.toDateKey);
+
+  const res = await fetch(`${BASE_URL}/chat/practice/day-stats?${params.toString()}`, {
+    headers: await getAuthHeaders(),
+    signal: input.signal,
+  });
+  const json = (await res.json()) as ApiResult<PracticeDayStatsView[]>;
+
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+
+  return json.data;
+}
+
 export async function updateMessageClozeState(input: {
   messageId: string;
   baseVersion: number;

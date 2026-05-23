@@ -1,4 +1,5 @@
 import React, { useCallback, useRef, useState } from "react";
+import { Alert } from "react-native";
 import type { FloatingNoticeOptions } from "../screens/shared/FloatingNotice";
 import type { ChatContact } from "../domain/chat/contacts";
 import type { ChatMessage } from "../domain/chat/types";
@@ -88,6 +89,7 @@ export function useChatClozeEditing({
   const [clozeEditor, setClozeEditor] = useState<ClozeEditorState | null>(null);
   const [clozeDelete, setClozeDelete] = useState<ClozeDeleteState | null>(null);
   const clozeSaveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
+  const clozeMutatingRef = useRef(false);
 
   const blockClozeWhenSelectedDateSyncing = useCallback((): boolean => {
     return isSelectedDateSyncing;
@@ -229,11 +231,41 @@ export function useChatClozeEditing({
 
   async function confirmDeleteCloze(): Promise<void> {
     if (!clozeDelete) return;
+    if (clozeMutatingRef.current) {
+      Alert.alert("正在处理填空，请稍后再试");
+      return;
+    }
     const target = clozeDelete;
     setClozeDelete(null);
-    await runHistoryLoading(() =>
-      saveMessageCloze(target.message, removeClozeGroup(target.message.clozeState, target.groupIndex))
-    );
+    const key = target.message.id ?? target.message.localId;
+    const { token } = syncMachine.begin("cloze_save", key);
+    syncNoticeRef.current?.hide();
+    const notice = {
+      kind: "cloze" as const,
+      ...showNotice({
+        message: "正在删除填空...",
+        type: "info",
+        position: "top-right",
+        durationMs: 0,
+      }),
+    };
+    syncNoticeRef.current = notice;
+    clozeMutatingRef.current = true;
+    try {
+      syncMachine.setPhase(token, "fetching");
+      await saveMessageCloze(target.message, removeClozeGroup(target.message.clozeState, target.groupIndex));
+      syncMachine.setPhase(token, "settling");
+      notice.hide();
+    } catch (error) {
+      notice.update({ message: "删除失败", type: "warning", durationMs: 1800 });
+      setDialog({ message: "删除填空失败，请稍后重试。" });
+    } finally {
+      if (syncNoticeRef.current === notice) {
+        syncNoticeRef.current = null;
+      }
+      clozeMutatingRef.current = false;
+      syncMachine.settle(token);
+    }
   }
 
   function toggleDraftToken(tokenIndex: number): void {
@@ -248,6 +280,10 @@ export function useChatClozeEditing({
 
   async function confirmClozeEditor(): Promise<void> {
     if (!clozeEditor) return;
+    if (clozeMutatingRef.current) {
+      Alert.alert("正在处理填空，请稍后再试");
+      return;
+    }
     const nextState = replaceClozeGroup(
       clozeEditor.message.clozeState,
       clozeEditor.groupIndex,
@@ -269,11 +305,12 @@ export function useChatClozeEditing({
       }),
     };
     syncNoticeRef.current = notice;
+    clozeMutatingRef.current = true;
     try {
       syncMachine.setPhase(token, "fetching");
       await saveMessageCloze(target, nextState);
       syncMachine.setPhase(token, "settling");
-      notice.update({ message: "已保存", type: "success", durationMs: 1200 });
+      notice.hide();
     } catch (error) {
       notice.update({ message: "保存失败", type: "warning", durationMs: 1800 });
       setDialog({ message: "保存填空失败，请稍后重试。" });
@@ -281,6 +318,7 @@ export function useChatClozeEditing({
       if (syncNoticeRef.current === notice) {
         syncNoticeRef.current = null;
       }
+      clozeMutatingRef.current = false;
       syncMachine.settle(token);
     }
   }

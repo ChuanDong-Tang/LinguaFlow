@@ -8,6 +8,7 @@ import type {
   ListPracticeDateKeysByUserRangeInput,
   MessageEntity,
   MessageRepository,
+  PracticeDayStatsEntity,
   UpdateMessageClozeInput,
   UpdateMessageClozeResult,
   UpdateMessageStatusInput,
@@ -272,6 +273,59 @@ export class PrismaMessageRepository implements MessageRepository {
     return Array.from(keys);
   }
 
+  async listPracticeDayStatsByUserRange(input: ListPracticeDateKeysByUserRangeInput): Promise<PracticeDayStatsEntity[]> {
+    const from = new Date(`${input.fromDateKey}T00:00:00+08:00`);
+    const to = new Date(`${input.toDateKey}T23:59:59.999+08:00`);
+    const rows = await this.prisma.message.findMany({
+      where: {
+        userId: input.userId,
+        role: "assistant",
+        status: "success",
+        clozeState: { not: null },
+        clozePracticeDiscardedAt: null,
+        OR: [
+          {
+            conversationDateKey: {
+              gte: input.fromDateKey,
+              lte: input.toDateKey,
+            },
+          },
+          {
+            conversationDateKey: null,
+            createdAt: {
+              gte: from,
+              lte: to,
+            },
+          },
+        ],
+        conversation: {
+          contactId: { in: input.contactIds },
+          archivedAt: null,
+        },
+      },
+      select: {
+        createdAt: true,
+        conversationDateKey: true,
+        clozeState: true,
+      },
+      orderBy: [{ createdAt: "asc" }],
+    });
+
+    const stats = new Map<string, PracticeDayStatsEntity>();
+    for (const row of rows) {
+      const clozeState = normalizeClozeState(row.clozeState);
+      if (!clozeState) continue;
+      const dateKey = row.conversationDateKey ?? formatDateKey(row.createdAt);
+      const current = stats.get(dateKey) ?? { dateKey, total: 0, correct: 0 };
+      const messageStats = summarizeClozeState(clozeState);
+      current.total += messageStats.total;
+      current.correct += messageStats.correct;
+      if (current.total > 0) stats.set(dateKey, current);
+    }
+
+    return Array.from(stats.values()).sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+  }
+
   async findById(messageId: string): Promise<MessageEntity | null> {
     const row = await this.prisma.message.findUnique({
       where: {
@@ -343,4 +397,19 @@ function formatDateKey(date: Date): string {
     day: "2-digit",
   });
   return formatter.format(date);
+}
+
+function summarizeClozeState(state: NonNullable<MessageEntity["clozeState"]>): { total: number; correct: number } {
+  const blankIndexes = new Set<number>();
+  state.groups.forEach((group) => {
+    group.blankTokenIndexes.forEach((index) => blankIndexes.add(index));
+  });
+  let correct = 0;
+  state.correctTokenIndexes.forEach((index) => {
+    if (blankIndexes.has(index)) correct += 1;
+  });
+  return {
+    total: blankIndexes.size,
+    correct,
+  };
 }

@@ -51,6 +51,14 @@ export interface ListPracticeDateKeysInput {
   toDateKey: string;
 }
 
+export interface PracticeDayStatsView {
+  dateKey: string;
+  total: number;
+  correct: number;
+  accuracy: number;
+  band: "low" | "mid" | "high";
+}
+
 export interface ListDayMessagesPageInput {
   conversationId: string;
   userId: string;
@@ -117,6 +125,12 @@ export class InvalidClozeStateError extends Error {
   constructor(message = "Invalid cloze state") {
     super(message);
   }
+}
+
+function accuracyToBand(accuracy: number): PracticeDayStatsView["band"] {
+  if (accuracy >= 0.6) return "high";
+  if (accuracy >= 0.2) return "mid";
+  return "low";
 }
 
 export class ChatMessageService {
@@ -240,6 +254,18 @@ export class ChatMessageService {
 
   async listPracticeDateKeys(input: ListPracticeDateKeysInput): Promise<string[]> {
     return this.messageRepository.listPracticeDateKeysByUserRange(input);
+  }
+
+  async listPracticeDayStats(input: ListPracticeDateKeysInput): Promise<PracticeDayStatsView[]> {
+    const rows = await this.messageRepository.listPracticeDayStatsByUserRange(input);
+    return rows.map((row) => {
+      const accuracy = row.total > 0 ? row.correct / row.total : 0;
+      return {
+        ...row,
+        accuracy,
+        band: accuracyToBand(accuracy),
+      };
+    });
   }
 
   async listConversationMessagesByDateRange(

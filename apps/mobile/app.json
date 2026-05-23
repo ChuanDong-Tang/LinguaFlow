@@ -20,14 +20,14 @@
     "android": {
       "package": "com.yueyantech.oio",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/app/logo_128.png",
+        "foregroundImage": "./assets/app/logo.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/app/logo_128.png"
+      "favicon": "./assets/app/logo.png"
     },
     "extra": {
       "wechatAppId": "${EXPO_PUBLIC_WECHAT_APP_ID}",

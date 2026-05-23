@@ -365,6 +365,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (!(await hasLocalProAccess())) return;
 
     const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
+    if (loadedCloudMonthKeysRef.current.has(monthKey)) {
+      return;
+    }
+    
     // 月索引和 day 同步是两条业务线，但 notice 仍共用一个入口，后来的提示会顶掉前面的。
     const { token, controller } = calendarSyncMachine.begin("chat_calendar", monthKey);
     // 日历同步只顶掉上一轮日历同步；notice 单通道另行处理，不取消消息同步。
@@ -381,14 +385,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     syncNoticeRef.current = notice;
 
     try {
-      if (loadedCloudMonthKeysRef.current.has(monthKey)) {
-        notice.update({
-          message: "日历记录已就绪",
-          type: "success",
-          durationMs: 1200,
-        });
-        return;
-      }
       calendarSyncMachine.setPhase(token, "fetching");
       loadedCloudMonthKeysRef.current.add(monthKey);
       const keys = await listConversationDateKeysFromCloud({

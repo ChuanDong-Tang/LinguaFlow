@@ -74,6 +74,12 @@ export interface ListPracticeDateKeysByUserRangeInput {
   toDateKey: string;
 }
 
+export interface PracticeDayStatsEntity {
+  dateKey: string;
+  total: number;
+  correct: number;
+}
+
 export interface UpdateMessageStatusInput {
   messageId: string;
   status: MessageStatus;
@@ -103,5 +109,6 @@ export interface MessageRepository {
   listByConversationDayPage(input: ListByConversationDayPageInput): Promise<MessageEntity[]>;
   listDateKeysByUserContactRange(input: ListDateKeysByUserContactRangeInput): Promise<string[]>;
   listPracticeDateKeysByUserRange(input: ListPracticeDateKeysByUserRangeInput): Promise<string[]>;
+  listPracticeDayStatsByUserRange(input: ListPracticeDateKeysByUserRangeInput): Promise<PracticeDayStatsEntity[]>;
   findById(messageId: string): Promise<MessageEntity | null>;
 }

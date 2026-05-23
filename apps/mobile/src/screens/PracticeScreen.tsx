@@ -6,12 +6,12 @@ import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLo
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import { useFloatingNotice, type FloatingNoticeOptions } from "./shared/FloatingNotice";
 import type { ChatMessage } from "../domain/chat/types";
-import { filterByDate, isSameDate, toDateKey } from "../domain/chat/messageState";
+import { filterByDate, toDateKey } from "../domain/chat/messageState";
 import { listStoredChatDateKeys, loadChatMessagesByDate } from "../services/chat/chatSessionService";
 import {
   findConversationIdByDateFromCloud,
   listDayMessagesFromCloud,
-  listPracticeDateKeysFromCloud,
+  listPracticeDayStatsFromCloud,
   type MessageView,
 } from "../services/api/chatHistoryApi";
 import { getSession } from "../services/auth/authStorage";
@@ -24,6 +24,7 @@ import {
   summarizePracticeDays,
   type PracticeAccuracyBand,
   type PracticeCard,
+  type PracticeDayStats,
 } from "../domain/practice/practiceService";
 
 type PracticeScreenProps = {
@@ -47,6 +48,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [contactByMessageId, setContactByMessageId] = useState<Map<string, ChatContact>>(new Map());
+  const [practiceDayStats, setPracticeDayStats] = useState<Map<string, PracticeDayStats>>(new Map());
   const [isSyncingPracticeDateKeys, setIsSyncingPracticeDateKeys] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
@@ -58,6 +60,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   const lastPracticeSyncAtByDateKeyRef = useRef<Record<string, number>>({});
   const messagesRef = useRef<ChatMessage[]>([]);
   const contactByMessageIdRef = useRef<Map<string, ChatContact>>(new Map());
+  const syncNoticeRef = useRef<{ hide: () => void; update: (next: Partial<FloatingNoticeOptions>) => void; kind: "calendar" | "messages" } | null>(null);
   const practiceMonthMachine = useExclusiveSyncMachine<"practice_month">();
   const practiceDayMachine = useExclusiveSyncMachine<"practice_day">();
   const practiceQuickMachine = useExclusiveSyncMachine<"practice_quick">();
@@ -77,6 +80,8 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       practiceQuickMachine.cancel();
       setIsSyncingPracticeDateKeys(false);
       setLoadingOptions(null);
+      syncNoticeRef.current?.hide();
+      syncNoticeRef.current = null;
       return;
     }
     void syncPracticeMonthDateKeys(monthCursor, { force: true });
@@ -87,10 +92,16 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       practiceMonthMachine.cancel();
       practiceDayMachine.cancel();
       practiceQuickMachine.cancel();
+      syncNoticeRef.current?.hide();
+      syncNoticeRef.current = null;
     };
   }, [practiceDayMachine.cancel, practiceMonthMachine.cancel, practiceQuickMachine.cancel, isActive, monthCursor]);
 
-  const localDayStats = useMemo(() => summarizePracticeDays(messages, { contactByMessageId }), [contactByMessageId, messages]);
+  const localDayStats = useMemo(() => {
+    const stats = summarizePracticeDays(messages, { contactByMessageId });
+    practiceDayStats.forEach((value, key) => stats.set(key, value));
+    return stats;
+  }, [contactByMessageId, messages, practiceDayStats]);
   const cells = useMemo(() => buildCalendarCells(monthCursor), [monthCursor]);
   const today = new Date();
   const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
@@ -125,6 +136,14 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       contactMap
     );
     applyPracticeMessages(merged.rows, merged.contactMap);
+  }
+
+  function mergePracticeDayStats(rows: PracticeDayStats[]): void {
+    setPracticeDayStats((prev) => {
+      const next = new Map(prev);
+      rows.forEach((row) => next.set(row.dateKey, row));
+      return next;
+    });
   }
 
   async function syncPracticeDate(date: Date, options?: { force?: boolean; signal?: AbortSignal }): Promise<void> {
@@ -244,33 +263,51 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
     const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
     if (!options?.force && loadedPracticeMonthKeysRef.current.has(monthKey)) return;
     loadedPracticeMonthKeysRef.current.add(monthKey);
-    // 月索引只负责“哪些天有练习”，它和 day 线分开，但 notice 仍然共用页面上的阻塞层。
+    // 月视图只同步按 dateKey 聚合后的练习正确率；进入某天练习时再拉消息。
     const { token, controller } = practiceMonthMachine.begin("practice_month", monthKey);
     setIsSyncingPracticeDateKeys(true);
+    syncNoticeRef.current?.hide();
+    const notice = {
+      kind: "calendar" as const,
+      ...showNotice({
+        message: "正在同步练习日历...",
+        type: "info",
+        position: "top-right",
+        durationMs: 0,
+      }),
+    };
+    syncNoticeRef.current = notice;
 
     try {
       practiceMonthMachine.setPhase(token, "fetching");
-      const keys = await listPracticeDateKeysFromCloud({
+      const stats = await listPracticeDayStatsFromCloud({
         contactIds: PRACTICE_CONTACTS.map((contact) => contact.id),
         fromDateKey,
         toDateKey: monthEndDateKey,
         signal: controller.signal,
       });
-      // 只同步“这个月有练习的日期”和这些日期上的练习消息；不拉全量聊天历史。
-      // 这样日历能直接用真实正确率上色，换设备也不会因为本地缓存为空而看不到练习。
       practiceMonthMachine.setPhase(token, "merging");
-      const synced = await loadPracticeMessagesFromCloud(Array.from(keys), controller.signal);
       if (!isMounted()) return;
-      mergeIntoPracticeMessages(synced.rows, synced.contactMap);
+      mergePracticeDayStats(stats);
+      notice.hide();
     } catch (error) {
       if (controller.signal.aborted) {
         loadedPracticeMonthKeysRef.current.delete(monthKey);
+        notice.hide();
         return;
       }
       loadedPracticeMonthKeysRef.current.delete(monthKey);
+      notice.update({
+        message: "同步失败，稍后再试",
+        type: "warning",
+        durationMs: 2200,
+      });
     } finally {
       // 切换月份会 abort 上一次同步；旧请求收尾时不能关闭新请求的转圈提示/禁点状态。
       if (isMounted()) setIsSyncingPracticeDateKeys(false);
+      if (syncNoticeRef.current === notice) {
+        syncNoticeRef.current = null;
+      }
       practiceMonthMachine.setPhase(token, "settling");
       practiceMonthMachine.settle(token);
     }
@@ -342,8 +379,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   );
 }
 
-// 本地桶仍是练习的基础快照；打开月份时会额外按 dateKey 轻量拉云端练习消息，
-// 用来补齐换设备/本地缓存缺失的场景，并让日历正确率颜色可信。
+// 本地桶仍是练习入口的基础快照；日历颜色另走云端聚合 stats，不需要拉整月消息。
 async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
   const chunks = await Promise.all(PRACTICE_CONTACTS.map(async (contact) => {
     const days = await listStoredChatDateKeys(contact.id);
@@ -353,33 +389,6 @@ async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; c
       rows: dayChunks.flat(),
     };
   }));
-  const contactMap = new Map<string, ChatContact>();
-  const rows = chunks
-    .flatMap((chunk) => {
-      chunk.rows.forEach((row) => contactMap.set(row.id ?? row.localId, chunk.contact));
-      return chunk.rows;
-    })
-    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
-  return { rows, contactMap };
-}
-
-async function loadPracticeMessagesFromCloud(
-  dateKeys: string[],
-  signal: AbortSignal
-): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
-  const session = await getSession();
-  const userId = session?.user?.id ?? "mock_user_001";
-  const chunks = await Promise.all(PRACTICE_CONTACTS.flatMap((contact) =>
-    dateKeys.map(async (dateKey) => {
-      const conversationId = await findConversationIdByDateFromCloud({ contactId: contact.id, dateKey, signal });
-      if (!conversationId) return { contact, rows: [] as ChatMessage[] };
-      const rows = await listDayMessagesFromCloud({ conversationId, userId, dateKey, signal });
-      return {
-        contact,
-        rows: rows.map(mapCloudMessage),
-      };
-    })
-  ));
   const contactMap = new Map<string, ChatContact>();
   const rows = chunks
     .flatMap((chunk) => {
