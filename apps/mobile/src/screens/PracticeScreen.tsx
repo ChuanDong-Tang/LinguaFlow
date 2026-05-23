@@ -19,6 +19,12 @@ import { PRACTICE_CONTACTS, type ChatContact } from "../domain/chat/contacts";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import { useExclusiveSyncMachine } from "../hooks/useExclusiveSyncMachine";
 import {
+  clearPracticeStatsDirtyForMonth,
+  getCachedPracticeMonthStats,
+  getPracticeMonthCacheKey,
+  setCachedPracticeMonthStats,
+} from "../services/chat/chatPracticeSyncState";
+import {
   buildPracticeCards,
   filterPracticeCards,
   summarizePracticeDays,
@@ -84,7 +90,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       syncNoticeRef.current = null;
       return;
     }
-    void syncPracticeMonthDateKeys(monthCursor, { force: true });
+    void syncPracticeMonthDateKeys(monthCursor);
   }, [isActive, monthCursor]);
 
   useEffect(() => {
@@ -261,7 +267,20 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
 
   async function syncPracticeMonthDateKeys(cursor: Date, options?: { force?: boolean }): Promise<void> {
     const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
-    if (!options?.force && loadedPracticeMonthKeysRef.current.has(monthKey)) return;
+    const contactIds = PRACTICE_CONTACTS.map((contact) => contact.id);
+    const cacheKey = getPracticeMonthCacheKey(monthKey, contactIds);
+    const cachedStats = options?.force ? null : getCachedPracticeMonthStats(cacheKey, monthKey);
+    if (cachedStats) {
+      mergePracticeDayStats(cachedStats);
+      return;
+    }
+    if (!options?.force && loadedPracticeMonthKeysRef.current.has(monthKey)) {
+      const loadedStats = getCachedPracticeMonthStats(cacheKey, monthKey);
+      if (loadedStats) {
+        mergePracticeDayStats(loadedStats);
+        return;
+      }
+    }
     loadedPracticeMonthKeysRef.current.add(monthKey);
     // 月视图只同步按 dateKey 聚合后的练习正确率；进入某天练习时再拉消息。
     const { token, controller } = practiceMonthMachine.begin("practice_month", monthKey);
@@ -281,7 +300,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
     try {
       practiceMonthMachine.setPhase(token, "fetching");
       const stats = await listPracticeDayStatsFromCloud({
-        contactIds: PRACTICE_CONTACTS.map((contact) => contact.id),
+        contactIds,
         fromDateKey,
         toDateKey: monthEndDateKey,
         signal: controller.signal,
@@ -289,6 +308,8 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       practiceMonthMachine.setPhase(token, "merging");
       if (!isMounted()) return;
       mergePracticeDayStats(stats);
+      setCachedPracticeMonthStats(cacheKey, stats);
+      clearPracticeStatsDirtyForMonth(monthKey);
       notice.hide();
     } catch (error) {
       if (controller.signal.aborted) {

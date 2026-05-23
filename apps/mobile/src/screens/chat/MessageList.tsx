@@ -3,7 +3,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatMessage } from "../../domain/chat/types";
 import type { ChatContact } from "../../domain/chat/contacts";
-import { getClozeBlankRanges, getClozeHighlightRanges, normalizeClozeState } from "../../domain/cloze/clozeUtils";
+import { getClozeBlankRanges, getClozeCorrectRanges, getClozeHighlightRanges, normalizeClozeState } from "../../domain/cloze/clozeUtils";
 import { getAssistantClozeText } from "../../domain/cloze/clozeText";
 import {
   SelectableMessageText,
@@ -100,6 +100,10 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
     () => (hasBlank ? getClozeBlankRanges(displayText, clozeState, answersVisible) : undefined),
     [answersVisible, clozeState, displayText, hasBlank],
   );
+  const correctRanges = React.useMemo(
+    () => (hasBlank ? getClozeCorrectRanges(displayText, clozeState) : undefined),
+    [clozeState, displayText, hasBlank],
+  );
 
   return (
     <Pressable style={styles.assistantBlock} onPress={onBlankPress}>
@@ -114,6 +118,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
             style={styles.assistantCardText}
             highlightRanges={highlightRanges}
             blankRanges={blankRanges}
+            correctRanges={correctRanges}
             onSelectionStart={() => onSelectionRefChange(selectableRef.current)}
             onSelectionChange={(payload) => {
               onSelectionRefChange(selectableRef.current);

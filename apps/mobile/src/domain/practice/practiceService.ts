@@ -58,12 +58,7 @@ export function buildPracticeCards(
       if (!group.blankTokenIndexes.length) return;
       group.tokenIndexes.forEach((index) => phraseTokenIndexes.add(index));
       group.blankTokenIndexes.forEach((index) => sourceBlankIndexes.add(index));
-      const correctInGroup = new Set(state.correctTokenIndexes.filter((index) => group.blankTokenIndexes.includes(index)));
-      const remainingBlankTokenIndexes = group.blankTokenIndexes.filter((index) => !correctInGroup.has(index));
-      // 默认练习池跳过已经全部答对的组；日历统计会用 includeCompleted 把它们算进去。
-      if (!options?.includeCompleted && !remainingBlankTokenIndexes.length) return;
-      const visibleBlankIndexes = options?.includeCompleted ? group.blankTokenIndexes : remainingBlankTokenIndexes;
-      visibleBlankIndexes.forEach((index) => blankTokenIndexes.add(index));
+      group.blankTokenIndexes.forEach((index) => blankTokenIndexes.add(index));
     });
 
     if (!blankTokenIndexes.size) continue;

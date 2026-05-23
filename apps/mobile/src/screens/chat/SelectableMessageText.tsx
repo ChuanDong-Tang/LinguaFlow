@@ -27,6 +27,7 @@ type Props = {
   style?: StyleProp<TextStyle>;
   highlightRanges?: NativeClozeHighlightRange[];
   blankRanges?: NativeClozeBlankRange[];
+  correctRanges?: NativeClozeBlankRange[];
   onSelectionStart?: () => void;
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
   onClozeRangePress?: (groupIndex: number) => void;
@@ -111,17 +112,23 @@ function renderTextWithBlanks(
   value: string,
   offset: number,
   blankRanges: NativeClozeBlankRange[],
+  correctRanges: NativeClozeBlankRange[],
   keyPrefix: string,
   textStyle?: StyleProp<TextStyle>,
 ) {
   const nodes: React.ReactNode[] = [];
   let cursor = offset;
   const end = offset + value.length;
-  const visibleBlanks = blankRanges.filter((range) => range.end > offset && range.start < end);
+  const visibleRanges = [
+    ...blankRanges.map((range) => ({ ...range, kind: "blank" as const })),
+    ...correctRanges.map((range) => ({ ...range, kind: "correct" as const })),
+  ]
+    .filter((range) => range.end > offset && range.start < end)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
 
-  visibleBlanks.forEach((range, index) => {
+  visibleRanges.forEach((range, index) => {
     const start = Math.max(offset, range.start);
-    const blankEnd = Math.min(end, range.end);
+    const rangeEnd = Math.min(end, range.end);
     if (start > cursor) {
       nodes.push(
         <Text key={`${keyPrefix}:text:${index}`} style={textStyle}>
@@ -129,12 +136,20 @@ function renderTextWithBlanks(
         </Text>,
       );
     }
-    nodes.push(
-      <Text key={`${keyPrefix}:blank:${index}`} style={[textStyle, styles.blankText]}>
-        {"_".repeat(Math.max(1, blankEnd - start))}
-      </Text>,
-    );
-    cursor = blankEnd;
+    if (range.kind === "blank") {
+      nodes.push(
+        <Text key={`${keyPrefix}:blank:${index}`} style={[textStyle, styles.blankText]}>
+          {"_".repeat(Math.max(1, rangeEnd - start))}
+        </Text>,
+      );
+    } else {
+      nodes.push(
+        <Text key={`${keyPrefix}:correct:${index}`} style={[textStyle, styles.correctText]}>
+          {value.slice(start - offset, rangeEnd - offset)}
+        </Text>,
+      );
+    }
+    cursor = rangeEnd;
   });
 
   if (cursor < end) {
@@ -248,6 +263,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     style,
     highlightRanges,
     blankRanges,
+    correctRanges,
     onSelectionStart,
     onSelectionChange,
     onClozeRangePress,
@@ -256,6 +272,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const [selection, setSelection] = React.useState<SelectionDraft | null>(null);
     const parts = React.useMemo(() => buildTextParts(text, highlightRanges), [highlightRanges, text]);
     const blanks = React.useMemo(() => normalizeBlankRanges(text, blankRanges), [blankRanges, text]);
+    const correct = React.useMemo(() => normalizeBlankRanges(text, correctRanges), [correctRanges, text]);
 
     const clearSelection = React.useCallback(() => {
       setSelection(null);
@@ -316,7 +333,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       if (token.kind !== "word" || token.wordIndex === null) {
         return (
           <Text key={`${token.start}:${index}`}>
-            {renderTextWithBlanks(token.text, token.start, blanks, `${token.start}:${index}`)}
+            {renderTextWithBlanks(token.text, token.start, blanks, correct, `${token.start}:${index}`)}
           </Text>
         );
       }
@@ -351,7 +368,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
                   onPress={() => onClozeRangePress?.(part.groupIndex)}
                   onLongPress={() => onClozeRangeLongPress?.(part.groupIndex)}
                 >
-                  {renderTextWithBlanks(part.text, part.start, blanks, `${part.start}:${index}`, styles.blockedRangeText)}
+                  {renderTextWithBlanks(part.text, part.start, blanks, correct, `${part.start}:${index}`, styles.blockedRangeText)}
                 </Text>
               );
             }
@@ -379,5 +396,8 @@ const styles = StyleSheet.create({
   },
   blankText: {
     letterSpacing: 0,
+  },
+  correctText: {
+    color: "#6FAE78",
   },
 });

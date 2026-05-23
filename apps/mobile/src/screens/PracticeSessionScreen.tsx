@@ -3,6 +3,8 @@ import {
   Animated,
   PanResponder,
   Pressable,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,6 +27,7 @@ import { discardMessageClozePractice, updateMessageClozeState } from "../service
 import { loadChatMessagesByDate, replaceChatMessagesByDate } from "../services/chat/chatSessionService";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import { getMessageDateKey } from "../domain/chat/messageState";
+import { markChatDateDirty, markPracticeStatsDirty } from "../services/chat/chatPracticeSyncState";
 
 type PracticeSessionScreenProps = {
   initialCards: PracticeCard[];
@@ -33,8 +36,8 @@ type PracticeSessionScreenProps = {
 };
 
 type PracticeEnglishSegment =
-  | { type: "text"; key: string; text: string; highlighted: boolean }
-  | { type: "blank"; key: string; tokenIndex: number; width: number; spacer: boolean };
+  | { type: "text"; key: string; text: string; highlighted: boolean; correct: boolean }
+  | { type: "blank"; key: string; tokenIndex: number; width: number; spacer: boolean; expectedText: string };
 
 function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegment[] {
   const phraseSet = new Set(card.phraseTokenIndexes);
@@ -53,6 +56,7 @@ function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegmen
         tokenIndex: token.index,
         width: Math.max(36, token.text.length * 10),
         spacer,
+        expectedText: token.text,
       };
     }
     return {
@@ -60,6 +64,7 @@ function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegmen
       key: `text-${token.index}`,
       text: `${spacer ? " " : ""}${token.text}`,
       highlighted: isPhrase || isAnsweredBlank,
+      correct: isAnsweredBlank,
     };
   });
 }
@@ -70,6 +75,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const [messages, setMessages] = useState(allMessages);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [checkedAnswers, setCheckedAnswers] = useState<Record<number, "correct" | "incorrect">>({});
   const [isFlipped, setIsFlipped] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -80,6 +86,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const cardMotionLocked = useRef(false);
   const segmentCacheRef = useRef(new Map<string, PracticeEnglishSegment[]>());
   const gestureAxis = useRef<"x" | "y" | null>(null);
+  const scrollStateRef = useRef({ y: 0, maxY: 0 });
   const card = cards[index] ?? null;
   const canFlipCard = !!card?.translation.trim();
 
@@ -128,12 +135,14 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) => {
           if (cardMotionLocked.current || isFlipping) return false;
+          if (Math.abs(gesture.dy) > Math.abs(gesture.dx) && !canHandleVerticalDeckGesture(gesture.dy)) return false;
           return Math.abs(gesture.dy) > 8 || Math.abs(gesture.dx) > 8;
         },
         onMoveShouldSetPanResponderCapture: (_, gesture) => {
           if (cardMotionLocked.current || isFlipping) return false;
           const absX = Math.abs(gesture.dx);
           const absY = Math.abs(gesture.dy);
+          if (absY > absX && !canHandleVerticalDeckGesture(gesture.dy)) return false;
           return absY > 14 || absX > 18;
         },
         onPanResponderGrant: () => {
@@ -216,11 +225,29 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
 
   function resetMotion(): void {
     gestureAxis.current = null;
+    scrollStateRef.current = { y: 0, maxY: 0 };
     translate.setValue({ x: 0, y: 0 });
+  }
+
+  function handleCardScroll(event: NativeSyntheticEvent<NativeScrollEvent>): void {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    scrollStateRef.current = {
+      y: Math.max(0, contentOffset.y),
+      maxY: Math.max(0, contentSize.height - layoutMeasurement.height),
+    };
+  }
+
+  function canHandleVerticalDeckGesture(dy: number): boolean {
+    const { y, maxY } = scrollStateRef.current;
+    if (maxY <= 1) return true;
+    if (dy < 0) return y >= maxY - 1;
+    if (dy > 0) return y <= 1;
+    return false;
   }
 
   function resetCardState(): void {
     setAnswers({});
+    setCheckedAnswers({});
     setIsFlipped(false);
     setIsFlipping(false);
     flipAnim.setValue(0);
@@ -228,6 +255,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
 
   function resetPracticeInputs(nextIndex?: number): void {
     setAnswers({});
+    setCheckedAnswers({});
     setIsFlipping(false);
     if (nextIndex == null) return;
     const nextCardCanFlip = !!cards[nextIndex]?.translation.trim();
@@ -292,17 +320,21 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     if (!card) return;
     const answerMap = getBlankAnswers(card);
     const correct: number[] = [];
+    const checked: Record<number, "correct" | "incorrect"> = {};
     for (const tokenIndex of card.blankTokenIndexes) {
       const expected = answerMap.get(tokenIndex)?.trim().toLowerCase();
       const actual = (answers[tokenIndex] ?? "").trim().toLowerCase();
-      if (expected && actual === expected) correct.push(tokenIndex);
+      if (card.correctTokenIndexes.includes(tokenIndex)) {
+        checked[tokenIndex] = "correct";
+      } else if (expected && actual === expected) {
+        correct.push(tokenIndex);
+        checked[tokenIndex] = "correct";
+      } else {
+        checked[tokenIndex] = "incorrect";
+      }
     }
+    setCheckedAnswers(checked);
     if (!correct.length) {
-      const cleared = { ...answers };
-      card.blankTokenIndexes.forEach((tokenIndex) => {
-        cleared[tokenIndex] = "";
-      });
-      setAnswers(cleared);
       return;
     }
 
@@ -327,10 +359,15 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       );
       const updatedMessage = nextMessages.find(matchesCardMessage);
       const nextCards = buildPracticeCards(nextMessages);
+      segmentCacheRef.current.delete(card.id);
       setMessages(nextMessages);
       setCards(nextCards);
       if (updatedMessage) await persistPracticeMessageUpdate(card.contactId, updatedMessage);
-      setAnswers({});
+      setAnswers((current) => {
+        const next = { ...current };
+        correct.forEach((tokenIndex) => delete next[tokenIndex]);
+        return next;
+      });
       setIsFlipped(false);
       if (index >= nextCards.length) setIndex(Math.max(0, nextCards.length - 1));
     }, "正在处理...");
@@ -415,8 +452,19 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
               ]}
             >
               <View style={styles.englishPane}>
-                <ScrollView contentContainerStyle={styles.englishContent}>
-                  <PracticeEnglish segments={getCardSegments(card)} answers={answers} onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))} />
+                <ScrollView
+                  contentContainerStyle={styles.englishContent}
+                  bounces={false}
+                  overScrollMode="never"
+                  scrollEventThrottle={16}
+                  onScroll={handleCardScroll}
+                >
+                  <PracticeEnglish
+                    segments={getCardSegments(card)}
+                    answers={answers}
+                    checkedAnswers={checkedAnswers}
+                    onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))}
+                  />
                 </ScrollView>
               </View>
             </Animated.View>
@@ -433,7 +481,13 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
                 ]}
               >
                 <View style={styles.translationPane}>
-                  <ScrollView contentContainerStyle={styles.translationContent}>
+                  <ScrollView
+                    contentContainerStyle={styles.translationContent}
+                    bounces={false}
+                    overScrollMode="never"
+                    scrollEventThrottle={16}
+                    onScroll={handleCardScroll}
+                  >
                     <Text style={styles.translationText}>{card.translation}</Text>
                   </ScrollView>
                 </View>
@@ -474,36 +528,51 @@ async function persistPracticeMessageUpdate(contactId: string, message: ChatMess
     (message.id && row.id === message.id) || row.localId === message.localId ? message : row,
   );
   await replaceChatMessagesByDate(contactId, dateKey, next);
+  markChatDateDirty(contactId, dateKey);
+  markPracticeStatsDirty(dateKey);
 }
 
 function PracticeEnglish({
   segments,
   answers,
+  checkedAnswers,
   onChangeAnswer,
 }: {
   segments: PracticeEnglishSegment[];
   answers: Record<number, string>;
+  checkedAnswers: Record<number, "correct" | "incorrect">;
   onChangeAnswer: (tokenIndex: number, value: string) => void;
 }) {
   return (
     <View style={styles.englishFlow}>
       {segments.map((segment) => {
         if (segment.type === "blank") {
+          const checked = checkedAnswers[segment.tokenIndex];
+          const isCorrect = checked === "correct";
+          const isIncorrect = checked === "incorrect";
           return (
             <React.Fragment key={segment.key}>
               {segment.spacer ? <Text style={styles.englishText}> </Text> : null}
-              <TextInput
-                style={[styles.blankInput, { width: segment.width }]}
-                value={answers[segment.tokenIndex] ?? ""}
-                onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
+              {isCorrect ? (
+                <Text style={[styles.tokenText, styles.correctText]}>{answers[segment.tokenIndex] || segment.expectedText}</Text>
+              ) : (
+                <TextInput
+                  style={[
+                    styles.blankInput,
+                    isIncorrect && styles.incorrectInput,
+                    { width: segment.width },
+                  ]}
+                  value={answers[segment.tokenIndex] ?? ""}
+                  onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              )}
             </React.Fragment>
           );
         }
         return (
-          <Text key={segment.key} style={[styles.tokenText, segment.highlighted && styles.phraseText]}>
+          <Text key={segment.key} style={[styles.tokenText, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}>
             {segment.text}
           </Text>
         );
@@ -625,6 +694,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     fontWeight: "400",
+  },
+  correctText: {
+    color: "#6FAE78",
+  },
+  incorrectInput: {
+    color: "#D77A7A",
+    borderBottomColor: "#D77A7A",
   },
   blankInput: {
     height: 24,

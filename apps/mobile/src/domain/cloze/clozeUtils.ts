@@ -137,6 +137,16 @@ export function getClozeBlankRanges(
     .map((token) => ({ start: token.start, end: token.end }));
 }
 
+export function getClozeCorrectRanges(text: string, state: ClozeState | null | undefined): ClozeBlankRange[] {
+  const normalized = normalizeClozeState(state);
+  if (!normalized) return [];
+  const blankTokens = getBlankTokenSet(normalized);
+  const correct = new Set(normalized.correctTokenIndexes);
+  return tokenizeForCloze(text)
+    .filter((token) => blankTokens.has(token.index) && correct.has(token.index))
+    .map((token) => ({ start: token.start, end: token.end }));
+}
+
 export function expandSelectionToTokenRange(
   text: string,
   selectionStart: number,

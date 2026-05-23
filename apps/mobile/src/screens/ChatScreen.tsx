@@ -47,6 +47,7 @@ import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import { ClozeControls } from "./chat/ClozeControls";
 import type { ChatMessage } from "../domain/chat/types";
 import { useChatClozeEditing } from "../hooks/useChatClozeEditing";
+import { consumeChatDateDirty } from "../services/chat/chatPracticeSyncState";
 import {
   isSameDate,
   toDateKey,
@@ -531,8 +532,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const reqId = ++syncSeqRef.current;
     latestSyncReqByDateRef.current[dateKey] = reqId;
     // 同一天 5 分钟内只允许命中一次拉取，避免进出页面时反复打云端。
+    const dirty = consumeChatDateDirty(contactId, dateKey);
     const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
-    if (!options?.force && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
+    if (!options?.force && !dirty && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
       return { synced: true, changed: false };
     }
 
@@ -596,8 +598,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   async function syncDateQuietly(d: Date, options?: { force?: boolean }): Promise<void> {
     const dateKey = toDateKey(d);
+    const dirty = consumeChatDateDirty(contactId, dateKey);
     const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
-    if (!options?.force && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
+    if (!options?.force && !dirty && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
       return;
     }
 
@@ -622,7 +625,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     syncNoticeRef.current = notice;
     try {
       daySyncMachine.setPhase(token, "fetching");
-      const result = await syncDayFromCloud(d, { ...options, signal: controller.signal, syncToken: token });
+      const result = await syncDayFromCloud(d, { ...options, force: options?.force || dirty, signal: controller.signal, syncToken: token });
       if (!isMountedRef.current) {
         notice.hide();
         return;
