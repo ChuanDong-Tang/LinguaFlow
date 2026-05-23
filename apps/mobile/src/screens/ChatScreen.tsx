@@ -3,9 +3,7 @@ import {
   Alert,
   FlatList,
   Keyboard,
-  Platform,
   StyleSheet,
-  ToastAndroid,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -325,9 +323,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   async function copyAssistantText(text: string, silent = false): Promise<void> {
     try {
       const ok = await copyTextToClipboard(text);
-      if (ok) {
-        notifyCopySuccess(silent ? "已自动复制" : "已复制");
-      } else if (!silent) {
+      if (!ok && !silent) {
         Alert.alert("没有可复制的内容");
       }
     } catch {
@@ -532,16 +528,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     setDayMessages(nextDay);
     setMessages(nextDay);
     setLocalDateKeys((prev) => new Set([...prev, dayKey]));
-  }
-
-  function notifyCopySuccess(message: string): void {
-    if (Platform.OS === "android") {
-      ToastAndroid.show(message, ToastAndroid.SHORT);
-      return;
-    }
-    if (!message.includes("自动")) {
-      Alert.alert(message);
-    }
   }
 
   async function handleSetAutoCopyMode(mode: AutoCopyMode): Promise<void> {
