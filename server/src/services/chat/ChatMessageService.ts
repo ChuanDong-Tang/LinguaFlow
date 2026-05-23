@@ -13,6 +13,7 @@ export interface MessageView {
   status: "pending" | "success" | "failed";
   content: string;
   createdAt: string;
+  conversationDateKey: string | null;
   clozeState: ClozeState | null;
   clozeVersion: number;
   clozePracticeDiscardedAt: string | null;
@@ -150,6 +151,7 @@ export class ChatMessageService {
       content: input.text,
       inputChars: input.text.length,
       outputChars: 0,
+      conversationDateKey: conversation.dateKey,
     });
 
     return {
@@ -182,6 +184,10 @@ export class ChatMessageService {
   ): Promise<MessageView> {
     const existing = await this.messageRepository.findAssistantBySourceMessageId(sourceMessageId);
     if (existing) return this.toView(existing);
+    const conversation = await this.conversationRepository.findById(conversationId);
+    if (!conversation || conversation.userId !== userId) {
+      throw new ConversationAccessDeniedError();
+    }
 
     const msg = await this.messageRepository.create({
       conversationId,
@@ -192,6 +198,7 @@ export class ChatMessageService {
       inputChars: 0,
       outputChars: content.length,
       sourceMessageId,
+      conversationDateKey: conversation.dateKey,
     });
 
     return this.toView(msg);
@@ -234,6 +241,8 @@ export class ChatMessageService {
 
     const rows = await this.messageRepository.listByConversationRange({
       conversationId: input.conversationId,
+      fromDateKey: input.fromDateKey,
+      toDateKey: input.toDateKey,
       from: fromStart,
       to: toEnd,
       limit: 500,
@@ -255,6 +264,7 @@ export class ChatMessageService {
       conversationId: input.conversationId,
       from: dayStart,
       to: dayEnd,
+      dateKey: input.dateKey,
       limit: input.limit,
       beforeCreatedAt,
       beforeId: input.beforeId,
@@ -334,6 +344,7 @@ export class ChatMessageService {
     clozeState?: ClozeState | null;
     clozeVersion?: number;
     clozePracticeDiscardedAt?: Date | null;
+    conversationDateKey?: string | null;
     createdAt: Date;
   }): MessageView {
     return {
@@ -342,6 +353,7 @@ export class ChatMessageService {
       status: row.status,
       content: row.content,
       createdAt: row.createdAt.toISOString(),
+      conversationDateKey: row.conversationDateKey ?? null,
       clozeState: row.clozeState ?? null,
       clozeVersion: Number.isFinite(row.clozeVersion) ? Number(row.clozeVersion) : 0,
       clozePracticeDiscardedAt: row.clozePracticeDiscardedAt?.toISOString() ?? null,

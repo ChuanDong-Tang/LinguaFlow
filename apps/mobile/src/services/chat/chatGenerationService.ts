@@ -5,7 +5,7 @@ import { getCurrentEntitlement } from "../api/meApi";
 import { startChatGenerationStream } from "./chatGenerationStream";
 import { hasLocalProAccess } from "../entitlement/proAccess";
 import type { ChatMessage } from "../../domain/chat/types";
-import { nowHHMM } from "../../domain/chat/messageState";
+import { nowHHMM, toDateKey } from "../../domain/chat/messageState";
 
 export type ChatGenerationStatus = "success" | "failed" | "stopped";
 
@@ -37,6 +37,7 @@ export function createLocalChatPair(text: string, now = new Date()): LocalChatPa
   const stamp = now.getTime();
   const time = nowHHMM();
   const createdAt = now.toISOString();
+  const conversationDateKey = toDateKey(now);
 
   return {
     userMessage: {
@@ -45,6 +46,7 @@ export function createLocalChatPair(text: string, now = new Date()): LocalChatPa
       text,
       time,
       createdAt,
+      conversationDateKey,
       status: "pending",
     },
     assistantMessage: {
@@ -53,6 +55,7 @@ export function createLocalChatPair(text: string, now = new Date()): LocalChatPa
       text: "",
       time,
       createdAt,
+      conversationDateKey,
       status: "pending",
       retryText: text,
       retryCount: 0,
@@ -149,6 +152,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
             retryText: input.text,
             retryCount: input.retryCount,
             retrySystemPrompt: requestSystemPrompt,
+            conversationDateKey: event.assistantMessage?.conversationDateKey ?? row.conversationDateKey,
             createdAt: event.assistantMessage?.createdAt ?? new Date().toISOString(),
           }));
         }

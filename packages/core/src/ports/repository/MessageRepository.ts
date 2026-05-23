@@ -24,6 +24,7 @@ export interface MessageEntity {
   clozeState?: ClozeState | null;
   clozeVersion: number;
   clozePracticeDiscardedAt?: Date | null;
+  conversationDateKey?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -37,10 +38,13 @@ export interface CreateMessageInput {
   inputChars?: number;
   outputChars?: number;
   sourceMessageId?: string | null;
+  conversationDateKey?: string | null;
 }
 
 export interface ListByConversationRangeInput {
   conversationId: string;
+  fromDateKey: string;
+  toDateKey: string;
   from: Date;
   to: Date;
   limit?: number;
@@ -50,6 +54,7 @@ export interface ListByConversationDayPageInput {
   conversationId: string;
   from: Date;
   to: Date;
+  dateKey: string;
   limit: number;
   beforeCreatedAt?: Date;
   beforeId?: string;

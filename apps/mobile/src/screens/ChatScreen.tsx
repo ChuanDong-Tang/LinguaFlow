@@ -62,6 +62,7 @@ import { getAssistantClozeText } from "../domain/cloze/clozeText";
 import { getRewriteChinese, getRewriteEnglish } from "../domain/rewrite/taggedRewrite";
 import {
   filterByDate,
+  getMessageDateKey,
   isSameDate,
   toDateKey,
 } from "../domain/chat/messageState";
@@ -221,7 +222,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       // 会话级单调缓存：某天已经展示过的行数，作为本次 app 运行期间的保底显示。
       const grouped: Record<string, ChatMessage[]> = {};
       for (const row of rows) {
-        const key = toDateKey(new Date(row.createdAt));
+        const key = getMessageDateKey(row);
         if (!grouped[key]) grouped[key] = [];
         grouped[key].push(row);
       }
@@ -723,6 +724,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       text: row.content,
       time: new Date(row.createdAt).toTimeString().slice(0, 5),
       createdAt: row.createdAt,
+      conversationDateKey: row.conversationDateKey ?? null,
       status: row.status,
       clozeState: row.clozeState ?? null,
       clozeVersion: row.clozeVersion ?? 0,
@@ -793,7 +795,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
     const dayKey = toDateKey(d);
     const baseRows = allLocalMessagesRef.current.filter((row) => {
-      return toDateKey(new Date(row.createdAt)) !== dayKey;
+      return getMessageDateKey(row) !== dayKey;
     });
     const cachedLoaded = (dayLoadedRowsRef.current[dayKey] ?? []).slice().sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : 1
@@ -908,7 +910,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const recordDateKeys = useMemo(() => {
     const set = new Set<string>();
     for (const row of allLocalMessages) {
-      set.add(toDateKey(new Date(row.createdAt)));
+      set.add(getMessageDateKey(row));
     }
     for (const k of cloudDateKeys) set.add(k);
     return set;

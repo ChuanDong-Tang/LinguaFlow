@@ -13,6 +13,7 @@ export type MessageView = {
   status: "pending" | "success" | "failed";
   content: string;
   createdAt: string;
+  conversationDateKey?: string | null;
   clozeState?: {
     groups: Array<{
       tokenIndexes: number[];

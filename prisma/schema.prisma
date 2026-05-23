@@ -107,12 +107,15 @@ model Message {
   clozeState       Json?
   clozeVersion     Int           @default(0)
   clozePracticeDiscardedAt DateTime?
+  conversationDateKey String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([conversationId, conversationDateKey, createdAt])
+  @@index([userId, conversationDateKey])
   @@index([conversationId, createdAt])
   @@index([userId, createdAt])
   @@index([userId, status, createdAt])

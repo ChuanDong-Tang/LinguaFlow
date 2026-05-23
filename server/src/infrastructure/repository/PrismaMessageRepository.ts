@@ -36,6 +36,7 @@ export class PrismaMessageRepository implements MessageRepository {
         inputChars: input.inputChars ?? 0,
         outputChars: input.outputChars ?? 0,
         sourceMessageId: input.sourceMessageId ?? null,
+        conversationDateKey: input.conversationDateKey ?? null,
       },
     });
 
@@ -130,10 +131,21 @@ export class PrismaMessageRepository implements MessageRepository {
     const rows = await this.prisma.message.findMany({
       where: {
         conversationId: input.conversationId,
-        createdAt: {
-          gte: input.from,
-          lte: input.to,
-        },
+        OR: [
+          {
+            conversationDateKey: {
+              gte: input.fromDateKey,
+              lte: input.toDateKey,
+            },
+          },
+          {
+            conversationDateKey: null,
+            createdAt: {
+              gte: input.from,
+              lte: input.to,
+            },
+          },
+        ],
       },
       orderBy: [{ createdAt: "asc" }],
       take: input.limit ?? 500,
@@ -147,11 +159,23 @@ export class PrismaMessageRepository implements MessageRepository {
       where: {
         conversationId: input.conversationId,
         status: { not: "failed" },
-        createdAt: {
-          gte: input.from,
-          lte: input.to,
-          ...(input.beforeCreatedAt ? { lt: input.beforeCreatedAt } : {}),
-        },
+        OR: [
+          { conversationDateKey: input.dateKey },
+          {
+            conversationDateKey: null,
+            createdAt: {
+              gte: input.from,
+              lte: input.to,
+            },
+          },
+        ],
+        ...(input.beforeCreatedAt
+          ? {
+              createdAt: {
+                lt: input.beforeCreatedAt,
+              },
+            }
+          : {}),
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: input.limit,
@@ -167,10 +191,21 @@ export class PrismaMessageRepository implements MessageRepository {
       where: {
         userId: input.userId,
         status: { not: "failed" },
-        createdAt: {
-          gte: from,
-          lte: to,
-        },
+        OR: [
+          {
+            conversationDateKey: {
+              gte: input.fromDateKey,
+              lte: input.toDateKey,
+            },
+          },
+          {
+            conversationDateKey: null,
+            createdAt: {
+              gte: from,
+              lte: to,
+            },
+          },
+        ],
         conversation: {
           contactId: input.contactId,
           archivedAt: null,
@@ -178,13 +213,14 @@ export class PrismaMessageRepository implements MessageRepository {
       },
       select: {
         createdAt: true,
+        conversationDateKey: true,
       },
       orderBy: [{ createdAt: "asc" }],
     });
 
     const keys = new Set<string>();
     for (const row of rows) {
-      keys.add(formatDateKey(row.createdAt));
+      keys.add(row.conversationDateKey ?? formatDateKey(row.createdAt));
     }
     return Array.from(keys);
   }
@@ -211,6 +247,7 @@ export class PrismaMessageRepository implements MessageRepository {
     clozeState?: unknown;
     clozeVersion?: number;
     clozePracticeDiscardedAt?: Date | null;
+    conversationDateKey?: string | null;
     createdAt: Date;
     updatedAt: Date;
   }): MessageEntity {
@@ -227,6 +264,7 @@ export class PrismaMessageRepository implements MessageRepository {
       clozeState: normalizeClozeState(record.clozeState),
       clozeVersion: Number.isFinite(record.clozeVersion) ? Number(record.clozeVersion) : 0,
       clozePracticeDiscardedAt: record.clozePracticeDiscardedAt ?? null,
+      conversationDateKey: record.conversationDateKey ?? null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

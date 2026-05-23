@@ -32,9 +32,9 @@ export function isSameDate(a: Date, b: Date): boolean {
 }
 
 export function filterByDate(rows: ChatMessage[], date: Date): ChatMessage[] {
+  const dateKey = toDateKey(date);
   return rows.filter((row) => {
-    const d = new Date(row.createdAt);
-    return isSameDate(d, date);
+    return getMessageDateKey(row) === dateKey;
   });
 }
 
@@ -43,6 +43,10 @@ export function toDateKey(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+export function getMessageDateKey(row: ChatMessage): string {
+  return row.conversationDateKey || toDateKey(new Date(row.createdAt));
 }
 
 export function mergeByLocalId(allRows: ChatMessage[], incomingRows: ChatMessage[]): ChatMessage[] {

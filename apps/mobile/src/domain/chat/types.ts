@@ -13,6 +13,7 @@ export type ChatMessage = {
   text: string;
   time: string;
   createdAt: string;
+  conversationDateKey?: string | null;
   status: "pending" | "success" | "failed";
   retryText?: string;
   retryCount?: number;
