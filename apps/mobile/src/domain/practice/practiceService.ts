@@ -1,6 +1,6 @@
 import type { ChatMessage, ClozeState } from "../chat/types";
 import { DEFAULT_CHAT_CONTACT, type ChatContact } from "../chat/contacts";
-import { toDateKey } from "../chat/messageState";
+import { getMessageDateKey } from "../chat/messageState";
 import { normalizeClozeState, tokenizeForCloze, type ClozeToken } from "../cloze/clozeUtils";
 import { getAssistantClozeText } from "../cloze/clozeText";
 
@@ -49,7 +49,7 @@ export function buildPracticeCards(
     if (!englishText) continue;
     const tokens = tokenizeForCloze(englishText);
     const translation = clozeText.translation || findPreviousUserText(messages, i);
-    const dateKey = toDateKey(new Date(message.createdAt));
+    const dateKey = getMessageDateKey(message);
     const phraseTokenIndexes = new Set<number>();
     const blankTokenIndexes = new Set<number>();
     const sourceBlankIndexes = new Set<number>();

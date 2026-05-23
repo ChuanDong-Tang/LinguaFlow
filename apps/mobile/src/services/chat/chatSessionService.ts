@@ -1,6 +1,11 @@
 import type { ChatMessage } from "../../domain/chat/types";
-import { clampMessages, updateMessageByLocalId } from "../../domain/chat/messageState";
-import { loadLocalMessagesScoped, saveLocalMessagesScoped } from "./chatLocalStorage";
+import { getMessageDateKey, updateMessageByLocalId } from "../../domain/chat/messageState";
+import {
+  listLocalMessageDateKeysScoped,
+  loadLocalMessagesByDateScoped,
+  removeLocalMessagesByDateScoped,
+  saveLocalMessagesByDateScoped,
+} from "./chatLocalStorage";
 import { runChatGeneration } from "./chatGenerationService";
 import { getSession } from "../auth/authStorage";
 import type { AutoCopyMode } from "../preferences/assistantPreferences";
@@ -11,7 +16,7 @@ type ChatSessionSnapshot = {
   activeContactId: string | null;
   conversationId: string | null;
   activeAssistantLocalId: string | null;
-  messages: ChatMessage[];
+  changedDateKey: string | null;
 };
 
 type ChatSessionSubscriber = (snapshot: ChatSessionSnapshot) => void;
@@ -21,6 +26,7 @@ type StartChatSessionInput = {
   contactId: string;
   text: string;
   assistantLocalId: string;
+  conversationDateKey: string;
   retryCount: number;
   systemPrompt?: string;
   userLocalId?: string;
@@ -31,7 +37,7 @@ type StartChatSessionInput = {
 };
 
 type ChatSessionState = {
-  messagesCache: ChatMessage[] | null;
+  dayCache: Map<string, ChatMessage[]>;
   isSending: boolean;
   conversationId: string | null;
   activeAssistantLocalId: string | null;
@@ -40,19 +46,20 @@ type ChatSessionState = {
   activeRunId: number;
   storageUserId: string | null;
   storageConversationId: string | null;
-  persistTimer: ReturnType<typeof setTimeout> | null;
   subscribers: Set<ChatSessionSubscriber>;
 };
 
 const sessions = new Map<string, ChatSessionState>();
 const activitySubscribers = new Set<ChatGenerationActivitySubscriber>();
 let activeContactId: string | null = null;
+const MAX_MESSAGES_PER_DAY = 400;
+const MAX_STORED_DAYS = 45;
 
 function getSessionState(contactId: string): ChatSessionState {
   const existing = sessions.get(contactId);
   if (existing) return existing;
   const created: ChatSessionState = {
-    messagesCache: null,
+    dayCache: new Map(),
     isSending: false,
     conversationId: null,
     activeAssistantLocalId: null,
@@ -61,7 +68,6 @@ function getSessionState(contactId: string): ChatSessionState {
     activeRunId: 0,
     storageUserId: null,
     storageConversationId: null,
-    persistTimer: null,
     subscribers: new Set(),
   };
   sessions.set(contactId, created);
@@ -70,6 +76,16 @@ function getSessionState(contactId: string): ChatSessionState {
 
 function fallbackConversationScope(contactId: string): string {
   return `contact:${contactId}`;
+}
+
+async function resolveStorageScope(contactId: string): Promise<{ state: ChatSessionState; uid: string; cid: string }> {
+  const state = getSessionState(contactId);
+  const session = await getSession();
+  const uid = state.storageUserId ?? session?.user?.id ?? "mock_user_001";
+  const cid = state.storageConversationId ?? state.conversationId ?? fallbackConversationScope(contactId);
+  state.storageUserId = uid;
+  state.storageConversationId = cid;
+  return { state, uid, cid };
 }
 
 export function subscribeChatSession(contactId: string, subscriber: ChatSessionSubscriber): () => void {
@@ -89,80 +105,76 @@ export function subscribeChatGenerationActivity(subscriber: ChatGenerationActivi
   };
 }
 
-export async function ensureChatMessagesLoaded(contactId: string): Promise<ChatMessage[]> {
-  const state = getSessionState(contactId);
-  const session = await getSession();
-  const uid = session?.user?.id ?? "mock_user_001";
-  const cid = state.conversationId ?? fallbackConversationScope(contactId);
-  state.storageUserId = uid;
-  state.storageConversationId = cid;
-  if (state.messagesCache) return state.messagesCache;
-  state.messagesCache = await loadLocalMessagesScoped(uid, cid);
-  emit(state);
-  return state.messagesCache;
+export async function listStoredChatDateKeys(contactId: string): Promise<string[]> {
+  const { uid, cid } = await resolveStorageScope(contactId);
+  return listLocalMessageDateKeysScoped(uid, cid);
 }
 
-export async function replaceChatMessages(contactId: string, rows: ChatMessage[]): Promise<void> {
-  const state = getSessionState(contactId);
-  state.messagesCache = rows;
-  const session = await getSession();
-  const uid = state.storageUserId ?? session?.user?.id ?? "mock_user_001";
-  const cid = state.storageConversationId ?? state.conversationId ?? fallbackConversationScope(contactId);
-  state.storageUserId = uid;
-  state.storageConversationId = cid;
-  await saveLocalMessagesScoped(uid, cid, rows);
-  emit(state);
+export async function loadChatMessagesByDate(contactId: string, dateKey: string): Promise<ChatMessage[]> {
+  const { state, uid, cid } = await resolveStorageScope(contactId);
+  const cached = state.dayCache.get(dateKey);
+  if (cached) return cached;
+  const rows = await loadLocalMessagesByDateScoped(uid, cid, dateKey);
+  state.dayCache.set(dateKey, rows);
+  return rows;
+}
+
+export async function replaceChatMessagesByDate(
+  contactId: string,
+  dateKey: string,
+  rows: ChatMessage[]
+): Promise<void> {
+  const { state, uid, cid } = await resolveStorageScope(contactId);
+  await saveLocalMessagesByDateScoped(uid, cid, dateKey, rows);
+  state.dayCache.set(dateKey, rows);
+  emit(state, dateKey);
 }
 
 export async function appendChatMessages(contactId: string, rows: ChatMessage[]): Promise<ChatMessage[]> {
-  const state = getSessionState(contactId);
-  const prev = await ensureChatMessagesLoaded(contactId);
-  const next = clampMessages([...prev, ...rows], 10000);
-  state.messagesCache = next;
-  const session = await getSession();
-  const uid = state.storageUserId ?? session?.user?.id ?? "mock_user_001";
-  const cid = state.storageConversationId ?? state.conversationId ?? fallbackConversationScope(contactId);
-  state.storageUserId = uid;
-  state.storageConversationId = cid;
-  await saveLocalMessagesScoped(uid, cid, next);
-  emit(state);
-  return next;
+  const { state, uid, cid } = await resolveStorageScope(contactId);
+  const grouped = new Map<string, ChatMessage[]>();
+  for (const row of rows) {
+    const key = getMessageDateKey(row);
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(row);
+    grouped.set(key, bucket);
+  }
+
+  for (const [dateKey, newDayRows] of grouped.entries()) {
+    const existing = await loadLocalMessagesByDateScoped(uid, cid, dateKey);
+    const nextDay = [...existing, ...newDayRows]
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+      .slice(-MAX_MESSAGES_PER_DAY);
+    await saveLocalMessagesByDateScoped(uid, cid, dateKey, nextDay);
+    state.dayCache.set(dateKey, nextDay);
+  }
+
+  const days = await listLocalMessageDateKeysScoped(uid, cid);
+  if (days.length > MAX_STORED_DAYS) {
+    const removable = days.slice(0, days.length - MAX_STORED_DAYS);
+    for (const dateKey of removable) {
+      await removeLocalMessagesByDateScoped(uid, cid, dateKey);
+      state.dayCache.delete(dateKey);
+    }
+  }
+
+  const firstTouchedDay = grouped.keys().next().value as string | undefined;
+  emit(state, firstTouchedDay ?? null);
+  return firstTouchedDay ? (state.dayCache.get(firstTouchedDay) ?? []) : [];
 }
 
-export function updateChatMessage(
+export async function updateChatMessage(
   contactId: string,
   localId: string,
   updater: (message: ChatMessage) => ChatMessage,
-): void {
-  const state = getSessionState(contactId);
-  if (!state.messagesCache) {
-    void ensureChatMessagesLoaded(contactId).then(() => updateChatMessage(contactId, localId, updater));
-    return;
-  }
-
-  const next = updateMessageByLocalId(state.messagesCache, localId, updater);
-  state.messagesCache = next;
-  schedulePersist(contactId);
-  emit(state);
-}
-
-function schedulePersist(contactId: string, delayMs = 180): void {
-  const state = getSessionState(contactId);
-  if (state.persistTimer) clearTimeout(state.persistTimer);
-  state.persistTimer = setTimeout(() => {
-    state.persistTimer = null;
-    void flushPersist(contactId);
-  }, delayMs);
-}
-
-async function flushPersist(contactId: string): Promise<void> {
-  const state = getSessionState(contactId);
-  if (!state.messagesCache) return;
-  const snapshot = state.messagesCache;
-  const session = await getSession();
-  const uid = state.storageUserId ?? session?.user?.id ?? "mock_user_001";
-  const cid = state.storageConversationId ?? state.conversationId ?? fallbackConversationScope(contactId);
-  await saveLocalMessagesScoped(uid, cid, snapshot);
+  dateKey: string,
+): Promise<void> {
+  const { state, uid, cid } = await resolveStorageScope(contactId);
+  const current = state.dayCache.get(dateKey) ?? await loadLocalMessagesByDateScoped(uid, cid, dateKey);
+  const next = updateMessageByLocalId(current, localId, updater);
+  state.dayCache.set(dateKey, next);
+  await saveLocalMessagesByDateScoped(uid, cid, dateKey, next);
+  emit(state, dateKey);
 }
 
 export function stopChatSession(contactId: string): void {
@@ -170,7 +182,6 @@ export function stopChatSession(contactId: string): void {
   if (!state.activeAbortController || !state.activeAssistantLocalId) return;
   state.stopRequested = true;
   state.activeAbortController.abort();
-  void flushPersist(contactId);
   emit(state);
 }
 
@@ -194,9 +205,6 @@ export function startChatSession(input: StartChatSessionInput): void {
       const session = await getSession();
       state.storageUserId = session?.user?.id ?? "mock_user_001";
       state.storageConversationId = currentConversationId;
-      if (!state.messagesCache || state.messagesCache.length === 0) {
-        state.messagesCache = await loadLocalMessagesScoped(state.storageUserId, state.storageConversationId);
-      }
       emit(state);
     })();
   }
@@ -219,7 +227,7 @@ export function startChatSession(input: StartChatSessionInput): void {
         emit(state);
       },
       onUpdateMessage: (localId, updater) => {
-        updateChatMessage(input.contactId, localId, updater);
+        void updateChatMessage(input.contactId, localId, updater, input.conversationDateKey);
       },
     });
 
@@ -228,7 +236,6 @@ export function startChatSession(input: StartChatSessionInput): void {
     }
 
     if (state.activeRunId !== runId) return;
-    await flushPersist(input.contactId);
     state.isSending = false;
     state.activeAbortController = null;
     state.activeAssistantLocalId = null;
@@ -239,19 +246,19 @@ export function startChatSession(input: StartChatSessionInput): void {
   })();
 }
 
-function getSnapshot(state: ChatSessionState): ChatSessionSnapshot {
+function getSnapshot(state: ChatSessionState, changedDateKey: string | null = null): ChatSessionSnapshot {
   return {
     isSending: state.isSending,
     isAnySessionSending: activeContactId !== null,
     activeContactId,
     conversationId: state.conversationId,
     activeAssistantLocalId: state.activeAssistantLocalId,
-    messages: state.messagesCache ?? [],
+    changedDateKey,
   };
 }
 
-function emit(state: ChatSessionState): void {
-  const snapshot = getSnapshot(state);
+function emit(state: ChatSessionState, changedDateKey: string | null = null): void {
+  const snapshot = getSnapshot(state, changedDateKey);
   for (const subscriber of state.subscribers) {
     subscriber(snapshot);
   }

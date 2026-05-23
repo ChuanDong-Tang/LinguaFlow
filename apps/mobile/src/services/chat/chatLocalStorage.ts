@@ -1,74 +1,100 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { ChatMessage } from "../../domain/chat/types";
+import { getMessageDateKey, toDateKey } from "../../domain/chat/messageState";
 
-const CHAT_LOCAL_KEY = "lf_chat_local_messages_v1";
-const CHAT_LOCAL_SCOPE_PREFIX = "lf_chat_local_messages_v2";
+const CHAT_LOCAL_SCOPE_PREFIX = "lf_chat_local_messages_v3";
+const CHAT_LOCAL_DAYS_SCOPE_PREFIX = "lf_chat_local_days_v3";
 
-function scopeKey(userId: string, conversationId: string): string {
-  return `${CHAT_LOCAL_SCOPE_PREFIX}:${userId}:${conversationId}`;
+function messagesDayKey(userId: string, conversationId: string, dateKey: string): string {
+  return `${CHAT_LOCAL_SCOPE_PREFIX}:${userId}:${conversationId}:${dateKey}`;
 }
 
-async function migrateLegacyIfNeeded(key: string): Promise<void> {
-  const existing = await AsyncStorage.getItem(key);
-  if (existing) return;
-  const legacy = await AsyncStorage.getItem(CHAT_LOCAL_KEY);
-  if (!legacy) return;
-  await AsyncStorage.setItem(key, legacy);
+function daysIndexKey(userId: string, conversationId: string): string {
+  return `${CHAT_LOCAL_DAYS_SCOPE_PREFIX}:${userId}:${conversationId}`;
 }
 
-export async function loadLocalMessages(): Promise<ChatMessage[]> {
-  const raw = await AsyncStorage.getItem(CHAT_LOCAL_KEY);
+function sortByCreatedAt(rows: ChatMessage[]): ChatMessage[] {
+  return rows.slice().sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+}
+
+function uniqueSortedDays(days: Iterable<string>): string[] {
+  return Array.from(new Set(days)).sort((a, b) => (a < b ? -1 : 1));
+}
+
+async function getIndexedDays(userId: string, conversationId: string): Promise<string[]> {
+  const raw = await AsyncStorage.getItem(daysIndexKey(userId, conversationId));
   if (!raw) return [];
   try {
-    const rows = JSON.parse(raw) as ChatMessage[];
-    return Array.isArray(rows) ? rows : [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return uniqueSortedDays(parsed.filter((value): value is string => typeof value === "string" && value.length > 0));
   } catch {
     return [];
   }
 }
 
-export async function loadLocalMessagesScoped(
-  userId: string,
-  conversationId: string
-): Promise<ChatMessage[]> {
-  const key = scopeKey(userId, conversationId);
-  await migrateLegacyIfNeeded(key);
-  const raw = await AsyncStorage.getItem(key);
-  if (!raw) return [];
-  try {
-    const rows = JSON.parse(raw) as ChatMessage[];
-    return Array.isArray(rows) ? rows : [];
-  } catch {
-    return [];
-  }
+async function setIndexedDays(userId: string, conversationId: string, days: string[]): Promise<void> {
+  await AsyncStorage.setItem(daysIndexKey(userId, conversationId), JSON.stringify(uniqueSortedDays(days)));
 }
 
-export async function saveLocalMessages(rows: ChatMessage[]): Promise<void> {
-  await AsyncStorage.setItem(CHAT_LOCAL_KEY, JSON.stringify(rows));
+async function ensureDaysIncluded(userId: string, conversationId: string, days: string[]): Promise<void> {
+  if (!days.length) return;
+  const existing = await getIndexedDays(userId, conversationId);
+  const merged = uniqueSortedDays([...existing, ...days]);
+  await setIndexedDays(userId, conversationId, merged);
 }
 
-export async function saveLocalMessagesScoped(
+function normalizeRows(rows: ChatMessage[]): ChatMessage[] {
+  return rows.map((row) => {
+    const conversationDateKey = row.conversationDateKey ?? toDateKey(new Date(row.createdAt));
+    return { ...row, conversationDateKey };
+  });
+}
+
+export async function listLocalMessageDateKeysScoped(userId: string, conversationId: string): Promise<string[]> {
+  return getIndexedDays(userId, conversationId);
+}
+
+export async function loadLocalMessagesByDateScoped(
   userId: string,
   conversationId: string,
+  dateKey: string
+): Promise<ChatMessage[]> {
+  const raw = await AsyncStorage.getItem(messagesDayKey(userId, conversationId, dateKey));
+  if (!raw) return [];
+  try {
+    const rows = JSON.parse(raw) as ChatMessage[];
+    if (!Array.isArray(rows)) return [];
+    return sortByCreatedAt(normalizeRows(rows));
+  } catch {
+    return [];
+  }
+}
+
+export async function saveLocalMessagesByDateScoped(
+  userId: string,
+  conversationId: string,
+  dateKey: string,
   rows: ChatMessage[]
 ): Promise<void> {
-  await AsyncStorage.setItem(scopeKey(userId, conversationId), JSON.stringify(rows));
+  const normalized = sortByCreatedAt(
+    normalizeRows(rows).map((row) => ({ ...row, conversationDateKey: row.conversationDateKey ?? dateKey }))
+  );
+  await AsyncStorage.setItem(messagesDayKey(userId, conversationId, dateKey), JSON.stringify(normalized));
+  await ensureDaysIncluded(userId, conversationId, [dateKey]);
 }
 
-export async function appendLocalMessages(newRows: ChatMessage[]): Promise<ChatMessage[]> {
-  const prev = await loadLocalMessages();
-  const next = [...prev, ...newRows];
-  await saveLocalMessages(next);
-  return next;
-}
-
-export async function appendLocalMessagesScoped(
+export async function removeLocalMessagesByDateScoped(
   userId: string,
   conversationId: string,
-  newRows: ChatMessage[]
-): Promise<ChatMessage[]> {
-  const prev = await loadLocalMessagesScoped(userId, conversationId);
-  const next = [...prev, ...newRows];
-  await saveLocalMessagesScoped(userId, conversationId, next);
-  return next;
+  dateKey: string
+): Promise<void> {
+  await AsyncStorage.removeItem(messagesDayKey(userId, conversationId, dateKey));
+  const existing = await getIndexedDays(userId, conversationId);
+  if (!existing.includes(dateKey)) return;
+  await setIndexedDays(
+    userId,
+    conversationId,
+    existing.filter((day) => day !== dateKey)
+  );
 }

@@ -6,7 +6,7 @@ import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLo
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import type { ChatMessage } from "../domain/chat/types";
 import { filterByDate, isSameDate, toDateKey } from "../domain/chat/messageState";
-import { ensureChatMessagesLoaded } from "../services/chat/chatSessionService";
+import { listStoredChatDateKeys, loadChatMessagesByDate } from "../services/chat/chatSessionService";
 import { PRACTICE_CONTACTS, type ChatContact } from "../domain/chat/contacts";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import {
@@ -185,12 +185,14 @@ export function PracticeScreen({ onOpenPracticeSession }: PracticeScreenProps) {
 // 练习页的历史数据来源只有本地缓存。这个本地缓存由聊天页同步/保存后写入，
 // 避免练习入口再次请求云端，减少进入练习时的等待和重复同步。
 async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
-  const chunks = await Promise.all(
-    PRACTICE_CONTACTS.map(async (contact) => ({
+  const chunks = await Promise.all(PRACTICE_CONTACTS.map(async (contact) => {
+    const days = await listStoredChatDateKeys(contact.id);
+    const dayChunks = await Promise.all(days.map((dayKey) => loadChatMessagesByDate(contact.id, dayKey)));
+    return {
       contact,
-      rows: await ensureChatMessagesLoaded(contact.id),
-    })),
-  );
+      rows: dayChunks.flat(),
+    };
+  }));
   const contactMap = new Map<string, ChatContact>();
   const rows = chunks
     .flatMap((chunk) => {

@@ -107,6 +107,36 @@ export class PrismaEntitlementRepository implements EntitlementRepository {
     return row ? this.toEntity(row) : null;
   }
 
+  async consumeDailyUpToLimit(input: ConsumeDailyEntitlementInput): Promise<EntitlementEntity> {
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "entitlements"
+        SET "usedTotalChars" = LEAST("dailyTotalLimit", "usedTotalChars" + $1),
+            "updatedAt" = NOW()
+        WHERE "userId" = $2
+          AND "dateKey" = $3
+      `,
+      input.chars,
+      input.userId,
+      input.dateKey
+    );
+
+    const row = await this.prisma.entitlement.findUnique({
+      where: {
+        userId_dateKey: {
+          userId: input.userId,
+          dateKey: input.dateKey,
+        },
+      },
+    });
+
+    if (!row) {
+      throw new Error("Entitlement not found after capped consume");
+    }
+
+    return this.toEntity(row);
+  }
+
   private toEntity(row: {
     id: string;
     userId: string;

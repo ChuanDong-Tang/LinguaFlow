@@ -26,4 +26,5 @@ export interface EntitlementRepository {
   ensureDaily(input: EnsureDailyEntitlementInput): Promise<EntitlementEntity>;
   consumeDaily(input: ConsumeDailyEntitlementInput): Promise<EntitlementEntity>;
   tryConsumeDaily(input: ConsumeDailyEntitlementInput): Promise<EntitlementEntity | null>;
+  consumeDailyUpToLimit(input: ConsumeDailyEntitlementInput): Promise<EntitlementEntity>;
 }

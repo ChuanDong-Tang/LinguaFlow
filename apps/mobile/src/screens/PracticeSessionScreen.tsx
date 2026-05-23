@@ -22,8 +22,9 @@ import {
   type PracticeCard,
 } from "../domain/practice/practiceService";
 import { discardMessageClozePractice, updateMessageClozeState } from "../services/api/chatHistoryApi";
-import { ensureChatMessagesLoaded, replaceChatMessages } from "../services/chat/chatSessionService";
+import { loadChatMessagesByDate, replaceChatMessagesByDate } from "../services/chat/chatSessionService";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
+import { getMessageDateKey } from "../domain/chat/messageState";
 
 type PracticeSessionScreenProps = {
   initialCards: PracticeCard[];
@@ -467,11 +468,12 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
 }
 
 async function persistPracticeMessageUpdate(contactId: string, message: ChatMessage): Promise<void> {
-  const rows = await ensureChatMessagesLoaded(contactId);
+  const dateKey = getMessageDateKey(message);
+  const rows = await loadChatMessagesByDate(contactId, dateKey);
   const next = rows.map((row) =>
     (message.id && row.id === message.id) || row.localId === message.localId ? message : row,
   );
-  await replaceChatMessages(contactId, next);
+  await replaceChatMessagesByDate(contactId, dateKey, next);
 }
 
 function PracticeEnglish({

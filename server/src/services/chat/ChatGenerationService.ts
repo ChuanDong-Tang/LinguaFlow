@@ -12,6 +12,7 @@ import type {
 } from "@lf/core/ports/repository/AiRequestLogRepository.js";
 import type { ChatGenerationRateLimiter } from "./ChatGenerationRateLimiter.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository.js";
 
 type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
   signal?: AbortSignalLike;
@@ -33,6 +34,7 @@ export class ChatGenerationService {
     private readonly entitlementService: EntitlementService,
     private readonly aiRequestLogRepository: AiRequestLogRepository,
     private readonly rateLimiter: ChatGenerationRateLimiter,
+    private readonly conversationRepository: ConversationRepository,
   ) {}
   
   async generateChatStream(
@@ -41,6 +43,7 @@ export class ChatGenerationService {
   ): Promise<void> {
     let assistantText = "";
     const shouldPersist = Boolean(input.conversationId && input.userMessageId);
+    let quotaDateKey: string | undefined;
 
     if (shouldPersist) {
       await this.chatMessageService.assertUserMessageOwnership({
@@ -48,6 +51,10 @@ export class ChatGenerationService {
         conversationId: input.conversationId!,
         userMessageId: input.userMessageId!,
       });
+      const conversation = await this.conversationRepository.findById(input.conversationId!);
+      if (conversation && conversation.userId === input.userId) {
+        quotaDateKey = conversation.dateKey;
+      }
     }
 
     const startedAt = Date.now();
@@ -130,7 +137,7 @@ export class ChatGenerationService {
     }
 
     try {
-      await this.entitlementService.assertCanUse(input.userId, input.text.length);
+      await this.entitlementService.assertCanUse(input.userId, input.text.length, { dateKey: quotaDateKey });
 
       await this.aiProvider.generateChatTextStream(
         {
@@ -151,16 +158,16 @@ export class ChatGenerationService {
         }
       );
       const totalChars = input.text.length + assistantText.length;
-      await this.entitlementService.assertCanUse(input.userId, totalChars);
       const assistantMessage = shouldPersist
         ? await this.createPersistedAssistantMessage(input, assistantText)
         : undefined;
-      await this.entitlementService.consume(input.userId, totalChars);
+      // 输出长度由模型决定；用户只要有额度发起本轮，就让回复完整返回，最终扣费最多扣到当日上限。
+      await this.entitlementService.consumeUpToLimit(input.userId, totalChars, { dateKey: quotaDateKey });
       await onEvent({ type: "done", assistantMessage });
     }catch(error){
       const failureStatus = this.resolveFailureStatus(error);
       if (failureStatus === "cancelled") {
-        await this.consumeCancelledUsage(input, assistantText);
+        await this.consumeCancelledUsage(input, assistantText, quotaDateKey);
       }
       if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       await this.logFailedAiRequest(input, {
@@ -231,10 +238,12 @@ export class ChatGenerationService {
 
   private async consumeCancelledUsage(
     input: ChatGenerationStreamServiceInput,
-    assistantText: string
+    assistantText: string,
+    dateKey?: string
   ): Promise<void> {
     const chargeChars = input.text.length + assistantText.length;
-    await this.entitlementService.consume(input.userId, chargeChars);
+    // 用户主动停止时同样按已产生内容计费，但不允许额度被扣成超额。
+    await this.entitlementService.consumeUpToLimit(input.userId, chargeChars, { dateKey });
   }
 
   private resolveFailureStatus(error: unknown): AiRequestLogStatus {

@@ -163,7 +163,8 @@ export function createApp() {
     chatGenerationTaskGuard,
     entitlementService,
     aiRequestLogRepository,
-    chatGenerationRateLimiter
+    chatGenerationRateLimiter,
+    conversationRepository
   );
 
   registerChatStreamRoutes(app, {

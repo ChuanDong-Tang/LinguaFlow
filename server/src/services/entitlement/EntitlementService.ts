@@ -38,8 +38,8 @@ export class EntitlementService {
     private readonly subscriptionService: SubscriptionService
   ) {}
 
-  async assertCanUse(userId: string, requestedChars: number): Promise<void> {
-    const quota = await this.resolveQuota(userId);
+  async assertCanUse(userId: string, requestedChars: number, options?: { dateKey?: string }): Promise<void> {
+    const quota = await this.resolveQuota(userId, options);
     // Pro 仍按自然日额度；免费用户复用一条固定 free_trial 记录作为总额度池。
     const entitlement = await this.entitlementRepository.ensureDaily({
       userId,
@@ -59,10 +59,10 @@ export class EntitlementService {
     }
   }
 
-  async consume(userId: string, chars: number): Promise<void> {
+  async consume(userId: string, chars: number, options?: { dateKey?: string }): Promise<void> {
     if (chars <= 0) return;
 
-    const quota = await this.resolveQuota(userId);
+    const quota = await this.resolveQuota(userId, options);
 
     // 先确保额度记录存在，再基于记录 createdAt 判断免费试用是否过期。
     const ensured = await this.entitlementRepository.ensureDaily({
@@ -92,6 +92,25 @@ export class EntitlementService {
         usedTotalChars: latest.usedTotalChars,
       });
     }
+  }
+
+  async consumeUpToLimit(userId: string, chars: number, options?: { dateKey?: string }): Promise<void> {
+    if (chars <= 0) return;
+
+    const quota = await this.resolveQuota(userId, options);
+    const ensured = await this.entitlementRepository.ensureDaily({
+      userId,
+      dateKey: quota.dateKey,
+      dailyTotalLimit: quota.totalLimit,
+    });
+    this.assertQuotaNotExpired(quota, ensured.createdAt);
+
+    // 已经发起的生成要保证完整返回；这里最多把额度扣到上限，不让 usedTotalChars 超过 dailyTotalLimit。
+    await this.entitlementRepository.consumeDailyUpToLimit({
+      userId,
+      dateKey: quota.dateKey,
+      chars,
+    });
   }
 
   async getCurrentEntitlement(userId: string): Promise<CurrentEntitlementView> {
@@ -130,18 +149,18 @@ export class EntitlementService {
     return formatter.format(now);
   }
 
-  private async resolveQuota(userId: string): Promise<QuotaWindow> {
+  private async resolveQuota(userId: string, options?: { dateKey?: string }): Promise<QuotaWindow> {
     const subscription = await this.subscriptionService.getCurrentSubscription(userId);
 
-    return this.quotaForPlan(subscription.isPro);
+    return this.quotaForPlan(subscription.isPro, options?.dateKey);
   }
 
-  private quotaForPlan(isPro: boolean): QuotaWindow {
+  private quotaForPlan(isPro: boolean, preferredDateKey?: string): QuotaWindow {
     const config = getRuntimeConfig();
     if (isPro) {
       // Pro 额度仍然按业务时区的每日 dateKey 滚动恢复。
       return {
-        dateKey: this.currentDateKey(),
+        dateKey: preferredDateKey ?? this.currentDateKey(),
         totalLimit: config.proDailyTotalLimit,
         validDays: null,
       };
