@@ -53,7 +53,6 @@ type UseChatClozeEditingInput = {
   setIsProEntitled: React.Dispatch<React.SetStateAction<boolean>>;
   setDialog: React.Dispatch<React.SetStateAction<InfoDialogConfig | null>>;
   showNotice: (options: FloatingNoticeOptions) => Omit<ChatNotice, "kind">;
-  runHistoryLoading: <T>(task: (signal: AbortSignal) => Promise<T>) => Promise<T>;
 };
 
 export function useChatClozeEditing({
@@ -70,7 +69,6 @@ export function useChatClozeEditing({
   setIsProEntitled,
   setDialog,
   showNotice,
-  runHistoryLoading,
 }: UseChatClozeEditingInput): {
   clozeEditor: ClozeEditorState | null;
   clozeDelete: ClozeDeleteState | null;

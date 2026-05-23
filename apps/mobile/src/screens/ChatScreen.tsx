@@ -37,11 +37,6 @@ import { ChatHeader } from "./chat/ChatHeader";
 import { ChatComposer } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
 import { DatePickerSheet } from "./chat/DatePickerSheet";
-import {
-  BlockingLoading,
-  type BlockingLoadingOptions,
-  runWithDeferredBlockingLoading,
-} from "./shared/BlockingLoading";
 import { useFloatingNotice } from "./shared/FloatingNotice";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import { ClozeControls } from "./chat/ClozeControls";
@@ -76,7 +71,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const { autoCopyAfterGeneration, autoCopyMode, openAutoCopyMenu } = useAssistantAutoCopyPreferences();
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
-  const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const [isTodaySyncing, setIsTodaySyncing] = useState(false);
   const [syncingDateKey, setSyncingDateKey] = useState<string | null>(null);
@@ -473,20 +467,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     }));
   }
 
-  async function runHistoryLoading<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    return runWithDeferredBlockingLoading(
-      task,
-      { show: setLoadingOptions, hide: () => setLoadingOptions(null) },
-      {
-        blocking: true,
-        abortable: true,
-        cancelableAfterMs: 10000,
-        timeoutMs: 20000,
-        onTimeout: () => setDialog({ message: "同步超时，请稍后重试。" }),
-      },
-    );
-  }
-
   const {
     clozeEditor,
     clozeDelete,
@@ -512,7 +492,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     setIsProEntitled,
     setDialog,
     showNotice,
-    runHistoryLoading,
   });
 
   async function syncDayFromCloud(
@@ -772,7 +751,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         onCloseDelete={() => setClozeDelete(null)}
         onConfirmDelete={() => void confirmDeleteCloze()}
       />
-      <BlockingLoading visible={!!loadingOptions} options={loadingOptions} />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
     </SafeAreaView>
   );
