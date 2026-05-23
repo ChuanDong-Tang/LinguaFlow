@@ -152,8 +152,16 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       });
     }
 
-    // 超出输入的字符最大上限拦截
-    if (body.text.trim().length > runtimeConfig.chatGenerationMaxInputChars) {
+    const inputLength = body.text.trim().length;
+    if (inputLength < runtimeConfig.chatGenerationMinInputChars) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "under min input chars" },
+      });
+    }
+
+    if (inputLength > runtimeConfig.chatGenerationMaxInputChars) {
       return reply.status(400).send({
         ok: false,
         request_id: requestId,

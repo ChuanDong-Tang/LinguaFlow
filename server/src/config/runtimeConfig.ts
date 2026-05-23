@@ -99,6 +99,7 @@ export interface RuntimeConfig {
   chatGenerationUserRateLimit: number;
   chatGenerationUserRateWindowMs: number;
   chatGenerationMaxInputChars: number;
+  chatGenerationMinInputChars: number;
   chatMessagesUserRateLimit: number;
   chatMessagesUserRateWindowMs: number;
 }
@@ -163,6 +164,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     chatGenerationUserRateLimit: readPositiveInt(env.CHAT_GENERATION_USER_RATE_LIMIT, 20),
     chatGenerationUserRateWindowMs: readPositiveInt(env.CHAT_GENERATION_USER_RATE_WINDOW_MS, 60_000),
     chatGenerationMaxInputChars: readPositiveInt(env.CHAT_GENERATION_MAX_INPUT_CHARS, 3000),
+    chatGenerationMinInputChars: readPositiveInt(env.CHAT_GENERATION_MIN_INPUT_CHARS, 10),
     chatMessagesUserRateLimit: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_LIMIT, 20),
     chatMessagesUserRateWindowMs: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_WINDOW_MS, 60_000),
   };

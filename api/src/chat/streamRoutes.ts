@@ -59,6 +59,9 @@ function mapChatGenerationErrorToHttp(code: string | undefined): {
   if (code === "INPUT_TOO_LONG") {
     return { status: 400, code: "INPUT_TOO_LONG", message: "Input too long" };
   }
+  if (code === "INPUT_TOO_SHORT") {
+    return { status: 400, code: "INPUT_TOO_SHORT", message: "Input too short" };
+  }
   if (code === "UPSTREAM_AI_ERROR") {
     return {
       status: 503,

@@ -22,7 +22,8 @@ type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
 type AppErrorCode =
   | "RATE_LIMITED"
   | "TASK_IN_PROGRESS"
-  | "INPUT_TOO_LONG";
+  | "INPUT_TOO_LONG"
+  | "INPUT_TOO_SHORT";
 
 type AppError = Error & { code: AppErrorCode };
 
@@ -107,7 +108,7 @@ export class ChatGenerationService {
       throw error;
     }
 
-    const chatGenerationMaxInputChars = getRuntimeConfig().chatGenerationMaxInputChars;
+    const chatGenerationMaxInputChars = config.chatGenerationMaxInputChars;
     if (input.text.length > chatGenerationMaxInputChars) {
       const error = createAppError("INPUT_TOO_LONG", "Input too long");
       await this.logFailedAiRequest(input, {
@@ -118,7 +119,19 @@ export class ChatGenerationService {
       });
       throw error;
     }
-      
+
+    const chatGenerationMinInputChars = config.chatGenerationMinInputChars;
+    if (input.text.length < chatGenerationMinInputChars) {
+      const error = createAppError("INPUT_TOO_SHORT", "Input too short");
+      await this.logFailedAiRequest(input, {
+        startedAt,
+        status: "failed",
+        error,
+        outputChars: 0,
+      });
+      throw error;
+    }
+
     const acquired = await this.taskGuard.acquire(input.userId, taskId, taskTtlMs);
 
     if (!acquired) {

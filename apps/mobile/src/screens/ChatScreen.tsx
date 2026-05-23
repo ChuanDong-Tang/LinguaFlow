@@ -84,6 +84,27 @@ type ChatScreenProps = {
   onBack: () => void;
 };
 
+const DEFAULT_CHAT_GENERATION_MIN_INPUT_CHARS = 10;
+const DEFAULT_CHAT_GENERATION_MAX_INPUT_CHARS = 3000;
+
+function readPositiveIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getChatGenerationInputLimits(): { min: number; max: number } {
+  return {
+    min: readPositiveIntEnv(
+      process.env.EXPO_PUBLIC_CHAT_GENERATION_MIN_INPUT_CHARS,
+      DEFAULT_CHAT_GENERATION_MIN_INPUT_CHARS
+    ),
+    max: readPositiveIntEnv(
+      process.env.EXPO_PUBLIC_CHAT_GENERATION_MAX_INPUT_CHARS,
+      DEFAULT_CHAT_GENERATION_MAX_INPUT_CHARS
+    ),
+  };
+}
+
 export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
   const contactId = contact.id;
@@ -120,7 +141,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const isProEntitledRef = useRef(false);
   const todaySyncCountRef = useRef(0);
   const isTodaySyncingRef = useRef(false);
-  const syncNoticeRef = useRef<{ hide: () => void; update: (next: any) => void; kind: "calendar" | "messages" } | null>(null);
+  const syncNoticeRef = useRef<{ hide: () => void; update: (next: any) => void; kind: "calendar" | "messages" | "cloze" } | null>(null);
   const syncAbortControllersRef = useRef<AbortController[]>([]);
   const clozeSaveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
   const scrollToBottom = React.useCallback((animated = false): void => {
@@ -130,7 +151,15 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }, []);
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
-    return inputText.trim().length > 0 && !activeGenerationContactId && !isTodaySyncing && hasQuota;
+    const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
+    const inputLength = inputText.trim().length;
+    return (
+      !activeGenerationContactId &&
+      !isTodaySyncing &&
+      hasQuota &&
+      inputLength >= minInputChars &&
+      inputLength <= maxInputChars
+    );
   }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars]);
   const selectedDateKey = toDateKey(selectedDate);
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
@@ -408,7 +437,28 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     );
     const target = clozeEditor.message;
     setClozeEditor(null);
-    await runHistoryLoading(() => saveMessageCloze(target, nextState));
+    syncNoticeRef.current?.hide();
+    const notice = {
+      kind: "cloze" as const,
+      ...showNotice({
+        message: "正在保存...",
+        type: "info",
+        position: "top-right",
+        durationMs: 0,
+      }),
+    };
+    syncNoticeRef.current = notice;
+    try {
+      await saveMessageCloze(target, nextState);
+      notice.update({ message: "已保存", type: "success", durationMs: 1200 });
+    } catch (error) {
+      notice.update({ message: "保存失败", type: "warning", durationMs: 1800 });
+      setDialog({ message: "保存填空失败，请稍后重试。" });
+    } finally {
+      if (syncNoticeRef.current === notice) {
+        syncNoticeRef.current = null;
+      }
+    }
   }
 
   async function saveMessageCloze(message: ChatMessage, clozeState: ChatMessage["clozeState"]): Promise<void> {
@@ -467,7 +517,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         return;
       }
       await applyMessageUpdate(currentMessage);
-      setDialog({ message: "保存填空失败，请稍后重试。" });
+      throw error;
     }
   }
 
@@ -527,6 +577,25 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   async function handleSend(): Promise<void> {
     const text = inputText.trim();
     if (!text || activeGenerationContactId) return;
+    const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
+    if (text.length < minInputChars) {
+      showNotice({
+        message: `至少输入 ${minInputChars} 个字符`,
+        type: "info",
+        position: "top-right",
+        durationMs: 1500,
+      });
+      return;
+    }
+    if (text.length > maxInputChars) {
+      showNotice({
+        message: `最多输入 ${maxInputChars} 个字符`,
+        type: "info",
+        position: "top-right",
+        durationMs: 1500,
+      });
+      return;
+    }
     if (isTodaySyncingRef.current) {
       showNotice({
         message: "正在同步消息，请稍后发送",
@@ -990,6 +1059,26 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             }
             if (remainingChars !== null && remainingChars <= 0) {
               Alert.alert("字符额度已用尽");
+              return;
+            }
+            const inputLength = inputText.trim().length;
+            const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
+            if (inputLength > 0 && inputLength < minInputChars) {
+              showNotice({
+                message: `至少输入 ${minInputChars} 个字符`,
+                type: "info",
+                position: "top-right",
+                durationMs: 1500,
+              });
+              return;
+            }
+            if (inputLength > maxInputChars) {
+              showNotice({
+                message: `最多输入 ${maxInputChars} 个字符`,
+                type: "info",
+                position: "top-right",
+                durationMs: 1500,
+              });
             }
           }}
           disabled={!canSend}
