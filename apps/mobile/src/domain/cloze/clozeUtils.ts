@@ -152,7 +152,6 @@ export function expandSelectionToTokenRange(
   selectionStart: number,
   selectionEnd: number,
   state: ClozeState | null | undefined,
-  isBackward = false,
 ): { tokenIndexes: number[]; start: number; end: number } | null {
   const tokens = tokenizeForCloze(text);
   const start = Math.max(0, Math.min(selectionStart, selectionEnd));
@@ -161,22 +160,12 @@ export function expandSelectionToTokenRange(
   if (!selected.length) return null;
 
   const occupied = getGroupByToken(state);
-  const anchorToken = isBackward ? selected[selected.length - 1] : selected[0];
-  if (occupied.has(anchorToken.index)) return null;
-  const kept: ClozeToken[] = [];
-  const scanTokens = isBackward ? selected.slice().reverse() : selected;
-
-  // 从选区锚点向外收集，遇到已有填空组就停，避免两个组互相覆盖。
-  for (const token of scanTokens) {
-    if (occupied.has(token.index)) break;
-    kept.push(token);
-  }
-  if (!kept.length) return null;
-  kept.sort((a, b) => a.index - b.index);
+  // 原生选择可能一次跨过已有填空组；这种场景直接拒绝，避免静默截断选区造成误解。
+  if (selected.some((token) => occupied.has(token.index))) return null;
   return {
-    tokenIndexes: kept.map((token) => token.index),
-    start: kept[0].start,
-    end: kept[kept.length - 1].end,
+    tokenIndexes: selected.map((token) => token.index),
+    start: selected[0].start,
+    end: selected[selected.length - 1].end,
   };
 }
 

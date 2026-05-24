@@ -33,6 +33,31 @@ type RowItem =
   | { kind: "header"; id: string }
   | { kind: "message"; id: string; message: ChatMessage };
 
+const MESSAGE_LIST_PERF_LOGS = true;
+const SLOW_MESSAGE_RENDER_MS = 12;
+
+function perfNow(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
+function logMessageListPerf(label: string, startedAt: number, extra?: Record<string, unknown>): void {
+  if (!MESSAGE_LIST_PERF_LOGS) return;
+  const elapsedMs = perfNow() - startedAt;
+  if (elapsedMs < SLOW_MESSAGE_RENDER_MS) return;
+  const elapsed = elapsedMs.toFixed(1);
+  if (extra) {
+    console.log(`[message-list-perf] ${label}: ${elapsed}ms`, extra);
+    return;
+  }
+  console.log(`[message-list-perf] ${label}: ${elapsed}ms`);
+}
+
+function useLatestRef<T>(value: T): React.MutableRefObject<T> {
+  const ref = React.useRef(value);
+  ref.current = value;
+  return ref;
+}
+
 const DayHeader = React.memo(function DayHeader({ selectedDateLabel }: { selectedDateLabel: string }) {
   return (
     <View style={styles.dayDivider}>
@@ -50,6 +75,15 @@ const UserMessageRow = React.memo(function UserMessageRow({
   message: ChatMessage;
   onBlankPress: () => void;
 }) {
+  const renderStart = perfNow();
+  const textLength = message.text.length;
+  React.useEffect(() => {
+    logMessageListPerf("user row render+commit", renderStart, {
+      localId: message.localId,
+      textLength,
+    });
+  });
+
   return (
     <Pressable style={styles.userBlock} onPress={onBlankPress}>
       <Pressable style={styles.userBubble} onPress={() => undefined}>
@@ -85,25 +119,79 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
 }) {
+  const renderStart = perfNow();
   const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
   const [answersVisible, setAnswersVisible] = React.useState(false);
-  const clozeText = React.useMemo(() => getAssistantClozeText(message, contact), [contact, message]);
+  const clozeText = React.useMemo(() => {
+    const startedAt = perfNow();
+    const value = getAssistantClozeText(message, contact);
+    logMessageListPerf("assistant get cloze text", startedAt, {
+      localId: message.localId,
+      textLength: message.text.length,
+    });
+    return value;
+  }, [contact, message]);
   const displayText = clozeText.text || "...";
-  const clozeState = React.useMemo(() => normalizeClozeState(message.clozeState), [message.clozeState]);
+  const clozeState = React.useMemo(() => {
+    const startedAt = perfNow();
+    const value = normalizeClozeState(message.clozeState);
+    logMessageListPerf("assistant normalize cloze state", startedAt, {
+      localId: message.localId,
+      groups: value?.groups.length ?? 0,
+    });
+    return value;
+  }, [message.clozeState, message.localId]);
   const hasClozeGroup = !!clozeState?.groups.length;
   const hasBlank = !!clozeState?.groups.some((group) => group.blankTokenIndexes.length > 0);
   const highlightRanges = React.useMemo(
-    () => (hasClozeGroup ? getClozeHighlightRanges(displayText, clozeState) : undefined),
-    [clozeState, displayText, hasClozeGroup],
+    () => {
+      const startedAt = perfNow();
+      const value = hasClozeGroup ? getClozeHighlightRanges(displayText, clozeState) : undefined;
+      logMessageListPerf("assistant highlight ranges", startedAt, {
+        localId: message.localId,
+        textLength: displayText.length,
+        ranges: value?.length ?? 0,
+      });
+      return value;
+    },
+    [clozeState, displayText, hasClozeGroup, message.localId],
   );
   const blankRanges = React.useMemo(
-    () => (hasBlank ? getClozeBlankRanges(displayText, clozeState, answersVisible) : undefined),
-    [answersVisible, clozeState, displayText, hasBlank],
+    () => {
+      const startedAt = perfNow();
+      const value = hasBlank ? getClozeBlankRanges(displayText, clozeState, answersVisible) : undefined;
+      logMessageListPerf("assistant blank ranges", startedAt, {
+        localId: message.localId,
+        textLength: displayText.length,
+        ranges: value?.length ?? 0,
+        answersVisible,
+      });
+      return value;
+    },
+    [answersVisible, clozeState, displayText, hasBlank, message.localId],
   );
   const correctRanges = React.useMemo(
-    () => (hasBlank ? getClozeCorrectRanges(displayText, clozeState) : undefined),
-    [clozeState, displayText, hasBlank],
+    () => {
+      const startedAt = perfNow();
+      const value = hasBlank ? getClozeCorrectRanges(displayText, clozeState) : undefined;
+      logMessageListPerf("assistant correct ranges", startedAt, {
+        localId: message.localId,
+        textLength: displayText.length,
+        ranges: value?.length ?? 0,
+      });
+      return value;
+    },
+    [clozeState, displayText, hasBlank, message.localId],
   );
+
+  React.useEffect(() => {
+    logMessageListPerf("assistant row render+commit", renderStart, {
+      localId: message.localId,
+      textLength: displayText.length,
+      hasClozeGroup,
+      hasBlank,
+    });
+  });
 
   return (
     <Pressable style={styles.assistantBlock} onPress={onBlankPress}>
@@ -169,15 +257,27 @@ export function MessageList({
   onEditClozeGroup,
   onDeleteClozeGroup,
 }: MessageListProps) {
+  const renderStart = perfNow();
   const activeSelectionRef = React.useRef<SelectableMessageTextRef | null>(null);
+  const retryMessageRef = useLatestRef(onRetryMessage);
+  const copyMessageRef = useLatestRef(onCopyMessage);
+  const textSelectionRef = useLatestRef(onTextSelection);
+  const editClozeGroupRef = useLatestRef(onEditClozeGroup);
+  const deleteClozeGroupRef = useLatestRef(onDeleteClozeGroup);
   const rows = React.useMemo<RowItem[]>(() => {
+    const startedAt = perfNow();
     const items: RowItem[] = [{ kind: "header", id: "header" }];
     for (let i = 0; i < messages.length; i += 1) {
       const message = messages[i];
       items.push({ kind: "message", id: String(message.id ?? message.localId), message });
     }
+    logMessageListPerf("build rows", startedAt, { messages: messages.length, rows: items.length });
     return items;
   }, [messages]);
+
+  React.useEffect(() => {
+    logMessageListPerf("list render+commit", renderStart, { messages: messages.length, rows: rows.length });
+  });
 
   const keyExtractor = React.useCallback((item: RowItem) => item.id, []);
   const clearActiveSelection = React.useCallback(() => {
@@ -187,6 +287,30 @@ export function MessageList({
   const handleSelectionRefChange = React.useCallback((ref: SelectableMessageTextRef | null) => {
     activeSelectionRef.current = ref;
   }, []);
+  const handleRetryMessage = React.useCallback((message: ChatMessage) => {
+    retryMessageRef.current(message);
+  }, [retryMessageRef]);
+  const handleCopyMessage = React.useCallback((message: ChatMessage) => {
+    copyMessageRef.current(message);
+  }, [copyMessageRef]);
+  const handleTextSelection = React.useCallback(
+    (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
+      textSelectionRef.current(message, payload, clearSelection);
+    },
+    [textSelectionRef],
+  );
+  const handleEditClozeGroup = React.useCallback(
+    (message: ChatMessage, groupIndex: number) => {
+      editClozeGroupRef.current(message, groupIndex);
+    },
+    [editClozeGroupRef],
+  );
+  const handleDeleteClozeGroup = React.useCallback(
+    (message: ChatMessage, groupIndex: number) => {
+      deleteClozeGroupRef.current(message, groupIndex);
+    },
+    [deleteClozeGroupRef],
+  );
 
   const renderItem = React.useCallback(
     ({ item }: { item: RowItem }) => {
@@ -203,23 +327,23 @@ export function MessageList({
           contact={contact}
           onSelectionRefChange={handleSelectionRefChange}
           onBlankPress={clearActiveSelection}
-          onRetryMessage={onRetryMessage}
-          onCopyMessage={onCopyMessage}
-          onTextSelection={onTextSelection}
-          onEditClozeGroup={onEditClozeGroup}
-          onDeleteClozeGroup={onDeleteClozeGroup}
+          onRetryMessage={handleRetryMessage}
+          onCopyMessage={handleCopyMessage}
+          onTextSelection={handleTextSelection}
+          onEditClozeGroup={handleEditClozeGroup}
+          onDeleteClozeGroup={handleDeleteClozeGroup}
         />
       );
     },
     [
       contact,
       clearActiveSelection,
+      handleCopyMessage,
+      handleDeleteClozeGroup,
+      handleEditClozeGroup,
       handleSelectionRefChange,
-      onCopyMessage,
-      onDeleteClozeGroup,
-      onEditClozeGroup,
-      onRetryMessage,
-      onTextSelection,
+      handleRetryMessage,
+      handleTextSelection,
       selectedDateLabel,
     ]
   );

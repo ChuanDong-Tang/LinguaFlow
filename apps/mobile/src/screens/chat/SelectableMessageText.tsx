@@ -1,5 +1,12 @@
 import React from "react";
-import { StyleSheet, Text, View, type StyleProp, type TextStyle } from "react-native";
+import {
+  Alert,
+  StyleSheet,
+  Text,
+  type StyleProp,
+  type TextStyle,
+} from "react-native";
+import { SelectableTextView } from "@rob117/react-native-selectable-text";
 
 export type NativeTextSelectionPayload = {
   start: number;
@@ -34,40 +41,37 @@ type Props = {
   onClozeRangeLongPress?: (groupIndex: number) => void;
 };
 
-type TextPart =
-  | {
-      kind: "selectable";
-      text: string;
-      start: number;
-      end: number;
-      segmentIndex: number;
-      tokens: SelectableToken[];
-    }
-  | {
-      kind: "blocked";
-      text: string;
-      start: number;
-      end: number;
-      groupIndex: number;
-    };
+const SELECTABLE_TEXT_PERF_LOGS = true;
+const SLOW_SELECTABLE_TEXT_MS = 12;
+const LONG_SELECTABLE_TEXT_CHARS = 600;
+const CLOZE_MENU_OPTION = "填空";
+const CLOZE_BLANK_BACKGROUND = "#FFF0B8";
 
-type SelectableToken = {
-  kind: "word" | "text";
-  text: string;
+function perfNow(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
+function logSelectableTextPerf(label: string, startedAt: number, extra?: Record<string, unknown>): void {
+  if (!SELECTABLE_TEXT_PERF_LOGS) return;
+  const elapsedMs = perfNow() - startedAt;
+  const textLength = typeof extra?.textLength === "number" ? extra.textLength : 0;
+  if (elapsedMs < SLOW_SELECTABLE_TEXT_MS && textLength < LONG_SELECTABLE_TEXT_CHARS) return;
+  const elapsed = elapsedMs.toFixed(1);
+  if (extra) {
+    console.log(`[selectable-text-perf] ${label}: ${elapsed}ms`, extra);
+    return;
+  }
+  console.log(`[selectable-text-perf] ${label}: ${elapsed}ms`);
+}
+
+type RenderSegment = {
   start: number;
   end: number;
-  segmentIndex: number;
-  wordIndex: number | null;
+  text: string;
+  groupIndex: number | null;
+  isBlank: boolean;
+  isCorrect: boolean;
 };
-
-type SelectionDraft = {
-  segmentIndex: number;
-  startWordIndex: number;
-  endWordIndex: number;
-  isComplete: boolean;
-};
-
-const WORD_RE = /[\p{L}\p{N}'’-]+/gu;
 
 function clampRange(range: NativeClozeHighlightRange, textLength: number): NativeClozeHighlightRange | null {
   const start = Math.max(0, Math.min(range.start, textLength));
@@ -108,153 +112,41 @@ function normalizeBlankRanges(text: string, ranges?: NativeClozeBlankRange[]): N
     .sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
-function renderTextWithBlanks(
-  value: string,
-  offset: number,
+function rangeContains(range: NativeClozeBlankRange, start: number, end: number): boolean {
+  return range.start <= start && range.end >= end;
+}
+
+function rangesOverlap(left: NativeClozeBlankRange, right: NativeClozeBlankRange): boolean {
+  return left.start < right.end && left.end > right.start;
+}
+
+function buildRenderSegments(
+  text: string,
+  highlightRanges: Required<NativeClozeHighlightRange>[],
   blankRanges: NativeClozeBlankRange[],
   correctRanges: NativeClozeBlankRange[],
-  keyPrefix: string,
-  textStyle?: StyleProp<TextStyle>,
-) {
-  const nodes: React.ReactNode[] = [];
-  let cursor = offset;
-  const end = offset + value.length;
-  const visibleRanges = [
-    ...blankRanges.map((range) => ({ ...range, kind: "blank" as const })),
-    ...correctRanges.map((range) => ({ ...range, kind: "correct" as const })),
-  ]
-    .filter((range) => range.end > offset && range.start < end)
-    .sort((a, b) => a.start - b.start || a.end - b.end);
+): RenderSegment[] {
+  const boundaries = new Set<number>([0, text.length]);
+  for (const range of [...highlightRanges, ...blankRanges, ...correctRanges]) {
+    boundaries.add(range.start);
+    boundaries.add(range.end);
+  }
+  const sorted = [...boundaries].sort((a, b) => a - b);
 
-  visibleRanges.forEach((range, index) => {
-    const start = Math.max(offset, range.start);
-    const rangeEnd = Math.min(end, range.end);
-    if (start > cursor) {
-      nodes.push(
-        <Text key={`${keyPrefix}:text:${index}`} style={textStyle}>
-          {value.slice(cursor - offset, start - offset)}
-        </Text>,
-      );
-    }
-    if (range.kind === "blank") {
-      nodes.push(
-        <Text key={`${keyPrefix}:blank:${index}`} style={[textStyle, styles.blankText]}>
-          {"_".repeat(Math.max(1, rangeEnd - start))}
-        </Text>,
-      );
-    } else {
-      nodes.push(
-        <Text key={`${keyPrefix}:correct:${index}`} style={[textStyle, styles.correctText]}>
-          {value.slice(start - offset, rangeEnd - offset)}
-        </Text>,
-      );
-    }
-    cursor = rangeEnd;
+  // 只按已有 range 边界切片，不按词拆分；这样 cloze 越多才越多段，普通长文本始终很轻。
+  return sorted.slice(0, -1).flatMap((start, index) => {
+    const end = sorted[index + 1];
+    if (start >= end) return [];
+    const highlight = highlightRanges.find((range) => rangeContains(range, start, end));
+    return [{
+      start,
+      end,
+      text: text.slice(start, end),
+      groupIndex: highlight?.groupIndex ?? null,
+      isBlank: blankRanges.some((range) => rangeContains(range, start, end)),
+      isCorrect: correctRanges.some((range) => rangeContains(range, start, end)),
+    }];
   });
-
-  if (cursor < end) {
-    nodes.push(
-      <Text key={`${keyPrefix}:tail`} style={textStyle}>
-        {value.slice(cursor - offset)}
-      </Text>,
-    );
-  }
-  return nodes.length ? nodes : value;
-}
-
-function tokenizeSelectableSegment(value: string, offset: number, segmentIndex: number): SelectableToken[] {
-  const tokens: SelectableToken[] = [];
-  let cursor = 0;
-  let wordIndex = 0;
-
-  for (const match of value.matchAll(WORD_RE)) {
-    const word = match[0] ?? "";
-    const localStart = match.index ?? 0;
-    if (localStart > cursor) {
-      tokens.push({
-        kind: "text",
-        text: value.slice(cursor, localStart),
-        start: offset + cursor,
-        end: offset + localStart,
-        segmentIndex,
-        wordIndex: null,
-      });
-    }
-    tokens.push({
-      kind: "word",
-      text: word,
-      start: offset + localStart,
-      end: offset + localStart + word.length,
-      segmentIndex,
-      wordIndex,
-    });
-    cursor = localStart + word.length;
-    wordIndex += 1;
-  }
-
-  if (cursor < value.length) {
-    tokens.push({
-      kind: "text",
-      text: value.slice(cursor),
-      start: offset + cursor,
-      end: offset + value.length,
-      segmentIndex,
-      wordIndex: null,
-    });
-  }
-
-  return tokens;
-}
-
-function buildTextParts(text: string, highlightRanges?: NativeClozeHighlightRange[]): TextPart[] {
-  const blockedRanges = normalizeBlockedRanges(text, highlightRanges);
-  const parts: TextPart[] = [];
-  let cursor = 0;
-  let segmentIndex = 0;
-
-  for (const range of blockedRanges) {
-    if (range.start > cursor) {
-      const segmentText = text.slice(cursor, range.start);
-      parts.push({
-        kind: "selectable",
-        text: segmentText,
-        start: cursor,
-        end: range.start,
-        segmentIndex,
-        tokens: tokenizeSelectableSegment(segmentText, cursor, segmentIndex),
-      });
-      segmentIndex += 1;
-    }
-    parts.push({
-      kind: "blocked",
-      text: text.slice(range.start, range.end),
-      start: range.start,
-      end: range.end,
-      groupIndex: range.groupIndex,
-    });
-    cursor = range.end;
-  }
-
-  if (cursor < text.length) {
-    const segmentText = text.slice(cursor);
-    parts.push({
-      kind: "selectable",
-      text: segmentText,
-      start: cursor,
-      end: text.length,
-      segmentIndex,
-      tokens: tokenizeSelectableSegment(segmentText, cursor, segmentIndex),
-    });
-  }
-
-  return parts;
-}
-
-function getSelectedWordBounds(selection: SelectionDraft): [number, number] {
-  return [
-    Math.min(selection.startWordIndex, selection.endWordIndex),
-    Math.max(selection.startWordIndex, selection.endWordIndex),
-  ];
 }
 
 export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, Props>(
@@ -269,133 +161,125 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     onClozeRangePress,
     onClozeRangeLongPress,
   }, ref) {
-    const [selection, setSelection] = React.useState<SelectionDraft | null>(null);
-    const parts = React.useMemo(() => buildTextParts(text, highlightRanges), [highlightRanges, text]);
-    const blanks = React.useMemo(() => normalizeBlankRanges(text, blankRanges), [blankRanges, text]);
-    const correct = React.useMemo(() => normalizeBlankRanges(text, correctRanges), [correctRanges, text]);
+    const renderStart = perfNow();
+    const highlights = React.useMemo(() => normalizeBlockedRanges(text, highlightRanges), [highlightRanges, text]);
+    const blanks = React.useMemo(() => {
+      const startedAt = perfNow();
+      const value = normalizeBlankRanges(text, blankRanges);
+      logSelectableTextPerf("normalize blank ranges", startedAt, {
+        textLength: text.length,
+        ranges: value.length,
+      });
+      return value;
+    }, [blankRanges, text]);
+    const correct = React.useMemo(() => {
+      const startedAt = perfNow();
+      const value = normalizeBlankRanges(text, correctRanges);
+      logSelectableTextPerf("normalize correct ranges", startedAt, {
+        textLength: text.length,
+        ranges: value.length,
+      });
+      return value;
+    }, [correctRanges, text]);
+    const segments = React.useMemo(() => {
+      const startedAt = perfNow();
+      const value = buildRenderSegments(text, highlights, blanks, correct);
+      logSelectableTextPerf("build render segments", startedAt, {
+        textLength: text.length,
+        highlightRanges: highlights.length,
+        blankRanges: blanks.length,
+        correctRanges: correct.length,
+        segments: value.length,
+      });
+      return value;
+    }, [blanks, correct, highlights, text]);
 
-    const clearSelection = React.useCallback(() => {
-      setSelection(null);
-    }, []);
+    const clearSelection = React.useCallback(() => undefined, []);
 
     React.useImperativeHandle(ref, () => ({ clearSelection }), [clearSelection]);
 
-    const selectedRange = React.useMemo(() => {
-      if (!selection) return null;
-      if (!selection.isComplete) return null;
-      const part = parts.find((item) => item.kind === "selectable" && item.segmentIndex === selection.segmentIndex);
-      if (!part || part.kind !== "selectable") return null;
-      const [firstWord, lastWord] = getSelectedWordBounds(selection);
-      const selectedWords = part.tokens.filter(
-        (token) => token.kind === "word" && token.wordIndex !== null && token.wordIndex >= firstWord && token.wordIndex <= lastWord,
-      );
-      if (!selectedWords.length) return null;
-      return {
-        start: selectedWords[0].start,
-        end: selectedWords[selectedWords.length - 1].end,
-      };
-    }, [parts, selection]);
-
-    const handleWordPress = React.useCallback((token: SelectableToken) => {
-      if (token.kind !== "word" || token.wordIndex === null) return;
-      onSelectionStart?.();
-      const wordIndex = token.wordIndex;
-      setSelection((current) => {
-        if (!current || current.segmentIndex !== token.segmentIndex) {
-          return {
-            segmentIndex: token.segmentIndex,
-            startWordIndex: wordIndex,
-            endWordIndex: wordIndex,
-            isComplete: false,
-          };
+    const handleNativeSelection = React.useCallback(
+      (event: { chosenOption: string; highlightedText: string; selectionStart?: number; selectionEnd?: number }) => {
+        if (event.chosenOption !== CLOZE_MENU_OPTION) return;
+        const selectedText = event.highlightedText;
+        if (!selectedText) return;
+        const hasNativeRange = typeof event.selectionStart === "number" && typeof event.selectionEnd === "number";
+        const start = hasNativeRange ? event.selectionStart! : text.indexOf(selectedText);
+        if (start < 0) return;
+        const end = hasNativeRange ? event.selectionEnd! : start + selectedText.length;
+        console.log("[selectable-text-selection]", {
+          source: hasNativeRange ? "native" : "fallback",
+          start,
+          end,
+          selectedText,
+        });
+        const selectedRange = { start: Math.min(start, end), end: Math.max(start, end) };
+        const existingClozeRanges = highlights.length ? highlights : blanks;
+        const insideExistingCloze = existingClozeRanges.some((range) => rangeContains(range, selectedRange.start, selectedRange.end));
+        if (insideExistingCloze) return;
+        const crossesExistingCloze = existingClozeRanges.some((range) => rangesOverlap(range, selectedRange));
+        if (crossesExistingCloze) {
+          Alert.alert("不能跨过已有填空");
+          return;
         }
-        return {
-          ...current,
-          endWordIndex: wordIndex,
-          isComplete: true,
-        };
-      });
-    }, [onSelectionStart]);
-
-    React.useEffect(() => {
-      if (!selectedRange) return;
-      const timer = setTimeout(() => {
+        onSelectionStart?.();
         onSelectionChange?.({
           start: selectedRange.start,
           end: selectedRange.end,
           selectedText: text.slice(selectedRange.start, selectedRange.end),
         });
-      }, 0);
-      return () => clearTimeout(timer);
-    }, [onSelectionChange, selectedRange, text]);
+      },
+      [blanks, highlights, onSelectionChange, onSelectionStart, text],
+    );
 
-    const renderSelectableToken = (token: SelectableToken, index: number) => {
-      if (token.kind !== "word" || token.wordIndex === null) {
-        return (
-          <Text key={`${token.start}:${index}`}>
-            {renderTextWithBlanks(token.text, token.start, blanks, correct, `${token.start}:${index}`)}
-          </Text>
-        );
-      }
-
-      const active =
-        selection?.segmentIndex === token.segmentIndex &&
-        token.wordIndex >= getSelectedWordBounds(selection)[0] &&
-        token.wordIndex <= getSelectedWordBounds(selection)[1];
-
-      return (
-        <Text
-          key={`${token.start}:${index}`}
-          suppressHighlighting
-          style={active ? styles.selectedWordText : undefined}
-          onPress={() => handleWordPress(token)}
-        >
-          {token.text}
-        </Text>
-      );
-    };
+    React.useEffect(() => {
+      logSelectableTextPerf("render+commit", renderStart, {
+        textLength: text.length,
+        segments: segments.length,
+        blankRanges: blanks.length,
+        correctRanges: correct.length,
+      });
+    });
 
     return (
-      <View>
+      <SelectableTextView menuOptions={[CLOZE_MENU_OPTION]} onSelection={handleNativeSelection}>
         <Text style={style}>
-          {parts.map((part, index) => {
-            if (part.kind === "blocked") {
-              return (
-                <Text
-                  key={`${part.start}:${index}`}
-                  suppressHighlighting
-                  style={styles.blockedRangeText}
-                  onPress={() => onClozeRangePress?.(part.groupIndex)}
-                  onLongPress={() => onClozeRangeLongPress?.(part.groupIndex)}
-                >
-                  {renderTextWithBlanks(part.text, part.start, blanks, correct, `${part.start}:${index}`, styles.blockedRangeText)}
-                </Text>
-              );
-            }
-
+          {segments.map((segment, index) => {
+            const segmentStyle = [
+              segment.groupIndex !== null && styles.clozeRangeText,
+              segment.isBlank && styles.blankText,
+              segment.isCorrect && styles.correctText,
+            ];
             return (
-              <Text key={`${part.start}:${index}`}>
-                {part.tokens.map((token, tokenIndex) => renderSelectableToken(token, tokenIndex))}
+              <Text
+                key={`${segment.start}:${index}`}
+                suppressHighlighting
+                style={segmentStyle}
+                onPress={segment.groupIndex !== null ? () => onClozeRangePress?.(segment.groupIndex!) : undefined}
+                onLongPress={segment.groupIndex !== null ? () => onClozeRangeLongPress?.(segment.groupIndex!) : undefined}
+              >
+                {segment.text}
               </Text>
             );
           })}
         </Text>
-      </View>
+      </SelectableTextView>
     );
   },
 );
 
 const styles = StyleSheet.create({
-  blockedRangeText: {
-    backgroundColor: "#FFF0B8",
+  clozeRangeText: {
+    backgroundColor: CLOZE_BLANK_BACKGROUND,
     color: "#3D3420",
   },
-  selectedWordText: {
-    backgroundColor: "#DCEBFF",
-    color: "#0D47A1",
-  },
   blankText: {
-    letterSpacing: 0,
+    color: CLOZE_BLANK_BACKGROUND,
+    textDecorationLine: "underline",
+    textDecorationColor: "#8C6D1F",
+    textShadowColor: CLOZE_BLANK_BACKGROUND,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 3,
   },
   correctText: {
     color: "#6FAE78",
