@@ -113,6 +113,21 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     } catch (err) {
       if (!isMounted()) return;
       const message = normalizeLoginError(err, t("auth.login.failed"));
+      console.log("[login-debug] login ui failed", {
+        authingConfigured,
+        hasAuthingRequest: !!authingRequest,
+        hasAuthingDiscovery: !!authingDiscovery,
+        authingRedirectUri,
+        apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL,
+        error: err instanceof Error
+          ? {
+            name: err.name,
+            message: err.message,
+            stack: err.stack,
+            cause: (err as { cause?: unknown }).cause,
+          }
+          : String(err),
+      });
       setStatusText(message);
       await logEvent("login_ui_failed", "warn", err instanceof Error ? err.message : message);
     } finally {

@@ -5,6 +5,7 @@ import {
   Pressable,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  type LayoutChangeEvent,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,6 +39,20 @@ type PracticeSessionScreenProps = {
 type PracticeEnglishSegment =
   | { type: "text"; key: string; text: string; highlighted: boolean; correct: boolean }
   | { type: "blank"; key: string; tokenIndex: number; width: number; spacer: boolean; expectedText: string };
+
+const EDGE_SWITCH_COMMIT_THRESHOLD = 5;
+const DISCARD_SWIPE_RATIO = 0.15;
+const TOUCH_AXIS_LOCK_THRESHOLD = 8;
+const PRACTICE_SCROLL_EDGE_DEBUG = true;
+
+function logPracticeScrollEdge(label: string, extra?: Record<string, unknown>): void {
+  if (!PRACTICE_SCROLL_EDGE_DEBUG) return;
+  if (extra) {
+    console.log(`[practice-scroll-edge] ${label}`, extra);
+    return;
+  }
+  console.log(`[practice-scroll-edge] ${label}`);
+}
 
 function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegment[] {
   const phraseSet = new Set(card.phraseTokenIndexes);
@@ -85,8 +100,16 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const flipAnim = useRef(new Animated.Value(0)).current;
   const cardMotionLocked = useRef(false);
   const segmentCacheRef = useRef(new Map<string, PracticeEnglishSegment[]>());
-  const gestureAxis = useRef<"x" | "y" | null>(null);
-  const scrollStateRef = useRef({ y: 0, maxY: 0 });
+  const gestureAxis = useRef<"x" | null>(null);
+  const scrollStateRef = useRef({ y: 0, contentHeight: 0, layoutHeight: 0, maxY: 0 });
+  // ScrollView 负责纵向滚动；这里仅记录触摸轨迹，用于滚到顶/底后松手切卡。
+  const scrollEdgeDragRef = useRef<{
+    startX: number;
+    startY: number;
+    axis: "x" | "y" | null;
+    direction: "prev" | "next" | null;
+    distance: number;
+  } | null>(null);
   const card = cards[index] ?? null;
   const canFlipCard = !!card?.translation.trim();
 
@@ -135,57 +158,33 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) => {
           if (cardMotionLocked.current || isFlipping) return false;
-          if (Math.abs(gesture.dy) > Math.abs(gesture.dx) && !canHandleVerticalDeckGesture(gesture.dy)) return false;
-          return Math.abs(gesture.dy) > 8 || Math.abs(gesture.dx) > 8;
+          return Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2 && Math.abs(gesture.dx) > 10;
         },
         onMoveShouldSetPanResponderCapture: (_, gesture) => {
           if (cardMotionLocked.current || isFlipping) return false;
-          const absX = Math.abs(gesture.dx);
-          const absY = Math.abs(gesture.dy);
-          if (absY > absX && !canHandleVerticalDeckGesture(gesture.dy)) return false;
-          return absY > 14 || absX > 18;
+          return Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.35 && Math.abs(gesture.dx) > 18;
         },
         onPanResponderGrant: () => {
-          gestureAxis.current = null;
+          gestureAxis.current = "x";
           translate.setValue({ x: 0, y: 0 });
         },
         onPanResponderMove: (_, gesture) => {
-          if (!gestureAxis.current) {
-            gestureAxis.current = Math.abs(gesture.dx) > Math.abs(gesture.dy) ? "x" : "y";
-          }
-          if (gestureAxis.current === "x") {
-            translate.setValue({ x: Math.max(0, gesture.dx), y: 0 });
-            return;
-          }
-          translate.setValue({ x: 0, y: 0 });
+          translate.setValue({ x: Math.max(0, gesture.dx), y: 0 });
         },
         onPanResponderRelease: (_, gesture) => {
-          const verticalThreshold = Math.max(42, window.height * 0.07);
-          const discardThreshold = window.width * 0.25;
-          // 丢弃是写库动作：先回弹卡片，再等待云端确认，成功后才移除。
-          if (gestureAxis.current === "x" && gesture.dx > discardThreshold) {
-            Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
-            gestureAxis.current = null;
-            askDiscardCurrentCard();
-            return;
-          }
-          if (gestureAxis.current === "y" && gesture.dy < -verticalThreshold) {
-            goNext();
-            return;
-          }
-          if (gestureAxis.current === "y" && gesture.dy > verticalThreshold) {
-            goPrev();
-            return;
-          }
+          const discardThreshold = window.width * DISCARD_SWIPE_RATIO;
           Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
           gestureAxis.current = null;
+          if (gesture.dx > discardThreshold) {
+            askDiscardCurrentCard();
+          }
         },
         onPanResponderTerminate: () => {
           gestureAxis.current = null;
           Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
         },
       }),
-    [index, cards.length, isFlipping, window.height, window.width],
+    [isFlipping, window.width],
   );
 
   async function runWithLoading<T>(task: (signal: AbortSignal) => Promise<T>, text?: string): Promise<T> {
@@ -224,25 +223,136 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   }
 
   function resetMotion(): void {
+    const { layoutHeight } = scrollStateRef.current;
     gestureAxis.current = null;
-    scrollStateRef.current = { y: 0, maxY: 0 };
+    scrollEdgeDragRef.current = null;
+    scrollStateRef.current = { y: 0, contentHeight: 0, layoutHeight, maxY: 0 };
     translate.setValue({ x: 0, y: 0 });
+  }
+
+  function updateScrollState(next: Partial<typeof scrollStateRef.current>): void {
+    const previous = scrollStateRef.current;
+    const merged = { ...previous, ...next };
+    // contentHeight 是内容高度，layoutHeight 是卡片可视高度；差值才是可滚动距离。
+    merged.maxY = Math.max(0, merged.contentHeight - merged.layoutHeight);
+    scrollStateRef.current = {
+      ...merged,
+      y: Math.max(0, Math.min(merged.y, merged.maxY)),
+    };
+    const current = scrollStateRef.current;
+    if (
+      Math.abs(previous.contentHeight - current.contentHeight) > 1 ||
+      Math.abs(previous.layoutHeight - current.layoutHeight) > 1 ||
+      Math.abs(previous.maxY - current.maxY) > 1
+    ) {
+      logPracticeScrollEdge("metrics", {
+        y: current.y.toFixed(1),
+        contentHeight: current.contentHeight.toFixed(1),
+        layoutHeight: current.layoutHeight.toFixed(1),
+        maxY: current.maxY.toFixed(1),
+      });
+    }
   }
 
   function handleCardScroll(event: NativeSyntheticEvent<NativeScrollEvent>): void {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    scrollStateRef.current = {
+    updateScrollState({
       y: Math.max(0, contentOffset.y),
-      maxY: Math.max(0, contentSize.height - layoutMeasurement.height),
-    };
+      contentHeight: contentSize.height,
+      layoutHeight: layoutMeasurement.height,
+    });
   }
 
-  function canHandleVerticalDeckGesture(dy: number): boolean {
+  function handleCardPaneLayout(event: LayoutChangeEvent): void {
+    updateScrollState({ layoutHeight: event.nativeEvent.layout.height });
+  }
+
+  function getEdgeSwitchDirection(dy: number): "prev" | "next" | null {
     const { y, maxY } = scrollStateRef.current;
-    if (maxY <= 1) return true;
-    if (dy < 0) return y >= maxY - 1;
-    if (dy > 0) return y <= 1;
-    return false;
+    // 短卡 maxY 为 0，等价于同时处在顶部和底部；首尾卡仍要拦住不可达方向。
+    const direction = (() => {
+      if (maxY <= 1) {
+        if (dy < 0 && index < cards.length - 1) return "next";
+        if (dy > 0 && index > 0) return "prev";
+        return null;
+      }
+      if (dy < 0 && y >= maxY - 1 && index < cards.length - 1) return "next";
+      if (dy > 0 && y <= 1 && index > 0) return "prev";
+      return null;
+    })();
+    logPracticeScrollEdge("edge check", {
+      dy: dy.toFixed(1),
+      direction,
+      index,
+      cards: cards.length,
+      y: y.toFixed(1),
+      maxY: maxY.toFixed(1),
+      atTop: y <= 1,
+      atBottom: maxY <= 1 || y >= maxY - 1,
+    });
+    return direction;
+  }
+
+  function handleCardScrollTouchStart(event: NativeSyntheticEvent<any>): void {
+    scrollEdgeDragRef.current = {
+      startX: event.nativeEvent.pageX,
+      startY: event.nativeEvent.pageY,
+      axis: null,
+      direction: null,
+      distance: 0,
+    };
+    const { y, maxY, contentHeight, layoutHeight } = scrollStateRef.current;
+    logPracticeScrollEdge("touch start", {
+      pageY: event.nativeEvent.pageY.toFixed(1),
+      index,
+      y: y.toFixed(1),
+      contentHeight: contentHeight.toFixed(1),
+      layoutHeight: layoutHeight.toFixed(1),
+      maxY: maxY.toFixed(1),
+      atTop: y <= 1,
+      atBottom: maxY <= 1 || y >= maxY - 1,
+    });
+  }
+
+  function handleCardScrollTouchMove(event: NativeSyntheticEvent<any>): void {
+    const drag = scrollEdgeDragRef.current;
+    if (!drag || cardMotionLocked.current || isFlipping) return;
+    const dx = event.nativeEvent.pageX - drag.startX;
+    const dy = event.nativeEvent.pageY - drag.startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    // 右滑丢弃和上下切卡共用手指：先锁定主方向，横向手势不参与切卡，避免误触。
+    if (!drag.axis && (absX > TOUCH_AXIS_LOCK_THRESHOLD || absY > TOUCH_AXIS_LOCK_THRESHOLD)) {
+      drag.axis = absX > absY ? "x" : "y";
+    }
+    if (drag.axis === "x") {
+      drag.direction = null;
+      drag.distance = 0;
+      return;
+    }
+    const direction = getEdgeSwitchDirection(dy);
+    if (!direction) {
+      drag.direction = null;
+      drag.distance = 0;
+      return;
+    }
+    const distance = Math.abs(dy);
+    drag.direction = direction;
+    drag.distance = distance;
+  }
+
+  function handleCardScrollTouchEnd(): void {
+    const drag = scrollEdgeDragRef.current;
+    scrollEdgeDragRef.current = null;
+    // 只有从顶/底继续拖过提交阈值，松手才切卡；当前不再显示提示，靠手感触发。
+    if (!drag || !drag.direction || drag.distance < EDGE_SWITCH_COMMIT_THRESHOLD) {
+      return;
+    }
+    if (drag.direction === "next") {
+      goNext();
+    } else {
+      goPrev();
+    }
   }
 
   function resetCardState(): void {
@@ -431,73 +541,88 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       </View>
 
       {rulesOpen ? (
-        <View style={styles.rulesPanel}>
-          <Text style={styles.ruleText}>上滑：下一张</Text>
-          <Text style={styles.ruleText}>下滑：上一张</Text>
-          <Text style={styles.ruleText}>右滑：丢弃此卡片</Text>
+        <View style={styles.rulesLayer} pointerEvents="box-none">
+          <Pressable style={styles.rulesBackdrop} onPress={() => setRulesOpen(false)} />
+          <View style={styles.rulesPanel}>
+            <Text style={styles.ruleText}>上滑：下一张</Text>
+            <Text style={styles.ruleText}>下滑：上一张</Text>
+            <Text style={styles.ruleText}>右滑：丢弃此卡片</Text>
+          </View>
         </View>
       ) : null}
 
       <View style={styles.deck}>
         <Animated.View style={[styles.cardShell, { transform: translate.getTranslateTransform() }]} {...panResponder.panHandlers}>
-          <View style={styles.cardShadow}>
-            <Animated.View
-              pointerEvents={isFlipping || isFlipped ? "none" : "auto"}
-              style={[
-                styles.cardFace,
-                styles.cardFrontFace,
-                {
-                  transform: [{ perspective: 900 }, { rotateY: frontRotateY }],
-                },
-              ]}
-            >
-              <View style={styles.englishPane}>
-                <ScrollView
-                  contentContainerStyle={styles.englishContent}
-                  bounces={false}
-                  overScrollMode="never"
-                  scrollEventThrottle={16}
-                  onScroll={handleCardScroll}
-                >
-                  <PracticeEnglish
-                    segments={getCardSegments(card)}
-                    answers={answers}
-                    checkedAnswers={checkedAnswers}
-                    onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))}
-                  />
-                </ScrollView>
-              </View>
-            </Animated.View>
-
-            {canFlipCard ? (
+            <View style={styles.cardShadow}>
               <Animated.View
-                pointerEvents={isFlipping || !isFlipped ? "none" : "auto"}
+                pointerEvents={isFlipping || isFlipped ? "none" : "auto"}
                 style={[
                   styles.cardFace,
-                  styles.cardBackFace,
+                  styles.cardFrontFace,
                   {
-                    transform: [{ perspective: 900 }, { rotateY: backRotateY }],
+                    transform: [{ perspective: 900 }, { rotateY: frontRotateY }],
                   },
                 ]}
               >
-                <View style={styles.translationPane}>
+                <View style={styles.englishPane} onLayout={handleCardPaneLayout}>
                   <ScrollView
-                    contentContainerStyle={styles.translationContent}
+                    contentContainerStyle={styles.englishContent}
                     bounces={false}
                     overScrollMode="never"
                     scrollEventThrottle={16}
                     onScroll={handleCardScroll}
+                    onContentSizeChange={(_, height) => updateScrollState({ contentHeight: height })}
+                    onTouchStart={handleCardScrollTouchStart}
+                    onTouchMove={handleCardScrollTouchMove}
+                    onTouchEnd={handleCardScrollTouchEnd}
+                    onTouchCancel={handleCardScrollTouchEnd}
                   >
-                    <Text style={styles.translationText}>{card.translation}</Text>
+                    <PracticeEnglish
+                      segments={getCardSegments(card)}
+                      answers={answers}
+                      checkedAnswers={checkedAnswers}
+                      onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))}
+                    />
                   </ScrollView>
                 </View>
               </Animated.View>
-            ) : null}
-          </View>
+
+              {canFlipCard ? (
+                <Animated.View
+                  pointerEvents={isFlipping || !isFlipped ? "none" : "auto"}
+                  style={[
+                    styles.cardFace,
+                    styles.cardBackFace,
+                    {
+                      transform: [{ perspective: 900 }, { rotateY: backRotateY }],
+                    },
+                  ]}
+                >
+                  <View style={styles.translationPane} onLayout={handleCardPaneLayout}>
+                    <ScrollView
+                      contentContainerStyle={styles.translationContent}
+                      bounces={false}
+                      overScrollMode="never"
+                      scrollEventThrottle={16}
+                      onScroll={handleCardScroll}
+                      onContentSizeChange={(_, height) => updateScrollState({ contentHeight: height })}
+                      onTouchStart={handleCardScrollTouchStart}
+                      onTouchMove={handleCardScrollTouchMove}
+                      onTouchEnd={handleCardScrollTouchEnd}
+                      onTouchCancel={handleCardScrollTouchEnd}
+                    >
+                      <Text style={styles.translationText}>{card.translation}</Text>
+                    </ScrollView>
+                  </View>
+                </Animated.View>
+              ) : null}
+            </View>
         </Animated.View>
       </View>
 
-      <Text style={styles.progressText}>{index + 1}/{cards.length}</Text>
+      <View style={styles.progressRow}>
+        <Text style={styles.progressText}>{index + 1}/{cards.length}</Text>
+      </View>
 
       {canFlipCard ? (
         <Pressable
@@ -605,10 +730,16 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "400",
   },
+  rulesLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 3,
+  },
+  rulesBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
   rulesPanel: {
     position: "absolute",
-    zIndex: 3,
-    top: 76,
+    top: 86,
     right: 18,
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -739,6 +870,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     textAlign: "center",
+  },
+  progressRow: {
+    minHeight: 18,
+    paddingHorizontal: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
   flipButton: {
     alignSelf: "center",
