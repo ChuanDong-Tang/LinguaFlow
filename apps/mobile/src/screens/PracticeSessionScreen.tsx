@@ -43,16 +43,6 @@ type PracticeEnglishSegment =
 const EDGE_SWITCH_COMMIT_THRESHOLD = 5;
 const DISCARD_SWIPE_RATIO = 0.15;
 const TOUCH_AXIS_LOCK_THRESHOLD = 8;
-const PRACTICE_SCROLL_EDGE_DEBUG = true;
-
-function logPracticeScrollEdge(label: string, extra?: Record<string, unknown>): void {
-  if (!PRACTICE_SCROLL_EDGE_DEBUG) return;
-  if (extra) {
-    console.log(`[practice-scroll-edge] ${label}`, extra);
-    return;
-  }
-  console.log(`[practice-scroll-edge] ${label}`);
-}
 
 function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegment[] {
   const phraseSet = new Set(card.phraseTokenIndexes);
@@ -239,19 +229,6 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       ...merged,
       y: Math.max(0, Math.min(merged.y, merged.maxY)),
     };
-    const current = scrollStateRef.current;
-    if (
-      Math.abs(previous.contentHeight - current.contentHeight) > 1 ||
-      Math.abs(previous.layoutHeight - current.layoutHeight) > 1 ||
-      Math.abs(previous.maxY - current.maxY) > 1
-    ) {
-      logPracticeScrollEdge("metrics", {
-        y: current.y.toFixed(1),
-        contentHeight: current.contentHeight.toFixed(1),
-        layoutHeight: current.layoutHeight.toFixed(1),
-        maxY: current.maxY.toFixed(1),
-      });
-    }
   }
 
   function handleCardScroll(event: NativeSyntheticEvent<NativeScrollEvent>): void {
@@ -270,27 +247,14 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   function getEdgeSwitchDirection(dy: number): "prev" | "next" | null {
     const { y, maxY } = scrollStateRef.current;
     // 短卡 maxY 为 0，等价于同时处在顶部和底部；首尾卡仍要拦住不可达方向。
-    const direction = (() => {
-      if (maxY <= 1) {
-        if (dy < 0 && index < cards.length - 1) return "next";
-        if (dy > 0 && index > 0) return "prev";
-        return null;
-      }
-      if (dy < 0 && y >= maxY - 1 && index < cards.length - 1) return "next";
-      if (dy > 0 && y <= 1 && index > 0) return "prev";
+    if (maxY <= 1) {
+      if (dy < 0 && index < cards.length - 1) return "next";
+      if (dy > 0 && index > 0) return "prev";
       return null;
-    })();
-    logPracticeScrollEdge("edge check", {
-      dy: dy.toFixed(1),
-      direction,
-      index,
-      cards: cards.length,
-      y: y.toFixed(1),
-      maxY: maxY.toFixed(1),
-      atTop: y <= 1,
-      atBottom: maxY <= 1 || y >= maxY - 1,
-    });
-    return direction;
+    }
+    if (dy < 0 && y >= maxY - 1 && index < cards.length - 1) return "next";
+    if (dy > 0 && y <= 1 && index > 0) return "prev";
+    return null;
   }
 
   function handleCardScrollTouchStart(event: NativeSyntheticEvent<any>): void {
@@ -301,17 +265,6 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       direction: null,
       distance: 0,
     };
-    const { y, maxY, contentHeight, layoutHeight } = scrollStateRef.current;
-    logPracticeScrollEdge("touch start", {
-      pageY: event.nativeEvent.pageY.toFixed(1),
-      index,
-      y: y.toFixed(1),
-      contentHeight: contentHeight.toFixed(1),
-      layoutHeight: layoutHeight.toFixed(1),
-      maxY: maxY.toFixed(1),
-      atTop: y <= 1,
-      atBottom: maxY <= 1 || y >= maxY - 1,
-    });
   }
 
   function handleCardScrollTouchMove(event: NativeSyntheticEvent<any>): void {

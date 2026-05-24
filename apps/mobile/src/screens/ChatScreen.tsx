@@ -54,22 +54,6 @@ type ChatScreenProps = {
   onBack: () => void;
 };
 
-const CHAT_PERF_LOGS = true;
-
-function perfNow(): number {
-  return typeof performance === "undefined" ? Date.now() : performance.now();
-}
-
-function logChatPerf(label: string, startedAt: number, extra?: Record<string, unknown>): void {
-  if (!CHAT_PERF_LOGS) return;
-  const elapsed = (perfNow() - startedAt).toFixed(1);
-  if (extra) {
-    console.log(`[chat-perf] ${label}: ${elapsed}ms`, extra);
-    return;
-  }
-  console.log(`[chat-perf] ${label}: ${elapsed}ms`);
-}
-
 export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
   const contactId = contact.id;
@@ -514,19 +498,16 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     d: Date,
     options?: { force?: boolean; signal?: AbortSignal; syncToken?: number }
   ): Promise<{ synced: boolean; changed: boolean }> {
-    const totalStart = perfNow();
-    const dateKey = toDateKey(d);
-    let stepStart = perfNow();
     const localPro = await hasLocalProAccess();
     const [session, entitlement] = await Promise.all([
       getSession(),
       localPro ? getCurrentEntitlement().catch(() => null) : Promise.resolve(null),
     ]);
-    logChatPerf("syncDay entitlement/session", stepStart, { dateKey, localPro });
     const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
     const isPro = entitlement?.isPro === true;
     if (!isMountedRef.current) return { synced: false, changed: false };
     setIsProEntitled(isPro);
+    const dateKey = toDateKey(d);
     const reqId = ++syncSeqRef.current;
     latestSyncReqByDateRef.current[dateKey] = reqId;
     // 同一天 5 分钟内只允许命中一次拉取，避免进出页面时反复打云端。
@@ -542,34 +523,28 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "checking");
     }
-    stepStart = perfNow();
     const resolvedConversationId = await resolveConversationIdForDate(dateKey, options?.signal);
-    logChatPerf("syncDay resolve conversation", stepStart, { dateKey, hasConversation: !!resolvedConversationId });
     if (!isMountedRef.current) return { synced: false, changed: false };
     if (!resolvedConversationId) return { synced: false, changed: false };
 
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "fetching");
     }
-    stepStart = perfNow();
     const allRows = await listDayMessagesFromCloud({
       conversationId: resolvedConversationId,
       userId,
       dateKey,
       signal: options?.signal,
     });
-    logChatPerf("syncDay fetch cloud rows", stepStart, { dateKey, rows: allRows.length });
     if (!isMountedRef.current) return { synced: false, changed: false };
     if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
 
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "merging");
     }
-    stepStart = perfNow();
     const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : 1
     );
-    logChatPerf("syncDay map/filter/sort cloud rows", stepStart, { dateKey, visibleRows: visibleMapped.length });
     setCloudDateKeys((prev) => {
       const next = new Set(prev);
       next.add(dateKey);
@@ -577,7 +552,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     });
 
     const dayKey = toDateKey(d);
-    stepStart = perfNow();
     const cachedLoaded = (dayLoadedRowsRef.current[dayKey] ?? []).slice().sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : 1
     );
@@ -589,39 +563,22 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       a.createdAt < b.createdAt ? -1 : 1
     );
     const changed = !areMessageRowsEquivalent(previousVisibleDay, nextVisibleDay);
-    logChatPerf("syncDay compare local/cache", stepStart, {
-      dateKey,
-      cachedRows: cachedLoaded.length,
-      previousRows: previousVisibleDay.length,
-      nextRows: nextVisibleDay.length,
-      changed,
-    });
     dayLoadedRowsRef.current[dayKey] = nextVisibleDay;
-    if (!changed) {
-      setLocalDateKeys((prev) => (prev.has(dayKey) ? prev : new Set([...prev, dayKey])));
-      lastCloudSyncAtByDateRef.current[dayKey] = Date.now();
-      logChatPerf("syncDay skip unchanged update", totalStart, { dateKey, rows: nextVisibleDay.length });
-      return { synced: true, changed: false };
-    }
 
-    stepStart = perfNow();
     await replaceChatMessagesByDate(contactId, dayKey, nextVisibleDay);
-    logChatPerf("syncDay replace local storage", stepStart, { dateKey, rows: nextVisibleDay.length });
     setLocalDateKeys((prev) => new Set([...prev, dayKey]));
     lastCloudSyncAtByDateRef.current[dayKey] = Date.now();
     if (selectedDateKeyRef.current === dayKey) {
-      stepStart = perfNow();
       setDayMessages(nextVisibleDay);
       setMessages(nextVisibleDay);
-      logChatPerf("syncDay enqueue selected day state", stepStart, { dateKey, rows: nextVisibleDay.length });
     }
-    logChatPerf("syncDay total", totalStart, { dateKey, rows: nextVisibleDay.length, changed });
     return { synced: true, changed };
   }
 
   async function syncDateQuietly(d: Date, options?: { force?: boolean }): Promise<void> {
     //---test cost----
-    const start = perfNow();
+    const start = performance.now();
+
     const dateKey = toDateKey(d);
     const dirty = consumeChatDateDirty(contactId, dateKey);
     const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
@@ -692,31 +649,20 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       }
       daySyncMachine.settle(token);
 
-      logChatPerf("syncDateQuietly total", start, { dateKey });
+      const end = performance.now();
+      console.log(`同步消息耗时: ${(end - start).toFixed(1)}ms`);
     }
   }
 
   async function handleSelectDate(d: Date): Promise<void> {
-    const totalStart = perfNow();
-    const dateKey = toDateKey(d);
     Keyboard.dismiss();
     setSelectedDate(d);
     setIsDateSheetOpen(false);
     setMonthCursor(new Date(d.getFullYear(), d.getMonth(), 1));
 
-    let stepStart = perfNow();
-    const localRows = await loadChatMessagesByDate(contactId, dateKey);
-    logChatPerf("selectDate load local rows", stepStart, { dateKey, rows: localRows.length });
-
-    stepStart = perfNow();
-    const visibleLocalRows = toDisplayRows(localRows);
-    logChatPerf("selectDate filter display rows", stepStart, { dateKey, rows: visibleLocalRows.length });
-
-    stepStart = perfNow();
+    const visibleLocalRows = toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(d)));
     setDayMessages(visibleLocalRows);
     setMessages(visibleLocalRows);
-    logChatPerf("selectDate enqueue local state", stepStart, { dateKey, rows: visibleLocalRows.length });
-    logChatPerf("selectDate before cloud sync", totalStart, { dateKey, rows: visibleLocalRows.length });
 
     void syncDateQuietly(d);
   }
