@@ -23,44 +23,40 @@ import {
   type ChatContact,
 } from "./domain/chat/contacts";
 
-type Screen = "login" | "main" | "chat" | "practice" | "practiceSession" | "me" | "pro" | "about";
+type Screen =
+  | "booting"
+  | "login"
+  | "main"
+  | "chat"
+  | "practice"
+  | "practiceSession"
+  | "me"
+  | "pro"
+  | "about";
 
 const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("login");
+  const [screen, setScreen] = useState<Screen>("booting");
   const [selectedTab, setSelectedTab] = useState<"main" | "practice" | "me">("main");
-  const [visitedTabs, setVisitedTabs] = useState<Record<"main" | "practice" | "me", boolean>>({
-    main: true,
-    practice: true,
-    me: true,
-  });
   const [practiceSession, setPracticeSession] = useState<{
     cards: PracticeCard[];
     messages: ChatMessage[];
   } | null>(null);
   const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
 
+  // 判断用户是否已登录
+  // 之前这里有一个强行停留1s的设定
+  // 如果在登录页面强行停留1s。会让用户觉得我怎么又在登录页面
   useEffect(() => {
     let mounted = true;
-    function sleep(ms: number): Promise<void> {
-      return new Promise((resolve) => setTimeout(resolve, ms));
-    }
     async function bootstrap() {
-      const startAt = Date.now();
-      const MIN_SPLASH_MS = 1000;
       try {
         await Promise.all([initI18n(), preloadImages(PRELOAD_IMAGES)]);
         const session = await getSession();
-        const elapsed = Date.now() - startAt;
-        const remain = MIN_SPLASH_MS - elapsed;
-        if (remain > 0) await sleep(remain);
         if (!mounted) return;
         setScreen(session ? "main" : "login");
       } catch {
-        const elapsed = Date.now() - startAt;
-        const remain = MIN_SPLASH_MS - elapsed;
-        if (remain > 0) await sleep(remain);
         if (!mounted) return;
         setScreen("login");
       }
@@ -71,6 +67,7 @@ export default function App() {
     };
   }, []);
 
+  // 监听登录失效
   useEffect(() => {
     return onSessionInvalid(() => {
       setScreen("login");
@@ -99,7 +96,10 @@ export default function App() {
   const activeTab = showTabBar ? screen : selectedTab;
 
   let content: React.ReactNode;
-  if (screen === "login") {
+  if (screen === "booting") {
+    content = <View style={styles.bootingScreen} />;
+  }
+  else if (screen === "login") {
     content = (
       <FadingScreen>
         <LoginScreen onLoginSuccess={() => setScreen("main")} />
@@ -143,7 +143,6 @@ export default function App() {
         <FadingScreen>
           <TabScreens
             activeTab={activeTab}
-            visitedTabs={visitedTabs}
             onOpenChat={(contact) => {
               setActiveContact(contact);
               setScreen("chat");
@@ -206,7 +205,6 @@ function FadingScreen({ children }: { children: React.ReactNode }) {
 
 function TabScreens({
   activeTab,
-  visitedTabs,
   onOpenChat,
   onOpenPracticeSession,
   onOpenPro,
@@ -214,7 +212,6 @@ function TabScreens({
   onLogout,
 }: {
   activeTab: "main" | "practice" | "me";
-  visitedTabs: Record<"main" | "practice" | "me", boolean>;
   onOpenChat: (contact: ChatContact) => void;
   onOpenPracticeSession: (cards: PracticeCard[], allMessages: ChatMessage[]) => void;
   onOpenPro: () => void;
@@ -223,21 +220,15 @@ function TabScreens({
 }) {
   return (
     <View style={styles.tabHost}>
-      {visitedTabs.main ? (
-        <View style={[styles.tabPage, activeTab !== "main" && styles.tabPageHidden]}>
-          <MainScreen onOpenChat={onOpenChat} />
-        </View>
-      ) : null}
-      {visitedTabs.practice ? (
-        <View style={[styles.tabPage, activeTab !== "practice" && styles.tabPageHidden]}>
-          <PracticeScreen isActive={activeTab === "practice"} onOpenPracticeSession={onOpenPracticeSession} />
-        </View>
-      ) : null}
-      {visitedTabs.me ? (
-        <View style={[styles.tabPage, activeTab !== "me" && styles.tabPageHidden]}>
-          <MeScreen onOpenPro={onOpenPro} onOpenAbout={onOpenAbout} onLogout={onLogout} />
-        </View>
-      ) : null}
+      <View style={[styles.tabPage, activeTab !== "main" && styles.tabPageHidden]}>
+        <MainScreen onOpenChat={onOpenChat} />
+      </View>
+      <View style={[styles.tabPage, activeTab !== "practice" && styles.tabPageHidden]}>
+        <PracticeScreen isActive={activeTab === "practice"} onOpenPracticeSession={onOpenPracticeSession} />
+      </View>
+      <View style={[styles.tabPage, activeTab !== "me" && styles.tabPageHidden]}>
+        <MeScreen onOpenPro={onOpenPro} onOpenAbout={onOpenAbout} onLogout={onLogout} />
+      </View>
     </View>
   );
 }
@@ -268,5 +259,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  bootingScreen: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
   },
 });
