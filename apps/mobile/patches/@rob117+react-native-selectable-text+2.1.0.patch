@@ -1,0 +1,176 @@
+diff --git a/node_modules/@rob117/react-native-selectable-text/android/app/build/generated/source/codegen/jni/react/renderer/components/SelectableTextViewSpec/EventEmitters.cpp b/node_modules/@rob117/react-native-selectable-text/android/app/build/generated/source/codegen/jni/react/renderer/components/SelectableTextViewSpec/EventEmitters.cpp
+index 5e9da55..f4492e8 100644
+--- a/node_modules/@rob117/react-native-selectable-text/android/app/build/generated/source/codegen/jni/react/renderer/components/SelectableTextViewSpec/EventEmitters.cpp
++++ b/node_modules/@rob117/react-native-selectable-text/android/app/build/generated/source/codegen/jni/react/renderer/components/SelectableTextViewSpec/EventEmitters.cpp
+@@ -13,4 +13,15 @@
+ 
+ namespace facebook::react {
+ 
++void SelectableTextViewEventEmitter::onSelection(OnSelection event) const {
++  dispatchEvent("selection", [event=std::move(event)](jsi::Runtime &runtime) {
++    auto payload = jsi::Object(runtime);
++    payload.setProperty(runtime, "chosenOption", event.chosenOption);
++payload.setProperty(runtime, "highlightedText", event.highlightedText);
++payload.setProperty(runtime, "selectionStart", event.selectionStart);
++payload.setProperty(runtime, "selectionEnd", event.selectionEnd);
++    return payload;
++  });
++}
++
+ } // namespace facebook::react
+diff --git a/node_modules/@rob117/react-native-selectable-text/android/app/build/generated/source/codegen/jni/react/renderer/components/SelectableTextViewSpec/EventEmitters.h b/node_modules/@rob117/react-native-selectable-text/android/app/build/generated/source/codegen/jni/react/renderer/components/SelectableTextViewSpec/EventEmitters.h
+index b6df805..4ec4a62 100644
+--- a/node_modules/@rob117/react-native-selectable-text/android/app/build/generated/source/codegen/jni/react/renderer/components/SelectableTextViewSpec/EventEmitters.h
++++ b/node_modules/@rob117/react-native-selectable-text/android/app/build/generated/source/codegen/jni/react/renderer/components/SelectableTextViewSpec/EventEmitters.h
+@@ -17,7 +17,12 @@ class SelectableTextViewEventEmitter : public ViewEventEmitter {
+  public:
+   using ViewEventEmitter::ViewEventEmitter;
+ 
+-  
+-  
++  struct OnSelection {
++      std::string chosenOption;
++    std::string highlightedText;
++    double selectionStart;
++    double selectionEnd;
++    };
++  void onSelection(OnSelection value) const;
+ };
+ } // namespace facebook::react
+diff --git a/node_modules/@rob117/react-native-selectable-text/android/src/main/java/com/selectabletext/SelectableTextView.kt b/node_modules/@rob117/react-native-selectable-text/android/src/main/java/com/selectabletext/SelectableTextView.kt
+index d25fffa..2e91dac 100644
+--- a/node_modules/@rob117/react-native-selectable-text/android/src/main/java/com/selectabletext/SelectableTextView.kt
++++ b/node_modules/@rob117/react-native-selectable-text/android/src/main/java/com/selectabletext/SelectableTextView.kt
+@@ -63,7 +63,7 @@ class SelectableTextView : FrameLayout {
+         val chosenOption = menuOptions[item?.itemId ?: 0]
+         
+         // Send event to React Native
+-        onSelectionEvent(chosenOption, selectedText)
++        onSelectionEvent(chosenOption, selectedText, selectionStart, selectionEnd)
+         
+         mode?.finish()
+         return true
+@@ -75,12 +75,14 @@ class SelectableTextView : FrameLayout {
+     }
+   }
+   
+-  private fun onSelectionEvent(chosenOption: String, highlightedText: String) {
++  private fun onSelectionEvent(chosenOption: String, highlightedText: String, selectionStart: Int, selectionEnd: Int) {
+     val reactContext = context as ReactContext
+     val params = Arguments.createMap().apply {
+       putInt("viewTag", id)
+       putString("chosenOption", chosenOption)
+       putString("highlightedText", highlightedText)
++      putInt("selectionStart", selectionStart)
++      putInt("selectionEnd", selectionEnd)
+     }
+     
+     reactContext
+diff --git a/node_modules/@rob117/react-native-selectable-text/ios/SelectableTextView.mm b/node_modules/@rob117/react-native-selectable-text/ios/SelectableTextView.mm
+index 6dcb0b3..e664305 100644
+--- a/node_modules/@rob117/react-native-selectable-text/ios/SelectableTextView.mm
++++ b/node_modules/@rob117/react-native-selectable-text/ios/SelectableTextView.mm
+@@ -562,7 +562,9 @@ using namespace facebook::react;
+         NSLog(@"iOS SelectableText - Emitting selection event via Fabric eventEmitter");
+         SelectableTextViewEventEmitter::OnSelection selectionEvent = {
+             .chosenOption = std::string([selectedOption UTF8String]),
+-            .highlightedText = std::string([selectedText UTF8String])
++            .highlightedText = std::string([selectedText UTF8String]),
++            .selectionStart = static_cast<int>(selectedRange.location),
++            .selectionEnd = static_cast<int>(selectedRange.location + selectedRange.length)
+         };
+         eventEmitter->onSelection(selectionEvent);
+     } else {
+diff --git a/node_modules/@rob117/react-native-selectable-text/lib/commonjs/SelectableTextView.js b/node_modules/@rob117/react-native-selectable-text/lib/commonjs/SelectableTextView.js
+index 3b64650..3e3cda3 100644
+--- a/node_modules/@rob117/react-native-selectable-text/lib/commonjs/SelectableTextView.js
++++ b/node_modules/@rob117/react-native-selectable-text/lib/commonjs/SelectableTextView.js
+@@ -26,7 +26,9 @@ const SelectableTextView = ({
+         if (viewTag === eventData.viewTag) {
+           onSelection({
+             chosenOption: eventData.chosenOption,
+-            highlightedText: eventData.highlightedText
++            highlightedText: eventData.highlightedText,
++            selectionStart: eventData.selectionStart,
++            selectionEnd: eventData.selectionEnd
+           });
+         }
+       });
+diff --git a/node_modules/@rob117/react-native-selectable-text/lib/module/SelectableTextView.js b/node_modules/@rob117/react-native-selectable-text/lib/module/SelectableTextView.js
+index 2913d5e..2331fd3 100644
+--- a/node_modules/@rob117/react-native-selectable-text/lib/module/SelectableTextView.js
++++ b/node_modules/@rob117/react-native-selectable-text/lib/module/SelectableTextView.js
+@@ -20,7 +20,9 @@ export const SelectableTextView = ({
+         if (viewTag === eventData.viewTag) {
+           onSelection({
+             chosenOption: eventData.chosenOption,
+-            highlightedText: eventData.highlightedText
++            highlightedText: eventData.highlightedText,
++            selectionStart: eventData.selectionStart,
++            selectionEnd: eventData.selectionEnd
+           });
+         }
+       });
+diff --git a/node_modules/@rob117/react-native-selectable-text/lib/module/SelectableTextViewNativeComponent.ts b/node_modules/@rob117/react-native-selectable-text/lib/module/SelectableTextViewNativeComponent.ts
+index a64470e..e336d9c 100644
+--- a/node_modules/@rob117/react-native-selectable-text/lib/module/SelectableTextViewNativeComponent.ts
++++ b/node_modules/@rob117/react-native-selectable-text/lib/module/SelectableTextViewNativeComponent.ts
+@@ -1,9 +1,12 @@
+ import { codegenNativeComponent, type ViewProps } from 'react-native';
+ import type { DirectEventHandler } from 'react-native/Libraries/Types/CodegenTypesNamespace';
++import type { Int32 } from 'react-native/Libraries/Types/CodegenTypes';
+ 
+ export interface SelectionEvent {
+   chosenOption: string;
+   highlightedText: string;
++  selectionStart: Int32;
++  selectionEnd: Int32;
+ }
+ 
+ interface NativeProps extends ViewProps {
+diff --git a/node_modules/@rob117/react-native-selectable-text/lib/typescript/src/SelectableTextViewNativeComponent.d.ts b/node_modules/@rob117/react-native-selectable-text/lib/typescript/src/SelectableTextViewNativeComponent.d.ts
+index 136397b..20caec0 100644
+--- a/node_modules/@rob117/react-native-selectable-text/lib/typescript/src/SelectableTextViewNativeComponent.d.ts
++++ b/node_modules/@rob117/react-native-selectable-text/lib/typescript/src/SelectableTextViewNativeComponent.d.ts
+@@ -1,8 +1,11 @@
+ import { type ViewProps } from 'react-native';
+ import type { DirectEventHandler } from 'react-native/Libraries/Types/CodegenTypesNamespace';
++import type { Int32 } from 'react-native/Libraries/Types/CodegenTypes';
+ export interface SelectionEvent {
+     chosenOption: string;
+     highlightedText: string;
++    selectionStart: Int32;
++    selectionEnd: Int32;
+ }
+ interface NativeProps extends ViewProps {
+     menuOptions: readonly string[];
+diff --git a/node_modules/@rob117/react-native-selectable-text/src/SelectableTextView.tsx b/node_modules/@rob117/react-native-selectable-text/src/SelectableTextView.tsx
+index a8d22f7..80e0509 100644
+--- a/node_modules/@rob117/react-native-selectable-text/src/SelectableTextView.tsx
++++ b/node_modules/@rob117/react-native-selectable-text/src/SelectableTextView.tsx
+@@ -35,6 +35,8 @@ export const SelectableTextView: React.FC<SelectableTextViewProps> = ({
+             onSelection({
+               chosenOption: eventData.chosenOption,
+               highlightedText: eventData.highlightedText,
++              selectionStart: eventData.selectionStart,
++              selectionEnd: eventData.selectionEnd,
+             });
+           }
+         }
+diff --git a/node_modules/@rob117/react-native-selectable-text/src/SelectableTextViewNativeComponent.ts b/node_modules/@rob117/react-native-selectable-text/src/SelectableTextViewNativeComponent.ts
+index a64470e..e336d9c 100644
+--- a/node_modules/@rob117/react-native-selectable-text/src/SelectableTextViewNativeComponent.ts
++++ b/node_modules/@rob117/react-native-selectable-text/src/SelectableTextViewNativeComponent.ts
+@@ -1,9 +1,12 @@
+ import { codegenNativeComponent, type ViewProps } from 'react-native';
+ import type { DirectEventHandler } from 'react-native/Libraries/Types/CodegenTypesNamespace';
++import type { Int32 } from 'react-native/Libraries/Types/CodegenTypes';
+ 
+ export interface SelectionEvent {
+   chosenOption: string;
+   highlightedText: string;
++  selectionStart: Int32;
++  selectionEnd: Int32;
+ }
+ 
+ interface NativeProps extends ViewProps {
