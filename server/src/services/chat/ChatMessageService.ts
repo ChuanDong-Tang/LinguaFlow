@@ -1,6 +1,6 @@
 import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository.js";
 import type { ClozeState, MessageRepository } from "@lf/core/ports/repository/MessageRepository.js";
-import { formatDateKeyInTimeZone } from "../time/businessClock.js";
+import { dateKeyRangeInBusinessTimeZone, formatDateKeyInTimeZone } from "../time/businessClock.js";
 
 export interface SendMessageInput {
   userId: string;
@@ -267,8 +267,8 @@ export class ChatMessageService {
   ): Promise<MessageView[]> {
     await this.assertConversationBelongsToUser(input.conversationId, input.userId);
 
-    const fromStart = new Date(`${input.fromDateKey}T00:00:00+08:00`);
-    const toEnd = new Date(`${input.toDateKey}T23:59:59.999+08:00`);
+    const fromStart = dateKeyRangeInBusinessTimeZone(input.fromDateKey).start;
+    const toEnd = dateKeyRangeInBusinessTimeZone(input.toDateKey).end;
 
     const rows = await this.messageRepository.listByConversationRange({
       conversationId: input.conversationId,
@@ -287,8 +287,7 @@ export class ChatMessageService {
   async listDayMessagesPage(input: ListDayMessagesPageInput): Promise<ListDayMessagesPageResult> {
     await this.assertConversationBelongsToUser(input.conversationId, input.userId);
 
-    const dayStart = new Date(`${input.dateKey}T00:00:00+08:00`);
-    const dayEnd = new Date(`${input.dateKey}T23:59:59.999+08:00`);
+    const { start: dayStart, end: dayEnd } = dateKeyRangeInBusinessTimeZone(input.dateKey);
     const beforeCreatedAt = input.beforeCreatedAt ? new Date(input.beforeCreatedAt) : undefined;
 
     const rows = await this.messageRepository.listByConversationDayPage({

@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import type { SubscriptionService } from "@lf/server/services/subscription/SubscriptionService.js";
+import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
+import { dateKeyRangeInBusinessTimeZone, formatDateKeyInTimeZone } from "@lf/server/services/time/businessClock.js";
 import { requireAdmin } from "../auth/adminAuth.js";
 import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
@@ -212,7 +214,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         }
 
         const now = new Date();
-        const effectiveAt = getNextDayStartInShanghai(now);
+        const effectiveAt = getNextDayStartInBusinessTimeZone(now);
+        const businessTimeZone = getRuntimeConfig().quotaTimeZone;
         const nextMetadata = {
           ...(beforeOrder.metadata && typeof beforeOrder.metadata === "object"
             ? (beforeOrder.metadata as Record<string, unknown>)
@@ -223,7 +226,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
             adminId: admin.adminId,
             at: now.toISOString(),
             entitlementEffectiveAt: effectiveAt.toISOString(),
-            entitlementPolicy: "next_day_00:00_asia_shanghai",
+            entitlementPolicy: `next_day_00:00_${businessTimeZone}`,
           },
         };
 
@@ -656,20 +659,10 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
   });
 }
 
-function getNextDayStartInShanghai(base: Date): Date {
-  const shanghaiDatePart = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(base);
-  const [yearText, monthText, dayText] = shanghaiDatePart.split("-");
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const shanghaiMidnightUtc = Date.UTC(year, month - 1, day, -8, 0, 0, 0);
-  const nextDayStartUtc = shanghaiMidnightUtc + 24 * 60 * 60 * 1000;
-  return new Date(nextDayStartUtc);
+function getNextDayStartInBusinessTimeZone(base: Date): Date {
+  const currentDateKey = formatDateKeyInTimeZone(base);
+  const currentDayStart = dateKeyRangeInBusinessTimeZone(currentDateKey).start;
+  return new Date(currentDayStart.getTime() + 24 * 60 * 60 * 1000);
 }
 
 async function writeAuditLog(

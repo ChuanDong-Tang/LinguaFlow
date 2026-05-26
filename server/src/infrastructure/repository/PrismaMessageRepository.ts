@@ -13,6 +13,7 @@ import type {
   UpdateMessageClozeResult,
   UpdateMessageStatusInput,
 } from "@lf/core/ports/repository/MessageRepository.js";
+import { dateKeyRangeInBusinessTimeZone, formatDateKeyInTimeZone } from "../../services/time/businessClock.js";
 
 type PrismaMessageClient = {
   message: {
@@ -187,8 +188,8 @@ export class PrismaMessageRepository implements MessageRepository {
   }
 
   async listDateKeysByUserContactRange(input: ListDateKeysByUserContactRangeInput): Promise<string[]> {
-    const from = new Date(`${input.fromDateKey}T00:00:00+08:00`);
-    const to = new Date(`${input.toDateKey}T23:59:59.999+08:00`);
+    const from = dateKeyRangeInBusinessTimeZone(input.fromDateKey).start;
+    const to = dateKeyRangeInBusinessTimeZone(input.toDateKey).end;
     const rows = await this.prisma.message.findMany({
       where: {
         userId: input.userId,
@@ -222,14 +223,14 @@ export class PrismaMessageRepository implements MessageRepository {
 
     const keys = new Set<string>();
     for (const row of rows) {
-      keys.add(row.conversationDateKey ?? formatDateKey(row.createdAt));
+      keys.add(row.conversationDateKey ?? formatDateKeyInTimeZone(row.createdAt));
     }
     return Array.from(keys);
   }
 
   async listPracticeDateKeysByUserRange(input: ListPracticeDateKeysByUserRangeInput): Promise<string[]> {
-    const from = new Date(`${input.fromDateKey}T00:00:00+08:00`);
-    const to = new Date(`${input.toDateKey}T23:59:59.999+08:00`);
+    const from = dateKeyRangeInBusinessTimeZone(input.fromDateKey).start;
+    const to = dateKeyRangeInBusinessTimeZone(input.toDateKey).end;
     // 练习日历只需要知道哪些天有可练习的 assistant 消息；
     // 先查 dateKey，前端再按这些天拉消息，避免盲扫整个月每天。
     const rows = await this.prisma.message.findMany({
@@ -268,14 +269,14 @@ export class PrismaMessageRepository implements MessageRepository {
 
     const keys = new Set<string>();
     for (const row of rows) {
-      keys.add(row.conversationDateKey ?? formatDateKey(row.createdAt));
+      keys.add(row.conversationDateKey ?? formatDateKeyInTimeZone(row.createdAt));
     }
     return Array.from(keys);
   }
 
   async listPracticeDayStatsByUserRange(input: ListPracticeDateKeysByUserRangeInput): Promise<PracticeDayStatsEntity[]> {
-    const from = new Date(`${input.fromDateKey}T00:00:00+08:00`);
-    const to = new Date(`${input.toDateKey}T23:59:59.999+08:00`);
+    const from = dateKeyRangeInBusinessTimeZone(input.fromDateKey).start;
+    const to = dateKeyRangeInBusinessTimeZone(input.toDateKey).end;
     const rows = await this.prisma.message.findMany({
       where: {
         userId: input.userId,
@@ -315,7 +316,7 @@ export class PrismaMessageRepository implements MessageRepository {
     for (const row of rows) {
       const clozeState = normalizeClozeState(row.clozeState);
       if (!clozeState) continue;
-      const dateKey = row.conversationDateKey ?? formatDateKey(row.createdAt);
+      const dateKey = row.conversationDateKey ?? formatDateKeyInTimeZone(row.createdAt);
       const current = stats.get(dateKey) ?? { dateKey, total: 0, correct: 0 };
       const messageStats = summarizeClozeState(clozeState);
       current.total += messageStats.total;
@@ -387,16 +388,6 @@ function normalizeClozeState(value: unknown): MessageEntity["clozeState"] {
     ? raw.correctTokenIndexes.filter(Number.isInteger).map(Number)
     : [];
   return { groups, correctTokenIndexes };
-}
-
-function formatDateKey(date: Date): string {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  return formatter.format(date);
 }
 
 function summarizeClozeState(state: NonNullable<MessageEntity["clozeState"]>): { total: number; correct: number } {
