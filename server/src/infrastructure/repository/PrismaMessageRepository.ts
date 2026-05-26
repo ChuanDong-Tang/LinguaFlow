@@ -161,7 +161,7 @@ export class PrismaMessageRepository implements MessageRepository {
     const rows = await this.prisma.message.findMany({
       where: {
         conversationId: input.conversationId,
-        status: { not: "failed" },
+        status: "success",
         OR: [
           { conversationDateKey: input.dateKey },
           {

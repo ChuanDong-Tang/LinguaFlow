@@ -227,7 +227,7 @@ export class ChatMessageService {
 
     const rows = await this.messageRepository.listByConversation(input.conversationId, 200);
     return rows
-      .filter((row) => row.status !== "failed")
+      .filter((row) => row.status === "success")
       .map((row) => this.toView(row));
   }
 
@@ -280,7 +280,7 @@ export class ChatMessageService {
     });
 
     return rows
-      .filter((row) => row.status !== "failed")
+      .filter((row) => row.status === "success")
       .map((row) => this.toView(row));
   }
 
