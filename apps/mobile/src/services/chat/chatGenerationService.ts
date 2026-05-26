@@ -17,14 +17,14 @@ export type LocalChatPair = {
 export type RunChatGenerationInput = {
   contactId: string;
   text: string;
-  assistantLocalId: string;
+  assistantClientId: string;
   retryCount: number;
   signal: AbortSignal;
   systemPrompt?: string;
-  userLocalId?: string;
+  userClientId?: string;
   isStopRequested?: () => boolean;
   onConversationReady?: (conversationId: string) => void;
-  onUpdateMessage: (localId: string, updater: (message: ChatMessage) => ChatMessage) => void;
+  onUpdateMessage: (clientId: string, updater: (message: ChatMessage) => ChatMessage) => void;
 };
 
 export type RunChatGenerationResult = {
@@ -42,6 +42,8 @@ export function createLocalChatPair(text: string, now = new Date()): LocalChatPa
   return {
     userMessage: {
       localId: `local-user-${stamp}`,
+      clientId:`local-user-${stamp}`,
+      serverId: null,
       role: "user",
       text,
       time,
@@ -51,6 +53,8 @@ export function createLocalChatPair(text: string, now = new Date()): LocalChatPa
     },
     assistantMessage: {
       localId: `local-assistant-${stamp}`,
+      clientId:`local-assistant-${stamp}`,
+      serverId: null,
       role: "assistant",
       text: "",
       time,
@@ -67,6 +71,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   let requestSystemPrompt = input.systemPrompt;
   let assistantText = "";
   let streamErrorMessage: string | null = null;
+  let userMessageClientId = input.userClientId;
   let pendingDelta = "";
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -75,7 +80,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     const chunk = pendingDelta;
     pendingDelta = "";
     assistantText += chunk;
-    input.onUpdateMessage(input.assistantLocalId, (row) => ({
+    input.onUpdateMessage(input.assistantClientId, (row) => ({
       ...row,
       text: row.text + chunk,
       createdAt: new Date().toISOString(),
@@ -106,6 +111,16 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         })
       : null;
     if (cloud) input.onConversationReady?.(cloud.conversationId);
+    if (cloud?.userMessage?.id && userMessageClientId) {
+      input.onUpdateMessage(userMessageClientId, (row) => ({
+        ...row,
+        id: cloud.userMessage.id,
+        serverId: cloud.userMessage.id,
+        status: cloud.userMessage.status ?? row.status,
+        conversationDateKey: cloud.userMessage.conversationDateKey ?? row.conversationDateKey,
+        createdAt: cloud.userMessage.createdAt ?? row.createdAt,
+      }));
+    }
 
     await startChatGenerationStream(
       {
@@ -130,7 +145,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
           }
           flushDelta();
           streamErrorMessage = event.message;
-          markFailed(input, `[错误] ${event.message}`, requestSystemPrompt);
+          markFailed(input, `[错误] ${event.message}`, requestSystemPrompt, userMessageClientId);
         }
 
         if (event.type === "done") {
@@ -139,13 +154,13 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
             flushTimer = null;
           }
           flushDelta();
-          if (input.userLocalId) {
-            input.onUpdateMessage(input.userLocalId, (row) => ({ ...row, status: "success" }));
+          if (userMessageClientId) {
+            input.onUpdateMessage(userMessageClientId, (row) => ({ ...row, status: "success" }));
           }
-          input.onUpdateMessage(input.assistantLocalId, (row) => ({
+          input.onUpdateMessage(input.assistantClientId, (row) => ({
             ...row,
             id: event.assistantMessage?.id ?? row.id,
-            localId: event.assistantMessage?.id ?? row.localId,
+            serverId: event.assistantMessage?.id ?? row.serverId ?? null,
             status: "success",
             clozeState: event.assistantMessage?.clozeState ?? row.clozeState ?? null,
             clozeVersion: event.assistantMessage?.clozeVersion ?? row.clozeVersion ?? 0,
@@ -176,7 +191,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     flushDelta();
     const wasStopped = input.isStopRequested?.() === true;
     const message = wasStopped ? "已停止生成" : error instanceof Error ? error.message : "stream failed";
-    markFailed(input, `[错误] ${message}`, requestSystemPrompt);
+    markFailed(input, `[错误] ${message}`, requestSystemPrompt, userMessageClientId);
     return {
       status: wasStopped ? "stopped" : "failed",
       assistantText,
@@ -185,11 +200,16 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   }
 }
 
-function markFailed(input: RunChatGenerationInput, text: string, systemPrompt?: string): void {
-  if (input.userLocalId) {
-    input.onUpdateMessage(input.userLocalId, (row) => ({ ...row, status: "failed" }));
+function markFailed(
+  input: RunChatGenerationInput,
+  text: string,
+  systemPrompt?: string,
+  userMessageClientId?: string
+): void {
+  if (userMessageClientId) {
+    input.onUpdateMessage(userMessageClientId, (row) => ({ ...row, status: "failed" }));
   }
-  input.onUpdateMessage(input.assistantLocalId, (row) => ({
+  input.onUpdateMessage(input.assistantClientId, (row) => ({
     ...row,
     text,
     status: "failed",

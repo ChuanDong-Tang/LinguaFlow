@@ -48,6 +48,10 @@ const BAND_OPTIONS: Array<{ label: string; value: PracticeAccuracyBand; color: s
 const RECENT_DAY_OPTIONS = [3, 7, 14, 30];
 const QUICK_LIMIT_OPTIONS = [5, 10, 20, 30];
 
+function getMessageIdentityKey(row: ChatMessage): string {
+  return row.serverId ?? row.clientId ?? row.id ?? row.localId;
+}
+
 export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScreenProps) {
   const { showNotice } = useFloatingNotice();
   const { isMounted } = useMountedGuard();
@@ -413,7 +417,7 @@ async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; c
   const contactMap = new Map<string, ChatContact>();
   const rows = chunks
     .flatMap((chunk) => {
-      chunk.rows.forEach((row) => contactMap.set(row.id ?? row.localId, chunk.contact));
+      chunk.rows.forEach((row) => contactMap.set(getMessageIdentityKey(row), chunk.contact));
       return chunk.rows;
     })
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
@@ -440,7 +444,7 @@ async function loadPracticeMessagesFromCloudByDateKeys(
   const contactMap = new Map<string, ChatContact>();
   const rows = chunks
     .flatMap((chunk) => {
-      chunk.rows.forEach((row) => contactMap.set(row.id ?? row.localId, chunk.contact));
+      chunk.rows.forEach((row) => contactMap.set(getMessageIdentityKey(row), chunk.contact));
       return chunk.rows;
     })
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
@@ -459,7 +463,9 @@ function collectRecentPracticeDateKeys(recentDays: number, today = new Date()): 
 function mapCloudMessage(row: MessageView): ChatMessage {
   return {
     id: row.id,
-    localId: row.id,
+    localId: `cloud-${row.id}`,
+    clientId: `cloud-${row.id}`,
+    serverId: row.id,
     role: row.role,
     text: row.content,
     time: new Date(row.createdAt).toTimeString().slice(0, 5),
@@ -480,7 +486,7 @@ function mergePracticeMessages(
 ): { rows: ChatMessage[]; contactMap: Map<string, ChatContact> } {
   const byKey = new Map<string, ChatMessage>();
   for (const row of [...leftRows, ...rightRows]) {
-    byKey.set(row.id ?? row.localId, row);
+    byKey.set(getMessageIdentityKey(row), row);
   }
   const contactMap = mergeContactMaps(leftMap, rightMap);
   return {

@@ -65,7 +65,20 @@ export async function loadLocalMessagesByDateScoped(
   try {
     const rows = JSON.parse(raw) as ChatMessage[];
     if (!Array.isArray(rows)) return [];
-    return sortByCreatedAt(normalizeRows(rows));
+
+    const normalized = normalizeRows(rows).map((row, index) => {
+      const legacyBase = row.id ?? String(index);
+      const clientId = row.clientId ?? row.localId ?? `legacy-${legacyBase}`;
+      const localId = row.localId ?? row.clientId ?? `legacy-${legacyBase}`;
+      const serverId = row.serverId ?? row.id ?? null;
+      return {
+        ...row,
+        clientId,
+        localId,
+        serverId,
+      };
+    });
+    return sortByCreatedAt(normalized);
   } catch {
     return [];
   }

@@ -1,5 +1,5 @@
 import type { ChatMessage } from "../../domain/chat/types";
-import { getMessageDateKey, updateMessageByLocalId } from "../../domain/chat/messageState";
+import { getMessageDateKey, updateMessageByClientId } from "../../domain/chat/messageState";
 import {
   listLocalMessageDateKeysScoped,
   loadLocalMessagesByDateScoped,
@@ -15,7 +15,7 @@ type ChatSessionSnapshot = {
   isAnySessionSending: boolean;
   activeContactId: string | null;
   conversationId: string | null;
-  activeAssistantLocalId: string | null;
+  activeAssistantClientId: string | null;
   changedDateKey: string | null;
 };
 
@@ -25,22 +25,23 @@ type ChatGenerationActivitySubscriber = (snapshot: { isSending: boolean; activeC
 type StartChatSessionInput = {
   contactId: string;
   text: string;
-  assistantLocalId: string;
+  assistantClientId: string
+  userClientId?: string
   conversationDateKey: string;
   retryCount: number;
   systemPrompt?: string;
-  userLocalId?: string;
   conversationId?: string | null;
   autoCopyAfterGeneration: boolean;
   autoCopyMode: AutoCopyMode;
   onSuccessText?: (text: string, mode: AutoCopyMode) => Promise<void>;
+  onStreamDone?: () => void;
 };
 
 type ChatSessionState = {
   dayCache: Map<string, ChatMessage[]>;
   isSending: boolean;
   conversationId: string | null;
-  activeAssistantLocalId: string | null;
+  activeAssistantClientId: string | null;
   activeAbortController: AbortController | null;
   stopRequested: boolean;
   activeRunId: number;
@@ -62,7 +63,7 @@ function getSessionState(contactId: string): ChatSessionState {
     dayCache: new Map(),
     isSending: false,
     conversationId: null,
-    activeAssistantLocalId: null,
+    activeAssistantClientId: null,
     activeAbortController: null,
     stopRequested: false,
     activeRunId: 0,
@@ -103,6 +104,10 @@ export function subscribeChatGenerationActivity(subscriber: ChatGenerationActivi
   return () => {
     activitySubscribers.delete(subscriber);
   };
+}
+
+export function getChatGenerationActivitySnapshot(): { isSending: boolean; activeContactId: string | null } {
+  return getActivitySnapshot();
 }
 
 export async function listStoredChatDateKeys(contactId: string): Promise<string[]> {
@@ -165,13 +170,13 @@ export async function appendChatMessages(contactId: string, rows: ChatMessage[])
 
 export async function updateChatMessage(
   contactId: string,
-  localId: string,
+  clientId: string,
   updater: (message: ChatMessage) => ChatMessage,
   dateKey: string,
 ): Promise<void> {
   const { state, uid, cid } = await resolveStorageScope(contactId);
   const current = state.dayCache.get(dateKey) ?? await loadLocalMessagesByDateScoped(uid, cid, dateKey);
-  const next = updateMessageByLocalId(current, localId, updater);
+  const next = updateMessageByClientId(current, clientId, updater);
   state.dayCache.set(dateKey, next);
   await saveLocalMessagesByDateScoped(uid, cid, dateKey, next);
   emit(state, dateKey);
@@ -179,7 +184,7 @@ export async function updateChatMessage(
 
 export function stopChatSession(contactId: string): void {
   const state = getSessionState(contactId);
-  if (!state.activeAbortController || !state.activeAssistantLocalId) return;
+  if (!state.activeAbortController || !state.activeAssistantClientId) return;
   state.stopRequested = true;
   state.activeAbortController.abort();
   emit(state);
@@ -196,7 +201,7 @@ export function startChatSession(input: StartChatSessionInput): void {
   state.isSending = true;
   activeContactId = input.contactId;
   state.activeAbortController = abortController;
-  state.activeAssistantLocalId = input.assistantLocalId;
+  state.activeAssistantClientId = input.assistantClientId;
   state.stopRequested = false;
   if (input.conversationId) state.conversationId = input.conversationId;
   if (state.conversationId) {
@@ -215,30 +220,33 @@ export function startChatSession(input: StartChatSessionInput): void {
     const result = await runChatGeneration({
       contactId: input.contactId,
       text: input.text,
-      assistantLocalId: input.assistantLocalId,
+      assistantClientId: input.assistantClientId,
       retryCount: input.retryCount,
       signal: abortController.signal,
       systemPrompt: input.systemPrompt,
-      userLocalId: input.userLocalId,
+      userClientId: input.userClientId,
       isStopRequested: () => state.stopRequested,
       onConversationReady: (nextConversationId) => {
         state.conversationId = nextConversationId;
         state.storageConversationId = nextConversationId;
         emit(state);
       },
-      onUpdateMessage: (localId, updater) => {
-        void updateChatMessage(input.contactId, localId, updater, input.conversationDateKey);
+      onUpdateMessage: (clientId, updater) => {
+        void updateChatMessage(input.contactId, clientId, updater, input.conversationDateKey);
       },
     });
 
     if (result.status === "success" && input.autoCopyAfterGeneration && result.assistantText) {
       await input.onSuccessText?.(result.assistantText, input.autoCopyMode);
     }
+    if (result.status === "success") {
+      input.onStreamDone?.();
+    }
 
     if (state.activeRunId !== runId) return;
     state.isSending = false;
     state.activeAbortController = null;
-    state.activeAssistantLocalId = null;
+    state.activeAssistantClientId = null;
     state.stopRequested = false;
     if (activeContactId === input.contactId) activeContactId = null;
     emit(state);
@@ -252,7 +260,7 @@ function getSnapshot(state: ChatSessionState, changedDateKey: string | null = nu
     isAnySessionSending: activeContactId !== null,
     activeContactId,
     conversationId: state.conversationId,
-    activeAssistantLocalId: state.activeAssistantLocalId,
+    activeAssistantClientId: state.activeAssistantClientId,
     changedDateKey,
   };
 }

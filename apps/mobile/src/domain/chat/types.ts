@@ -9,6 +9,8 @@ export type ClozeState = {
 export type ChatMessage = {
   id?: string;
   localId: string;
+  clientId: string;
+  serverId?: string | null;
   role: "user" | "assistant";
   text: string;
   time: string;

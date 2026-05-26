@@ -18,6 +18,7 @@ import {
 import { createLocalChatPair } from "../services/chat/chatGenerationService";
 import {
   appendChatMessages,
+  getChatGenerationActivitySnapshot,
   listStoredChatDateKeys,
   loadChatMessagesByDate,
   replaceChatMessagesByDate,
@@ -204,6 +205,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   // 启动同步：进入聊天页后静默同步今天，兼顾多端新增消息。
   useEffect(() => {
     const today = new Date();
+    const activity = getChatGenerationActivitySnapshot();
+    if (activity.activeContactId === contactId) {
+      return;
+    }
     void syncDateQuietly(today, { force: true });
   }, []);
 
@@ -247,6 +252,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return;
     }
 
+    // 如果用户当前看的不是今天，先切回今天，不直接发送
+    // todo:用服务器时间
     const now = new Date();
     const isViewingToday = isSameDate(selectedDate, now);
 
@@ -266,6 +273,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     Keyboard.dismiss();
     setIsSending(true);
 
+    // 本地空的 AI 回复气泡
+    // todo:gpt样式的空聊天气泡
     const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalChatPair(text, now);
     const todayRows = isViewingToday ? dayMessages : toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(now)));
     const localNextRaw = [...todayRows, userLocal, assistantLocal];
@@ -278,14 +287,18 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     startChatSession({
       contactId,
       text,
-      userLocalId: userLocal.localId,
-      assistantLocalId: assistantLocal.localId,
+      userClientId: userLocal.clientId,
+      assistantClientId: assistantLocal.clientId,
       conversationDateKey: toDateKey(now),
       retryCount: 0,
       conversationId,
       autoCopyAfterGeneration,
       autoCopyMode,
       onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
+      onStreamDone: () => {
+        if (!isMountedRef.current) return;
+        void syncDateQuietly(new Date(), { force: true });
+      },
     });
 
     if (await hasLocalProAccess()) {
@@ -318,8 +331,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     startChatSession({
       contactId,
       text,
-      userLocalId: userLocal.localId,
-      assistantLocalId: assistantLocal.localId,
+      userClientId: userLocal.clientId,
+      assistantClientId: assistantLocal.clientId,
       conversationDateKey: retryDateKey,
       retryCount,
       systemPrompt: message.retrySystemPrompt,
@@ -327,6 +340,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       autoCopyAfterGeneration,
       autoCopyMode,
       onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
+      onStreamDone: () => {
+        if (!isMountedRef.current) return;
+        void syncDateQuietly(new Date(), { force: true });
+      },
     });
 
     if (await hasLocalProAccess()) {
@@ -454,7 +471,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   ): ChatMessage[] {
     return rows.map((row) => ({
       id: row.id,
-      localId: row.id,
+      serverId: row.id,
+      clientId: `cloud-${row.id}`,
+      localId: `cloud-${row.id}`,
       role: row.role,
       text: row.content,
       time: new Date(row.createdAt).toTimeString().slice(0, 5),
@@ -498,6 +517,19 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     d: Date,
     options?: { force?: boolean; signal?: AbortSignal; syncToken?: number }
   ): Promise<{ synced: boolean; changed: boolean }> {
+    const mergeCloudAndLocal = (cloudRows: ChatMessage[], localRows: ChatMessage[]): ChatMessage[] => {
+      const getStableKey = (row: ChatMessage): string =>
+        row.serverId ?? row.clientId ?? row.id ?? row.localId;
+      const merged = [...cloudRows];
+      const cloudKeys = new Set(cloudRows.map(getStableKey));
+      const pendingAssistants = localRows.filter(
+        (row) => row.role === "assistant" && row.status === "pending" && !cloudKeys.has(getStableKey(row))
+      );
+      if (pendingAssistants.length) {
+        merged.push(...pendingAssistants);
+      }
+      return toDisplayRows(merged).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+    };
     const localPro = await hasLocalProAccess();
     const [session, entitlement] = await Promise.all([
       getSession(),
@@ -556,6 +588,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       a.createdAt < b.createdAt ? -1 : 1
     );
     let nextVisibleDay = visibleMapped;
+    nextVisibleDay = mergeCloudAndLocal(nextVisibleDay, cachedLoaded);
     if (!options?.force && nextVisibleDay.length < cachedLoaded.length) {
       nextVisibleDay = cachedLoaded;
     }

@@ -19,12 +19,21 @@ export function getVisibleWindow<T>(rows: T[], max = 120): {
   };
 }
 
+// deprecated
 export function updateMessageByLocalId(
   rows: ChatMessage[],
   localId: string,
   updater: (message: ChatMessage) => ChatMessage
 ): ChatMessage[] {
   return rows.map((row) => (row.localId === localId ? updater(row) : row));
+}
+
+export function updateMessageByClientId(
+  rows: ChatMessage[],
+  clientId: string,
+  updater: (message: ChatMessage) => ChatMessage
+): ChatMessage[] {
+  return rows.map((row) => (row.clientId === clientId ? updater(row) : row));
 }
 
 export function isSameDate(a: Date, b: Date): boolean {
@@ -51,8 +60,9 @@ export function getMessageDateKey(row: ChatMessage): string {
 
 export function mergeByLocalId(allRows: ChatMessage[], incomingRows: ChatMessage[]): ChatMessage[] {
   const map = new Map<string, ChatMessage>();
-  for (const row of allRows) map.set(row.localId, row);
-  for (const row of incomingRows) map.set(row.localId, row);
+  const getKey = (row: ChatMessage): string => row.serverId ?? row.clientId ?? row.id ?? row.localId;
+  for (const row of allRows) map.set(getKey(row), row);
+  for (const row of incomingRows) map.set(getKey(row), row);
   return Array.from(map.values()).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 }
 
@@ -60,3 +70,4 @@ export function nowHHMM(): string {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+
