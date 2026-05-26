@@ -87,12 +87,12 @@ export function ChatComposer({
           </Pressable>
         ) : null}
         <Pressable
-          style={[styles.sendButton, disabled && !isSending && styles.sendButtonDisabled]}
-          onPress={isSending ? onStop : (disabled ? onDisabledPress : onSend)}
-          disabled={isSending ? false : false}
+          style={[styles.sendButton, (disabled || isSending) && styles.sendButtonDisabled]}
+          onPress={isSending ? undefined : (disabled ? onDisabledPress : onSend)}
+          disabled={isSending ? true : false}
           hitSlop={6}
         >
-          <Ionicons name={isSending ? "square" : "arrow-up"} size={18} color="#7F77F9" />
+          <Ionicons name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
         </Pressable>
       </View>
     </View>

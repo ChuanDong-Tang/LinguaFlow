@@ -24,7 +24,6 @@ import {
   loadChatMessagesByDate,
   replaceChatMessagesByDate,
   startChatSession,
-  stopChatSession,
   subscribeChatGenerationActivity,
   subscribeChatSession,
 } from "../services/chat/chatSessionService";
@@ -385,9 +384,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     }
   }
 
-  function handleStopGenerating(): void {
-    stopChatSession(contactId);
-  }
 
   async function handleComposerFocus(): Promise<void> {
     const businessTodayKey = await getBusinessDateKey().catch(() => null);
@@ -778,7 +774,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           value={inputText}
           onChangeText={setInputText}
           onSend={handleSend}
-          onStop={handleStopGenerating}
+          onStop={() => {}}
           onFocus={handleComposerFocus}
           onDisabledPress={() => {
             if (isAnotherContactGenerating) {

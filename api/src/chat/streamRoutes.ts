@@ -151,7 +151,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
 
       const abortController = new AbortController();
       reply.raw.on("close", () => {
-        abortController.abort();
+        // stop disabled: keep server-side generation running even if client disconnects.
       });
 
       const writeEvent = async (event: ChatGenerationStreamEvent) => {
