@@ -107,7 +107,6 @@ export class XhrStreamClient implements StreamClient {
 
           xhr.send(
             JSON.stringify({
-              userId: input.userId,
               text: input.text,
               contactId: input.contactId,
               ...(input.conversationId ? { conversationId: input.conversationId } : {}),

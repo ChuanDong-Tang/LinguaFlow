@@ -1,4 +1,3 @@
-import { getSession } from "../auth/authStorage";
 import { loadDebugSettings } from "../preferences/debugSettingsStorage";
 import { sendMessageToCloud } from "../api/chatHistoryApi";
 import { getCurrentEntitlement } from "../api/meApi";
@@ -99,8 +98,6 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   };
 
   try {
-    const session = await getSession();
-    const userId = session?.user?.id ?? "mock_user_001";
     const debugSettings = await loadDebugSettings();
     const contactPrompt = debugSettings.systemPromptsByContactId[input.contactId as keyof typeof debugSettings.systemPromptsByContactId]?.trim();
     requestSystemPrompt = input.systemPrompt ?? contactPrompt ?? "";
@@ -127,7 +124,6 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
 
     await startChatGenerationStream(
       {
-        userId,
         text: input.text,
         contactId: input.contactId,
         conversationId: cloud?.conversationId,

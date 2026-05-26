@@ -11,10 +11,16 @@ import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import type { ChatMessageService } from "@lf/server/services/chat/ChatMessageService.js";
 
+type AuthenticatedChatGenerationStreamInput = ChatGenerationStreamRequestBody & {
+  userId: string;
+  requestId: string;
+  signal?: AbortSignalLike;
+};
+
 export interface ChatStreamRouteDeps {
   chatGenerationService: {
     generateChatStream: (
-      input: ChatGenerationStreamRequestBody & { requestId: string; signal?: AbortSignalLike },
+      input: AuthenticatedChatGenerationStreamInput,
       onEvent: (event: ChatGenerationStreamEvent) => Promise<void> | void
     ) => Promise<void>;
   };
@@ -36,8 +42,6 @@ function isChatGenerationStreamBody(value: unknown): value is ChatGenerationStre
   return (
     typeof v.text === "string" &&
     v.text.trim().length > 0 &&
-    typeof v.userId === "string" &&
-    v.userId.trim().length > 0 &&
     hasConversationId === hasUserMessageId &&
     (v.contactId === undefined || v.contactId === null || typeof v.contactId === "string") &&
     (v.systemPrompt === undefined || v.systemPrompt === null || typeof v.systemPrompt === "string")
@@ -110,7 +114,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
       if (error instanceof AccountDisabledError) {
         await writeSystemEventLog(deps.systemEventLogRepository, {
           requestId,
-          userId: body.userId,
+          userId: null,
           module: "auth",
           event: "auth.account_disabled",
           level: "warn",

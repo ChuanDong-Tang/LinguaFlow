@@ -31,7 +31,6 @@ export type ChatGenerationStreamEvent =
 
 // 发起流式 AI 回复时需要的参数。
 export interface StartChatGenerationStreamInput {
-  userId: string;
   text: string;
   contactId?: string;
   systemPrompt?: string;

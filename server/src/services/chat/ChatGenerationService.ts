@@ -15,6 +15,7 @@ import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository.js";
 
 type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
+  userId: string;
   signal?: AbortSignalLike;
   requestId: string;
 };

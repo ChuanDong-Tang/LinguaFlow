@@ -1,7 +1,6 @@
 /** 流式改写请求 */
 export interface ChatGenerationStreamRequestBody {
   text: string;
-  userId: string; // 当前先用 mock userId
   contactId?: string;
   systemPrompt?: string;
   conversationId?: string;
