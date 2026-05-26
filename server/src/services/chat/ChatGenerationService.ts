@@ -175,8 +175,18 @@ export class ChatGenerationService {
       const assistantMessage = shouldPersist
         ? await this.createPersistedAssistantMessage(input, assistantText)
         : undefined;
-      // 输出长度由模型决定；用户只要有额度发起本轮，就让回复完整返回，最终扣费最多扣到当日上限。
-      await this.entitlementService.consumeUpToLimit(input.userId, totalChars, { dateKey: quotaDateKey });
+      try {
+        // 输出长度由模型决定；用户只要有额度发起本轮，就让回复完整返回，最终扣费最多扣到当日上限。
+        await this.entitlementService.consumeUpToLimit(input.userId, totalChars, { dateKey: quotaDateKey });
+      } catch (settlementError) {
+        await this.logSettlementFailure(input, {
+          error: settlementError,
+          inputChars: input.text.length,
+          outputChars: assistantText.length,
+          totalChars,
+          dateKey: quotaDateKey,
+        });
+      }
       await onEvent({ type: "done", assistantMessage });
     }catch(error){
       const failureStatus = this.resolveFailureStatus(error);
@@ -247,6 +257,36 @@ export class ChatGenerationService {
       });
     } catch {
       // Logging must never hide the original AI failure from the caller.
+    }
+  }
+
+  private async logSettlementFailure(
+    input: ChatGenerationStreamServiceInput,
+    params: {
+      error: unknown;
+      inputChars: number;
+      outputChars: number;
+      totalChars: number;
+      dateKey?: string;
+    }
+  ): Promise<void> {
+    try {
+      await this.aiRequestLogRepository.create({
+        requestId: `${input.requestId}:settlement`,
+        userId: input.userId,
+        conversationId: input.conversationId,
+        userMessageId: input.userMessageId,
+        provider: this.aiProvider.providerName,
+        model: this.aiProvider.modelName,
+        status: "failed",
+        inputChars: params.inputChars,
+        outputChars: params.outputChars,
+        durationMs: 0,
+        errorCode: "ENTITLEMENT_CONSUME_FAILED",
+        errorMessage: params.error instanceof Error ? params.error.message : String(params.error ?? "unknown"),
+      });
+    } catch {
+      // Settlement logging must never turn a completed generation into a user-visible failure.
     }
   }
 
