@@ -11,13 +11,8 @@ export function getMonthRange(cursor: Date): { monthKey: string; fromDateKey: st
   };
 }
 
-export function selectedDateLabelText(d: Date): string {
-  const today = new Date();
-  if (
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate()
-  ) {
+export function selectedDateLabelText(d: Date, todayDateKey = toDateKey(new Date())): string {
+  if (toDateKey(d) === todayDateKey) {
     return "今天";
   }
   return `${d.getMonth() + 1}月${d.getDate()}日`;

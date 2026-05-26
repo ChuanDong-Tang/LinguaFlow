@@ -1,3 +1,4 @@
+import { useNetInfo } from "@react-native-community/netinfo";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -45,10 +46,10 @@ import type { ChatMessage } from "../domain/chat/types";
 import { useChatClozeEditing } from "../hooks/useChatClozeEditing";
 import { consumeChatDateDirty } from "../services/chat/chatPracticeSyncState";
 import {
-  isSameDate,
   toDateKey,
 } from "../domain/chat/messageState";
 import type { ChatContact } from "../domain/chat/contacts";
+import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
 
 type ChatScreenProps = {
   contact: ChatContact;
@@ -75,6 +76,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const [isTodaySyncing, setIsTodaySyncing] = useState(false);
   const [syncingDateKey, setSyncingDateKey] = useState<string | null>(null);
+  const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const selectedDateKeyRef = useRef(toDateKey(new Date()));
   const dayLoadedRowsRef = useRef<Record<string, ChatMessage[]>>({});
@@ -110,6 +112,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const selectedDateKey = toDateKey(selectedDate);
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
+  const netInfo = useNetInfo();
+
   
   // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示
   useEffect(() => {
@@ -204,12 +208,16 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   // 启动同步：进入聊天页后静默同步今天，兼顾多端新增消息。
   useEffect(() => {
-    const today = new Date();
     const activity = getChatGenerationActivitySnapshot();
     if (activity.activeContactId === contactId) {
       return;
     }
-    void syncDateQuietly(today, { force: true });
+    void (async () => {
+      const todayKey = await getBusinessDateKey();
+      if (isMountedRef.current) setBusinessTodayKey(todayKey);
+      const businessTodayDate = dateKeyToDate(todayKey);
+      await syncDateQuietly(businessTodayDate, { force: true });
+    })();
   }, []);
 
   // 日期面板：打开日历时预加载当前月份云端有记录的日期。
@@ -232,6 +240,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }, []);
 
   async function handleSend(): Promise<void> {
+    if (netInfo.isConnected !== true || netInfo.isInternetReachable === false) {
+      Alert.alert("当前网络不可用，请连接网络后再发送");
+      return;
+    }
     const text = inputText.trim();
     if (!text || activeGenerationContactId) return;
     const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
@@ -253,19 +265,24 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     }
 
     // 如果用户当前看的不是今天，先切回今天，不直接发送
-    // todo:用服务器时间
-    const now = new Date();
-    const isViewingToday = isSameDate(selectedDate, now);
+    const businessTodayKey = await getBusinessDateKey().catch(() => null);
+    if (!businessTodayKey) {
+      Alert.alert("当前网络不可用，请连接网络后再发送");
+      return;
+    }
+    setBusinessTodayKey(businessTodayKey);
+    const isViewingToday = toDateKey(selectedDate) === businessTodayKey;
+    const businessTodayDate = dateKeyToDate(businessTodayKey);
 
     if (!isViewingToday) {
-      setSelectedDate(now);
-      setMonthCursor(new Date(now.getFullYear(), now.getMonth(), 1));
+      setSelectedDate(businessTodayDate);
+      setMonthCursor(new Date(businessTodayDate.getFullYear(), businessTodayDate.getMonth(), 1));
       void (async () => {
-        const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(now)));
+        const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, businessTodayKey));
         setDayMessages(byDay);
         setMessages(byDay);
       })();
-      void syncDateQuietly(now, { force: true });
+      void syncDateQuietly(businessTodayDate, { force: true });
       return;
     }
 
@@ -275,21 +292,25 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
     // 本地空的 AI 回复气泡
     // todo:gpt样式的空聊天气泡
-    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalChatPair(text, now);
-    const todayRows = isViewingToday ? dayMessages : toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(now)));
+    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalChatPair(
+      text,
+      new Date(),
+      businessTodayKey
+    );
+    const todayRows = isViewingToday ? dayMessages : toDisplayRows(await loadChatMessagesByDate(contactId, businessTodayKey));
     const localNextRaw = [...todayRows, userLocal, assistantLocal];
     const localNext = toDisplayRows(localNextRaw);
     setDayMessages(localNext);
     setMessages(localNext);
     await appendChatMessages(contactId, [userLocal, assistantLocal]);
-    setLocalDateKeys((prev) => new Set([...prev, toDateKey(now)]));
+    setLocalDateKeys((prev) => new Set([...prev, businessTodayKey]));
 
     startChatSession({
       contactId,
       text,
       userClientId: userLocal.clientId,
       assistantClientId: assistantLocal.clientId,
-      conversationDateKey: toDateKey(now),
+      conversationDateKey: businessTodayKey,
       retryCount: 0,
       conversationId,
       autoCopyAfterGeneration,
@@ -297,7 +318,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
-        void syncDateQuietly(new Date(), { force: true });
+        void syncDateQuietly(businessTodayDate, { force: true });
       },
     });
 
@@ -318,13 +339,24 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
     Keyboard.dismiss();
     setIsSending(true);
-    const now = new Date();
+    const businessTodayKey = await getBusinessDateKey().catch(() => null);
+    if (!businessTodayKey) {
+      setIsSending(false);
+      Alert.alert("当前网络不可用，请连接网络后再发送");
+      return;
+    }
+    setBusinessTodayKey(businessTodayKey);
     const retryCount = (message.retryCount ?? 0) + 1;
-    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalChatPair(text, now);
+    const retryDateKey = message.conversationDateKey ?? businessTodayKey;
+    const retryDate = dateKeyToDate(retryDateKey);
+    const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalChatPair(
+      text,
+      new Date(),
+      retryDateKey
+    );
     const localNext = [...dayMessages, userLocal, assistantLocal];
     setDayMessages(localNext);
     setMessages(toDisplayRows(localNext));
-    const retryDateKey = message.conversationDateKey ?? toDateKey(now);
     await appendChatMessages(contactId, [userLocal, assistantLocal]);
     setLocalDateKeys((prev) => new Set([...prev, retryDateKey]));
 
@@ -342,7 +374,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
-        void syncDateQuietly(new Date(), { force: true });
+        void syncDateQuietly(retryDate, { force: true });
       },
     });
 
@@ -357,16 +389,22 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     stopChatSession(contactId);
   }
 
-  function handleComposerFocus(): void {
-    const now = new Date();
-    if (isSameDate(selectedDate, now)) {
+  async function handleComposerFocus(): Promise<void> {
+    const businessTodayKey = await getBusinessDateKey().catch(() => null);
+    if (!businessTodayKey) {
       scrollToBottom(false);
       return;
     }
-    setSelectedDate(now);
-    setMonthCursor(new Date(now.getFullYear(), now.getMonth(), 1));
+    setBusinessTodayKey(businessTodayKey);
+    const businessTodayDate = dateKeyToDate(businessTodayKey);
+    if (toDateKey(selectedDate) === businessTodayKey) {
+      scrollToBottom(false);
+      return;
+    }
+    setSelectedDate(businessTodayDate);
+    setMonthCursor(new Date(businessTodayDate.getFullYear(), businessTodayDate.getMonth(), 1));
     void (async () => {
-      const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(now)));
+      const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, businessTodayKey));
       setDayMessages(byDay);
       setMessages(byDay);
     })();
@@ -457,7 +495,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       contactId,
       signal,
     });
-    const todayKey = toDateKey(new Date());
+    const todayKey = await getBusinessDateKey().catch(() => null);
+    if (!todayKey) return resolved ?? null;
     const fallback = dateKey === todayKey ? conversationId : null;
     const finalId = resolved ?? fallback ?? null;
     if (isMountedRef.current && finalId && finalId !== conversationId) {
@@ -620,7 +659,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     }
 
     const { token, controller } = daySyncMachine.begin("chat_day", dateKey);
-    const isTodaySync = isSameDate(d, new Date());
+    const businessTodayKey = await getBusinessDateKey().catch(() => null);
+    if (!businessTodayKey) {
+      daySyncMachine.settle(token);
+      return;
+    }
+    const isTodaySync = dateKey === businessTodayKey;
     if (isTodaySync) {
       setIsTodaySyncing(true);
     }
@@ -720,7 +764,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         <MessageList
           contact={contact}
           messages={messages}
-          selectedDateLabel={selectedDateLabelText(selectedDate)}
+          selectedDateLabel={selectedDateLabelText(selectedDate, businessTodayKey ?? undefined)}
           listRef={messageListRef}
           onScrollBeginDrag={handleScrollBeginDrag}
           onRetryMessage={handleRetryMessage}

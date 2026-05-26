@@ -5,7 +5,7 @@ import { getCurrentEntitlement } from "../api/meApi";
 import { startChatGenerationStream } from "./chatGenerationStream";
 import { hasLocalProAccess } from "../entitlement/proAccess";
 import type { ChatMessage } from "../../domain/chat/types";
-import { nowHHMM, toDateKey } from "../../domain/chat/messageState";
+import { toDateKey } from "../../domain/chat/messageState";
 
 export type ChatGenerationStatus = "success" | "failed" | "stopped";
 
@@ -33,11 +33,14 @@ export type RunChatGenerationResult = {
   errorMessage?: string;
 };
 
-export function createLocalChatPair(text: string, now = new Date()): LocalChatPair {
+export function createLocalChatPair(
+  text: string,
+  now = new Date(),
+  conversationDateKey = toDateKey(now)
+): LocalChatPair {
   const stamp = now.getTime();
-  const time = nowHHMM();
+  const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const createdAt = now.toISOString();
-  const conversationDateKey = toDateKey(now);
 
   return {
     userMessage: {

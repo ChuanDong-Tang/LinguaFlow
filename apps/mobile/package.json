@@ -14,6 +14,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "^12.0.1",
     "@rob117/react-native-selectable-text": "^2.1.0",
     "expo": "~54.0.33",
     "expo-auth-session": "~7.0.11",

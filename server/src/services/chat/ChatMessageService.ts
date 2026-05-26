@@ -1,5 +1,6 @@
 import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository.js";
 import type { ClozeState, MessageRepository } from "@lf/core/ports/repository/MessageRepository.js";
+import { formatDateKeyInTimeZone } from "../time/businessClock.js";
 
 export interface SendMessageInput {
   userId: string;
@@ -139,15 +140,8 @@ export class ChatMessageService {
     private readonly messageRepository: MessageRepository
   ) {}
 
-  private toDateKey(d: Date): string {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-
   async sendUserMessage(input: SendMessageInput): Promise<SendMessageResult> {
-    const dateKey = this.toDateKey(new Date());
+    const dateKey = formatDateKeyInTimeZone(new Date());
 
     let conversation = await this.conversationRepository.findByUserContactDate(
       input.userId,

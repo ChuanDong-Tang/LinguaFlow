@@ -74,10 +74,6 @@ export function MainScreen({ onOpenChat }: MainScreenProps) {
                 <Text style={styles.conversationTitle}>{contact.name}</Text>
                 <Text style={styles.conversationSubtitle}>{contact.description}</Text>
               </View>
-              <View style={styles.conversationMeta}>
-                <Text style={styles.time}>09:41</Text>
-                <Ionicons name="chevron-forward" size={20} color="#8C8F97" />
-              </View>
             </Pressable>
             {index < CHAT_CONTACTS.length - 1 ? <View style={styles.divider} /> : null}
           </React.Fragment>
@@ -205,15 +201,6 @@ const styles = StyleSheet.create({
     color: "#7E8491",
     fontSize: 14,
     lineHeight: 20,
-  },
-  conversationMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  time: {
-    color: "#8B8F97",
-    fontSize: 13,
   },
   divider: {
     marginTop: 24,

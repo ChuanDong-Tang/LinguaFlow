@@ -32,6 +32,7 @@ import {
   type PracticeCard,
   type PracticeDayStats,
 } from "../domain/practice/practiceService";
+import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
 
 type PracticeScreenProps = {
   isActive: boolean;
@@ -66,6 +67,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   const [recentDays, setRecentDays] = useState(7);
   const [quickLimit, setQuickLimit] = useState(10);
   const [band, setBand] = useState<PracticeAccuracyBand>("any");
+  const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
   const loadedPracticeMonthKeysRef = useRef<Set<string>>(new Set());
   const lastPracticeSyncAtByDateKeyRef = useRef<Record<string, number>>({});
   const messagesRef = useRef<ChatMessage[]>([]);
@@ -74,6 +76,20 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   const practiceMonthMachine = useExclusiveSyncMachine<"practice_month">();
   const practiceDayMachine = useExclusiveSyncMachine<"practice_day">();
   const practiceQuickMachine = useExclusiveSyncMachine<"practice_quick">();
+
+  useEffect(() => {
+    let cancelled = false;
+    void getBusinessDateKey()
+      .then((todayKey) => {
+        if (!cancelled && isMounted()) setBusinessTodayKey(todayKey);
+      })
+      .catch(() => {
+        // 练习页离线时仍允许查看本地缓存；日期会暂时使用本机日期。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMounted]);
 
   useEffect(() => {
     void loadPracticeMessagesFromLocal().then(({ rows, contactMap }) => {
@@ -113,7 +129,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
     return stats;
   }, [contactByMessageId, messages, practiceDayStats]);
   const cells = useMemo(() => buildCalendarCells(monthCursor), [monthCursor]);
-  const today = new Date();
+  const today = businessTodayKey ? dateKeyToDate(businessTodayKey) : new Date();
   const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
 
   async function runWithLoading<T>(task: (signal: AbortSignal) => Promise<T>, text?: string): Promise<T> {
@@ -230,7 +246,13 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   async function openQuickPractice(): Promise<void> {
     if (isSyncingPracticeDateKeys) return;
     await runWithLoading(async (signal) => {
-      const recentDateKeys = collectRecentPracticeDateKeys(recentDays, new Date());
+      const todayKey = await getBusinessDateKey().catch(() => null);
+      if (!todayKey) {
+        setDialog({ message: "当前网络不可用，请连接网络后再试。" });
+        return;
+      }
+      if (isMounted()) setBusinessTodayKey(todayKey);
+      const recentDateKeys = collectRecentPracticeDateKeys(recentDays, todayKey);
       const { token, controller } = practiceQuickMachine.begin("practice_quick", recentDateKeys.join(","));
       signal.addEventListener("abort", () => controller.abort(), { once: true });
       try {
@@ -451,8 +473,9 @@ async function loadPracticeMessagesFromCloudByDateKeys(
   return { rows, contactMap };
 }
 
-function collectRecentPracticeDateKeys(recentDays: number, today = new Date()): string[] {
+function collectRecentPracticeDateKeys(recentDays: number, todayDateKey: string): string[] {
   const keys: string[] = [];
+  const today = dateKeyToDate(todayDateKey);
   for (let offset = 0; offset < recentDays; offset += 1) {
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
     keys.push(toDateKey(d));

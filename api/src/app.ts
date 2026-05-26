@@ -47,6 +47,7 @@ import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { PaymentCertSyncService } from "@lf/server/services/payment/PaymentCertSyncService.js";
 import { AutoRenewService } from "@lf/server/services/payment/AutoRenewService.js";
 import { PaymentEntitlementRefreshService } from "@lf/server/services/payment/PaymentEntitlementRefreshService.js";
+import { getBusinessClockSnapshot } from "@lf/server/services/time/businessClock.js";
 
 const prisma = new PrismaClient();
 
@@ -229,6 +230,13 @@ export function createApp() {
         db,
         redis,
       },
+    });
+  });
+
+  app.get("/clock", async (_req, reply) => {
+    return reply.status(200).send({
+      ok: true,
+      data: getBusinessClockSnapshot(),
     });
   });
 
