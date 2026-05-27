@@ -142,28 +142,24 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     isTodaySyncingRef.current = isTodaySyncing;
   }, [isTodaySyncing]);
 
+  const refreshEntitlementSnapshot = React.useCallback(async (): Promise<void> => {
+    if (!(await hasLocalProAccess())) {
+      if (!isMountedRef.current) return;
+      setRemainingChars(null);
+      setIsProEntitled(false);
+      return;
+    }
+
+    const entitlement = await getCurrentEntitlement().catch(() => null);
+    if (!isMountedRef.current) return;
+    setRemainingChars(entitlement?.remainingChars ?? null);
+    setIsProEntitled(entitlement?.isPro === true);
+  }, []);
+
   // 启动初始化：加载本地权益快照，用于额度和 Pro 历史同步开关。
   useEffect(() => {
-    let cancelled = false;
-    async function loadEntitlementSnapshot() {
-      if (!(await hasLocalProAccess())) {
-        if (!cancelled) {
-          setRemainingChars(null);
-          setIsProEntitled(false);
-        }
-        return;
-      }
-      const entitlement = await getCurrentEntitlement().catch(() => null);
-      if (!cancelled) {
-        setRemainingChars(entitlement?.remainingChars ?? null);
-        setIsProEntitled(entitlement?.isPro === true);
-      }
-    }
-    void loadEntitlementSnapshot();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void refreshEntitlementSnapshot();
+  }, [refreshEntitlementSnapshot]);
 
   // 本地历史：进入聊天页或切换联系人时加载当前日期；日期切换入口会自行加载，避免同一天重复读本地缓存。
   useEffect(() => {
@@ -289,7 +285,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     Keyboard.dismiss();
     setIsSending(true);
 
-    // 本地空的 AI 回复气泡
+    // 乐观更新
     // todo:gpt样式的空聊天气泡
     const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalChatPair(
       text,
@@ -301,8 +297,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const localNext = toDisplayRows(localNextRaw);
     setDayMessages(localNext);
     setMessages(localNext);
-    await appendChatMessages(contactId, [userLocal, assistantLocal]);
-    setLocalDateKeys((prev) => new Set([...prev, businessTodayKey]));
+    await appendChatMessages(contactId, [userLocal, assistantLocal]); // 写入本地缓存
+    setLocalDateKeys((prev) => new Set([...prev, businessTodayKey])); // 合并datekey
 
     startChatSession({
       contactId,
@@ -318,14 +314,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(businessTodayDate, { force: true });
+        void refreshEntitlementSnapshot();
       },
     });
-
-    if (await hasLocalProAccess()) {
-      const entitlement = await getCurrentEntitlement().catch(() => null);
-      setRemainingChars(entitlement?.remainingChars ?? null);
-      setIsProEntitled(entitlement?.isPro === true);
-    }
   }
 
   async function handleRetryMessage(message: ChatMessage): Promise<void> {
@@ -374,14 +365,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(retryDate, { force: true });
+        void refreshEntitlementSnapshot();
       },
     });
-
-    if (await hasLocalProAccess()) {
-      const entitlement = await getCurrentEntitlement().catch(() => null);
-      setRemainingChars(entitlement?.remainingChars ?? null);
-      setIsProEntitled(entitlement?.isPro === true);
-    }
   }
 
 
