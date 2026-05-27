@@ -33,7 +33,7 @@ type RowItem =
   | { kind: "header"; id: string }
   | { kind: "message"; id: string; message: ChatMessage };
 
-const MESSAGE_LIST_PERF_LOGS = true;
+const MESSAGE_LIST_PERF_LOGS = false;
 const SLOW_MESSAGE_RENDER_MS = 12;
 
 function perfNow(): number {
