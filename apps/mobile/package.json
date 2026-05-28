@@ -30,6 +30,7 @@
     "react-native-keyboard-controller": "^1.21.7",
     "react-native-reanimated": "^4.3.0",
     "react-native-safe-area-context": "^5.7.0",
+    "react-native-sse": "^1.2.1",
     "react-native-svg": "^15.15.4",
     "react-native-wechat-lib": "^1.1.27"
   },

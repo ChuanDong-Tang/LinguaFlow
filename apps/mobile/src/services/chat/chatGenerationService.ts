@@ -88,7 +88,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       createdAt: new Date().toISOString(),
     }));
   };
-
+  // 40ms 刷新一次
   const scheduleFlush = () => {
     if (flushTimer) return;
     flushTimer = setTimeout(() => {

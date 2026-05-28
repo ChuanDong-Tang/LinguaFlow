@@ -21,7 +21,7 @@ export class XhrStreamClient implements StreamClient {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       let consumedLength = 0;
-      let buffer = "";
+      let buffer = ""; // buffer 是为了处理 SSE 半包。
       let timedOut = false;
       const timeoutId = setTimeout(() => {
         timedOut = true;

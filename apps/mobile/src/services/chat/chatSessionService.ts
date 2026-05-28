@@ -216,6 +216,7 @@ export function startChatSession(input: StartChatSessionInput): void {
   emit(state);
   emitActivity();
 
+  // startChatSession 不等待，启动任务
   void (async () => {
     const result = await runChatGeneration({
       contactId: input.contactId,
