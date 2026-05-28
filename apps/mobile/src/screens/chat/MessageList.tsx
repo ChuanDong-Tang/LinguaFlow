@@ -49,15 +49,20 @@ const TypingDots = React.memo(function TypingDots() {
   }, [dot1, dot2, dot3]);
 
   return (
-    <Animated.View
-      style={[
-        styles.typingDot,
-        {
-          opacity: dot1,
-          transform: [{ scale: dot1 }],
-        },
-      ]}
-    />
+    <View style={styles.typingDots}>
+      {[dot1, dot2, dot3].map((dot, index) => (
+        <Animated.View
+          key={index}
+          style={[
+            styles.typingDot,
+            {
+              opacity: dot,
+              transform: [{ scale: dot }],
+            },
+          ]}
+        />
+      ))}
+    </View>
   );
 });
 
@@ -182,9 +187,36 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
     return value;
   }, [contact, message]);
 
-  const hasDisplayText = clozeText.text.trim().length > 0;
-  const isTypingPlaceholder = message.status === "pending" && !hasDisplayText;
   const displayText = clozeText.text;
+  const hasDisplayText = displayText.trim().length > 0;
+
+  const assistantRenderState:
+    | "typing"
+    | "streaming"
+    | "complete"
+    | "failed"
+    | "empty" =
+    message.status === "pending" && !hasDisplayText
+      ? "typing"
+      : message.status === "pending" && hasDisplayText
+        ? "streaming"
+        : message.status === "success" && hasDisplayText
+          ? "complete"
+          : message.status === "failed"
+            ? "failed"
+            : "empty";
+
+  const shouldShowActions =
+    assistantRenderState === "complete" || assistantRenderState === "failed";
+
+  const shouldShowTime =
+    assistantRenderState === "complete" || assistantRenderState === "failed";
+
+  const shouldShowTranslation =
+    assistantRenderState === "complete" && !!clozeText.translation;
+
+  const canShowCloze = assistantRenderState === "complete";
+
   const clozeState = React.useMemo(() => {
     const startedAt = perfNow();
     const value = normalizeClozeState(message.clozeState);
@@ -194,8 +226,8 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
     });
     return value;
   }, [message.clozeState, message.localId]);
-  const hasClozeGroup = !!clozeState?.groups.length;
-  const hasBlank = !!clozeState?.groups.some((group) => group.blankTokenIndexes.length > 0);
+  const hasClozeGroup = canShowCloze && !!clozeState?.groups.length;
+  const hasBlank = canShowCloze && !!clozeState?.groups.some((group) => group.blankTokenIndexes.length > 0);
   const highlightRanges = React.useMemo(
     () => {
       const startedAt = perfNow();
@@ -252,10 +284,10 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
         <View style={styles.assistantAvatar}>
           <Text style={styles.assistantLogo}>OIO</Text>
         </View>
-        <Pressable style={styles.assistantCard} onPress={() => undefined}>         
-          {isTypingPlaceholder ? (
+        <Pressable style={styles.assistantCard} onPress={() => undefined}>
+          {assistantRenderState === "typing" ? (
             <TypingDots />
-          ) : (
+          ) : hasDisplayText ? (
             <SelectableMessageText
               ref={selectableRef}
               text={displayText}
@@ -263,19 +295,31 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               highlightRanges={highlightRanges}
               blankRanges={blankRanges}
               correctRanges={correctRanges}
-              onSelectionStart={() => onSelectionRefChange(selectableRef.current)}
-              onSelectionChange={(payload) => {
-                onSelectionRefChange(selectableRef.current);
-                onTextSelection(message, payload, () => selectableRef.current?.clearSelection());
-              }}
-              onClozeRangePress={hasClozeGroup ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined}
-              onClozeRangeLongPress={hasClozeGroup ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined}
+              onSelectionStart={
+                canShowCloze
+                  ? () => onSelectionRefChange(selectableRef.current)
+                  : undefined
+              }
+              onSelectionChange={
+                canShowCloze
+                  ? (payload) => {
+                    onSelectionRefChange(selectableRef.current);
+                    onTextSelection(message, payload, () => selectableRef.current?.clearSelection());
+                  }
+                  : undefined
+              }
+              onClozeRangePress={
+                hasClozeGroup ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined
+              }
+              onClozeRangeLongPress={
+                hasClozeGroup ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined
+              }
             />
-          )}
-          {!isTypingPlaceholder && clozeText.translation ? (
+          ) : null}
+          {shouldShowTranslation ? (
             <Text style={styles.translationText}>{clozeText.translation}</Text>
           ) : null}
-          {!isTypingPlaceholder ? (
+          {shouldShowActions ? (
             <View style={styles.cardActionRow}>
               {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
                 <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
@@ -301,7 +345,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
           ) : null}
         </Pressable>
       </View>
-      {!isTypingPlaceholder ? (
+      {shouldShowTime ? (
         <Text style={styles.timeTextLeft}>{message.time}</Text>
       ) : null}
     </Pressable>
