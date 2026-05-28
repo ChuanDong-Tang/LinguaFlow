@@ -1,5 +1,5 @@
 import React from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatMessage } from "../../domain/chat/types";
 import type { ChatContact } from "../../domain/chat/contacts";
@@ -10,6 +10,56 @@ import {
   type NativeTextSelectionPayload,
   type SelectableMessageTextRef,
 } from "./SelectableMessageText";
+
+const TypingDots = React.memo(function TypingDots() {
+  const dot1 = React.useRef(new Animated.Value(0.35)).current;
+  const dot2 = React.useRef(new Animated.Value(0.35)).current;
+  const dot3 = React.useRef(new Animated.Value(0.35)).current;
+
+  React.useEffect(() => {
+    const makeAnimation = (value: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(value, {
+            toValue: 1,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+          Animated.timing(value, {
+            toValue: 0.35,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+          Animated.delay(260),
+        ])
+      );
+
+    const animations = [
+      makeAnimation(dot1, 0),
+      makeAnimation(dot2, 160),
+      makeAnimation(dot3, 320),
+    ];
+
+    animations.forEach((animation) => animation.start());
+
+    return () => {
+      animations.forEach((animation) => animation.stop());
+    };
+  }, [dot1, dot2, dot3]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.typingDot,
+        {
+          opacity: dot1,
+          transform: [{ scale: dot1 }],
+        },
+      ]}
+    />
+  );
+});
 
 type MessageListProps = {
   contact: ChatContact;
@@ -131,7 +181,10 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
     });
     return value;
   }, [contact, message]);
-  const displayText = clozeText.text || "...";
+
+  const hasDisplayText = clozeText.text.trim().length > 0;
+  const isTypingPlaceholder = message.status === "pending" && !hasDisplayText;
+  const displayText = clozeText.text;
   const clozeState = React.useMemo(() => {
     const startedAt = perfNow();
     const value = normalizeClozeState(message.clozeState);
@@ -199,47 +252,58 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
         <View style={styles.assistantAvatar}>
           <Text style={styles.assistantLogo}>OIO</Text>
         </View>
-        <Pressable style={styles.assistantCard} onPress={() => undefined}>
-          <SelectableMessageText
-            ref={selectableRef}
-            text={displayText}
-            style={styles.assistantCardText}
-            highlightRanges={highlightRanges}
-            blankRanges={blankRanges}
-            correctRanges={correctRanges}
-            onSelectionStart={() => onSelectionRefChange(selectableRef.current)}
-            onSelectionChange={(payload) => {
-              onSelectionRefChange(selectableRef.current);
-              onTextSelection(message, payload, () => selectableRef.current?.clearSelection());
-            }}
-            onClozeRangePress={hasClozeGroup ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined}
-            onClozeRangeLongPress={hasClozeGroup ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined}
-          />
-          {clozeText.translation ? <Text style={styles.translationText}>{clozeText.translation}</Text> : null}
-          <View style={styles.cardActionRow}>
-            {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
-              <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
-                <Text style={styles.retryText}>重试</Text>
+        <Pressable style={styles.assistantCard} onPress={() => undefined}>         
+          {isTypingPlaceholder ? (
+            <TypingDots />
+          ) : (
+            <SelectableMessageText
+              ref={selectableRef}
+              text={displayText}
+              style={styles.assistantCardText}
+              highlightRanges={highlightRanges}
+              blankRanges={blankRanges}
+              correctRanges={correctRanges}
+              onSelectionStart={() => onSelectionRefChange(selectableRef.current)}
+              onSelectionChange={(payload) => {
+                onSelectionRefChange(selectableRef.current);
+                onTextSelection(message, payload, () => selectableRef.current?.clearSelection());
+              }}
+              onClozeRangePress={hasClozeGroup ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined}
+              onClozeRangeLongPress={hasClozeGroup ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined}
+            />
+          )}
+          {!isTypingPlaceholder && clozeText.translation ? (
+            <Text style={styles.translationText}>{clozeText.translation}</Text>
+          ) : null}
+          {!isTypingPlaceholder ? (
+            <View style={styles.cardActionRow}>
+              {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
+                <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
+                  <Text style={styles.retryText}>重试</Text>
+                </Pressable>
+              ) : hasBlank ? (
+                <Pressable style={styles.eyeButton} hitSlop={8} onPress={() => setAnswersVisible((value) => !value)}>
+                  <Ionicons name={answersVisible ? "eye-off-outline" : "eye-outline"} size={22} color="#111111" />
+                </Pressable>
+              ) : (
+                <View />
+              )}
+
+              <Pressable
+                style={styles.copyButton}
+                hitSlop={8}
+                onPress={() => onCopyMessage(message)}
+                disabled={!message.text.trim()}
+              >
+                <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
               </Pressable>
-            ) : hasBlank ? (
-              <Pressable style={styles.eyeButton} hitSlop={8} onPress={() => setAnswersVisible((value) => !value)}>
-                <Ionicons name={answersVisible ? "eye-off-outline" : "eye-outline"} size={22} color="#111111" />
-              </Pressable>
-            ) : (
-              <View />
-            )}
-            <Pressable
-              style={styles.copyButton}
-              hitSlop={8}
-              onPress={() => onCopyMessage(message)}
-              disabled={!message.text.trim()}
-            >
-              <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
-            </Pressable>
-          </View>
+            </View>
+          ) : null}
         </Pressable>
       </View>
-      <Text style={styles.timeTextLeft}>{message.time}</Text>
+      {!isTypingPlaceholder ? (
+        <Text style={styles.timeTextLeft}>{message.time}</Text>
+      ) : null}
     </Pressable>
   );
 });
@@ -509,5 +573,17 @@ const styles = StyleSheet.create({
     marginLeft: 50,
     color: "#9CA2B3",
     fontSize: 13,
+  },
+  typingDots: {
+    height: 25,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  typingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: "#8F95A1",
+    marginRight: 6,
   },
 });

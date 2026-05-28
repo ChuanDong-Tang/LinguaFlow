@@ -286,7 +286,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     setIsSending(true);
 
     // 乐观更新
-    // todo:gpt样式的空聊天气泡
     const { userMessage: userLocal, assistantMessage: assistantLocal } = createLocalChatPair(
       text,
       new Date(),
