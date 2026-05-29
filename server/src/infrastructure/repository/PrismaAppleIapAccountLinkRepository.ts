@@ -27,6 +27,11 @@ export class PrismaAppleIapAccountLinkRepository implements AppleIapAccountLinkR
     originalTransactionId?: string | null;
     latestTransactionId?: string | null;
   }): Promise<AppleIapAccountLinkEntity> {
+    const existing = await this.findByAppAccountToken(input.appAccountToken);
+    if (existing && existing.userId !== input.userId) {
+      throw new Error("APPLE_IAP_APP_ACCOUNT_TOKEN_ALREADY_BOUND");
+    }
+
     const row = await this.prisma.appleIapAccountLink.upsert({
       where: { appAccountToken: input.appAccountToken },
       create: {
@@ -36,7 +41,6 @@ export class PrismaAppleIapAccountLinkRepository implements AppleIapAccountLinkR
         latestTransactionId: input.latestTransactionId ?? null,
       },
       update: {
-        userId: input.userId,
         ...(input.originalTransactionId === undefined
           ? {}
           : { originalTransactionId: input.originalTransactionId }),

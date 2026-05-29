@@ -25,7 +25,7 @@ export function getAppleTransactionId(purchase: Purchase): string {
 export async function createAppleAppAccountToken(userId: string): Promise<string> {
   const hash = await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
-    `linguaflow:${userId}`
+    `oio:${userId}`
   );
   return [
     hash.slice(0, 8),

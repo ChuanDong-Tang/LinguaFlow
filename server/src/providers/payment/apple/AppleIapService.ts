@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
 import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
 import type { AppleIapAccountLinkRepository } from "@lf/core/ports/repository/AppleIapAccountLinkRepository.js";
@@ -80,20 +81,26 @@ export class AppleIapService {
       throw new AppleIapVerifyError("Product id mismatch");
     }
 
+    const expectedAppAccountToken = createAppleAppAccountToken(input.userId);
+    if (!transaction.appAccountToken) {
+      throw new AppleIapVerifyError("Missing appAccountToken");
+    }
+    if (!sameAppleAppAccountToken(transaction.appAccountToken, expectedAppAccountToken)) {
+      throw new AppleIapVerifyError("appAccountToken mismatch");
+    }
+
     const originalTransactionId = transaction.originalTransactionId || transaction.transactionId;
     if (!originalTransactionId) {
       throw new AppleIapVerifyError("Missing originalTransactionId");
     }
 
     const sourceOrderId = `apple_iap:${transaction.transactionId}`;
-    if (transaction.appAccountToken) {
-      await this.appleIapAccountLinkRepository?.upsert({
-        userId: input.userId,
-        appAccountToken: transaction.appAccountToken,
-        originalTransactionId,
-        latestTransactionId: transaction.transactionId,
-      });
-    }
+    await this.appleIapAccountLinkRepository?.upsert({
+      userId: input.userId,
+      appAccountToken: expectedAppAccountToken,
+      originalTransactionId,
+      latestTransactionId: transaction.transactionId,
+    });
     await this.autoRenewService?.register({
       userId: input.userId,
       provider: "apple",
@@ -322,6 +329,22 @@ export class AppleIapService {
 function isApplePaidRenewal(notificationType: string | undefined): boolean {
   const type = String(notificationType ?? "").toUpperCase();
   return ["SUBSCRIBED", "DID_RENEW", "DID_RECOVER", "ONE_TIME_CHARGE"].includes(type);
+}
+
+function createAppleAppAccountToken(userId: string): string {
+  const hash = createHash("sha256").update(`oio:${userId}`).digest("hex");
+  return [
+    hash.slice(0, 8),
+    hash.slice(8, 12),
+    `5${hash.slice(13, 16)}`,
+    ((parseInt(hash.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, "0") +
+      hash.slice(18, 20),
+    hash.slice(20, 32),
+  ].join("-");
+}
+
+function sameAppleAppAccountToken(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
 function mapAppleEventToOrderStatus(
