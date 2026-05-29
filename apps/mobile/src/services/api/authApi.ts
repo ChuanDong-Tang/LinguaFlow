@@ -6,6 +6,7 @@ import type {
   LogoutRequestBody,
   RefreshTokenRequestBody,
   RefreshTokenResponse,
+  TestPasswordLoginRequestBody,
 } from "@lf/core/contracts/auth";
 import { logEvent } from "../logger";
 
@@ -85,6 +86,41 @@ export async function loginWithAuthing(input: AuthingLoginRequestBody): Promise<
       "authing_login_exception",
       "error",
       err instanceof Error ? err.message : "unknown error"
+    );
+    throw err;
+  }
+}
+
+export async function loginWithTestPassword(input: TestPasswordLoginRequestBody): Promise<AuthingLoginResponse> {
+  await logEvent("test_password_login_request", "info", undefined, { account: input.account });
+
+  try {
+    const res = await fetch(`${BASE_URL}/auth/test-password-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const apiResult = (await res.json()) as ApiResult<AuthingLoginResponse>;
+
+    if (!apiResult.ok) {
+      await logEvent("test_password_login_failed", "warn", apiResult.error.message, {
+        code: apiResult.error.code,
+        account: input.account,
+      });
+      throw new Error(apiResult.error.message);
+    }
+
+    await logEvent("test_password_login_success", "info", undefined, {
+      userId: apiResult.data.user.id,
+    });
+
+    return apiResult.data;
+  } catch (err) {
+    await logEvent(
+      "test_password_login_exception",
+      "error",
+      err instanceof Error ? err.message : "unknown error",
+      { account: input.account }
     );
     throw err;
   }
