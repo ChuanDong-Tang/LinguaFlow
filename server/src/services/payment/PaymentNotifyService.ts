@@ -124,6 +124,7 @@ export class PaymentNotifyService {
       } catch (error) {
         throw new Error(`WECHAT_NOTIFY_DECRYPT_PARSE_FAILED: ${toErrorMessage(error)}`);
       }
+      // todo:只靠out_trade_no找订单，没有校验金额，币种等
       const providerOrderId = resource.out_trade_no;
 
       if (body.event_type !== "TRANSACTION.SUCCESS" || resource.trade_state !== "SUCCESS") {
@@ -139,8 +140,8 @@ export class PaymentNotifyService {
       if (!order) {
         await this.paymentEventRepository.markFailed(event.id, "Payment order not found");
         throw new Error("PAYMENT_ORDER_NOT_FOUND");
-      }
-
+      }   
+      // todo:其他状态的订单也会发权益？
       if (order.status !== "paid") {
         await this.paymentOrderRepository.updateStatus({
           id: order.id,
@@ -273,6 +274,8 @@ export class PaymentNotifyService {
       } catch (error) {
         throw new Error(`WECHAT_REFUND_NOTIFY_DECRYPT_PARSE_FAILED: ${toErrorMessage(error)}`);
       }
+
+      // todo:退款只改订单状态，没有撤销权益
       const providerOrderId = resource.out_trade_no;
 
       const isRefundSuccess =

@@ -114,7 +114,7 @@ export class AutoRenewService {
     return {
       // 自动续费状态按 userId 查，而不是按设备/渠道查。
       // 这样用户在微信开通后，用 iOS 登录也能看到“已通过微信开通”，避免双端重复签约。
-      subscription: await this.autoRenewRepository.findActiveByUserId(userId),
+      subscription: await this.autoRenewRepository.findCurrentByUserId(userId),
     };
   }
 
@@ -177,17 +177,33 @@ export class AutoRenewService {
     if (!runtime.payment.wechatAutoRenew.enabled) {
       throw new Error("WECHAT_AUTORENEW_DISABLED");
     }
-    const currentForUser = await this.autoRenewRepository.findActiveByUserId(input.userId);
-    if (currentForUser) {
-      // 创建预签约入口也要先挡住跨端重复开通。
-      // 否则用户可能先在 Apple 开通，再从微信入口签第二份自动续费。
-      throw new AutoRenewAlreadyActiveError(currentForUser.provider);
+    const now = new Date();
+
+    const activeForUser = await this.autoRenewRepository.findActiveByUserId(input.userId);
+    if (activeForUser) {
+      // 已经真的开通了自动续费，才拦住。
+      throw new AutoRenewAlreadyActiveError(activeForUser.provider);
     }
+
+    const pendingForUser = await this.autoRenewRepository.findPendingByUserId(input.userId);
+    if (pendingForUser && !pendingForUser.latestTransactionId) {
+      // 上一次只是预创建，还没有拿到微信 contract_id，说明用户可能取消/关闭/中断了。
+      // 不要让它锁住用户，直接废弃旧 pending，允许重新预签约。
+      await this.autoRenewRepository.cancelSubscription({
+        id: pendingForUser.id,
+        cancelledAt: now,
+        metadata: mergeMetadata(pendingForUser.metadata, {
+          cancelSource: "replace_unfinished_pre_sign",
+          cancelledAt: now.toISOString(),
+        }),
+      });
+    }
+
     await this.assertCanCreateAfterCancellation({
       userId: input.userId,
       provider: "wechat",
-    });
-    const now = new Date();
+    }); 
+
     const currentPro = await this.subscriptionService?.getCurrentSubscription(input.userId, now);
     const activePro =
       currentPro?.isPro === true && currentPro.expiresAt && currentPro.expiresAt > now
@@ -214,7 +230,7 @@ export class AutoRenewService {
       userId: input.userId,
       provider: "wechat",
       providerAgreementId: preSign.outContractCode,
-      status: activePro ? "pending" : "active",
+      status: "pending",
       // 如果用户签约时已经有单次购买/其他渠道发放的有效 Pro，不应立刻再扣一笔首期款。
       // 自动续费只负责“接上当前权益”：等现有权益快到期时，由 worker 提前申请下一期扣款。
       currentPeriodStart: activePro?.subscription?.startedAt ?? null,
@@ -229,12 +245,6 @@ export class AutoRenewService {
         preSignRaw: preSign.raw,
       },
     });
-    if (activePro && subscription.status !== "pending") {
-      await this.autoRenewRepository.updateSubscription({
-        id: subscription.id,
-        status: "pending",
-      });
-    }
 
     if (appWithContract) {
       const periodStart = new Date();
@@ -287,10 +297,31 @@ export class AutoRenewService {
     autoRenewSubscriptionId: string;
   }): Promise<AutoRenewSubscriptionEntity> {
     const current = await this.autoRenewRepository.findActiveByUserId(input.userId);
-    if (!current) throw new AutoRenewNotFoundError();
+    if (!current) {
+      const pending = await this.autoRenewRepository.findPendingByUserId(input.userId);
+      if (
+        pending &&
+        pending.id === input.autoRenewSubscriptionId &&
+        !pending.latestTransactionId
+      ) {
+        const cancelledAt = new Date();
+        // 用户在微信签约/首扣前取消时，服务端只有预创建记录，没有平台 contract_id。
+        // 这里只废弃本地 pending，不能调用微信解约接口。
+        return this.autoRenewRepository.cancelSubscription({
+          id: pending.id,
+          cancelledAt,
+          metadata: mergeMetadata(pending.metadata, {
+            cancelSource: "unfinished_pre_sign",
+            cancelledAt: cancelledAt.toISOString(),
+          }),
+        });
+      }
+
+      throw new AutoRenewNotFoundError();
+    }
     if (current.id !== input.autoRenewSubscriptionId) throw new AutoRenewAccessDeniedError();
 
-    if (current.provider === "wechat") {
+    if (current.provider === "wechat" && current.latestTransactionId) {
       if (!this.weChatAutoRenewProvider) throw new Error("WECHAT_AUTORENEW_PROVIDER_NOT_CONFIGURED");
       await this.weChatAutoRenewProvider.cancelContract({
         outContractCode: current.providerAgreementId,
@@ -1020,7 +1051,7 @@ export class AutoRenewService {
     // 这里专门处理“取消自动续费后立刻换渠道重签”的边界：
     // findActiveByUserId 查不到 cancelled，所以必须看最近一条自动续费记录。
     const latest = await this.autoRenewRepository.findLatestByUserId(input.userId);
-    if (!latest || latest.status !== "cancelled") return;
+    if (!latest || latest.status !== "cancelled" || !latest.latestTransactionId) return;
     if (
       latest.provider === input.provider &&
       latest.providerAgreementId === input.providerAgreementId

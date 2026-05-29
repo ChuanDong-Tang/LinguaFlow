@@ -5,11 +5,13 @@ import { useIAP, type Purchase } from "expo-iap";
 import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  cancelAutoRenewSubscription,
   createWeChatAutoRenewPreSign,
   createProMonthlyOrder,
   getCurrentAutoRenewSubscription,
   verifyAppleProMonthlyTransaction,
   type MobileAutoRenewSubscription,
+  type MobileWeChatAutoRenewPreSignResult,
 } from "../services/api/paymentApi";
 import {
   clearPendingPaymentOrder,
@@ -137,8 +139,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
   async function startWechatAutoRenew(): Promise<void> {
     assertWechatPayAvailable();
     setIsAutoRenewLoading(true);
+    let preSign: MobileWeChatAutoRenewPreSignResult | null = null;
+
     try {
-      const preSign = await createWeChatAutoRenewPreSign();
+      preSign = await createWeChatAutoRenewPreSign();
 
       if (preSign.clientPayParams) {
         // App-with-contract：用户支付首期时同时完成微信自动续费签约。
@@ -152,9 +156,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!isScreenAlive()) return;
       setAutoRenew(currentAutoRenew);
     } catch (error) {
-      if (!isScreenAlive()) return;
-      const message = error instanceof Error ? error.message : "请稍后重试";
-      safeAlert("自动续费发起失败", message);
+      if (preSign && isWechatUserCancelError(error)) {
+        await cancelAutoRenewSubscription(preSign.autoRenewSubscriptionId).catch(() => { });
+      }
     } finally {
       if (isScreenAlive()) setIsAutoRenewLoading(false);
     }
@@ -299,12 +303,14 @@ export function ProScreen({ onBack }: ProScreenProps) {
             <View style={styles.autoRenewCopy}>
               <Text style={styles.autoRenewTitle}>自动续费</Text>
               <Text style={styles.autoRenewText}>
-                {autoRenew && autoRenew.status !== "cancelled"
-                  ? `已通过${formatProviderName(autoRenew.provider)}开启，${formatNullableDate(autoRenew.nextBillingAt) || "下次扣款时间待同步"}`
-                  : `${formatAutoRenewProviderLabel()}自动续费，可随时取消。`}
+                {autoRenew?.status === "pending"
+                  ? "签约处理中，如未完成可稍后重试。"
+                  : hasActiveAutoRenew(autoRenew)
+                    ? `已通过${formatProviderName(autoRenew.provider)}开启，${formatNullableDate(autoRenew.nextBillingAt) || "下次扣款时间待同步"}`
+                    : `${formatAutoRenewProviderLabel()}自动续费，可随时取消。`}
               </Text>
             </View>
-            {autoRenew && autoRenew.status !== "cancelled" ? (
+            {hasActiveAutoRenew(autoRenew) ? (
               <Pressable
                 style={[styles.secondaryButton, isAutoRenewLoading && styles.subscribeButtonDisabled]}
                 onPress={handleManageAutoRenew}
@@ -395,7 +401,11 @@ function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): 
 }
 
 function hasActiveAutoRenew(autoRenew: MobileAutoRenewSubscription | null): autoRenew is MobileAutoRenewSubscription {
-  return Boolean(autoRenew && autoRenew.status !== "cancelled");
+  return Boolean(autoRenew && (autoRenew.status === "active" || autoRenew.status === "billing_retry"));
+}
+
+function isWechatUserCancelError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("用户取消微信支付");
 }
 
 function formatAutoRenewProviderLabel(): string {

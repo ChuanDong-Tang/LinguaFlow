@@ -65,13 +65,11 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
 
 function isAppleVerifyTransactionRequest(
   value: unknown
-): value is { transactionId: string; productCode: "pro_monthly" } {
+): value is { transactionId: string; } {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return (
-    typeof v.transactionId === "string" &&
-    v.transactionId.trim().length > 0 &&
-    v.productCode === "pro_monthly"
+    typeof v.transactionId === "string" && v.transactionId.trim().length > 0
   );
 }
 

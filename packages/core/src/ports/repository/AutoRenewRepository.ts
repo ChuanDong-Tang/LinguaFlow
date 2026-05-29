@@ -89,6 +89,8 @@ export interface UpsertAutoRenewChargeInput {
 
 export interface AutoRenewRepository {
   findActiveByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null>;
+  findCurrentByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null>;
+  findPendingByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null>;
   /** 查用户最近一条自动续费记录，用于判断“刚取消但权益未过期时，是否禁止换渠道重签”。 */
   findLatestByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null>;
   listDueForBilling(input: {

@@ -29,7 +29,39 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
       where: {
         userId,
         status: {
+          in: ["active", "billing_retry"],
+        },
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+    });
+
+    return row ? this.toSubscriptionEntity(row) : null;
+  }
+
+  async findCurrentByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null> {
+    const row = await this.prisma.autoRenewSubscription.findFirst({
+      where: {
+        userId,
+        status: {
           in: ["pending", "active", "billing_retry"],
+        },
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+    });
+
+    return row ? this.toSubscriptionEntity(row) : null;
+  }
+
+  async findPendingByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null> {
+    const row = await this.prisma.autoRenewSubscription.findFirst({
+      where: {
+        userId,
+        status: {
+          in: ["pending"],
         },
       },
       orderBy: {
