@@ -180,6 +180,20 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     nextBillingAt?: Date | null;
     metadata?: unknown;
   }): Promise<AutoRenewSubscriptionEntity> {
+    const current = await this.prisma.autoRenewSubscription.findUnique({
+      where: { id: input.id },
+    });
+    if (!current) {
+      throw new Error("AUTO_RENEW_SUBSCRIPTION_NOT_FOUND");
+    }
+    if (
+      ["cancelled", "expired"].includes(current.status) &&
+      input.status &&
+      !["cancelled", "expired"].includes(input.status)
+    ) {
+      return this.toSubscriptionEntity(current);
+    }
+
     const row = await this.prisma.autoRenewSubscription.update({
       where: { id: input.id },
       data: {
@@ -277,6 +291,14 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
   }
 
   async upsertCharge(input: UpsertAutoRenewChargeInput): Promise<AutoRenewChargeEntity> {
+    const existing = await this.findChargeByProviderCharge({
+      provider: input.provider,
+      providerChargeId: input.providerChargeId,
+    });
+    if (existing?.status === "paid" && input.status !== "paid") {
+      return existing;
+    }
+
     const data = {
       autoRenewSubscriptionId: input.autoRenewSubscriptionId,
       userId: input.userId,

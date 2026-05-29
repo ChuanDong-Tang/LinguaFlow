@@ -50,6 +50,28 @@ export class PrismaPaymentEventRepository implements PaymentEventRepository {
     return this.toEntity(row);
   }
 
+  async findOrCreate(input: CreatePaymentEventInput): Promise<PaymentEventEntity> {
+    const existing = await this.findByProviderEventId({
+      provider: input.provider,
+      providerEventId: input.providerEventId,
+      eventType: input.eventType,
+    });
+    if (existing) return existing;
+
+    try {
+      return await this.create(input);
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      const row = await this.findByProviderEventId({
+        provider: input.provider,
+        providerEventId: input.providerEventId,
+        eventType: input.eventType,
+      });
+      if (!row) throw error;
+      return row;
+    }
+  }
+
   async markProcessed(
     id: string,
     options?: { expectedCurrentStatuses?: PaymentEventStatus[] }
@@ -77,7 +99,7 @@ export class PrismaPaymentEventRepository implements PaymentEventRepository {
     id: string,
     nextStatus: "processed" | "ignored" | "failed",
     errorMessage: string | null,
-    expectedCurrentStatuses: PaymentEventStatus[] = ["received"]
+    expectedCurrentStatuses: PaymentEventStatus[] = ["received", "failed"]
   ): Promise<PaymentEventEntity | null> {
     const result = await this.prisma.paymentEvent.updateMany({
       where: {
@@ -124,4 +146,8 @@ export class PrismaPaymentEventRepository implements PaymentEventRepository {
       processedAt: row.processedAt,
     };
   }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "P2002");
 }

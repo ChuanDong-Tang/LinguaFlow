@@ -102,6 +102,24 @@ export class PaymentOrderService {
         });
       } else {
         const nowIso = new Date().toISOString();
+        const cachedClientPayParams = this.getCachedClientPayParams(existing);
+        if (cachedClientPayParams) {
+          await this.paymentOrderRepository.updateStatus({
+            id: existing.id,
+            status: "pending",
+            expectedCurrentStatuses: ["pending"],
+            metadata: {
+              ...this.getOrderMetadata(existing),
+              reuseDecision: {
+                checkedAt: nowIso,
+                providerStatus: providerSnapshot.status,
+                action: "reuse_cached_client_pay_params",
+              },
+            },
+          });
+          return this.toCreateResponse(existing, cachedClientPayParams, true);
+        }
+
         const nextAttempts = this.getProviderCreateAttempts(existing) + 1;
         const metadata = {
           ...this.getOrderMetadata(existing),
@@ -110,7 +128,7 @@ export class PaymentOrderService {
           reuseDecision: {
             checkedAt: nowIso,
             providerStatus: providerSnapshot.status,
-            action: "recreate",
+            action: "recreate_without_cached_client_pay_params",
           },
         };
 
@@ -164,6 +182,10 @@ export class PaymentOrderService {
         provider: this.paymentProvider.providerName,
       });
       if (!pending) throw error;
+      const cachedClientPayParams = this.getCachedClientPayParams(pending);
+      if (cachedClientPayParams) {
+        return this.toCreateResponse(pending, cachedClientPayParams, true);
+      }
       // 双端同时创建单次订单时，数据库 pending 唯一索引是最后防线；
       // 这里回查并复用已经创建成功的待支付单，避免同一用户拿到两张待支付月卡订单。
       const providerOrder = await this.paymentProvider.createOrder({
@@ -185,6 +207,17 @@ export class PaymentOrderService {
       amount,
       currency: "CNY",
       notifyUrl: this.resolveNotifyUrl(),
+    });
+    await this.paymentOrderRepository.updateStatus({
+      id: created.id,
+      status: "pending",
+      expectedCurrentStatuses: ["pending"],
+      metadata: {
+        ...this.getOrderMetadata(created),
+        providerCreateAttempts: 1,
+        clientPayParams: providerOrder.clientPayParams,
+        lastProviderCreateAt: new Date().toISOString(),
+      },
     });
 
     return this.toCreateResponse(created, providerOrder.clientPayParams, false);
@@ -427,6 +460,14 @@ export class PaymentOrderService {
     const metadata = this.getOrderMetadata(order);
     const raw = metadata.providerCreateAttempts;
     return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : 1;
+  }
+
+  private getCachedClientPayParams(
+    order: PaymentOrderEntity
+  ): CreatePaymentOrderResponse["clientPayParams"] | null {
+    const raw = this.getOrderMetadata(order).clientPayParams;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    return raw as CreatePaymentOrderResponse["clientPayParams"];
   }
 
   private toCreateResponse(

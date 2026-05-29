@@ -10,6 +10,8 @@ export interface GrantEntitlementInput {
   sourceOrderId: string;
   productCode: PaymentProductCode;
   channel: PaymentChannel;
+  periodStart?: Date | null;
+  periodEnd?: Date | null;
 }
 
 export interface GrantEntitlementResult {
@@ -33,6 +35,8 @@ export class PaymentEntitlementService {
       userId: input.userId,
       sourceOrderId: input.sourceOrderId,
       months,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
     });
     if (!result.alreadyApplied) {
       await this.syncAutoRenewBillingAfterGrant(input.userId, result.subscription.expiresAt);

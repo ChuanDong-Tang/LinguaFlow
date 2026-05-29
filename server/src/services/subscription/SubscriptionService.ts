@@ -18,6 +18,8 @@ export interface OpenOrRenewProInput {
   sourceOrderId: string;
   months?: number;
   now?: Date;
+  periodStart?: Date | null;
+  periodEnd?: Date | null;
 }
 
 export interface OpenOrRenewProResult {
@@ -68,12 +70,15 @@ export class SubscriptionService {
       };
     }
 
-    const current = await this.subscriptionRepository.findCurrentActiveByUserId(
-      input.userId,
-      now
-    );
-    const startedAt = current && current.expiresAt > now ? current.expiresAt : now;
-    const expiresAt = this.addMonths(startedAt, months);
+    const current = await this.subscriptionRepository.findCurrentActiveByUserId(input.userId, now);
+    const explicitPeriodEnd = input.periodEnd && input.periodEnd > now ? input.periodEnd : null;
+    const startedAt =
+      explicitPeriodEnd && input.periodStart
+        ? input.periodStart
+        : current && current.expiresAt > now
+          ? current.expiresAt
+          : now;
+    const expiresAt = explicitPeriodEnd ?? this.addMonths(startedAt, months);
 
     const subscription = await this.subscriptionRepository.create({
       userId: input.userId,

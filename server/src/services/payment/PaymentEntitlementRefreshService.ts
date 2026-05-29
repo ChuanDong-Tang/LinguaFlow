@@ -23,6 +23,8 @@ export interface RefreshPaymentEntitlementResult {
 
 
 export class PaymentEntitlementRefreshService {
+  private readonly recentRefreshByUser = new Map<string, { at: number; result: RefreshPaymentEntitlementResult }>();
+
   constructor(
     private readonly paymentOrderService: PaymentOrderService,
     private readonly autoRenewService: AutoRenewService,
@@ -32,6 +34,15 @@ export class PaymentEntitlementRefreshService {
   ) {}
 
   async refreshForUser(userId: string): Promise<RefreshPaymentEntitlementResult> {
+    const now = Date.now();
+    const cached = this.recentRefreshByUser.get(userId);
+    if (cached && now - cached.at < 15_000) {
+      return {
+        ...cached.result,
+        entitlement: await this.entitlementService.getCurrentEntitlement(userId),
+      };
+    }
+
     const paymentOrders = await this.paymentOrderService.reconcileUserPendingOrders({
       userId,
       // 用户手动刷新普通支付订单：如果微信查单已支付，就走统一权益发放入口。
@@ -64,10 +75,12 @@ export class PaymentEntitlementRefreshService {
 
     const entitlement = await this.entitlementService.getCurrentEntitlement(userId);
 
-    return {
+    const result = {
       entitlement,
       paymentOrders,
       autoRenewCharges,
     };
+    this.recentRefreshByUser.set(userId, { at: now, result });
+    return result;
   }
 }

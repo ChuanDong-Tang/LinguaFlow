@@ -883,6 +883,8 @@ export class AutoRenewService {
       sourceOrderId: `${input.provider}_autorenew:${input.providerChargeId}`,
       productCode: "pro_monthly",
       channel: input.provider === "apple" ? "ios_iap" : "wechat",
+      periodStart: input.periodStart ?? null,
+      periodEnd: input.periodEnd ?? null,
     });
 
     return {

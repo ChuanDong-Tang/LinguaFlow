@@ -28,6 +28,7 @@ export interface PaymentEventRepository {
     eventType: string;
   }): Promise<PaymentEventEntity | null>;
   create(input: CreatePaymentEventInput): Promise<PaymentEventEntity>;
+  findOrCreate(input: CreatePaymentEventInput): Promise<PaymentEventEntity>;
   markProcessed(
     id: string,
     options?: { expectedCurrentStatuses?: PaymentEventStatus[] }

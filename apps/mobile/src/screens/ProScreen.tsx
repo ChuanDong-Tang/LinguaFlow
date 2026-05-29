@@ -234,15 +234,30 @@ export function ProScreen({ onBack }: ProScreenProps) {
     safeAlert("签约处理中", "已有 Pro 权益，本次只创建自动续费签约，后续周期会自动衔接。");
   }
 
-  function handleManageAutoRenew(): void {
+  async function handleManageAutoRenew(): Promise<void> {
     if (!autoRenew) return;
     if (autoRenew.provider === "apple") {
       // Apple 订阅只能去 Apple ID 订阅管理里取消，服务端不能替用户直接取消平台订阅。
       safeAlert("前往 Apple 管理", "请在 iOS 的 Apple ID 订阅管理中取消自动续费。");
       return;
     }
-    // 微信签约也应该回到微信支付/签约记录里取消；App 只展示入口提示，不直接代替用户解约。
-    safeAlert("前往微信管理", "请在微信支付的自动续费/扣费服务中取消本服务。");
+    setIsAutoRenewLoading(true);
+    try {
+      const cancelled = await cancelAutoRenewSubscription(autoRenew.id);
+      if (!isScreenAlive()) return;
+      setAutoRenew((current) =>
+        current && current.id === cancelled.id
+          ? { ...current, status: cancelled.status, cancelledAt: cancelled.cancelledAt }
+          : current
+      );
+      safeAlert("已取消自动续费", "后续不会再自动扣费，当前 Pro 权益可继续使用至到期。");
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      safeAlert("取消失败", message);
+    } finally {
+      if (isScreenAlive()) setIsAutoRenewLoading(false);
+    }
   }
 
   async function startAppleIapPurchase(_source: "single_purchase" | "auto_renew"): Promise<void> {
@@ -383,7 +398,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
                 styles.actionButton,
                 isAutoRenewLoading && styles.subscribeButtonDisabled,
               ]}
-              onPress={activeAutoRenew ? handleManageAutoRenew : () => void handleStartAutoRenew()}
+              onPress={activeAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew()}
               disabled={isAutoRenewLoading}
             >
               {isAutoRenewLoading ? (

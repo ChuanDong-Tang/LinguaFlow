@@ -98,13 +98,13 @@ export class PaymentNotifyService {
       eventType: body.event_type,
     });
 
-    if (existingEvent && existingEvent.status !== "received") {
+    if (existingEvent && !["received", "failed"].includes(existingEvent.status)) {
       return { status: "ignored" };
     }
 
     const event =
       existingEvent ??
-      (await this.paymentEventRepository.create({
+      (await this.paymentEventRepository.findOrCreate({
         provider: "wechat",
         providerEventId: body.id,
         providerOrderId: null,
@@ -274,13 +274,13 @@ export class PaymentNotifyService {
       eventType: body.event_type,
     });
 
-    if (existingEvent && existingEvent.status !== "received") {
+    if (existingEvent && !["received", "failed"].includes(existingEvent.status)) {
       return { status: "ignored" };
     }
 
     const event =
       existingEvent ??
-      (await this.paymentEventRepository.create({
+      (await this.paymentEventRepository.findOrCreate({
         provider: "wechat",
         providerEventId: body.id,
         providerOrderId: null,
