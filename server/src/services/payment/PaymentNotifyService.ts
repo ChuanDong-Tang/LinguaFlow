@@ -141,9 +141,9 @@ export class PaymentNotifyService {
         await this.paymentEventRepository.markFailed(event.id, "Payment order not found");
         throw new Error("PAYMENT_ORDER_NOT_FOUND");
       }   
-      // todo:其他状态的订单也会发权益？
+      let paidOrder = order.status === "paid" ? order : null;
       if (order.status !== "paid") {
-        await this.paymentOrderRepository.updateStatus({
+        paidOrder = await this.paymentOrderRepository.updateStatus({
           id: order.id,
           status: "paid",
           expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus("paid"),
@@ -153,20 +153,27 @@ export class PaymentNotifyService {
           },
         });
       }
+      if (!paidOrder) {
+        await this.paymentEventRepository.markIgnored(
+          event.id,
+          `Payment order status ${order.status} cannot transition to paid`
+        );
+        return { status: "ignored" };
+      }
 
       try {
         await this.paymentEntitlementService.grantAfterPayment({
-          userId: order.userId,
-          sourceOrderId: order.id,
-          productCode: "pro_monthly",
-          channel: "wechat",
+          userId: paidOrder.userId,
+          sourceOrderId: paidOrder.id,
+          productCode: paidOrder.productCode,
+          channel: paidOrder.provider,
         });
       } catch (_error) {
         await this.benefitGrantService.enqueueGrant({
-          userId: order.userId,
-          sourceOrderId: order.id,
-          productCode: "pro_monthly",
-          channel: "wechat",
+          userId: paidOrder.userId,
+          sourceOrderId: paidOrder.id,
+          productCode: paidOrder.productCode,
+          channel: paidOrder.provider,
           payload: { fallbackReason: "sync_grant_failed", source: "wechat_notify" },
         });
       }
