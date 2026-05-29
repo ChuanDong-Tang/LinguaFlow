@@ -51,11 +51,15 @@ export class AppleIapService {
     if (!this.appleIapAccountLinkRepository) {
       throw new Error("APPLE_IAP_ACCOUNT_LINK_REPOSITORY_NOT_CONFIGURED");
     }
+    const expectedAppAccountToken = createAppleAppAccountToken(input.userId);
+    if (!sameAppleAppAccountToken(input.appAccountToken, expectedAppAccountToken)) {
+      throw new AppleIapVerifyError("appAccountToken mismatch");
+    }
     await this.appleIapAccountLinkRepository.upsert({
       userId: input.userId,
-      appAccountToken: input.appAccountToken,
+      appAccountToken: expectedAppAccountToken,
     });
-    return { appAccountToken: input.appAccountToken };
+    return { appAccountToken: expectedAppAccountToken };
   }
 
   async verifyProMonthlyTransaction(input: {
