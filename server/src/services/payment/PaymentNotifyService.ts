@@ -34,9 +34,15 @@ type WeChatNotifyBody = {
 };
 
 type WeChatTransactionResource = {
+  appid?: string;
+  mchid?: string;
   out_trade_no: string;
   transaction_id?: string;
   trade_state: string;
+  amount?: {
+    total?: number;
+    currency?: string;
+  };
 };
 
 type WeChatRefundResource = {
@@ -124,9 +130,12 @@ export class PaymentNotifyService {
       } catch (error) {
         throw new Error(`WECHAT_NOTIFY_DECRYPT_PARSE_FAILED: ${toErrorMessage(error)}`);
       }
-      // todo:只靠out_trade_no找订单，没有校验金额，币种等
-      const providerOrderId = resource.out_trade_no;
 
+      if (!resource.out_trade_no) {
+        throw new Error("WECHAT_NOTIFY_OUT_TRADE_NO_MISSING");
+      }
+
+      const providerOrderId = resource.out_trade_no;
       if (body.event_type !== "TRANSACTION.SUCCESS" || resource.trade_state !== "SUCCESS") {
         await this.paymentEventRepository.markIgnored(
           event.id,
@@ -141,6 +150,22 @@ export class PaymentNotifyService {
         await this.paymentEventRepository.markFailed(event.id, "Payment order not found");
         throw new Error("PAYMENT_ORDER_NOT_FOUND");
       }   
+      if (resource.appid !== config.appId) {
+        throw new Error("WECHAT_NOTIFY_APPID_MISMATCH");
+      }
+      if (resource.mchid !== config.mchId) {
+        throw new Error("WECHAT_NOTIFY_MCHID_MISMATCH");
+      }
+      if (resource.amount?.total !== order.amount) {
+        throw new Error("WECHAT_NOTIFY_AMOUNT_MISMATCH");
+      }
+      if (resource.amount?.currency !== order.currency) {
+        throw new Error("WECHAT_NOTIFY_CURRENCY_MISMATCH");
+      }
+      if (resource.out_trade_no !== order.providerOrderId) {
+        throw new Error("WECHAT_NOTIFY_OUT_TRADE_NO_MISMATCH");
+      }
+
       let paidOrder = order.status === "paid" ? order : null;
       if (order.status !== "paid") {
         paidOrder = await this.paymentOrderRepository.updateStatus({
