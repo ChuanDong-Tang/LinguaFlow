@@ -36,7 +36,10 @@ const paymentOrderService = new PaymentOrderService(
   paymentProvider,
   subscriptionService
 );
-const paymentEntitlementService = new PaymentEntitlementService(subscriptionService);
+const paymentEntitlementService = new PaymentEntitlementService(
+  subscriptionService,
+  autoRenewRepository
+);
 const weChatAutoRenewProvider = new WeChatAutoRenewProvider();
 const autoRenewService = new AutoRenewService(
   autoRenewRepository,

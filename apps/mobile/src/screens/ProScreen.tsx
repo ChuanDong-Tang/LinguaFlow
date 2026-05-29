@@ -53,6 +53,17 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
   const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
+  const activeAutoRenew = hasActiveAutoRenew(autoRenew);
+  const statusLabel = resolveProStatusLabel({
+    isPro: isRenew,
+    expiresAt: proExpiresAt,
+    autoRenew,
+  });
+  const autoRenewDescription = resolveAutoRenewDescription({
+    isPro: isRenew,
+    expiresAt: proExpiresAt,
+    autoRenew,
+  });
 
   async function refreshProEntitlementState(): Promise<Awaited<ReturnType<typeof refreshEntitlementAndSession>> | null> {
     try {
@@ -328,85 +339,72 @@ export function ProScreen({ onBack }: ProScreenProps) {
         <View style={styles.heroCard}>
           <View>
             <Text style={styles.heroTitle}>OIO Pro</Text>
-            <Text style={styles.heroCopy}>更充足的字符额度，</Text>
-            <Text style={styles.heroCopy}>让表达练习更自由。</Text>
-          </View>
-          <View style={styles.heroShape}>
-            <View style={styles.heroCircle} />
-            <View style={styles.heroSquare} />
+            <Text style={styles.heroCopy}>更充足的字符额度，支持更长文本和高频练习。</Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Pro 权益</Text>
         <View style={styles.benefitCard}>
-        <BenefitItem icon="text-outline" title="更多每日字符额度" subtitle="普通版：每日 10,000 字\nPro 版：每日 100,000 字" />
-          <BenefitItem icon="leaf-outline" title="支持更长文本改写" subtitle="更适合长句、长段落改写" />
-          <BenefitItem icon="flash-outline" title="更高频使用" subtitle="适合每天持续练习和记录" isLast />
+          <BenefitItem icon="text-outline" title="每日 100,000 字额度" subtitle="普通版每日 10,000 字" />
+          <BenefitItem icon="leaf-outline" title="支持更长文本" subtitle="适合长句、长段落改写" />
+          <BenefitItem icon="flash-outline" title="更高频使用" subtitle="适合持续练习和记录" isLast />
         </View>
 
         <View style={styles.priceCard}>
           <View style={styles.priceHead}>
             <Text style={styles.priceTitle}>Pro 月度</Text>
-            {isRenew && proExpiresAt ? <Text style={styles.expire}>到期时间：{formatDate(proExpiresAt)}</Text> : null}
+            {statusLabel ? <Text style={styles.expire}>{statusLabel}</Text> : null}
           </View>
           <View style={styles.priceRow}>
             <Text style={styles.price}>¥ xx</Text>
             <Text style={styles.priceUnit}> / 月</Text>
           </View>
-          <View style={styles.noteBox}>
-            <Text style={styles.noteText}>
-              测试说明：后续接入更多功能后，{"\n"}Pro 权益与价格可能会调整，具体请以当前页面展示为准。
-            </Text>
-          </View>
           <View style={styles.autoRenewBox}>
             <View style={styles.autoRenewCopy}>
               <Text style={styles.autoRenewTitle}>自动续费</Text>
-              <Text style={styles.autoRenewText}>
-                {autoRenew?.status === "pending"
-                  ? "签约处理中，如未完成可稍后重试。"
-                  : hasActiveAutoRenew(autoRenew)
-                    ? `已通过${formatProviderName(autoRenew.provider)}开启，${formatNullableDate(autoRenew.nextBillingAt) || "下次扣款时间待同步"}`
-                    : `${formatAutoRenewProviderLabel()}自动续费，可随时取消。`}
-              </Text>
+              <Text style={styles.autoRenewText}>{autoRenewDescription}</Text>
             </View>
-            {hasActiveAutoRenew(autoRenew) ? (
-              <Pressable
-                style={[styles.secondaryButton, isAutoRenewLoading && styles.subscribeButtonDisabled]}
-                onPress={handleManageAutoRenew}
-                disabled={isAutoRenewLoading}
-              >
-                {isAutoRenewLoading ? (
-                  <ActivityIndicator color="#111111" />
-                ) : (
-                  <Text style={styles.secondaryButtonText}>管理</Text>
-                )}
-              </Pressable>
-            ) : (
-              <Pressable
-                style={[styles.secondaryButton, isAutoRenewLoading && styles.subscribeButtonDisabled]}
-                onPress={() => void handleStartAutoRenew()}
-                disabled={isAutoRenewLoading}
-              >
-                {isAutoRenewLoading ? (
-                  <ActivityIndicator color="#111111" />
-                ) : (
-                  <Text style={styles.secondaryButtonText}>{formatAutoRenewButtonLabel()}</Text>
-                )}
-              </Pressable>
-            )}
           </View>
 
-          <Pressable
-            style={[styles.subscribeButton, isPaying && styles.subscribeButtonDisabled]}
-            onPress={() => void handleSubscribe()}
-            disabled={isPaying}
-          >
-            {isPaying ? (
-              <ActivityIndicator color="#111111" />
-            ) : (
-              <Text style={styles.subscribeText}>{isRenew ? "仅续费 1 个月" : "仅购买 1 个月"}</Text>
-            )}
-          </Pressable>
+          <View style={styles.actionRow}>
+            <Pressable
+              style={[styles.subscribeButton, styles.actionButton, isPaying && styles.subscribeButtonDisabled]}
+              onPress={() => void handleSubscribe()}
+              disabled={isPaying}
+            >
+              {isPaying ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.subscribeText}>{isRenew ? "仅续费 1 个月" : "仅购买 1 个月"}</Text>
+              )}
+            </Pressable>
+            <Pressable
+              style={[
+                styles.secondaryButton,
+                styles.actionButton,
+                isAutoRenewLoading && styles.subscribeButtonDisabled,
+              ]}
+              onPress={activeAutoRenew ? handleManageAutoRenew : () => void handleStartAutoRenew()}
+              disabled={isAutoRenewLoading}
+            >
+              {isAutoRenewLoading ? (
+                <ActivityIndicator color="#111111" />
+              ) : (
+                <Text style={styles.secondaryButtonText}>
+                  {activeAutoRenew ? "取消自动续费" : formatAutoRenewButtonLabel()}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.ruleCard}>
+          <Text style={styles.ruleTitle}>付款与权益规则</Text>
+          {PAYMENT_RULES.map((rule) => (
+            <View key={rule} style={styles.ruleItem}>
+              <View style={styles.ruleDot} />
+              <Text style={styles.ruleText}>{rule}</Text>
+            </View>
+          ))}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -453,6 +451,39 @@ function formatNullableDate(value: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return `下次扣款：${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function resolveAutoRenewDescription(input: {
+  isPro: boolean;
+  expiresAt: string | null;
+  autoRenew: MobileAutoRenewSubscription | null;
+}): string {
+  if (input.autoRenew?.status === "pending") {
+    return "签约处理中，如未完成可稍后重试。";
+  }
+  if (hasActiveAutoRenew(input.autoRenew)) {
+    return `已通过${formatProviderName(input.autoRenew.provider)}开启，${
+      formatNullableDate(input.autoRenew.nextBillingAt) || "下次扣款时间待同步"
+    }`;
+  }
+  if (input.isPro && input.expiresAt) {
+    return `${formatAutoRenewProviderLabel()}自动续费会在当前会员到期后接续，不会立即重复扣费。`;
+  }
+  return `${formatAutoRenewProviderLabel()}自动续费会先完成首期支付，之后按月自动续费，可随时管理。`;
+}
+
+function resolveProStatusLabel(input: {
+  isPro: boolean;
+  expiresAt: string | null;
+  autoRenew: MobileAutoRenewSubscription | null;
+}): string | null {
+  if (hasActiveAutoRenew(input.autoRenew)) {
+    return formatNullableDate(input.autoRenew.nextBillingAt) || "下次扣费待同步";
+  }
+  if (input.isPro && input.expiresAt) {
+    return `有效期至：${formatDate(input.expiresAt)}`;
+  }
+  return null;
 }
 
 function formatDate(value: string): string {
@@ -509,6 +540,15 @@ function BenefitItem({
   );
 }
 
+const PAYMENT_RULES = [
+  "1.Pro 有效期统一累计，单买和订阅都接在同一条时间线上。",
+  "2.单月购买每次只加 1 个月，最多预存到约 2 个月后。",
+  "3.已有 Pro 开通订阅不会立即重复扣费，到期后自动接续。",
+  "4.订阅中单买 1 个月，会同步推迟下一次扣费。",
+  "5.价格或权益调整后，在后续购买或自动续费时生效。",
+  "6.取消订阅只停止后续扣款，当前权益保留至到期。",
+];
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -516,21 +556,21 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    height: 56,
+    height: 48,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
   },
   headerTitle: {
     color: "#111111",
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "500",
   },
 
@@ -538,77 +578,42 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 18,
-    paddingBottom: 26,
+    paddingHorizontal: 14,
+    paddingBottom: 16,
   },
 
   heroCard: {
-    minHeight: 124,
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#E5E2FF",
     backgroundColor: "#F8F7FF",
-    overflow: "hidden",
-    flexDirection: "row",
-    justifyContent: "space-between",
   },
   heroTitle: {
-    color: "#111111",
-    fontSize: 18,
-    fontWeight: "500",
-  },
-  heroCopy: {
-    marginTop: 7,
-    color: "#44527E",
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  heroShape: {
-    width: 92,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroCircle: {
-    position: "absolute",
-    top: 14,
-    left: 14,
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1.5,
-    borderColor: "#6C62FF",
-  },
-  heroSquare: {
-    position: "absolute",
-    top: 38,
-    left: 42,
-    width: 46,
-    height: 46,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: "#6C62FF",
-  },
-
-  sectionTitle: {
-    marginTop: 18,
-    marginBottom: 10,
     color: "#111111",
     fontSize: 15,
     fontWeight: "500",
   },
+  heroCopy: {
+    marginTop: 4,
+    color: "#44527E",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+
   benefitCard: {
-    borderRadius: 14,
+    marginTop: 10,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#E2E5EB",
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
   benefitItem: {
-    minHeight: 70,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    minHeight: 48,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -617,9 +622,9 @@ const styles = StyleSheet.create({
     borderBottomColor: "#ECEEF2",
   },
   benefitIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: "#DDE2EC",
     alignItems: "center",
@@ -627,24 +632,24 @@ const styles = StyleSheet.create({
   },
   benefitCopy: {
     flex: 1,
-    marginLeft: 14,
+    marginLeft: 10,
   },
   benefitTitle: {
     color: "#111111",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "500",
   },
   benefitSubtitle: {
-    marginTop: 4,
+    marginTop: 2,
     color: "#44527E",
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 11,
+    lineHeight: 15,
   },
 
   priceCard: {
-    marginTop: 16,
-    padding: 14,
-    borderRadius: 14,
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#E2E5EB",
     backgroundColor: "#FFFFFF",
@@ -656,42 +661,31 @@ const styles = StyleSheet.create({
   },
   priceTitle: {
     color: "#111111",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "500",
   },
   expire: {
     color: "#6A7290",
-    fontSize: 12,
+    fontSize: 11,
   },
   priceRow: {
-    marginTop: 10,
+    marginTop: 6,
     flexDirection: "row",
     alignItems: "baseline",
   },
   price: {
     color: "#6E63FF",
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: "500",
   },
   priceUnit: {
     color: "#3E4761",
-    fontSize: 15,
-  },
-  noteBox: {
-    marginTop: 10,
-    padding: 10,
-    borderRadius: 12,
-    backgroundColor: "#F5F4FF",
-  },
-  noteText: {
-    color: "#59617B",
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
   },
   autoRenewBox: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 12,
+    marginTop: 8,
+    padding: 9,
+    borderRadius: 9,
     borderWidth: 1,
     borderColor: "#DDE2EC",
     backgroundColor: "#FAFBFF",
@@ -700,24 +694,22 @@ const styles = StyleSheet.create({
   },
   autoRenewCopy: {
     flex: 1,
-    paddingRight: 12,
   },
   autoRenewTitle: {
     color: "#111111",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "500",
   },
   autoRenewText: {
-    marginTop: 5,
+    marginTop: 3,
     color: "#59617B",
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 16,
   },
   secondaryButton: {
-    minWidth: 66,
-    height: 36,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    minHeight: 38,
+    paddingHorizontal: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#111111",
     alignItems: "center",
@@ -726,16 +718,16 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: "#111111",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "500",
+    textAlign: "center",
   },
   subscribeButton: {
-    marginTop: 14,
-    height: 48,
-    borderRadius: 14,
+    minHeight: 38,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#111111",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#111111",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -743,8 +735,47 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   subscribeText: {
-    color: "#111111",
-    fontSize: 15,
+    color: "#FFFFFF",
+    fontSize: 13,
     fontWeight: "500",
+    textAlign: "center",
+  },
+  actionRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    gap: 10,
+  },
+  actionButton: {
+    flex: 1,
+  },
+  ruleCard: {
+    marginTop: 8,
+    paddingHorizontal: 2,
+    paddingBottom: 2,
+  },
+  ruleTitle: {
+    color: "#111111",
+    fontSize: 12,
+    fontWeight: "500",
+    marginBottom: 4,
+  },
+  ruleItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginTop: 4,
+  },
+  ruleDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    marginTop: 6,
+    marginRight: 6,
+    backgroundColor: "#6E63FF",
+  },
+  ruleText: {
+    flex: 1,
+    color: "#59617B",
+    fontSize: 10,
+    lineHeight: 14,
   },
 });

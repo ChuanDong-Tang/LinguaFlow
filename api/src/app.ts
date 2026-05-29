@@ -127,7 +127,10 @@ export function createApp() {
     paymentProvider,
     subscriptionService
   );
-  const paymentEntitlementService = new PaymentEntitlementService(subscriptionService);
+  const paymentEntitlementService = new PaymentEntitlementService(
+    subscriptionService,
+    autoRenewRepository
+  );
   const benefitGrantService = new BenefitGrantService(benefitGrantRepository);
   const paymentCertSyncService = new PaymentCertSyncService(trustedCertRepository);
   const paymentNotifyService = new PaymentNotifyService(
