@@ -24,6 +24,14 @@ type PrismaAutoRenewClient = {
 export class PrismaAutoRenewRepository implements AutoRenewRepository {
   constructor(private readonly prisma: PrismaAutoRenewClient) {}
 
+  async findById(id: string): Promise<AutoRenewSubscriptionEntity | null> {
+    const row = await this.prisma.autoRenewSubscription.findUnique({
+      where: { id },
+    });
+
+    return row ? this.toSubscriptionEntity(row) : null;
+  }
+
   async findActiveByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null> {
     const row = await this.prisma.autoRenewSubscription.findFirst({
       where: {

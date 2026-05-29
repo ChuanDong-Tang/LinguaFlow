@@ -770,10 +770,7 @@ export class AutoRenewService {
       }
       const tradeState = String(snapshot.tradeState ?? "").toUpperCase();
       if (tradeState === "SUCCESS") {
-        const subscription = await this.autoRenewRepository.findByLatestTransaction({
-          provider: "wechat",
-          latestTransactionId: snapshot.contractId ?? "",
-        });
+        const subscription = await this.autoRenewRepository.findById(charge.autoRenewSubscriptionId);
         if (!subscription) {
           result.failed += 1;
           await this.writeSystemEventLog({
@@ -808,6 +805,7 @@ export class AutoRenewService {
         await this.autoRenewRepository.updateSubscription({
           id: subscription.id,
           status: "active",
+          latestTransactionId: snapshot.contractId ?? subscription.latestTransactionId,
           currentPeriodStart: charge.periodStart,
           currentPeriodEnd: charge.periodEnd,
           nextBillingAt: charge.periodEnd ? computeEarlyBillingAt(charge.periodEnd) : null,

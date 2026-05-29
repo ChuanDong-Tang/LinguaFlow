@@ -88,6 +88,7 @@ export interface UpsertAutoRenewChargeInput {
 }
 
 export interface AutoRenewRepository {
+  findById(id: string): Promise<AutoRenewSubscriptionEntity | null>;
   findActiveByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null>;
   findCurrentByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null>;
   findPendingByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null>;
