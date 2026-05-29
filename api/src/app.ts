@@ -214,7 +214,7 @@ export function createApp() {
     const db = await prisma
       .$queryRaw`SELECT 1`
       .then(() => ({ ok: true }))
-      .catch((error) => ({
+      .catch((error: unknown) => ({
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       }));
