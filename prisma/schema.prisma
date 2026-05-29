@@ -224,7 +224,7 @@ model AppleIapAccountLink {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([originalTransactionId])
+  @@unique([originalTransactionId])
   @@map("apple_iap_account_links")
 }
 

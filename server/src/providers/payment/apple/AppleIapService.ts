@@ -197,6 +197,10 @@ export class AppleIapService {
       if (signedTransactionInfo) {
         const txDecoded = verifyAndDecodeAppleJws(signedTransactionInfo, config.rootCaPem);
         tx = decodeTransactionPayload(txDecoded.payload);
+        assertAppleNotificationEnvironmentMatchesTransaction({
+          notificationEnvironment: notification.data?.environment,
+          transactionEnvironment: tx.signedEnvironment,
+        });
         if (tx.bundleId !== config.bundleId) {
           await this.paymentEventRepository.markIgnored(event.id, "Bundle id mismatch");
           return { status: "ignored", eventId, eventType };
@@ -238,7 +242,10 @@ export class AppleIapService {
           }
         }
 
-        const nextStatus = mapAppleEventToOrderStatus(notification.notificationType);
+        const nextStatus =
+          tx.productId === config.proProductId
+            ? mapAppleEventToOrderStatus(notification.notificationType)
+            : null;
         if (nextStatus) {
           const candidateProviderOrderIds = [
             tx.originalTransactionId,
@@ -345,6 +352,18 @@ function createAppleAppAccountToken(userId: string): string {
 
 function sameAppleAppAccountToken(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function assertAppleNotificationEnvironmentMatchesTransaction(input: {
+  notificationEnvironment?: string;
+  transactionEnvironment: string | null;
+}): void {
+  if (!input.notificationEnvironment || !input.transactionEnvironment) return;
+  const notificationEnvironment = input.notificationEnvironment.trim().toLowerCase();
+  const transactionEnvironment = input.transactionEnvironment.trim().toLowerCase();
+  if (notificationEnvironment !== transactionEnvironment) {
+    throw new AppleIapVerifyError("Apple notification environment mismatch");
+  }
 }
 
 function mapAppleEventToOrderStatus(

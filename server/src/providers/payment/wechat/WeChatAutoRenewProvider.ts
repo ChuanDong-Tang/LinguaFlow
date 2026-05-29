@@ -35,6 +35,8 @@ export interface WeChatDebitNotification {
   contractId: string | null;
   tradeState: string | null;
   transactionId: string | null;
+  amount: number | null;
+  currency: string | null;
   raw: unknown;
 }
 
@@ -43,6 +45,8 @@ export interface WeChatAutoRenewOrderSnapshot {
   contractId: string | null;
   tradeState: string | null;
   transactionId: string | null;
+  amount: number | null;
+  currency: string | null;
   raw: unknown;
 }
 
@@ -269,6 +273,8 @@ class WeChatAutoRenewClient {
       contractId: trimToNull(raw.contract_id),
       tradeState: normalizeTradeState(raw),
       transactionId: trimToNull(raw.transaction_id),
+      amount: readAmountTotal(raw.amount),
+      currency: readAmountCurrency(raw.amount),
       raw,
     };
   }
@@ -296,6 +302,8 @@ class WeChatAutoRenewClient {
       contractId: trimToNull(resource.contract_id),
       tradeState: trimToNull(resource.trade_state ?? resource.result_code),
       transactionId: trimToNull(resource.transaction_id),
+      amount: readAmountTotal(resource.amount),
+      currency: readAmountCurrency(resource.amount),
       raw: { body, resource },
     };
   }
@@ -361,4 +369,20 @@ function normalizeTradeState(raw: Record<string, unknown>): string | null {
 function trimToNull(value: unknown): string | null {
   const text = String(value ?? "").trim();
   return text || null;
+}
+
+function readAmountTotal(value: unknown): number | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const total = (value as Record<string, unknown>).total;
+  if (typeof total === "number" && Number.isFinite(total)) return total;
+  if (typeof total === "string" && total.trim()) {
+    const parsed = Number(total);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function readAmountCurrency(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return trimToNull((value as Record<string, unknown>).currency);
 }

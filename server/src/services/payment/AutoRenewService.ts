@@ -433,6 +433,12 @@ export class AutoRenewService {
       // 微信回调可能重复投递，已 paid 的 charge 不能再次推进 currentPeriodEnd。
       return { chargeId: notification.outTradeNo, status: "ignored" };
     }
+    assertWeChatDebitAmountMatches({
+      expectedAmount: existingCharge?.amount ?? getRuntimeConfig().payment.proMonthlyPriceCents,
+      expectedCurrency: existingCharge?.currency ?? "CNY",
+      actualAmount: notification.amount,
+      actualCurrency: notification.currency,
+    });
 
     const success =
       notification.eventType === "TRANSACTION.SUCCESS" ||
@@ -484,6 +490,8 @@ export class AutoRenewService {
       // 新周期必须从旧 currentPeriodEnd 接上，避免扣款早到后把权益边界提前滚动。
       periodStart,
       periodEnd,
+      amount: notification.amount ?? existingCharge?.amount ?? null,
+      currency: notification.currency ?? existingCharge?.currency ?? null,
       paidAt: new Date(),
       rawPayload: notification.raw,
     });
@@ -787,6 +795,12 @@ export class AutoRenewService {
           });
           continue;
         }
+        assertWeChatDebitAmountMatches({
+          expectedAmount: charge.amount,
+          expectedCurrency: charge.currency,
+          actualAmount: snapshot.amount,
+          actualCurrency: snapshot.currency,
+        });
         // 对账补偿和微信回调走同一套 recordPaidCharge 幂等逻辑。
         // 即使回调稍后又到，也会被 sourceOrderId / providerChargeId 挡住，不会重复发权益。
         await this.recordPaidCharge({
@@ -795,8 +809,8 @@ export class AutoRenewService {
           providerAgreementId: subscription.providerAgreementId,
           providerChargeId: charge.providerChargeId,
           periodKey: charge.periodKey,
-          amount: charge.amount,
-          currency: charge.currency,
+          amount: snapshot.amount ?? charge.amount,
+          currency: snapshot.currency ?? charge.currency,
           periodStart: charge.periodStart,
           periodEnd: charge.periodEnd,
           paidAt: new Date(),
@@ -880,7 +894,7 @@ export class AutoRenewService {
 
     const result = await this.paymentEntitlementService.grantAfterPayment({
       userId: input.userId,
-      sourceOrderId: `${input.provider}_autorenew:${input.providerChargeId}`,
+      sourceOrderId: createAutoRenewEntitlementSourceOrderId(input.provider, input.providerChargeId),
       productCode: "pro_monthly",
       channel: input.provider === "apple" ? "ios_iap" : "wechat",
       periodStart: input.periodStart ?? null,
@@ -1124,4 +1138,32 @@ function createWechatAutoRenewTradeNo(autoRenewSubscriptionId: string, periodKey
     .slice(0, 24)
     .toUpperCase();
   return `LFR${digest}`.slice(0, 32);
+}
+
+function createAutoRenewEntitlementSourceOrderId(
+  provider: AutoRenewProvider,
+  providerChargeId: string
+): string {
+  if (provider === "apple") {
+    return `apple_iap:${providerChargeId}`;
+  }
+  return `${provider}_autorenew:${providerChargeId}`;
+}
+
+function assertWeChatDebitAmountMatches(input: {
+  expectedAmount: number | null;
+  expectedCurrency: string | null;
+  actualAmount: number | null;
+  actualCurrency: string | null;
+}): void {
+  if (input.actualAmount !== null && input.expectedAmount !== null) {
+    if (input.actualAmount !== input.expectedAmount) {
+      throw new Error("WECHAT_AUTORENEW_AMOUNT_MISMATCH");
+    }
+  }
+  if (input.actualCurrency && input.expectedCurrency) {
+    if (input.actualCurrency !== input.expectedCurrency) {
+      throw new Error("WECHAT_AUTORENEW_CURRENCY_MISMATCH");
+    }
+  }
 }

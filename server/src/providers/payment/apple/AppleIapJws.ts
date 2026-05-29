@@ -69,6 +69,16 @@ export function verifyAndDecodeAppleJws(
   const intermediateCert = new X509Certificate(Buffer.from(intermediateRaw, "base64"));
   const rootCert = new X509Certificate(rootCaPem);
 
+  if (leafCert.ca) {
+    throw new AppleIapVerifyError("Leaf certificate must not be a CA certificate");
+  }
+  if (!intermediateCert.ca) {
+    throw new AppleIapVerifyError("Intermediate certificate must be a CA certificate");
+  }
+  if (!rootCert.ca) {
+    throw new AppleIapVerifyError("Root certificate must be a CA certificate");
+  }
+
   if (!leafCert.verify(intermediateCert.publicKey)) {
     throw new AppleIapVerifyError("Leaf certificate signature verification failed");
   }

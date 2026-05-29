@@ -14,9 +14,11 @@ export async function fetchTransactionInfo(
   const prod = await requestTransactionInfo(APPLE_PROD_BASE_URL, transactionId, token);
   if (prod.ok) {
     const verified = verifyAndDecodeAppleJws(prod.signedTransactionInfo, rootCaPem);
+    const transaction = decodeTransactionPayload(verified.payload);
+    assertAppleTransactionEnvironment(transaction.signedEnvironment, "production");
     return {
       environment: "production",
-      ...decodeTransactionPayload(verified.payload),
+      ...transaction,
     };
   }
 
@@ -30,9 +32,11 @@ export async function fetchTransactionInfo(
   }
 
   const verified = verifyAndDecodeAppleJws(sandbox.signedTransactionInfo, rootCaPem);
+  const transaction = decodeTransactionPayload(verified.payload);
+  assertAppleTransactionEnvironment(transaction.signedEnvironment, "sandbox");
   return {
     environment: "sandbox",
-    ...decodeTransactionPayload(verified.payload),
+    ...transaction,
   };
 }
 
@@ -66,4 +70,15 @@ async function requestTransactionInfo(
   }
 
   return { ok: true, signedTransactionInfo };
+}
+
+function assertAppleTransactionEnvironment(
+  signedEnvironment: string | null,
+  expected: "production" | "sandbox"
+): void {
+  if (!signedEnvironment) return;
+  const normalized = signedEnvironment.trim().toLowerCase();
+  if (normalized !== expected) {
+    throw new AppleIapVerifyError("Apple transaction environment mismatch");
+  }
 }

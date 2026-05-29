@@ -5,6 +5,7 @@ export type AppleTransactionPayload = {
   originalTransactionId: string;
   bundleId: string;
   productId: string;
+  signedEnvironment: string | null;
   appAccountToken: string | null;
   purchaseDate: number | null;
   expiresDate: number | null;
@@ -15,6 +16,7 @@ export type AppleServerNotificationPayload = {
   notificationType?: string;
   subtype?: string;
   data?: {
+    environment?: string;
     signedTransactionInfo?: string;
   };
 };
@@ -24,6 +26,7 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
   const originalTransactionId = String(payload.originalTransactionId ?? "").trim();
   const bundleId = String(payload.bundleId ?? "").trim();
   const productId = String(payload.productId ?? "").trim();
+  const signedEnvironment = readNullableString(payload.environment);
   const appAccountToken = readNullableString(payload.appAccountToken);
   const purchaseDate = readNullableNumber(payload.purchaseDate);
   const expiresDate = readNullableNumber(payload.expiresDate);
@@ -37,6 +40,7 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
     originalTransactionId,
     bundleId,
     productId,
+    signedEnvironment,
     appAccountToken,
     purchaseDate,
     expiresDate,

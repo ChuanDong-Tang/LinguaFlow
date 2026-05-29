@@ -13,6 +13,8 @@ import {
 import { loadWeChatPayConfig } from "../../providers/payment/wechat/WeChatPayConfig.js";
 import { getExpectedCurrentStatusesForNextStatus } from "./PaymentOrderStateMachine.js";
 
+const WECHAT_NOTIFY_TIMESTAMP_TOLERANCE_SEC = 5 * 60;
+
 export interface WeChatNotifyInput {
   headers: {
     timestamp?: string;
@@ -73,6 +75,7 @@ export class PaymentNotifyService {
       throw new Error("WECHAT_NOTIFY_HEADERS_INVALID");
     }
     if (!input.headers.serial) throw new Error("WECHAT_NOTIFY_SERIAL_MISSING");
+    assertWeChatNotifyTimestampFresh(input.headers.timestamp);
 
     const platformPublicKey = await this.resolveWeChatPublicKeyBySerial(input.headers.serial);
 
@@ -223,6 +226,7 @@ export class PaymentNotifyService {
       throw new Error("WECHAT_NOTIFY_HEADERS_INVALID");
     }
     if (!input.headers.serial) throw new Error("WECHAT_NOTIFY_SERIAL_MISSING");
+    assertWeChatNotifyTimestampFresh(input.headers.timestamp);
 
     const platformPublicKey = await this.resolveWeChatPublicKeyBySerial(input.headers.serial);
     const valid = verifyWeChatPaySignature({
@@ -249,6 +253,7 @@ export class PaymentNotifyService {
       throw new Error("WECHAT_REFUND_NOTIFY_HEADERS_INVALID");
     }
     if (!input.headers.serial) throw new Error("WECHAT_REFUND_NOTIFY_SERIAL_MISSING");
+    assertWeChatNotifyTimestampFresh(input.headers.timestamp);
 
     const platformPublicKey = await this.resolveWeChatPublicKeyBySerial(input.headers.serial);
 
@@ -378,4 +383,15 @@ export class PaymentNotifyService {
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function assertWeChatNotifyTimestampFresh(timestamp: string): void {
+  const parsed = Number(timestamp);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("WECHAT_NOTIFY_TIMESTAMP_INVALID");
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSec - parsed) > WECHAT_NOTIFY_TIMESTAMP_TOLERANCE_SEC) {
+    throw new Error("WECHAT_NOTIFY_TIMESTAMP_EXPIRED");
+  }
 }
