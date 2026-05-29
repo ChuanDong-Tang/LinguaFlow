@@ -151,3 +151,18 @@ export async function verifyAppleProMonthlyTransaction(
   }
   return json.data;
 }
+
+export async function registerAppleAppAccountToken(appAccountToken: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/payment/ios/app-account-token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await getAuthHeaders()),
+    },
+    body: JSON.stringify({ appAccountToken }),
+  });
+  const json = (await res.json()) as ApiResult<{ appAccountToken: string }>;
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+}

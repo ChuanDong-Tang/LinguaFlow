@@ -9,19 +9,26 @@ import {
   createWeChatAutoRenewPreSign,
   createProMonthlyOrder,
   getCurrentAutoRenewSubscription,
+  registerAppleAppAccountToken,
   verifyAppleProMonthlyTransaction,
   type MobileAutoRenewSubscription,
   type MobileWeChatAutoRenewPreSignResult,
 } from "../services/api/paymentApi";
 import {
+  clearPendingAutoRenewFlow,
   clearPendingPaymentOrder,
   pollPaymentOrderUntilSettled,
+  recoverPendingAutoRenewIfAny,
   recoverPendingPaymentIfAny,
+  savePendingAutoRenewFlow,
   savePendingPaymentOrder,
 } from "../services/payment/paymentRecovery";
+import { refreshEntitlementAndSession } from "../services/entitlement/entitlementSync";
+import { getSession } from "../services/auth/authStorage";
 import {
   APPLE_PRO_MONTHLY_PRODUCT_ID,
   assertAppleIapAvailable,
+  createAppleAppAccountToken,
   getAppleTransactionId,
 } from "../services/payment/appleIap";
 import { useMountedGuard } from "../hooks/useMountedGuard";
@@ -41,10 +48,24 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
   const [isPaying, setIsPaying] = useState(false);
   const [isRenew, setIsRenew] = useState(false);
+  const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
   const [autoRenew, setAutoRenew] = useState<MobileAutoRenewSubscription | null>(null);
   const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
   const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
+
+  async function refreshProEntitlementState(): Promise<Awaited<ReturnType<typeof refreshEntitlementAndSession>> | null> {
+    try {
+      const result = await refreshEntitlementAndSession();
+      if (isScreenAlive()) {
+        setIsRenew(result.entitlement.isPro);
+        setProExpiresAt(result.entitlement.expiresAt);
+      }
+      return result;
+    } catch {
+      return null;
+    }
+  }
 
   useEffect(() => {
     void (async () => {
@@ -53,6 +74,19 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!isScreenAlive()) return;
       if (recovered.status === "paid") {
         setIsRenew(true);
+        await refreshProEntitlementState();
+        if (!isScreenAlive()) return;
+        safeAlert("开通成功", "Pro 权益已生效。");
+      }
+      const recoveredAutoRenew = await recoverPendingAutoRenewIfAny();
+      if (!isScreenAlive()) return;
+      if (recoveredAutoRenew.subscription) {
+        setAutoRenew(recoveredAutoRenew.subscription);
+      }
+      if (recoveredAutoRenew.entitlementIsPro === true) {
+        setIsRenew(true);
+        await refreshProEntitlementState();
+        if (!isScreenAlive()) return;
         safeAlert("开通成功", "Pro 权益已生效。");
       }
       try {
@@ -60,6 +94,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         if (!isScreenAlive()) return;
         setAutoRenew(currentAutoRenew);
       } catch {}
+      await refreshProEntitlementState();
     })();
   }, [isScreenAlive, safeAlert]);
 
@@ -94,8 +129,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!isScreenAlive()) return;
       if (settled.status === "paid") {
         await clearPendingPaymentOrder();
+        const entitlementResult = await refreshProEntitlementState();
         if (!isScreenAlive()) return;
-        setIsRenew(true);
+        setIsRenew(entitlementResult?.entitlement.isPro ?? true);
         safeAlert("开通成功", "Pro 权益已生效。");
         return;
       }
@@ -143,6 +179,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
     try {
       preSign = await createWeChatAutoRenewPreSign();
+      await savePendingAutoRenewFlow({
+        autoRenewSubscriptionId: preSign.autoRenewSubscriptionId,
+        provider: preSign.provider,
+        providerOrderId: preSign.providerOrderId,
+      });
 
       if (preSign.clientPayParams) {
         // App-with-contract：用户支付首期时同时完成微信自动续费签约。
@@ -153,11 +194,20 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!isScreenAlive()) return;
 
       const currentAutoRenew = await getCurrentAutoRenewSubscription();
+      const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
       setAutoRenew(currentAutoRenew);
+      if (entitlementResult?.entitlement.isPro) {
+        setIsRenew(true);
+        await clearPendingAutoRenewFlow();
+        safeAlert("开通成功", "Pro 权益已生效。");
+      } else if (currentAutoRenew?.status === "active" || currentAutoRenew?.status === "pending") {
+        safeAlert("签约处理中", "自动续费状态已同步，首期权益到账后会自动刷新。");
+      }
     } catch (error) {
       if (preSign && isWechatUserCancelError(error)) {
         await cancelAutoRenewSubscription(preSign.autoRenewSubscriptionId).catch(() => { });
+        await clearPendingAutoRenewFlow();
       }
     } finally {
       if (isScreenAlive()) setIsAutoRenewLoading(false);
@@ -194,11 +244,19 @@ export function ProScreen({ onBack }: ProScreenProps) {
     setIsAutoRenewLoading(true);
     try {
       // iOS 侧统一购买 Apple 的 Pro 月度自动续费商品；真正权益以后端验单结果为准。
+      const session = await getSession();
+      const appAccountToken = session?.user?.id
+        ? await createAppleAppAccountToken(session.user.id)
+        : null;
+      if (appAccountToken) {
+        await registerAppleAppAccountToken(appAccountToken);
+      }
       await appleIap.requestPurchase({
         type: "subs",
         request: {
           apple: {
             sku: APPLE_PRO_MONTHLY_PRODUCT_ID,
+            appAccountToken,
             andDangerouslyFinishTransactionAutomatically: false,
           },
         },
@@ -221,8 +279,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
       await verifyAppleProMonthlyTransaction(transactionId);
       if (!appleIap) throw new Error("Apple 支付未初始化");
       await appleIap.finishTransaction({ purchase, isConsumable: false });
+      const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
-      setIsRenew(true);
+      setIsRenew(entitlementResult?.entitlement.isPro ?? true);
       const currentAutoRenew = await getCurrentAutoRenewSubscription();
       if (!isScreenAlive()) return;
       setAutoRenew(currentAutoRenew);
@@ -288,7 +347,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         <View style={styles.priceCard}>
           <View style={styles.priceHead}>
             <Text style={styles.priceTitle}>Pro 月度</Text>
-            {isRenew ? <Text style={styles.expire}>到期时间：2026年6月11日</Text> : null}
+            {isRenew && proExpiresAt ? <Text style={styles.expire}>到期时间：{formatDate(proExpiresAt)}</Text> : null}
           </View>
           <View style={styles.priceRow}>
             <Text style={styles.price}>¥ xx</Text>
@@ -394,6 +453,12 @@ function formatNullableDate(value: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return `下次扣款：${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function formatDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
 function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): string {

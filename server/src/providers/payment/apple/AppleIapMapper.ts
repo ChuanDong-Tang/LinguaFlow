@@ -5,6 +5,7 @@ export type AppleTransactionPayload = {
   originalTransactionId: string;
   bundleId: string;
   productId: string;
+  appAccountToken: string | null;
   purchaseDate: number | null;
   expiresDate: number | null;
 };
@@ -23,6 +24,7 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
   const originalTransactionId = String(payload.originalTransactionId ?? "").trim();
   const bundleId = String(payload.bundleId ?? "").trim();
   const productId = String(payload.productId ?? "").trim();
+  const appAccountToken = readNullableString(payload.appAccountToken);
   const purchaseDate = readNullableNumber(payload.purchaseDate);
   const expiresDate = readNullableNumber(payload.expiresDate);
 
@@ -35,9 +37,16 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
     originalTransactionId,
     bundleId,
     productId,
+    appAccountToken,
     purchaseDate,
     expiresDate,
   };
+}
+
+function readNullableString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 function readNullableNumber(value: unknown): number | null {

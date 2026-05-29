@@ -36,6 +36,7 @@ import { PrismaAiRequestLogRepository } from "@lf/server/infrastructure/reposito
 import { PrismaSystemEventLogRepository } from "@lf/server/infrastructure/repository/PrismaSystemEventLogRepository.js";
 import { PrismaTrustedCertRepository } from "@lf/server/infrastructure/repository/PrismaTrustedCertRepository.js";
 import { PrismaAutoRenewRepository } from "@lf/server/infrastructure/repository/PrismaAutoRenewRepository.js";
+import { PrismaAppleIapAccountLinkRepository } from "@lf/server/infrastructure/repository/PrismaAppleIapAccountLinkRepository.js";
 import {
   InMemoryChatGenerationRateLimiter,
   RedisChatGenerationRateLimiter,
@@ -118,6 +119,7 @@ export function createApp() {
   const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
   const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
   const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
+  const appleIapAccountLinkRepository = new PrismaAppleIapAccountLinkRepository(prisma);
   const paymentProvider = new WeChatPaymentProvider();
   const weChatAutoRenewProvider = new WeChatAutoRenewProvider();
   const paymentOrderService = new PaymentOrderService(
@@ -155,7 +157,8 @@ export function createApp() {
     paymentEntitlementService,
     paymentEventRepository,
     paymentOrderRepository,
-    autoRenewService
+    autoRenewService,
+    appleIapAccountLinkRepository
   );
   const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
   const chatGenerationService = new ChatGenerationService(

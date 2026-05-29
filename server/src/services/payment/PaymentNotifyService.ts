@@ -307,7 +307,9 @@ export class PaymentNotifyService {
         throw new Error(`WECHAT_REFUND_NOTIFY_DECRYPT_PARSE_FAILED: ${toErrorMessage(error)}`);
       }
 
-      // todo:退款只改订单状态，没有撤销权益
+      // 微信退款回调只同步支付侧退款事实。
+      // 权益处理走后台 manual-refund 流程：人工确认退款后，将 Pro 截断到业务时区次日 00:00。
+      // 不能在微信回调里自动撤销权益，避免绕过人工审核策略。
       const providerOrderId = resource.out_trade_no;
 
       const isRefundSuccess =

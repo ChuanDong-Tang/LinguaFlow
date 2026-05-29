@@ -1,5 +1,6 @@
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
 import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import type { AppleIapAccountLinkRepository } from "@lf/core/ports/repository/AppleIapAccountLinkRepository.js";
 import type { PaymentOrderStatus } from "@lf/core/ports/payment/PaymentTypes.js";
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
@@ -34,11 +35,26 @@ export class AppleIapService {
     private readonly paymentEntitlementService: PaymentEntitlementService,
     private readonly paymentEventRepository: PaymentEventRepository,
     private readonly paymentOrderRepository: PaymentOrderRepository,
-    private readonly autoRenewService?: AutoRenewService
+    private readonly autoRenewService?: AutoRenewService,
+    private readonly appleIapAccountLinkRepository?: AppleIapAccountLinkRepository
   ) {}
 
   isConfigured(): boolean {
     return isAppleIapConfigured();
+  }
+
+  async registerAppAccountToken(input: {
+    userId: string;
+    appAccountToken: string;
+  }): Promise<{ appAccountToken: string }> {
+    if (!this.appleIapAccountLinkRepository) {
+      throw new Error("APPLE_IAP_ACCOUNT_LINK_REPOSITORY_NOT_CONFIGURED");
+    }
+    await this.appleIapAccountLinkRepository.upsert({
+      userId: input.userId,
+      appAccountToken: input.appAccountToken,
+    });
+    return { appAccountToken: input.appAccountToken };
   }
 
   async verifyProMonthlyTransaction(input: {
@@ -70,6 +86,14 @@ export class AppleIapService {
     }
 
     const sourceOrderId = `apple_iap:${transaction.transactionId}`;
+    if (transaction.appAccountToken) {
+      await this.appleIapAccountLinkRepository?.upsert({
+        userId: input.userId,
+        appAccountToken: transaction.appAccountToken,
+        originalTransactionId,
+        latestTransactionId: transaction.transactionId,
+      });
+    }
     await this.autoRenewService?.register({
       userId: input.userId,
       provider: "apple",
@@ -82,6 +106,7 @@ export class AppleIapService {
         source: "apple_verify_transaction",
         environment: transaction.environment,
         productId: transaction.productId,
+        appAccountToken: transaction.appAccountToken,
       },
     });
     let alreadyApplied = false;
@@ -175,7 +200,7 @@ export class AppleIapService {
           const periodEnd = tx.expiresDate ? new Date(tx.expiresDate) : null;
           if (isApplePaidRenewal(notification.notificationType)) {
             // Apple 自动续订由 Apple 扣款；服务端收到 DID_RENEW 等通知后再补发本期权益。
-            await this.autoRenewService.handleApplePaidTransaction({
+            const result = await this.autoRenewService.handleApplePaidTransaction({
               originalTransactionId: tx.originalTransactionId,
               transactionId: tx.transactionId,
               periodStart,
@@ -185,6 +210,19 @@ export class AppleIapService {
                 transaction: tx,
               },
             });
+            if (result.status === "ignored" && !result.userId && tx.appAccountToken) {
+              await this.handleApplePaidTransactionByAppAccountToken({
+                appAccountToken: tx.appAccountToken,
+                originalTransactionId: tx.originalTransactionId,
+                transactionId: tx.transactionId,
+                periodStart,
+                periodEnd,
+                rawPayload: {
+                  notification,
+                  transaction: tx,
+                },
+              });
+            }
           } else if (["EXPIRED", "REFUND", "REVOKE"].includes(String(notification.notificationType ?? "").toUpperCase())) {
             await this.autoRenewService.handleAppleCancelled({
               originalTransactionId: tx.originalTransactionId,
@@ -238,6 +276,46 @@ export class AppleIapService {
       if (order) return order;
     }
     return null;
+  }
+
+  private async handleApplePaidTransactionByAppAccountToken(input: {
+    appAccountToken: string;
+    originalTransactionId: string;
+    transactionId: string;
+    periodStart: Date | null;
+    periodEnd: Date | null;
+    rawPayload: unknown;
+  }): Promise<void> {
+    if (!this.autoRenewService || !this.appleIapAccountLinkRepository) return;
+    const link = await this.appleIapAccountLinkRepository.findByAppAccountToken(input.appAccountToken);
+    if (!link) return;
+
+    await this.appleIapAccountLinkRepository.upsert({
+      appAccountToken: input.appAccountToken,
+      userId: link.userId,
+      originalTransactionId: input.originalTransactionId,
+      latestTransactionId: input.transactionId,
+    });
+    await this.autoRenewService.register({
+      userId: link.userId,
+      provider: "apple",
+      providerAgreementId: input.originalTransactionId,
+      latestTransactionId: input.transactionId,
+      currentPeriodStart: input.periodStart,
+      currentPeriodEnd: input.periodEnd,
+      nextPeriodEnd: input.periodEnd,
+      metadata: {
+        source: "apple_server_notification_app_account_token",
+        appAccountToken: input.appAccountToken,
+      },
+    });
+    await this.autoRenewService.handleApplePaidTransaction({
+      originalTransactionId: input.originalTransactionId,
+      transactionId: input.transactionId,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      rawPayload: input.rawPayload,
+    });
   }
 }
 

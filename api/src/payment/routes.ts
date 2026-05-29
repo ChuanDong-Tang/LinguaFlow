@@ -73,6 +73,19 @@ function isAppleVerifyTransactionRequest(
   );
 }
 
+function isAppleAppAccountTokenRequest(
+  value: unknown
+): value is { appAccountToken: string } {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.appAccountToken === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      v.appAccountToken.trim()
+    )
+  );
+}
+
 function isAppleServerNotificationRequest(
   value: unknown
 ): value is { signedPayload: string } {
@@ -752,6 +765,60 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         ok: false,
         request_id: requestId,
         error: { code: "IAP_VERIFY_FAILED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
+      });
+    }
+  });
+
+  app.post("/payment/ios/app-account-token", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    if (!isAppleAppAccountTokenRequest(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.ios.app_account_token.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "VALIDATION_FAILED",
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid iOS app account token payload" },
+      });
+    }
+
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+
+    try {
+      const data = await deps.appleIapService.registerAppAccountToken({
+        userId: userContext.userId,
+        appAccountToken: body.appAccountToken.trim(),
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "iOS app account token registration failed";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.ios.app_account_token.failed",
+        level: "error",
+        status: "failed",
+        errorCode: "APPLE_IAP_APP_ACCOUNT_TOKEN_FAILED",
+        errorMessage: message,
+      });
+      return reply.status(500).send({
+        ok: false,
+        request_id: requestId,
+        error: {
+          code: "APPLE_IAP_APP_ACCOUNT_TOKEN_FAILED",
+          message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED,
+        },
       });
     }
   });

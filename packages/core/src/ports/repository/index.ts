@@ -13,3 +13,4 @@ export * from "./BenefitGrantRepository.js";
 export * from "./SystemEventLogRepository.js";
 export * from "./TrustedCertRepository.js";
 export * from "./AutoRenewRepository.js";
+export * from "./AppleIapAccountLinkRepository.js";
