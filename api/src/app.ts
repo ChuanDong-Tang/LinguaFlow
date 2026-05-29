@@ -53,7 +53,7 @@ import { getBusinessClockSnapshot } from "@lf/server/services/time/businessClock
 const prisma = new PrismaClient();
 
 export function createApp() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, trustProxy: true });
   app.addHook("onReady", async () => {
     await seedSystemContacts(prisma);
   });
