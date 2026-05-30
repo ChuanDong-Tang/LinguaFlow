@@ -33,7 +33,7 @@ export function getAuthingClientId(): string {
 
 export function getAuthingRedirectUri(): string {
   return AuthSession.makeRedirectUri({
-    scheme: process.env.EXPO_PUBLIC_AUTHING_REDIRECT_SCHEME ?? "linguaflow",
+    scheme: process.env.EXPO_PUBLIC_AUTHING_REDIRECT_SCHEME ?? "oio",
     path: "auth/callback",
   });
 }
