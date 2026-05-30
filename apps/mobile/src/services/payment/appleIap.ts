@@ -2,14 +2,26 @@ import { Platform } from "react-native";
 import type { Purchase } from "expo-iap";
 import * as Crypto from "expo-crypto";
 
-export const APPLE_PRO_MONTHLY_PRODUCT_ID =
+export const APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID =
   process.env.EXPO_PUBLIC_APPLE_PRO_MONTHLY_PRODUCT_ID || "pro_monthly";
 
-export function assertAppleIapAvailable(): void {
+export const APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID =
+  process.env.EXPO_PUBLIC_APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID || "pro_monthly_one_time";
+
+export type ApplePurchaseSource = "single_purchase" | "auto_renew";
+
+export function getAppleProductIdForSource(source: ApplePurchaseSource): string {
+  return source === "single_purchase"
+    ? APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID
+    : APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
+}
+
+export function assertAppleIapAvailable(source?: ApplePurchaseSource): void {
   if (Platform.OS !== "ios") {
     throw new Error("当前平台不支持 Apple IAP");
   }
-  if (!APPLE_PRO_MONTHLY_PRODUCT_ID) {
+  const productId = source ? getAppleProductIdForSource(source) : APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
+  if (!productId) {
     throw new Error("Apple IAP 商品 ID 未配置");
   }
 }

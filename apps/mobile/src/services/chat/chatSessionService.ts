@@ -124,6 +124,25 @@ export async function loadChatMessagesByDate(contactId: string, dateKey: string)
   return rows;
 }
 
+export async function loadPracticeLocalMessages(contactId: string): Promise<ChatMessage[]> {
+  const { uid, cid } = await resolveStorageScope(contactId);
+  const fallbackCid = fallbackConversationScope(contactId);
+  const scopes = Array.from(new Set([cid, fallbackCid]));
+  const rowsByKey = new Map<string, ChatMessage>();
+
+  for (const scope of scopes) {
+    const days = await listLocalMessageDateKeysScoped(uid, scope);
+    for (const day of days) {
+      const rows = await loadLocalMessagesByDateScoped(uid, scope, day);
+      for (const row of rows) {
+        rowsByKey.set(row.serverId ?? row.clientId ?? row.id ?? row.localId, row);
+      }
+    }
+  }
+
+  return Array.from(rowsByKey.values()).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+}
+
 export async function replaceChatMessagesByDate(
   contactId: string,
   dateKey: string,

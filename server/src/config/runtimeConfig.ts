@@ -38,6 +38,7 @@ export interface PaymentRuntimeConfig {
     privateKey: string | null;
     rootCa: string | null;
     proMonthlyProductId: string | null;
+    proMonthlyOneTimeProductId: string | null;
   };
 }
 
@@ -225,6 +226,7 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv): PaymentRuntimeConfig 
       privateKey: trimToNull(env.APPLE_IAP_PRIVATE_KEY),
       rootCa: trimToNull(env.APPLE_IAP_ROOT_CA),
       proMonthlyProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_PRODUCT_ID),
+      proMonthlyOneTimeProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_ONE_TIME_PRODUCT_ID),
     },
   };
 }

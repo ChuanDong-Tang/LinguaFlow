@@ -26,6 +26,7 @@ export interface VerifyAppleIapTransactionResult {
   transactionId: string;
   originalTransactionId: string;
   productId: string;
+  purchaseKind: "single_purchase" | "auto_renew";
   sourceOrderId: string;
   alreadyApplied: boolean;
 }
@@ -81,7 +82,8 @@ export class AppleIapService {
       throw new AppleIapVerifyError("Bundle id mismatch");
     }
 
-    if (transaction.productId !== config.proProductId) {
+    const purchaseKind = resolveApplePurchaseKind(transaction.productId, config);
+    if (!purchaseKind) {
       throw new AppleIapVerifyError("Product id mismatch");
     }
 
@@ -99,27 +101,34 @@ export class AppleIapService {
     }
 
     const sourceOrderId = `apple_iap:${transaction.transactionId}`;
-    await this.appleIapAccountLinkRepository?.upsert({
-      userId: input.userId,
-      appAccountToken: expectedAppAccountToken,
-      originalTransactionId,
-      latestTransactionId: transaction.transactionId,
-    });
-    await this.autoRenewService?.register({
-      userId: input.userId,
-      provider: "apple",
-      providerAgreementId: originalTransactionId,
-      latestTransactionId: transaction.transactionId,
-      currentPeriodStart: transaction.purchaseDate ? new Date(transaction.purchaseDate) : null,
-      currentPeriodEnd: transaction.expiresDate ? new Date(transaction.expiresDate) : null,
-      nextPeriodEnd: transaction.expiresDate ? new Date(transaction.expiresDate) : null,
-      metadata: {
-        source: "apple_verify_transaction",
-        environment: transaction.environment,
-        productId: transaction.productId,
-        appAccountToken: transaction.appAccountToken,
-      },
-    });
+    if (purchaseKind === "auto_renew") {
+      await this.appleIapAccountLinkRepository?.upsert({
+        userId: input.userId,
+        appAccountToken: expectedAppAccountToken,
+        originalTransactionId,
+        latestTransactionId: transaction.transactionId,
+      });
+      await this.autoRenewService?.register({
+        userId: input.userId,
+        provider: "apple",
+        providerAgreementId: originalTransactionId,
+        latestTransactionId: transaction.transactionId,
+        currentPeriodStart: transaction.purchaseDate ? new Date(transaction.purchaseDate) : null,
+        currentPeriodEnd: transaction.expiresDate ? new Date(transaction.expiresDate) : null,
+        nextPeriodEnd: transaction.expiresDate ? new Date(transaction.expiresDate) : null,
+        metadata: {
+          source: "apple_verify_transaction",
+          environment: transaction.environment,
+          productId: transaction.productId,
+          appAccountToken: transaction.appAccountToken,
+        },
+      });
+    } else {
+      await this.appleIapAccountLinkRepository?.upsert({
+        userId: input.userId,
+        appAccountToken: expectedAppAccountToken,
+      });
+    }
     let alreadyApplied = false;
     try {
       const result = await this.paymentEntitlementService.grantAfterPayment({
@@ -145,6 +154,7 @@ export class AppleIapService {
       transactionId: transaction.transactionId,
       originalTransactionId,
       productId: transaction.productId,
+      purchaseKind,
       sourceOrderId,
       alreadyApplied,
     };
@@ -340,6 +350,17 @@ export class AppleIapService {
 function isApplePaidRenewal(notificationType: string | undefined): boolean {
   const type = String(notificationType ?? "").toUpperCase();
   return ["SUBSCRIBED", "DID_RENEW", "DID_RECOVER", "ONE_TIME_CHARGE"].includes(type);
+}
+
+function resolveApplePurchaseKind(
+  productId: string,
+  config: { proProductId: string; proMonthlyOneTimeProductId: string | null }
+): VerifyAppleIapTransactionResult["purchaseKind"] | null {
+  if (productId === config.proProductId) return "auto_renew";
+  if (config.proMonthlyOneTimeProductId && productId === config.proMonthlyOneTimeProductId) {
+    return "single_purchase";
+  }
+  return null;
 }
 
 function createAppleAppAccountToken(userId: string): string {

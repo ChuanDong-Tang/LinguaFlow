@@ -8,6 +8,7 @@ export interface AppleIapRuntimeConfig {
   privateKeyPem: string;
   rootCaPem: string;
   proProductId: string;
+  proMonthlyOneTimeProductId: string | null;
 }
 
 export function isAppleIapConfigured(): boolean {
@@ -34,6 +35,7 @@ export function loadAppleIapConfig(): AppleIapRuntimeConfig {
       config.payment.appleIap.proMonthlyProductId,
       "APPLE_IAP_PRO_MONTHLY_PRODUCT_ID"
     ),
+    proMonthlyOneTimeProductId: config.payment.appleIap.proMonthlyOneTimeProductId,
   };
 }
 

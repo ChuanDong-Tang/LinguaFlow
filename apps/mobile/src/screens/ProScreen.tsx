@@ -26,10 +26,12 @@ import {
 import { refreshEntitlementAndSession } from "../services/entitlement/entitlementSync";
 import { getSession } from "../services/auth/authStorage";
 import {
-  APPLE_PRO_MONTHLY_PRODUCT_ID,
+  APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+  type ApplePurchaseSource,
   assertAppleIapAvailable,
   createAppleAppAccountToken,
   getAppleTransactionId,
+  getAppleProductIdForSource,
 } from "../services/payment/appleIap";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 
@@ -260,8 +262,8 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
-  async function startAppleIapPurchase(_source: "single_purchase" | "auto_renew"): Promise<void> {
-    assertAppleIapAvailable();
+  async function startAppleIapPurchase(source: ApplePurchaseSource): Promise<void> {
+    assertAppleIapAvailable(source);
     if (!appleIap?.connected) {
       safeAlert("Apple 支付初始化中", "请稍后重试。");
       return;
@@ -269,7 +271,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
     setIsPaying(true);
     setIsAutoRenewLoading(true);
     try {
-      // iOS 侧统一购买 Apple 的 Pro 月度自动续费商品；真正权益以后端验单结果为准。
+      // iOS 一次性月卡与自动续费是两个 App Store 商品；真正权益以后端验单结果为准。
       const session = await getSession();
       const appAccountToken = session?.user?.id
         ? await createAppleAppAccountToken(session.user.id)
@@ -277,11 +279,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (appAccountToken) {
         await registerAppleAppAccountToken(appAccountToken);
       }
+      const productId = getAppleProductIdForSource(source);
       await appleIap.requestPurchase({
-        type: "subs",
+        type: source === "single_purchase" ? "in-app" : "subs",
         request: {
           apple: {
-            sku: APPLE_PRO_MONTHLY_PRODUCT_ID,
+            sku: productId,
             appAccountToken,
             andDangerouslyFinishTransactionAutomatically: false,
           },
@@ -302,15 +305,18 @@ export function ProScreen({ onBack }: ProScreenProps) {
     try {
       const transactionId = getAppleTransactionId(purchase);
       // 先让服务端用 App Store Server API 验单并发权益，再 finish transaction。
-      await verifyAppleProMonthlyTransaction(transactionId);
+      const verified = await verifyAppleProMonthlyTransaction(transactionId);
       if (!appleIap) throw new Error("Apple 支付未初始化");
+      const isOneTimePurchase = verified.purchaseKind === "single_purchase";
       await appleIap.finishTransaction({ purchase, isConsumable: false });
       const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
       setIsRenew(entitlementResult?.entitlement.isPro ?? true);
-      const currentAutoRenew = await getCurrentAutoRenewSubscription();
-      if (!isScreenAlive()) return;
-      setAutoRenew(currentAutoRenew);
+      if (!isOneTimePurchase) {
+        const currentAutoRenew = await getCurrentAutoRenewSubscription();
+        if (!isScreenAlive()) return;
+        setAutoRenew(currentAutoRenew);
+      }
       safeAlert("开通成功", "Pro 权益已生效。");
     } catch (error) {
       if (!isScreenAlive()) return;
@@ -443,7 +449,8 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError }: AppleIa
 
   useEffect(() => {
     if (!iap.connected) return;
-    void iap.fetchProducts({ skus: [APPLE_PRO_MONTHLY_PRODUCT_ID], type: "subs" });
+    void iap.fetchProducts({ skus: [APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID], type: "subs" });
+    void iap.fetchProducts({ skus: [getAppleProductIdForSource("single_purchase")], type: "in-app" });
   }, [iap.connected, iap.fetchProducts]);
 
   return null;

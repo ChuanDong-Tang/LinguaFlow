@@ -16,7 +16,7 @@ export function getAssistantClozeText(
   }
   const tagged = parseTaggedRewrite(message.text);
   return {
-    text: tagged.en || "...",
+    text: tagged.en,
     translation: tagged.zh,
   };
 }

@@ -7,7 +7,7 @@ import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import { useFloatingNotice, type FloatingNoticeOptions } from "./shared/FloatingNotice";
 import type { ChatMessage } from "../domain/chat/types";
 import { filterByDate, toDateKey } from "../domain/chat/messageState";
-import { listStoredChatDateKeys, loadChatMessagesByDate } from "../services/chat/chatSessionService";
+import { loadPracticeLocalMessages } from "../services/chat/chatSessionService";
 import {
   findConversationIdByDateFromCloud,
   listDayMessagesFromCloud,
@@ -222,7 +222,16 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       // 这里推进的是 day 业务 machine 的阶段，说明“真正要拉哪些日”的业务进度。
       practiceDayMachine.setPhase(options.syncToken, "fetching");
     }
-    const { rows, contactMap } = await loadPracticeMessagesFromCloudByDateKeys(eligibleDateKeys, options?.signal);
+    let rows: ChatMessage[];
+    let contactMap: Map<string, ChatContact>;
+    try {
+      const cloud = await loadPracticeMessagesFromCloudByDateKeys(eligibleDateKeys, options?.signal);
+      rows = cloud.rows;
+      contactMap = cloud.contactMap;
+    } catch (error) {
+      if (isCloudAccessDeniedError(error)) return;
+      throw error;
+    }
     if (!isMounted()) return;
     if (options?.syncToken) {
       practiceDayMachine.setPhase(options.syncToken, "merging");
@@ -370,6 +379,12 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
         notice.hide();
         return;
       }
+      if (isCloudAccessDeniedError(error)) {
+        loadedPracticeMonthKeysRef.current.delete(monthKey);
+        setPracticeDayStats(new Map());
+        notice.hide();
+        return;
+      }
       loadedPracticeMonthKeysRef.current.delete(monthKey);
       notice.update({
         message: "同步失败，稍后再试",
@@ -453,14 +468,12 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   );
 }
 
-// 本地桶仍是练习入口的基础快照；日历颜色另走云端聚合 stats，不需要拉整月消息。
+// 本地桶仍是练习入口的基础快照；免费用户完全依赖这里，Pro 用户再叠加云端聚合 stats。
 async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; contactMap: Map<string, ChatContact> }> {
   const chunks = await Promise.all(PRACTICE_CONTACTS.map(async (contact) => {
-    const days = await listStoredChatDateKeys(contact.id);
-    const dayChunks = await Promise.all(days.map((dayKey) => loadChatMessagesByDate(contact.id, dayKey)));
     return {
       contact,
-      rows: dayChunks.flat(),
+      rows: await loadPracticeLocalMessages(contact.id),
     };
   }));
   const contactMap = new Map<string, ChatContact>();
@@ -471,6 +484,12 @@ async function loadPracticeMessagesFromLocal(): Promise<{ rows: ChatMessage[]; c
     })
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
   return { rows, contactMap };
+}
+
+function isCloudAccessDeniedError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("pro access required") || message.includes("unauthorized");
 }
 
 async function loadPracticeMessagesFromCloudByDateKeys(

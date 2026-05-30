@@ -55,6 +55,7 @@ export type MobileWeChatAutoRenewPreSignResult = {
 export type MobileAppleVerifyTransactionResult = {
   transactionId: string;
   productId: string;
+  purchaseKind: "single_purchase" | "auto_renew";
   autoRenewSubscriptionId?: string | null;
   alreadyApplied?: boolean;
 };

@@ -630,7 +630,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   async function syncDateQuietly(d: Date, options?: { force?: boolean }): Promise<void> {
     //---test cost----
-    const start = performance.now();
+    //const start = performance.now();
 
     const dateKey = toDateKey(d);
     const dirty = consumeChatDateDirty(contactId, dateKey);
@@ -707,8 +707,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       }
       daySyncMachine.settle(token);
 
-      const end = performance.now();
-      console.log(`同步消息耗时: ${(end - start).toFixed(1)}ms`);
+      //const end = performance.now();
+      //console.log(`同步消息耗时: ${(end - start).toFixed(1)}ms`);
     }
   }
 

@@ -215,6 +215,12 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   const shouldShowTranslation =
     assistantRenderState === "complete" && !!clozeText.translation;
 
+  const shouldShowAiBadge =
+    hasDisplayText &&
+    (assistantRenderState === "streaming" ||
+      assistantRenderState === "complete" ||
+      assistantRenderState === "failed");
+
   const canShowCloze = assistantRenderState === "complete";
 
   const clozeState = React.useMemo(() => {
@@ -295,6 +301,11 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               highlightRanges={highlightRanges}
               blankRanges={blankRanges}
               correctRanges={correctRanges}
+              trailingElement={
+                shouldShowAiBadge && !shouldShowTranslation ? (
+                  <Text style={styles.inlineAiBadge}> (AI生成) </Text>
+                ) : undefined
+              }
               onSelectionStart={
                 canShowCloze
                   ? () => onSelectionRefChange(selectableRef.current)
@@ -317,7 +328,10 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
             />
           ) : null}
           {shouldShowTranslation ? (
-            <Text style={styles.translationText}>{clozeText.translation}</Text>
+            <Text style={styles.translationText}>
+              {clozeText.translation}
+              {shouldShowAiBadge ? <Text style={styles.inlineAiBadge}> (AI生成) </Text> : null}
+            </Text>
           ) : null}
           {shouldShowActions ? (
             <View style={styles.cardActionRow}>
@@ -574,6 +588,13 @@ const styles = StyleSheet.create({
     color: "#111111",
     fontSize: 17,
     lineHeight: 25,
+  },
+  inlineAiBadge: {
+    color: "#6A62B7",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 16,
   },
   translationText: {
     marginTop: 12,

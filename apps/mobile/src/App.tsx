@@ -227,7 +227,7 @@ function TabScreens({
         <PracticeScreen isActive={activeTab === "practice"} onOpenPracticeSession={onOpenPracticeSession} />
       </View>
       <View style={[styles.tabPage, activeTab !== "me" && styles.tabPageHidden]}>
-        <MeScreen onOpenPro={onOpenPro} onOpenAbout={onOpenAbout} onLogout={onLogout} />
+        <MeScreen isActive={activeTab === "me"} onOpenPro={onOpenPro} onOpenAbout={onOpenAbout} onLogout={onLogout} />
       </View>
     </View>
   );

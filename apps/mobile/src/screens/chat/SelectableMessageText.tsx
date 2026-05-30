@@ -35,6 +35,7 @@ type Props = {
   highlightRanges?: NativeClozeHighlightRange[];
   blankRanges?: NativeClozeBlankRange[];
   correctRanges?: NativeClozeBlankRange[];
+  trailingElement?: React.ReactNode;
   onSelectionStart?: () => void;
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
   onClozeRangePress?: (groupIndex: number) => void;
@@ -156,6 +157,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     highlightRanges,
     blankRanges,
     correctRanges,
+    trailingElement,
     onSelectionStart,
     onSelectionChange,
     onClozeRangePress,
@@ -262,6 +264,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
               </Text>
             );
           })}
+          {trailingElement}
         </Text>
       </SelectableTextView>
     );
