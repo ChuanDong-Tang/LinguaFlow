@@ -1,2 +1,2 @@
-export const TERMS_URL = "https://oio.ai/legal/terms";
-export const PRIVACY_URL = "https://oio.ai/legal/privacy";
+export const TERMS_URL = "https://www.yueyantech.com/legal/terms/";
+export const PRIVACY_URL = "https://www.yueyantech.com/legal/privacy/";

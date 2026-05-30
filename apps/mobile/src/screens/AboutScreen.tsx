@@ -1,5 +1,5 @@
 import React from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
@@ -21,17 +21,12 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.brandBlock}>
-          <Text style={styles.logo}>oio</Text>
-          <Text style={styles.brand}>OIO</Text>
-          <Text style={styles.tagline}>Output  ·  Input  ·  Output</Text>
-          <Text style={styles.slogan}>一个安静的 AI 表达工具</Text>
+          <Image source={require("../../assets/app/logo.png")} style={styles.logoImage} resizeMode="contain" />
         </View>
 
         <SectionCard title="联系方式">
-          <InfoRow icon="globe-outline" label="官方网站" value="www.oio.app" onPress={() => openUrl("https://www.oio.app")} />
-          <InfoRow icon="mail-outline" label="联系邮箱" value="hello@oio.app" onPress={() => openUrl("mailto:hello@oio.app")} />
-          <InfoRow icon="chatbubble-ellipses-outline" label="微信客服" value="OIO_support" />
-          <InfoRow icon="create-outline" label="意见反馈" value="欢迎向我们发送建议" isLast />
+          <InfoRow icon="globe-outline" label="官方网站" value="www.yueyantech.com" onPress={() => openUrl("https://www.yueyantech.com")} />
+          <InfoRow icon="create-outline" label="意见反馈" value="欢迎向我们发送建议" onPress={() => openUrl("https://my.feishu.cn/wiki/XFaVwkkbyiqZ3iktSntcd5Thndf?from=from_copylink")} />
         </SectionCard>
 
         <SectionCard title="更多信息">
@@ -40,7 +35,8 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
           <InfoRow icon="document-text-outline" label="用户协议" value="" onPress={() => openUrl(TERMS_URL)} isLast />
         </SectionCard>
 
-        <Text style={styles.footer}>© 2026 OIO</Text>
+        <Text style={styles.footer}>© 2026 跃言科技 版权所有</Text>
+        <Text style={styles.footer}>ICP备案号: 浙ICP备2026035182号-2A</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -116,7 +112,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   rowBorder: { borderBottomWidth: 1, borderBottomColor: "#ECEEF2" },
-  rowLabel: { marginLeft: 12, color: "#111111", fontSize: 14 },
-  rowValue: { marginLeft: "auto", marginRight: 8, color: "#575E6E", fontSize: 13 },
+  rowLabel: { flex: 1, marginLeft: 12, color: "#111111", fontSize: 14 },
+  rowValue: { marginRight: 8, color: "#575E6E", fontSize: 13 },
   footer: { marginTop: 12, textAlign: "center", color: "#767C89", fontSize: 12 },
+
+  logoImage: {
+    width: 180,
+    height: 180,
+    marginTop: 40,
+  },
 });

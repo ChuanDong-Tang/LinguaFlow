@@ -209,12 +209,12 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         const start = hasNativeRange ? event.selectionStart! : text.indexOf(selectedText);
         if (start < 0) return;
         const end = hasNativeRange ? event.selectionEnd! : start + selectedText.length;
-        console.log("[selectable-text-selection]", {
-          source: hasNativeRange ? "native" : "fallback",
-          start,
-          end,
-          selectedText,
-        });
+        // console.log("[selectable-text-selection]", {
+        //   source: hasNativeRange ? "native" : "fallback",
+        //   start,
+        //   end,
+        //   selectedText,
+        // });
         const selectedRange = { start: Math.min(start, end), end: Math.max(start, end) };
         const existingClozeRanges = highlights.length ? highlights : blanks;
         const insideExistingCloze = existingClozeRanges.some((range) => rangeContains(range, selectedRange.start, selectedRange.end));

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
@@ -15,7 +15,6 @@ type ChatComposerProps = {
 
 const COLLAPSED_MIN_HEIGHT = 50;
 const COLLAPSED_MAX_HEIGHT = 160;
-const HEIGHT_CHANGE_EPSILON = 2;
 const SINGLE_LINE_LOCK_HEIGHT = 52;
 
 export function ChatComposer({
@@ -32,23 +31,15 @@ export function ChatComposer({
   const [inputHeight, setInputHeight] = useState(COLLAPSED_MIN_HEIGHT);
   const [expanded, setExpanded] = useState(false);
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
-  const [shellHeight, setShellHeight] = useState(COLLAPSED_MIN_HEIGHT);
-  const lastCollapsedShellHeight = useRef(COLLAPSED_MIN_HEIGHT);
+  const collapsedHeight = Math.max(
+    COLLAPSED_MIN_HEIGHT,
+    Math.min(COLLAPSED_MAX_HEIGHT, inputHeight)
+  );
+  const shellHeight = expanded ? expandedHeight : collapsedHeight;
   const canExpand = expanded || inputHeight >= COLLAPSED_MAX_HEIGHT;
 
   function handleToggleExpand(): void {
-    const next = !expanded;
-    setExpanded(next);
-    if (next) {
-      setShellHeight(expandedHeight);
-      return;
-    }
-    const collapsedHeight = Math.max(
-      COLLAPSED_MIN_HEIGHT,
-      Math.min(COLLAPSED_MAX_HEIGHT, inputHeight)
-    );
-    lastCollapsedShellHeight.current = collapsedHeight;
-    setShellHeight(collapsedHeight);
+    setExpanded((current) => !current);
   }
 
   function handleContentSizeChange(nextHeight: number): void {
@@ -57,11 +48,6 @@ export function ChatComposer({
       ? COLLAPSED_MIN_HEIGHT
       : Math.max(COLLAPSED_MIN_HEIGHT, rawHeight);
     setInputHeight(normalized);
-    if (expanded) return;
-    const nextCollapsedHeight = Math.min(COLLAPSED_MAX_HEIGHT, normalized);
-    if (Math.abs(nextCollapsedHeight - lastCollapsedShellHeight.current) < HEIGHT_CHANGE_EPSILON) return;
-    lastCollapsedShellHeight.current = nextCollapsedHeight;
-    setShellHeight(nextCollapsedHeight);
   }
 
   return (
@@ -69,7 +55,7 @@ export function ChatComposer({
       <View style={[styles.inputShell, { height: shellHeight }]}>
         <TextInput
           style={[styles.input, expanded ? styles.inputExpanded : styles.inputCollapsed]}
-          placeholder="输入你想改写的内容..."
+          placeholder=""
           placeholderTextColor="#A0A4AF"
           value={value}
           onChangeText={onChangeText}
@@ -124,7 +110,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#111111",
     includeFontPadding: true,
-    textAlignVertical: "center",
+    textAlignVertical: "top",
   },
   inputCollapsed: {
     paddingTop: 12,
@@ -136,10 +122,10 @@ const styles = StyleSheet.create({
   },
   expandButton: {
     position: "absolute",
-    right: 50,
-    bottom: 13,
-    width: 28,
-    height: 28,
+    right: 15,
+    top: 13,
+    width: 36,
+    height: 36,
     borderRadius: 14,
     backgroundColor: "#F0ECFF",
     alignItems: "center",

@@ -249,7 +249,12 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#FFFFFF" },
   content: { flex: 1 },
   appStack: { flex: 1 },
-  overlayScreen: { ...StyleSheet.absoluteFillObject },
+  overlayScreen: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#FCFCFD",
+    zIndex: 1,
+    elevation: 1,
+  },
   fadingScreen: { flex: 1, backgroundColor: "#FCFCFD" },
   tabHost: { flex: 1, paddingBottom: 86 },
   tabPage: { ...StyleSheet.absoluteFillObject },

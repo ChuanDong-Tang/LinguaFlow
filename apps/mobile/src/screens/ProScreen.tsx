@@ -46,6 +46,10 @@ type AppleIapBridgeProps = {
   onPurchaseError: (error: unknown) => void;
 };
 
+const ENABLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_ONE_TIME_PURCHASE === "true";
+const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
+const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
+
 export function ProScreen({ onBack }: ProScreenProps) {
   const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
   const [isPaying, setIsPaying] = useState(false);
@@ -66,6 +70,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
     expiresAt: proExpiresAt,
     autoRenew,
   });
+  const canStartOneTimePurchase = ENABLE_ONE_TIME_PURCHASE;
+  const canStartAutoRenew =
+    activeAutoRenew ||
+    (Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
+    (Platform.OS === "android" && ENABLE_WECHAT_AUTO_RENEW);
 
   async function refreshProEntitlementState(): Promise<Awaited<ReturnType<typeof refreshEntitlementAndSession>> | null> {
     try {
@@ -113,6 +122,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   async function handleSubscribe(): Promise<void> {
     if (isPaying) return;
+    if (!canStartOneTimePurchase) {
+      safeAlert("暂未开放", "购买 1 个月暂未开放。");
+      return;
+    }
 
     if (Platform.OS === "ios") {
       await startAppleIapPurchase("single_purchase");
@@ -173,11 +186,19 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
 
     if (Platform.OS === "ios") {
+      if (!ENABLE_APPLE_AUTO_RENEW) {
+        safeAlert("暂未开放", "Apple 自动续费暂未开放。");
+        return;
+      }
       await startAppleIapPurchase("auto_renew");
       return;
     }
 
     if (Platform.OS === "android") {
+      if (!ENABLE_WECHAT_AUTO_RENEW) {
+        safeAlert("暂未开放", "微信自动续费暂未开放。");
+        return;
+      }
       await startWechatAutoRenew();
       return;
     }
@@ -357,17 +378,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.heroCard}>
-          <View>
-            <Text style={styles.heroTitle}>OIO Pro</Text>
-            <Text style={styles.heroCopy}>更充足的字符额度，支持更长文本和高频练习。</Text>
-          </View>
-        </View>
-
         <View style={styles.benefitCard}>
-          <BenefitItem icon="text-outline" title="每日 100,000 字额度" subtitle="普通版每日 10,000 字" />
-          <BenefitItem icon="leaf-outline" title="支持更长文本" subtitle="适合长句、长段落改写" />
-          <BenefitItem icon="flash-outline" title="更高频使用" subtitle="适合持续练习和记录" isLast />
+          <BenefitItem icon="text-outline" title="每日 100,000 字额度" subtitle="普通版享受5000体验字符，有效期7天" />
+          <BenefitItem icon="leaf-outline" title="支持云端同步" subtitle="适合持续练习和记录" />
         </View>
 
         <View style={styles.priceCard}>
@@ -388,30 +401,36 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
           <View style={styles.actionRow}>
             <Pressable
-              style={[styles.subscribeButton, styles.actionButton, isPaying && styles.subscribeButtonDisabled]}
+              style={[
+                styles.subscribeButton,
+                styles.actionButton,
+                (!canStartOneTimePurchase || isPaying) && styles.subscribeButtonDisabled,
+              ]}
               onPress={() => void handleSubscribe()}
-              disabled={isPaying}
+              disabled={!canStartOneTimePurchase || isPaying}
             >
               {isPaying ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.subscribeText}>{isRenew ? "仅续费 1 个月" : "仅购买 1 个月"}</Text>
+                <Text style={styles.subscribeText}>
+                  {canStartOneTimePurchase ? (isRenew ? "仅续费 1 个月" : "仅购买 1 个月") : "暂未开放"}
+                </Text>
               )}
             </Pressable>
             <Pressable
               style={[
                 styles.secondaryButton,
                 styles.actionButton,
-                isAutoRenewLoading && styles.subscribeButtonDisabled,
+                (!canStartAutoRenew || isAutoRenewLoading) && styles.subscribeButtonDisabled,
               ]}
               onPress={activeAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew()}
-              disabled={isAutoRenewLoading}
+              disabled={!canStartAutoRenew || isAutoRenewLoading}
             >
               {isAutoRenewLoading ? (
                 <ActivityIndicator color="#111111" />
               ) : (
                 <Text style={styles.secondaryButtonText}>
-                  {activeAutoRenew ? "取消自动续费" : formatAutoRenewButtonLabel()}
+                  {activeAutoRenew ? "取消自动续费" : canStartAutoRenew ? formatAutoRenewButtonLabel() : "暂未开放"}
                 </Text>
               )}
             </Pressable>
@@ -563,12 +582,13 @@ function BenefitItem({
 }
 
 const PAYMENT_RULES = [
-  "1.Pro 有效期统一累计，单买和订阅都接在同一条时间线上。",
-  "2.单月购买每次只加 1 个月，最多预存到约 2 个月后。",
-  "3.已有 Pro 开通订阅不会立即重复扣费，到期后自动接续。",
-  "4.订阅中单买 1 个月，会同步推迟下一次扣费。",
-  "5.价格或权益调整后，在后续购买或自动续费时生效。",
-  "6.取消订阅只停止后续扣款，当前权益保留至到期。",
+  "随着网页版、语音合成等新功能加入，Pro 价格可能会随服务内容调整。",
+  "Pro 有效期统一累计，单买和订阅都接在同一条时间线上。",
+  "单月购买每次只加 1 个月，最多预存到约 2 个月后。",
+  "已有 Pro 开通订阅不会立即重复扣费，到期后自动接续。",
+  "订阅中单买 1 个月，会同步推迟下一次扣费。",
+  "价格或权益调整后，在后续购买或自动续费时生效。",
+  "取消订阅只停止后续扣款，当前权益保留至到期。",
 ];
 
 const styles = StyleSheet.create({

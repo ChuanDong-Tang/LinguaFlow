@@ -21,7 +21,7 @@ export const CHAT_CONTACTS: ChatContact[] = [
   {
     id: "english_friend",
     name: "好奇宝宝",
-    description: "只用英文陪你聊天",
+    description: "用英文改写和回答",
     avatarLabel: "WHY",
     clozeSource: "full_text",
     practiceEnabled: true,

@@ -2,7 +2,7 @@ export const messages = {
   "zh-CN": {
     "auth.login.wechat_button": "微信登录",
     "auth.login.agree_prefix": "我已阅读并同意",
-    "auth.login.terms": "服务条款",
+    "auth.login.terms": "用户协议",
     "auth.login.and": "和",
     "auth.login.privacy": "隐私政策",
     "auth.login.failed": "登录失败"

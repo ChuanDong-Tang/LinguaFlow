@@ -107,7 +107,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
         <View style={styles.proCard}>
           <Text style={styles.proTitle}>OIO Pro</Text>
           <Text style={styles.proSubtitle}>更充足的字符额度，更自由地表达</Text>
-          {["更多每日字符额度", "支持更长文本改写", "更高频使用"].map((item) => (
+          {["更多每日字符额度", "云端同步"].map((item) => (
             <View key={item} style={styles.benefitRow}>
               <Ionicons name="checkmark-circle-outline" size={18} color="#6E63FF" />
               <Text style={styles.benefitText}>{item}</Text>
@@ -122,8 +122,6 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
         <Text style={styles.sectionTitle}>更多</Text>
         <View style={styles.settingsCard}>
           <SettingsRow icon="information-circle-outline" label="关于 OIO" onPress={onOpenAbout} />
-          <SettingsRow icon="shield-outline" label="隐私政策" onPress={() => openUrl(PRIVACY_URL)} />
-          <SettingsRow icon="document-text-outline" label="用户协议" onPress={() => openUrl(TERMS_URL)} />
           <SettingsRow icon="log-out-outline" label="退出登录" onPress={onLogout} isLast />
         </View>
       </ScrollView>
