@@ -41,7 +41,7 @@ type Props = {
   onClozeRangeLongPress?: (groupIndex: number) => void;
 };
 
-const SELECTABLE_TEXT_PERF_LOGS = true;
+const SELECTABLE_TEXT_PERF_LOGS = false;
 const SLOW_SELECTABLE_TEXT_MS = 12;
 const LONG_SELECTABLE_TEXT_CHARS = 600;
 const CLOZE_MENU_OPTION = "填空";

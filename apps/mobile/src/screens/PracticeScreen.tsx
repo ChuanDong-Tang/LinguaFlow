@@ -24,6 +24,7 @@ import {
   getPracticeMonthCacheKey,
   setCachedPracticeMonthStats,
 } from "../services/chat/chatPracticeSyncState";
+import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import {
   buildPracticeCards,
   filterPracticeCards,
@@ -79,24 +80,37 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
 
   useEffect(() => {
     let cancelled = false;
-    void getBusinessDateKey()
-      .then((todayKey) => {
+    void (async () => {
+      const isPro = await hasLocalProAccess();
+      if (!isPro) {
+        if (!cancelled && isMounted()) setBusinessTodayKey(toDateKey(new Date()));
+        return;
+      }
+
+      try {
+        const todayKey = await getBusinessDateKey();
         if (!cancelled && isMounted()) setBusinessTodayKey(todayKey);
-      })
-      .catch(() => {
+      } catch {
         // 练习页离线时仍允许查看本地缓存；日期会暂时使用本机日期。
-      });
+        if (!cancelled && isMounted()) setBusinessTodayKey(toDateKey(new Date()));
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, [isMounted]);
 
   useEffect(() => {
+    if (!isActive) return;
+    let cancelled = false;
     void loadPracticeMessagesFromLocal().then(({ rows, contactMap }) => {
-      if (!isMounted()) return;
+      if (cancelled || !isMounted()) return;
       applyPracticeMessages(rows, contactMap);
     });
-  }, [isMounted]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isActive, isMounted]);
 
   useEffect(() => {
     if (!isActive) {
@@ -173,6 +187,8 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   }
 
   async function syncPracticeDate(date: Date, options?: { force?: boolean; signal?: AbortSignal }): Promise<void> {
+    if (!(await hasLocalProAccess())) return;
+
     const dateKey = toDateKey(date);
     if (!options?.force && Date.now() - (lastPracticeSyncAtByDateKeyRef.current[dateKey] ?? 0) <= 5 * 60 * 1000) {
       return;
@@ -196,6 +212,8 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
     options?: { force?: boolean; signal?: AbortSignal; syncToken?: number }
   ): Promise<void> {
     if (!dateKeys.length) return;
+    if (!(await hasLocalProAccess())) return;
+
     const eligibleDateKeys = options?.force
       ? dateKeys
       : dateKeys.filter((dateKey) => Date.now() - (lastPracticeSyncAtByDateKeyRef.current[dateKey] ?? 0) > 5 * 60 * 1000);
@@ -246,7 +264,10 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   async function openQuickPractice(): Promise<void> {
     if (isSyncingPracticeDateKeys) return;
     await runWithLoading(async (signal) => {
-      const todayKey = await getBusinessDateKey().catch(() => null);
+      const isPro = await hasLocalProAccess();
+      const todayKey = isPro
+        ? await getBusinessDateKey().catch(() => null)
+        : businessTodayKey ?? toDateKey(new Date());
       if (!todayKey) {
         setDialog({ message: "当前网络不可用，请连接网络后再试。" });
         return;
@@ -295,6 +316,12 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
     const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
     const contactIds = PRACTICE_CONTACTS.map((contact) => contact.id);
     const cacheKey = getPracticeMonthCacheKey(monthKey, contactIds);
+
+    if (!(await hasLocalProAccess())) {
+      if (isMounted()) setPracticeDayStats(new Map());
+      return;
+    }
+
     const cachedStats = options?.force ? null : getCachedPracticeMonthStats(cacheKey, monthKey);
     if (cachedStats) {
       mergePracticeDayStats(cachedStats);

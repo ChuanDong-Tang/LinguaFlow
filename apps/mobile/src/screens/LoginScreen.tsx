@@ -31,7 +31,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [forceAuthingLogin, setForceAuthingLogin] = useState(false);
-  const [testAccount, setTestAccount] = useState("User001");
+  const [testAccount, setTestAccount] = useState("");
   const [testPassword, setTestPassword] = useState("");
   const agreementShake = useRef(new Animated.Value(0)).current;
 
