@@ -20,6 +20,13 @@ export type MobileCreatePaymentOrderResult = {
   clientPayParams: Record<string, unknown>;
 };
 
+export type MobilePaymentProductQuote = {
+  productCode: "pro_monthly";
+  amount: number;
+  currency: "CNY";
+  displayPrice: string;
+};
+
 export type MobilePaymentOrderResult = {
   id: string;
   provider: string;
@@ -70,6 +77,15 @@ export async function createProMonthlyOrder(): Promise<MobileCreatePaymentOrderR
     body: JSON.stringify({ productCode: "pro_monthly" }),
   });
   const json = (await res.json()) as ApiResult<MobileCreatePaymentOrderResult>;
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+  return json.data;
+}
+
+export async function getProMonthlyProductQuote(): Promise<MobilePaymentProductQuote> {
+  const res = await fetch(`${BASE_URL}/payment/products/pro-monthly`);
+  const json = (await res.json()) as ApiResult<MobilePaymentProductQuote>;
   if (!json.ok) {
     throw new Error(json.error.message);
   }

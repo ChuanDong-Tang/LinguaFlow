@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   cancelAutoRenewSubscription,
   createWeChatAutoRenewPreSign,
+  getProMonthlyProductQuote,
   createProMonthlyOrder,
   getCurrentAutoRenewSubscription,
   registerAppleAppAccountToken,
@@ -38,7 +39,7 @@ import { useMountedGuard } from "../hooks/useMountedGuard";
 type ProScreenProps = { onBack: () => void };
 type AppleIapBridgeState = Pick<
   ReturnType<typeof useIAP>,
-  "connected" | "fetchProducts" | "finishTransaction" | "requestPurchase"
+  "connected" | "fetchProducts" | "finishTransaction" | "products" | "requestPurchase" | "subscriptions"
 >;
 type AppleIapBridgeProps = {
   onReady: (bridge: AppleIapBridgeState) => void;
@@ -59,7 +60,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
   const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
+  const [wechatPriceLabel, setWechatPriceLabel] = useState<string | null>(null);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
+  const productPrices = resolveProMonthlyPriceLabels({ appleIap, wechatPriceLabel });
   const statusLabel = resolveProStatusLabel({
     isPro: isRenew,
     expiresAt: proExpiresAt,
@@ -119,6 +122,22 @@ export function ProScreen({ onBack }: ProScreenProps) {
       await refreshProEntitlementState();
     })();
   }, [isScreenAlive, safeAlert]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const quote = await getProMonthlyProductQuote();
+        if (!cancelled && isScreenAlive()) {
+          setWechatPriceLabel(quote.displayPrice);
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isScreenAlive]);
 
   async function handleSubscribe(): Promise<void> {
     if (isPaying) return;
@@ -388,10 +407,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
             <Text style={styles.priceTitle}>Pro 月度</Text>
             {statusLabel ? <Text style={styles.expire}>{statusLabel}</Text> : null}
           </View>
-          <View style={styles.priceRow}>
-            <Text style={styles.price}>¥ xx</Text>
-            <Text style={styles.priceUnit}> / 月</Text>
-          </View>
+          {productPrices.primary ? (
+            <View style={styles.priceRow}>
+              <Text style={styles.price}>{productPrices.primary}</Text>
+              <Text style={styles.priceUnit}>{productPrices.primarySuffix}</Text>
+            </View>
+          ) : null}
           <View style={styles.autoRenewBox}>
             <View style={styles.autoRenewCopy}>
               <Text style={styles.autoRenewTitle}>自动续费</Text>
@@ -413,7 +434,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text style={styles.subscribeText}>
-                  {canStartOneTimePurchase ? (isRenew ? "仅续费 1 个月" : "仅购买 1 个月") : "暂未开放"}
+                  {canStartOneTimePurchase
+                    ? formatOneTimePurchaseButtonLabel(isRenew, productPrices.oneTime)
+                    : "暂未开放"}
                 </Text>
               )}
             </Pressable>
@@ -430,7 +453,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
                 <ActivityIndicator color="#111111" />
               ) : (
                 <Text style={styles.secondaryButtonText}>
-                  {activeAutoRenew ? "取消自动续费" : canStartAutoRenew ? formatAutoRenewButtonLabel() : "暂未开放"}
+                  {activeAutoRenew
+                    ? "取消自动续费"
+                    : canStartAutoRenew
+                      ? formatAutoRenewButtonLabel(productPrices.autoRenew)
+                      : "暂未开放"}
                 </Text>
               )}
             </Pressable>
@@ -462,9 +489,19 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError }: AppleIa
       connected: iap.connected,
       fetchProducts: iap.fetchProducts,
       finishTransaction: iap.finishTransaction,
+      products: iap.products,
       requestPurchase: iap.requestPurchase,
+      subscriptions: iap.subscriptions,
     });
-  }, [iap.connected, iap.fetchProducts, iap.finishTransaction, iap.requestPurchase, onReady]);
+  }, [
+    iap.connected,
+    iap.fetchProducts,
+    iap.finishTransaction,
+    iap.products,
+    iap.requestPurchase,
+    iap.subscriptions,
+    onReady,
+  ]);
 
   useEffect(() => {
     if (!iap.connected) return;
@@ -537,6 +574,56 @@ function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): 
   return provider === "apple" ? "Apple" : "微信";
 }
 
+type ProductPriceLabels = {
+  primary: string | null;
+  primarySuffix: string;
+  oneTime: string | null;
+  autoRenew: string | null;
+};
+
+function resolveProMonthlyPriceLabels(input: {
+  appleIap: AppleIapBridgeState | null;
+  wechatPriceLabel: string | null;
+}): ProductPriceLabels {
+  if (Platform.OS === "ios") {
+    const subscriptionPrice = input.appleIap?.subscriptions.find(
+      (product) => product.id === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+    )?.displayPrice;
+    const oneTimePrice = input.appleIap?.products.find(
+      (product) => product.id === getAppleProductIdForSource("single_purchase")
+    )?.displayPrice;
+    const primary = subscriptionPrice || oneTimePrice || null;
+    return {
+      primary,
+      primarySuffix: primary ? " / 月起" : "",
+      oneTime: oneTimePrice ?? null,
+      autoRenew: subscriptionPrice ?? null,
+    };
+  }
+
+  if (Platform.OS === "android") {
+    const price = input.wechatPriceLabel;
+    return {
+      primary: price,
+      primarySuffix: price ? " / 月" : "",
+      oneTime: price,
+      autoRenew: price,
+    };
+  }
+
+  return {
+    primary: null,
+    primarySuffix: "",
+    oneTime: null,
+    autoRenew: null,
+  };
+}
+
+function formatOneTimePurchaseButtonLabel(isRenew: boolean, price: string | null): string {
+  const action = isRenew ? "仅续费" : "仅购买";
+  return price ? `${action} ${price}` : `${action} 1 个月`;
+}
+
 function hasActiveAutoRenew(autoRenew: MobileAutoRenewSubscription | null): autoRenew is MobileAutoRenewSubscription {
   return Boolean(autoRenew && (autoRenew.status === "active" || autoRenew.status === "billing_retry"));
 }
@@ -551,9 +638,10 @@ function formatAutoRenewProviderLabel(): string {
   return "";
 }
 
-function formatAutoRenewButtonLabel(): string {
-  if (Platform.OS === "ios") return "Apple 开通";
-  if (Platform.OS === "android") return "微信开通";
+function formatAutoRenewButtonLabel(price: string | null = null): string {
+  const suffix = price ? ` ${price}/月` : "";
+  if (Platform.OS === "ios") return `Apple 开通${suffix}`;
+  if (Platform.OS === "android") return `微信开通${suffix}`;
   return "开通";
 }
 

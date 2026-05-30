@@ -63,6 +63,11 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
   return Array.isArray(value) ? value[0] : value;
 }
 
+function formatCnyPrice(amountCents: number): string {
+  const yuan = amountCents / 100;
+  return Number.isInteger(yuan) ? `¥${yuan}` : `¥${yuan.toFixed(2)}`;
+}
+
 function isAppleVerifyTransactionRequest(
   value: unknown
 ): value is { transactionId: string; } {
@@ -136,6 +141,18 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       ok,
       data: {
         providers,
+      },
+    });
+  });
+
+  app.get("/payment/products/pro-monthly", async (_req, reply) => {
+    return reply.status(200).send({
+      ok: true,
+      data: {
+        productCode: "pro_monthly",
+        amount: config.payment.proMonthlyPriceCents,
+        currency: "CNY",
+        displayPrice: formatCnyPrice(config.payment.proMonthlyPriceCents),
       },
     });
   });
