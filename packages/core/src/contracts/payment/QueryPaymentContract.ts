@@ -1,10 +1,14 @@
 /** QueryPaymentContract：支付订单查询的 API 契约定义。 */
 
-import type { PaymentOrderStatus, PaymentProductCode } from "../../ports/payment/PaymentTypes.js";
+import type {
+  PaymentOrderStatus,
+  PaymentProductCode,
+  PaymentProviderName,
+} from "../../ports/payment/PaymentTypes.js";
 
 export interface QueryPaymentOrderResponse {
   id: string;
-  provider: "wechat";
+  provider: PaymentProviderName;
   providerOrderId: string;
   productCode: PaymentProductCode;
   amount: number;

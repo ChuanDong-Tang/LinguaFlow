@@ -194,14 +194,14 @@ export class PaymentNotifyService {
           userId: paidOrder.userId,
           sourceOrderId: paidOrder.id,
           productCode: paidOrder.productCode,
-          channel: paidOrder.provider,
+          channel: "wechat",
         });
       } catch (_error) {
         await this.benefitGrantService.enqueueGrant({
           userId: paidOrder.userId,
           sourceOrderId: paidOrder.id,
           productCode: paidOrder.productCode,
-          channel: paidOrder.provider,
+          channel: "wechat",
           payload: { fallbackReason: "sync_grant_failed", source: "wechat_notify" },
         });
       }

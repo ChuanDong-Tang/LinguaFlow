@@ -1,8 +1,10 @@
 import type {
   CreatePaymentOrderRecordInput,
+  FindOrCreatePaidExternalOrderInput,
   PaymentOrderEntity,
   PaymentOrderRepository,
 } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import type { PaymentProviderName } from "@lf/core/ports/payment/PaymentTypes.js";
 
 type PrismaPaymentOrderClient = {
   paymentOrder: {
@@ -126,10 +128,47 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
         amount: input.amount,
         currency: input.currency,
         status: input.status,
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       },
     });
 
     return this.toEntity(row);
+  }
+
+  async findOrCreatePaidExternalOrder(
+    input: FindOrCreatePaidExternalOrderInput
+  ): Promise<PaymentOrderEntity> {
+    const existing = await this.findByProviderOrderId(input.providerOrderId);
+    if (existing) {
+      if (existing.status === "pending") {
+        const paid = await this.updateStatus({
+          id: existing.id,
+          status: "paid",
+          expectedCurrentStatuses: ["pending"],
+          metadata: mergeMetadata(existing.metadata, input.metadata),
+        });
+        if (paid) return paid;
+      }
+      return existing;
+    }
+
+    try {
+      return await this.create({
+        userId: input.userId,
+        productCode: input.productCode,
+        provider: input.provider,
+        providerOrderId: input.providerOrderId,
+        amount: input.amount,
+        currency: input.currency,
+        status: "paid",
+        metadata: input.metadata,
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      const raced = await this.findByProviderOrderId(input.providerOrderId);
+      if (!raced) throw error;
+      return raced;
+    }
   }
 
   async updateStatus(input: {
@@ -167,7 +206,7 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
     id: string;
     userId: string;
     productCode: "pro_monthly";
-    provider: "wechat";
+    provider: PaymentProviderName;
     providerOrderId: string;
     amount: number;
     currency: "CNY";
@@ -190,4 +229,26 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
       updatedAt: row.updatedAt,
     };
   }
+}
+
+function mergeMetadata(existing: unknown, patch: unknown): unknown {
+  if (patch === undefined) return existing ?? null;
+  if (
+    existing &&
+    typeof existing === "object" &&
+    !Array.isArray(existing) &&
+    patch &&
+    typeof patch === "object" &&
+    !Array.isArray(patch)
+  ) {
+    return {
+      ...(existing as Record<string, unknown>),
+      ...(patch as Record<string, unknown>),
+    };
+  }
+  return patch;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "P2002");
 }

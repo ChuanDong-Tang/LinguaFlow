@@ -20,6 +20,7 @@ import {
   hashSignedPayload,
   verifyAndDecodeAppleJws,
 } from "./AppleIapJws.js";
+import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 
 export interface VerifyAppleIapTransactionResult {
   environment: "production" | "sandbox";
@@ -100,7 +101,27 @@ export class AppleIapService {
       throw new AppleIapVerifyError("Missing originalTransactionId");
     }
 
-    const sourceOrderId = `apple_iap:${transaction.transactionId}`;
+    // 创建或复用 PaymentOrder，status = paid
+    const order = await this.paymentOrderRepository.findOrCreatePaidExternalOrder({
+      userId: input.userId,
+      productCode: "pro_monthly",
+      provider: "apple_iap",
+      providerOrderId: transaction.transactionId,
+      amount: getRuntimeConfig().payment.proMonthlyPriceCents,
+      currency: "CNY",
+      metadata: {
+        appleIap: {
+          environment: transaction.environment,
+          transactionId: transaction.transactionId,
+          originalTransactionId,
+          productId: transaction.productId,
+          purchaseKind,
+        },
+      },
+    });
+
+    const sourceOrderId = order.id;
+    
     if (purchaseKind === "auto_renew") {
       await this.appleIapAccountLinkRepository?.upsert({
         userId: input.userId,

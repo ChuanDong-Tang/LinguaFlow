@@ -14,6 +14,7 @@ import type {
   WeChatDebitNotification,
 } from "../../providers/payment/wechat/WeChatAutoRenewProvider.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import { addCalendarMonthsClamped } from "../time/calendarMath.js";
 import { createHash } from "node:crypto";
 
 export interface CurrentAutoRenewView {
@@ -248,7 +249,7 @@ export class AutoRenewService {
 
     if (appWithContract) {
       const periodStart = new Date();
-      const periodEnd = addMonths(periodStart, 1);
+      const periodEnd = addCalendarMonthsClamped(periodStart, 1);
       // App-with-contract 的首期支付单也先落库，后续支付/签约回调才能用 out_trade_no 幂等发权益。
       await this.autoRenewRepository.upsertCharge({
         autoRenewSubscriptionId: subscription.id,
@@ -479,7 +480,7 @@ export class AutoRenewService {
     }
 
     const periodStart = existingCharge?.periodStart ?? subscription.currentPeriodEnd ?? new Date();
-    const periodEnd = existingCharge?.periodEnd ?? addMonths(periodStart, 1);
+    const periodEnd = existingCharge?.periodEnd ?? addCalendarMonthsClamped(periodStart, 1);
     await this.recordPaidCharge({
       userId: subscription.userId,
       provider: "wechat",
@@ -644,7 +645,7 @@ export class AutoRenewService {
         // currentPeriodEnd 是权益回收/续接边界；nextBillingAt 是续扣触发时间。
         // 微信 V3 扣费服务由商户在续费窗口主动受理扣款；成功仍以验签后的通知/查单结果为准。
         const periodStart = subscription.currentPeriodEnd ?? now;
-        const periodEnd = addMonths(periodStart, 1);
+        const periodEnd = addCalendarMonthsClamped(periodStart, 1);
         const periodKey = toPeriodKey(periodStart, periodEnd);
         const outTradeNo = createWechatAutoRenewTradeNo(subscription.id, periodKey);
         const existingCharge = await this.autoRenewRepository.findChargeByPeriod({
@@ -930,7 +931,7 @@ export class AutoRenewService {
 
     const outTradeNo = createWechatAutoRenewTradeNo(subscription.id, periodKey);
     const periodStart = existingCharge?.periodStart ?? now;
-    const periodEnd = existingCharge?.periodEnd ?? addMonths(periodStart, 1);
+    const periodEnd = existingCharge?.periodEnd ?? addCalendarMonthsClamped(periodStart, 1);
     // 首期扣款也先落库再请求微信：如果进程在请求前后崩溃，后续 worker 还能根据这条 charge 查单/重试。
     // periodKey 固定为 initial，用来挡住微信签约回调重复投递导致的首期重复扣款。
     await this.autoRenewRepository.upsertCharge({
@@ -1088,12 +1089,6 @@ export class AutoRenewService {
 
 function addHours(base: Date, hours: number): Date {
   return new Date(base.getTime() + hours * 3_600_000);
-}
-
-function addMonths(base: Date, months: number): Date {
-  const next = new Date(base);
-  next.setMonth(next.getMonth() + months);
-  return next;
 }
 
 function computeEarlyBillingAt(periodEnd: Date): Date {

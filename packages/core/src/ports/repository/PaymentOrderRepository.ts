@@ -26,6 +26,17 @@ export interface CreatePaymentOrderRecordInput {
   amount: number;
   currency: "CNY";
   status: PaymentOrderStatus;
+  metadata?: unknown;
+}
+
+export interface FindOrCreatePaidExternalOrderInput {
+  userId: string;
+  productCode: PaymentProductCode;
+  provider: PaymentProviderName;
+  providerOrderId: string;
+  amount: number;
+  currency: "CNY";
+  metadata?: unknown;
 }
 
 export interface PaymentOrderRepository {
@@ -59,4 +70,11 @@ export interface PaymentOrderRepository {
     metadata?: unknown;
     expectedCurrentStatuses?: PaymentOrderStatus[];
   }): Promise<PaymentOrderEntity | null>;
+  /**
+   * Apple IAP 这类外部平台不会先走服务端预下单。
+   * 验单确认成功后，用 providerOrderId 做幂等，补一条内部 paid 订单，方便后台统一查看和作为权益 sourceOrderId。
+   */
+  findOrCreatePaidExternalOrder(
+    input: FindOrCreatePaidExternalOrderInput
+  ): Promise<PaymentOrderEntity>;
 }

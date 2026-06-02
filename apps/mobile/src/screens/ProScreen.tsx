@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useIAP, type Purchase } from "expo-iap";
+import { getAvailablePurchases, restorePurchases as restoreIapPurchases, useIAP, type Purchase } from "expo-iap";
 import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -27,6 +27,7 @@ import {
 import { refreshEntitlementAndSession } from "../services/entitlement/entitlementSync";
 import { getSession } from "../services/auth/authStorage";
 import {
+  APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID,
   APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
   type ApplePurchaseSource,
   assertAppleIapAvailable,
@@ -59,6 +60,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [autoRenew, setAutoRenew] = useState<MobileAutoRenewSubscription | null>(null);
   const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
   const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
+  const [isRestoringApplePurchases, setIsRestoringApplePurchases] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
   const [wechatPriceLabel, setWechatPriceLabel] = useState<string | null>(null);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
@@ -371,6 +373,66 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
+  async function handleRestoreApplePurchases(): Promise<void> {
+    if (Platform.OS !== "ios") return;
+    assertAppleIapAvailable();
+    if (!appleIap?.connected) {
+      safeAlert("Apple 支付初始化中", "请稍后重试。");
+      return;
+    }
+    if (isRestoringApplePurchases) return;
+
+    setIsRestoringApplePurchases(true);
+    try {
+      await restoreIapPurchases();
+      const purchases = await getAvailablePurchases({ onlyIncludeActiveItemsIOS: true });
+      const candidates = purchases
+        .filter(isAppleProPurchase)
+        .sort((left, right) => Number(right.transactionDate ?? 0) - Number(left.transactionDate ?? 0));
+
+      if (candidates.length === 0) {
+        const entitlementResult = await refreshProEntitlementState();
+        if (!isScreenAlive()) return;
+        if (entitlementResult?.entitlement.isPro) {
+          safeAlert("已同步", "Pro 权益已生效。");
+        } else {
+          safeAlert("未找到可恢复购买", "没有找到当前 Apple ID 下可恢复的 Pro 购买。");
+        }
+        return;
+      }
+
+      let lastError: unknown = null;
+      for (const purchase of candidates) {
+        try {
+          const transactionId = getAppleTransactionId(purchase);
+          const verified = await verifyAppleProMonthlyTransaction(transactionId);
+          await appleIap.finishTransaction({ purchase, isConsumable: false }).catch(() => {});
+          const entitlementResult = await refreshProEntitlementState();
+          if (!isScreenAlive()) return;
+          setIsRenew(entitlementResult?.entitlement.isPro ?? true);
+          if (verified.purchaseKind === "auto_renew") {
+            const currentAutoRenew = await getCurrentAutoRenewSubscription();
+            if (!isScreenAlive()) return;
+            setAutoRenew(currentAutoRenew);
+          }
+          safeAlert("恢复成功", "Pro 权益已同步。");
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      const message = lastError instanceof Error ? lastError.message : "请稍后重试";
+      safeAlert("恢复购买失败", message);
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      safeAlert("恢复购买失败", message);
+    } finally {
+      if (isScreenAlive()) setIsRestoringApplePurchases(false);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       {Platform.OS === "ios" ? (
@@ -462,6 +524,22 @@ export function ProScreen({ onBack }: ProScreenProps) {
               )}
             </Pressable>
           </View>
+          {Platform.OS === "ios" ? (
+            <Pressable
+              style={[styles.restoreButton, isRestoringApplePurchases && styles.subscribeButtonDisabled]}
+              onPress={() => void handleRestoreApplePurchases()}
+              disabled={isRestoringApplePurchases}
+            >
+              {isRestoringApplePurchases ? (
+                <ActivityIndicator color="#111111" />
+              ) : (
+                <>
+                  <Text style={styles.restoreHintText}>已通过 Apple 购买？</Text>
+                  <Text style={styles.restoreButtonText}>恢复权益</Text>
+                </>
+              )}
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.ruleCard}>
@@ -626,6 +704,13 @@ function formatOneTimePurchaseButtonLabel(isRenew: boolean, price: string | null
 
 function hasActiveAutoRenew(autoRenew: MobileAutoRenewSubscription | null): autoRenew is MobileAutoRenewSubscription {
   return Boolean(autoRenew && (autoRenew.status === "active" || autoRenew.status === "billing_retry"));
+}
+
+function isAppleProPurchase(purchase: Purchase): boolean {
+  return (
+    purchase.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID ||
+    purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+  );
 }
 
 function isWechatUserCancelError(error: unknown): boolean {
@@ -877,6 +962,25 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
+  },
+  restoreButton: {
+    marginTop: 8,
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  restoreHintText: {
+    color: "#6A7290",
+    fontSize: 11,
+    fontWeight: "400",
+  },
+  restoreButtonText: {
+    color: "#111111",
+    fontSize: 11,
+    fontWeight: "500",
+    textDecorationLine: "underline",
   },
   ruleCard: {
     marginTop: 8,

@@ -3,6 +3,7 @@ import type {
   SubscriptionPlan,
   SubscriptionRepository,
 } from "@lf/core/ports/repository/SubscriptionRepository.js";
+import { addCalendarMonthsClamped } from "../time/calendarMath.js";
 
 export type CurrentSubscriptionPlan = SubscriptionPlan | "free";
 
@@ -78,7 +79,7 @@ export class SubscriptionService {
         : current && current.expiresAt > now
           ? current.expiresAt
           : now;
-    const expiresAt = explicitPeriodEnd ?? this.addMonths(startedAt, months);
+    const expiresAt = explicitPeriodEnd ?? addCalendarMonthsClamped(startedAt, months);
 
     const subscription = await this.subscriptionRepository.create({
       userId: input.userId,
@@ -93,11 +94,5 @@ export class SubscriptionService {
       subscription,
       alreadyApplied: false,
     };
-  }
-
-  private addMonths(base: Date, months: number): Date {
-    const next = new Date(base);
-    next.setMonth(next.getMonth() + months);
-    return next;
   }
 }

@@ -9,6 +9,7 @@ import type {
   PaymentOrderRepository,
 } from "@lf/core/ports/repository/PaymentOrderRepository.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import { addCalendarMonthsClamped } from "../time/calendarMath.js";
 import { getExpectedCurrentStatusesForNextStatus } from "./PaymentOrderStateMachine.js";
 import type { SubscriptionService } from "../subscription/SubscriptionService.js";
 
@@ -58,7 +59,10 @@ export class PaymentOrderService {
     if (this.subscriptionService) {
       const current = await this.subscriptionService.getCurrentSubscription(input.userId, now);
       if (current.isPro && current.expiresAt) {
-        const maxAllowedExpiresAt = addMonths(now, config.payment.proMonthlyMaxPrepaidMonths - 1);
+        const maxAllowedExpiresAt = addCalendarMonthsClamped(
+          now,
+          config.payment.proMonthlyMaxPrepaidMonths - 1
+        );
         if (current.expiresAt > maxAllowedExpiresAt) {
           // 单次月卡最多只能把 Pro 权益预存到“现在 + maxPrepaidMonths”附近。
           // 因为本次购买会再顺延 1 个月，所以这里用 maxPrepaidMonths - 1 判断当前剩余权益。
@@ -477,7 +481,7 @@ export class PaymentOrderService {
   ): CreatePaymentOrderResponse {
     return {
       id: order.id,
-      provider: order.provider,
+      provider: toWechatProvider(order.provider),
       providerOrderId: order.providerOrderId,
       productCode: order.productCode,
       amount: order.amount,
@@ -489,14 +493,15 @@ export class PaymentOrderService {
   }
 }
 
+function toWechatProvider(provider: PaymentOrderEntity["provider"]): "wechat" {
+  if (provider !== "wechat") {
+    throw new Error(`Unsupported create payment order provider: ${provider}`);
+  }
+  return provider;
+}
+
 function isUniqueConstraintError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const maybeCode = (error as { code?: unknown }).code;
   return maybeCode === "P2002";
-}
-
-function addMonths(base: Date, months: number): Date {
-  const next = new Date(base);
-  next.setMonth(next.getMonth() + months);
-  return next;
 }
