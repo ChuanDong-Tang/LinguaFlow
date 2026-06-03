@@ -150,6 +150,10 @@ function buildRenderSegments(
   });
 }
 
+function toBlankPlaceholder(text: string): string {
+  return text.replace(/[^\s]/g, "_");
+}
+
 export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, Props>(
   function SelectableMessageText({
     text,
@@ -260,7 +264,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
                 onPress={segment.groupIndex !== null ? () => onClozeRangePress?.(segment.groupIndex!) : undefined}
                 onLongPress={segment.groupIndex !== null ? () => onClozeRangeLongPress?.(segment.groupIndex!) : undefined}
               >
-                {segment.text}
+                {segment.isBlank ? toBlankPlaceholder(segment.text) : segment.text}
               </Text>
             );
           })}
@@ -277,12 +281,8 @@ const styles = StyleSheet.create({
     color: "#3D3420",
   },
   blankText: {
-    color: CLOZE_BLANK_BACKGROUND,
-    textDecorationLine: "underline",
-    textDecorationColor: "#8C6D1F",
-    textShadowColor: CLOZE_BLANK_BACKGROUND,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 3,
+    color: "#8C6D1F",
+    fontWeight: "600",
   },
   correctText: {
     color: "#6FAE78",

@@ -44,7 +44,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       clientId: authingClientId,
       redirectUri: authingRedirectUri,
       responseType: AuthSession.ResponseType.Code,
-      scopes: ["openid", "profile", "offline_access"],
+      scopes: ["openid", "profile", "email", "phone", "offline_access"],
       usePKCE: true,
       prompt: forceAuthingLogin ? AuthSession.Prompt.Login : undefined,
     },
@@ -241,6 +241,8 @@ function normalizeLoginError(error: unknown, fallback: string): string {
 function toSessionUser(user: {
   id: string;
   nickname: string | null;
+  email: string | null;
+  phone: string | null;
   avatarUrl: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -248,14 +250,18 @@ function toSessionUser(user: {
   // Authing 返回字段和本地 User 类型不同，在写入会话前统一成 App 内部结构。
   return {
     id: user.id,
-    phone: null,
-    email: null,
+    phone: user.phone,
+    email: user.email,
     wechatOpenId: null,
-    displayName: user.nickname,
+    displayName: resolveDisplayName(user),
     avatarUrl: user.avatarUrl,
     createdAt: new Date(user.createdAt).toISOString(),
     updatedAt: new Date(user.updatedAt).toISOString(),
   };
+}
+
+function resolveDisplayName(user: { nickname: string | null; email: string | null; phone: string | null }): string | null {
+  return user.nickname?.trim() || user.email?.trim() || user.phone?.trim() || null;
 }
 
 const styles = StyleSheet.create({

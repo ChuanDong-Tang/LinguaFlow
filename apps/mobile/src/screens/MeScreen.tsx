@@ -61,7 +61,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
     return { dailyTotalLimit, remainingChars, ratio: Math.max(0, Math.min(1, ratio)) };
   }, [entitlement, session?.sessionFlags?.isPro]);
 
-  const userName = session?.user.displayName || "微信用户";
+  const userName = session?.user.displayName ?? "";
   const planLabel = (entitlement?.isPro ?? session?.sessionFlags?.isPro === true) ? "Pro" : "普通版";
   const quotaTitle = entitlement?.isPro ? "今日字符额度" : "免费字符额度";
   const quotaLabel = entitlement?.isPro ? "今日剩余" : "剩余额度";

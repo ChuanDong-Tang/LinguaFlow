@@ -27,6 +27,8 @@ export interface SessionContextInput {
 interface AuthingUserInfo {
   sub: string;
   nickname: string | null;
+  email: string | null;
+  phone: string | null;
   picture: string | null;
 }
 
@@ -46,6 +48,8 @@ export class AuthLoginService {
       provider: "authing",
       providerUserId,
       nickname: authingUser.nickname,
+      email: authingUser.email,
+      phone: authingUser.phone,
       avatarUrl: authingUser.picture,
     });
 
@@ -226,6 +230,8 @@ export class AuthLoginService {
     return {
       sub,
       nickname: typeof payload.nickname === "string" ? payload.nickname : null,
+      email: typeof payload.email === "string" ? payload.email : null,
+      phone: getStringPayloadValue(payload, "phone_number") ?? getStringPayloadValue(payload, "phone"),
       picture: typeof payload.picture === "string" ? payload.picture : null,
     };
   }
@@ -286,6 +292,11 @@ function isEmail(value: string): boolean {
 
 function isPhone(value: string): boolean {
   return /^\+?\d{6,20}$/.test(value);
+}
+
+function getStringPayloadValue(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function hashRefreshToken(token: string): string {

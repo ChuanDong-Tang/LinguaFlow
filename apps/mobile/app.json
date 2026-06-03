@@ -2,7 +2,7 @@
   "expo": {
     "name": "OIO",
     "slug": "oio",
-    "scheme": "linguaflow",
+    "scheme": "oio-preview",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

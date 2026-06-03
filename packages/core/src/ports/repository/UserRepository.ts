@@ -8,6 +8,8 @@ export type UserRole = "user" | "admin";
 export interface UserEntity {
   id: string;
   nickname: string | null;
+  email: string | null;
+  phone: string | null;
   avatarUrl: string | null;
   status: UserStatus;
   role: UserRole;
@@ -26,6 +28,8 @@ export interface UserAuthIdentity {
 /** 创建用户入参 */
 export interface CreateUserInput {
   nickname?: string | null;
+  email?: string | null;
+  phone?: string | null;
   avatarUrl?: string | null;
 }
 
@@ -39,6 +43,8 @@ export interface BindAuthIdentityInput {
 export interface EnsureUserExistsInput {
   id: string;
   nickname?: string | null;
+  email?: string | null;
+  phone?: string | null;
   avatarUrl?: string | null;
   status?: UserStatus;
   role?: UserRole;
@@ -63,6 +69,8 @@ export interface UserRepository {
     provider: AuthProvider;
     providerUserId: string;
     nickname?: string | null;
+    email?: string | null;
+    phone?: string | null;
     avatarUrl?: string | null;
   }): Promise<{ user: UserEntity; isNewUser: boolean }>;
 }

@@ -15,6 +15,7 @@ type PrismaUserClient = {
     create: (args: any) => Promise<any>;
     findUnique: (args: any) => Promise<any>;
     upsert: (args: any) => Promise<any>;
+    update: (args: any) => Promise<any>;
   };
   userAuthIdentity: {
     findUnique: (args: any) => Promise<any>;
@@ -30,6 +31,8 @@ export class PrismaUserRepository implements UserRepository {
     provider: AuthProvider;
     providerUserId: string;
     nickname?: string | null;
+    email?: string | null;
+    phone?: string | null;
     avatarUrl?: string | null; }
   ):Promise<{ user: UserEntity; isNewUser: boolean; }> {
     return this.prisma.$transaction(async (tx) => {
@@ -44,12 +47,23 @@ export class PrismaUserRepository implements UserRepository {
       });
 
       if(existing) {
-        return { user: this.toUserEntity(existing.user), isNewUser: false };
+        const updatedUser = await tx.user.update({
+          where: { id: existing.user.id },
+          data: {
+            nickname: input.nickname ?? undefined,
+            email: input.email ?? undefined,
+            phone: input.phone ?? undefined,
+            avatarUrl: input.avatarUrl ?? undefined,
+          },
+        });
+        return { user: this.toUserEntity(updatedUser), isNewUser: false };
       }
 
       const createdUser = await tx.user.create({
         data: {
           nickname: input.nickname ?? null,
+          email: input.email ?? null,
+          phone: input.phone ?? null,
           avatarUrl: input.avatarUrl ?? null,
           status: "active"
         },
@@ -111,6 +125,8 @@ export class PrismaUserRepository implements UserRepository {
     const created = await this.prisma.user.create({
       data: {
         nickname: input.nickname ?? null,
+        email: input.email ?? null,
+        phone: input.phone ?? null,
         avatarUrl: input.avatarUrl ?? null,
         status: "active",
       },
@@ -145,6 +161,8 @@ export class PrismaUserRepository implements UserRepository {
       where: { id: input.id },
       update: {
         nickname: input.nickname ?? undefined,
+        email: input.email ?? undefined,
+        phone: input.phone ?? undefined,
         avatarUrl: input.avatarUrl ?? undefined,
         status: input.status ?? undefined,
         role: input.role ?? undefined,
@@ -152,6 +170,8 @@ export class PrismaUserRepository implements UserRepository {
       create: {
         id: input.id,
         nickname: input.nickname ?? null,
+        email: input.email ?? null,
+        phone: input.phone ?? null,
         avatarUrl: input.avatarUrl ?? null,
         status: input.status ?? "active",
         role: input.role ?? "user",
@@ -168,6 +188,8 @@ export class PrismaUserRepository implements UserRepository {
   private toUserEntity(record: {
     id: string;
     nickname: string | null;
+    email: string | null;
+    phone: string | null;
     avatarUrl: string | null;
     status: "active" | "disabled";
     role: "user" | "admin";
@@ -177,6 +199,8 @@ export class PrismaUserRepository implements UserRepository {
     return {
       id: record.id,
       nickname: record.nickname,
+      email: record.email,
+      phone: record.phone,
       avatarUrl: record.avatarUrl,
       status: record.status,
       role: record.role,
@@ -200,4 +224,3 @@ export class PrismaUserRepository implements UserRepository {
   }
 
 }
-

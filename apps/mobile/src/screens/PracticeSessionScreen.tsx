@@ -37,8 +37,26 @@ type PracticeSessionScreenProps = {
 };
 
 type PracticeEnglishSegment =
-  | { type: "text"; key: string; text: string; highlighted: boolean; correct: boolean }
-  | { type: "blank"; key: string; tokenIndex: number; width: number; spacer: boolean; expectedText: string };
+  | {
+      type: "text";
+      key: string;
+      text: string;
+      highlighted: boolean;
+      correct: boolean;
+      spacer: boolean;
+      spacerHighlighted: boolean;
+      sentenceBreakAfter: boolean;
+    }
+  | {
+      type: "blank";
+      key: string;
+      tokenIndex: number;
+      width: number;
+      spacer: boolean;
+      spacerHighlighted: boolean;
+      expectedText: string;
+      sentenceBreakAfter: boolean;
+    };
 
 const EDGE_SWITCH_COMMIT_THRESHOLD = 5;
 const DISCARD_SWIPE_RATIO = 0.15;
@@ -54,6 +72,7 @@ function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegmen
     const isBlank = blankSet.has(token.index) && !correctSet.has(token.index);
     const previous = card.tokens[tokenListIndex - 1];
     const spacer = !!previous && token.kind === "word" && previous.kind === "word";
+    const spacerHighlighted = spacer && isPhrase && phraseSet.has(previous.index);
     if (isBlank) {
       return {
         type: "blank",
@@ -61,17 +80,40 @@ function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegmen
         tokenIndex: token.index,
         width: Math.max(36, token.text.length * 10),
         spacer,
+        spacerHighlighted,
         expectedText: token.text,
+        sentenceBreakAfter: false,
       };
     }
     return {
       type: "text",
       key: `text-${token.index}`,
-      text: `${spacer ? " " : ""}${token.text}`,
+      text: token.text,
       highlighted: isPhrase || isAnsweredBlank,
       correct: isAnsweredBlank,
+      spacer,
+      spacerHighlighted,
+      sentenceBreakAfter: isSentenceBreakToken(token.text),
     };
   });
+}
+
+function isSentenceBreakToken(text: string): boolean {
+  return /^[.!?;。！？；]+$/.test(text);
+}
+
+function groupPracticeEnglishSentences(segments: PracticeEnglishSegment[]): PracticeEnglishSegment[][] {
+  const rows: PracticeEnglishSegment[][] = [];
+  let current: PracticeEnglishSegment[] = [];
+  for (const segment of segments) {
+    current.push(segment);
+    if (segment.sentenceBreakAfter) {
+      rows.push(current);
+      current = [];
+    }
+  }
+  if (current.length) rows.push(current);
+  return rows;
 }
 
 export function PracticeSessionScreen({ initialCards, allMessages, onBack }: PracticeSessionScreenProps) {
@@ -621,40 +663,54 @@ function PracticeEnglish({
   checkedAnswers: Record<number, "correct" | "incorrect">;
   onChangeAnswer: (tokenIndex: number, value: string) => void;
 }) {
+  const sentenceRows = useMemo(() => groupPracticeEnglishSentences(segments), [segments]);
+
+  function renderSegment(segment: PracticeEnglishSegment): React.ReactNode {
+    if (segment.type === "blank") {
+      const checked = checkedAnswers[segment.tokenIndex];
+      const isCorrect = checked === "correct";
+      const isIncorrect = checked === "incorrect";
+      const answer = answers[segment.tokenIndex] ?? "";
+      return (
+        <React.Fragment key={segment.key}>
+          {segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
+          {isCorrect ? (
+            <Text style={[styles.tokenText, styles.correctText]}>{answer || segment.expectedText}</Text>
+          ) : isIncorrect ? (
+            <Text style={[styles.tokenText, styles.phraseText, styles.incorrectAnswerText]}>{segment.expectedText}</Text>
+          ) : (
+            <TextInput
+              style={[
+                styles.blankInput,
+                { width: segment.width },
+              ]}
+              value={answer}
+              onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          )}
+        </React.Fragment>
+      );
+    }
+
+    return (
+      <React.Fragment key={segment.key}>
+        {segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
+        <Text style={[styles.tokenText, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}>
+          {segment.text}
+        </Text>
+      </React.Fragment>
+    );
+  }
+
   return (
-    <View style={styles.englishFlow}>
-      {segments.map((segment) => {
-        if (segment.type === "blank") {
-          const checked = checkedAnswers[segment.tokenIndex];
-          const isCorrect = checked === "correct";
-          const isIncorrect = checked === "incorrect";
-          return (
-            <React.Fragment key={segment.key}>
-              {segment.spacer ? <Text style={styles.englishText}> </Text> : null}
-              {isCorrect ? (
-                <Text style={[styles.tokenText, styles.correctText]}>{answers[segment.tokenIndex] || segment.expectedText}</Text>
-              ) : (
-                <TextInput
-                  style={[
-                    styles.blankInput,
-                    isIncorrect && styles.incorrectInput,
-                    { width: segment.width },
-                  ]}
-                  value={answers[segment.tokenIndex] ?? ""}
-                  onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              )}
-            </React.Fragment>
-          );
-        }
-        return (
-          <Text key={segment.key} style={[styles.tokenText, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}>
-            {segment.text}
-          </Text>
-        );
-      })}
+    <View style={styles.englishSentences}>
+      {sentenceRows.map((row, index) => (
+        <View key={`sentence-${index}`} style={styles.englishFlow}>
+          {row.map(renderSegment)}
+        </View>
+      ))}
     </View>
   );
 }
@@ -760,17 +816,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     fontWeight: "400",
+    includeFontPadding: false,
+  },
+  englishSentences: {
+    gap: 6,
   },
   englishFlow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    alignItems: "baseline",
+    alignItems: "center",
   },
   tokenText: {
     color: "#080808",
     fontSize: 16,
     lineHeight: 24,
     fontWeight: "400",
+    includeFontPadding: false,
   },
   phraseText: {
     backgroundColor: "#FFF2B8",
@@ -778,19 +839,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     fontWeight: "400",
+    includeFontPadding: false,
   },
   correctText: {
     color: "#6FAE78",
   },
   incorrectInput: {
-    color: "#D77A7A",
-    borderBottomColor: "#D77A7A",
+    color: "#D64545",
+    borderBottomColor: "#D64545",
+    fontWeight: "500",
+  },
+  incorrectAnswerText: {
+    color: "#D64545",
+    fontWeight: "500",
   },
   blankInput: {
     height: 24,
-    marginHorizontal: 2,
+    marginHorizontal: 0,
     paddingHorizontal: 1,
     paddingVertical: 0,
+    backgroundColor: "#FFF2B8",
     borderBottomWidth: 1,
     borderBottomColor: "#111111",
     color: "#111111",
@@ -798,6 +866,8 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: "400",
     textAlign: "center",
+    textAlignVertical: "center",
+    includeFontPadding: false,
   },
 
   translationPane: {

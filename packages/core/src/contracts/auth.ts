@@ -36,6 +36,8 @@ export interface AuthingLoginResponse {
   user: {
     id: string;
     nickname: string | null;
+    email: string | null;
+    phone: string | null;
     avatarUrl: string | null;
     status: "active" | "disabled";
     createdAt: Date;
