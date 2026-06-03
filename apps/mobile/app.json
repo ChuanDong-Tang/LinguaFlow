@@ -37,13 +37,14 @@
     "extra": {
       "wechatAppId": "${EXPO_PUBLIC_WECHAT_APP_ID}",
       "eas": {
-        "projectId": "0ca8f6d6-e389-43ec-8389-352d41df897b"
+        "projectId": "0a8b5bb4-bdb1-4950-b3e9-6e2530b9c836"
       }
     },
     "plugins": [
       "expo-web-browser",
       "expo-secure-store",
       "./plugins/with-wechat-pay"
-    ]
+    ],
+    "owner": "reedtang"
   }
 }
