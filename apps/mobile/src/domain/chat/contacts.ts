@@ -5,7 +5,7 @@ export type ChatContact = {
   name: string;
   description: string;
   avatarLabel: string;
-  clozeSource: "tagged_en" | "full_text";
+  clozeSource: "tagged_en" | "tagged_en_reply" | "full_text";
   practiceEnabled: boolean;
 };
 
@@ -23,7 +23,7 @@ export const CHAT_CONTACTS: ChatContact[] = [
     name: "好奇宝宝",
     description: "用英文改写和回答",
     avatarLabel: "WHY",
-    clozeSource: "full_text",
+    clozeSource: "tagged_en_reply",
     practiceEnabled: true,
   },
 ];

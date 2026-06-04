@@ -29,8 +29,8 @@ export type PracticeDayStats = {
   band: Exclude<PracticeAccuracyBand, "any">;
 };
 
-// 从聊天消息生成练习卡。练习只基于 <en></en> 中间的英文，因此 clozeState 的 token
-// 索引也必须对应英文正文；<zh></zh> 仅作为卡片下方的中文对照。
+// 从聊天消息生成练习卡。练习只基于主文本 <en></en>，因此 clozeState 的 token
+// 索引也必须对应英文正文；<zh></zh> 和 <reply></reply> 仅作为卡片下方的弱化对照。
 export function buildPracticeCards(
   messages: ChatMessage[],
   options?: { includeCompleted?: boolean; contact?: ChatContact; contactByMessageId?: Map<string, ChatContact> },

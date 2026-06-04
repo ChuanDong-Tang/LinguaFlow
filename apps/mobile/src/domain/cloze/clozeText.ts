@@ -11,12 +11,19 @@ export function getAssistantClozeText(
   message: ChatMessage,
   contact: Pick<ChatContact, "clozeSource">,
 ): AssistantClozeText {
-  if (contact.clozeSource === "full_text") {
-    const tagged = parseTaggedRewrite(message.text);
-    const text = [tagged.en, tagged.reply].filter(Boolean).join("\n\n");
-    return { text: text || message.text, translation: "" };
-  }
   const tagged = parseTaggedRewrite(message.text);
+
+  if (contact.clozeSource === "tagged_en_reply") {
+    return {
+      text: tagged.en || (tagged.reply ? "" : message.text),
+      translation: tagged.reply,
+    };
+  }
+
+  if (contact.clozeSource === "full_text") {
+    return { text: message.text, translation: "" };
+  }
+
   return {
     text: tagged.en,
     translation: tagged.zh,
