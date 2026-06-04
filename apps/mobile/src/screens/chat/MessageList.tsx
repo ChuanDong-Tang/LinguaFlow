@@ -3,6 +3,7 @@ import { Animated, FlatList, Pressable, StyleSheet, Text, View } from "react-nat
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatMessage } from "../../domain/chat/types";
 import type { ChatContact } from "../../domain/chat/contacts";
+import type { AutoCopyMode } from "../../services/preferences/assistantPreferences";
 import { getClozeBlankRanges, getClozeCorrectRanges, getClozeHighlightRanges, normalizeClozeState } from "../../domain/cloze/clozeUtils";
 import { getAssistantClozeText } from "../../domain/cloze/clozeText";
 import {
@@ -75,7 +76,7 @@ type MessageListProps = {
   onScrollBeginDrag?: () => void;
   onScrollMetrics?: (metrics: { y: number; contentHeight: number; layoutHeight: number }) => void;
   onRetryMessage: (message: ChatMessage) => void;
-  onCopyMessage: (message: ChatMessage) => void;
+  onCopyMessage: (message: ChatMessage, mode: AutoCopyMode) => void;
   onTextSelection: (
     message: ChatMessage,
     payload: NativeTextSelectionPayload,
@@ -91,6 +92,21 @@ type RowItem =
 
 const MESSAGE_LIST_PERF_LOGS = false;
 const SLOW_MESSAGE_RENDER_MS = 12;
+function getCopyOptions(contact: ChatContact): { label: string; mode: AutoCopyMode }[] {
+  if (contact.id === "english_friend") {
+    return [
+      { label: "问题", mode: "en" },
+      { label: "回复", mode: "zh" },
+      { label: "全部", mode: "both" },
+    ];
+  }
+
+  return [
+    { label: "英文", mode: "en" },
+    { label: "中文", mode: "zh" },
+    { label: "全部", mode: "both" },
+  ];
+}
 
 function perfNow(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
@@ -171,7 +187,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   contact: ChatContact;
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
   onRetryMessage: (message: ChatMessage) => void;
-  onCopyMessage: (message: ChatMessage) => void;
+  onCopyMessage: (message: ChatMessage, mode: AutoCopyMode) => void;
   onTextSelection: (
     message: ChatMessage,
     payload: NativeTextSelectionPayload,
@@ -183,6 +199,8 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   const renderStart = perfNow();
   const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
   const [answersVisible, setAnswersVisible] = React.useState(false);
+  const [isCopyMenuOpen, setIsCopyMenuOpen] = React.useState(false);
+  const copyOptions = React.useMemo(() => getCopyOptions(contact), [contact]);
   const clozeText = React.useMemo(() => {
     const startedAt = perfNow();
     const value = getAssistantClozeText(message, contact);
@@ -353,14 +371,33 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                 <View />
               )}
 
-              <Pressable
-                style={styles.copyButton}
-                hitSlop={8}
-                onPress={() => onCopyMessage(message)}
-                disabled={!message.text.trim()}
-              >
-                <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
-              </Pressable>
+              <View style={styles.copyControl}>
+                {isCopyMenuOpen ? (
+                  <View style={styles.copyMenu}>
+                    {copyOptions.map((option) => (
+                      <Pressable
+                        key={option.mode}
+                        style={styles.copyMenuOption}
+                        hitSlop={4}
+                        onPress={() => {
+                          setIsCopyMenuOpen(false);
+                          onCopyMessage(message, option.mode);
+                        }}
+                      >
+                        <Text style={styles.copyMenuText}>{option.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+                <Pressable
+                  style={styles.copyButton}
+                  hitSlop={8}
+                  onPress={() => setIsCopyMenuOpen((value) => !value)}
+                  disabled={!message.text.trim()}
+                >
+                  <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
+                </Pressable>
+              </View>
             </View>
           ) : null}
         </View>
@@ -414,8 +451,8 @@ export function MessageList({
   const handleRetryMessage = React.useCallback((message: ChatMessage) => {
     retryMessageRef.current(message);
   }, [retryMessageRef]);
-  const handleCopyMessage = React.useCallback((message: ChatMessage) => {
-    copyMessageRef.current(message);
+  const handleCopyMessage = React.useCallback((message: ChatMessage, mode: AutoCopyMode) => {
+    copyMessageRef.current(message, mode);
   }, [copyMessageRef]);
   const handleTextSelection = React.useCallback(
     (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
@@ -624,6 +661,37 @@ const styles = StyleSheet.create({
     minHeight: 40,
     alignItems: "center",
     justifyContent: "center",
+  },
+  copyControl: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  copyMenu: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 3,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#DBDFE7",
+    backgroundColor: "#F7F8FB",
+  },
+  copyMenuOption: {
+    height: 24,
+    minWidth: 34,
+    paddingHorizontal: 7,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  copyMenuText: {
+    color: "#111111",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0,
   },
   eyeButton: {
     minWidth: 40,

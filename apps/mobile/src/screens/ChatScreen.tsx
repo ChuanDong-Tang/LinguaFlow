@@ -37,6 +37,7 @@ import { useExclusiveSyncMachine } from "../hooks/useExclusiveSyncMachine";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatComposer } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
+import { AutoCopySheet } from "./chat/AutoCopySheet";
 import type { SelectableMessageTextRef } from "./chat/SelectableMessageText";
 import { DatePickerSheet } from "./chat/DatePickerSheet";
 import { useFloatingNotice } from "./shared/FloatingNotice";
@@ -49,6 +50,7 @@ import {
   toDateKey,
 } from "../domain/chat/messageState";
 import type { ChatContact } from "../domain/chat/contacts";
+import type { AutoCopyMode } from "../services/preferences/assistantPreferences";
 import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
 
 type ChatScreenProps = {
@@ -70,7 +72,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [dayMessages, setDayMessages] = useState<ChatMessage[]>([]);
   const [localDateKeys, setLocalDateKeys] = useState<Set<string>>(new Set());
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
-  const { autoCopyAfterGeneration, autoCopyMode, openAutoCopyMenu } = useAssistantAutoCopyPreferences();
+  const {
+    autoCopyAfterGeneration,
+    autoCopyMode,
+    isAutoCopyMenuOpen,
+    openAutoCopyMenu,
+    closeAutoCopyMenu,
+    setAutoCopyMode,
+  } = useAssistantAutoCopyPreferences();
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
@@ -226,10 +235,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }, [isDateSheetOpen, monthCursor]);
 
   const handleCopyMessage = React.useCallback(
-    (message: ChatMessage) => {
-      void copyAssistantTaggedText(message.text, autoCopyMode);
+    (message: ChatMessage, mode: AutoCopyMode) => {
+      void copyAssistantTaggedText(message.text, mode, false, contact.id);
     },
-    [autoCopyMode]
+    [contact.id]
   );
 
   const handleScrollBeginDrag = React.useCallback(() => {
@@ -324,7 +333,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       conversationId,
       autoCopyAfterGeneration,
       autoCopyMode,
-      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
+      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true, contact.id),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(businessTodayDate, { force: true });
@@ -375,7 +384,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       conversationId,
       autoCopyAfterGeneration,
       autoCopyMode,
-      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
+      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true, contact.id),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(retryDate, { force: true });
@@ -831,6 +840,13 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         onConfirmEditor={() => void confirmClozeEditor()}
         onCloseDelete={() => setClozeDelete(null)}
         onConfirmDelete={() => void confirmDeleteCloze()}
+      />
+      <AutoCopySheet
+        visible={isAutoCopyMenuOpen}
+        contact={contact}
+        selectedMode={autoCopyMode}
+        onClose={closeAutoCopyMenu}
+        onSelectMode={setAutoCopyMode}
       />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
     </SafeAreaView>

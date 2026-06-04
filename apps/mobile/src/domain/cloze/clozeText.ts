@@ -12,7 +12,9 @@ export function getAssistantClozeText(
   contact: Pick<ChatContact, "clozeSource">,
 ): AssistantClozeText {
   if (contact.clozeSource === "full_text") {
-    return { text: message.text, translation: "" };
+    const tagged = parseTaggedRewrite(message.text);
+    const text = [tagged.en, tagged.reply].filter(Boolean).join("\n\n");
+    return { text: text || message.text, translation: "" };
   }
   const tagged = parseTaggedRewrite(message.text);
   return {
