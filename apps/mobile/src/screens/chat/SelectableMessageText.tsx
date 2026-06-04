@@ -3,10 +3,16 @@ import {
   Alert,
   StyleSheet,
   Text,
+  View,
   type StyleProp,
   type TextStyle,
 } from "react-native";
-import { SelectableTextView } from "@rob117/react-native-selectable-text";
+import {
+  ChatSelectableTextView,
+  clearChatSelectableTextSelection,
+  type ChatSelectableTextRangeEvent,
+  type ChatSelectableTextSelectionEvent,
+} from "./ChatSelectableTextView";
 
 export type NativeTextSelectionPayload = {
   start: number;
@@ -36,6 +42,7 @@ type Props = {
   blankRanges?: NativeClozeBlankRange[];
   correctRanges?: NativeClozeBlankRange[];
   trailingElement?: React.ReactNode;
+  enableClozeMenu?: boolean;
   onSelectionStart?: () => void;
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
   onClozeRangePress?: (groupIndex: number) => void;
@@ -46,8 +53,6 @@ const SELECTABLE_TEXT_PERF_LOGS = false;
 const SLOW_SELECTABLE_TEXT_MS = 12;
 const LONG_SELECTABLE_TEXT_CHARS = 600;
 const CLOZE_MENU_OPTION = "填空";
-const CLOZE_BLANK_BACKGROUND = "#FFF0B8";
-
 function perfNow(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
 }
@@ -64,15 +69,6 @@ function logSelectableTextPerf(label: string, startedAt: number, extra?: Record<
   }
   console.log(`[selectable-text-perf] ${label}: ${elapsed}ms`);
 }
-
-type RenderSegment = {
-  start: number;
-  end: number;
-  text: string;
-  groupIndex: number | null;
-  isBlank: boolean;
-  isCorrect: boolean;
-};
 
 function clampRange(range: NativeClozeHighlightRange, textLength: number): NativeClozeHighlightRange | null {
   const start = Math.max(0, Math.min(range.start, textLength));
@@ -121,37 +117,8 @@ function rangesOverlap(left: NativeClozeBlankRange, right: NativeClozeBlankRange
   return left.start < right.end && left.end > right.start;
 }
 
-function buildRenderSegments(
-  text: string,
-  highlightRanges: Required<NativeClozeHighlightRange>[],
-  blankRanges: NativeClozeBlankRange[],
-  correctRanges: NativeClozeBlankRange[],
-): RenderSegment[] {
-  const boundaries = new Set<number>([0, text.length]);
-  for (const range of [...highlightRanges, ...blankRanges, ...correctRanges]) {
-    boundaries.add(range.start);
-    boundaries.add(range.end);
-  }
-  const sorted = [...boundaries].sort((a, b) => a - b);
-
-  // 只按已有 range 边界切片，不按词拆分；这样 cloze 越多才越多段，普通长文本始终很轻。
-  return sorted.slice(0, -1).flatMap((start, index) => {
-    const end = sorted[index + 1];
-    if (start >= end) return [];
-    const highlight = highlightRanges.find((range) => rangeContains(range, start, end));
-    return [{
-      start,
-      end,
-      text: text.slice(start, end),
-      groupIndex: highlight?.groupIndex ?? null,
-      isBlank: blankRanges.some((range) => rangeContains(range, start, end)),
-      isCorrect: correctRanges.some((range) => rangeContains(range, start, end)),
-    }];
-  });
-}
-
-function toBlankPlaceholder(text: string): string {
-  return text.replace(/[^\s]/g, "_");
+function rangesToJson(ranges?: Array<NativeClozeHighlightRange | NativeClozeBlankRange>): string {
+  return JSON.stringify(ranges ?? []);
 }
 
 export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, Props>(
@@ -162,6 +129,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     blankRanges,
     correctRanges,
     trailingElement,
+    enableClozeMenu = true,
     onSelectionStart,
     onSelectionChange,
     onClozeRangePress,
@@ -178,47 +146,33 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       });
       return value;
     }, [blankRanges, text]);
-    const correct = React.useMemo(() => {
-      const startedAt = perfNow();
-      const value = normalizeBlankRanges(text, correctRanges);
-      logSelectableTextPerf("normalize correct ranges", startedAt, {
-        textLength: text.length,
-        ranges: value.length,
-      });
-      return value;
-    }, [correctRanges, text]);
-    const segments = React.useMemo(() => {
-      const startedAt = perfNow();
-      const value = buildRenderSegments(text, highlights, blanks, correct);
-      logSelectableTextPerf("build render segments", startedAt, {
-        textLength: text.length,
-        highlightRanges: highlights.length,
-        blankRanges: blanks.length,
-        correctRanges: correct.length,
-        segments: value.length,
-      });
-      return value;
-    }, [blanks, correct, highlights, text]);
+    const correct = React.useMemo(() => normalizeBlankRanges(text, correctRanges), [correctRanges, text]);
+    const nativeText = React.useMemo(() => {
+      const trailingText = typeof trailingElement === "string" ? trailingElement : "";
+      return trailingText ? `${text}${trailingText}` : text;
+    }, [text, trailingElement]);
+    const nativeHighlightRangesJson = React.useMemo(() => rangesToJson(highlights), [highlights]);
+    const nativeBlankRangesJson = React.useMemo(() => rangesToJson(blanks), [blanks]);
+    const nativeCorrectRangesJson = React.useMemo(() => rangesToJson(correct), [correct]);
+    const flattenedTextStyle = React.useMemo(() => StyleSheet.flatten(style) ?? {}, [style]);
+    const nativeTextRef = React.useRef<React.ElementRef<typeof ChatSelectableTextView> | null>(null);
 
-    const clearSelection = React.useCallback(() => undefined, []);
+    const clearSelection = React.useCallback(() => {
+      clearChatSelectableTextSelection(nativeTextRef);
+    }, []);
 
     React.useImperativeHandle(ref, () => ({ clearSelection }), [clearSelection]);
 
     const handleNativeSelection = React.useCallback(
-      (event: { chosenOption: string; highlightedText: string; selectionStart?: number; selectionEnd?: number }) => {
-        if (event.chosenOption !== CLOZE_MENU_OPTION) return;
-        const selectedText = event.highlightedText;
+      (event: { nativeEvent: ChatSelectableTextSelectionEvent }) => {
+        const payload = event.nativeEvent;
+        if (payload.chosenOption !== CLOZE_MENU_OPTION) return;
+        const selectedText = payload.highlightedText;
         if (!selectedText) return;
-        const hasNativeRange = typeof event.selectionStart === "number" && typeof event.selectionEnd === "number";
-        const start = hasNativeRange ? event.selectionStart! : text.indexOf(selectedText);
+        const hasNativeRange = typeof payload.selectionStart === "number" && typeof payload.selectionEnd === "number";
+        const start = hasNativeRange ? payload.selectionStart! : text.indexOf(selectedText);
         if (start < 0) return;
-        const end = hasNativeRange ? event.selectionEnd! : start + selectedText.length;
-        // console.log("[selectable-text-selection]", {
-        //   source: hasNativeRange ? "native" : "fallback",
-        //   start,
-        //   end,
-        //   selectedText,
-        // });
+        const end = hasNativeRange ? payload.selectionEnd! : start + selectedText.length;
         const selectedRange = { start: Math.min(start, end), end: Math.max(start, end) };
         const existingClozeRanges = highlights.length ? highlights : blanks;
         const insideExistingCloze = existingClozeRanges.some((range) => rangeContains(range, selectedRange.start, selectedRange.end));
@@ -237,54 +191,53 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       },
       [blanks, highlights, onSelectionChange, onSelectionStart, text],
     );
-
+    const handleClozeRangePress = React.useCallback(
+      (event: { nativeEvent: ChatSelectableTextRangeEvent }) => {
+        onClozeRangePress?.(event.nativeEvent.groupIndex);
+      },
+      [onClozeRangePress],
+    );
+    const handleClozeRangeLongPress = React.useCallback(
+      (event: { nativeEvent: ChatSelectableTextRangeEvent }) => {
+        onClozeRangeLongPress?.(event.nativeEvent.groupIndex);
+      },
+      [onClozeRangeLongPress],
+    );
     React.useEffect(() => {
       logSelectableTextPerf("render+commit", renderStart, {
         textLength: text.length,
-        segments: segments.length,
         blankRanges: blanks.length,
-        correctRanges: correct.length,
       });
     });
 
     return (
-      <SelectableTextView menuOptions={[CLOZE_MENU_OPTION]} onSelection={handleNativeSelection}>
-        <Text style={style}>
-          {segments.map((segment, index) => {
-            const segmentStyle = [
-              segment.groupIndex !== null && styles.clozeRangeText,
-              segment.isBlank && styles.blankText,
-              segment.isCorrect && styles.correctText,
-            ];
-            return (
-              <Text
-                key={`${segment.start}:${index}`}
-                suppressHighlighting
-                style={segmentStyle}
-                onPress={segment.groupIndex !== null ? () => onClozeRangePress?.(segment.groupIndex!) : undefined}
-                onLongPress={segment.groupIndex !== null ? () => onClozeRangeLongPress?.(segment.groupIndex!) : undefined}
-              >
-                {segment.isBlank ? toBlankPlaceholder(segment.text) : segment.text}
-              </Text>
-            );
-          })}
-          {trailingElement}
-        </Text>
-      </SelectableTextView>
+      <View>
+        <Text pointerEvents="none" style={[style, { opacity: 0 }]}>{nativeText}</Text>
+        <ChatSelectableTextView
+          ref={nativeTextRef}
+          text={nativeText}
+          highlightRangesJson={nativeHighlightRangesJson}
+          blankRangesJson={nativeBlankRangesJson}
+          correctRangesJson={nativeCorrectRangesJson}
+          answersVisible={false}
+          textColor={typeof flattenedTextStyle.color === "string" ? flattenedTextStyle.color : "#111111"}
+          fontSize={typeof flattenedTextStyle.fontSize === "number" ? flattenedTextStyle.fontSize : 17}
+          lineHeight={typeof flattenedTextStyle.lineHeight === "number" ? flattenedTextStyle.lineHeight : 25}
+          fontWeight={
+            typeof flattenedTextStyle.fontWeight === "string"
+              ? flattenedTextStyle.fontWeight
+              : typeof flattenedTextStyle.fontWeight === "number"
+                ? String(flattenedTextStyle.fontWeight)
+                : undefined
+          }
+          style={{ ...StyleSheet.absoluteFillObject }}
+          menuOptions={enableClozeMenu ? [CLOZE_MENU_OPTION] : []}
+          onSelectionStart={onSelectionStart}
+          onSelection={handleNativeSelection}
+          onClozeRangePress={handleClozeRangePress}
+          onClozeRangeLongPress={handleClozeRangeLongPress}
+        />
+      </View>
     );
   },
 );
-
-const styles = StyleSheet.create({
-  clozeRangeText: {
-    backgroundColor: CLOZE_BLANK_BACKGROUND,
-    color: "#3D3420",
-  },
-  blankText: {
-    color: "#8C6D1F",
-    fontWeight: "600",
-  },
-  correctText: {
-    color: "#6FAE78",
-  },
-});

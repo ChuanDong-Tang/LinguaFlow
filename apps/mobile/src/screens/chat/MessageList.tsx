@@ -71,6 +71,7 @@ type MessageListProps = {
   messages: ChatMessage[];
   selectedDateLabel: string;
   listRef?: React.RefObject<FlatList<RowItem> | null>;
+  onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
   onScrollBeginDrag?: () => void;
   onScrollMetrics?: (metrics: { y: number; contentHeight: number; layoutHeight: number }) => void;
   onRetryMessage: (message: ChatMessage) => void;
@@ -125,12 +126,13 @@ const DayHeader = React.memo(function DayHeader({ selectedDateLabel }: { selecte
 
 const UserMessageRow = React.memo(function UserMessageRow({
   message,
-  onBlankPress,
+  onSelectionRefChange,
 }: {
   message: ChatMessage;
-  onBlankPress: () => void;
+  onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
 }) {
   const renderStart = perfNow();
+  const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
   const textLength = message.text.length;
   React.useEffect(() => {
     logMessageListPerf("user row render+commit", renderStart, {
@@ -140,12 +142,18 @@ const UserMessageRow = React.memo(function UserMessageRow({
   });
 
   return (
-    <Pressable style={styles.userBlock} onPress={onBlankPress}>
-      <Pressable style={styles.userBubble} onPress={() => undefined}>
-        <Text style={styles.userText}>{message.text}</Text>
-      </Pressable>
+    <View style={styles.userBlock}>
+      <View style={styles.userBubble}>
+        <SelectableMessageText
+          ref={selectableRef}
+          text={message.text}
+          style={styles.userText}
+          enableClozeMenu={false}
+          onSelectionStart={() => onSelectionRefChange(selectableRef.current)}
+        />
+      </View>
       <Text style={styles.timeTextRight}>{message.time}</Text>
-    </Pressable>
+    </View>
   );
 });
 
@@ -158,12 +166,10 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onTextSelection,
   onEditClozeGroup,
   onDeleteClozeGroup,
-  onBlankPress,
 }: {
   message: ChatMessage;
   contact: ChatContact;
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
-  onBlankPress: () => void;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage) => void;
   onTextSelection: (
@@ -285,12 +291,12 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   });
 
   return (
-    <Pressable style={styles.assistantBlock} onPress={onBlankPress}>
+    <View style={styles.assistantBlock}>
       <View style={styles.assistantRow}>
         <View style={styles.assistantAvatar}>
           <Text style={styles.assistantLogo}>OIO</Text>
         </View>
-        <Pressable style={styles.assistantCard} onPress={() => undefined}>
+        <View style={styles.assistantCard}>
           {assistantRenderState === "typing" ? (
             <TypingDots />
           ) : hasDisplayText ? (
@@ -357,12 +363,12 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               </Pressable>
             </View>
           ) : null}
-        </Pressable>
+        </View>
       </View>
       {shouldShowTime ? (
         <Text style={styles.timeTextLeft}>{message.time}</Text>
       ) : null}
-    </Pressable>
+    </View>
   );
 });
 
@@ -371,6 +377,7 @@ export function MessageList({
   contact,
   selectedDateLabel,
   listRef,
+  onSelectionRefChange,
   onScrollBeginDrag,
   onScrollMetrics,
   onRetryMessage,
@@ -380,7 +387,6 @@ export function MessageList({
   onDeleteClozeGroup,
 }: MessageListProps) {
   const renderStart = perfNow();
-  const activeSelectionRef = React.useRef<SelectableMessageTextRef | null>(null);
   const retryMessageRef = useLatestRef(onRetryMessage);
   const copyMessageRef = useLatestRef(onCopyMessage);
   const textSelectionRef = useLatestRef(onTextSelection);
@@ -402,13 +408,9 @@ export function MessageList({
   });
 
   const keyExtractor = React.useCallback((item: RowItem) => item.id, []);
-  const clearActiveSelection = React.useCallback(() => {
-    activeSelectionRef.current?.clearSelection();
-    activeSelectionRef.current = null;
-  }, []);
   const handleSelectionRefChange = React.useCallback((ref: SelectableMessageTextRef | null) => {
-    activeSelectionRef.current = ref;
-  }, []);
+    onSelectionRefChange(ref);
+  }, [onSelectionRefChange]);
   const handleRetryMessage = React.useCallback((message: ChatMessage) => {
     retryMessageRef.current(message);
   }, [retryMessageRef]);
@@ -441,14 +443,18 @@ export function MessageList({
       }
       const message = item.message;
       if (message.role === "user") {
-        return <UserMessageRow message={message} onBlankPress={clearActiveSelection} />;
+        return (
+          <UserMessageRow
+            message={message}
+            onSelectionRefChange={handleSelectionRefChange}
+          />
+        );
       }
       return (
         <AssistantMessageRow
           message={message}
           contact={contact}
           onSelectionRefChange={handleSelectionRefChange}
-          onBlankPress={clearActiveSelection}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
           onTextSelection={handleTextSelection}
@@ -459,7 +465,6 @@ export function MessageList({
     },
     [
       contact,
-      clearActiveSelection,
       handleCopyMessage,
       handleDeleteClozeGroup,
       handleEditClozeGroup,
@@ -478,17 +483,13 @@ export function MessageList({
       data={rows}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
-      ListFooterComponent={<Pressable style={styles.blankTapArea} onPress={clearActiveSelection} />}
       windowSize={9}
       initialNumToRender={16}
       maxToRenderPerBatch={16}
       updateCellsBatchingPeriod={50}
       removeClippedSubviews
       keyboardDismissMode="on-drag"
-      onScrollBeginDrag={() => {
-        clearActiveSelection();
-        onScrollBeginDrag?.();
-      }}
+      onScrollBeginDrag={onScrollBeginDrag}
       onScroll={(e) => {
         const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
         onScrollMetrics?.({
@@ -509,9 +510,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 20,
-  },
-  blankTapArea: {
-    height: 24,
   },
   dayDivider: {
     marginBottom: 16,
@@ -587,7 +585,7 @@ const styles = StyleSheet.create({
   assistantCardText: {
     color: "#111111",
     fontSize: 17,
-    lineHeight: 25,
+    lineHeight: 23,
   },
   inlineAiBadge: {
     color: "#6A62B7",

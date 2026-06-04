@@ -3,7 +3,7 @@
     "name": "OIO",
     "slug": "oio",
     "scheme": "oio-preview",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.yueyantech.oio",
-      "buildNumber": "1",
+      "buildNumber": "17",
       "supportsTablet": true,
       "config": {
         "usesNonExemptEncryption": false
@@ -23,7 +23,7 @@
     },
     "android": {
       "package": "com.yueyantech.oio",
-      "versionCode": 1,
+      "versionCode": 17,
       "adaptiveIcon": {
         "foregroundImage": "./assets/app/logo_main.png",
         "backgroundColor": "#ffffff"
@@ -43,6 +43,7 @@
     "plugins": [
       "expo-web-browser",
       "expo-secure-store",
+      "./plugins/with-chat-selectable-text",
       "./plugins/with-wechat-pay"
     ],
     "owner": "reedtang"

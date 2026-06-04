@@ -1,0 +1,482 @@
+const { IOSConfig, withXcodeProject } = require("@expo/config-plugins");
+const { addBuildSourceFileToGroup } = require("@expo/config-plugins/build/ios/utils/Xcodeproj");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const IOS_FILES = {
+  "ChatSelectableTextView.h": String.raw`#import <UIKit/UIKit.h>
+#import <React/RCTComponent.h>
+
+@interface ChatSelectableTextView : UIView
+
+@property (nonatomic, copy) RCTDirectEventBlock onSelectionStart;
+@property (nonatomic, copy) RCTDirectEventBlock onSelection;
+@property (nonatomic, copy) RCTDirectEventBlock onClozeRangePress;
+@property (nonatomic, copy) RCTDirectEventBlock onClozeRangeLongPress;
+
+- (void)setText:(NSString *)text;
+- (void)setHighlightRangesJson:(NSString *)json;
+- (void)setBlankRangesJson:(NSString *)json;
+- (void)setCorrectRangesJson:(NSString *)json;
+- (void)setAnswersVisible:(BOOL)visible;
+- (void)setTextColor:(NSString *)color;
+- (void)setFontSize:(NSNumber *)fontSize;
+- (void)setLineHeight:(NSNumber *)lineHeight;
+- (void)setFontWeight:(NSString *)fontWeight;
+- (void)setMenuOptions:(NSArray<NSString *> *)menuOptions;
+- (void)clearSelectionState;
+
+@end
+`,
+  "ChatSelectableTextView.m": String.raw`#import "ChatSelectableTextView.h"
+
+@class ChatSelectableTextInnerTextView;
+
+@interface ChatSelectableTextView () <UITextViewDelegate, UIGestureRecognizerDelegate>
+@property (nonatomic, strong) ChatSelectableTextInnerTextView *textView;
+@property (nonatomic, copy) NSString *rawText;
+@property (nonatomic, copy) NSString *highlightRangesJson;
+@property (nonatomic, copy) NSString *blankRangesJson;
+@property (nonatomic, copy) NSString *correctRangesJson;
+@property (nonatomic, copy) NSArray<NSString *> *menuOptions;
+@property (nonatomic, strong) UIColor *currentTextColor;
+@property (nonatomic, strong) NSNumber *currentFontSize;
+@property (nonatomic, strong) NSNumber *currentLineHeight;
+@property (nonatomic, copy) NSString *currentFontWeight;
+@property (nonatomic, assign) BOOL answersVisible;
+@property (nonatomic, assign) BOOL hasEmittedSelectionStart;
+@property (nonatomic, assign) BOOL pendingSelectionRelease;
+- (void)handleFillBlankAction;
+@end
+
+@interface ChatSelectableTextInnerTextView : UITextView
+@property (nonatomic, weak) ChatSelectableTextView *owner;
+@end
+
+@implementation ChatSelectableTextInnerTextView
+
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender
+{
+  if (action == @selector(chatFillBlank:)) {
+    return self.owner.menuOptions.count > 0 && self.selectedRange.length > 0;
+  }
+  return NO;
+}
+
+- (void)chatFillBlank:(id)sender
+{
+  [self.owner handleFillBlankAction];
+}
+
+@end
+
+@implementation ChatSelectableTextView
+
+- (instancetype)initWithFrame:(CGRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    _rawText = @"";
+    _highlightRangesJson = @"[]";
+    _blankRangesJson = @"[]";
+    _correctRangesJson = @"[]";
+    _menuOptions = @[];
+    _currentTextColor = [UIColor colorWithRed:17.0 / 255.0 green:17.0 / 255.0 blue:17.0 / 255.0 alpha:1.0];
+    _currentFontSize = @17;
+    _currentLineHeight = @25;
+    _currentFontWeight = @"";
+
+    _textView = [[ChatSelectableTextInnerTextView alloc] initWithFrame:self.bounds];
+    _textView.owner = self;
+    _textView.delegate = self;
+    _textView.editable = NO;
+    _textView.selectable = YES;
+    _textView.scrollEnabled = NO;
+    _textView.backgroundColor = UIColor.clearColor;
+    _textView.textContainerInset = UIEdgeInsetsZero;
+    _textView.textContainer.lineFragmentPadding = 0;
+    _textView.showsVerticalScrollIndicator = NO;
+    _textView.showsHorizontalScrollIndicator = NO;
+    _textView.dataDetectorTypes = UIDataDetectorTypeNone;
+    [self addSubview:_textView];
+
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeTap:)];
+    tap.delegate = self;
+    tap.cancelsTouchesInView = NO;
+    [_textView addGestureRecognizer:tap];
+
+    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeLongPress:)];
+    longPress.delegate = self;
+    longPress.cancelsTouchesInView = YES;
+    [_textView addGestureRecognizer:longPress];
+
+    [self applyText];
+  }
+  return self;
+}
+
+- (void)layoutSubviews
+{
+  [super layoutSubviews];
+  self.textView.frame = self.bounds;
+}
+
+- (void)setText:(NSString *)text
+{
+  _rawText = text ?: @"";
+  [self applyText];
+}
+
+- (void)setHighlightRangesJson:(NSString *)json
+{
+  _highlightRangesJson = json ?: @"[]";
+  [self applyText];
+}
+
+- (void)setBlankRangesJson:(NSString *)json
+{
+  _blankRangesJson = json ?: @"[]";
+  [self applyText];
+}
+
+- (void)setCorrectRangesJson:(NSString *)json
+{
+  _correctRangesJson = json ?: @"[]";
+  [self applyText];
+}
+
+- (void)setAnswersVisible:(BOOL)visible
+{
+  _answersVisible = visible;
+  [self applyText];
+}
+
+- (void)setTextColor:(NSString *)color
+{
+  _currentTextColor = [self colorFromString:color fallback:self.currentTextColor];
+  [self applyText];
+}
+
+- (void)setFontSize:(NSNumber *)fontSize
+{
+  _currentFontSize = fontSize ?: @17;
+  [self applyText];
+}
+
+- (void)setLineHeight:(NSNumber *)lineHeight
+{
+  _currentLineHeight = lineHeight ?: @25;
+  [self applyText];
+}
+
+- (void)setFontWeight:(NSString *)fontWeight
+{
+  _currentFontWeight = fontWeight ?: @"";
+  [self applyText];
+}
+
+- (void)setMenuOptions:(NSArray<NSString *> *)menuOptions
+{
+  _menuOptions = [menuOptions isKindOfClass:NSArray.class] ? menuOptions : @[];
+  [self updateMenuItems];
+}
+
+- (void)clearSelectionState
+{
+  [NSObject cancelPreviousPerformRequestsWithTarget:self.textView];
+  [self.textView resignFirstResponder];
+  if (@available(iOS 13.0, *)) {
+    [UIMenuController.sharedMenuController hideMenu];
+  }
+  [self scheduleSelectionRelease];
+}
+
+- (void)scheduleSelectionRelease
+{
+  if (self.pendingSelectionRelease) {
+    return;
+  }
+  self.pendingSelectionRelease = YES;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    self.pendingSelectionRelease = NO;
+    self.textView.selectedRange = NSMakeRange(0, 0);
+    self.hasEmittedSelectionStart = NO;
+    [self.textView resignFirstResponder];
+  });
+}
+
+- (void)applyText
+{
+  NSArray<NSDictionary *> *blankRanges = [self parseRanges:self.blankRangesJson];
+  NSString *visibleText = [self visibleTextForText:self.rawText blankRanges:blankRanges answersVisible:self.answersVisible];
+  NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc] initWithString:visibleText ?: @""];
+  NSRange fullRange = NSMakeRange(0, attributed.length);
+
+  UIFont *font = [self fontForCurrentStyle];
+  NSMutableParagraphStyle *paragraph = [NSMutableParagraphStyle new];
+  paragraph.minimumLineHeight = self.currentLineHeight.floatValue;
+  paragraph.maximumLineHeight = self.currentLineHeight.floatValue;
+  [attributed addAttributes:@{
+    NSForegroundColorAttributeName: self.currentTextColor,
+    NSFontAttributeName: font,
+    NSParagraphStyleAttributeName: paragraph
+  } range:fullRange];
+
+  for (NSDictionary *range in [self parseRanges:self.highlightRangesJson]) {
+    NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
+    if (safe.length == 0) continue;
+    [attributed addAttribute:NSBackgroundColorAttributeName value:[self colorFromString:@"#FFF0B8" fallback:UIColor.yellowColor] range:safe];
+    [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#3D3420" fallback:self.currentTextColor] range:safe];
+  }
+
+  UIFont *boldFont = [UIFont boldSystemFontOfSize:self.currentFontSize.floatValue];
+  for (NSDictionary *range in blankRanges) {
+    NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
+    if (safe.length == 0) continue;
+    [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#8C6D1F" fallback:self.currentTextColor] range:safe];
+    [attributed addAttribute:NSFontAttributeName value:boldFont range:safe];
+  }
+
+  for (NSDictionary *range in [self parseRanges:self.correctRangesJson]) {
+    NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
+    if (safe.length == 0) continue;
+    [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#6FAE78" fallback:self.currentTextColor] range:safe];
+  }
+
+  NSRange previousSelection = self.textView.selectedRange;
+  self.textView.attributedText = attributed;
+  if (previousSelection.location != NSNotFound && NSMaxRange(previousSelection) <= attributed.length) {
+    self.textView.selectedRange = previousSelection;
+  }
+  [self updateMenuItems];
+}
+
+- (UIFont *)fontForCurrentStyle
+{
+  NSString *weight = self.currentFontWeight ?: @"";
+  if ([weight isEqualToString:@"bold"] || [weight isEqualToString:@"700"] || [weight isEqualToString:@"800"] || [weight isEqualToString:@"900"]) {
+    return [UIFont boldSystemFontOfSize:self.currentFontSize.floatValue];
+  }
+  return [UIFont systemFontOfSize:self.currentFontSize.floatValue];
+}
+
+- (void)updateMenuItems
+{
+  if (self.menuOptions.count == 0) {
+    UIMenuController.sharedMenuController.menuItems = nil;
+    return;
+  }
+  UIMenuItem *item = [[UIMenuItem alloc] initWithTitle:self.menuOptions.firstObject action:@selector(chatFillBlank:)];
+  UIMenuController.sharedMenuController.menuItems = @[item];
+}
+
+- (void)handleFillBlankAction
+{
+  NSRange selectedRange = self.textView.selectedRange;
+  if (selectedRange.location == NSNotFound || selectedRange.length == 0) {
+    return;
+  }
+  NSUInteger safeStart = MIN(selectedRange.location, self.rawText.length);
+  NSUInteger safeEnd = MIN(NSMaxRange(selectedRange), self.rawText.length);
+  if (safeEnd < safeStart) {
+    safeEnd = safeStart;
+  }
+  NSString *selectedText = [self.rawText substringWithRange:NSMakeRange(safeStart, safeEnd - safeStart)];
+  if (self.onSelection) {
+    self.onSelection(@{
+      @"chosenOption": self.menuOptions.firstObject ?: @"",
+      @"highlightedText": selectedText ?: @"",
+      @"selectionStart": @(safeStart),
+      @"selectionEnd": @(safeEnd)
+    });
+  }
+  [self clearSelectionState];
+}
+
+- (void)textViewDidChangeSelection:(UITextView *)textView
+{
+  if (textView.selectedRange.length > 0 && !self.hasEmittedSelectionStart) {
+    self.hasEmittedSelectionStart = YES;
+    if (self.onSelectionStart) {
+      self.onSelectionStart(@{});
+    }
+  } else if (textView.selectedRange.length == 0) {
+    self.hasEmittedSelectionStart = NO;
+  }
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch
+{
+  CGPoint point = [touch locationInView:self.textView];
+  return [self highlightRangeAtPoint:point] != nil;
+}
+
+- (void)handleRangeTap:(UITapGestureRecognizer *)recognizer
+{
+  if (recognizer.state != UIGestureRecognizerStateEnded) return;
+  NSDictionary *range = [self highlightRangeAtPoint:[recognizer locationInView:self.textView]];
+  if (!range || !self.onClozeRangePress) return;
+  self.onClozeRangePress(@{ @"groupIndex": range[@"groupIndex"] ?: @0 });
+}
+
+- (void)handleRangeLongPress:(UILongPressGestureRecognizer *)recognizer
+{
+  if (recognizer.state != UIGestureRecognizerStateBegan) return;
+  NSDictionary *range = [self highlightRangeAtPoint:[recognizer locationInView:self.textView]];
+  if (!range || !self.onClozeRangeLongPress) return;
+  [self clearSelectionState];
+  self.onClozeRangeLongPress(@{ @"groupIndex": range[@"groupIndex"] ?: @0 });
+}
+
+- (NSDictionary *)highlightRangeAtPoint:(CGPoint)point
+{
+  NSUInteger index = [self characterIndexAtPoint:point];
+  if (index == NSNotFound) return nil;
+  for (NSDictionary *range in [self parseRanges:self.highlightRangesJson]) {
+    NSInteger start = [range[@"start"] integerValue];
+    NSInteger end = [range[@"end"] integerValue];
+    if (index >= start && index < end) {
+      return range;
+    }
+  }
+  return nil;
+}
+
+- (NSUInteger)characterIndexAtPoint:(CGPoint)point
+{
+  NSTextContainer *container = self.textView.textContainer;
+  NSLayoutManager *layoutManager = self.textView.layoutManager;
+  CGPoint adjusted = CGPointMake(point.x - self.textView.textContainerInset.left, point.y - self.textView.textContainerInset.top);
+  if (adjusted.x < 0 || adjusted.y < 0 || adjusted.x > self.textView.bounds.size.width || adjusted.y > self.textView.bounds.size.height) {
+    return NSNotFound;
+  }
+  CGFloat fraction = 0;
+  NSUInteger index = [layoutManager characterIndexForPoint:adjusted inTextContainer:container fractionOfDistanceBetweenInsertionPoints:&fraction];
+  if (index >= self.textView.textStorage.length) return NSNotFound;
+  return index;
+}
+
+- (NSArray<NSDictionary *> *)parseRanges:(NSString *)json
+{
+  NSData *data = [(json ?: @"[]") dataUsingEncoding:NSUTF8StringEncoding];
+  if (!data) return @[];
+  id value = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+  if (![value isKindOfClass:NSArray.class]) return @[];
+  NSMutableArray<NSDictionary *> *ranges = [NSMutableArray new];
+  NSInteger index = 0;
+  for (id item in (NSArray *)value) {
+    if (![item isKindOfClass:NSDictionary.class]) continue;
+    NSInteger start = [item[@"start"] integerValue];
+    NSInteger end = [item[@"end"] integerValue];
+    NSInteger groupIndex = item[@"groupIndex"] ? [item[@"groupIndex"] integerValue] : index;
+    if (start < end) {
+      [ranges addObject:@{ @"start": @(start), @"end": @(end), @"groupIndex": @(groupIndex) }];
+    }
+    index += 1;
+  }
+  return ranges;
+}
+
+- (NSRange)safeRangeFromDictionary:(NSDictionary *)range length:(NSUInteger)length
+{
+  NSUInteger start = MIN((NSUInteger)MAX(0, [range[@"start"] integerValue]), length);
+  NSUInteger end = MIN((NSUInteger)MAX((NSInteger)start, [range[@"end"] integerValue]), length);
+  return NSMakeRange(start, end - start);
+}
+
+- (NSString *)visibleTextForText:(NSString *)text blankRanges:(NSArray<NSDictionary *> *)blankRanges answersVisible:(BOOL)answersVisible
+{
+  if (answersVisible || blankRanges.count == 0) return text ?: @"";
+  NSMutableString *mutable = [(text ?: @"") mutableCopy];
+  for (NSDictionary *range in blankRanges) {
+    NSRange safe = [self safeRangeFromDictionary:range length:mutable.length];
+    for (NSUInteger index = safe.location; index < NSMaxRange(safe); index += 1) {
+      unichar ch = [mutable characterAtIndex:index];
+      if (![[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:ch]) {
+        [mutable replaceCharactersInRange:NSMakeRange(index, 1) withString:@"_"];
+      }
+    }
+  }
+  return mutable;
+}
+
+- (UIColor *)colorFromString:(NSString *)value fallback:(UIColor *)fallback
+{
+  if (![value isKindOfClass:NSString.class] || ![value hasPrefix:@"#"]) return fallback;
+  NSString *hex = [value substringFromIndex:1];
+  if (hex.length != 6) return fallback;
+  unsigned int rgb = 0;
+  NSScanner *scanner = [NSScanner scannerWithString:hex];
+  if (![scanner scanHexInt:&rgb]) return fallback;
+  return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
+                         green:((rgb >> 8) & 0xFF) / 255.0
+                          blue:(rgb & 0xFF) / 255.0
+                         alpha:1.0];
+}
+
+@end
+`,
+  "ChatSelectableTextViewManager.m": String.raw`#import <React/RCTUIManager.h>
+#import <React/RCTViewManager.h>
+#import "ChatSelectableTextView.h"
+
+@interface ChatSelectableTextViewManager : RCTViewManager
+@end
+
+@implementation ChatSelectableTextViewManager
+
+RCT_EXPORT_MODULE(ChatSelectableTextView)
+
+- (UIView *)view
+{
+  return [ChatSelectableTextView new];
+}
+
+RCT_EXPORT_VIEW_PROPERTY(text, NSString)
+RCT_EXPORT_VIEW_PROPERTY(highlightRangesJson, NSString)
+RCT_EXPORT_VIEW_PROPERTY(blankRangesJson, NSString)
+RCT_EXPORT_VIEW_PROPERTY(correctRangesJson, NSString)
+RCT_EXPORT_VIEW_PROPERTY(answersVisible, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(textColor, NSString)
+RCT_EXPORT_VIEW_PROPERTY(fontSize, NSNumber)
+RCT_EXPORT_VIEW_PROPERTY(lineHeight, NSNumber)
+RCT_EXPORT_VIEW_PROPERTY(fontWeight, NSString)
+RCT_EXPORT_VIEW_PROPERTY(menuOptions, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(onSelectionStart, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onSelection, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onClozeRangePress, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onClozeRangeLongPress, RCTDirectEventBlock)
+
+RCT_EXPORT_METHOD(clearSelection:(nonnull NSNumber *)reactTag)
+{
+  [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+    UIView *view = viewRegistry[reactTag];
+    if ([view isKindOfClass:ChatSelectableTextView.class]) {
+      [(ChatSelectableTextView *)view clearSelectionState];
+    }
+  }];
+}
+
+@end
+`,
+};
+
+module.exports = function withChatSelectableText(config) {
+  return withXcodeProject(config, (iosConfig) => {
+    const iosRoot = iosConfig.modRequest.platformProjectRoot;
+    const projectName = IOSConfig.XcodeUtils.getProjectName(iosConfig.modRequest.projectRoot);
+    const sourceRoot = path.join(iosRoot, projectName);
+    fs.mkdirSync(sourceRoot, { recursive: true });
+
+    for (const [filename, contents] of Object.entries(IOS_FILES)) {
+      const filePath = path.join(sourceRoot, filename);
+      fs.writeFileSync(filePath, contents);
+      addBuildSourceFileToGroup({
+        filepath: `${projectName}/${filename}`,
+        groupName: projectName,
+        project: iosConfig.modResults,
+      });
+    }
+
+    return iosConfig;
+  });
+};

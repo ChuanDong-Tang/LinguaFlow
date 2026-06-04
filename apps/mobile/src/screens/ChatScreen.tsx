@@ -37,6 +37,7 @@ import { useExclusiveSyncMachine } from "../hooks/useExclusiveSyncMachine";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatComposer } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
+import type { SelectableMessageTextRef } from "./chat/SelectableMessageText";
 import { DatePickerSheet } from "./chat/DatePickerSheet";
 import { useFloatingNotice } from "./shared/FloatingNotice";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
@@ -77,6 +78,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [syncingDateKey, setSyncingDateKey] = useState<string | null>(null);
   const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
   const messageListRef = useRef<FlatList<any> | null>(null);
+  const activeSelectionRef = useRef<SelectableMessageTextRef | null>(null);
   const selectedDateKeyRef = useRef(toDateKey(new Date()));
   const dayLoadedRowsRef = useRef<Record<string, ChatMessage[]>>({});
   const syncSeqRef = useRef(0);
@@ -233,6 +235,19 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const handleScrollBeginDrag = React.useCallback(() => {
     Keyboard.dismiss();
   }, []);
+  const handleSelectionRefChange = React.useCallback((ref: SelectableMessageTextRef | null) => {
+    activeSelectionRef.current = ref;
+  }, []);
+  const clearActiveSelection = React.useCallback(() => {
+    activeSelectionRef.current?.clearSelection();
+    activeSelectionRef.current = null;
+  }, []);
+  const handleRootTouchCapture = React.useCallback(() => {
+    if (activeSelectionRef.current) {
+      clearActiveSelection();
+    }
+    return false;
+  }, [clearActiveSelection]);
 
   async function handleSend(): Promise<void> {
     if (netInfo.isConnected !== true || netInfo.isInternetReachable === false) {
@@ -734,7 +749,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.content, { paddingBottom: keyboardInset }]}>
+      <View
+        style={[styles.content, { paddingBottom: keyboardInset }]}
+        onStartShouldSetResponderCapture={handleRootTouchCapture}
+      >
         <ChatHeader
           contact={contact}
           onBack={onBack}
@@ -747,6 +765,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           messages={messages}
           selectedDateLabel={selectedDateLabelText(selectedDate, businessTodayKey ?? undefined)}
           listRef={messageListRef}
+          onSelectionRefChange={handleSelectionRefChange}
           onScrollBeginDrag={handleScrollBeginDrag}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}

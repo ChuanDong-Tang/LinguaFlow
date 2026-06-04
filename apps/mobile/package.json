@@ -7,7 +7,6 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "postinstall": "patch-package",
     "build:ios:preview": "npx eas-cli build --platform ios --profile preview",
     "build:ios:production": "npx eas-cli build --platform ios --profile production"
   },
@@ -15,7 +14,6 @@
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "^12.0.1",
-    "@rob117/react-native-selectable-text": "^2.1.0",
     "expo": "~54.0.33",
     "expo-auth-session": "~7.0.11",
     "expo-clipboard": "^55.0.13",
@@ -37,7 +35,6 @@
   "devDependencies": {
     "@types/react": "~19.1.0",
     "babel-preset-expo": "^55.0.21",
-    "patch-package": "^8.0.1",
     "react-native-svg-transformer": "^1.5.3",
     "typescript": "~5.9.2"
   },
