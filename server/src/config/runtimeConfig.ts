@@ -1,6 +1,7 @@
 export type RuntimeMode = "development" | "production" | "test";
 
 export interface PaymentRuntimeConfig {
+  wechatPayEnabled: boolean;
   proMonthlyPriceCents: number;
   proMonthlyMaxPrepaidMonths: number;
   descriptionProMonthly: string;
@@ -32,6 +33,7 @@ export interface PaymentRuntimeConfig {
     reconcileGraceMs: number;
   };
   appleIap: {
+    enabled: boolean;
     issuerId: string | null;
     keyId: string | null;
     bundleId: string | null;
@@ -179,6 +181,7 @@ function normalizeMode(value: string | undefined): RuntimeMode {
 
 function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv): PaymentRuntimeConfig {
   return {
+    wechatPayEnabled: readBoolean(env.WECHAT_PAY_ENABLED, false),
     proMonthlyPriceCents: readPositiveInt(env.LF_PRO_MONTHLY_PRICE_CENTS, 3000),
     // 单次月卡最多允许预存多少个月的 Pro 权益。默认 2 个月，避免未来调价后用户长期囤低价月卡。
     proMonthlyMaxPrepaidMonths: readPositiveInt(env.LF_PRO_MONTHLY_MAX_PREPAID_MONTHS, 2),
@@ -220,6 +223,7 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv): PaymentRuntimeConfig 
       reconcileGraceMs: readPositiveInt(env.WECHAT_AUTORENEW_RECONCILE_GRACE_MS, 600_000),
     },
     appleIap: {
+      enabled: readBoolean(env.APPLE_IAP_ENABLED, false),
       issuerId: trimToNull(env.APPLE_IAP_ISSUER_ID),
       keyId: trimToNull(env.APPLE_IAP_KEY_ID),
       bundleId: trimToNull(env.APPLE_IAP_BUNDLE_ID),

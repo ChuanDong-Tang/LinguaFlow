@@ -43,7 +43,7 @@ export class AppleIapService {
   ) {}
 
   isConfigured(): boolean {
-    return isAppleIapConfigured();
+    return getRuntimeConfig().payment.appleIap.enabled && isAppleIapConfigured();
   }
 
   async registerAppAccountToken(input: {

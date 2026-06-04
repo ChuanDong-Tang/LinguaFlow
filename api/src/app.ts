@@ -49,6 +49,13 @@ import { PaymentCertSyncService } from "@lf/server/services/payment/PaymentCertS
 import { AutoRenewService } from "@lf/server/services/payment/AutoRenewService.js";
 import { PaymentEntitlementRefreshService } from "@lf/server/services/payment/PaymentEntitlementRefreshService.js";
 import { getBusinessClockSnapshot } from "@lf/server/services/time/businessClock.js";
+import type {
+  CreateProviderOrderInput,
+  CreateProviderOrderResult,
+  PaymentProvider,
+  QueryProviderOrderInput,
+  QueryProviderOrderResult,
+} from "@lf/core/ports/payment/index.js";
 
 const prisma = new PrismaClient();
 
@@ -120,8 +127,12 @@ export function createApp() {
   const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
   const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
   const appleIapAccountLinkRepository = new PrismaAppleIapAccountLinkRepository(prisma);
-  const paymentProvider = new WeChatPaymentProvider();
-  const weChatAutoRenewProvider = new WeChatAutoRenewProvider();
+  const paymentProvider = runtimeConfig.payment.wechatPayEnabled
+    ? new WeChatPaymentProvider()
+    : new DisabledWeChatPaymentProvider();
+  const weChatAutoRenewProvider = runtimeConfig.payment.wechatPayEnabled
+    ? new WeChatAutoRenewProvider()
+    : undefined;
   const paymentOrderService = new PaymentOrderService(
     paymentOrderRepository,
     paymentProvider,
@@ -273,4 +284,16 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
 
 export async function disconnectApp() {
   await prisma.$disconnect();
+}
+
+class DisabledWeChatPaymentProvider implements PaymentProvider {
+  readonly providerName = "wechat" as const;
+
+  createOrder(_input: CreateProviderOrderInput): Promise<CreateProviderOrderResult> {
+    throw new Error("WECHAT_PAY_DISABLED");
+  }
+
+  queryOrder(_input: QueryProviderOrderInput): Promise<QueryProviderOrderResult> {
+    throw new Error("WECHAT_PAY_DISABLED");
+  }
 }

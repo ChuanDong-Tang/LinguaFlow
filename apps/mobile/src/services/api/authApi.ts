@@ -62,12 +62,22 @@ export async function loginWithAuthing(input: AuthingLoginRequestBody): Promise<
   await logEvent("authing_login_request", "info");
 
   try {
+    console.log("[authing-login] backend request", {
+      baseUrl: BASE_URL,
+      tokenLength: input.authingToken.length,
+    });
     const res = await fetch(`${BASE_URL}/auth/authing-login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
     const apiResult = (await res.json()) as ApiResult<AuthingLoginResponse>;
+    console.log("[authing-login] backend response", {
+      status: res.status,
+      ok: apiResult.ok,
+      errorCode: apiResult.ok ? undefined : apiResult.error.code,
+      errorMessage: apiResult.ok ? undefined : apiResult.error.message,
+    });
 
     if (!apiResult.ok) {
       await logEvent("authing_login_failed", "warn", apiResult.error.message, {
@@ -82,6 +92,9 @@ export async function loginWithAuthing(input: AuthingLoginRequestBody): Promise<
 
     return apiResult.data;
   } catch (err) {
+    console.warn("[authing-login] backend exception", {
+      message: err instanceof Error ? err.message : String(err),
+    });
     await logEvent(
       "authing_login_exception",
       "error",

@@ -84,12 +84,23 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       }
       // 优先走真实 Authing OAuth；未配置时回落到本地 mock 登录，方便开发环境调试。
       if (authingConfigured) {
+        console.log("[authing-login] start", {
+          redirectUri: authingRedirectUri,
+          hasRequest: !!authingRequest,
+          hasDiscovery: !!authingDiscovery,
+        });
         if (!authingRequest || !authingDiscovery) {
           if (!isMounted()) return;
           setStatusText("Authing 登录尚未准备好，请稍后重试");
           return;
         }
         const result = await promptAuthingAsync();
+        console.log("[authing-login] prompt result", {
+          type: result.type,
+          hasCode: result.type === "success" && typeof result.params.code === "string",
+          error: result.type === "error" ? result.params?.error : undefined,
+          errorDescription: result.type === "error" ? result.params?.error_description : undefined,
+        });
         if (!isMounted()) return;
         if (result.type !== "success") {
           setStatusText("已取消登录");
@@ -104,7 +115,16 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           },
           authingDiscovery,
         );
+        console.log("[authing-login] code exchanged", {
+          hasAccessToken: !!tokenResult.accessToken,
+          tokenType: tokenResult.tokenType,
+          expiresIn: tokenResult.expiresIn,
+        });
         const backendSession = await loginWithAuthing({ authingToken: tokenResult.accessToken });
+        console.log("[authing-login] backend session ok", {
+          userId: backendSession.user.id,
+          isNewUser: backendSession.isNewUser,
+        });
         const localSession = {
           accessToken: backendSession.accessToken,
           refreshToken: backendSession.refreshToken,
@@ -135,6 +155,10 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     } catch (err) {
       if (!isMounted()) return;
       const message = normalizeLoginError(err, t("auth.login.failed"));
+      console.warn("[authing-login] failed", {
+        rawMessage: err instanceof Error ? err.message : String(err),
+        displayMessage: message,
+      });
       setStatusText(message);
       await logEvent("login_ui_failed", "warn", err instanceof Error ? err.message : message);
     } finally {

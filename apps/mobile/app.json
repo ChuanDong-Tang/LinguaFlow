@@ -15,7 +15,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.yueyantech.oio",
-      "buildNumber": "19",
+      "buildNumber": "20",
       "supportsTablet": true,
       "config": {
         "usesNonExemptEncryption": false
@@ -23,7 +23,7 @@
     },
     "android": {
       "package": "com.yueyantech.oio",
-      "versionCode": 19,
+      "versionCode": 20,
       "adaptiveIcon": {
         "foregroundImage": "./assets/app/logo_main.png",
         "backgroundColor": "#ffffff"
