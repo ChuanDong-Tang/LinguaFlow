@@ -70,7 +70,7 @@ export function createLocalChatPair(
 }
 
 export async function runChatGeneration(input: RunChatGenerationInput): Promise<RunChatGenerationResult> {
-  let requestSystemPrompt = input.systemPrompt;
+  let requestSystemPrompt = input.systemPrompt?.trim() || undefined;
   let assistantText = "";
   let streamErrorMessage: string | null = null;
   let userMessageClientId = input.userClientId;
@@ -99,8 +99,9 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
 
   try {
     const debugSettings = await loadDebugSettings();
-    const contactPrompt = debugSettings.systemPromptsByContactId[input.contactId as keyof typeof debugSettings.systemPromptsByContactId]?.trim();
-    requestSystemPrompt = input.systemPrompt ?? contactPrompt ?? "";
+    const contactPrompt = debugSettings.systemPromptsByContactId[input.contactId as keyof typeof debugSettings.systemPromptsByContactId]?.trim() || undefined;
+    const explicitPrompt = input.systemPrompt?.trim() || undefined;
+    requestSystemPrompt = explicitPrompt ?? contactPrompt ?? "";
 
     const localPro = await hasLocalProAccess();
     const entitlement = localPro ? await getCurrentEntitlement().catch(() => null) : null;
