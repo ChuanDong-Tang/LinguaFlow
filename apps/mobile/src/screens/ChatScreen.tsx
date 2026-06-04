@@ -89,6 +89,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const activeSelectionRef = useRef<SelectableMessageTextRef | null>(null);
+  const activeCopyMenuRef = useRef(false);
+  const closeCopyMenuRef = useRef<(() => void) | null>(null);
   const selectedDateKeyRef = useRef(toDateKey(new Date()));
   const dayLoadedRowsRef = useRef<Record<string, ChatMessage[]>>({});
   const syncSeqRef = useRef(0);
@@ -258,6 +260,16 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     }
     return false;
   }, [clearActiveSelection]);
+  const handleRootTouchEnd = React.useCallback(() => {
+    if (!activeCopyMenuRef.current) return;
+    setTimeout(() => {
+      closeCopyMenuRef.current?.();
+    }, 0);
+  }, []);
+  const handleCopyMenuStateChange = React.useCallback((state: { isOpen: boolean; close: () => void }) => {
+    activeCopyMenuRef.current = state.isOpen;
+    closeCopyMenuRef.current = state.close;
+  }, []);
 
   async function handleSend(): Promise<void> {
     if (netInfo.isConnected !== true || netInfo.isInternetReachable === false) {
@@ -762,6 +774,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       <View
         style={[styles.content, { paddingBottom: keyboardInset }]}
         onStartShouldSetResponderCapture={handleRootTouchCapture}
+        onTouchEnd={handleRootTouchEnd}
       >
         <ChatHeader
           contact={contact}
@@ -777,6 +790,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           listRef={messageListRef}
           onSelectionRefChange={handleSelectionRefChange}
           onScrollBeginDrag={handleScrollBeginDrag}
+          onCopyMenuStateChange={handleCopyMenuStateChange}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
           onTextSelection={handleTextSelection}

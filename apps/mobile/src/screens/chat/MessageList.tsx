@@ -75,6 +75,7 @@ type MessageListProps = {
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
   onScrollBeginDrag?: () => void;
   onScrollMetrics?: (metrics: { y: number; contentHeight: number; layoutHeight: number }) => void;
+  onCopyMenuStateChange?: (state: { isOpen: boolean; close: () => void }) => void;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage, mode: AutoCopyMode) => void;
   onTextSelection: (
@@ -182,6 +183,9 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onTextSelection,
   onEditClozeGroup,
   onDeleteClozeGroup,
+  isCopyMenuOpen,
+  onToggleCopyMenu,
+  onCloseCopyMenu,
 }: {
   message: ChatMessage;
   contact: ChatContact;
@@ -195,11 +199,13 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   ) => void;
   onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
+  isCopyMenuOpen: boolean;
+  onToggleCopyMenu: () => void;
+  onCloseCopyMenu: () => void;
 }) {
   const renderStart = perfNow();
   const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
   const [answersVisible, setAnswersVisible] = React.useState(false);
-  const [isCopyMenuOpen, setIsCopyMenuOpen] = React.useState(false);
   const copyOptions = React.useMemo(() => getCopyOptions(contact), [contact]);
   const clozeText = React.useMemo(() => {
     const startedAt = perfNow();
@@ -380,7 +386,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                         style={styles.copyMenuOption}
                         hitSlop={4}
                         onPress={() => {
-                          setIsCopyMenuOpen(false);
+                          onCloseCopyMenu();
                           onCopyMessage(message, option.mode);
                         }}
                       >
@@ -392,7 +398,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                 <Pressable
                   style={styles.copyButton}
                   hitSlop={8}
-                  onPress={() => setIsCopyMenuOpen((value) => !value)}
+                  onPress={onToggleCopyMenu}
                   disabled={!message.text.trim()}
                 >
                   <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
@@ -417,6 +423,7 @@ export function MessageList({
   onSelectionRefChange,
   onScrollBeginDrag,
   onScrollMetrics,
+  onCopyMenuStateChange,
   onRetryMessage,
   onCopyMessage,
   onTextSelection,
@@ -429,6 +436,7 @@ export function MessageList({
   const textSelectionRef = useLatestRef(onTextSelection);
   const editClozeGroupRef = useLatestRef(onEditClozeGroup);
   const deleteClozeGroupRef = useLatestRef(onDeleteClozeGroup);
+  const [activeCopyMenuId, setActiveCopyMenuId] = React.useState<string | null>(null);
   const rows = React.useMemo<RowItem[]>(() => {
     const startedAt = perfNow();
     const items: RowItem[] = [{ kind: "header", id: "header" }];
@@ -454,6 +462,26 @@ export function MessageList({
   const handleCopyMessage = React.useCallback((message: ChatMessage, mode: AutoCopyMode) => {
     copyMessageRef.current(message, mode);
   }, [copyMessageRef]);
+  const handleCloseCopyMenu = React.useCallback(() => {
+    setActiveCopyMenuId(null);
+  }, []);
+  React.useEffect(() => {
+    onCopyMenuStateChange?.({
+      isOpen: activeCopyMenuId !== null,
+      close: handleCloseCopyMenu,
+    });
+  }, [activeCopyMenuId, handleCloseCopyMenu, onCopyMenuStateChange]);
+  const handleListTouchEnd = React.useCallback(() => {
+    if (!activeCopyMenuId) return;
+    const menuIdAtTouchEnd = activeCopyMenuId;
+    setTimeout(() => {
+      setActiveCopyMenuId((current) => current === menuIdAtTouchEnd ? null : current);
+    }, 0);
+  }, [activeCopyMenuId]);
+  const handleScrollStart = React.useCallback(() => {
+    setActiveCopyMenuId(null);
+    onScrollBeginDrag?.();
+  }, [onScrollBeginDrag]);
   const handleTextSelection = React.useCallback(
     (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
       textSelectionRef.current(message, payload, clearSelection);
@@ -497,12 +525,19 @@ export function MessageList({
           onTextSelection={handleTextSelection}
           onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
+          isCopyMenuOpen={activeCopyMenuId === item.id}
+          onToggleCopyMenu={() => {
+            setActiveCopyMenuId((current) => (current ? null : item.id));
+          }}
+          onCloseCopyMenu={handleCloseCopyMenu}
         />
       );
     },
     [
+      activeCopyMenuId,
       contact,
       handleCopyMessage,
+      handleCloseCopyMenu,
       handleDeleteClozeGroup,
       handleEditClozeGroup,
       handleSelectionRefChange,
@@ -526,7 +561,8 @@ export function MessageList({
       updateCellsBatchingPeriod={50}
       removeClippedSubviews
       keyboardDismissMode="on-drag"
-      onScrollBeginDrag={onScrollBeginDrag}
+      onTouchEnd={handleListTouchEnd}
+      onScrollBeginDrag={handleScrollStart}
       onScroll={(e) => {
         const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
         onScrollMetrics?.({
