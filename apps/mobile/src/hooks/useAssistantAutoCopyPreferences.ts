@@ -11,6 +11,7 @@ export function useAssistantAutoCopyPreferences(): {
   isAutoCopyMenuOpen: boolean;
   openAutoCopyMenu: () => void;
   closeAutoCopyMenu: () => void;
+  setAutoCopyAfterGeneration: (enabled: boolean) => void;
   setAutoCopyMode: (mode: AutoCopyMode) => void;
 } {
   const [autoCopyAfterGeneration, setAutoCopyAfterGeneration] = useState(true);
@@ -39,6 +40,11 @@ export function useAssistantAutoCopyPreferences(): {
     void saveAssistantPreferences({ autoCopyAfterGeneration: true, autoCopyMode: mode });
   }
 
+  function handleSetAutoCopyAfterGeneration(enabled: boolean): void {
+    setAutoCopyAfterGeneration(enabled);
+    void saveAssistantPreferences({ autoCopyAfterGeneration: enabled, autoCopyMode });
+  }
+
   function openAutoCopyMenu(): void {
     setIsAutoCopyMenuOpen(true);
   }
@@ -53,6 +59,7 @@ export function useAssistantAutoCopyPreferences(): {
     isAutoCopyMenuOpen,
     openAutoCopyMenu,
     closeAutoCopyMenu,
+    setAutoCopyAfterGeneration: handleSetAutoCopyAfterGeneration,
     setAutoCopyMode: handleSetAutoCopyMode,
   };
 }

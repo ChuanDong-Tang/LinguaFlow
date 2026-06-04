@@ -78,6 +78,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     isAutoCopyMenuOpen,
     openAutoCopyMenu,
     closeAutoCopyMenu,
+    setAutoCopyAfterGeneration,
     setAutoCopyMode,
   } = useAssistantAutoCopyPreferences();
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
@@ -844,8 +845,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       <AutoCopySheet
         visible={isAutoCopyMenuOpen}
         contact={contact}
+        autoCopyEnabled={autoCopyAfterGeneration}
         selectedMode={autoCopyMode}
         onClose={closeAutoCopyMenu}
+        onSetAutoCopyEnabled={setAutoCopyAfterGeneration}
         onSelectMode={setAutoCopyMode}
       />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />

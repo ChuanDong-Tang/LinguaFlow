@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatContact } from "../../domain/chat/contacts";
 import type { AutoCopyMode } from "../../services/preferences/assistantPreferences";
@@ -7,8 +7,10 @@ import type { AutoCopyMode } from "../../services/preferences/assistantPreferenc
 type AutoCopySheetProps = {
   visible: boolean;
   contact: ChatContact;
+  autoCopyEnabled: boolean;
   selectedMode: AutoCopyMode;
   onClose: () => void;
+  onSetAutoCopyEnabled: (enabled: boolean) => void;
   onSelectMode: (mode: AutoCopyMode) => void;
 };
 
@@ -37,8 +39,10 @@ function getAutoCopyOptions(contact: ChatContact): AutoCopyOption[] {
 export function AutoCopySheet({
   visible,
   contact,
+  autoCopyEnabled,
   selectedMode,
   onClose,
+  onSetAutoCopyEnabled,
   onSelectMode,
 }: AutoCopySheetProps) {
   const options = getAutoCopyOptions(contact);
@@ -57,6 +61,21 @@ export function AutoCopySheet({
             </Pressable>
           </View>
 
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleTextWrap}>
+              <Text style={styles.toggleLabel}>回复后自动复制</Text>
+              <Text style={styles.toggleDescription}>
+                关闭后，回复完成时不会自动写入剪贴板
+              </Text>
+            </View>
+            <Switch
+              value={autoCopyEnabled}
+              onValueChange={onSetAutoCopyEnabled}
+              trackColor={{ false: "#D5DAE4", true: "#C8C0FF" }}
+              thumbColor={autoCopyEnabled ? "#8E7BFF" : "#FFFFFF"}
+            />
+          </View>
+
           <View style={styles.options}>
             {options.map((option) => {
               const selected = selectedMode === option.mode;
@@ -64,17 +83,43 @@ export function AutoCopySheet({
               return (
                 <Pressable
                   key={option.mode}
-                  style={[styles.option, selected && styles.optionSelected]}
+                  style={[
+                    styles.option,
+                    selected && autoCopyEnabled && styles.optionSelected,
+                    !autoCopyEnabled && styles.optionDisabled,
+                  ]}
                   onPress={() => onSelectMode(option.mode)}
+                  disabled={!autoCopyEnabled}
                 >
                   <View style={styles.optionTextWrap}>
-                    <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>
+                    <Text
+                      style={[
+                        styles.optionLabel,
+                        selected && autoCopyEnabled && styles.optionLabelSelected,
+                        !autoCopyEnabled && styles.optionTextDisabled,
+                      ]}
+                    >
                       {option.label}
                     </Text>
-                    <Text style={styles.optionDescription}>{option.description}</Text>
+                    <Text
+                      style={[
+                        styles.optionDescription,
+                        !autoCopyEnabled && styles.optionTextDisabled,
+                      ]}
+                    >
+                      {option.description}
+                    </Text>
                   </View>
-                  <View style={[styles.radio, selected && styles.radioSelected]}>
-                    {selected ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
+                  <View
+                    style={[
+                      styles.radio,
+                      selected && autoCopyEnabled && styles.radioSelected,
+                      !autoCopyEnabled && styles.radioDisabled,
+                    ]}
+                  >
+                    {selected && autoCopyEnabled ? (
+                      <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                    ) : null}
                   </View>
                 </Pressable>
               );
@@ -106,6 +151,31 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     marginBottom: 12,
+  },
+  toggleRow: {
+    minHeight: 62,
+    borderRadius: 12,
+    backgroundColor: "#F7F8FB",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  toggleTextWrap: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  toggleLabel: {
+    color: "#111111",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  toggleDescription: {
+    marginTop: 3,
+    color: "#838AA0",
+    fontSize: 12,
+    lineHeight: 16,
   },
   title: {
     color: "#111111",
@@ -143,6 +213,10 @@ const styles = StyleSheet.create({
     borderColor: "#8E7BFF",
     backgroundColor: "#F5F3FF",
   },
+  optionDisabled: {
+    borderColor: "#E5E8EF",
+    backgroundColor: "#F6F7FA",
+  },
   optionTextWrap: {
     flex: 1,
     paddingRight: 12,
@@ -161,6 +235,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
+  optionTextDisabled: {
+    color: "#A8AFBD",
+  },
   radio: {
     width: 22,
     height: 22,
@@ -173,5 +250,9 @@ const styles = StyleSheet.create({
   radioSelected: {
     borderColor: "#8E7BFF",
     backgroundColor: "#8E7BFF",
+  },
+  radioDisabled: {
+    borderColor: "#D8DDE7",
+    backgroundColor: "#EEF1F6",
   },
 });
