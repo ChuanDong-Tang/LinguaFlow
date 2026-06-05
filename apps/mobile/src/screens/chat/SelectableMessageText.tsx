@@ -46,6 +46,7 @@ type Props = {
   trailingElement?: React.ReactNode;
   enableClozeMenu?: boolean;
   interactionsDisabled?: boolean;
+  onInteractionStart?: () => void;
   onSelectionStart?: () => void;
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
   onClozeRangePress?: (groupIndex: number) => void;
@@ -134,6 +135,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     trailingElement,
     enableClozeMenu = true,
     interactionsDisabled = false,
+    onInteractionStart,
     onSelectionStart,
     onSelectionChange,
     onClozeRangePress,
@@ -237,6 +239,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           style={{ ...StyleSheet.absoluteFillObject }}
           pointerEvents={interactionsDisabled ? "none" : "auto"}
           menuOptions={!interactionsDisabled && enableClozeMenu ? [CLOZE_MENU_OPTION] : []}
+          onTouchStart={interactionsDisabled ? undefined : onInteractionStart}
           onSelectionStart={interactionsDisabled ? undefined : onSelectionStart}
           onSelection={interactionsDisabled ? undefined : handleNativeSelection}
           onClozeRangePress={interactionsDisabled ? undefined : handleClozeRangePress}

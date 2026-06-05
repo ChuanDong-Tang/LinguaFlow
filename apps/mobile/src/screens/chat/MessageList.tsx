@@ -73,6 +73,8 @@ type MessageListProps = {
   selectedDateLabel: string;
   listRef?: React.RefObject<FlatList<RowItem> | null>;
   inputProtectionActive?: boolean;
+  onMessageTextInteractionStart?: () => void;
+  onPrepareForCommand?: (options?: { closeCopyMenu?: boolean }) => void;
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
   onScrollBeginDrag?: () => void;
   onScrollMetrics?: (metrics: { y: number; contentHeight: number; layoutHeight: number }) => void;
@@ -145,10 +147,12 @@ const DayHeader = React.memo(function DayHeader({ selectedDateLabel }: { selecte
 const UserMessageRow = React.memo(function UserMessageRow({
   message,
   interactionsDisabled,
+  onInteractionStart,
   onSelectionRefChange,
 }: {
   message: ChatMessage;
   interactionsDisabled: boolean;
+  onInteractionStart: () => void;
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
 }) {
   const renderStart = perfNow();
@@ -170,6 +174,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
           style={styles.userText}
           enableClozeMenu={false}
           interactionsDisabled={interactionsDisabled}
+          onInteractionStart={onInteractionStart}
           onSelectionStart={() => onSelectionRefChange(selectableRef.current)}
         />
       </View>
@@ -191,6 +196,8 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   interactionsDisabled,
   onToggleCopyMenu,
   onCloseCopyMenu,
+  onInteractionStart,
+  onPrepareForCommand,
 }: {
   message: ChatMessage;
   contact: ChatContact;
@@ -208,6 +215,8 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   interactionsDisabled: boolean;
   onToggleCopyMenu: () => void;
   onCloseCopyMenu: () => void;
+  onInteractionStart: () => void;
+  onPrepareForCommand: (options?: { closeCopyMenu?: boolean }) => void;
 }) {
   const renderStart = perfNow();
   const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
@@ -362,6 +371,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                 hasClozeGroup && !interactionsDisabled ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined
               }
               interactionsDisabled={interactionsDisabled}
+              onInteractionStart={onInteractionStart}
             />
           ) : null}
           {shouldShowTranslation ? (
@@ -380,6 +390,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                       Keyboard.dismiss();
                       return;
                     }
+                    onPrepareForCommand();
                     onRetryMessage(message);
                   }}
                 >
@@ -394,6 +405,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                       Keyboard.dismiss();
                       return;
                     }
+                    onPrepareForCommand();
                     setAnswersVisible((value) => !value);
                   }}
                 >
@@ -416,6 +428,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                             Keyboard.dismiss();
                             return;
                           }
+                          onPrepareForCommand();
                           onCloseCopyMenu();
                           onCopyMessage(message, option.mode);
                         }}
@@ -451,6 +464,8 @@ export function MessageList({
   selectedDateLabel,
   listRef,
   inputProtectionActive = false,
+  onMessageTextInteractionStart,
+  onPrepareForCommand,
   onSelectionRefChange,
   onScrollBeginDrag,
   onScrollMetrics,
@@ -488,6 +503,12 @@ export function MessageList({
   const handleSelectionRefChange = React.useCallback((ref: SelectableMessageTextRef | null) => {
     onSelectionRefChange(ref);
   }, [onSelectionRefChange]);
+  const handleMessageTextInteractionStart = React.useCallback(() => {
+    onMessageTextInteractionStart?.();
+  }, [onMessageTextInteractionStart]);
+  const handlePrepareForCommand = React.useCallback((options?: { closeCopyMenu?: boolean }) => {
+    onPrepareForCommand?.(options);
+  }, [onPrepareForCommand]);
   const handleRetryMessage = React.useCallback((message: ChatMessage) => {
     retryMessageRef.current(message);
   }, [retryMessageRef]);
@@ -549,6 +570,7 @@ export function MessageList({
           <UserMessageRow
             message={message}
             interactionsDisabled={inputProtectionActive}
+            onInteractionStart={handleMessageTextInteractionStart}
             onSelectionRefChange={handleSelectionRefChange}
           />
         );
@@ -565,11 +587,14 @@ export function MessageList({
           onDeleteClozeGroup={handleDeleteClozeGroup}
           isCopyMenuOpen={activeCopyMenuId === item.id}
           interactionsDisabled={inputProtectionActive}
+          onInteractionStart={handleMessageTextInteractionStart}
+          onPrepareForCommand={handlePrepareForCommand}
           onToggleCopyMenu={() => {
             if (inputProtectionActive) {
               Keyboard.dismiss();
               return;
             }
+            handlePrepareForCommand({ closeCopyMenu: false });
             setActiveCopyMenuId((current) => (current ? null : item.id));
           }}
           onCloseCopyMenu={handleCloseCopyMenu}
@@ -583,6 +608,8 @@ export function MessageList({
       handleCloseCopyMenu,
       handleDeleteClozeGroup,
       handleEditClozeGroup,
+      handleMessageTextInteractionStart,
+      handlePrepareForCommand,
       handleSelectionRefChange,
       handleRetryMessage,
       handleTextSelection,

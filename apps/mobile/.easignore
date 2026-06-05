@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Expo and Metro caches
+.expo/
+.tmp/
+.metro-health-check*
+
+# Native build outputs and local caches
+android/.gradle/
+android/app/build/
+android/build/
+android/.cxx/
+ios/build/
+ios/Pods/
+ios/DerivedData/
+
+# JS build outputs
+dist/
+web-build/
+coverage/
+
+# Logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# TypeScript incremental cache
+*.tsbuildinfo
