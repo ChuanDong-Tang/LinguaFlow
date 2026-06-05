@@ -867,8 +867,8 @@ function formatAutoRenewProviderLabel(): string {
 
 function formatAutoRenewButtonLabel(price: string | null = null): string {
   const suffix = price ? ` ${price}/月` : "";
-  if (Platform.OS === "ios") return `Apple 开通${suffix}`;
-  if (Platform.OS === "android") return `微信开通${suffix}`;
+  if (Platform.OS === "ios") return `Apple 订阅${suffix}`;
+  if (Platform.OS === "android") return `微信订阅${suffix}`;
   return "开通";
 }
 
