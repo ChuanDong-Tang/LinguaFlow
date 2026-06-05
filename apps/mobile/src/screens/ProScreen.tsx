@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getAvailablePurchases, restorePurchases as restoreIapPurchases, useIAP, type Purchase } from "expo-iap";
 import * as WebBrowser from "expo-web-browser";
@@ -25,7 +26,9 @@ import {
   savePendingPaymentOrder,
 } from "../services/payment/paymentRecovery";
 import { refreshEntitlementAndSession } from "../services/entitlement/entitlementSync";
-import { getSession } from "../services/auth/authStorage";
+import { getCachedEntitlement, isSameEntitlement, setCachedEntitlement } from "../services/entitlement/entitlementCache";
+import { getCurrentEntitlement, type CurrentEntitlement } from "../services/api/meApi";
+import { getSession, setSession } from "../services/auth/authStorage";
 import {
   APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID,
   APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
@@ -52,6 +55,11 @@ const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_
 const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ONE_TIME_PURCHASE === "true";
 const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
+const PRODUCT_PRICE_CACHE_KEY = "lf_pro_product_price_v1";
+const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
+  process.env.EXPO_PUBLIC_PRO_PRICE_CACHE_TTL_MS,
+  24 * 60 * 60 * 1000
+);
 
 export function ProScreen({ onBack }: ProScreenProps) {
   const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
@@ -64,8 +72,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [isRestoringApplePurchases, setIsRestoringApplePurchases] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
   const [wechatPriceLabel, setWechatPriceLabel] = useState<string | null>(null);
+  const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
+  const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(null);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
-  const productPrices = resolveProMonthlyPriceLabels({ appleIap, wechatPriceLabel });
+  const liveProductPrices = resolveProMonthlyPriceLabels({ appleIap, wechatPriceLabel });
+  const productPrices = liveProductPrices.primary ? liveProductPrices : cachedProductPrices ?? liveProductPrices;
+  const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
   const statusLabel = resolveProStatusLabel({
     isPro: isRenew,
     expiresAt: proExpiresAt,
@@ -84,12 +96,49 @@ export function ProScreen({ onBack }: ProScreenProps) {
     (Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
     (Platform.OS === "android" && ENABLE_WECHAT_AUTO_RENEW);
 
+  function applyEntitlementToState(entitlement: CurrentEntitlement): void {
+    setIsRenew(entitlement.isPro);
+    setProExpiresAt(entitlement.expiresAt);
+    setCurrentEntitlement(entitlement);
+  }
+
+  async function syncSessionProFlag(entitlement: CurrentEntitlement): Promise<void> {
+    const session = await getSession();
+    if (!session) return;
+    await setSession({
+      ...session,
+      sessionFlags: {
+        ...(session.sessionFlags ?? {}),
+        isPro: entitlement.isPro,
+      },
+    });
+  }
+
+  async function loadProEntitlementState(): Promise<CurrentEntitlement | null> {
+    const cached = await getCachedEntitlement();
+    if (cached && isScreenAlive()) {
+      applyEntitlementToState(cached.data);
+    }
+
+    try {
+      const entitlement = await getCurrentEntitlement();
+      if (!isScreenAlive()) return entitlement;
+      applyEntitlementToState(entitlement);
+      if (!cached || !isSameEntitlement(cached.data, entitlement)) {
+        await setCachedEntitlement(entitlement);
+      }
+      await syncSessionProFlag(entitlement);
+      return entitlement;
+    } catch {
+      return cached?.data ?? null;
+    }
+  }
+
   async function refreshProEntitlementState(): Promise<Awaited<ReturnType<typeof refreshEntitlementAndSession>> | null> {
     try {
       const result = await refreshEntitlementAndSession();
       if (isScreenAlive()) {
-        setIsRenew(result.entitlement.isPro);
-        setProExpiresAt(result.entitlement.expiresAt);
+        applyEntitlementToState(result.entitlement);
       }
       return result;
     } catch {
@@ -99,12 +148,19 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   useEffect(() => {
     void (async () => {
+      let didRefreshEntitlement = false;
+      const cached = await getCachedEntitlement();
+      if (cached && isScreenAlive()) {
+        applyEntitlementToState(cached.data);
+      }
+
       // 页面打开时先恢复未完成订单，处理用户支付后返回 App 的场景。
       const recovered = await recoverPendingPaymentIfAny();
       if (!isScreenAlive()) return;
       if (recovered.status === "paid") {
         setIsRenew(true);
         await refreshProEntitlementState();
+        didRefreshEntitlement = true;
         if (!isScreenAlive()) return;
         safeAlert("开通成功", "Pro 权益已生效。");
       }
@@ -116,6 +172,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (recoveredAutoRenew.entitlementIsPro === true) {
         setIsRenew(true);
         await refreshProEntitlementState();
+        didRefreshEntitlement = true;
         if (!isScreenAlive()) return;
         safeAlert("开通成功", "Pro 权益已生效。");
       }
@@ -124,9 +181,30 @@ export function ProScreen({ onBack }: ProScreenProps) {
         if (!isScreenAlive()) return;
         setAutoRenew(currentAutoRenew);
       } catch {}
-      await refreshProEntitlementState();
+      if (!didRefreshEntitlement) {
+        await loadProEntitlementState();
+      }
     })();
   }, [isScreenAlive, safeAlert]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const cached = await loadCachedProductPrices();
+      if (!cancelled && cached && isScreenAlive()) {
+        setCachedProductPrices(cached);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isScreenAlive]);
+
+  useEffect(() => {
+    if (!liveProductPrices.primary) return;
+    setCachedProductPrices(liveProductPrices);
+    void saveCachedProductPrices(liveProductPrices);
+  }, [liveProductPrices.primary, liveProductPrices.primarySuffix, liveProductPrices.oneTime, liveProductPrices.autoRenew]);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -394,13 +472,8 @@ export function ProScreen({ onBack }: ProScreenProps) {
         .sort((left, right) => Number(right.transactionDate ?? 0) - Number(left.transactionDate ?? 0));
 
       if (candidates.length === 0) {
-        const entitlementResult = await refreshProEntitlementState();
         if (!isScreenAlive()) return;
-        if (entitlementResult?.entitlement.isPro) {
-          safeAlert("已同步", "Pro 权益已生效。");
-        } else {
-          safeAlert("未找到可恢复购买", "没有找到当前 Apple ID 下可恢复的 Pro 购买。");
-        }
+        safeAlert("未找到可恢复购买", "没有找到当前 Apple ID 下可恢复的 Pro 购买。");
         return;
       }
 
@@ -463,7 +536,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.benefitCard}>
-          <BenefitItem icon="text-outline" title="每日 100,000 字额度" subtitle="普通版享受5000体验字符，有效期7天" />
+          <BenefitItem icon="text-outline" title={quotaBenefit.title} subtitle={quotaBenefit.subtitle} />
           <BenefitItem icon="leaf-outline" title="支持云端同步" subtitle="适合持续练习和记录" />
         </View>
 
@@ -472,12 +545,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
             <Text style={styles.priceTitle}>Pro 月度</Text>
             {statusLabel ? <Text style={styles.expire}>{statusLabel}</Text> : null}
           </View>
-          {productPrices.primary ? (
-            <View style={styles.priceRow}>
-              <Text style={styles.price}>{productPrices.primary}</Text>
-              <Text style={styles.priceUnit}>{productPrices.primarySuffix}</Text>
-            </View>
-          ) : null}
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>{productPrices.primary ?? "--"}</Text>
+            <Text style={styles.priceUnit}>{productPrices.primary ? productPrices.primarySuffix : ""}</Text>
+          </View>
           <View style={styles.autoRenewBox}>
             <View style={styles.autoRenewCopy}>
               <Text style={styles.autoRenewTitle}>自动续费</Text>
@@ -655,12 +726,80 @@ function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): 
   return provider === "apple" ? "Apple" : "微信";
 }
 
+function readPositiveIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("zh-CN").format(value);
+}
+
+function resolveQuotaBenefit(entitlement: CurrentEntitlement | null): { title: string; subtitle: string } {
+  if (!entitlement) {
+    return {
+      title: "正在同步额度",
+      subtitle: "获取后显示当前权益",
+    };
+  }
+
+  if (entitlement.isPro) {
+    return {
+      title: `每日 ${formatNumber(entitlement.dailyTotalLimit)} 字额度`,
+      subtitle: entitlement.expiresAt ? `Pro 权益有效期至 ${formatDate(entitlement.expiresAt)}` : "Pro 权益已生效",
+    };
+  }
+
+  const validUntil = entitlement.validUntil ? `，有效期至 ${formatDate(entitlement.validUntil)}` : "";
+  return {
+    title: `普通版 ${formatNumber(entitlement.dailyTotalLimit)} 体验字符`,
+    subtitle: `剩余 ${formatNumber(entitlement.remainingChars)} 字${validUntil}`,
+  };
+}
+
 type ProductPriceLabels = {
   primary: string | null;
   primarySuffix: string;
   oneTime: string | null;
   autoRenew: string | null;
 };
+
+type CachedProductPriceLabels = ProductPriceLabels & {
+  platform: typeof Platform.OS;
+  cachedAt: number;
+};
+
+async function loadCachedProductPrices(): Promise<ProductPriceLabels | null> {
+  const raw = await AsyncStorage.getItem(PRODUCT_PRICE_CACHE_KEY);
+  if (!raw) return null;
+
+  try {
+    const cached = JSON.parse(raw) as Partial<CachedProductPriceLabels>;
+    const isFresh = typeof cached.cachedAt === "number" && Date.now() - cached.cachedAt <= PRODUCT_PRICE_CACHE_TTL_MS;
+    if (!isFresh || cached.platform !== Platform.OS || typeof cached.primary !== "string" || !cached.primary) {
+      return null;
+    }
+    return {
+      primary: cached.primary,
+      primarySuffix: typeof cached.primarySuffix === "string" ? cached.primarySuffix : "",
+      oneTime: typeof cached.oneTime === "string" ? cached.oneTime : null,
+      autoRenew: typeof cached.autoRenew === "string" ? cached.autoRenew : null,
+    };
+  } catch {
+    await AsyncStorage.removeItem(PRODUCT_PRICE_CACHE_KEY);
+    return null;
+  }
+}
+
+async function saveCachedProductPrices(prices: ProductPriceLabels): Promise<void> {
+  if (!prices.primary) return;
+  const cached: CachedProductPriceLabels = {
+    ...prices,
+    platform: Platform.OS,
+    cachedAt: Date.now(),
+  };
+  await AsyncStorage.setItem(PRODUCT_PRICE_CACHE_KEY, JSON.stringify(cached));
+}
 
 function resolveProMonthlyPriceLabels(input: {
   appleIap: AppleIapBridgeState | null;

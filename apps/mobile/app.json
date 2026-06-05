@@ -15,15 +15,16 @@
     },
     "ios": {
       "bundleIdentifier": "com.yueyantech.oio",
-      "buildNumber": "24",
+      "buildNumber": "25",
       "supportsTablet": true,
+      "icon": "./assets/app/logo_main.png",
       "config": {
         "usesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.yueyantech.oio",
-      "versionCode": 21,
+      "versionCode": 25,
       "adaptiveIcon": {
         "foregroundImage": "./assets/app/logo_main.png",
         "backgroundColor": "#ffffff"

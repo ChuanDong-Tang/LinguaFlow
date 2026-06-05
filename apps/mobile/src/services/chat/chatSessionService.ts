@@ -82,8 +82,14 @@ function fallbackConversationScope(contactId: string): string {
 async function resolveStorageScope(contactId: string): Promise<{ state: ChatSessionState; uid: string; cid: string }> {
   const state = getSessionState(contactId);
   const session = await getSession();
-  const uid = state.storageUserId ?? session?.user?.id ?? "mock_user_001";
-  const cid = state.storageConversationId ?? state.conversationId ?? fallbackConversationScope(contactId);
+  const uid = session?.user?.id ?? "mock_user_001";
+  if (state.storageUserId && state.storageUserId !== uid) {
+    // 切换账号时模块可能仍在内存中，需要丢弃上一位用户的聊天日缓存。
+    state.dayCache.clear();
+    state.conversationId = null;
+  }
+  // 本地缓存按联系人和日期隔离；云端 conversationId 只用于接口请求。
+  const cid = fallbackConversationScope(contactId);
   state.storageUserId = uid;
   state.storageConversationId = cid;
   return { state, uid, cid };
@@ -224,11 +230,10 @@ export function startChatSession(input: StartChatSessionInput): void {
   state.stopRequested = false;
   if (input.conversationId) state.conversationId = input.conversationId;
   if (state.conversationId) {
-    const currentConversationId = state.conversationId;
     void (async () => {
       const session = await getSession();
       state.storageUserId = session?.user?.id ?? "mock_user_001";
-      state.storageConversationId = currentConversationId;
+      state.storageConversationId = fallbackConversationScope(input.contactId);
       emit(state);
     })();
   }
@@ -248,7 +253,7 @@ export function startChatSession(input: StartChatSessionInput): void {
       isStopRequested: () => state.stopRequested,
       onConversationReady: (nextConversationId) => {
         state.conversationId = nextConversationId;
-        state.storageConversationId = nextConversationId;
+        state.storageConversationId = fallbackConversationScope(input.contactId);
         emit(state);
       },
       onUpdateMessage: (clientId, updater) => {

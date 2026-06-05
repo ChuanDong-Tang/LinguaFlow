@@ -7,6 +7,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession } from "../services/auth/authStorage";
 import { getCurrentEntitlement } from "../services/api/meApi";
@@ -32,7 +33,6 @@ import { getMonthRange, selectedDateLabelText } from "../services/chat/chatDateR
 import { getChatGenerationInputLimits } from "../services/chat/chatInputLimits";
 import { areMessageRowsEquivalent, toDisplayRows } from "../services/chat/chatMessageView";
 import { useAssistantAutoCopyPreferences } from "../hooks/useAssistantAutoCopyPreferences";
-import { useKeyboardAwareChatScroll } from "../hooks/useKeyboardAwareChatScroll";
 import { useExclusiveSyncMachine } from "../hooks/useExclusiveSyncMachine";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatComposer } from "./chat/ChatComposer";
@@ -67,6 +67,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isDateSheetOpen, setIsDateSheetOpen] = useState(false);
+  const [inputProtectionActive, setInputProtectionActive] = useState(false);
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [dayMessages, setDayMessages] = useState<ChatMessage[]>([]);
@@ -109,7 +110,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       messageListRef.current?.scrollToEnd({ animated });
     });
   }, []);
-  const keyboardInset = useKeyboardAwareChatScroll(scrollToBottom, messages.length);
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
     const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
@@ -179,13 +179,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   useEffect(() => {
     let cancelled = false;
     async function bootstrapLocal() {
+      const dateKey = toDateKey(selectedDate);
       const storedDateKeys = await listStoredChatDateKeys(contactId);
       if (!cancelled) {
         setLocalDateKeys(new Set(storedDateKeys));
       }
-      const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(selectedDate)));
+      const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, dateKey));
       if (cancelled) return;
-      dayLoadedRowsRef.current[toDateKey(selectedDate)] = byDay;
+      dayLoadedRowsRef.current[dateKey] = byDay;
       setDayMessages(byDay);
       setMessages(byDay);
     }
@@ -244,9 +245,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     [contact.id]
   );
 
-  const handleScrollBeginDrag = React.useCallback(() => {
-    Keyboard.dismiss();
-  }, []);
   const handleSelectionRefChange = React.useCallback((ref: SelectableMessageTextRef | null) => {
     activeSelectionRef.current = ref;
   }, []);
@@ -269,6 +267,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const handleCopyMenuStateChange = React.useCallback((state: { isOpen: boolean; close: () => void }) => {
     activeCopyMenuRef.current = state.isOpen;
     closeCopyMenuRef.current = state.close;
+  }, []);
+  const handleComposerFocus = React.useCallback(() => {
+    setInputProtectionActive(true);
+    closeCopyMenuRef.current?.();
+    clearActiveSelection();
+  }, [clearActiveSelection]);
+  const handleComposerBlur = React.useCallback(() => {
+    setInputProtectionActive(false);
   }, []);
 
   async function handleSend(): Promise<void> {
@@ -296,7 +302,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return;
     }
 
-    // 如果用户当前看的不是今天，先切回今天，不直接发送
     const businessTodayKey = await getBusinessDateKey().catch(() => null);
     if (!businessTodayKey) {
       Alert.alert("当前网络不可用，请连接网络后再发送");
@@ -309,13 +314,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (!isViewingToday) {
       setSelectedDate(businessTodayDate);
       setMonthCursor(new Date(businessTodayDate.getFullYear(), businessTodayDate.getMonth(), 1));
-      void (async () => {
-        const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, businessTodayKey));
-        setDayMessages(byDay);
-        setMessages(byDay);
-      })();
       void syncDateQuietly(businessTodayDate, { force: true });
-      return;
     }
 
     setInputText("");
@@ -404,29 +403,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         void refreshEntitlementSnapshot();
       },
     });
-  }
-
-
-  async function handleComposerFocus(): Promise<void> {
-    const businessTodayKey = await getBusinessDateKey().catch(() => null);
-    if (!businessTodayKey) {
-      scrollToBottom(false);
-      return;
-    }
-    setBusinessTodayKey(businessTodayKey);
-    const businessTodayDate = dateKeyToDate(businessTodayKey);
-    if (toDateKey(selectedDate) === businessTodayKey) {
-      scrollToBottom(false);
-      return;
-    }
-    setSelectedDate(businessTodayDate);
-    setMonthCursor(new Date(businessTodayDate.getFullYear(), businessTodayDate.getMonth(), 1));
-    void (async () => {
-      const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, businessTodayKey));
-      setDayMessages(byDay);
-      setMessages(byDay);
-    })();
-    scrollToBottom(false);
   }
 
   async function preloadCloudMonthDateKeys(cursor: Date): Promise<void> {
@@ -771,8 +747,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View
-        style={[styles.content, { paddingBottom: keyboardInset }]}
+      <KeyboardAvoidingView
+        style={styles.content}
+        behavior="height"
         onStartShouldSetResponderCapture={handleRootTouchCapture}
         onTouchEnd={handleRootTouchEnd}
       >
@@ -788,8 +765,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           messages={messages}
           selectedDateLabel={selectedDateLabelText(selectedDate, businessTodayKey ?? undefined)}
           listRef={messageListRef}
+          inputProtectionActive={inputProtectionActive}
           onSelectionRefChange={handleSelectionRefChange}
-          onScrollBeginDrag={handleScrollBeginDrag}
           onCopyMenuStateChange={handleCopyMenuStateChange}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
@@ -804,6 +781,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onSend={handleSend}
           onStop={() => {}}
           onFocus={handleComposerFocus}
+          onBlur={handleComposerBlur}
           onDisabledPress={() => {
             if (isAnotherContactGenerating) {
               Alert.alert("另一个好友正在回复，请稍后再发")
@@ -830,7 +808,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           disabled={!canSend}
           isSending={isSending}
         />
-      </View>
+      </KeyboardAvoidingView>
 
       <DatePickerSheet
         visible={isDateSheetOpen}

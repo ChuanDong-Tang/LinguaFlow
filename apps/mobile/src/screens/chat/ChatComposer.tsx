@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { Pressable, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Platform, Pressable, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 type ChatComposerProps = {
@@ -8,6 +8,7 @@ type ChatComposerProps = {
   onSend: () => void;
   onStop: () => void;
   onFocus: () => void;
+  onBlur?: () => void;
   onDisabledPress?: () => void;
   disabled: boolean;
   isSending: boolean;
@@ -15,7 +16,11 @@ type ChatComposerProps = {
 
 const COLLAPSED_MIN_HEIGHT = 50;
 const COLLAPSED_MAX_HEIGHT = 160;
-const SINGLE_LINE_LOCK_HEIGHT = 52;
+const INPUT_LINE_HEIGHT = 22;
+const INPUT_PADDING_TOP = Platform.OS === "android" ? 13 : 12;
+const INPUT_PADDING_BOTTOM = Platform.OS === "android" ? 13 : 12;
+const INPUT_VERTICAL_PADDING = INPUT_PADDING_TOP + INPUT_PADDING_BOTTOM;
+const SINGLE_LINE_LOCK_HEIGHT = 64;
 
 export function ChatComposer({
   value,
@@ -23,6 +28,7 @@ export function ChatComposer({
   onSend,
   onStop,
   onFocus,
+  onBlur,
   onDisabledPress,
   disabled,
   isSending,
@@ -37,6 +43,13 @@ export function ChatComposer({
   );
   const shellHeight = expanded ? expandedHeight : collapsedHeight;
   const canExpand = expanded || inputHeight >= COLLAPSED_MAX_HEIGHT;
+  const textInputHeight = shellHeight;
+
+  useEffect(() => {
+    if (value.length > 0) return;
+    setInputHeight(COLLAPSED_MIN_HEIGHT);
+    setExpanded(false);
+  }, [value.length]);
 
   function handleToggleExpand(): void {
     setExpanded((current) => !current);
@@ -44,28 +57,40 @@ export function ChatComposer({
 
   function handleContentSizeChange(nextHeight: number): void {
     const rawHeight = Math.ceil(nextHeight);
-    const normalized = rawHeight <= SINGLE_LINE_LOCK_HEIGHT
-      ? COLLAPSED_MIN_HEIGHT
-      : Math.max(COLLAPSED_MIN_HEIGHT, rawHeight);
-    setInputHeight(normalized);
+    if (rawHeight <= SINGLE_LINE_LOCK_HEIGHT) {
+      setInputHeight(COLLAPSED_MIN_HEIGHT);
+      return;
+    }
+
+    const estimatedLineCount = Math.max(
+      2,
+      Math.ceil((rawHeight - INPUT_VERTICAL_PADDING) / INPUT_LINE_HEIGHT)
+    );
+    const nextShellHeight = INPUT_VERTICAL_PADDING + estimatedLineCount * INPUT_LINE_HEIGHT + 6;
+    setInputHeight(Math.max(COLLAPSED_MIN_HEIGHT, nextShellHeight));
   }
 
   return (
     <View style={styles.inputWrap}>
       <View style={[styles.inputShell, { height: shellHeight }]}>
         <TextInput
-          style={[styles.input, expanded ? styles.inputExpanded : styles.inputCollapsed]}
+          style={[
+            styles.input,
+            expanded ? styles.inputExpanded : styles.inputCollapsed,
+            { height: textInputHeight },
+          ]}
           placeholder=""
           placeholderTextColor="#A0A4AF"
           value={value}
           onChangeText={onChangeText}
           onFocus={onFocus}
+          onBlur={onBlur}
           returnKeyType="default"
           blurOnSubmit={false}
           cursorColor="#8E84FF"
           multiline
           onContentSizeChange={(event) => handleContentSizeChange(event.nativeEvent.contentSize.height)}
-          scrollEnabled={expanded || inputHeight > COLLAPSED_MAX_HEIGHT}
+          scrollEnabled={expanded || collapsedHeight >= COLLAPSED_MAX_HEIGHT}
         />
         {canExpand ? (
           <Pressable style={styles.expandButton} onPress={handleToggleExpand} hitSlop={6}>
@@ -103,22 +128,22 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
   },
   input: {
-    flex: 1,
     alignSelf: "stretch",
     paddingLeft: 20,
     paddingRight: 92,
+    lineHeight: INPUT_LINE_HEIGHT,
     fontSize: 15,
     color: "#111111",
-    includeFontPadding: true,
+    includeFontPadding: false,
     textAlignVertical: "top",
   },
   inputCollapsed: {
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingTop: INPUT_PADDING_TOP,
+    paddingBottom: INPUT_PADDING_BOTTOM,
   },
   inputExpanded: {
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingTop: INPUT_PADDING_TOP,
+    paddingBottom: INPUT_PADDING_BOTTOM,
   },
   expandButton: {
     position: "absolute",

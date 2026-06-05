@@ -1,5 +1,5 @@
 import React from "react";
-import { Animated, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, FlatList, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatMessage } from "../../domain/chat/types";
 import type { ChatContact } from "../../domain/chat/contacts";
@@ -72,6 +72,7 @@ type MessageListProps = {
   messages: ChatMessage[];
   selectedDateLabel: string;
   listRef?: React.RefObject<FlatList<RowItem> | null>;
+  inputProtectionActive?: boolean;
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
   onScrollBeginDrag?: () => void;
   onScrollMetrics?: (metrics: { y: number; contentHeight: number; layoutHeight: number }) => void;
@@ -143,9 +144,11 @@ const DayHeader = React.memo(function DayHeader({ selectedDateLabel }: { selecte
 
 const UserMessageRow = React.memo(function UserMessageRow({
   message,
+  interactionsDisabled,
   onSelectionRefChange,
 }: {
   message: ChatMessage;
+  interactionsDisabled: boolean;
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
 }) {
   const renderStart = perfNow();
@@ -166,6 +169,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
           text={message.text}
           style={styles.userText}
           enableClozeMenu={false}
+          interactionsDisabled={interactionsDisabled}
           onSelectionStart={() => onSelectionRefChange(selectableRef.current)}
         />
       </View>
@@ -184,6 +188,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onEditClozeGroup,
   onDeleteClozeGroup,
   isCopyMenuOpen,
+  interactionsDisabled,
   onToggleCopyMenu,
   onCloseCopyMenu,
 }: {
@@ -200,6 +205,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   isCopyMenuOpen: boolean;
+  interactionsDisabled: boolean;
   onToggleCopyMenu: () => void;
   onCloseCopyMenu: () => void;
 }) {
@@ -337,12 +343,12 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                 ) : undefined
               }
               onSelectionStart={
-                canShowCloze
+                canShowCloze && !interactionsDisabled
                   ? () => onSelectionRefChange(selectableRef.current)
                   : undefined
               }
               onSelectionChange={
-                canShowCloze
+                canShowCloze && !interactionsDisabled
                   ? (payload) => {
                     onSelectionRefChange(selectableRef.current);
                     onTextSelection(message, payload, () => selectableRef.current?.clearSelection());
@@ -350,11 +356,12 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                   : undefined
               }
               onClozeRangePress={
-                hasClozeGroup ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined
+                hasClozeGroup && !interactionsDisabled ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined
               }
               onClozeRangeLongPress={
-                hasClozeGroup ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined
+                hasClozeGroup && !interactionsDisabled ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined
               }
+              interactionsDisabled={interactionsDisabled}
             />
           ) : null}
           {shouldShowTranslation ? (
@@ -366,11 +373,30 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
           {shouldShowActions ? (
             <View style={styles.cardActionRow}>
               {message.status === "failed" && (message.retryCount ?? 0) < 1 && message.retryText ? (
-                <Pressable style={styles.retryButton} onPress={() => onRetryMessage(message)}>
+                <Pressable
+                  style={styles.retryButton}
+                  onPress={() => {
+                    if (interactionsDisabled) {
+                      Keyboard.dismiss();
+                      return;
+                    }
+                    onRetryMessage(message);
+                  }}
+                >
                   <Text style={styles.retryText}>重试</Text>
                 </Pressable>
               ) : hasBlank ? (
-                <Pressable style={styles.eyeButton} hitSlop={8} onPress={() => setAnswersVisible((value) => !value)}>
+                <Pressable
+                  style={styles.eyeButton}
+                  hitSlop={8}
+                  onPress={() => {
+                    if (interactionsDisabled) {
+                      Keyboard.dismiss();
+                      return;
+                    }
+                    setAnswersVisible((value) => !value);
+                  }}
+                >
                   <Ionicons name={answersVisible ? "eye-off-outline" : "eye-outline"} size={22} color="#111111" />
                 </Pressable>
               ) : (
@@ -386,6 +412,10 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                         style={styles.copyMenuOption}
                         hitSlop={4}
                         onPress={() => {
+                          if (interactionsDisabled) {
+                            Keyboard.dismiss();
+                            return;
+                          }
                           onCloseCopyMenu();
                           onCopyMessage(message, option.mode);
                         }}
@@ -420,6 +450,7 @@ export function MessageList({
   contact,
   selectedDateLabel,
   listRef,
+  inputProtectionActive = false,
   onSelectionRefChange,
   onScrollBeginDrag,
   onScrollMetrics,
@@ -436,6 +467,7 @@ export function MessageList({
   const textSelectionRef = useLatestRef(onTextSelection);
   const editClozeGroupRef = useLatestRef(onEditClozeGroup);
   const deleteClozeGroupRef = useLatestRef(onDeleteClozeGroup);
+  const isDraggingRef = React.useRef(false);
   const [activeCopyMenuId, setActiveCopyMenuId] = React.useState<string | null>(null);
   const rows = React.useMemo<RowItem[]>(() => {
     const startedAt = perfNow();
@@ -472,6 +504,10 @@ export function MessageList({
     });
   }, [activeCopyMenuId, handleCloseCopyMenu, onCopyMenuStateChange]);
   const handleListTouchEnd = React.useCallback(() => {
+    if (!isDraggingRef.current) {
+      Keyboard.dismiss();
+    }
+    isDraggingRef.current = false;
     if (!activeCopyMenuId) return;
     const menuIdAtTouchEnd = activeCopyMenuId;
     setTimeout(() => {
@@ -479,6 +515,7 @@ export function MessageList({
     }, 0);
   }, [activeCopyMenuId]);
   const handleScrollStart = React.useCallback(() => {
+    isDraggingRef.current = true;
     setActiveCopyMenuId(null);
     onScrollBeginDrag?.();
   }, [onScrollBeginDrag]);
@@ -511,6 +548,7 @@ export function MessageList({
         return (
           <UserMessageRow
             message={message}
+            interactionsDisabled={inputProtectionActive}
             onSelectionRefChange={handleSelectionRefChange}
           />
         );
@@ -526,7 +564,12 @@ export function MessageList({
           onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
           isCopyMenuOpen={activeCopyMenuId === item.id}
+          interactionsDisabled={inputProtectionActive}
           onToggleCopyMenu={() => {
+            if (inputProtectionActive) {
+              Keyboard.dismiss();
+              return;
+            }
             setActiveCopyMenuId((current) => (current ? null : item.id));
           }}
           onCloseCopyMenu={handleCloseCopyMenu}
@@ -543,6 +586,7 @@ export function MessageList({
       handleSelectionRefChange,
       handleRetryMessage,
       handleTextSelection,
+      inputProtectionActive,
       selectedDateLabel,
     ]
   );
@@ -560,7 +604,7 @@ export function MessageList({
       maxToRenderPerBatch={16}
       updateCellsBatchingPeriod={50}
       removeClippedSubviews
-      keyboardDismissMode="on-drag"
+      keyboardDismissMode="none"
       onTouchEnd={handleListTouchEnd}
       onScrollBeginDrag={handleScrollStart}
       onScroll={(e) => {

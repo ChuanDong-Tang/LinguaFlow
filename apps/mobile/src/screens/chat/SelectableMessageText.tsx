@@ -1,6 +1,8 @@
 import React from "react";
 import {
   Alert,
+  Keyboard,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -43,6 +45,7 @@ type Props = {
   correctRanges?: NativeClozeBlankRange[];
   trailingElement?: React.ReactNode;
   enableClozeMenu?: boolean;
+  interactionsDisabled?: boolean;
   onSelectionStart?: () => void;
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
   onClozeRangePress?: (groupIndex: number) => void;
@@ -130,6 +133,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     correctRanges,
     trailingElement,
     enableClozeMenu = true,
+    interactionsDisabled = false,
     onSelectionStart,
     onSelectionChange,
     onClozeRangePress,
@@ -231,12 +235,19 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
                 : undefined
           }
           style={{ ...StyleSheet.absoluteFillObject }}
-          menuOptions={enableClozeMenu ? [CLOZE_MENU_OPTION] : []}
-          onSelectionStart={onSelectionStart}
-          onSelection={handleNativeSelection}
-          onClozeRangePress={handleClozeRangePress}
-          onClozeRangeLongPress={handleClozeRangeLongPress}
+          pointerEvents={interactionsDisabled ? "none" : "auto"}
+          menuOptions={!interactionsDisabled && enableClozeMenu ? [CLOZE_MENU_OPTION] : []}
+          onSelectionStart={interactionsDisabled ? undefined : onSelectionStart}
+          onSelection={interactionsDisabled ? undefined : handleNativeSelection}
+          onClozeRangePress={interactionsDisabled ? undefined : handleClozeRangePress}
+          onClozeRangeLongPress={interactionsDisabled ? undefined : handleClozeRangeLongPress}
         />
+        {interactionsDisabled ? (
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => Keyboard.dismiss()}
+          />
+        ) : null}
       </View>
     );
   },
