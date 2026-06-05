@@ -248,6 +248,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   );
 
   const handleSelectionRefChange = React.useCallback((ref: SelectableMessageTextRef | null) => {
+    if (ref) {
+      messageTextTouchActiveRef.current = true;
+    }
     activeSelectionRef.current = ref;
   }, []);
   const clearActiveSelection = React.useCallback(() => {
