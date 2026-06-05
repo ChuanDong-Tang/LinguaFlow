@@ -19,8 +19,6 @@ const COLLAPSED_MAX_HEIGHT = 160;
 const INPUT_LINE_HEIGHT = 22;
 const INPUT_PADDING_TOP = Platform.OS === "android" ? 13 : 12;
 const INPUT_PADDING_BOTTOM = Platform.OS === "android" ? 13 : 12;
-const INPUT_VERTICAL_PADDING = INPUT_PADDING_TOP + INPUT_PADDING_BOTTOM;
-const SINGLE_LINE_LOCK_HEIGHT = 64;
 
 export function ChatComposer({
   value,
@@ -57,17 +55,7 @@ export function ChatComposer({
 
   function handleContentSizeChange(nextHeight: number): void {
     const rawHeight = Math.ceil(nextHeight);
-    if (rawHeight <= SINGLE_LINE_LOCK_HEIGHT) {
-      setInputHeight(COLLAPSED_MIN_HEIGHT);
-      return;
-    }
-
-    const estimatedLineCount = Math.max(
-      2,
-      Math.ceil((rawHeight - INPUT_VERTICAL_PADDING) / INPUT_LINE_HEIGHT)
-    );
-    const nextShellHeight = INPUT_VERTICAL_PADDING + estimatedLineCount * INPUT_LINE_HEIGHT + 6;
-    setInputHeight(Math.max(COLLAPSED_MIN_HEIGHT, nextShellHeight));
+    setInputHeight(Math.max(COLLAPSED_MIN_HEIGHT, rawHeight));
   }
 
   return (
