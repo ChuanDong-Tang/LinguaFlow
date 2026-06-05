@@ -48,7 +48,8 @@ type AppleIapBridgeProps = {
   onPurchaseError: (error: unknown) => void;
 };
 
-const ENABLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_ONE_TIME_PURCHASE === "true";
+const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_TIME_PURCHASE === "true";
+const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ONE_TIME_PURCHASE === "true";
 const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
 
@@ -75,7 +76,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
     expiresAt: proExpiresAt,
     autoRenew,
   });
-  const canStartOneTimePurchase = ENABLE_ONE_TIME_PURCHASE;
+  const canStartOneTimePurchase =
+    (Platform.OS === "ios" && ENABLE_APPLE_ONE_TIME_PURCHASE) ||
+    (Platform.OS === "android" && ENABLE_WECHAT_ONE_TIME_PURCHASE);
   const canStartAutoRenew =
     activeAutoRenew ||
     (Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
