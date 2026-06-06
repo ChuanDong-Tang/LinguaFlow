@@ -17,7 +17,7 @@ type MeScreenProps = {
   onLogout: () => Promise<void> | void;
 };
 
-const OTA_DEBUG_JS_LABEL = "fix practice screen";
+const OTA_DEBUG_JS_LABEL = "debug apple pay";
 
 export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
   const { isMounted } = useMountedGuard();

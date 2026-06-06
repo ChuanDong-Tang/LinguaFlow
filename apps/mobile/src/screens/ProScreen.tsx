@@ -391,6 +391,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
       safeAlert("Apple 支付初始化中", "请稍后重试。");
       return;
     }
+    const productId = getAppleProductIdForSource(source);
+    if (!hasLoadedAppleProduct(appleIap, source, productId)) {
+      safeAlert("Apple 商品未加载", "商品信息还在加载中，请稍后重试。");
+      return;
+    }
     setIsPaying(true);
     setIsAutoRenewLoading(true);
     try {
@@ -402,7 +407,6 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (appAccountToken) {
         await registerAppleAppAccountToken(appAccountToken);
       }
-      const productId = getAppleProductIdForSource(source);
       await appleIap.requestPurchase({
         type: source === "single_purchase" ? "in-app" : "subs",
         request: {
@@ -431,7 +435,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
       const verified = await verifyAppleProMonthlyTransaction(transactionId);
       if (!appleIap) throw new Error("Apple 支付未初始化");
       const isOneTimePurchase = verified.purchaseKind === "single_purchase";
-      await appleIap.finishTransaction({ purchase, isConsumable: false });
+      await appleIap.finishTransaction({
+        purchase,
+        isConsumable: purchase.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID,
+      });
       const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
       setIsRenew(entitlementResult?.entitlement.isPro ?? true);
@@ -482,7 +489,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
         try {
           const transactionId = getAppleTransactionId(purchase);
           const verified = await verifyAppleProMonthlyTransaction(transactionId);
-          await appleIap.finishTransaction({ purchase, isConsumable: false }).catch(() => {});
+          await appleIap.finishTransaction({
+            purchase,
+            isConsumable: purchase.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID,
+          }).catch(() => { });
           const entitlementResult = await refreshProEntitlementState();
           if (!isScreenAlive()) return;
           setIsRenew(entitlementResult?.entitlement.isPro ?? true);
@@ -837,6 +847,11 @@ function resolveProMonthlyPriceLabels(input: {
     oneTime: null,
     autoRenew: null,
   };
+}
+
+function hasLoadedAppleProduct(appleIap: AppleIapBridgeState, source: ApplePurchaseSource, productId: string): boolean {
+  const rows = source === "single_purchase" ? appleIap.products : appleIap.subscriptions;
+  return rows.some((product) => product.id === productId);
 }
 
 function formatOneTimePurchaseButtonLabel(isRenew: boolean, price: string | null): string {

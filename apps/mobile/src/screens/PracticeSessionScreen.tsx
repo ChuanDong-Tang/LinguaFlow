@@ -28,6 +28,7 @@ import { discardMessageClozePractice, updateMessageClozeState } from "../service
 import { loadChatMessagesByDate, replaceChatMessagesByDate } from "../services/chat/chatSessionService";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import { getMessageDateKey } from "../domain/chat/messageState";
+import { getChatContact } from "../domain/chat/contacts";
 import { markChatDateDirty, markPracticeStatsDirty } from "../services/chat/chatPracticeSyncState";
 
 type PracticeSessionScreenProps = {
@@ -133,6 +134,8 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const cardMotionLocked = useRef(false);
   const segmentCacheRef = useRef(new Map<string, PracticeEnglishSegment[]>());
   const gestureAxis = useRef<"x" | null>(null);
+  const sessionMessageIdsRef = useRef(new Set(initialCards.map((row) => row.messageId)));
+  const sessionContactByMessageIdRef = useRef(new Map(initialCards.map((row) => [row.messageId, getChatContact(row.contactId)])));
   const scrollStateRef = useRef({ y: 0, contentHeight: 0, layoutHeight: 0, maxY: 0 });
   // ScrollView 负责纵向滚动；这里仅记录触摸轨迹，用于滚到顶/底后松手切卡。
   const scrollEdgeDragRef = useRef<{
@@ -372,6 +375,12 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     flipAnim.setValue(0);
   }
 
+  function rebuildSessionCards(nextMessages: ChatMessage[]): PracticeCard[] {
+    return buildPracticeCards(nextMessages, {
+      contactByMessageId: sessionContactByMessageIdRef.current,
+    }).filter((row) => sessionMessageIdsRef.current.has(row.messageId));
+  }
+
   function beginCardMotion(): boolean {
     if (cardMotionLocked.current) return false;
     cardMotionLocked.current = true;
@@ -463,10 +472,18 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
           : row,
       );
       const updatedMessage = nextMessages.find(matchesCardMessage);
-      const nextCards = buildPracticeCards(nextMessages);
       segmentCacheRef.current.delete(card.id);
       setMessages(nextMessages);
-      setCards(nextCards);
+      if (updatedMessage) {
+        const nextCorrectTokenIndexes = Array.from(new Set([...card.correctTokenIndexes, ...correct])).sort((a, b) => a - b);
+        setCards((current) =>
+          current.map((row) =>
+            row.id === card.id
+              ? { ...row, message: updatedMessage, correctTokenIndexes: nextCorrectTokenIndexes }
+              : row,
+          ),
+        );
+      }
       if (updatedMessage) await persistPracticeMessageUpdate(card.contactId, updatedMessage);
       setAnswers((current) => {
         const next = { ...current };
@@ -474,7 +491,6 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
         return next;
       });
       setIsFlipped(false);
-      if (index >= nextCards.length) setIndex(Math.max(0, nextCards.length - 1));
     }, "正在处理...");
   }
 
@@ -497,7 +513,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
           : row,
       );
       const updatedMessage = nextMessages.find(matchesCardMessage);
-      const nextCards = buildPracticeCards(nextMessages);
+      const nextCards = rebuildSessionCards(nextMessages);
       setMessages(nextMessages);
       setCards(nextCards);
       if (updatedMessage) await persistPracticeMessageUpdate(card.contactId, updatedMessage);

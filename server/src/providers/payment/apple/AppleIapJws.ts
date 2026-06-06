@@ -29,7 +29,10 @@ export function createAppleServerToken(input: {
   const signer = createSign("SHA256");
   signer.update(unsigned);
   signer.end();
-  const signature = signer.sign(createPrivateKey(input.privateKeyPem)).toString("base64url");
+  const signature = signer.sign({
+    key: createPrivateKey(input.privateKeyPem),
+    dsaEncoding: "ieee-p1363",
+  }).toString("base64url");
   return `${unsigned}.${signature}`;
 }
 
@@ -99,7 +102,10 @@ export function verifyAndDecodeAppleJws(
   verifier.update(`${headerB64}.${payloadB64}`);
   verifier.end();
   const signature = Buffer.from(signatureB64, "base64url");
-  const valid = verifier.verify(leafCert.publicKey, signature);
+  const valid = verifier.verify({
+    key: leafCert.publicKey,
+    dsaEncoding: "ieee-p1363",
+  }, signature);
   if (!valid) {
     throw new AppleIapVerifyError("JWS signature verification failed");
   }
