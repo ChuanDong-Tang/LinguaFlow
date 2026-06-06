@@ -581,23 +581,6 @@ export function ProScreen({ onBack }: ProScreenProps) {
           <View style={styles.actionRow}>
             <Pressable
               style={[
-                styles.subscribeButton,
-                styles.actionButton,
-                (!canStartOneTimePurchase || isPaying) && styles.subscribeButtonDisabled,
-              ]}
-              onPress={() => void handleSubscribe()}
-              disabled={!canStartOneTimePurchase || isPaying}
-            >
-              {isPaying ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.subscribeText}>
-                  {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : "暂未开放"}
-                </Text>
-              )}
-            </Pressable>
-            <Pressable
-              style={[
                 styles.secondaryButton,
                 styles.actionButton,
                 (!canStartAutoRenew || isAutoRenewLoading) && styles.subscribeButtonDisabled,
@@ -614,6 +597,23 @@ export function ProScreen({ onBack }: ProScreenProps) {
                     : canStartAutoRenew
                       ? formatAutoRenewButtonLabel()
                       : "暂未开放"}
+                </Text>
+              )}
+            </Pressable>
+            <Pressable
+              style={[
+                styles.subscribeButton,
+                styles.actionButton,
+                (!canStartOneTimePurchase || isPaying) && styles.subscribeButtonDisabled,
+              ]}
+              onPress={() => void handleSubscribe()}
+              disabled={!canStartOneTimePurchase || isPaying}
+            >
+              {isPaying ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.subscribeText}>
+                  {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : "暂未开放"}
                 </Text>
               )}
             </Pressable>
@@ -696,11 +696,11 @@ async function payWithWechatParams(clientPayParams: Record<string, unknown>): Pr
   await payWithWechat(toWeChatClientPayParams(clientPayParams));
 }
 
-function formatNullableDate(value: string | null): string {
+function formatRenewDate(value: string | null): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return `下次扣款：${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+  return `续费日期：${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
 function resolveAutoRenewDescription(input: {
@@ -726,7 +726,7 @@ function resolveProStatusLabel(input: {
   autoRenew: MobileAutoRenewSubscription | null;
 }): string | null {
   if (hasActiveAutoRenew(input.autoRenew)) {
-    return formatNullableDate(input.autoRenew.nextBillingAt) || "下次扣费待同步";
+    return formatRenewDate(input.autoRenew.currentPeriodEnd) || "续费日期待同步";
   }
   if (input.isPro && input.expiresAt) {
     return `有效期至：${formatDate(input.expiresAt)}`;
@@ -953,8 +953,7 @@ const PAYMENT_RULES = [
   "已有 Pro 开通订阅不会立即重复扣费，到期后自动接续。",
   "订阅中单买 1 个月，会同步推迟下一次扣费。",
   "价格或权益调整后，在后续购买或自动续费时生效。",
-  "取消订阅只停止后续扣款，当前权益保留至到期。",
-  "用户取消自动续费后，当前 Pro 权益保留至到期；到期前不允许重新签约自动续费，到期后可重新开通。",
+  "取消订阅只停止后续扣款，当前权益保留至到期，到期前不允许重新签约自动续费，到期后可重新开通。",
 ];
 
 const styles = StyleSheet.create({

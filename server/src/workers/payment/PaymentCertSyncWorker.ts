@@ -47,8 +47,13 @@ export class PaymentCertSyncWorker {
     this.running = true;
     try {
       const now = new Date();
-      await this.syncWeChat(now);
-      await this.syncApple(now);
+      const cfg = getRuntimeConfig();
+      if (cfg.payment.wechatPayEnabled) {
+        await this.syncWeChat(now);
+      }
+      if (cfg.payment.appleIap.enabled) {
+        await this.syncApple(now);
+      }
       await this.guardHealth(now);
     } catch (error) {
       await this.writeLog({
@@ -90,17 +95,6 @@ export class PaymentCertSyncWorker {
   private async syncApple(now: Date): Promise<void> {
     const synced = await this.syncService.syncAppleRootCert();
     if (!synced) {
-      await this.writeLog({
-        event: "payment.worker.cert_sync_apple_not_configured",
-        level: "warn",
-        status: "ignored",
-        metadata: {
-          worker: "payment_cert_sync",
-          batchSize: null,
-          lockKey: null,
-          skipReason: "apple_not_configured",
-        },
-      });
       return;
     }
     await this.writeLog({
@@ -123,7 +117,8 @@ export class PaymentCertSyncWorker {
     const retentionDays =
       this.options.retentionDaysAfterExpire ?? cfg.payment.certRetentionDaysAfterExpire;
     const warnMs = warnDays * 24 * 60 * 60 * 1000;
-    for (const provider of ["wechat", "apple"] as const) {
+    const providers = getEnabledCertProviders();
+    for (const provider of providers) {
       const certs = await this.trustedCertRepository.listActiveByProvider(provider);
       for (const cert of certs) {
         if (!cert.notAfter) continue;
@@ -197,4 +192,12 @@ export class PaymentCertSyncWorker {
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function getEnabledCertProviders(): Array<"wechat" | "apple"> {
+  const cfg = getRuntimeConfig();
+  const providers: Array<"wechat" | "apple"> = [];
+  if (cfg.payment.wechatPayEnabled) providers.push("wechat");
+  if (cfg.payment.appleIap.enabled) providers.push("apple");
+  return providers;
 }
