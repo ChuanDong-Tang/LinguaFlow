@@ -3,6 +3,7 @@ import { AppleIapVerifyError } from "./AppleIapErrors.js";
 import { verifyAndDecodeAppleJws } from "./AppleIapJws.js";
 import type { AppleTransactionPayload } from "./AppleIapMapper.js";
 import { decodeTransactionPayload } from "./AppleIapMapper.js";
+import { getRuntimeConfig } from "../../../config/runtimeConfig.js";
 
 export async function fetchTransactionInfo(
   transactionId: string,
@@ -11,6 +12,16 @@ export async function fetchTransactionInfo(
 ): Promise<
   { environment: "production" | "sandbox" } & AppleTransactionPayload
 > {
+  if (getRuntimeConfig().mode === "test") {
+    return fetchTransactionInfoFromEndpoint({
+      endpoint: "sandbox",
+      baseUrl: APPLE_SANDBOX_BASE_URL,
+      transactionId,
+      token,
+      rootCaPem,
+    });
+  }
+
   const prod = await requestTransactionInfo(APPLE_PROD_BASE_URL, transactionId, token);
   if (prod.ok) {
     const verified = verifyAndDecodeAppleJws(prod.signedTransactionInfo, rootCaPem);
@@ -52,6 +63,35 @@ export async function fetchTransactionInfo(
   assertAppleTransactionEnvironment(transaction.signedEnvironment, "sandbox");
   return {
     environment: "sandbox",
+    ...transaction,
+  };
+}
+
+async function fetchTransactionInfoFromEndpoint(input: {
+  endpoint: "production" | "sandbox";
+  baseUrl: string;
+  transactionId: string;
+  token: string;
+  rootCaPem: string;
+}): Promise<{ environment: "production" | "sandbox" } & AppleTransactionPayload> {
+  const response = await requestTransactionInfo(input.baseUrl, input.transactionId, input.token);
+  if (!response.ok) {
+    throw new AppleIapVerifyError(
+      `Apple ${input.endpoint} verify failed: HTTP ${response.status}`,
+      `APPLE_${input.endpoint.toUpperCase()}_HTTP_${response.status}`,
+      {
+        endpoint: input.endpoint,
+        status: response.status,
+        responseBody: truncateForLog(response.message),
+      }
+    );
+  }
+
+  const verified = verifyAndDecodeAppleJws(response.signedTransactionInfo, input.rootCaPem);
+  const transaction = decodeTransactionPayload(verified.payload);
+  assertAppleTransactionEnvironment(transaction.signedEnvironment, input.endpoint);
+  return {
+    environment: input.endpoint,
     ...transaction,
   };
 }
