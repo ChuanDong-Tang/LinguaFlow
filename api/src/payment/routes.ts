@@ -802,6 +802,10 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         error instanceof AppleIapVerifyError
           ? (error as AppleIapVerifyError).code
           : "IAP_VERIFY_FAILED";
+      const verifyErrorDetails =
+        error instanceof AppleIapVerifyError
+          ? (error as AppleIapVerifyError).details
+          : null;
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
         userId: userContext.userId,
@@ -811,6 +815,11 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         status: "failed",
         errorCode: verifyErrorCode,
         errorMessage: message,
+        metadata: verifyErrorDetails
+          ? {
+              appleIapVerify: verifyErrorDetails,
+            }
+          : undefined,
       });
       return reply.status(400).send({
         ok: false,

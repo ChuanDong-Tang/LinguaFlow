@@ -855,8 +855,8 @@ function hasLoadedAppleProduct(appleIap: AppleIapBridgeState, source: ApplePurch
 }
 
 function formatOneTimePurchaseButtonLabel(isRenew: boolean, price: string | null): string {
-  const action = isRenew ? "仅续费" : "仅购买";
-  return price ? `${action} ${price}` : `${action} 1 个月`;
+  const action = "单买1个月";
+  return action;
 }
 
 function hasActiveAutoRenew(autoRenew: MobileAutoRenewSubscription | null): autoRenew is MobileAutoRenewSubscription {

@@ -80,25 +80,45 @@ export class AppleIapService {
     const transaction = await fetchTransactionInfo(input.transactionId, token, config.rootCaPem);
 
     if (transaction.bundleId !== config.bundleId) {
-      throw new AppleIapVerifyError("Bundle id mismatch");
+      throw new AppleIapVerifyError("Bundle id mismatch", "APPLE_BUNDLE_ID_MISMATCH", {
+        expectedBundleId: config.bundleId,
+        actualBundleId: transaction.bundleId,
+        environment: transaction.environment,
+      });
     }
 
     const purchaseKind = resolveApplePurchaseKind(transaction.productId, config);
     if (!purchaseKind) {
-      throw new AppleIapVerifyError("Product id mismatch");
+      throw new AppleIapVerifyError("Product id mismatch", "APPLE_PRODUCT_ID_MISMATCH", {
+        expectedProductIds: [
+          config.proProductId,
+          config.proMonthlyOneTimeProductId,
+        ].filter(Boolean),
+        actualProductId: transaction.productId,
+        environment: transaction.environment,
+      });
     }
 
     const expectedAppAccountToken = createAppleAppAccountToken(input.userId);
     if (!transaction.appAccountToken) {
-      throw new AppleIapVerifyError("Missing appAccountToken");
+      throw new AppleIapVerifyError("Missing appAccountToken", "APPLE_APP_ACCOUNT_TOKEN_MISSING", {
+        environment: transaction.environment,
+        transactionId: transaction.transactionId,
+      });
     }
     if (!sameAppleAppAccountToken(transaction.appAccountToken, expectedAppAccountToken)) {
-      throw new AppleIapVerifyError("appAccountToken mismatch");
+      throw new AppleIapVerifyError("appAccountToken mismatch", "APPLE_APP_ACCOUNT_TOKEN_MISMATCH", {
+        environment: transaction.environment,
+        transactionId: transaction.transactionId,
+      });
     }
 
     const originalTransactionId = transaction.originalTransactionId || transaction.transactionId;
     if (!originalTransactionId) {
-      throw new AppleIapVerifyError("Missing originalTransactionId");
+      throw new AppleIapVerifyError("Missing originalTransactionId", "APPLE_ORIGINAL_TRANSACTION_ID_MISSING", {
+        environment: transaction.environment,
+        transactionId: transaction.transactionId,
+      });
     }
 
     // 创建或复用 PaymentOrder，status = paid

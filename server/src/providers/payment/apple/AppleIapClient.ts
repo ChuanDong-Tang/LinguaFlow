@@ -23,12 +23,28 @@ export async function fetchTransactionInfo(
   }
 
   if (prod.status !== 404) {
-    throw new AppleIapVerifyError(`Apple production verify failed: HTTP ${prod.status}`);
+    throw new AppleIapVerifyError(
+      `Apple production verify failed: HTTP ${prod.status}`,
+      `APPLE_PRODUCTION_HTTP_${prod.status}`,
+      {
+        endpoint: "production",
+        status: prod.status,
+        responseBody: truncateForLog(prod.message),
+      }
+    );
   }
 
   const sandbox = await requestTransactionInfo(APPLE_SANDBOX_BASE_URL, transactionId, token);
   if (!sandbox.ok) {
-    throw new AppleIapVerifyError(`Apple sandbox verify failed: HTTP ${sandbox.status}`);
+    throw new AppleIapVerifyError(
+      `Apple sandbox verify failed: HTTP ${sandbox.status}`,
+      `APPLE_SANDBOX_HTTP_${sandbox.status}`,
+      {
+        endpoint: "sandbox",
+        status: sandbox.status,
+        responseBody: truncateForLog(sandbox.message),
+      }
+    );
   }
 
   const verified = verifyAndDecodeAppleJws(sandbox.signedTransactionInfo, rootCaPem);
@@ -38,6 +54,11 @@ export async function fetchTransactionInfo(
     environment: "sandbox",
     ...transaction,
   };
+}
+
+function truncateForLog(value: string, maxLength = 500): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}...`;
 }
 
 async function requestTransactionInfo(
