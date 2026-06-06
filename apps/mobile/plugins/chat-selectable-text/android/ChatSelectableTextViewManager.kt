@@ -51,6 +51,11 @@ class ChatSelectableTextViewManager : SimpleViewManager<ChatSelectableTextView>(
     view.setMenuOptions(options)
   }
 
+  @ReactProp(name = "selectionMode")
+  fun setSelectionMode(view: ChatSelectableTextView, value: String?) {
+    view.setSelectionMode(value)
+  }
+
   @ReactProp(name = "textColor")
   fun setTextColor(view: ChatSelectableTextView, value: String?) {
     view.setTextColorValue(value ?: "#111111")
@@ -74,6 +79,7 @@ class ChatSelectableTextViewManager : SimpleViewManager<ChatSelectableTextView>(
   override fun getExportedCustomDirectEventTypeConstants(): Map<String, Any> {
     return MapBuilder.builder<String, Any>()
       .put("topSelectionStart", MapBuilder.of("registrationName", "onSelectionStart"))
+      .put("topTextInteractionStart", MapBuilder.of("registrationName", "onTextInteractionStart"))
       .put("topSelection", MapBuilder.of("registrationName", "onSelection"))
       .put("topClozeRangePress", MapBuilder.of("registrationName", "onClozeRangePress"))
       .put("topClozeRangeLongPress", MapBuilder.of("registrationName", "onClozeRangeLongPress"))

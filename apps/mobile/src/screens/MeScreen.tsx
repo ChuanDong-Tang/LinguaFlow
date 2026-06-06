@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Updates from "expo-updates";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import { getSession, type AuthSession } from "../services/auth/authStorage";
 import type { CurrentEntitlement } from "../services/api/meApi";
 import { getCachedEntitlement, isSameEntitlement } from "../services/entitlement/entitlementCache";
@@ -17,11 +17,17 @@ type MeScreenProps = {
   onLogout: () => Promise<void> | void;
 };
 
+const OTA_DEBUG_JS_LABEL = "ios-keyboard-avoiding-restored";
+
 export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
   const [isLoadingEntitlement, setIsLoadingEntitlement] = useState(true);
+  const [updatesDebugVisible, setUpdatesDebugVisible] = useState(false);
+  const [updatesTapCount, setUpdatesTapCount] = useState(0);
+  const [updatesAction, setUpdatesAction] = useState<string | null>(null);
+  const [updatesResult, setUpdatesResult] = useState("尚未执行操作");
 
   useEffect(() => {
     if (!isActive) return;
@@ -74,7 +80,16 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scroller} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.profileRow}>
+        <Pressable style={styles.profileRow} onPress={() => {
+          setUpdatesTapCount((count) => {
+            const next = count + 1;
+            if (next >= 6) {
+              setUpdatesDebugVisible(true);
+              return 0;
+            }
+            return next;
+          });
+        }}>
           <View style={styles.profileAvatar}>
             <Ionicons name="person-outline" size={38} color="#111111" />
           </View>
@@ -82,7 +97,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
             <Text style={styles.profileName}>{userName}</Text>
             <Text style={styles.profilePlan}>{planLabel}</Text>
           </View>
-        </View>
+        </Pressable>
 
         <View style={styles.quotaCard}>
           <Text style={styles.cardTitle}>{quotaTitle}</Text>
@@ -125,7 +140,92 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
           <SettingsRow icon="log-out-outline" label="退出登录" onPress={onLogout} isLast />
         </View>
       </ScrollView>
+      <UpdatesDebugModal
+        visible={updatesDebugVisible}
+        runningAction={updatesAction}
+        result={updatesResult}
+        onClose={() => setUpdatesDebugVisible(false)}
+        onRun={async (label, action) => {
+          setUpdatesAction(label);
+          setUpdatesResult(`${label}...`);
+          try {
+            const result = await action();
+            setUpdatesResult(formatDebugValue(result));
+          } catch (error) {
+            setUpdatesResult(formatError(error));
+          } finally {
+            setUpdatesAction(null);
+          }
+        }}
+      />
     </SafeAreaView>
+  );
+}
+
+function UpdatesDebugModal({
+  visible,
+  runningAction,
+  result,
+  onClose,
+  onRun,
+}: {
+  visible: boolean;
+  runningAction: string | null;
+  result: string;
+  onClose: () => void;
+  onRun: (label: string, action: () => Promise<unknown>) => void;
+}) {
+  const statusRows = [
+    ["jsLabel", OTA_DEBUG_JS_LABEL],
+    ["enabled", String(Updates.isEnabled)],
+    ["channel", Updates.channel ?? "null"],
+    ["runtime", Updates.runtimeVersion ?? "null"],
+    ["updateId", Updates.updateId ?? "null"],
+    ["message", getUpdateMessage(Updates.manifest)],
+    ["embedded", String(Updates.isEmbeddedLaunch)],
+    ["emergency", String(Updates.isEmergencyLaunch)],
+    ["emergencyReason", Updates.emergencyLaunchReason ?? "null"],
+    ["createdAt", Updates.createdAt?.toISOString?.() ?? "null"],
+    ["checkAutomatically", Updates.checkAutomatically ?? "null"],
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.updatesDebugBackdrop}>
+        <View style={styles.updatesDebugPanel}>
+          <View style={styles.updatesDebugHeader}>
+            <Text style={styles.updatesDebugTitle}>EAS Update 诊断</Text>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#111111" />
+            </Pressable>
+          </View>
+          <ScrollView style={styles.updatesDebugBody} contentContainerStyle={styles.updatesDebugContent}>
+            {statusRows.map(([label, value]) => (
+              <View key={label} style={styles.updatesDebugRow}>
+                <Text style={styles.updatesDebugLabel}>{label}</Text>
+                <Text selectable style={styles.updatesDebugValue}>{value}</Text>
+              </View>
+            ))}
+            <View style={styles.updatesDebugActions}>
+              <DebugButton label="检查更新" disabled={!!runningAction} onPress={() => onRun("check", Updates.checkForUpdateAsync)} />
+              <DebugButton label="下载更新" disabled={!!runningAction} onPress={() => onRun("fetch", Updates.fetchUpdateAsync)} />
+              <DebugButton label="重载应用" disabled={!!runningAction} onPress={() => onRun("reload", Updates.reloadAsync)} />
+              <DebugButton label="读取日志" disabled={!!runningAction} onPress={() => onRun("logs", () => Updates.readLogEntriesAsync(24 * 60 * 60 * 1000))} />
+            </View>
+            <Text style={styles.updatesDebugResultTitle}>结果</Text>
+            <Text selectable style={styles.updatesDebugResult}>{runningAction ? `${runningAction} running...\n\n` : ""}{result}</Text>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function DebugButton({ label, disabled, onPress }: { label: string; disabled: boolean; onPress: () => void }) {
+  return (
+    <Pressable style={[styles.updatesDebugButton, disabled && styles.updatesDebugButtonDisabled]} disabled={disabled} onPress={onPress}>
+      <Text style={styles.updatesDebugButtonText}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -149,10 +249,6 @@ function SettingsRow({
   );
 }
 
-function openUrl(url: string): void {
-  void Linking.openURL(url);
-}
-
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
@@ -166,6 +262,56 @@ function formatDateTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatDebugValue(value: unknown): string {
+  const updateMessage = getResultUpdateMessage(value);
+  const formatted = JSON.stringify(value, null, 2) ?? String(value);
+  return updateMessage === "null" ? formatted : `message: ${updateMessage}\n\n${formatted}`;
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}\n${error.stack ?? ""}`.trim();
+  }
+  return formatDebugValue(error);
+}
+
+function getResultUpdateMessage(value: unknown): string {
+  if (!isRecord(value)) return "null";
+  return getUpdateMessage(value.manifest);
+}
+
+function getUpdateMessage(manifest: unknown): string {
+  if (!isRecord(manifest)) return "null";
+  const candidates = [
+    manifest.metadata,
+    manifest.extra,
+    manifest,
+  ];
+  for (const candidate of candidates) {
+    if (!isRecord(candidate)) continue;
+    const direct = readStringField(candidate, ["message", "updateMessage", "easUpdateMessage"]);
+    if (direct) return direct;
+    const eas = candidate.eas;
+    if (isRecord(eas)) {
+      const nested = readStringField(eas, ["message", "updateMessage", "easUpdateMessage"]);
+      if (nested) return nested;
+    }
+  }
+  return "null";
+}
+
+function readStringField(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 const styles = StyleSheet.create({
@@ -347,5 +493,84 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     color: "#111111",
     fontSize: 15,
+  },
+  updatesDebugBackdrop: {
+    flex: 1,
+    padding: 18,
+    backgroundColor: "rgba(0,0,0,0.32)",
+    justifyContent: "center",
+  },
+  updatesDebugPanel: {
+    maxHeight: "86%",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  updatesDebugHeader: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ECEEF2",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  updatesDebugTitle: {
+    flex: 1,
+    color: "#111111",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  updatesDebugBody: {
+    maxHeight: "100%",
+  },
+  updatesDebugContent: {
+    padding: 14,
+  },
+  updatesDebugRow: {
+    marginBottom: 8,
+  },
+  updatesDebugLabel: {
+    color: "#606780",
+    fontSize: 11,
+  },
+  updatesDebugValue: {
+    marginTop: 2,
+    color: "#111111",
+    fontSize: 12,
+  },
+  updatesDebugActions: {
+    marginTop: 8,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  updatesDebugButton: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#F0ECFF",
+    justifyContent: "center",
+  },
+  updatesDebugButtonDisabled: {
+    opacity: 0.5,
+  },
+  updatesDebugButtonText: {
+    color: "#111111",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  updatesDebugResultTitle: {
+    marginTop: 14,
+    color: "#606780",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  updatesDebugResult: {
+    marginTop: 6,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#F7F8FB",
+    color: "#111111",
+    fontSize: 11,
   },
 });

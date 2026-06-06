@@ -1,0 +1,39 @@
+# EAS archive root is the monorepo root for this project.
+
+# VCS and editor files
+.git/
+.idea/
+.vscode/
+
+# Dependencies and local caches
+node_modules/
+apps/mobile/node_modules/
+apps/mobile/.expo/
+apps/mobile/.tmp/
+apps/mobile/inspect/
+
+# Generated native projects and build outputs
+apps/mobile/android/
+apps/mobile/android/**
+apps/mobile/ios/build/
+apps/mobile/ios/Pods/
+apps/mobile/ios/DerivedData/
+
+# Non-mobile app folders and generated outputs
+/api/
+/server/
+/prisma/
+/scripts/
+/dev-notes/
+/api/dist/
+
+# Local-only files
+.env
+.env.*
+*.log
+*.bat
+
+# Keep shared package sources used by the mobile app.
+!packages/
+!packages/core/
+!packages/core/**

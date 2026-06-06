@@ -1,5 +1,5 @@
 import React from "react";
-import { Animated, FlatList, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, FlatList, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatMessage } from "../../domain/chat/types";
 import type { ChatContact } from "../../domain/chat/contacts";
@@ -173,6 +173,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
           text={message.text}
           style={styles.userText}
           enableClozeMenu={false}
+          selectionMode="all"
           interactionsDisabled={interactionsDisabled}
           onInteractionStart={onInteractionStart}
           onSelectionStart={() => onSelectionRefChange(selectableRef.current)}
@@ -546,6 +547,7 @@ export function MessageList({
     },
     [textSelectionRef],
   );
+  const messageTextInteractionsDisabled = Platform.OS === "android" ? inputProtectionActive : false;
   const handleEditClozeGroup = React.useCallback(
     (message: ChatMessage, groupIndex: number) => {
       editClozeGroupRef.current(message, groupIndex);
@@ -569,7 +571,7 @@ export function MessageList({
         return (
           <UserMessageRow
             message={message}
-            interactionsDisabled={inputProtectionActive}
+            interactionsDisabled={messageTextInteractionsDisabled}
             onInteractionStart={handleMessageTextInteractionStart}
             onSelectionRefChange={handleSelectionRefChange}
           />
@@ -586,7 +588,7 @@ export function MessageList({
           onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
           isCopyMenuOpen={activeCopyMenuId === item.id}
-          interactionsDisabled={inputProtectionActive}
+          interactionsDisabled={messageTextInteractionsDisabled}
           onInteractionStart={handleMessageTextInteractionStart}
           onPrepareForCommand={handlePrepareForCommand}
           onToggleCopyMenu={() => {
@@ -614,6 +616,7 @@ export function MessageList({
       handleRetryMessage,
       handleTextSelection,
       inputProtectionActive,
+      messageTextInteractionsDisabled,
       selectedDateLabel,
     ]
   );
@@ -632,7 +635,7 @@ export function MessageList({
       updateCellsBatchingPeriod={50}
       removeClippedSubviews
       keyboardDismissMode="none"
-      onTouchEnd={handleListTouchEnd}
+      onTouchEnd={Platform.OS === "android" ? handleListTouchEnd : undefined}
       onScrollBeginDrag={handleScrollStart}
       onScroll={(e) => {
         const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;

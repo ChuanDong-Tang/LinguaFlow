@@ -94,6 +94,9 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     menuOptions = value
   }
 
+  fun setSelectionMode(@Suppress("UNUSED_PARAMETER") value: String?) {
+  }
+
   fun setTextColorValue(value: String) {
     currentTextColor = parseColor(value, Color.parseColor("#111111"))
     requestApplyText()
@@ -140,6 +143,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       MotionEvent.ACTION_DOWN -> {
         pendingDownX = event.x
         pendingDownY = event.y
+        emitTextInteractionStart()
         ensureSpannableTextBuffer()
         requestFocus()
         parent?.requestDisallowInterceptTouchEvent(true)
@@ -361,6 +365,14 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     reactContext
       .getJSModule(RCTEventEmitter::class.java)
       .receiveEvent(id, "topSelectionStart", event)
+  }
+
+  private fun emitTextInteractionStart() {
+    val reactContext = context as? ReactContext ?: return
+    val event = Arguments.createMap()
+    reactContext
+      .getJSModule(RCTEventEmitter::class.java)
+      .receiveEvent(id, "topTextInteractionStart", event)
   }
 
   private fun findRangeAt(x: Float, y: Float): Range? {

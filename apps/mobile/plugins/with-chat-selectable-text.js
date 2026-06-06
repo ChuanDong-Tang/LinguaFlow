@@ -24,6 +24,7 @@ const IOS_FILES = {
 - (void)setLineHeight:(NSNumber *)lineHeight;
 - (void)setFontWeight:(NSString *)fontWeight;
 - (void)setMenuOptions:(NSArray<NSString *> *)menuOptions;
+- (void)setSelectionMode:(NSString *)selectionMode;
 - (void)clearSelectionState;
 
 @end
@@ -43,10 +44,17 @@ const IOS_FILES = {
 @property (nonatomic, strong) NSNumber *currentFontSize;
 @property (nonatomic, strong) NSNumber *currentLineHeight;
 @property (nonatomic, copy) NSString *currentFontWeight;
+@property (nonatomic, copy) NSString *selectionMode;
+@property (nonatomic, strong) UITapGestureRecognizer *rangeTapRecognizer;
+@property (nonatomic, strong) UITapGestureRecognizer *doubleTapBlocker;
+@property (nonatomic, strong) UITapGestureRecognizer *outsideSelectionTapRecognizer;
+@property (nonatomic, strong) UILongPressGestureRecognizer *rangeLongPressRecognizer;
+@property (nonatomic, strong) UILongPressGestureRecognizer *selectAllLongPressRecognizer;
 @property (nonatomic, assign) BOOL answersVisible;
 @property (nonatomic, assign) BOOL hasEmittedSelectionStart;
 @property (nonatomic, assign) BOOL pendingSelectionRelease;
 - (void)handleFillBlankAction;
+- (void)handleCopyAction;
 @end
 
 @interface ChatSelectableTextInnerTextView : UITextView
@@ -58,7 +66,10 @@ const IOS_FILES = {
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender
 {
   if (action == @selector(chatFillBlank:)) {
-    return self.owner.menuOptions.count > 0 && self.selectedRange.length > 0;
+    return [self.owner.selectionMode isEqualToString:@"range"] && self.owner.menuOptions.count > 0 && self.selectedRange.length > 0;
+  }
+  if (action == @selector(chatCopy:)) {
+    return [self.owner.selectionMode isEqualToString:@"all"] && self.selectedRange.length > 0;
   }
   return NO;
 }
@@ -66,6 +77,11 @@ const IOS_FILES = {
 - (void)chatFillBlank:(id)sender
 {
   [self.owner handleFillBlankAction];
+}
+
+- (void)chatCopy:(id)sender
+{
+  [self.owner handleCopyAction];
 }
 
 @end
@@ -84,6 +100,7 @@ const IOS_FILES = {
     _currentFontSize = @17;
     _currentLineHeight = @25;
     _currentFontWeight = @"";
+    _selectionMode = @"range";
 
     _textView = [[ChatSelectableTextInnerTextView alloc] initWithFrame:self.bounds];
     _textView.owner = self;
@@ -99,19 +116,46 @@ const IOS_FILES = {
     _textView.dataDetectorTypes = UIDataDetectorTypeNone;
     [self addSubview:_textView];
 
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeTap:)];
-    tap.delegate = self;
-    tap.cancelsTouchesInView = NO;
-    [_textView addGestureRecognizer:tap];
+    _doubleTapBlocker = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTapBlock:)];
+    _doubleTapBlocker.numberOfTapsRequired = 2;
+    _doubleTapBlocker.delegate = self;
+    _doubleTapBlocker.cancelsTouchesInView = YES;
+    [_textView addGestureRecognizer:_doubleTapBlocker];
 
-    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeLongPress:)];
-    longPress.delegate = self;
-    longPress.cancelsTouchesInView = YES;
-    [_textView addGestureRecognizer:longPress];
+    _rangeTapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeTap:)];
+    _rangeTapRecognizer.delegate = self;
+    _rangeTapRecognizer.cancelsTouchesInView = NO;
+    [_rangeTapRecognizer requireGestureRecognizerToFail:_doubleTapBlocker];
+    [_textView addGestureRecognizer:_rangeTapRecognizer];
+
+    _rangeLongPressRecognizer = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeLongPress:)];
+    _rangeLongPressRecognizer.delegate = self;
+    _rangeLongPressRecognizer.cancelsTouchesInView = YES;
+    [_textView addGestureRecognizer:_rangeLongPressRecognizer];
+
+    _selectAllLongPressRecognizer = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleSelectAllLongPress:)];
+    _selectAllLongPressRecognizer.delegate = self;
+    _selectAllLongPressRecognizer.cancelsTouchesInView = YES;
+    [_textView addGestureRecognizer:_selectAllLongPressRecognizer];
 
     [self applyText];
   }
   return self;
+}
+
+- (void)dealloc
+{
+  [self stopObservingOutsideSelectionTaps];
+}
+
+- (void)didMoveToWindow
+{
+  [super didMoveToWindow];
+  if (self.textView.selectedRange.length > 0) {
+    [self startObservingOutsideSelectionTaps];
+  } else {
+    [self stopObservingOutsideSelectionTaps];
+  }
 }
 
 - (void)layoutSubviews
@@ -180,9 +224,20 @@ const IOS_FILES = {
   [self updateMenuItems];
 }
 
+- (void)setSelectionMode:(NSString *)selectionMode
+{
+  if ([selectionMode isEqualToString:@"all"]) {
+    _selectionMode = @"all";
+  } else {
+    _selectionMode = @"range";
+  }
+  [self updateMenuItems];
+}
+
 - (void)clearSelectionState
 {
   [NSObject cancelPreviousPerformRequestsWithTarget:self.textView];
+  [self stopObservingOutsideSelectionTaps];
   [self.textView resignFirstResponder];
   if (@available(iOS 13.0, *)) {
     [UIMenuController.sharedMenuController hideMenu];
@@ -202,6 +257,26 @@ const IOS_FILES = {
     self.hasEmittedSelectionStart = NO;
     [self.textView resignFirstResponder];
   });
+}
+
+- (void)startObservingOutsideSelectionTaps
+{
+  if (!self.window || self.outsideSelectionTapRecognizer) {
+    return;
+  }
+  self.outsideSelectionTapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleOutsideSelectionTap:)];
+  self.outsideSelectionTapRecognizer.delegate = self;
+  self.outsideSelectionTapRecognizer.cancelsTouchesInView = NO;
+  [self.window addGestureRecognizer:self.outsideSelectionTapRecognizer];
+}
+
+- (void)stopObservingOutsideSelectionTaps
+{
+  if (!self.outsideSelectionTapRecognizer) {
+    return;
+  }
+  [self.outsideSelectionTapRecognizer.view removeGestureRecognizer:self.outsideSelectionTapRecognizer];
+  self.outsideSelectionTapRecognizer = nil;
 }
 
 - (void)applyText
@@ -261,7 +336,12 @@ const IOS_FILES = {
 
 - (void)updateMenuItems
 {
-  if (self.menuOptions.count == 0) {
+  if ([self.selectionMode isEqualToString:@"all"]) {
+    UIMenuItem *item = [[UIMenuItem alloc] initWithTitle:@"复制" action:@selector(chatCopy:)];
+    UIMenuController.sharedMenuController.menuItems = @[item];
+    return;
+  }
+  if (![self.selectionMode isEqualToString:@"range"] || self.menuOptions.count == 0) {
     UIMenuController.sharedMenuController.menuItems = nil;
     return;
   }
@@ -292,22 +372,79 @@ const IOS_FILES = {
   [self clearSelectionState];
 }
 
+- (void)handleCopyAction
+{
+  NSRange selectedRange = self.textView.selectedRange;
+  if (selectedRange.location == NSNotFound || selectedRange.length == 0) {
+    return;
+  }
+  NSUInteger safeStart = MIN(selectedRange.location, self.rawText.length);
+  NSUInteger safeEnd = MIN(NSMaxRange(selectedRange), self.rawText.length);
+  if (safeEnd < safeStart) {
+    safeEnd = safeStart;
+  }
+  NSString *selectedText = [self.rawText substringWithRange:NSMakeRange(safeStart, safeEnd - safeStart)];
+  if (selectedText.length > 0) {
+    UIPasteboard.generalPasteboard.string = selectedText;
+  }
+  [self clearSelectionState];
+}
+
 - (void)textViewDidChangeSelection:(UITextView *)textView
 {
   if (textView.selectedRange.length > 0 && !self.hasEmittedSelectionStart) {
     self.hasEmittedSelectionStart = YES;
+    [self startObservingOutsideSelectionTaps];
     if (self.onSelectionStart) {
       self.onSelectionStart(@{});
     }
   } else if (textView.selectedRange.length == 0) {
     self.hasEmittedSelectionStart = NO;
+    [self stopObservingOutsideSelectionTaps];
   }
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch
 {
   CGPoint point = [touch locationInView:self.textView];
-  return [self highlightRangeAtPoint:point] != nil;
+  if (gestureRecognizer == self.outsideSelectionTapRecognizer) {
+    return self.textView.selectedRange.length > 0 && ![touch.view isDescendantOfView:self];
+  }
+  if (gestureRecognizer == self.doubleTapBlocker) {
+    return YES;
+  }
+  if (gestureRecognizer == self.selectAllLongPressRecognizer) {
+    return [self.selectionMode isEqualToString:@"all"] && self.rawText.length > 0;
+  }
+  if (gestureRecognizer == self.rangeTapRecognizer || gestureRecognizer == self.rangeLongPressRecognizer) {
+    return [self.selectionMode isEqualToString:@"range"] && [self highlightRangeAtPoint:point] != nil;
+  }
+  return YES;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer
+{
+  if (gestureRecognizer == self.doubleTapBlocker || otherGestureRecognizer == self.doubleTapBlocker) {
+    return NO;
+  }
+  if (gestureRecognizer == self.selectAllLongPressRecognizer || otherGestureRecognizer == self.selectAllLongPressRecognizer) {
+    return NO;
+  }
+  if (gestureRecognizer == self.outsideSelectionTapRecognizer || otherGestureRecognizer == self.outsideSelectionTapRecognizer) {
+    return YES;
+  }
+  return YES;
+}
+
+- (void)handleDoubleTapBlock:(UITapGestureRecognizer *)recognizer
+{
+  if (recognizer.state != UIGestureRecognizerStateEnded) return;
+}
+
+- (void)handleOutsideSelectionTap:(UITapGestureRecognizer *)recognizer
+{
+  if (recognizer.state != UIGestureRecognizerStateEnded) return;
+  [self clearSelectionState];
 }
 
 - (void)handleRangeTap:(UITapGestureRecognizer *)recognizer
@@ -325,6 +462,23 @@ const IOS_FILES = {
   if (!range || !self.onClozeRangeLongPress) return;
   [self clearSelectionState];
   self.onClozeRangeLongPress(@{ @"groupIndex": range[@"groupIndex"] ?: @0 });
+}
+
+- (void)handleSelectAllLongPress:(UILongPressGestureRecognizer *)recognizer
+{
+  if (recognizer.state != UIGestureRecognizerStateBegan) return;
+  if (![self.selectionMode isEqualToString:@"all"] || self.rawText.length == 0) return;
+  [self.textView becomeFirstResponder];
+  self.textView.selectedRange = NSMakeRange(0, self.textView.textStorage.length);
+  self.hasEmittedSelectionStart = YES;
+  [self startObservingOutsideSelectionTaps];
+  if (self.onSelectionStart) {
+    self.onSelectionStart(@{});
+  }
+  [self updateMenuItems];
+  UIMenuController *menu = UIMenuController.sharedMenuController;
+  [menu setTargetRect:self.textView.bounds inView:self.textView];
+  [menu setMenuVisible:YES animated:YES];
 }
 
 - (NSDictionary *)highlightRangeAtPoint:(CGPoint)point
@@ -441,6 +595,7 @@ RCT_EXPORT_VIEW_PROPERTY(fontSize, NSNumber)
 RCT_EXPORT_VIEW_PROPERTY(lineHeight, NSNumber)
 RCT_EXPORT_VIEW_PROPERTY(fontWeight, NSString)
 RCT_EXPORT_VIEW_PROPERTY(menuOptions, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(selectionMode, NSString)
 RCT_EXPORT_VIEW_PROPERTY(onSelectionStart, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onSelection, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onClozeRangePress, RCTDirectEventBlock)

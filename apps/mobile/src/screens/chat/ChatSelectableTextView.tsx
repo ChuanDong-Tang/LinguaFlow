@@ -30,6 +30,7 @@ type NativeProps = ViewProps & {
   lineHeight?: number;
   fontWeight?: string;
   menuOptions?: string[];
+  selectionMode?: "range" | "all";
   onSelectionStart?: (event: NativeSyntheticEvent<Record<string, never>>) => void;
   onSelection?: (event: NativeSyntheticEvent<ChatSelectableTextSelectionEvent>) => void;
   onClozeRangePress?: (event: NativeSyntheticEvent<ChatSelectableTextRangeEvent>) => void;

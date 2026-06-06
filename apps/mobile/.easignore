@@ -4,6 +4,7 @@ node_modules/
 # Expo and Metro caches
 .expo/
 .tmp/
+inspect/
 .metro-health-check*
 
 # Native build outputs and local caches

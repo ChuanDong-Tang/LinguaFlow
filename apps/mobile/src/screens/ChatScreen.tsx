@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Keyboard,
+  Platform,
   StyleSheet,
   View,
 } from "react-native";
@@ -257,6 +258,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     activeSelectionRef.current?.clearSelection();
     activeSelectionRef.current = null;
   }, []);
+  const handleScrollBeginDrag = React.useCallback(() => {
+    Keyboard.dismiss();
+  }, []);
   const prepareForCommand = React.useCallback((options?: { closeCopyMenu?: boolean }) => {
     commandTouchActiveRef.current = true;
     if (options?.closeCopyMenu !== false) {
@@ -271,11 +275,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     Keyboard.dismiss();
   }, []);
   const handleRootTouchEnd = React.useCallback(() => {
-    const startedOnMessageText = messageTextTouchActiveRef.current;
-    const startedOnCommand = commandTouchActiveRef.current;
-    messageTextTouchActiveRef.current = false;
-    commandTouchActiveRef.current = false;
     setTimeout(() => {
+      const startedOnMessageText = messageTextTouchActiveRef.current;
+      const startedOnCommand = commandTouchActiveRef.current;
+      messageTextTouchActiveRef.current = false;
+      commandTouchActiveRef.current = false;
       if (!startedOnCommand && activeCopyMenuRef.current) {
         closeCopyMenuRef.current?.();
       }
@@ -767,11 +771,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.content}
-        behavior="height"
-        onTouchEnd={handleRootTouchEnd}
-      >
+      <ChatContentFrame onAndroidTouchEnd={handleRootTouchEnd}>
         <ChatHeader
           contact={contact}
           onBack={onBack}
@@ -790,10 +790,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           messages={messages}
           selectedDateLabel={selectedDateLabelText(selectedDate, businessTodayKey ?? undefined)}
           listRef={messageListRef}
-          inputProtectionActive={false}
+          inputProtectionActive={inputProtectionActive}
           onMessageTextInteractionStart={handleMessageTextInteractionStart}
           onPrepareForCommand={prepareForCommand}
           onSelectionRefChange={handleSelectionRefChange}
+          onScrollBeginDrag={handleScrollBeginDrag}
           onCopyMenuStateChange={handleCopyMenuStateChange}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
@@ -835,7 +836,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           disabled={!canSend}
           isSending={isSending}
         />
-      </KeyboardAvoidingView>
+      </ChatContentFrame>
 
       <DatePickerSheet
         visible={isDateSheetOpen}
@@ -872,6 +873,24 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
     </SafeAreaView>
+  );
+}
+
+function ChatContentFrame({
+  children,
+  onAndroidTouchEnd,
+}: {
+  children: React.ReactNode;
+  onAndroidTouchEnd: () => void;
+}) {
+  return (
+    <KeyboardAvoidingView
+      style={styles.content}
+      behavior="height"
+      onTouchEnd={Platform.OS === "android" ? onAndroidTouchEnd : undefined}
+    >
+      {children}
+    </KeyboardAvoidingView>
   );
 }
 

@@ -5,6 +5,10 @@
     "scheme": "oio-preview",
     "version": "1.0.1",
     "orientation": "portrait",
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -15,7 +19,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.yueyantech.oio",
-      "buildNumber": "30",
+      "buildNumber": "50",
       "supportsTablet": true,
       "icon": "./assets/app/logo_main_apple.png",
       "config": {
@@ -24,7 +28,7 @@
     },
     "android": {
       "package": "com.yueyantech.oio",
-      "versionCode": 29,
+      "versionCode": 50,
       "adaptiveIcon": {
         "foregroundImage": "./assets/app/logo_main.png",
         "backgroundColor": "#ffffff"
@@ -47,6 +51,12 @@
       "./plugins/with-chat-selectable-text",
       "./plugins/with-wechat-pay"
     ],
-    "owner": "reedtang"
+    "owner": "reedtang",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/0a8b5bb4-bdb1-4950-b3e9-6e2530b9c836"
+    }
   }
 }

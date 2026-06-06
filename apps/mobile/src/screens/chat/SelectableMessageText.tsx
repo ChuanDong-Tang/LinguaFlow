@@ -2,6 +2,7 @@ import React from "react";
 import {
   Alert,
   Keyboard,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -45,6 +46,7 @@ type Props = {
   correctRanges?: NativeClozeBlankRange[];
   trailingElement?: React.ReactNode;
   enableClozeMenu?: boolean;
+  selectionMode?: "range" | "all";
   interactionsDisabled?: boolean;
   onInteractionStart?: () => void;
   onSelectionStart?: () => void;
@@ -57,6 +59,7 @@ const SELECTABLE_TEXT_PERF_LOGS = false;
 const SLOW_SELECTABLE_TEXT_MS = 12;
 const LONG_SELECTABLE_TEXT_CHARS = 600;
 const CLOZE_MENU_OPTION = "填空";
+const shouldNotifyInteractionOnTouchStart = Platform.OS === "android";
 function perfNow(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
 }
@@ -134,6 +137,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     correctRanges,
     trailingElement,
     enableClozeMenu = true,
+    selectionMode = "range",
     interactionsDisabled = false,
     onInteractionStart,
     onSelectionStart,
@@ -215,6 +219,29 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         blankRanges: blanks.length,
       });
     });
+    const handleTouchStart = React.useCallback(() => {
+      onInteractionStart?.();
+    }, [onInteractionStart]);
+    const nativeInteractionProps = Platform.select({
+      ios: {
+        selectionMode,
+        menuOptions: enableClozeMenu ? [CLOZE_MENU_OPTION] : [],
+        onSelectionStart,
+        onSelection: handleNativeSelection,
+        onClozeRangePress: handleClozeRangePress,
+        onClozeRangeLongPress: handleClozeRangeLongPress,
+      },
+      default: {
+        pointerEvents: interactionsDisabled ? "none" as const : "auto" as const,
+        selectionMode,
+        menuOptions: !interactionsDisabled && enableClozeMenu ? [CLOZE_MENU_OPTION] : [],
+        onTouchStart: interactionsDisabled || !shouldNotifyInteractionOnTouchStart ? undefined : handleTouchStart,
+        onSelectionStart: interactionsDisabled ? undefined : onSelectionStart,
+        onSelection: interactionsDisabled ? undefined : handleNativeSelection,
+        onClozeRangePress: interactionsDisabled ? undefined : handleClozeRangePress,
+        onClozeRangeLongPress: interactionsDisabled ? undefined : handleClozeRangeLongPress,
+      },
+    });
 
     return (
       <View>
@@ -237,15 +264,9 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
                 : undefined
           }
           style={{ ...StyleSheet.absoluteFillObject }}
-          pointerEvents={interactionsDisabled ? "none" : "auto"}
-          menuOptions={!interactionsDisabled && enableClozeMenu ? [CLOZE_MENU_OPTION] : []}
-          onTouchStart={interactionsDisabled ? undefined : onInteractionStart}
-          onSelectionStart={interactionsDisabled ? undefined : onSelectionStart}
-          onSelection={interactionsDisabled ? undefined : handleNativeSelection}
-          onClozeRangePress={interactionsDisabled ? undefined : handleClozeRangePress}
-          onClozeRangeLongPress={interactionsDisabled ? undefined : handleClozeRangeLongPress}
+          {...nativeInteractionProps}
         />
-        {interactionsDisabled ? (
+        {Platform.OS !== "ios" && interactionsDisabled ? (
           <Pressable
             style={StyleSheet.absoluteFillObject}
             onPress={() => Keyboard.dismiss()}
