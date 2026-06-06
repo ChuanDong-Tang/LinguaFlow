@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 export type BlockingLoadingOptions = {
@@ -41,19 +41,17 @@ export function BlockingLoading({
   if (!visible || !options) return null;
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={options.abortable ? options.onCancel : undefined}>
-      <View style={styles.backdrop} pointerEvents={options.blocking === false ? "box-none" : "auto"}>
-        <View style={styles.panel}>
-          {canCancel ? (
-            <Pressable style={styles.closeButton} onPress={options.onCancel} hitSlop={8}>
-              <Ionicons name="close" size={18} color="#5B6070" />
-            </Pressable>
-          ) : null}
-          <ActivityIndicator size="large" color="#7C6CFF" />
-          {options.text ? <Text style={styles.text}>{options.text}</Text> : null}
-        </View>
+    <View style={styles.backdrop} pointerEvents={options.blocking === false ? "box-none" : "auto"}>
+      <View style={styles.panel}>
+        {canCancel ? (
+          <Pressable style={styles.closeButton} onPress={options.onCancel} hitSlop={8}>
+            <Ionicons name="close" size={18} color="#5B6070" />
+          </Pressable>
+        ) : null}
+        <ActivityIndicator size="large" color="#7C6CFF" />
+        {options.text ? <Text style={styles.text}>{options.text}</Text> : null}
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -112,6 +110,9 @@ export async function runWithDeferredBlockingLoading<T>(
 
 const styles = StyleSheet.create({
   backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 999,
+    elevation: 999,
     flex: 1,
     backgroundColor: "rgba(255,255,255,0.42)",
     alignItems: "center",

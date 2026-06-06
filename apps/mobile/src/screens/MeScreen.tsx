@@ -17,7 +17,7 @@ type MeScreenProps = {
   onLogout: () => Promise<void> | void;
 };
 
-const OTA_DEBUG_JS_LABEL = "ios-keyboard-avoiding-restored";
+const OTA_DEBUG_JS_LABEL = "replace practice modals with overlays";
 
 export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
   const { isMounted } = useMountedGuard();

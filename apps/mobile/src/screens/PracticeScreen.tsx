@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { InteractionManager, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLoading } from "./shared/BlockingLoading";
@@ -186,6 +186,12 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
     });
   }
 
+  function showDialogAfterInteractions(config: InfoDialogConfig): void {
+    InteractionManager.runAfterInteractions(() => {
+      if (isMounted()) setDialog(config);
+    });
+  }
+
   async function syncPracticeDate(date: Date, options?: { force?: boolean; signal?: AbortSignal }): Promise<void> {
     if (!(await hasLocalProAccess())) return;
 
@@ -249,8 +255,14 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   // 点击入口时再扫一遍本地桶，吃到刚刚聊天页同步/练习页写回的最新数据。
   // 同步日期和拉练习消息还没结束时直接无反应，右上角转圈提示负责告诉用户正在做什么。
   async function openDatePractice(date: Date): Promise<void> {
-    if (isSyncingPracticeDateKeys) return;
-    await runWithLoading(async (signal) => {
+    if (isSyncingPracticeDateKeys) {
+      showDialogAfterInteractions({ message: "正在同步练习日历，请稍后再试。" });
+      return;
+    }
+    const result = await runWithLoading(async (signal): Promise<
+      | { type: "empty" }
+      | { type: "start"; cards: PracticeCard[]; messages: ChatMessage[] }
+    > => {
       await syncPracticeDate(date, { force: false, signal });
       const { rows: localRows, contactMap: localContactMap } = await loadPracticeMessagesFromLocal();
       const { rows: nextMessages, contactMap } = mergePracticeMessages(
@@ -262,24 +274,34 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       applyPracticeMessages(nextMessages, contactMap);
       const nextCards = buildPracticeCards(filterByDate(nextMessages, date), { contactByMessageId: contactMap });
       if (!nextCards.length) {
-        setDialog({ message: "这一天没有可练习的填空。" });
-        return;
+        return { type: "empty" };
       }
-      onOpenPracticeSession(nextCards, nextMessages);
+      return { type: "start", cards: nextCards, messages: nextMessages };
     });
+    if (result.type === "empty") {
+      showDialogAfterInteractions({ message: "这一天没有可练习的填空。" });
+      return;
+    }
+    onOpenPracticeSession(result.cards, result.messages);
   }
 
   // 快速练习只随机挑选符合条件的现有练习卡，不记忆用户这次的筛选条件。
   async function openQuickPractice(): Promise<void> {
-    if (isSyncingPracticeDateKeys) return;
-    await runWithLoading(async (signal) => {
+    if (isSyncingPracticeDateKeys) {
+      showDialogAfterInteractions({ message: "正在同步练习日历，请稍后再试。" });
+      return;
+    }
+    const result = await runWithLoading(async (signal): Promise<
+      | { type: "offline" }
+      | { type: "empty" }
+      | { type: "start"; cards: PracticeCard[]; messages: ChatMessage[] }
+    > => {
       const isPro = await hasLocalProAccess();
       const todayKey = isPro
         ? await getBusinessDateKey().catch(() => null)
         : businessTodayKey ?? toDateKey(new Date());
       if (!todayKey) {
-        setDialog({ message: "当前网络不可用，请连接网络后再试。" });
-        return;
+        return { type: "offline" };
       }
       if (isMounted()) setBusinessTodayKey(todayKey);
       const recentDateKeys = collectRecentPracticeDateKeys(recentDays, todayKey);
@@ -305,16 +327,27 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
         band,
       });
       if (!picked.length) {
-        setDialog({ message: "没有检索到合适的，请调整选项。" });
-        return;
+        return { type: "empty" };
       }
-      setQuickOpen(false);
-      onOpenPracticeSession(picked, nextMessages);
+      return { type: "start", cards: picked, messages: nextMessages };
     });
+    if (result.type === "offline") {
+      showDialogAfterInteractions({ message: "当前网络不可用，请连接网络后再试。" });
+      return;
+    }
+    if (result.type === "empty") {
+      showDialogAfterInteractions({ message: "没有检索到合适的，请调整选项。" });
+      return;
+    }
+    setQuickOpen(false);
+    onOpenPracticeSession(result.cards, result.messages);
   }
 
   function resetAndOpenQuick(): void {
-    if (isSyncingPracticeDateKeys) return;
+    if (isSyncingPracticeDateKeys) {
+      showDialogAfterInteractions({ message: "正在同步练习日历，请稍后再试。" });
+      return;
+    }
     setRecentDays(7);
     setQuickLimit(10);
     setBand("any");
@@ -593,37 +626,37 @@ function QuickPracticeSheet(props: {
   onChangeBand: (value: PracticeAccuracyBand) => void;
   onStart: () => void;
 }) {
+  if (!props.visible) return null;
+
   return (
-    <Modal visible={props.visible} transparent animationType="fade" onRequestClose={props.onClose}>
-      <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetScrim} onPress={props.onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.sheetGrab} />
-          <Text style={styles.sheetTitle}>快速练习</Text>
-          <OptionGroup
-            title="最近天数"
-            options={RECENT_DAY_OPTIONS.map((value) => ({ label: `${value}天`, value }))}
-            value={props.recentDays}
-            onChange={props.onChangeRecentDays}
-          />
-          <OptionGroup
-            title="练习条数"
-            options={QUICK_LIMIT_OPTIONS.map((value) => ({ label: `${value}条`, value }))}
-            value={props.limit}
-            onChange={props.onChangeLimit}
-          />
-          <OptionGroup
-            title="正确率"
-            options={BAND_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
-            value={props.band}
-            onChange={props.onChangeBand}
-          />
-          <Pressable style={styles.startButton} onPress={props.onStart}>
-            <Text style={styles.startButtonText}>开始</Text>
-          </Pressable>
-        </View>
+    <View style={styles.sheetBackdrop}>
+      <Pressable style={styles.sheetScrim} onPress={props.onClose} />
+      <View style={styles.sheet}>
+        <View style={styles.sheetGrab} />
+        <Text style={styles.sheetTitle}>快速练习</Text>
+        <OptionGroup
+          title="最近天数"
+          options={RECENT_DAY_OPTIONS.map((value) => ({ label: `${value}天`, value }))}
+          value={props.recentDays}
+          onChange={props.onChangeRecentDays}
+        />
+        <OptionGroup
+          title="练习条数"
+          options={QUICK_LIMIT_OPTIONS.map((value) => ({ label: `${value}条`, value }))}
+          value={props.limit}
+          onChange={props.onChangeLimit}
+        />
+        <OptionGroup
+          title="正确率"
+          options={BAND_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
+          value={props.band}
+          onChange={props.onChangeBand}
+        />
+        <Pressable style={styles.startButton} onPress={props.onStart}>
+          <Text style={styles.startButtonText}>开始</Text>
+        </Pressable>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -866,6 +899,9 @@ const styles = StyleSheet.create({
   },
 
   sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 998,
+    elevation: 998,
     flex: 1,
     justifyContent: "flex-end",
   },

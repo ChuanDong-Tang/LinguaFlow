@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export type InfoDialogConfig = {
   message: string;
@@ -19,28 +19,29 @@ export function InfoDialog({ config, onClose }: { config: InfoDialogConfig | nul
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={() => closeThen(config.onCancel)}>
-      <View style={styles.backdrop}>
-        <View style={styles.panel}>
-          <Text style={styles.message}>{config.message}</Text>
-          <View style={styles.actions}>
-            {hasCancel ? (
-              <Pressable style={[styles.button, styles.cancelButton]} onPress={() => closeThen(config.onCancel)}>
-                <Text style={styles.cancelText}>{config.cancelText}</Text>
-              </Pressable>
-            ) : null}
-            <Pressable style={[styles.button, styles.confirmButton]} onPress={() => closeThen(config.onConfirm)}>
-              <Text style={styles.confirmText}>{config.confirmText ?? "确定"}</Text>
+    <View style={styles.backdrop}>
+      <View style={styles.panel}>
+        <Text style={styles.message}>{config.message}</Text>
+        <View style={styles.actions}>
+          {hasCancel ? (
+            <Pressable style={[styles.button, styles.cancelButton]} onPress={() => closeThen(config.onCancel)}>
+              <Text style={styles.cancelText}>{config.cancelText}</Text>
             </Pressable>
-          </View>
+          ) : null}
+          <Pressable style={[styles.button, styles.confirmButton]} onPress={() => closeThen(config.onConfirm)}>
+            <Text style={styles.confirmText}>{config.confirmText ?? "确定"}</Text>
+          </Pressable>
         </View>
       </View>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 1000,
     flex: 1,
     backgroundColor: "rgba(15,16,20,0.36)",
     alignItems: "center",
