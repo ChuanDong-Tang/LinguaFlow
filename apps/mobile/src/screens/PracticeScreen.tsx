@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { InteractionManager, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { InteractionManager, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLoading } from "./shared/BlockingLoading";
@@ -49,6 +49,7 @@ const BAND_OPTIONS: Array<{ label: string; value: PracticeAccuracyBand; color: s
 ];
 const RECENT_DAY_OPTIONS = [3, 7, 14, 30];
 const QUICK_LIMIT_OPTIONS = [5, 10, 20, 30];
+const TAB_BAR_HEIGHT = 86;
 
 function getMessageIdentityKey(row: ChatMessage): string {
   return row.serverId ?? row.clientId ?? row.id ?? row.localId;
@@ -631,7 +632,7 @@ function QuickPracticeSheet(props: {
   return (
     <View style={styles.sheetBackdrop}>
       <Pressable style={styles.sheetScrim} onPress={props.onClose} />
-      <View style={styles.sheet}>
+      <View style={[styles.sheet, Platform.OS === "ios" && styles.sheetAboveTabBar]}>
         <View style={styles.sheetGrab} />
         <Text style={styles.sheetTitle}>快速练习</Text>
         <OptionGroup
@@ -915,6 +916,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     backgroundColor: "#FFFFFF",
+  },
+  sheetAboveTabBar: {
+    marginBottom: TAB_BAR_HEIGHT,
   },
   sheetGrab: {
     alignSelf: "center",

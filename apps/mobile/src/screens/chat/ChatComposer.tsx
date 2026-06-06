@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Clipboard from "expo-clipboard";
 
 type ChatComposerProps = {
   value: string;
@@ -19,6 +20,8 @@ const COLLAPSED_MAX_HEIGHT = 160;
 const INPUT_LINE_HEIGHT = 22;
 const INPUT_PADDING_TOP = Platform.OS === "android" ? 13 : 12;
 const INPUT_PADDING_BOTTOM = Platform.OS === "android" ? 13 : 12;
+const IS_IOS = Platform.OS === "ios";
+const IOS_EXPAND_TEXT_LENGTH = 60;
 
 export function ChatComposer({
   value,
@@ -31,23 +34,36 @@ export function ChatComposer({
   disabled,
   isSending,
 }: ChatComposerProps) {
-  const { height: windowHeight } = useWindowDimensions();
+  const inputRef = useRef<TextInput | null>(null);
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const [inputHeight, setInputHeight] = useState(COLLAPSED_MIN_HEIGHT);
   const [expanded, setExpanded] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [clipboardText, setClipboardText] = useState("");
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
+  const estimatedInputHeight = IS_IOS ? estimateIosInputHeight(value, windowWidth) : COLLAPSED_MIN_HEIGHT;
+  const effectiveInputHeight = IS_IOS ? Math.max(inputHeight, estimatedInputHeight) : inputHeight;
   const collapsedHeight = Math.max(
     COLLAPSED_MIN_HEIGHT,
-    Math.min(COLLAPSED_MAX_HEIGHT, inputHeight)
+    Math.min(COLLAPSED_MAX_HEIGHT, effectiveInputHeight)
   );
   const shellHeight = expanded ? expandedHeight : collapsedHeight;
-  const canExpand = expanded || inputHeight >= COLLAPSED_MAX_HEIGHT;
+  const canExpand = IS_IOS
+    ? expanded || value.includes("\n") || value.length >= IOS_EXPAND_TEXT_LENGTH || effectiveInputHeight > COLLAPSED_MIN_HEIGHT + INPUT_LINE_HEIGHT
+    : expanded || inputHeight >= COLLAPSED_MAX_HEIGHT;
   const textInputHeight = shellHeight;
+  const showPasteButton = IS_IOS && focused && value.length === 0 && clipboardText.length > 0;
 
   useEffect(() => {
     if (value.length > 0) return;
     setInputHeight(COLLAPSED_MIN_HEIGHT);
     setExpanded(false);
   }, [value.length]);
+
+  useEffect(() => {
+    if (!IS_IOS || !focused || value.length > 0) return;
+    void refreshClipboardText();
+  }, [focused, value.length]);
 
   function handleToggleExpand(): void {
     setExpanded((current) => !current);
@@ -58,10 +74,40 @@ export function ChatComposer({
     setInputHeight(Math.max(COLLAPSED_MIN_HEIGHT, rawHeight));
   }
 
+  function handleFocus(): void {
+    setFocused(true);
+    if (IS_IOS && value.length === 0) {
+      void refreshClipboardText();
+    }
+    onFocus();
+  }
+
+  function handleBlur(): void {
+    setFocused(false);
+    onBlur?.();
+  }
+
+  async function refreshClipboardText(): Promise<void> {
+    try {
+      const nextText = await Clipboard.getStringAsync();
+      setClipboardText(nextText.trim().length > 0 ? nextText : "");
+    } catch {
+      setClipboardText("");
+    }
+  }
+
+  function handlePaste(): void {
+    if (clipboardText.length === 0) return;
+    onChangeText(clipboardText);
+    setClipboardText("");
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
   return (
     <View style={styles.inputWrap}>
       <View style={[styles.inputShell, { height: shellHeight }]}>
         <TextInput
+          ref={inputRef}
           style={[
             styles.input,
             expanded ? styles.inputExpanded : styles.inputCollapsed,
@@ -71,8 +117,8 @@ export function ChatComposer({
           placeholderTextColor="#A0A4AF"
           value={value}
           onChangeText={onChangeText}
-          onFocus={onFocus}
-          onBlur={onBlur}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           returnKeyType="default"
           blurOnSubmit={false}
           cursorColor="#8E84FF"
@@ -80,6 +126,11 @@ export function ChatComposer({
           onContentSizeChange={(event) => handleContentSizeChange(event.nativeEvent.contentSize.height)}
           scrollEnabled={expanded || collapsedHeight >= COLLAPSED_MAX_HEIGHT}
         />
+        {showPasteButton ? (
+          <Pressable style={styles.pasteButton} onPress={handlePaste} hitSlop={6}>
+            <Ionicons name="clipboard-outline" size={16} color="#7F77F9" />
+          </Pressable>
+        ) : null}
         {canExpand ? (
           <Pressable style={styles.expandButton} onPress={handleToggleExpand} hitSlop={6}>
             <Ionicons name={expanded ? "contract-outline" : "expand-outline"} size={14} color="#8E84FF" />
@@ -96,6 +147,18 @@ export function ChatComposer({
       </View>
     </View>
   );
+}
+
+function estimateIosInputHeight(text: string, windowWidth: number): number {
+  if (text.length === 0) return COLLAPSED_MIN_HEIGHT;
+
+  const availableTextWidth = Math.max(120, windowWidth - 16 * 2 - 20 - 92);
+  const estimatedCharsPerLine = Math.max(12, Math.floor(availableTextWidth / 8));
+  const estimatedLines = text
+    .split("\n")
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / estimatedCharsPerLine)), 0);
+
+  return INPUT_PADDING_TOP + INPUT_PADDING_BOTTOM + estimatedLines * INPUT_LINE_HEIGHT;
 }
 
 const styles = StyleSheet.create({
@@ -140,6 +203,17 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 14,
+    backgroundColor: "#F0ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pasteButton: {
+    position: "absolute",
+    left: 14,
+    top: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: "#F0ECFF",
     alignItems: "center",
     justifyContent: "center",

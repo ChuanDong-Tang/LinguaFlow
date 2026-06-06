@@ -17,7 +17,7 @@ type MeScreenProps = {
   onLogout: () => Promise<void> | void;
 };
 
-const OTA_DEBUG_JS_LABEL = "replace practice modals with overlays";
+const OTA_DEBUG_JS_LABEL = "fix practice screen";
 
 export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
