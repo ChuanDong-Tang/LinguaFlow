@@ -15,4 +15,8 @@ export class AppleIapVerifyError extends Error {
     this.code = code;
     this.details = details ?? null;
   }
+
+  withDetails(details: Record<string, unknown>): AppleIapVerifyError {
+    return new AppleIapVerifyError(this.message, this.code, details);
+  }
 }

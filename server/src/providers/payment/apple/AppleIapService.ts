@@ -16,7 +16,7 @@ import {
   decodeTransactionPayload,
 } from "./AppleIapMapper.js";
 import {
-  createAppleServerToken,
+  createAppleServerTokenWithDiagnostics,
   hashSignedPayload,
   verifyAndDecodeAppleJws,
 } from "./AppleIapJws.js";
@@ -70,14 +70,25 @@ export class AppleIapService {
   }): Promise<VerifyAppleIapTransactionResult> {
     const config = loadAppleIapConfig();
 
-    const token = createAppleServerToken({
+    const { token, diagnostics: serverTokenDiagnostics } = createAppleServerTokenWithDiagnostics({
       issuerId: config.issuerId,
       keyId: config.keyId,
       bundleId: config.bundleId,
       privateKeyPem: config.privateKeyPem,
     });
 
-    const transaction = await fetchTransactionInfo(input.transactionId, token, config.rootCaPem);
+    let transaction: Awaited<ReturnType<typeof fetchTransactionInfo>>;
+    try {
+      transaction = await fetchTransactionInfo(input.transactionId, token, config.rootCaPem);
+    } catch (error) {
+      if (error instanceof AppleIapVerifyError) {
+        throw error.withDetails({
+          ...(error.details ?? {}),
+          serverToken: serverTokenDiagnostics,
+        });
+      }
+      throw error;
+    }
 
     if (transaction.bundleId !== config.bundleId) {
       throw new AppleIapVerifyError("Bundle id mismatch", "APPLE_BUNDLE_ID_MISMATCH", {

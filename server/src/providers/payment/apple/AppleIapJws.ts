@@ -7,7 +7,30 @@ export function createAppleServerToken(input: {
   bundleId: string;
   privateKeyPem: string;
 }): string {
+  return createAppleServerTokenWithDiagnostics(input).token;
+}
+
+export interface AppleServerTokenDiagnostics {
+  keyId: string;
+  issuerId: string;
+  bundleId: string;
+  audience: string;
+  issuedAt: number;
+  expiresAt: number;
+  serverNow: number;
+  privateKeyParseable: boolean;
+  signatureByteLength: number;
+}
+
+export function createAppleServerTokenWithDiagnostics(input: {
+  issuerId: string;
+  keyId: string;
+  bundleId: string;
+  privateKeyPem: string;
+}): { token: string; diagnostics: AppleServerTokenDiagnostics } {
   const now = Math.floor(Date.now() / 1000);
+  const audience = "appstoreconnect-v1";
+  const expiresAt = now + 60 * 5;
   const header = base64UrlEncode(
     JSON.stringify({
       alg: "ES256",
@@ -19,21 +42,36 @@ export function createAppleServerToken(input: {
     JSON.stringify({
       iss: input.issuerId,
       iat: now,
-      exp: now + 60 * 5,
-      aud: "appstoreconnect-v1",
+      exp: expiresAt,
+      aud: audience,
       bid: input.bundleId,
     })
   );
 
   const unsigned = `${header}.${payload}`;
+  const privateKey = createPrivateKey(input.privateKeyPem);
   const signer = createSign("SHA256");
   signer.update(unsigned);
   signer.end();
-  const signature = signer.sign({
-    key: createPrivateKey(input.privateKeyPem),
+  const signatureBuffer = signer.sign({
+    key: privateKey,
     dsaEncoding: "ieee-p1363",
-  }).toString("base64url");
-  return `${unsigned}.${signature}`;
+  });
+  const signature = signatureBuffer.toString("base64url");
+  return {
+    token: `${unsigned}.${signature}`,
+    diagnostics: {
+      keyId: input.keyId,
+      issuerId: input.issuerId,
+      bundleId: input.bundleId,
+      audience,
+      issuedAt: now,
+      expiresAt,
+      serverNow: now,
+      privateKeyParseable: true,
+      signatureByteLength: signatureBuffer.byteLength,
+    },
+  };
 }
 
 export function verifyAndDecodeAppleJws(
