@@ -898,8 +898,10 @@ export class AutoRenewService {
       sourceOrderId: createAutoRenewEntitlementSourceOrderId(input.provider, input.providerChargeId),
       productCode: "pro_monthly",
       channel: input.provider === "apple" ? "ios_iap" : "wechat",
+      grantMode: "subscription_period",
       periodStart: input.periodStart ?? null,
       periodEnd: input.periodEnd ?? null,
+      prepaidLimit: "skip",
     });
 
     return {

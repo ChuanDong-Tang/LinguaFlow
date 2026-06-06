@@ -55,6 +55,10 @@ const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_
 const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ONE_TIME_PURCHASE === "true";
 const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
+const PRO_MONTHLY_MAX_PREPAID_MONTHS = readPositiveIntEnv(
+  process.env.EXPO_PUBLIC_PRO_MONTHLY_MAX_PREPAID_MONTHS,
+  2
+);
 const PRODUCT_PRICE_CACHE_KEY = "lf_pro_product_price_v1";
 const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
   process.env.EXPO_PUBLIC_PRO_PRICE_CACHE_TTL_MS,
@@ -228,6 +232,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
       safeAlert("暂未开放", "购买 1 个月暂未开放。");
       return;
     }
+    if (!canBuyOneTimeProMonthly(proExpiresAt)) {
+      safeAlert("暂时不能单买", "Pro 最多预存到约 2 个月后。当前有效期已接近上限，可以开通订阅，到期后自动接续。");
+      return;
+    }
 
     if (Platform.OS === "ios") {
       await startAppleIapPurchase("single_purchase");
@@ -387,6 +395,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   async function startAppleIapPurchase(source: ApplePurchaseSource): Promise<void> {
     assertAppleIapAvailable(source);
+    if (source === "single_purchase" && !canBuyOneTimeProMonthly(proExpiresAt)) {
+      safeAlert("暂时不能单买", "Pro 最多预存到约 2 个月后。当前有效期已接近上限，可以开通订阅，到期后自动接续。");
+      return;
+    }
     if (!appleIap?.connected) {
       safeAlert("Apple 支付初始化中", "请稍后重试。");
       return;
@@ -580,9 +592,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text style={styles.subscribeText}>
-                  {canStartOneTimePurchase
-                    ? formatOneTimePurchaseButtonLabel(isRenew, productPrices.oneTime)
-                    : "暂未开放"}
+                  {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : "暂未开放"}
                 </Text>
               )}
             </Pressable>
@@ -600,9 +610,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
               ) : (
                 <Text style={styles.secondaryButtonText}>
                   {activeAutoRenew
-                    ? "取消自动续费"
+                    ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
                     : canStartAutoRenew
-                      ? formatAutoRenewButtonLabel(productPrices.autoRenew)
+                      ? formatAutoRenewButtonLabel()
                       : "暂未开放"}
                 </Text>
               )}
@@ -702,9 +712,7 @@ function resolveAutoRenewDescription(input: {
     return "签约处理中，如未完成可稍后重试。";
   }
   if (hasActiveAutoRenew(input.autoRenew)) {
-    return `已通过${formatProviderName(input.autoRenew.provider)}开启，${
-      formatNullableDate(input.autoRenew.nextBillingAt) || "下次扣款时间待同步"
-    }`;
+    return `已通过${formatProviderName(input.autoRenew.provider)}开启`;
   }
   if (input.isPro && input.expiresAt) {
     return `${formatAutoRenewProviderLabel()}自动续费会在当前会员到期后接续，不会立即重复扣费。`;
@@ -739,6 +747,31 @@ function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): 
 function readPositiveIntEnv(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+function canBuyOneTimeProMonthly(expiresAt: string | null): boolean {
+  if (!expiresAt) return true;
+  const expiresAtDate = new Date(expiresAt);
+  if (Number.isNaN(expiresAtDate.getTime())) return true;
+  const maxAllowedCurrentExpiresAt = addCalendarMonthsClamped(
+    new Date(),
+    PRO_MONTHLY_MAX_PREPAID_MONTHS - 1
+  );
+  return expiresAtDate <= maxAllowedCurrentExpiresAt;
+}
+
+function addCalendarMonthsClamped(base: Date, months: number): Date {
+  const targetYear = base.getFullYear();
+  const targetMonth = base.getMonth() + months;
+  const targetDay = Math.min(base.getDate(), daysInMonth(targetYear, targetMonth));
+  const next = new Date(base);
+
+  next.setFullYear(targetYear, targetMonth, targetDay);
+  return next;
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
 }
 
 function formatNumber(value: number): string {
@@ -825,7 +858,7 @@ function resolveProMonthlyPriceLabels(input: {
     const primary = subscriptionPrice || oneTimePrice || null;
     return {
       primary,
-      primarySuffix: primary ? " / 月起" : "",
+      primarySuffix: primary ? " / 月" : "",
       oneTime: oneTimePrice ?? null,
       autoRenew: subscriptionPrice ?? null,
     };
@@ -854,9 +887,8 @@ function hasLoadedAppleProduct(appleIap: AppleIapBridgeState, source: ApplePurch
   return rows.some((product) => product.id === productId);
 }
 
-function formatOneTimePurchaseButtonLabel(isRenew: boolean, price: string | null): string {
-  const action = "单买1个月";
-  return action;
+function formatOneTimePurchaseButtonLabel(): string {
+  return "Pro 月卡";
 }
 
 function hasActiveAutoRenew(autoRenew: MobileAutoRenewSubscription | null): autoRenew is MobileAutoRenewSubscription {
@@ -880,11 +912,14 @@ function formatAutoRenewProviderLabel(): string {
   return "";
 }
 
-function formatAutoRenewButtonLabel(price: string | null = null): string {
-  const suffix = price ? ` ${price}/月` : "";
-  if (Platform.OS === "ios") return `Apple 订阅${suffix}`;
-  if (Platform.OS === "android") return `微信订阅${suffix}`;
+function formatAutoRenewButtonLabel(): string {
+  if (Platform.OS === "ios") return `Apple 订阅`;
+  if (Platform.OS === "android") return `微信订阅`;
   return "开通";
+}
+
+function formatAutoRenewCancelButtonLabel(provider: MobileAutoRenewSubscription["provider"]): string {
+  return provider === "apple" ? "Apple 退订" : "微信退订";
 }
 
 function BenefitItem({

@@ -1,17 +1,22 @@
 import type { SubscriptionService } from "../subscription/SubscriptionService.js";
 import type { AutoRenewRepository } from "@lf/core/ports/repository/AutoRenewRepository.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import { assertCanGrantSingleProMonthly } from "./ProPrepaidLimit.js";
 
 export type PaymentChannel = "wechat" | "ios_iap";
 export type PaymentProductCode = "pro_monthly";
+export type EntitlementGrantMode = "fixed_duration" | "subscription_period";
+export type PrepaidLimitMode = "enforce" | "skip";
 
 export interface GrantEntitlementInput {
   userId: string;
   sourceOrderId: string;
   productCode: PaymentProductCode;
   channel: PaymentChannel;
+  grantMode: EntitlementGrantMode;
   periodStart?: Date | null;
   periodEnd?: Date | null;
+  prepaidLimit?: PrepaidLimitMode;
 }
 
 export interface GrantEntitlementResult {
@@ -31,12 +36,24 @@ export class PaymentEntitlementService {
 
   async grantAfterPayment(input: GrantEntitlementInput): Promise<GrantEntitlementResult> {
     const months = resolveMonthsByProductCode(input.productCode);
+    const prepaidLimit = input.prepaidLimit ?? defaultPrepaidLimit(input.grantMode);
+    if (prepaidLimit !== "skip") {
+      await assertCanGrantSingleProMonthly({
+        userId: input.userId,
+        subscriptionService: this.subscriptionService,
+      });
+    }
+    const period = resolveGrantPeriod({
+      grantMode: input.grantMode,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+    });
     const result = await this.subscriptionService.openOrRenewPro({
       userId: input.userId,
       sourceOrderId: input.sourceOrderId,
       months,
-      periodStart: input.periodStart,
-      periodEnd: input.periodEnd,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
     });
     if (!result.alreadyApplied) {
       await this.syncAutoRenewBillingAfterGrant(input.userId, result.subscription.expiresAt);
@@ -76,6 +93,33 @@ export class PaymentEntitlementService {
 function resolveMonthsByProductCode(productCode: PaymentProductCode): number {
   if (productCode === "pro_monthly") return 1;
   return 1;
+}
+
+function defaultPrepaidLimit(grantMode: EntitlementGrantMode): PrepaidLimitMode {
+  return grantMode === "fixed_duration" ? "enforce" : "skip";
+}
+
+function resolveGrantPeriod(input: {
+  grantMode: EntitlementGrantMode;
+  periodStart?: Date | null;
+  periodEnd?: Date | null;
+}): { periodStart: Date | null; periodEnd: Date | null } {
+  if (input.grantMode === "fixed_duration") {
+    return { periodStart: null, periodEnd: null };
+  }
+
+  if (input.periodEnd) {
+    return {
+      periodStart: input.periodStart ?? null,
+      periodEnd: input.periodEnd,
+    };
+  }
+
+  console.warn("[payment] subscription period grant missing periodEnd; falling back to fixed duration", {
+    grantMode: input.grantMode,
+    periodStart: input.periodStart?.toISOString() ?? null,
+  });
+  return { periodStart: null, periodEnd: null };
 }
 
 function computeEarlyBillingAt(periodEnd: Date): Date {

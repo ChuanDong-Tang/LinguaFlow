@@ -12,6 +12,7 @@ import {
 } from "../../providers/payment/wechat/WeChatPaySignature.js";
 import { loadWeChatPayConfig } from "../../providers/payment/wechat/WeChatPayConfig.js";
 import { getExpectedCurrentStatusesForNextStatus } from "./PaymentOrderStateMachine.js";
+import { createEntitlementGrantPayload } from "./EntitlementGrantSnapshot.js";
 
 const WECHAT_NOTIFY_TIMESTAMP_TOLERANCE_SEC = 5 * 60;
 
@@ -195,6 +196,7 @@ export class PaymentNotifyService {
           sourceOrderId: paidOrder.id,
           productCode: paidOrder.productCode,
           channel: "wechat",
+          grantMode: "fixed_duration",
         });
       } catch (_error) {
         await this.benefitGrantService.enqueueGrant({
@@ -202,7 +204,14 @@ export class PaymentNotifyService {
           sourceOrderId: paidOrder.id,
           productCode: paidOrder.productCode,
           channel: "wechat",
-          payload: { fallbackReason: "sync_grant_failed", source: "wechat_notify" },
+          payload: createEntitlementGrantPayload({
+            fallbackReason: "sync_grant_failed",
+            source: "wechat_notify",
+            grant: {
+              grantMode: "fixed_duration",
+              prepaidLimit: "enforce",
+            },
+          }),
         });
       }
 

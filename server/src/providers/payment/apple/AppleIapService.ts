@@ -6,6 +6,8 @@ import type { PaymentOrderStatus } from "@lf/core/ports/payment/PaymentTypes.js"
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
 import type { AutoRenewService } from "../../../services/payment/AutoRenewService.js";
+import { ProRenewalTooEarlyError } from "../../../services/payment/ProPrepaidLimit.js";
+import { createEntitlementGrantPayload } from "../../../services/payment/EntitlementGrantSnapshot.js";
 import { getExpectedCurrentStatusesForNextStatus } from "../../../services/payment/PaymentOrderStateMachine.js";
 import { APPLE_PROVIDER } from "./AppleIapConstants.js";
 import { isAppleIapConfigured, loadAppleIapConfig } from "./AppleIapConfig.js";
@@ -182,21 +184,47 @@ export class AppleIapService {
       });
     }
     let alreadyApplied = false;
+    const grantMode = purchaseKind === "auto_renew" ? "subscription_period" : "fixed_duration";
+    const grantPeriodStart =
+      purchaseKind === "auto_renew" && transaction.purchaseDate
+        ? new Date(transaction.purchaseDate)
+        : null;
+    const grantPeriodEnd =
+      purchaseKind === "auto_renew" && transaction.expiresDate
+        ? new Date(transaction.expiresDate)
+        : null;
+    const prepaidLimit = purchaseKind === "single_purchase" ? "enforce" : "skip";
     try {
       const result = await this.paymentEntitlementService.grantAfterPayment({
         userId: input.userId,
         sourceOrderId,
         productCode: "pro_monthly",
         channel: "ios_iap",
+        grantMode,
+        periodStart: grantPeriodStart,
+        periodEnd: grantPeriodEnd,
+        prepaidLimit,
       });
       alreadyApplied = result.alreadyApplied;
-    } catch (_error) {
+    } catch (error) {
+      if (error instanceof ProRenewalTooEarlyError) {
+        throw error;
+      }
       const queued = await this.benefitGrantService.enqueueGrant({
         userId: input.userId,
         sourceOrderId,
         productCode: "pro_monthly",
         channel: "ios_iap",
-        payload: { fallbackReason: "sync_grant_failed", source: "apple_verify_transaction" },
+        payload: createEntitlementGrantPayload({
+          fallbackReason: "sync_grant_failed",
+          source: "apple_verify_transaction",
+          grant: {
+            grantMode,
+            periodStart: grantPeriodStart,
+            periodEnd: grantPeriodEnd,
+            prepaidLimit,
+          },
+        }),
       });
       alreadyApplied = !queued.created;
     }

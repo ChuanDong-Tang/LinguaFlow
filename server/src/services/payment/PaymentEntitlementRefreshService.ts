@@ -5,6 +5,7 @@ import type { BenefitGrantService } from "./BenefitGrantService.js";
 import type { PaymentEntitlementService } from "./PaymentEntitlementService.js";
 import type { PaymentOrderService } from "./PaymentOrderService.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import { createEntitlementGrantPayload } from "./EntitlementGrantSnapshot.js";
 
 
 export interface RefreshPaymentEntitlementResult {
@@ -56,6 +57,7 @@ export class PaymentEntitlementRefreshService {
                 sourceOrderId: order.id,
                 productCode: "pro_monthly",
                 channel: "wechat",
+                grantMode: "fixed_duration",
               });
             } catch (_error) {
               // 订单已经确认 paid 后，权益发放失败不能丢在半路；
@@ -65,7 +67,14 @@ export class PaymentEntitlementRefreshService {
                 sourceOrderId: order.id,
                 productCode: "pro_monthly",
                 channel: "wechat",
-                payload: { fallbackReason: "sync_grant_failed", source: "user_entitlement_refresh" },
+                payload: createEntitlementGrantPayload({
+                  fallbackReason: "sync_grant_failed",
+                  source: "user_entitlement_refresh",
+                  grant: {
+                    grantMode: "fixed_duration",
+                    prepaidLimit: "enforce",
+                  },
+                }),
               });
             }
           },

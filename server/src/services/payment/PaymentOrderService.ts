@@ -9,9 +9,11 @@ import type {
   PaymentOrderRepository,
 } from "@lf/core/ports/repository/PaymentOrderRepository.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
-import { addCalendarMonthsClamped } from "../time/calendarMath.js";
 import { getExpectedCurrentStatusesForNextStatus } from "./PaymentOrderStateMachine.js";
 import type { SubscriptionService } from "../subscription/SubscriptionService.js";
+import { assertCanGrantSingleProMonthly } from "./ProPrepaidLimit.js";
+
+export { ProRenewalTooEarlyError } from "./ProPrepaidLimit.js";
 
 export class PaymentOrderNotFoundError extends Error {
   readonly code = "PAYMENT_ORDER_NOT_FOUND";
@@ -29,18 +31,6 @@ export class PaymentOrderAccessDeniedError extends Error {
   }
 }
 
-export class ProRenewalTooEarlyError extends Error {
-  readonly code = "PRO_RENEWAL_TOO_EARLY";
-  readonly expiresAt: Date;
-  readonly maxAllowedExpiresAt: Date;
-
-  constructor(input: { expiresAt: Date; maxAllowedExpiresAt: Date }) {
-    super("Pro prepaid months limit reached");
-    this.expiresAt = input.expiresAt;
-    this.maxAllowedExpiresAt = input.maxAllowedExpiresAt;
-  }
-}
-
 export class PaymentOrderService {
   private static readonly REUSE_RECREATE_WARN_THRESHOLD = 3;
 
@@ -55,24 +45,11 @@ export class PaymentOrderService {
   }): Promise<CreatePaymentOrderResponse> {
     const productCode = "pro_monthly" as const;
     const config = getRuntimeConfig();
-    const now = new Date();
     if (this.subscriptionService) {
-      const current = await this.subscriptionService.getCurrentSubscription(input.userId, now);
-      if (current.isPro && current.expiresAt) {
-        const maxAllowedExpiresAt = addCalendarMonthsClamped(
-          now,
-          config.payment.proMonthlyMaxPrepaidMonths - 1
-        );
-        if (current.expiresAt > maxAllowedExpiresAt) {
-          // 单次月卡最多只能把 Pro 权益预存到“现在 + maxPrepaidMonths”附近。
-          // 因为本次购买会再顺延 1 个月，所以这里用 maxPrepaidMonths - 1 判断当前剩余权益。
-          // 这样既允许用户提前续一个月，又避免未来调价后用旧价格长期囤月卡。
-          throw new ProRenewalTooEarlyError({
-            expiresAt: current.expiresAt,
-            maxAllowedExpiresAt,
-          });
-        }
-      }
+      await assertCanGrantSingleProMonthly({
+        userId: input.userId,
+        subscriptionService: this.subscriptionService,
+      });
     }
     const amount = config.payment.proMonthlyPriceCents;
     const description = config.payment.descriptionProMonthly;

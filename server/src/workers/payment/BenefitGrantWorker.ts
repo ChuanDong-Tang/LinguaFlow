@@ -2,6 +2,7 @@ import type { BenefitGrantRepository } from "@lf/core/ports/repository/BenefitGr
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { PaymentEntitlementService } from "../../services/payment/PaymentEntitlementService.js";
+import { resolveGrantInputFromBenefitPayload } from "../../services/payment/EntitlementGrantSnapshot.js";
 
 export interface BenefitGrantWorkerOptions {
   intervalMs?: number;
@@ -52,12 +53,13 @@ export class BenefitGrantWorker {
 
       for (const grant of grants) {
         try {
-          await this.paymentEntitlementService.grantAfterPayment({
+          await this.paymentEntitlementService.grantAfterPayment(resolveGrantInputFromBenefitPayload({
             userId: grant.userId,
             sourceOrderId: grant.sourceOrderId,
             productCode: grant.productCode,
             channel: grant.channel,
-          });
+            payload: grant.payload,
+          }));
           await this.benefitGrantRepository.markSuccess(grant.id);
         } catch (error) {
           const message = toErrorMessage(error);

@@ -779,6 +779,18 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
           },
         });
       }
+      if (error instanceof ProRenewalTooEarlyError) {
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY,
+            expiresAt: error.expiresAt.toISOString(),
+            maxAllowedExpiresAt: error.maxAllowedExpiresAt.toISOString(),
+          },
+        });
+      }
       if (error instanceof AppleIapConfigError) {
         const configError = error as AppleIapConfigError;
         await writeSystemEventLog(deps.systemEventLogRepository, {

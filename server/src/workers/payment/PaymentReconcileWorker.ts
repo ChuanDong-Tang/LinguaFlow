@@ -6,6 +6,7 @@ import type { PaymentEntitlementService } from "../../services/payment/PaymentEn
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { PaymentChannel } from "../../services/payment/PaymentEntitlementService.js";
+import { createEntitlementGrantPayload } from "../../services/payment/EntitlementGrantSnapshot.js";
 
 export interface PaymentReconcileWorkerOptions {
   intervalMs?: number;
@@ -82,6 +83,7 @@ export class PaymentReconcileWorker {
                 sourceOrderId: order.id,
                 productCode: "pro_monthly",
                 channel,
+                grantMode: "fixed_duration",
               });
             } catch (_error) {
               await this.benefitGrantService.enqueueGrant({
@@ -89,7 +91,14 @@ export class PaymentReconcileWorker {
                 sourceOrderId: order.id,
                 productCode: "pro_monthly",
                 channel,
-                payload: { fallbackReason: "sync_grant_failed", source: "payment_reconcile_worker" },
+                payload: createEntitlementGrantPayload({
+                  fallbackReason: "sync_grant_failed",
+                  source: "payment_reconcile_worker",
+                  grant: {
+                    grantMode: "fixed_duration",
+                    prepaidLimit: "enforce",
+                  },
+                }),
               });
               grantEnqueued = true;
             }

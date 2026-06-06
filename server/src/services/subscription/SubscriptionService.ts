@@ -73,13 +73,17 @@ export class SubscriptionService {
 
     const current = await this.subscriptionRepository.findCurrentActiveByUserId(input.userId, now);
     const explicitPeriodEnd = input.periodEnd && input.periodEnd > now ? input.periodEnd : null;
-    const startedAt =
-      explicitPeriodEnd && input.periodStart
-        ? input.periodStart
-        : current && current.expiresAt > now
-          ? current.expiresAt
-          : now;
-    const expiresAt = explicitPeriodEnd ?? addCalendarMonthsClamped(startedAt, months);
+    const currentExpiresAt = current && current.expiresAt > now ? current.expiresAt : null;
+    const startedAt = resolveGrantStart({
+      now,
+      currentExpiresAt,
+      explicitPeriodEnd,
+      periodStart: input.periodStart,
+    });
+    const rawExpiresAt = explicitPeriodEnd ?? addCalendarMonthsClamped(startedAt, months);
+    // 支付事件只能延长或保持当前权益，不能把更长的单买权益覆盖成更短的平台订阅周期。
+    const expiresAt =
+      currentExpiresAt && currentExpiresAt > rawExpiresAt ? currentExpiresAt : rawExpiresAt;
 
     const subscription = await this.subscriptionRepository.create({
       userId: input.userId,
@@ -95,4 +99,14 @@ export class SubscriptionService {
       alreadyApplied: false,
     };
   }
+}
+
+function resolveGrantStart(input: {
+  now: Date;
+  currentExpiresAt: Date | null;
+  explicitPeriodEnd: Date | null;
+  periodStart?: Date | null;
+}): Date {
+  if (input.explicitPeriodEnd && input.periodStart) return input.periodStart;
+  return input.currentExpiresAt ?? input.now;
 }
