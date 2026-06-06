@@ -19,6 +19,8 @@ export interface AppleServerTokenDiagnostics {
   expiresAt: number;
   serverNow: number;
   privateKeyParseable: boolean;
+  privateKeyType: string | undefined;
+  privateKeySha256: string;
   signatureByteLength: number;
 }
 
@@ -69,6 +71,8 @@ export function createAppleServerTokenWithDiagnostics(input: {
       expiresAt,
       serverNow: now,
       privateKeyParseable: true,
+      privateKeyType: privateKey.asymmetricKeyType,
+      privateKeySha256: createHash("sha256").update(input.privateKeyPem).digest("hex"),
       signatureByteLength: signatureBuffer.byteLength,
     },
   };
