@@ -1,6 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
+import {
+  NativeSyntheticEvent,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TextInputSelectionChangeEventData,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Clipboard from "expo-clipboard";
 
 type ChatComposerProps = {
   value: string;
@@ -38,6 +49,8 @@ export function ChatComposer({
   const { height: windowHeight } = useWindowDimensions();
   const [contentTextHeight, setContentTextHeight] = useState(INPUT_LINE_HEIGHT);
   const [expanded, setExpanded] = useState(false);
+  const [selection, setSelection] = useState({ start: value.length, end: value.length });
+  const [pasteText, setPasteText] = useState<string | null>(null);
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
   const measuredInputHeight = contentTextHeight + INPUT_VERTICAL_PADDING;
   const measuredLineCount = Math.max(1, Math.ceil(contentTextHeight / INPUT_LINE_HEIGHT));
@@ -62,6 +75,7 @@ export function ChatComposer({
 
   function handleToggleExpand(): void {
     setExpanded((current) => !current);
+    setPasteText(null);
   }
 
   function handleMeasureTextHeight(nextHeight: number): void {
@@ -71,9 +85,38 @@ export function ChatComposer({
     );
   }
 
+  function handleSelectionChange(event: NativeSyntheticEvent<TextInputSelectionChangeEventData>): void {
+    setSelection(event.nativeEvent.selection);
+  }
+
+  function handleFocus(): void {
+    setPasteText(null);
+    onFocus();
+  }
+
+  function handleBlur(): void {
+    setPasteText(null);
+    onBlur?.();
+  }
+
+  async function handleShowPaste(): Promise<void> {
+    const text = await Clipboard.getStringAsync().catch(() => "");
+    setPasteText(text.length > 0 ? text : null);
+  }
+
+  function handlePaste(): void {
+    if (!pasteText) return;
+    const start = Math.max(0, Math.min(selection.start, selection.end, value.length));
+    const end = Math.max(0, Math.min(Math.max(selection.start, selection.end), value.length));
+    onChangeText(`${value.slice(0, start)}${pasteText}${value.slice(end)}`);
+    const nextCursor = start + pasteText.length;
+    setSelection({ start: nextCursor, end: nextCursor });
+    setPasteText(null);
+  }
+
   return (
     <View style={styles.inputWrap}>
-      <View style={[styles.inputShell, { height: shellHeight }]}>
+      <Pressable style={[styles.inputShell, { height: shellHeight }]} onLongPress={() => void handleShowPaste()}>
         <TextInput
           style={[
             styles.input,
@@ -84,14 +127,24 @@ export function ChatComposer({
           placeholderTextColor="#A0A4AF"
           value={value}
           onChangeText={onChangeText}
-          onFocus={onFocus}
-          onBlur={onBlur}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          onSelectionChange={handleSelectionChange}
+          selection={selection}
           returnKeyType="default"
           blurOnSubmit={false}
           cursorColor="#8E84FF"
+          autoComplete="off"
+          contextMenuHidden={false}
+          textContentType="none"
           multiline
           scrollEnabled={expanded || collapsedHeight >= COLLAPSED_MAX_HEIGHT}
         />
+        {pasteText ? (
+          <Pressable style={styles.pasteButton} onPress={handlePaste} hitSlop={8}>
+            <Text style={styles.pasteButtonText}>粘贴</Text>
+          </Pressable>
+        ) : null}
         <Text
           style={styles.measureText}
           pointerEvents="none"
@@ -112,7 +165,7 @@ export function ChatComposer({
         >
           <Ionicons name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
         </Pressable>
-      </View>
+      </Pressable>
     </View>
   );
 }
@@ -155,6 +208,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#111111",
     includeFontPadding: false,
+  },
+  pasteButton: {
+    position: "absolute",
+    left: 18,
+    top: -38,
+    paddingHorizontal: 14,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "#111111",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 4,
+  },
+  pasteButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
   },
   inputCollapsed: {
     paddingTop: INPUT_PADDING_TOP,

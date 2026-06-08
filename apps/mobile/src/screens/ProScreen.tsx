@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -76,6 +76,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [wechatPriceLabel, setWechatPriceLabel] = useState<string | null>(null);
   const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(null);
+  const applePurchaseIntentRef = useRef(false);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
   const liveProductPrices = resolveProMonthlyPriceLabels({ appleIap, wechatPriceLabel });
   const productPrices = liveProductPrices.primary ? liveProductPrices : cachedProductPrices ?? liveProductPrices;
@@ -431,6 +432,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (appAccountToken) {
         await registerAppleAppAccountToken(appAccountToken);
       }
+      applePurchaseIntentRef.current = true;
       await appleIap.requestPurchase({
         type: source === "single_purchase" ? "in-app" : "subs",
         request: {
@@ -442,6 +444,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         },
       });
     } catch (error) {
+      applePurchaseIntentRef.current = false;
       if (!isScreenAlive()) return;
       const message = error instanceof Error ? error.message : "请稍后重试";
       safeAlert("Apple 支付发起失败", message);
@@ -453,6 +456,8 @@ export function ProScreen({ onBack }: ProScreenProps) {
   async function handleApplePurchaseSuccess(purchase: Purchase): Promise<void> {
     if (isApplePurchaseFinishing) return;
     setIsApplePurchaseFinishing(true);
+    const isUserInitiatedPurchase = applePurchaseIntentRef.current;
+    applePurchaseIntentRef.current = false;
     try {
       const transactionId = getAppleTransactionId(purchase);
       // 先让服务端用 App Store Server API 验单并发权益，再 finish transaction。
@@ -471,7 +476,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
         if (!isScreenAlive()) return;
         setAutoRenew(currentAutoRenew);
       }
-      safeAlert("开通成功", "Pro 权益已生效。");
+      if (isUserInitiatedPurchase) {
+        safeAlert("开通成功", "Pro 权益已生效。");
+      }
     } catch (error) {
       if (!isScreenAlive()) return;
       if (isAppleTransactionOwnedByDifferentAccount(error)) {

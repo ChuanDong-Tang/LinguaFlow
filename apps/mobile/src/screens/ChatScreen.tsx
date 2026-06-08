@@ -31,6 +31,11 @@ import {
   subscribeChatSession,
 } from "../services/chat/chatSessionService";
 import { copyAssistantTaggedText } from "../services/chat/assistantCopyService";
+import {
+  clearChatInputDraft,
+  loadChatInputDraft,
+  saveChatInputDraft,
+} from "../services/chat/chatDraftStorage";
 import { getMonthRange, selectedDateLabelText } from "../services/chat/chatDateRange";
 import { getChatGenerationInputLimits } from "../services/chat/chatInputLimits";
 import { areMessageRowsEquivalent, toDisplayRows } from "../services/chat/chatMessageView";
@@ -105,6 +110,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const isMountedRef = useRef(true);
   const isProEntitledRef = useRef(false);
   const isTodaySyncingRef = useRef(false);
+  const draftLoadedContactRef = useRef<string | null>(null);
   const syncNoticeRef = useRef<{ hide: () => void; update: (next: any) => void; kind: "calendar" | "messages" | "cloze" } | null>(null);
   const daySyncMachine = useExclusiveSyncMachine<"chat_day">();
   const calendarSyncMachine = useExclusiveSyncMachine<"chat_calendar">();
@@ -159,6 +165,28 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   useEffect(() => {
     isTodaySyncingRef.current = isTodaySyncing;
   }, [isTodaySyncing]);
+
+  useEffect(() => {
+    let cancelled = false;
+    draftLoadedContactRef.current = null;
+    setInputText("");
+    void loadChatInputDraft(contactId).then((draft) => {
+      if (cancelled || !isMountedRef.current) return;
+      draftLoadedContactRef.current = contactId;
+      setInputText(draft);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [contactId]);
+
+  useEffect(() => {
+    if (draftLoadedContactRef.current !== contactId) return;
+    const timer = setTimeout(() => {
+      void saveChatInputDraft(contactId, inputText);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [contactId, inputText]);
 
   const refreshEntitlementSnapshot = React.useCallback(async (): Promise<void> => {
     if (!(await hasLocalProAccess())) {
@@ -343,6 +371,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     }
 
     setInputText("");
+    await clearChatInputDraft(contactId).catch(() => {});
     Keyboard.dismiss();
     setIsSending(true);
 
