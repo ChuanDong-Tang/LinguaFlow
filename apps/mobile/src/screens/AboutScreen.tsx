@@ -3,6 +3,18 @@ import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "r
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
+import Constants from "expo-constants";
+
+export function getAppVersionText() {
+  const version =
+    Constants.nativeAppVersion ??
+    Constants.expoConfig?.version ??
+    "unknown";
+
+  //const build = Constants.nativeBuildVersion;
+  return version;
+}
+
 
 type AboutScreenProps = {
   onBack: () => void;
@@ -25,12 +37,12 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
         </View>
 
         <SectionCard title="联系方式">
-          <InfoRow icon="globe-outline" label="官方网站" value="www.yueyantech.com" onPress={() => openUrl("https://www.yueyantech.com")} />
+          <InfoRow icon="globe-outline" label="官方网站" value="www.yueyantech.com" onPress={() => openUrl("https://yueyantech.com")} />
           <InfoRow icon="create-outline" label="意见反馈" value="欢迎向我们发送建议" onPress={() => openUrl("https://my.feishu.cn/wiki/XFaVwkkbyiqZ3iktSntcd5Thndf?from=from_copylink")} />
         </SectionCard>
 
         <SectionCard title="更多信息">
-          <InfoRow icon="information-circle-outline" label="当前版本" value="1.0.0" />
+          <InfoRow icon="information-circle-outline" label="当前版本" value={getAppVersionText()} />
           <InfoRow icon="shield-outline" label="隐私政策" value="" onPress={() => openUrl(PRIVACY_URL)} />
           <InfoRow icon="document-text-outline" label="用户协议" value="" onPress={() => openUrl(TERMS_URL)} isLast />
         </SectionCard>
