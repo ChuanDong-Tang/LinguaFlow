@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { getAvailablePurchases, restorePurchases as restoreIapPurchases, useIAP, type Purchase } from "expo-iap";
+import { ErrorCode, getAvailablePurchases, restorePurchases as restoreIapPurchases, useIAP, type Purchase } from "expo-iap";
 import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -446,6 +446,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
     } catch (error) {
       applePurchaseIntentRef.current = false;
       if (!isScreenAlive()) return;
+      if (isAppleUserCancelledPurchase(error)) {
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+        return;
+      }
       const message = error instanceof Error ? error.message : "请稍后重试";
       safeAlert("Apple 支付发起失败", message);
       setIsPaying(false);
@@ -574,6 +579,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
           }}
           onPurchaseError={(error) => {
             if (!isScreenAlive()) return;
+            applePurchaseIntentRef.current = false;
+            if (isAppleUserCancelledPurchase(error)) {
+              setIsPaying(false);
+              setIsAutoRenewLoading(false);
+              return;
+            }
             const message = error instanceof Error ? error.message : "Apple 支付失败";
             safeAlert("Apple 支付失败", message);
             setIsPaying(false);
@@ -912,6 +923,15 @@ function isAppleTransactionOwnedByDifferentAccount(error: unknown): boolean {
   return error instanceof MobileApiError && (
     error.code === "APPLE_APP_ACCOUNT_TOKEN_MISMATCH" ||
     error.code === "APPLE_SUBSCRIPTION_ALREADY_BOUND"
+  );
+}
+
+function isAppleUserCancelledPurchase(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === ErrorCode.UserCancelled
   );
 }
 
