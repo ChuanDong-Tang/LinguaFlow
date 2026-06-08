@@ -55,6 +55,10 @@ export class SubscriptionService {
     };
   }
 
+  async hasAppliedSourceOrder(sourceOrderId: string): Promise<boolean> {
+    return (await this.subscriptionRepository.findBySourceOrderId(sourceOrderId)) !== null;
+  }
+
   /** 支付成功后开通或续期 Pro；sourceOrderId 保证同一订单不会重复发权益。 */
   async openOrRenewPro(input: OpenOrRenewProInput): Promise<OpenOrRenewProResult> {
     const months = input.months ?? 1;

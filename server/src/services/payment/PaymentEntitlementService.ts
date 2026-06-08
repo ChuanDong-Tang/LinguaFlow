@@ -34,10 +34,20 @@ export class PaymentEntitlementService {
     private readonly autoRenewRepository?: AutoRenewRepository
   ) {}
 
+  async assertCanStartNewProPurchase(userId: string): Promise<void> {
+    // 所有“新开一笔 Pro 购买/订阅”的入口先走这里；已有有效 Pro 时不允许再买。
+    await assertCanGrantSingleProMonthly({
+      userId,
+      subscriptionService: this.subscriptionService,
+    });
+  }
+
   async grantAfterPayment(input: GrantEntitlementInput): Promise<GrantEntitlementResult> {
     const months = resolveMonthsByProductCode(input.productCode);
     const prepaidLimit = input.prepaidLimit ?? defaultPrepaidLimit(input.grantMode);
-    if (prepaidLimit !== "skip") {
+    const alreadyApplied = await this.subscriptionService.hasAppliedSourceOrder(input.sourceOrderId);
+    // 已经发过权益的订单要优先按幂等处理，避免 restore/webhook 重放被 active Pro 拦住。
+    if (prepaidLimit !== "skip" && !alreadyApplied) {
       await assertCanGrantSingleProMonthly({
         userId: input.userId,
         subscriptionService: this.subscriptionService,

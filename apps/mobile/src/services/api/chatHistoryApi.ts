@@ -9,6 +9,7 @@ type ApiResult<T> = ApiOk<T> | ApiFail;
 
 export type MessageView = {
   id: string;
+  clientId?: string | null;
   role: "user" | "assistant";
   status: "pending" | "success" | "failed";
   content: string;
@@ -38,6 +39,11 @@ export type SendMessageResult = {
   userMessage: MessageView;
 };
 
+export type ImportLocalDayMessagesResult = {
+  conversationId: string;
+  messages: MessageView[];
+};
+
 export async function sendMessageToCloud(input: {
   text: string;
   contactId: string;
@@ -57,6 +63,33 @@ export async function sendMessageToCloud(input: {
   });
 
   const json = (await res.json()) as ApiResult<SendMessageResult>;
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+  return json.data;
+}
+
+export async function importLocalDayMessagesToCloud(input: {
+  contactId: string;
+  dateKey: string;
+  messages: Array<{
+    clientId: string;
+    role: "user" | "assistant";
+    status: "success";
+    content: string;
+    createdAt: string;
+    clozeState?: MessageView["clozeState"];
+    clozeVersion?: number;
+    clozePracticeDiscardedAt?: string | null;
+  }>;
+}): Promise<ImportLocalDayMessagesResult> {
+  const res = await fetch(`${BASE_URL}/chat/messages/import-day`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+    body: JSON.stringify(input),
+  });
+
+  const json = (await res.json()) as ApiResult<ImportLocalDayMessagesResult>;
   if (!json.ok) {
     throw new Error(json.error.message);
   }

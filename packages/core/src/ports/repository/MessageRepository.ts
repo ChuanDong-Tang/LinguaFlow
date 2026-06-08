@@ -20,6 +20,7 @@ export interface MessageEntity {
   content: string;
   inputChars: number;
   outputChars: number;
+  clientId?: string | null;
   sourceMessageId?: string | null;
   clozeState?: ClozeState | null;
   clozeVersion: number;
@@ -37,8 +38,13 @@ export interface CreateMessageInput {
   content: string;
   inputChars?: number;
   outputChars?: number;
+  clientId?: string | null;
   sourceMessageId?: string | null;
+  clozeState?: ClozeState | null;
+  clozeVersion?: number;
+  clozePracticeDiscardedAt?: Date | null;
   conversationDateKey?: string | null;
+  createdAt?: Date;
 }
 
 export interface ListByConversationRangeInput {
@@ -103,6 +109,7 @@ export interface MessageRepository {
   updateClozeState(input: UpdateMessageClozeInput): Promise<UpdateMessageClozeResult>;
   discardClozePractice(messageId: string): Promise<MessageEntity>;
   findAssistantBySourceMessageId(sourceMessageId: string): Promise<MessageEntity | null>;
+  findByUserConversationClientId(userId: string, conversationId: string, clientId: string): Promise<MessageEntity | null>;
   listByConversation(conversationId: string, limit: number): Promise<MessageEntity[]>;
   listByUserAndDay(userId: string, dayStart: Date, dayEnd: Date): Promise<MessageEntity[]>;
   listByConversationRange(input: ListByConversationRangeInput): Promise<MessageEntity[]>;

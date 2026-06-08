@@ -134,6 +134,19 @@ export class AppleIapService {
       });
     }
 
+    const existingOrder = await this.paymentOrderRepository.findByProviderOrderId(transaction.transactionId);
+    const existingAppleSubscriptionLink =
+      purchaseKind === "auto_renew"
+        ? await this.appleIapAccountLinkRepository?.findByAppAccountToken(expectedAppAccountToken)
+        : null;
+    const isExistingAppleSubscription =
+      purchaseKind === "auto_renew" &&
+      existingAppleSubscriptionLink?.originalTransactionId === originalTransactionId;
+    if (!existingOrder && !isExistingAppleSubscription) {
+      // 新开 Apple 购买/订阅才检查 active Pro；同一 originalTransactionId 的续费/restore 允许继续幂等处理。
+      await this.paymentEntitlementService.assertCanStartNewProPurchase(input.userId);
+    }
+
     // 创建或复用 PaymentOrder，status = paid
     const order = await this.paymentOrderRepository.findOrCreatePaidExternalOrder({
       userId: input.userId,

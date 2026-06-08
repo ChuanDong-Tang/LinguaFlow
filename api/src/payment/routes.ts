@@ -243,7 +243,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       if (
         error instanceof AutoRenewAlreadyActiveError ||
         error instanceof AutoRenewConcurrentCreateError ||
-        error instanceof AutoRenewSwitchBlockedError
+        error instanceof AutoRenewSwitchBlockedError ||
+        error instanceof ProRenewalTooEarlyError
       ) {
         return reply.status(409).send({
           ok: false,
@@ -256,11 +257,18 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
                 : error instanceof AutoRenewSwitchBlockedError
                   // 用户取消自动续费后，当前 Pro 仍未过期；这里明确返回业务冲突，不当成支付/签约失败。
                   ? CLIENT_ERROR_MESSAGES.AUTO_RENEW_SWITCH_BLOCKED
+                  : error instanceof ProRenewalTooEarlyError
+                    ? CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY
                   : "Auto renew is already active.",
             ...(error instanceof AutoRenewSwitchBlockedError
               ? {
                   provider: error.provider,
                   currentPeriodEnd: error.currentPeriodEnd.toISOString(),
+                }
+              : {}),
+            ...(error instanceof ProRenewalTooEarlyError
+              ? {
+                  expiresAt: error.expiresAt.toISOString(),
                 }
               : {}),
           },
@@ -507,7 +515,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       if (error instanceof ProRenewalTooEarlyError) {
-        // 用户当前剩余 Pro 已接近上限：不创建单次月卡订单，避免未来调价后被长期囤月卡。
+        // 已有 Pro 时不创建新的单次月卡订单，避免单买和订阅叠加。
         return reply.status(409).send({
           ok: false,
           request_id: requestId,
@@ -515,7 +523,6 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
             code: error.code,
             message: CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY,
             expiresAt: error.expiresAt.toISOString(),
-            maxAllowedExpiresAt: error.maxAllowedExpiresAt.toISOString(),
           },
         });
       }
@@ -787,7 +794,6 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
             code: error.code,
             message: CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY,
             expiresAt: error.expiresAt.toISOString(),
-            maxAllowedExpiresAt: error.maxAllowedExpiresAt.toISOString(),
           },
         });
       }
@@ -836,7 +842,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
-        error: { code: "IAP_VERIFY_FAILED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
+        error: { code: verifyErrorCode, message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
       });
     }
   });

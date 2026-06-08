@@ -11,6 +11,7 @@ import {
   getProMonthlyProductQuote,
   createProMonthlyOrder,
   getCurrentAutoRenewSubscription,
+  MobileApiError,
   registerAppleAppAccountToken,
   verifyAppleProMonthlyTransaction,
   type MobileAutoRenewSubscription,
@@ -55,10 +56,6 @@ const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_
 const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ONE_TIME_PURCHASE === "true";
 const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
-const PRO_MONTHLY_MAX_PREPAID_MONTHS = readPositiveIntEnv(
-  process.env.EXPO_PUBLIC_PRO_MONTHLY_MAX_PREPAID_MONTHS,
-  2
-);
 const PRODUCT_PRICE_CACHE_KEY = "lf_pro_product_price_v1";
 const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
   process.env.EXPO_PUBLIC_PRO_PRICE_CACHE_TTL_MS,
@@ -72,6 +69,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
   const [autoRenew, setAutoRenew] = useState<MobileAutoRenewSubscription | null>(null);
   const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
+  const [hasLoadedAutoRenew, setHasLoadedAutoRenew] = useState(false);
   const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
   const [isRestoringApplePurchases, setIsRestoringApplePurchases] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
@@ -82,23 +80,26 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const liveProductPrices = resolveProMonthlyPriceLabels({ appleIap, wechatPriceLabel });
   const productPrices = liveProductPrices.primary ? liveProductPrices : cachedProductPrices ?? liveProductPrices;
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
-  const statusLabel = resolveProStatusLabel({
+  const membershipStatusLabel = resolveMembershipStatusLabel({
     isPro: isRenew,
     expiresAt: proExpiresAt,
-    autoRenew,
   });
   const autoRenewDescription = resolveAutoRenewDescription({
     isPro: isRenew,
     expiresAt: proExpiresAt,
     autoRenew,
+    hasLoadedAutoRenew,
   });
   const canStartOneTimePurchase =
     (Platform.OS === "ios" && ENABLE_APPLE_ONE_TIME_PURCHASE) ||
     (Platform.OS === "android" && ENABLE_WECHAT_ONE_TIME_PURCHASE);
   const canStartAutoRenew =
-    activeAutoRenew ||
-    (Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
-    (Platform.OS === "android" && ENABLE_WECHAT_AUTO_RENEW);
+    !isRenew &&
+    hasLoadedAutoRenew &&
+    (activeAutoRenew ||
+      (Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
+      (Platform.OS === "android" && ENABLE_WECHAT_AUTO_RENEW));
+  const shouldShowPurchaseActions = !isRenew || activeAutoRenew;
 
   function applyEntitlementToState(entitlement: CurrentEntitlement): void {
     setIsRenew(entitlement.isPro);
@@ -184,7 +185,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
         const currentAutoRenew = await getCurrentAutoRenewSubscription();
         if (!isScreenAlive()) return;
         setAutoRenew(currentAutoRenew);
-      } catch {}
+      } catch {
+      } finally {
+        if (isScreenAlive()) setHasLoadedAutoRenew(true);
+      }
       if (!didRefreshEntitlement) {
         await loadProEntitlementState();
       }
@@ -228,15 +232,14 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   async function handleSubscribe(): Promise<void> {
     if (isPaying) return;
+    if (isRenew) {
+      safeAlert("Pro 已生效", "当前 Pro 有效期结束后可再次购买。");
+      return;
+    }
     if (!canStartOneTimePurchase) {
       safeAlert("暂未开放", "购买 1 个月暂未开放。");
       return;
     }
-    if (!canBuyOneTimeProMonthly(proExpiresAt)) {
-      safeAlert("暂时不能单买", "Pro 最多预存到约 2 个月后。当前有效期已接近上限，可以开通订阅，到期后自动接续。");
-      return;
-    }
-
     if (Platform.OS === "ios") {
       await startAppleIapPurchase("single_purchase");
       return;
@@ -289,6 +292,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   async function handleStartAutoRenew(): Promise<void> {
     if (isAutoRenewLoading) return;
+    if (isRenew) {
+      safeAlert("Pro 已生效", "当前 Pro 有效期结束后可开通订阅。");
+      return;
+    }
 
     if (hasActiveAutoRenew(autoRenew)) {
       safeAlert("已开通自动续费", `当前已通过${formatProviderName(autoRenew.provider)}开通自动续费。`);
@@ -395,10 +402,6 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   async function startAppleIapPurchase(source: ApplePurchaseSource): Promise<void> {
     assertAppleIapAvailable(source);
-    if (source === "single_purchase" && !canBuyOneTimeProMonthly(proExpiresAt)) {
-      safeAlert("暂时不能单买", "Pro 最多预存到约 2 个月后。当前有效期已接近上限，可以开通订阅，到期后自动接续。");
-      return;
-    }
     if (!appleIap?.connected) {
       safeAlert("Apple 支付初始化中", "请稍后重试。");
       return;
@@ -462,6 +465,15 @@ export function ProScreen({ onBack }: ProScreenProps) {
       safeAlert("开通成功", "Pro 权益已生效。");
     } catch (error) {
       if (!isScreenAlive()) return;
+      if (isAppleTransactionOwnedByDifferentAccount(error)) {
+        if (purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID) {
+          await appleIap?.finishTransaction({
+            purchase,
+            isConsumable: false,
+          }).catch(() => { });
+        }
+        return;
+      }
       const message = error instanceof Error ? error.message : "请稍后重试";
       safeAlert("Apple 验单失败", message);
     } finally {
@@ -521,6 +533,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
       }
 
       const message = lastError instanceof Error ? lastError.message : "请稍后重试";
+      if (isAppleTransactionOwnedByDifferentAccount(lastError)) {
+        safeAlert("恢复购买失败", "这笔 Apple 购买记录不属于当前账号，请切换到购买时使用的 OIO 账号后再恢复。");
+        return;
+      }
       safeAlert("恢复购买失败", message);
     } catch (error) {
       if (!isScreenAlive()) return;
@@ -565,7 +581,6 @@ export function ProScreen({ onBack }: ProScreenProps) {
         <View style={styles.priceCard}>
           <View style={styles.priceHead}>
             <Text style={styles.priceTitle}>Pro 月度</Text>
-            {statusLabel ? <Text style={styles.expire}>{statusLabel}</Text> : null}
           </View>
           <View style={styles.priceRow}>
             <Text style={styles.price}>{productPrices.primary ?? "--"}</Text>
@@ -573,51 +588,57 @@ export function ProScreen({ onBack }: ProScreenProps) {
           </View>
           <View style={styles.autoRenewBox}>
             <View style={styles.autoRenewCopy}>
+              {membershipStatusLabel ? <Text style={styles.membershipStatus}>{membershipStatusLabel}</Text> : null}
               <Text style={styles.autoRenewTitle}>自动续费</Text>
               <Text style={styles.autoRenewText}>{autoRenewDescription}</Text>
             </View>
           </View>
 
-          <View style={styles.actionRow}>
-            <Pressable
-              style={[
-                styles.secondaryButton,
-                styles.actionButton,
-                (!canStartAutoRenew || isAutoRenewLoading) && styles.subscribeButtonDisabled,
-              ]}
-              onPress={activeAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew()}
-              disabled={!canStartAutoRenew || isAutoRenewLoading}
-            >
-              {isAutoRenewLoading ? (
-                <ActivityIndicator color="#111111" />
-              ) : (
-                <Text style={styles.secondaryButtonText}>
-                  {activeAutoRenew
-                    ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
-                    : canStartAutoRenew
-                      ? formatAutoRenewButtonLabel()
-                      : "暂未开放"}
-                </Text>
-              )}
-            </Pressable>
-            <Pressable
-              style={[
-                styles.subscribeButton,
-                styles.actionButton,
-                (!canStartOneTimePurchase || isPaying) && styles.subscribeButtonDisabled,
-              ]}
-              onPress={() => void handleSubscribe()}
-              disabled={!canStartOneTimePurchase || isPaying}
-            >
-              {isPaying ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.subscribeText}>
-                  {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : "暂未开放"}
-                </Text>
-              )}
-            </Pressable>
-          </View>
+          {shouldShowPurchaseActions ? (
+            <View style={styles.actionRow}>
+              <Pressable
+                style={[
+                  styles.secondaryButton,
+                  styles.actionButton,
+                  (!canStartAutoRenew && !activeAutoRenew || isAutoRenewLoading || !hasLoadedAutoRenew) &&
+                    styles.subscribeButtonDisabled,
+                ]}
+                onPress={activeAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew()}
+                disabled={(!canStartAutoRenew && !activeAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
+              >
+                {isAutoRenewLoading || !hasLoadedAutoRenew ? (
+                  <ActivityIndicator color="#111111" />
+                ) : (
+                  <Text style={styles.secondaryButtonText}>
+                    {activeAutoRenew
+                      ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
+                      : canStartAutoRenew
+                        ? formatAutoRenewButtonLabel()
+                        : "暂未开放"}
+                  </Text>
+                )}
+              </Pressable>
+              {!activeAutoRenew ? (
+                <Pressable
+                  style={[
+                    styles.subscribeButton,
+                    styles.actionButton,
+                    (!canStartOneTimePurchase || isPaying) && styles.subscribeButtonDisabled,
+                  ]}
+                  onPress={() => void handleSubscribe()}
+                  disabled={!canStartOneTimePurchase || isPaying}
+                >
+                  {isPaying ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.subscribeText}>
+                      {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : "暂未开放"}
+                    </Text>
+                  )}
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
           {Platform.OS === "ios" ? (
             <Pressable
               style={[styles.restoreButton, isRestoringApplePurchases && styles.subscribeButtonDisabled]}
@@ -696,23 +717,20 @@ async function payWithWechatParams(clientPayParams: Record<string, unknown>): Pr
   await payWithWechat(toWeChatClientPayParams(clientPayParams));
 }
 
-function formatRenewDate(value: string | null): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return `续费日期：${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
-}
-
 function resolveAutoRenewDescription(input: {
   isPro: boolean;
   expiresAt: string | null;
   autoRenew: MobileAutoRenewSubscription | null;
+  hasLoadedAutoRenew: boolean;
 }): string {
+  if (!input.hasLoadedAutoRenew) {
+    return "正在同步自动续费状态。";
+  }
   if (input.autoRenew?.status === "pending") {
     return "签约处理中，如未完成可稍后重试。";
   }
   if (hasActiveAutoRenew(input.autoRenew)) {
-    return `已通过${formatProviderName(input.autoRenew.provider)}开启`;
+    return `已通过${formatProviderName(input.autoRenew.provider)}开启，预计到期后续费。`;
   }
   if (input.isPro && input.expiresAt) {
     return `${formatAutoRenewProviderLabel()}自动续费会在当前会员到期后接续，不会立即重复扣费。`;
@@ -720,14 +738,10 @@ function resolveAutoRenewDescription(input: {
   return `${formatAutoRenewProviderLabel()}自动续费会先完成首期支付，之后按月自动续费，可随时管理。`;
 }
 
-function resolveProStatusLabel(input: {
+function resolveMembershipStatusLabel(input: {
   isPro: boolean;
   expiresAt: string | null;
-  autoRenew: MobileAutoRenewSubscription | null;
 }): string | null {
-  if (hasActiveAutoRenew(input.autoRenew)) {
-    return formatRenewDate(input.autoRenew.currentPeriodEnd) || "续费日期待同步";
-  }
   if (input.isPro && input.expiresAt) {
     return `有效期至：${formatDate(input.expiresAt)}`;
   }
@@ -747,31 +761,6 @@ function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): 
 function readPositiveIntEnv(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-}
-
-function canBuyOneTimeProMonthly(expiresAt: string | null): boolean {
-  if (!expiresAt) return true;
-  const expiresAtDate = new Date(expiresAt);
-  if (Number.isNaN(expiresAtDate.getTime())) return true;
-  const maxAllowedCurrentExpiresAt = addCalendarMonthsClamped(
-    new Date(),
-    PRO_MONTHLY_MAX_PREPAID_MONTHS - 1
-  );
-  return expiresAtDate <= maxAllowedCurrentExpiresAt;
-}
-
-function addCalendarMonthsClamped(base: Date, months: number): Date {
-  const targetYear = base.getFullYear();
-  const targetMonth = base.getMonth() + months;
-  const targetDay = Math.min(base.getDate(), daysInMonth(targetYear, targetMonth));
-  const next = new Date(base);
-
-  next.setFullYear(targetYear, targetMonth, targetDay);
-  return next;
-}
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(year, month + 1, 0).getDate();
 }
 
 function formatNumber(value: number): string {
@@ -902,6 +891,10 @@ function isAppleProPurchase(purchase: Purchase): boolean {
   );
 }
 
+function isAppleTransactionOwnedByDifferentAccount(error: unknown): boolean {
+  return error instanceof MobileApiError && error.code === "APPLE_APP_ACCOUNT_TOKEN_MISMATCH";
+}
+
 function isWechatUserCancelError(error: unknown): boolean {
   return error instanceof Error && error.message.includes("用户取消微信支付");
 }
@@ -948,12 +941,11 @@ function BenefitItem({
 
 const PAYMENT_RULES = [
   "随着网页版、语音合成等新功能加入，Pro 价格可能会随服务内容调整。",
-  "Pro 有效期统一累计，单买和订阅都接在同一条时间线上。",
-  "单月购买每次只加 1 个月，最多预存到约 2 个月后。",
-  "已有 Pro 开通订阅不会立即重复扣费，到期后自动接续。",
-  "订阅中单买 1 个月，会同步推迟下一次扣费。",
+  "单月购买每次开通 1 个月 Pro，有效期内不再提供重复购买入口。",
+  "开通自动续费后，平台会按订阅周期续费并延续 Pro 权益。",
+  "已有 Pro 期间不支持新开订阅或单买月卡，到期后可重新选择购买方式。",
   "价格或权益调整后，在后续购买或自动续费时生效。",
-  "取消订阅只停止后续扣款，当前权益保留至到期，到期前不允许重新签约自动续费，到期后可重新开通。",
+  "取消订阅只停止后续扣款，当前权益保留至到期。",
 ];
 
 const styles = StyleSheet.create({
@@ -1071,9 +1063,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
   },
-  expire: {
+  membershipStatus: {
     color: "#6A7290",
     fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 5,
   },
   priceRow: {
     marginTop: 6,

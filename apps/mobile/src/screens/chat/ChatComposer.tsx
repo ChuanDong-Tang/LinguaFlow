@@ -20,7 +20,6 @@ const INPUT_LINE_HEIGHT = 22;
 const INPUT_PADDING_TOP = Platform.OS === "android" ? 13 : 12;
 const INPUT_PADDING_BOTTOM = Platform.OS === "android" ? 13 : 12;
 const IS_IOS = Platform.OS === "ios";
-const IOS_EXPAND_TEXT_LENGTH = 60;
 
 export function ChatComposer({
   value,
@@ -33,19 +32,17 @@ export function ChatComposer({
   disabled,
   isSending,
 }: ChatComposerProps) {
-  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const { height: windowHeight } = useWindowDimensions();
   const [inputHeight, setInputHeight] = useState(COLLAPSED_MIN_HEIGHT);
   const [expanded, setExpanded] = useState(false);
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
-  const estimatedInputHeight = IS_IOS ? estimateIosInputHeight(value, windowWidth) : COLLAPSED_MIN_HEIGHT;
-  const effectiveInputHeight = IS_IOS ? Math.max(inputHeight, estimatedInputHeight) : inputHeight;
   const collapsedHeight = Math.max(
     COLLAPSED_MIN_HEIGHT,
-    Math.min(COLLAPSED_MAX_HEIGHT, effectiveInputHeight)
+    Math.min(COLLAPSED_MAX_HEIGHT, inputHeight)
   );
   const shellHeight = expanded ? expandedHeight : collapsedHeight;
   const canExpand = IS_IOS
-    ? expanded || value.includes("\n") || value.length >= IOS_EXPAND_TEXT_LENGTH || effectiveInputHeight > COLLAPSED_MIN_HEIGHT + INPUT_LINE_HEIGHT
+    ? expanded || value.includes("\n") || inputHeight > COLLAPSED_MIN_HEIGHT + INPUT_LINE_HEIGHT
     : expanded || inputHeight >= COLLAPSED_MAX_HEIGHT;
   const textInputHeight = shellHeight;
 
@@ -102,18 +99,6 @@ export function ChatComposer({
       </View>
     </View>
   );
-}
-
-function estimateIosInputHeight(text: string, windowWidth: number): number {
-  if (text.length === 0) return COLLAPSED_MIN_HEIGHT;
-
-  const availableTextWidth = Math.max(120, windowWidth - 16 * 2 - 20 - 92);
-  const estimatedCharsPerLine = Math.max(12, Math.floor(availableTextWidth / 8));
-  const estimatedLines = text
-    .split("\n")
-    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / estimatedCharsPerLine)), 0);
-
-  return INPUT_PADDING_TOP + INPUT_PADDING_BOTTOM + estimatedLines * INPUT_LINE_HEIGHT;
 }
 
 const styles = StyleSheet.create({

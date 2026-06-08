@@ -22,6 +22,27 @@ type SendMessageBody = {
   text: string;
 };
 
+type ImportLocalDayMessagesBody = {
+  contactId: string;
+  dateKey: string;
+  messages: Array<{
+    clientId: string;
+    role: "user" | "assistant";
+    status: "success";
+    content: string;
+    createdAt: string;
+    clozeState?: {
+      groups: Array<{
+        tokenIndexes: number[];
+        blankTokenIndexes: number[];
+      }>;
+      correctTokenIndexes: number[];
+    } | null;
+    clozeVersion?: number;
+    clozePracticeDiscardedAt?: string | null;
+  }>;
+};
+
 type ListMessagesQuery = {
   conversationId: string;
   userId?: string;
@@ -111,6 +132,45 @@ function isSendMessageBody(value: unknown): value is SendMessageBody {
     typeof v.text === "string" &&
     v.text.trim().length > 0
   );
+}
+
+function isImportLocalDayMessagesBody(value: unknown): value is ImportLocalDayMessagesBody {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v.contactId !== "string" ||
+    v.contactId.trim().length === 0 ||
+    typeof v.dateKey !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(v.dateKey) ||
+    !Array.isArray(v.messages) ||
+    v.messages.length === 0 ||
+    v.messages.length > 200
+  ) {
+    return false;
+  }
+
+  return v.messages.every((item) => {
+    if (!item || typeof item !== "object") return false;
+    const row = item as Record<string, unknown>;
+    return (
+      typeof row.clientId === "string" &&
+      row.clientId.trim().length > 0 &&
+      row.clientId.length <= 120 &&
+      (row.role === "user" || row.role === "assistant") &&
+      row.status === "success" &&
+      typeof row.content === "string" &&
+      row.content.length > 0 &&
+      row.content.length <= 20000 &&
+      typeof row.createdAt === "string" &&
+      Number.isFinite(new Date(row.createdAt).getTime()) &&
+      (row.clozeState === undefined || row.clozeState === null || typeof row.clozeState === "object") &&
+      (row.clozeVersion === undefined || Number.isFinite(row.clozeVersion)) &&
+      (row.clozePracticeDiscardedAt === undefined ||
+        row.clozePracticeDiscardedAt === null ||
+        (typeof row.clozePracticeDiscardedAt === "string" &&
+          Number.isFinite(new Date(row.clozePracticeDiscardedAt).getTime())))
+    );
+  });
 }
 
 function isUpdateClozeBody(value: unknown): value is UpdateClozeBody {
@@ -260,6 +320,75 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     });
 
     return reply.status(200).send({ ok: true, request_id: requestId, data });
+  });
+
+  app.post("/chat/messages/import-day", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    if (!isImportLocalDayMessagesBody(body)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid import payload" },
+      });
+    }
+
+    let userContext;
+    try {
+      userContext = await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      if (error instanceof AccountDisabledError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: null,
+          module: "auth",
+          event: "auth.account_disabled",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_DISABLED",
+          metadata: { path: "/chat/messages/import-day" },
+        });
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+
+      throw error;
+    }
+
+    try {
+      await assertProCloudAccess(deps, userContext.userId);
+      const data = await deps.chatMessageService.importLocalDayMessages({
+        userId: userContext.userId,
+        contactId: body.contactId,
+        dateKey: body.dateKey,
+        messages: body.messages,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (isProRequiredError(error)) {
+        return reply.status(403).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "PRO_REQUIRED", message: "Pro access required" },
+        });
+      }
+      throw error;
+    }
   });
 
   // 查某会话历史

@@ -6,6 +6,15 @@ type ApiOk<T> = { ok: true; data: T };
 type ApiFail = { ok: false; error: { code: string; message: string } };
 type ApiResult<T> = ApiOk<T> | ApiFail;
 
+export class MobileApiError extends Error {
+  constructor(
+    readonly code: string,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
 export type MobilePaymentOrderStatus = "pending" | "paid" | "closed" | "failed" | "refunded";
 
 export type MobileCreatePaymentOrderResult = {
@@ -78,7 +87,7 @@ export async function createProMonthlyOrder(): Promise<MobileCreatePaymentOrderR
   });
   const json = (await res.json()) as ApiResult<MobileCreatePaymentOrderResult>;
   if (!json.ok) {
-    throw new Error(json.error.message);
+    throw new MobileApiError(json.error.code, json.error.message);
   }
   return json.data;
 }
@@ -87,7 +96,7 @@ export async function getProMonthlyProductQuote(): Promise<MobilePaymentProductQ
   const res = await fetch(`${BASE_URL}/payment/products/pro-monthly`);
   const json = (await res.json()) as ApiResult<MobilePaymentProductQuote>;
   if (!json.ok) {
-    throw new Error(json.error.message);
+    throw new MobileApiError(json.error.code, json.error.message);
   }
   return json.data;
 }
@@ -98,7 +107,7 @@ export async function queryPaymentOrder(orderId: string): Promise<MobilePaymentO
   });
   const json = (await res.json()) as ApiResult<MobilePaymentOrderResult>;
   if (!json.ok) {
-    throw new Error(json.error.message);
+    throw new MobileApiError(json.error.code, json.error.message);
   }
   return json.data;
 }
@@ -109,7 +118,7 @@ export async function getCurrentAutoRenewSubscription(): Promise<MobileAutoRenew
   });
   const json = (await res.json()) as ApiResult<{ subscription: MobileAutoRenewSubscription | null }>;
   if (!json.ok) {
-    throw new Error(json.error.message);
+    throw new MobileApiError(json.error.code, json.error.message);
   }
   return json.data.subscription;
 }
@@ -125,7 +134,7 @@ export async function createWeChatAutoRenewPreSign(): Promise<MobileWeChatAutoRe
   });
   const json = (await res.json()) as ApiResult<MobileWeChatAutoRenewPreSignResult>;
   if (!json.ok) {
-    throw new Error(json.error.message);
+    throw new MobileApiError(json.error.code, json.error.message);
   }
   return json.data;
 }
@@ -146,7 +155,7 @@ export async function cancelAutoRenewSubscription(
     "id" | "provider" | "status" | "cancelledAt"
   >>;
   if (!json.ok) {
-    throw new Error(json.error.message);
+    throw new MobileApiError(json.error.code, json.error.message);
   }
   return json.data;
 }
@@ -164,7 +173,7 @@ export async function verifyAppleProMonthlyTransaction(
   });
   const json = (await res.json()) as ApiResult<MobileAppleVerifyTransactionResult>;
   if (!json.ok) {
-    throw new Error(json.error.message);
+    throw new MobileApiError(json.error.code, json.error.message);
   }
   return json.data;
 }
@@ -180,6 +189,6 @@ export async function registerAppleAppAccountToken(appAccountToken: string): Pro
   });
   const json = (await res.json()) as ApiResult<{ appAccountToken: string }>;
   if (!json.ok) {
-    throw new Error(json.error.message);
+    throw new MobileApiError(json.error.code, json.error.message);
   }
 }

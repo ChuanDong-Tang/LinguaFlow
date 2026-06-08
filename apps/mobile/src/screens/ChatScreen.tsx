@@ -15,6 +15,7 @@ import { getCurrentEntitlement } from "../services/api/meApi";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import {
   findConversationIdByDateFromCloud,
+  importLocalDayMessagesToCloud,
   listConversationDateKeysFromCloud,
   listDayMessagesFromCloud,
 } from "../services/api/chatHistoryApi";
@@ -302,7 +303,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }, []);
 
   async function handleSend(): Promise<void> {
-    if (netInfo.isConnected !== true || netInfo.isInternetReachable === false) {
+    if (netInfo.isConnected !== true) {
       Alert.alert("当前网络不可用，请连接网络后再发送");
       return;
     }
@@ -529,8 +530,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     return rows.map((row) => ({
       id: row.id,
       serverId: row.id,
-      clientId: `cloud-${row.id}`,
-      localId: `cloud-${row.id}`,
+      clientId: row.clientId ?? `cloud-${row.id}`,
+      localId: row.clientId ?? `cloud-${row.id}`,
       role: row.role,
       text: row.content,
       time: new Date(row.createdAt).toTimeString().slice(0, 5),
@@ -612,21 +613,71 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "checking");
     }
-    const resolvedConversationId = await resolveConversationIdForDate(dateKey, options?.signal);
+    const cachedLoaded = toDisplayRows(await loadChatMessagesByDate(contactId, dateKey)).sort((a, b) =>
+      a.createdAt < b.createdAt ? -1 : 1
+    );
+    let resolvedConversationId = await resolveConversationIdForDate(dateKey, options?.signal);
     if (!isMountedRef.current) return { synced: false, changed: false };
-    if (!resolvedConversationId) return { synced: false, changed: false };
 
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "fetching");
     }
-    const allRows = await listDayMessagesFromCloud({
-      conversationId: resolvedConversationId,
-      userId,
-      dateKey,
-      signal: options?.signal,
-    });
+    let allRows = resolvedConversationId
+      ? await listDayMessagesFromCloud({
+          conversationId: resolvedConversationId,
+          userId,
+          dateKey,
+          signal: options?.signal,
+        })
+      : [];
     if (!isMountedRef.current) return { synced: false, changed: false };
     if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
+
+    const cloudClientIds = new Set(allRows.map((row) => row.clientId).filter((clientId): clientId is string => !!clientId));
+    // 用户升级 Pro 后不在购买瞬间补云端；打开聊天同步当天时，先把成功的本地消息补到云端。
+    // 这样云端当天还没建会话时，也不会被一次空云端同步覆盖掉本地历史。
+    const unsyncedLocalRows = cachedLoaded.filter(
+      (row) =>
+        row.status === "success" &&
+        !row.serverId &&
+        !!row.clientId &&
+        !row.clientId.startsWith("cloud-") &&
+        !cloudClientIds.has(row.clientId) &&
+        row.text.trim().length > 0
+    );
+    if (unsyncedLocalRows.length > 0) {
+      if (options?.syncToken) {
+        daySyncMachine.setPhase(options.syncToken, "merging");
+      }
+      const imported = await importLocalDayMessagesToCloud({
+        contactId,
+        dateKey,
+        messages: unsyncedLocalRows.map((row) => ({
+          clientId: row.clientId,
+          role: row.role,
+          status: "success",
+          content: row.text,
+          createdAt: row.createdAt,
+          clozeState: row.role === "assistant" ? row.clozeState ?? null : null,
+          clozeVersion: row.role === "assistant" ? row.clozeVersion ?? 0 : 0,
+          clozePracticeDiscardedAt: row.role === "assistant" ? row.clozePracticeDiscardedAt ?? null : null,
+        })),
+      });
+      resolvedConversationId = imported.conversationId;
+      if (isMountedRef.current && resolvedConversationId !== conversationId) {
+        setConversationId(resolvedConversationId);
+      }
+      allRows = await listDayMessagesFromCloud({
+        conversationId: resolvedConversationId,
+        userId,
+        dateKey,
+        signal: options?.signal,
+      });
+      if (!isMountedRef.current) return { synced: false, changed: false };
+      if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
+    }
+
+    if (!resolvedConversationId) return { synced: false, changed: false };
 
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "merging");
@@ -640,10 +691,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return next;
     });
 
-    const dayKey = toDateKey(d);
-    const cachedLoaded = (dayLoadedRowsRef.current[dayKey] ?? []).slice().sort((a, b) =>
-      a.createdAt < b.createdAt ? -1 : 1
-    );
+    const dayKey = dateKey;
     let nextVisibleDay = visibleMapped;
     nextVisibleDay = mergeCloudAndLocal(nextVisibleDay, cachedLoaded);
     if (!options?.force && nextVisibleDay.length < cachedLoaded.length) {

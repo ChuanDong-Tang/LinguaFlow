@@ -38,8 +38,13 @@ export class PrismaMessageRepository implements MessageRepository {
         content: input.content,
         inputChars: input.inputChars ?? 0,
         outputChars: input.outputChars ?? 0,
+        clientId: input.clientId ?? null,
         sourceMessageId: input.sourceMessageId ?? null,
+        clozeState: input.clozeState ?? undefined,
+        clozeVersion: input.clozeVersion ?? undefined,
+        clozePracticeDiscardedAt: input.clozePracticeDiscardedAt ?? undefined,
         conversationDateKey: input.conversationDateKey ?? null,
+        createdAt: input.createdAt ?? undefined,
       },
     });
 
@@ -101,6 +106,21 @@ export class PrismaMessageRepository implements MessageRepository {
         role: "assistant",
       },
       orderBy: [{ createdAt: "asc" }],
+    });
+    return row ? this.toEntity(row) : null;
+  }
+
+  async findByUserConversationClientId(
+    userId: string,
+    conversationId: string,
+    clientId: string
+  ): Promise<MessageEntity | null> {
+    const row = await this.prisma.message.findFirst({
+      where: {
+        userId,
+        conversationId,
+        clientId,
+      },
     });
     return row ? this.toEntity(row) : null;
   }
@@ -346,6 +366,7 @@ export class PrismaMessageRepository implements MessageRepository {
     inputChars: number;
     outputChars: number;
     sourceMessageId: string | null;
+    clientId?: string | null;
     clozeState?: unknown;
     clozeVersion?: number;
     clozePracticeDiscardedAt?: Date | null;
@@ -362,6 +383,7 @@ export class PrismaMessageRepository implements MessageRepository {
       content: record.content,
       inputChars: record.inputChars,
       outputChars: record.outputChars,
+      clientId: record.clientId ?? null,
       sourceMessageId: record.sourceMessageId,
       clozeState: normalizeClozeState(record.clozeState),
       clozeVersion: Number.isFinite(record.clozeVersion) ? Number(record.clozeVersion) : 0,

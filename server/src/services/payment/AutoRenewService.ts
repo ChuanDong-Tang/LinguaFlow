@@ -15,6 +15,7 @@ import type {
 } from "../../providers/payment/wechat/WeChatAutoRenewProvider.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import { addCalendarMonthsClamped } from "../time/calendarMath.js";
+import { ProRenewalTooEarlyError } from "./ProPrepaidLimit.js";
 import { createHash } from "node:crypto";
 
 export interface CurrentAutoRenewView {
@@ -210,21 +211,18 @@ export class AutoRenewService {
       currentPro?.isPro === true && currentPro.expiresAt && currentPro.expiresAt > now
         ? currentPro
         : null;
+    if (activePro?.expiresAt) {
+      // 已有有效 Pro 时不再创建新的自动续费签约，避免“还在 Pro 期间又签一笔首期扣款”。
+      throw new ProRenewalTooEarlyError({ expiresAt: activePro.expiresAt });
+    }
 
-    const preSign = activePro
-      ? await this.weChatAutoRenewProvider.createScheduledH5PreSign({
-          userId: input.userId,
-          productCode: "pro_monthly",
-        })
-      : await this.weChatAutoRenewProvider.createH5PreSign({
-          userId: input.userId,
-          productCode: "pro_monthly",
-          description: runtime.payment.wechatAutoRenew.chargeDescription,
-          amount: runtime.payment.proMonthlyPriceCents,
-          currency: "CNY",
-        });
-    const appWithContract = "outTradeNo" in preSign ? preSign : null;
-
+    const preSign = await this.weChatAutoRenewProvider.createH5PreSign({
+      userId: input.userId,
+      productCode: "pro_monthly",
+      description: runtime.payment.wechatAutoRenew.chargeDescription,
+      amount: runtime.payment.proMonthlyPriceCents,
+      currency: "CNY",
+    });
     // 这里先用 out_contract_code 作为 providerAgreementId。
     // 微信 contract_id 要等签约回调回来后才会写入 latestTransactionId。
     const subscription = await this.register({
@@ -232,47 +230,40 @@ export class AutoRenewService {
       provider: "wechat",
       providerAgreementId: preSign.outContractCode,
       status: "pending",
-      // 如果用户签约时已经有单次购买/其他渠道发放的有效 Pro，不应立刻再扣一笔首期款。
-      // 自动续费只负责“接上当前权益”：等现有权益快到期时，由 worker 提前申请下一期扣款。
-      currentPeriodStart: activePro?.subscription?.startedAt ?? null,
-      currentPeriodEnd: activePro?.expiresAt ?? null,
-      nextBillingAt: activePro?.expiresAt ? computeEarlyBillingAt(activePro.expiresAt) : null,
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      nextBillingAt: null,
       metadata: {
-        source: activePro
-          ? "wechat_v3_scheduled_deduct_h5_pre_sign"
-          : "wechat_v3_app_with_contract",
-        firstChargeMode: activePro ? "defer_until_current_pro_expires" : "charge_after_contract_active",
-        existingProExpiresAt: activePro?.expiresAt?.toISOString() ?? null,
+        source: "wechat_v3_app_with_contract",
+        firstChargeMode: "charge_after_contract_active",
         preSignRaw: preSign.raw,
       },
     });
 
-    if (appWithContract) {
-      const periodStart = new Date();
-      const periodEnd = addCalendarMonthsClamped(periodStart, 1);
-      // App-with-contract 的首期支付单也先落库，后续支付/签约回调才能用 out_trade_no 幂等发权益。
-      await this.autoRenewRepository.upsertCharge({
-        autoRenewSubscriptionId: subscription.id,
-        userId: input.userId,
-        provider: "wechat",
-        productCode: "pro_monthly",
-        providerChargeId: appWithContract.outTradeNo,
-        periodKey: "initial",
-        status: "pending",
-        amount: runtime.payment.proMonthlyPriceCents,
-        currency: "CNY",
-        periodStart,
-        periodEnd,
-        rawPayload: { source: "wechat_v3_app_with_contract", stage: "prepay_created", raw: preSign.raw },
-      });
-    }
+    const periodStart = new Date();
+    const periodEnd = addCalendarMonthsClamped(periodStart, 1);
+    // App-with-contract 的首期支付单也先落库，后续支付/签约回调才能用 out_trade_no 幂等发权益。
+    await this.autoRenewRepository.upsertCharge({
+      autoRenewSubscriptionId: subscription.id,
+      userId: input.userId,
+      provider: "wechat",
+      productCode: "pro_monthly",
+      providerChargeId: preSign.outTradeNo,
+      periodKey: "initial",
+      status: "pending",
+      amount: runtime.payment.proMonthlyPriceCents,
+      currency: "CNY",
+      periodStart,
+      periodEnd,
+      rawPayload: { source: "wechat_v3_app_with_contract", stage: "prepay_created", raw: preSign.raw },
+    });
 
     return {
       subscription,
       outContractCode: preSign.outContractCode,
-      providerOrderId: appWithContract?.outTradeNo ?? null,
-      clientPayParams: appWithContract?.clientPayParams ?? null,
-      redirectUrl: "redirectUrl" in preSign ? preSign.redirectUrl : null,
+      providerOrderId: preSign.outTradeNo,
+      clientPayParams: preSign.clientPayParams,
+      redirectUrl: null,
     };
   }
 

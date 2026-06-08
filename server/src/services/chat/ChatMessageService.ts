@@ -10,6 +10,7 @@ export interface SendMessageInput {
 
 export interface MessageView {
   id: string;
+  clientId: string | null;
   role: "user" | "assistant";
   status: "pending" | "success" | "failed";
   content: string;
@@ -94,6 +95,29 @@ export interface DiscardClozePracticeResult {
   clozePracticeDiscardedAt: string;
 }
 
+export interface ImportLocalMessageInput {
+  clientId: string;
+  role: "user" | "assistant";
+  status: "success";
+  content: string;
+  createdAt: string;
+  clozeState?: ClozeState | null;
+  clozeVersion?: number;
+  clozePracticeDiscardedAt?: string | null;
+}
+
+export interface ImportLocalDayMessagesInput {
+  userId: string;
+  contactId: string;
+  dateKey: string;
+  messages: ImportLocalMessageInput[];
+}
+
+export interface ImportLocalDayMessagesResult {
+  conversationId: string;
+  messages: MessageView[];
+}
+
 export class ConversationAccessDeniedError extends Error {
   readonly code = "CONVERSATION_NOT_FOUND";
 
@@ -172,6 +196,102 @@ export class ChatMessageService {
     return {
       conversationId: conversation.id,
       userMessage: this.toView(userMessage),
+    };
+  }
+
+  async importLocalDayMessages(input: ImportLocalDayMessagesInput): Promise<ImportLocalDayMessagesResult> {
+    // Pro 用户打开聊天时懒补当天本地消息：只导入历史，不触发 AI 生成，也不消耗额度。
+    let conversation = await this.conversationRepository.findByUserContactDate(
+      input.userId,
+      input.contactId,
+      input.dateKey,
+    );
+
+    if (!conversation) {
+      try {
+        conversation = await this.conversationRepository.create({
+          userId: input.userId,
+          contactId: input.contactId,
+          title: null,
+          dateKey: input.dateKey,
+        });
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        const concurrent = await this.conversationRepository.findByUserContactDate(
+          input.userId,
+          input.contactId,
+          input.dateKey
+        );
+        if (!concurrent) throw error;
+        conversation = concurrent;
+      }
+    }
+
+    const imported: MessageView[] = [];
+    let pendingSourceUserId: string | null = null;
+    // 先按本地创建时间还原顺序；同一时间点让 user 在 assistant 前，才能重建 sourceMessageId。
+    const sorted = input.messages
+      .slice()
+      .sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+        if (a.role !== b.role) return a.role === "user" ? -1 : 1;
+        return a.clientId < b.clientId ? -1 : a.clientId > b.clientId ? 1 : 0;
+      });
+
+    for (const row of sorted) {
+      // clientId 是本地和云端的幂等键；重复同步、并发同步都不会重复插入同一条消息。
+      const existing = await this.messageRepository.findByUserConversationClientId(
+        input.userId,
+        conversation.id,
+        row.clientId
+      );
+      if (existing) {
+        pendingSourceUserId = existing.role === "user" ? existing.id : null;
+        imported.push(this.toView(existing));
+        continue;
+      }
+
+      const createdAt = new Date(row.createdAt);
+      const safeCreatedAt = Number.isFinite(createdAt.getTime()) ? createdAt : new Date();
+      const clozeState = row.role === "assistant" && row.clozeState !== undefined
+        ? normalizeClozeState(row.clozeState, row.content)
+        : null;
+      let message;
+      try {
+        message = await this.messageRepository.create({
+          conversationId: conversation.id,
+          userId: input.userId,
+          role: row.role,
+          status: "success",
+          content: row.content,
+          inputChars: row.role === "user" ? row.content.length : 0,
+          outputChars: row.role === "assistant" ? row.content.length : 0,
+          clientId: row.clientId,
+          sourceMessageId: row.role === "assistant" ? pendingSourceUserId : null,
+          clozeState,
+          clozeVersion: row.role === "assistant" ? Math.max(0, Math.floor(row.clozeVersion ?? 0)) : 0,
+          clozePracticeDiscardedAt: row.clozePracticeDiscardedAt ? new Date(row.clozePracticeDiscardedAt) : null,
+          conversationDateKey: conversation.dateKey,
+          createdAt: safeCreatedAt,
+        });
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        const concurrent = await this.messageRepository.findByUserConversationClientId(
+          input.userId,
+          conversation.id,
+          row.clientId
+        );
+        if (!concurrent) throw error;
+        message = concurrent;
+      }
+
+      pendingSourceUserId = message.role === "user" ? message.id : null;
+      imported.push(this.toView(message));
+    }
+
+    return {
+      conversationId: conversation.id,
+      messages: imported,
     };
   }
 
@@ -368,6 +488,7 @@ export class ChatMessageService {
 
   private toView(row: {
     id: string;
+    clientId?: string | null;
     role: "user" | "assistant";
     status: "pending" | "success" | "failed";
     content: string;
@@ -379,6 +500,7 @@ export class ChatMessageService {
   }): MessageView {
     return {
       id: row.id,
+      clientId: row.clientId ?? null,
       role: row.role,
       status: row.status,
       content: row.content,
@@ -411,6 +533,10 @@ export class ChatMessageService {
     }
   }
 
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "P2002");
 }
 
 function normalizeClozeState(input: ClozeState | null, messageContent: string): ClozeState | null {

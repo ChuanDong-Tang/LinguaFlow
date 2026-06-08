@@ -12,59 +12,41 @@ export async function fetchTransactionInfo(
 ): Promise<
   { environment: "production" | "sandbox" } & AppleTransactionPayload
 > {
-  if (getRuntimeConfig().mode === "test") {
-    return fetchTransactionInfoFromEndpoint({
+  const runtime = getRuntimeConfig();
+  if (runtime.mode === "test") {
+    const sandbox = await fetchTransactionInfoFromEndpoint({
       endpoint: "sandbox",
       baseUrl: APPLE_SANDBOX_BASE_URL,
       transactionId,
       token,
       rootCaPem,
     });
+    if (sandbox.ok) return sandbox.transaction;
+    throw sandbox.error;
   }
 
-  const prod = await requestTransactionInfo(APPLE_PROD_BASE_URL, transactionId, token);
-  if (prod.ok) {
-    const verified = verifyAndDecodeAppleJws(prod.signedTransactionInfo, rootCaPem);
-    const transaction = decodeTransactionPayload(verified.payload);
-    assertAppleTransactionEnvironment(transaction.signedEnvironment, "production");
-    return {
-      environment: "production",
-      ...transaction,
-    };
-  }
+  const prod = await fetchTransactionInfoFromEndpoint({
+    endpoint: "production",
+    baseUrl: APPLE_PROD_BASE_URL,
+    transactionId,
+    token,
+    rootCaPem,
+  });
+  if (prod.ok) return prod.transaction;
+  if (prod.status !== 404) throw prod.error;
+  if (!runtime.payment.appleIap.allowSandboxFallback) throw prod.error;
 
-  if (prod.status !== 404) {
-    throw new AppleIapVerifyError(
-      `Apple production verify failed: HTTP ${prod.status}`,
-      `APPLE_PRODUCTION_HTTP_${prod.status}`,
-      {
-        endpoint: "production",
-        status: prod.status,
-        responseBody: truncateForLog(prod.message),
-      }
-    );
-  }
-
-  const sandbox = await requestTransactionInfo(APPLE_SANDBOX_BASE_URL, transactionId, token);
-  if (!sandbox.ok) {
-    throw new AppleIapVerifyError(
-      `Apple sandbox verify failed: HTTP ${sandbox.status}`,
-      `APPLE_SANDBOX_HTTP_${sandbox.status}`,
-      {
-        endpoint: "sandbox",
-        status: sandbox.status,
-        responseBody: truncateForLog(sandbox.message),
-      }
-    );
-  }
-
-  const verified = verifyAndDecodeAppleJws(sandbox.signedTransactionInfo, rootCaPem);
-  const transaction = decodeTransactionPayload(verified.payload);
-  assertAppleTransactionEnvironment(transaction.signedEnvironment, "sandbox");
-  return {
-    environment: "sandbox",
-    ...transaction,
-  };
+  // App Store Server API 对 sandbox/TestFlight 交易常见表现是 production 查不到返回 404。
+  // 只有显式允许 fallback 时才查 sandbox，避免正式生产环境无意接受沙盒票据。
+  const sandbox = await fetchTransactionInfoFromEndpoint({
+    endpoint: "sandbox",
+    baseUrl: APPLE_SANDBOX_BASE_URL,
+    transactionId,
+    token,
+    rootCaPem,
+  });
+  if (sandbox.ok) return sandbox.transaction;
+  throw sandbox.error;
 }
 
 async function fetchTransactionInfoFromEndpoint(input: {
@@ -73,26 +55,36 @@ async function fetchTransactionInfoFromEndpoint(input: {
   transactionId: string;
   token: string;
   rootCaPem: string;
-}): Promise<{ environment: "production" | "sandbox" } & AppleTransactionPayload> {
+}): Promise<
+  | { ok: true; transaction: { environment: "production" | "sandbox" } & AppleTransactionPayload }
+  | { ok: false; status: number; error: AppleIapVerifyError }
+> {
   const response = await requestTransactionInfo(input.baseUrl, input.transactionId, input.token);
   if (!response.ok) {
-    throw new AppleIapVerifyError(
-      `Apple ${input.endpoint} verify failed: HTTP ${response.status}`,
-      `APPLE_${input.endpoint.toUpperCase()}_HTTP_${response.status}`,
-      {
-        endpoint: input.endpoint,
-        status: response.status,
-        responseBody: truncateForLog(response.message),
-      }
-    );
+    return {
+      ok: false,
+      status: response.status,
+      error: new AppleIapVerifyError(
+        `Apple ${input.endpoint} verify failed: HTTP ${response.status}`,
+        `APPLE_${input.endpoint.toUpperCase()}_HTTP_${response.status}`,
+        {
+          endpoint: input.endpoint,
+          status: response.status,
+          responseBody: truncateForLog(response.message),
+        }
+      ),
+    };
   }
 
   const verified = verifyAndDecodeAppleJws(response.signedTransactionInfo, input.rootCaPem);
   const transaction = decodeTransactionPayload(verified.payload);
   assertAppleTransactionEnvironment(transaction.signedEnvironment, input.endpoint);
   return {
-    environment: input.endpoint,
-    ...transaction,
+    ok: true,
+    transaction: {
+      environment: input.endpoint,
+      ...transaction,
+    },
   };
 }
 

@@ -108,6 +108,7 @@ model Message {
   content          String
   inputChars       Int           @default(0)
   outputChars      Int           @default(0)
+  clientId         String?
   sourceMessageId  String?       @unique
   clozeState       Json?
   clozeVersion     Int           @default(0)
@@ -124,6 +125,7 @@ model Message {
   @@index([conversationId, createdAt])
   @@index([userId, createdAt])
   @@index([userId, status, createdAt])
+  @@unique([userId, conversationId, clientId])
   @@map("messages")
 }
 

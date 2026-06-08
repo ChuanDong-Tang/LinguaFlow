@@ -3,7 +3,6 @@ export type RuntimeMode = "development" | "production" | "test";
 export interface PaymentRuntimeConfig {
   wechatPayEnabled: boolean;
   proMonthlyPriceCents: number;
-  proMonthlyMaxPrepaidMonths: number;
   descriptionProMonthly: string;
   pendingReuseWindowMs: number;
   reconcileGraceMs: number;
@@ -41,6 +40,7 @@ export interface PaymentRuntimeConfig {
     rootCa: string | null;
     proMonthlyProductId: string | null;
     proMonthlyOneTimeProductId: string | null;
+    allowSandboxFallback: boolean;
   };
 }
 
@@ -130,7 +130,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     proDailyTotalLimit: readPositiveInt(env.LF_PRO_DAILY_TOTAL_LIMIT, 10_000),
     freeTrialTotalLimit: readPositiveInt(env.LF_FREE_TRIAL_TOTAL_LIMIT, 5000),
     freeTrialValidDays: readPositiveInt(env.LF_FREE_TRIAL_VALID_DAYS, 7),
-    payment: readPaymentRuntimeConfig(env),
+    payment: readPaymentRuntimeConfig(env, mode),
     benefitGrantRetryEnabled: readBoolean(env.LF_BENEFIT_GRANT_RETRY_ENABLED, true),
     benefitGrantMaxAttempts: readPositiveInt(env.LF_BENEFIT_GRANT_MAX_ATTEMPTS, 6),
     benefitGrantBackoffMaxMs: readPositiveInt(env.LF_BENEFIT_GRANT_BACKOFF_MAX_MS, 60_000),
@@ -179,12 +179,10 @@ function normalizeMode(value: string | undefined): RuntimeMode {
   return "development";
 }
 
-function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv): PaymentRuntimeConfig {
+function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): PaymentRuntimeConfig {
   return {
     wechatPayEnabled: readBoolean(env.WECHAT_PAY_ENABLED, false),
     proMonthlyPriceCents: readPositiveInt(env.LF_PRO_MONTHLY_PRICE_CENTS, 3000),
-    // 单次月卡最多允许预存多少个月的 Pro 权益。默认 2 个月，避免未来调价后用户长期囤低价月卡。
-    proMonthlyMaxPrepaidMonths: readPositiveInt(env.LF_PRO_MONTHLY_MAX_PREPAID_MONTHS, 2),
     descriptionProMonthly: env.LF_PAYMENT_DESC_PRO_MONTHLY?.trim() || "OIO Pro 月卡",
     pendingReuseWindowMs: readPositiveInt(env.LF_PAYMENT_PENDING_REUSE_WINDOW_MS, 300_000),
     reconcileGraceMs: readPositiveInt(env.LF_PAYMENT_RECONCILE_GRACE_MS, 120_000),
@@ -231,6 +229,7 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv): PaymentRuntimeConfig 
       rootCa: trimToNull(env.APPLE_IAP_ROOT_CA),
       proMonthlyProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_PRODUCT_ID),
       proMonthlyOneTimeProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_ONE_TIME_PRODUCT_ID),
+      allowSandboxFallback: readBoolean(env.APPLE_IAP_ALLOW_SANDBOX_FALLBACK, mode !== "production"),
     },
   };
 }
