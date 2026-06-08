@@ -356,7 +356,7 @@ export class AppleIapService {
         providerOrderId: null,
         eventType,
         rawPayload: {
-          notification,
+          notification: sanitizeAppleNotificationForStorage(notification),
           header: decoded.header,
         },
       }));
@@ -387,7 +387,7 @@ export class AppleIapService {
               periodStart,
               periodEnd,
               rawPayload: {
-                notification,
+                notification: sanitizeAppleNotificationForStorage(notification),
                 transaction: tx,
               },
             });
@@ -399,7 +399,7 @@ export class AppleIapService {
                 periodStart,
                 periodEnd,
                 rawPayload: {
-                  notification,
+                  notification: sanitizeAppleNotificationForStorage(notification),
                   transaction: tx,
                 },
               });
@@ -407,7 +407,7 @@ export class AppleIapService {
           } else if (["EXPIRED", "REFUND", "REVOKE"].includes(String(notification.notificationType ?? "").toUpperCase())) {
             await this.autoRenewService.handleAppleCancelled({
               originalTransactionId: tx.originalTransactionId,
-              rawPayload: { notification, transaction: tx },
+              rawPayload: { notification: sanitizeAppleNotificationForStorage(notification), transaction: tx },
             });
           }
         }
@@ -506,6 +506,23 @@ export class AppleIapService {
 function isApplePaidRenewal(notificationType: string | undefined): boolean {
   const type = String(notificationType ?? "").toUpperCase();
   return ["SUBSCRIBED", "DID_RENEW", "DID_RECOVER", "ONE_TIME_CHARGE"].includes(type);
+}
+
+function sanitizeAppleNotificationForStorage(notification: AppleServerNotificationPayload): unknown {
+  return {
+    notificationUUID: notification.notificationUUID ?? null,
+    notificationType: notification.notificationType ?? null,
+    subtype: notification.subtype ?? null,
+    data: {
+      environment: notification.data?.environment ?? null,
+      // signedTransactionInfo / signedRenewalInfo 都是很长的 JWS。
+      // 存库只保留解码后的 tx 摘要，原始 JWS 不进 rawPayload，避免 payment_events/charge 记录膨胀。
+      hasSignedTransactionInfo: Boolean(notification.data?.signedTransactionInfo),
+      hasSignedRenewalInfo: Boolean(
+        (notification.data as { signedRenewalInfo?: unknown } | undefined)?.signedRenewalInfo
+      ),
+    },
+  };
 }
 
 function isAppleSubscriptionBoundRepositoryError(error: unknown): boolean {
