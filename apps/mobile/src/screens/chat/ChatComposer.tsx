@@ -40,13 +40,14 @@ export function ChatComposer({
   const [expanded, setExpanded] = useState(false);
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
   const measuredInputHeight = contentTextHeight + INPUT_VERTICAL_PADDING;
+  const measuredLineCount = Math.max(1, Math.ceil(contentTextHeight / INPUT_LINE_HEIGHT));
   const collapsedHeight = Math.max(
     COLLAPSED_MIN_HEIGHT,
     Math.min(COLLAPSED_MAX_HEIGHT, measuredInputHeight)
   );
   const shellHeight = expanded ? expandedHeight : collapsedHeight;
   const canExpand = IS_IOS
-    ? expanded || value.includes("\n") || measuredInputHeight > COLLAPSED_MIN_HEIGHT + INPUT_LINE_HEIGHT
+    ? expanded || measuredLineCount >= 4
     : expanded || measuredInputHeight >= COLLAPSED_MAX_HEIGHT;
   const textInputHeight = shellHeight;
   const measureText = value.length > 0

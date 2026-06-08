@@ -129,12 +129,6 @@ export class AutoRenewService {
     });
   }
 
-  async isUserProActive(userId: string, now = new Date()): Promise<boolean> {
-    if (!this.subscriptionService) return false;
-    const currentPro = await this.subscriptionService.getCurrentSubscription(userId, now);
-    return Boolean(currentPro.isPro && currentPro.expiresAt && currentPro.expiresAt > now);
-  }
-
   async transferAppleSubscriptionToUser(input: {
     subscriptionId: string;
     userId: string;

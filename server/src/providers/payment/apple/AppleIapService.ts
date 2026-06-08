@@ -179,16 +179,9 @@ export class AppleIapService {
             : null;
 
       if (boundUserId) {
-        const oldAutoRenewStillActive =
-          existingAutoRenew && existingAutoRenew.userId !== input.userId
-            ? isAppleAutoRenewStillActive(existingAutoRenew, now)
-            : false;
-        const oldUserProStillActive = this.autoRenewService
-          ? await this.autoRenewService.isUserProActive(boundUserId, now)
-          : true;
-        if (oldAutoRenewStillActive || oldUserProStillActive) {
-          throw new AppleIapSubscriptionAlreadyBoundError({ originalTransactionId });
-        }
+        // 这次 Apple 交易的 appAccountToken 已经校验为当前 OIO 账号，
+        // 且 expiresDate 仍有效；这里信 Apple 当前交易，允许从旧 OIO 账号转绑。
+        // 旧账号本地仍是 Pro/旧 auto-renew 周期未及时同步，不能再阻断当前账号发权益。
         shouldTransferAppleSubscription = Boolean(existingAutoRenew && existingAutoRenew.userId !== input.userId);
       }
 
@@ -513,16 +506,6 @@ export class AppleIapService {
 function isApplePaidRenewal(notificationType: string | undefined): boolean {
   const type = String(notificationType ?? "").toUpperCase();
   return ["SUBSCRIBED", "DID_RENEW", "DID_RECOVER", "ONE_TIME_CHARGE"].includes(type);
-}
-
-function isAppleAutoRenewStillActive(
-  subscription: { status: string; currentPeriodEnd: Date | null },
-  now: Date
-): boolean {
-  return (
-    ["active", "billing_retry"].includes(subscription.status) &&
-    Boolean(subscription.currentPeriodEnd && subscription.currentPeriodEnd > now)
-  );
 }
 
 function isAppleSubscriptionBoundRepositoryError(error: unknown): boolean {
