@@ -19,6 +19,7 @@ import { AppleIapService } from "@lf/server/providers/payment/apple/AppleIapServ
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import {
   AppleIapConfigError,
+  AppleIapSubscriptionAlreadyBoundError,
   AppleIapVerifyError,
 } from "@lf/server/providers/payment/apple/AppleIapErrors.js";
 import { checkWeChatPayConfig } from "@lf/server/providers/payment/wechat/WeChatPayConfig.js";
@@ -51,6 +52,7 @@ const CLIENT_ERROR_MESSAGES = {
   PRO_RENEWAL_TOO_EARLY: "Pro can be prepaid for at most 2 months.",
   RESOURCE_NOT_FOUND: "Payment order not found.",
   IAP_VERIFY_FAILED: "Unable to verify purchase at the moment.",
+  APPLE_SUBSCRIPTION_ALREADY_BOUND: "This Apple subscription is already bound to another OIO account.",
   IAP_NOTIFY_FAILED: "Notification processing failed.",
   AUTH_UNAUTHORIZED: "Authentication required.",
   ACCOUNT_DISABLED: "Account is unavailable.",
@@ -794,6 +796,17 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
             code: error.code,
             message: CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY,
             expiresAt: error.expiresAt.toISOString(),
+          },
+        });
+      }
+      if (error instanceof AppleIapSubscriptionAlreadyBoundError) {
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.APPLE_SUBSCRIPTION_ALREADY_BOUND,
+            originalTransactionId: error.originalTransactionId,
           },
         });
       }

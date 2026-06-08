@@ -20,3 +20,13 @@ export class AppleIapVerifyError extends Error {
     return new AppleIapVerifyError(this.message, this.code, details);
   }
 }
+
+export class AppleIapSubscriptionAlreadyBoundError extends Error {
+  readonly code = "APPLE_SUBSCRIPTION_ALREADY_BOUND";
+  readonly originalTransactionId: string;
+
+  constructor(input: { originalTransactionId: string }) {
+    super("Apple subscription is already bound to another OIO account");
+    this.originalTransactionId = input.originalTransactionId;
+  }
+}

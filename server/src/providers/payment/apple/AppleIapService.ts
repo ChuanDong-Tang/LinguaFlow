@@ -11,7 +11,11 @@ import { createEntitlementGrantPayload } from "../../../services/payment/Entitle
 import { getExpectedCurrentStatusesForNextStatus } from "../../../services/payment/PaymentOrderStateMachine.js";
 import { APPLE_PROVIDER } from "./AppleIapConstants.js";
 import { isAppleIapConfigured, loadAppleIapConfig } from "./AppleIapConfig.js";
-import { AppleIapConfigError, AppleIapVerifyError } from "./AppleIapErrors.js";
+import {
+  AppleIapConfigError,
+  AppleIapSubscriptionAlreadyBoundError,
+  AppleIapVerifyError,
+} from "./AppleIapErrors.js";
 import { fetchTransactionInfo } from "./AppleIapClient.js";
 import {
   type AppleServerNotificationPayload,
@@ -134,20 +138,125 @@ export class AppleIapService {
       });
     }
 
-    const existingOrder = await this.paymentOrderRepository.findByProviderOrderId(transaction.transactionId);
-    const existingAppleSubscriptionLink =
-      purchaseKind === "auto_renew"
-        ? await this.appleIapAccountLinkRepository?.findByAppAccountToken(expectedAppAccountToken)
+    const grantMode = purchaseKind === "auto_renew" ? "subscription_period" : "fixed_duration";
+    const grantPeriodStart =
+      purchaseKind === "auto_renew" && transaction.purchaseDate
+        ? new Date(transaction.purchaseDate)
         : null;
-    const isExistingAppleSubscription =
-      purchaseKind === "auto_renew" &&
-      existingAppleSubscriptionLink?.originalTransactionId === originalTransactionId;
+    const grantPeriodEnd =
+      purchaseKind === "auto_renew" && transaction.expiresDate
+        ? new Date(transaction.expiresDate)
+        : null;
+    const prepaidLimit = purchaseKind === "single_purchase" ? "enforce" : "skip";
+
+    const existingOrder = await this.paymentOrderRepository.findByProviderOrderId(transaction.transactionId);
+    if (existingOrder && existingOrder.userId !== input.userId) {
+      throw new AppleIapSubscriptionAlreadyBoundError({ originalTransactionId });
+    }
+
+    let isExistingAppleSubscription = false;
+    let shouldTransferAppleSubscription = false;
+    if (purchaseKind === "auto_renew") {
+      const now = new Date();
+      if (!grantPeriodEnd || grantPeriodEnd <= now) {
+        throw new AppleIapVerifyError("Apple subscription is expired", "APPLE_SUBSCRIPTION_EXPIRED", {
+          environment: transaction.environment,
+          transactionId: transaction.transactionId,
+          originalTransactionId,
+          expiresDate: transaction.expiresDate,
+        });
+      }
+
+      const existingByOriginal =
+        await this.appleIapAccountLinkRepository?.findByOriginalTransactionId(originalTransactionId);
+      const existingAutoRenew =
+        await this.autoRenewService?.getAppleSubscriptionByOriginalTransactionId(originalTransactionId);
+      const boundUserId =
+        existingByOriginal?.userId !== input.userId
+          ? existingByOriginal?.userId
+          : existingAutoRenew?.userId !== input.userId
+            ? existingAutoRenew?.userId
+            : null;
+
+      if (boundUserId) {
+        const oldAutoRenewStillActive =
+          existingAutoRenew && existingAutoRenew.userId !== input.userId
+            ? isAppleAutoRenewStillActive(existingAutoRenew, now)
+            : false;
+        const oldUserProStillActive = this.autoRenewService
+          ? await this.autoRenewService.isUserProActive(boundUserId, now)
+          : true;
+        if (oldAutoRenewStillActive || oldUserProStillActive) {
+          throw new AppleIapSubscriptionAlreadyBoundError({ originalTransactionId });
+        }
+        shouldTransferAppleSubscription = Boolean(existingAutoRenew && existingAutoRenew.userId !== input.userId);
+      }
+
+      isExistingAppleSubscription =
+        existingByOriginal?.userId === input.userId || existingAutoRenew?.userId === input.userId;
+    }
+
     if (!existingOrder && !isExistingAppleSubscription) {
       // 新开 Apple 购买/订阅才检查 active Pro；同一 originalTransactionId 的续费/restore 允许继续幂等处理。
       await this.paymentEntitlementService.assertCanStartNewProPurchase(input.userId);
     }
 
-    // 创建或复用 PaymentOrder，status = paid
+    if (purchaseKind === "auto_renew") {
+      try {
+        await this.appleIapAccountLinkRepository?.claimOriginalTransaction({
+          userId: input.userId,
+          appAccountToken: expectedAppAccountToken,
+          originalTransactionId,
+          latestTransactionId: transaction.transactionId,
+        });
+      } catch (error) {
+        if (isAppleSubscriptionBoundRepositoryError(error)) {
+          throw new AppleIapSubscriptionAlreadyBoundError({ originalTransactionId });
+        }
+        throw error;
+      }
+      const autoRenewMetadata = {
+        source: shouldTransferAppleSubscription
+          ? "apple_verify_transaction_transfer"
+          : "apple_verify_transaction",
+        environment: transaction.environment,
+        productId: transaction.productId,
+        appAccountToken: transaction.appAccountToken,
+      };
+      if (shouldTransferAppleSubscription) {
+        const existingAutoRenew =
+          await this.autoRenewService?.getAppleSubscriptionByOriginalTransactionId(originalTransactionId);
+        if (existingAutoRenew) {
+          await this.autoRenewService?.transferAppleSubscriptionToUser({
+            subscriptionId: existingAutoRenew.id,
+            userId: input.userId,
+            latestTransactionId: transaction.transactionId,
+            periodStart: grantPeriodStart,
+            periodEnd: grantPeriodEnd,
+            metadata: autoRenewMetadata,
+          });
+        }
+      } else {
+        await this.autoRenewService?.register({
+          userId: input.userId,
+          provider: "apple",
+          providerAgreementId: originalTransactionId,
+          latestTransactionId: transaction.transactionId,
+          currentPeriodStart: grantPeriodStart,
+          currentPeriodEnd: grantPeriodEnd,
+          nextPeriodEnd: grantPeriodEnd,
+          metadata: autoRenewMetadata,
+        });
+      }
+    } else {
+      await this.appleIapAccountLinkRepository?.upsert({
+        userId: input.userId,
+        appAccountToken: expectedAppAccountToken,
+      });
+    }
+
+    // Apple 已经支付成功，但 OIO 仍要先确认订阅链可归当前账号，再创建内部 paid order。
+    // 否则 originalTransactionId 认领失败时，会留下“订单已 paid、权益没发”的半状态。
     const order = await this.paymentOrderRepository.findOrCreatePaidExternalOrder({
       userId: input.userId,
       productCode: "pro_monthly",
@@ -167,46 +276,7 @@ export class AppleIapService {
     });
 
     const sourceOrderId = order.id;
-    
-    if (purchaseKind === "auto_renew") {
-      await this.appleIapAccountLinkRepository?.upsert({
-        userId: input.userId,
-        appAccountToken: expectedAppAccountToken,
-        originalTransactionId,
-        latestTransactionId: transaction.transactionId,
-      });
-      await this.autoRenewService?.register({
-        userId: input.userId,
-        provider: "apple",
-        providerAgreementId: originalTransactionId,
-        latestTransactionId: transaction.transactionId,
-        currentPeriodStart: transaction.purchaseDate ? new Date(transaction.purchaseDate) : null,
-        currentPeriodEnd: transaction.expiresDate ? new Date(transaction.expiresDate) : null,
-        nextPeriodEnd: transaction.expiresDate ? new Date(transaction.expiresDate) : null,
-        metadata: {
-          source: "apple_verify_transaction",
-          environment: transaction.environment,
-          productId: transaction.productId,
-          appAccountToken: transaction.appAccountToken,
-        },
-      });
-    } else {
-      await this.appleIapAccountLinkRepository?.upsert({
-        userId: input.userId,
-        appAccountToken: expectedAppAccountToken,
-      });
-    }
     let alreadyApplied = false;
-    const grantMode = purchaseKind === "auto_renew" ? "subscription_period" : "fixed_duration";
-    const grantPeriodStart =
-      purchaseKind === "auto_renew" && transaction.purchaseDate
-        ? new Date(transaction.purchaseDate)
-        : null;
-    const grantPeriodEnd =
-      purchaseKind === "auto_renew" && transaction.expiresDate
-        ? new Date(transaction.expiresDate)
-        : null;
-    const prepaidLimit = purchaseKind === "single_purchase" ? "enforce" : "skip";
     try {
       const result = await this.paymentEntitlementService.grantAfterPayment({
         userId: input.userId,
@@ -443,6 +513,24 @@ export class AppleIapService {
 function isApplePaidRenewal(notificationType: string | undefined): boolean {
   const type = String(notificationType ?? "").toUpperCase();
   return ["SUBSCRIBED", "DID_RENEW", "DID_RECOVER", "ONE_TIME_CHARGE"].includes(type);
+}
+
+function isAppleAutoRenewStillActive(
+  subscription: { status: string; currentPeriodEnd: Date | null },
+  now: Date
+): boolean {
+  return (
+    ["active", "billing_retry"].includes(subscription.status) &&
+    Boolean(subscription.currentPeriodEnd && subscription.currentPeriodEnd > now)
+  );
+}
+
+function isAppleSubscriptionBoundRepositoryError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "APPLE_IAP_APP_ACCOUNT_TOKEN_ALREADY_BOUND" ||
+      error.message === "APPLE_IAP_ORIGINAL_TRANSACTION_ALREADY_BOUND")
+  );
 }
 
 function resolveApplePurchaseKind(

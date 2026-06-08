@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Platform, Pressable, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 type ChatComposerProps = {
@@ -19,6 +19,9 @@ const COLLAPSED_MAX_HEIGHT = 160;
 const INPUT_LINE_HEIGHT = 22;
 const INPUT_PADDING_TOP = Platform.OS === "android" ? 13 : 12;
 const INPUT_PADDING_BOTTOM = Platform.OS === "android" ? 13 : 12;
+const INPUT_VERTICAL_PADDING = INPUT_PADDING_TOP + INPUT_PADDING_BOTTOM;
+const INPUT_RIGHT_ACTION_SPACE = 64;
+const TEXT_MEASURE_EPSILON = 1;
 const IS_IOS = Platform.OS === "ios";
 
 export function ChatComposer({
@@ -33,22 +36,26 @@ export function ChatComposer({
   isSending,
 }: ChatComposerProps) {
   const { height: windowHeight } = useWindowDimensions();
-  const [inputHeight, setInputHeight] = useState(COLLAPSED_MIN_HEIGHT);
+  const [contentTextHeight, setContentTextHeight] = useState(INPUT_LINE_HEIGHT);
   const [expanded, setExpanded] = useState(false);
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
+  const measuredInputHeight = contentTextHeight + INPUT_VERTICAL_PADDING;
   const collapsedHeight = Math.max(
     COLLAPSED_MIN_HEIGHT,
-    Math.min(COLLAPSED_MAX_HEIGHT, inputHeight)
+    Math.min(COLLAPSED_MAX_HEIGHT, measuredInputHeight)
   );
   const shellHeight = expanded ? expandedHeight : collapsedHeight;
   const canExpand = IS_IOS
-    ? expanded || value.includes("\n") || inputHeight > COLLAPSED_MIN_HEIGHT + INPUT_LINE_HEIGHT
-    : expanded || inputHeight >= COLLAPSED_MAX_HEIGHT;
+    ? expanded || value.includes("\n") || measuredInputHeight > COLLAPSED_MIN_HEIGHT + INPUT_LINE_HEIGHT
+    : expanded || measuredInputHeight >= COLLAPSED_MAX_HEIGHT;
   const textInputHeight = shellHeight;
+  const measureText = value.length > 0
+    ? value.endsWith("\n") ? `${value} ` : value
+    : " ";
 
   useEffect(() => {
     if (value.length > 0) return;
-    setInputHeight(COLLAPSED_MIN_HEIGHT);
+    setContentTextHeight(INPUT_LINE_HEIGHT);
     setExpanded(false);
   }, [value.length]);
 
@@ -56,9 +63,11 @@ export function ChatComposer({
     setExpanded((current) => !current);
   }
 
-  function handleContentSizeChange(nextHeight: number): void {
-    const rawHeight = Math.ceil(nextHeight);
-    setInputHeight(Math.max(COLLAPSED_MIN_HEIGHT, rawHeight));
+  function handleMeasureTextHeight(nextHeight: number): void {
+    const rounded = Math.max(INPUT_LINE_HEIGHT, Math.ceil(nextHeight));
+    setContentTextHeight((current) =>
+      Math.abs(current - rounded) <= TEXT_MEASURE_EPSILON ? current : rounded
+    );
   }
 
   return (
@@ -80,9 +89,15 @@ export function ChatComposer({
           blurOnSubmit={false}
           cursorColor="#8E84FF"
           multiline
-          onContentSizeChange={(event) => handleContentSizeChange(event.nativeEvent.contentSize.height)}
           scrollEnabled={expanded || collapsedHeight >= COLLAPSED_MAX_HEIGHT}
         />
+        <Text
+          style={styles.measureText}
+          pointerEvents="none"
+          onLayout={(event) => handleMeasureTextHeight(event.nativeEvent.layout.height)}
+        >
+          {measureText}
+        </Text>
         {canExpand ? (
           <Pressable style={styles.expandButton} onPress={handleToggleExpand} hitSlop={6}>
             <Ionicons name={expanded ? "contract-outline" : "expand-outline"} size={14} color="#8E84FF" />
@@ -121,12 +136,24 @@ const styles = StyleSheet.create({
   input: {
     alignSelf: "stretch",
     paddingLeft: 20,
-    paddingRight: 92,
+    paddingRight: INPUT_RIGHT_ACTION_SPACE,
     lineHeight: INPUT_LINE_HEIGHT,
     fontSize: 15,
     color: "#111111",
     includeFontPadding: false,
     textAlignVertical: "top",
+  },
+  measureText: {
+    position: "absolute",
+    left: 20,
+    right: INPUT_RIGHT_ACTION_SPACE,
+    top: 0,
+    opacity: 0,
+    zIndex: -1,
+    lineHeight: INPUT_LINE_HEIGHT,
+    fontSize: 15,
+    color: "#111111",
+    includeFontPadding: false,
   },
   inputCollapsed: {
     paddingTop: INPUT_PADDING_TOP,

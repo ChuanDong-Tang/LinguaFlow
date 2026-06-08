@@ -120,6 +120,41 @@ export class AutoRenewService {
     };
   }
 
+  async getAppleSubscriptionByOriginalTransactionId(
+    originalTransactionId: string
+  ): Promise<AutoRenewSubscriptionEntity | null> {
+    return this.autoRenewRepository.findByProviderAgreement({
+      provider: "apple",
+      providerAgreementId: originalTransactionId,
+    });
+  }
+
+  async isUserProActive(userId: string, now = new Date()): Promise<boolean> {
+    if (!this.subscriptionService) return false;
+    const currentPro = await this.subscriptionService.getCurrentSubscription(userId, now);
+    return Boolean(currentPro.isPro && currentPro.expiresAt && currentPro.expiresAt > now);
+  }
+
+  async transferAppleSubscriptionToUser(input: {
+    subscriptionId: string;
+    userId: string;
+    latestTransactionId: string;
+    periodStart?: Date | null;
+    periodEnd?: Date | null;
+    metadata?: unknown;
+  }): Promise<AutoRenewSubscriptionEntity> {
+    return this.autoRenewRepository.updateSubscription({
+      id: input.subscriptionId,
+      userId: input.userId,
+      status: "active",
+      latestTransactionId: input.latestTransactionId,
+      currentPeriodStart: input.periodStart ?? null,
+      currentPeriodEnd: input.periodEnd ?? null,
+      nextBillingAt: input.periodEnd ? computeEarlyBillingAt(input.periodEnd) : null,
+      metadata: input.metadata,
+    });
+  }
+
   async register(input: RegisterAutoRenewInput): Promise<AutoRenewSubscriptionEntity> {
     const currentForUser = await this.autoRenewRepository.findActiveByUserId(input.userId);
     if (

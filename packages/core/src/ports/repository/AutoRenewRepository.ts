@@ -109,6 +109,7 @@ export interface AutoRenewRepository {
   createSubscription(input: CreateAutoRenewSubscriptionInput): Promise<AutoRenewSubscriptionEntity>;
   updateSubscription(input: {
     id: string;
+    userId?: string;
     status?: AutoRenewStatus;
     latestTransactionId?: string | null;
     currentPeriodStart?: Date | null;

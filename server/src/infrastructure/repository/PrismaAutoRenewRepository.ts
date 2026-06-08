@@ -173,6 +173,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
 
   async updateSubscription(input: {
     id: string;
+    userId?: string;
     status?: "pending" | "active" | "cancelled" | "expired" | "billing_retry" | "paused";
     latestTransactionId?: string | null;
     currentPeriodStart?: Date | null;
@@ -189,7 +190,8 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     if (
       ["cancelled", "expired"].includes(current.status) &&
       input.status &&
-      !["cancelled", "expired"].includes(input.status)
+      !["cancelled", "expired"].includes(input.status) &&
+      input.userId === undefined
     ) {
       return this.toSubscriptionEntity(current);
     }
@@ -197,6 +199,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     const row = await this.prisma.autoRenewSubscription.update({
       where: { id: input.id },
       data: {
+        ...(input.userId === undefined ? {} : { userId: input.userId }),
         ...(input.status === undefined ? {} : { status: input.status }),
         ...(input.latestTransactionId === undefined
           ? {}

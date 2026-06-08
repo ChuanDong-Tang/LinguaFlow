@@ -414,6 +414,15 @@ export function ProScreen({ onBack }: ProScreenProps) {
     setIsPaying(true);
     setIsAutoRenewLoading(true);
     try {
+      const latestEntitlement = await refreshProEntitlementState();
+      if (!isScreenAlive()) return;
+      if (latestEntitlement?.entitlement.isPro) {
+        setIsRenew(true);
+        safeAlert("Pro 已生效", "当前 Pro 有效期结束后可再次购买。");
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+        return;
+      }
       // iOS 一次性月卡与自动续费是两个 App Store 商品；真正权益以后端验单结果为准。
       const session = await getSession();
       const appAccountToken = session?.user?.id
@@ -472,6 +481,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
             isConsumable: false,
           }).catch(() => { });
         }
+        safeAlert("Apple 订阅已绑定", "这笔 Apple 订阅已绑定其他 OIO 账号，请切换到原账号或联系客服处理。");
         return;
       }
       const message = error instanceof Error ? error.message : "请稍后重试";
@@ -892,7 +902,10 @@ function isAppleProPurchase(purchase: Purchase): boolean {
 }
 
 function isAppleTransactionOwnedByDifferentAccount(error: unknown): boolean {
-  return error instanceof MobileApiError && error.code === "APPLE_APP_ACCOUNT_TOKEN_MISMATCH";
+  return error instanceof MobileApiError && (
+    error.code === "APPLE_APP_ACCOUNT_TOKEN_MISMATCH" ||
+    error.code === "APPLE_SUBSCRIPTION_ALREADY_BOUND"
+  );
 }
 
 function isWechatUserCancelError(error: unknown): boolean {
