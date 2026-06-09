@@ -71,6 +71,9 @@ const IOS_FILES = {
   if (action == @selector(chatCopy:)) {
     return [self.owner.selectionMode isEqualToString:@"all"] && self.selectedRange.length > 0;
   }
+  if (action == @selector(copy:)) {
+    return [self.owner.selectionMode isEqualToString:@"all"] && self.selectedRange.length > 0;
+  }
   return NO;
 }
 
@@ -80,6 +83,11 @@ const IOS_FILES = {
 }
 
 - (void)chatCopy:(id)sender
+{
+  [self.owner handleCopyAction];
+}
+
+- (void)copy:(id)sender
 {
   [self.owner handleCopyAction];
 }
@@ -395,6 +403,11 @@ const IOS_FILES = {
   if (textView.selectedRange.length > 0 && !self.hasEmittedSelectionStart) {
     self.hasEmittedSelectionStart = YES;
     [self startObservingOutsideSelectionTaps];
+    [self updateMenuItems];
+    UIMenuController *menu = UIMenuController.sharedMenuController;
+    if (menu.isMenuVisible) {
+      [menu update];
+    }
     if (self.onSelectionStart) {
       self.onSelectionStart(@{});
     }

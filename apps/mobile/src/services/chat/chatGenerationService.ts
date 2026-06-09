@@ -2,6 +2,7 @@ import { loadDebugSettings } from "../preferences/debugSettingsStorage";
 import { sendMessageToCloud } from "../api/chatHistoryApi";
 import { getCurrentEntitlement } from "../api/meApi";
 import { startChatGenerationStream } from "./chatGenerationStream";
+import type { ChatGenerationStreamEvent } from "./streamClient";
 import { hasLocalProAccess } from "../entitlement/proAccess";
 import type { ChatMessage } from "../../domain/chat/types";
 import { toDateKey } from "../../domain/chat/messageState";
@@ -76,11 +77,36 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   let userMessageClientId = input.userClientId;
   let pendingDelta = "";
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let streamDoneEvent: Extract<ChatGenerationStreamEvent, { type: "done" }> | null = null;
+  let resolveTypingDrain: (() => void) | null = null;
+  const FLUSH_INTERVAL_MS = 35;
+  const MAX_CHARS_PER_FLUSH = 4;
 
-  const flushDelta = () => {
+  const markSucceeded = (event: Extract<ChatGenerationStreamEvent, { type: "done" }>) => {
+    if (userMessageClientId) {
+      input.onUpdateMessage(userMessageClientId, (row) => ({ ...row, status: "success" }));
+    }
+    input.onUpdateMessage(input.assistantClientId, (row) => ({
+      ...row,
+      id: event.assistantMessage?.id ?? row.id,
+      serverId: event.assistantMessage?.id ?? row.serverId ?? null,
+      status: "success",
+      clozeState: event.assistantMessage?.clozeState ?? row.clozeState ?? null,
+      clozeVersion: event.assistantMessage?.clozeVersion ?? row.clozeVersion ?? 0,
+      retryText: input.text,
+      retryCount: input.retryCount,
+      retrySystemPrompt: requestSystemPrompt,
+      conversationDateKey: event.assistantMessage?.conversationDateKey ?? row.conversationDateKey,
+      createdAt: event.assistantMessage?.createdAt ?? new Date().toISOString(),
+    }));
+  };
+
+  const flushDelta = (options?: { all?: boolean }) => {
     if (!pendingDelta) return;
-    const chunk = pendingDelta;
-    pendingDelta = "";
+    const chunk = options?.all
+      ? pendingDelta
+      : pendingDelta.slice(0, MAX_CHARS_PER_FLUSH);
+    pendingDelta = pendingDelta.slice(chunk.length);
     assistantText += chunk;
     input.onUpdateMessage(input.assistantClientId, (row) => ({
       ...row,
@@ -88,13 +114,35 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       createdAt: new Date().toISOString(),
     }));
   };
-  // 40ms 刷新一次
+  // 网络层可以很快收到 delta；UI 层固定节奏吐字，避免一大段瞬间刷出来。
   const scheduleFlush = () => {
     if (flushTimer) return;
     flushTimer = setTimeout(() => {
       flushTimer = null;
       flushDelta();
-    }, 40);
+      if (pendingDelta) {
+        scheduleFlush();
+      } else if (streamDoneEvent && resolveTypingDrain) {
+        const done = streamDoneEvent;
+        streamDoneEvent = null;
+        const resolve = resolveTypingDrain;
+        resolveTypingDrain = null;
+        markSucceeded(done);
+        resolve();
+      }
+    }, FLUSH_INTERVAL_MS);
+  };
+
+  const waitForTypingDrain = (event: Extract<ChatGenerationStreamEvent, { type: "done" }>) => {
+    if (!pendingDelta) {
+      markSucceeded(event);
+      return Promise.resolve();
+    }
+    streamDoneEvent = event;
+    scheduleFlush();
+    return new Promise<void>((resolve) => {
+      resolveTypingDrain = resolve;
+    });
   };
 
   try {
@@ -143,36 +191,30 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
             clearTimeout(flushTimer);
             flushTimer = null;
           }
-          flushDelta();
+          flushDelta({ all: true });
           streamErrorMessage = event.message;
           markFailed(input, `[错误] ${event.message}`, requestSystemPrompt, userMessageClientId);
         }
 
         if (event.type === "done") {
-          if (flushTimer) {
-            clearTimeout(flushTimer);
-            flushTimer = null;
-          }
-          flushDelta();
-          if (userMessageClientId) {
-            input.onUpdateMessage(userMessageClientId, (row) => ({ ...row, status: "success" }));
-          }
-          input.onUpdateMessage(input.assistantClientId, (row) => ({
-            ...row,
-            id: event.assistantMessage?.id ?? row.id,
-            serverId: event.assistantMessage?.id ?? row.serverId ?? null,
-            status: "success",
-            clozeState: event.assistantMessage?.clozeState ?? row.clozeState ?? null,
-            clozeVersion: event.assistantMessage?.clozeVersion ?? row.clozeVersion ?? 0,
-            retryText: input.text,
-            retryCount: input.retryCount,
-            retrySystemPrompt: requestSystemPrompt,
-            conversationDateKey: event.assistantMessage?.conversationDateKey ?? row.conversationDateKey,
-            createdAt: event.assistantMessage?.createdAt ?? new Date().toISOString(),
-          }));
+          void waitForTypingDrain(event);
         }
       }
     );
+    if (streamDoneEvent || pendingDelta) {
+      await new Promise<void>((resolve) => {
+        if (!streamDoneEvent && !pendingDelta) {
+          resolve();
+          return;
+        }
+        const previousResolve = resolveTypingDrain;
+        resolveTypingDrain = () => {
+          previousResolve?.();
+          resolve();
+        };
+        scheduleFlush();
+      });
+    }
 
     if (streamErrorMessage) {
       return {
@@ -188,7 +230,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       clearTimeout(flushTimer);
       flushTimer = null;
     }
-    flushDelta();
+    flushDelta({ all: true });
     const wasStopped = input.isStopRequested?.() === true;
     const message = wasStopped ? "已停止生成" : error instanceof Error ? error.message : "stream failed";
     markFailed(input, `[错误] ${message}`, requestSystemPrompt, userMessageClientId);

@@ -5,9 +5,11 @@ import {
   FlatList,
   Keyboard,
   Platform,
+  Pressable,
   StyleSheet,
   View,
 } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession } from "../services/auth/authStorage";
@@ -95,6 +97,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [isTodaySyncing, setIsTodaySyncing] = useState(false);
   const [syncingDateKey, setSyncingDateKey] = useState<string | null>(null);
   const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
+  const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const activeSelectionRef = useRef<SelectableMessageTextRef | null>(null);
   const activeCopyMenuRef = useRef(false);
@@ -116,9 +119,19 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const calendarSyncMachine = useExclusiveSyncMachine<"chat_calendar">();
   const clozeSaveMachine = useExclusiveSyncMachine<"cloze_save">();
   const scrollToBottom = React.useCallback((animated = false): void => {
-    requestAnimationFrame(() => {
-      messageListRef.current?.scrollToEnd({ animated });
-    });
+    let attempts = 0;
+    const run = () => {
+      attempts += 1;
+      messageListRef.current?.scrollToEnd({ animated: attempts === 1 ? animated : false });
+      if (attempts < 4) {
+        requestAnimationFrame(run);
+      }
+    };
+    requestAnimationFrame(run);
+  }, []);
+  const handleScrollMetrics = React.useCallback((metrics: { y: number; contentHeight: number; layoutHeight: number }) => {
+    const distanceFromBottom = metrics.contentHeight - metrics.layoutHeight - metrics.y;
+    setShowScrollToBottomButton(distanceFromBottom > 160);
   }, []);
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
@@ -872,6 +885,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onPrepareForCommand={prepareForCommand}
           onSelectionRefChange={handleSelectionRefChange}
           onScrollBeginDrag={handleScrollBeginDrag}
+          onScrollMetrics={handleScrollMetrics}
           onCopyMenuStateChange={handleCopyMenuStateChange}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
@@ -879,6 +893,20 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
         />
+
+        {showScrollToBottomButton ? (
+          <Pressable
+            style={styles.scrollToBottomButton}
+            hitSlop={10}
+            onPress={() => {
+              prepareForCommand();
+              scrollToBottom(true);
+              setShowScrollToBottomButton(false);
+            }}
+          >
+            <Ionicons name="chevron-down" size={21} color="#111111" />
+          </Pressable>
+        ) : null}
 
         <ChatComposer
           value={inputText}
@@ -978,5 +1006,23 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  scrollToBottomButton: {
+    position: "absolute",
+    alignSelf: "center",
+    bottom: 76,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: "#DBDFE7",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#111111",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
 });

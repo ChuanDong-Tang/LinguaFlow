@@ -484,6 +484,7 @@ export function MessageList({
   const editClozeGroupRef = useLatestRef(onEditClozeGroup);
   const deleteClozeGroupRef = useLatestRef(onDeleteClozeGroup);
   const isDraggingRef = React.useRef(false);
+  const scrollMetricsRef = React.useRef({ y: 0, contentHeight: 0, layoutHeight: 0 });
   const [activeCopyMenuId, setActiveCopyMenuId] = React.useState<string | null>(null);
   const rows = React.useMemo<RowItem[]>(() => {
     const startedAt = perfNow();
@@ -541,6 +542,13 @@ export function MessageList({
     setActiveCopyMenuId(null);
     onScrollBeginDrag?.();
   }, [onScrollBeginDrag]);
+  const emitScrollMetrics = React.useCallback(
+    (next: Partial<{ y: number; contentHeight: number; layoutHeight: number }>) => {
+      scrollMetricsRef.current = { ...scrollMetricsRef.current, ...next };
+      onScrollMetrics?.(scrollMetricsRef.current);
+    },
+    [onScrollMetrics],
+  );
   const handleTextSelection = React.useCallback(
     (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
       textSelectionRef.current(message, payload, clearSelection);
@@ -637,9 +645,15 @@ export function MessageList({
       keyboardDismissMode="none"
       onTouchEnd={Platform.OS === "android" ? handleListTouchEnd : undefined}
       onScrollBeginDrag={handleScrollStart}
+      onLayout={(e) => {
+        emitScrollMetrics({ layoutHeight: e.nativeEvent.layout.height });
+      }}
+      onContentSizeChange={(_, height) => {
+        emitScrollMetrics({ contentHeight: height });
+      }}
       onScroll={(e) => {
         const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-        onScrollMetrics?.({
+        emitScrollMetrics({
           y: contentOffset.y,
           contentHeight: contentSize.height,
           layoutHeight: layoutMeasurement.height,
