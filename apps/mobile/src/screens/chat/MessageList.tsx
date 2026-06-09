@@ -106,8 +106,8 @@ function getCopyOptions(contact: ChatContact): { label: string; mode: AutoCopyMo
   }
 
   return [
-    { label: "英文", mode: "en" },
-    { label: "中文", mode: "zh" },
+    { label: "表达", mode: "en" },
+    { label: "解释", mode: "zh" },
     { label: "全部", mode: "both" },
   ];
 }

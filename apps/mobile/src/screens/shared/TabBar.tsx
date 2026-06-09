@@ -15,8 +15,8 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
       <Pressable style={styles.tab} onPress={activeTab === "main" ? undefined : onPressMain}>
         <Ionicons
           name="chatbubble-ellipses-outline"
-          size={26}
-          color={activeTab === "main" ? "#111111" : "#8D919B"}
+          size={24}
+          color={activeTab === "main" ? "#746BFF" : "#9AA0AB"}
         />
         <Text style={[styles.label, activeTab === "main" && styles.labelActive]}>对话</Text>
       </Pressable>
@@ -25,8 +25,8 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
         <View style={styles.practiceIconWrap}>
           <Ionicons
             name="list-outline"
-            size={25}
-            color={activeTab === "practice" ? "#111111" : "#8D919B"}
+            size={24}
+            color={activeTab === "practice" ? "#746BFF" : "#9AA0AB"}
           />
         </View>
         <Text style={[styles.label, activeTab === "practice" && styles.labelActive]}>练习</Text>
@@ -35,8 +35,8 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
       <Pressable style={styles.tab} onPress={activeTab === "me" ? undefined : onPressMe}>
         <Ionicons
           name="person-outline"
-          size={25}
-          color={activeTab === "me" ? "#111111" : "#8D919B"}
+          size={24}
+          color={activeTab === "me" ? "#746BFF" : "#9AA0AB"}
         />
         <Text style={[styles.label, activeTab === "me" && styles.labelActive]}>我</Text>
       </Pressable>
@@ -48,8 +48,8 @@ const styles = StyleSheet.create({
   bar: {
     height: 86,
     borderTopWidth: 1,
-    borderTopColor: "#E6E8ED",
-    backgroundColor: "#FFFFFF",
+    borderTopColor: "#E7E5DF",
+    backgroundColor: "#FFFEFB",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
@@ -62,12 +62,12 @@ const styles = StyleSheet.create({
   },
   label: {
     marginTop: 4,
-    fontSize: 13,
-    color: "#8D919B",
+    fontSize: 12,
+    color: "#9AA0AB",
   },
   labelActive: {
-    color: "#111111",
-    fontWeight: "600",
+    color: "#746BFF",
+    fontWeight: "500",
   },
   practiceIconWrap: {
     width: 40,

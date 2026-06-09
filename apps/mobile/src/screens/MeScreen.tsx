@@ -91,7 +91,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
           });
         }}>
           <View style={styles.profileAvatar}>
-            <Ionicons name="person-outline" size={38} color="#111111" />
+            <Text style={styles.profileAvatarText}>OIO</Text>
           </View>
           <View style={styles.profileBody}>
             <Text style={styles.profileName}>{userName}</Text>
@@ -121,15 +121,15 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
 
         <View style={styles.proCard}>
           <Text style={styles.proTitle}>OIO Pro</Text>
-          <Text style={styles.proSubtitle}>更充足的字符额度，更自由地表达</Text>
+          <Text style={styles.proSubtitle}>给常练的人多一点空间</Text>
           {["更多每日字符额度", "云端同步"].map((item) => (
             <View key={item} style={styles.benefitRow}>
-              <Ionicons name="checkmark-circle-outline" size={18} color="#6E63FF" />
+              <Ionicons name="checkmark-circle-outline" size={18} color="#746BFF" />
               <Text style={styles.benefitText}>{item}</Text>
             </View>
           ))}
           <Pressable style={styles.proButton} onPress={onOpenPro}>
-            <Text style={styles.proButtonText}>查看 Pro</Text>
+            <Text style={styles.proButtonText}>了解 Pro</Text>
             <Ionicons name="chevron-forward" size={20} color="#111111" />
           </Pressable>
         </View>
@@ -317,7 +317,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: "#F7F8FA",
   },
   scroller: {
     flex: 1,
@@ -328,24 +328,32 @@ const styles = StyleSheet.create({
   },
 
   profileRow: {
-    marginTop: 10,
+    marginTop: 12,
     flexDirection: "row",
     alignItems: "center",
   },
   profileAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#F0ECFF",
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 1,
+    borderColor: "#E2DFFF",
+    backgroundColor: "#F0EDFF",
     alignItems: "center",
     justifyContent: "center",
+  },
+  profileAvatarText: {
+    color: "#343041",
+    fontSize: 13,
+    fontWeight: "500",
+    letterSpacing: 0.5,
   },
   profileBody: {
     marginLeft: 14,
   },
   profileName: {
     color: "#111111",
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "500",
   },
   profilePlan: {
@@ -355,11 +363,11 @@ const styles = StyleSheet.create({
   },
 
   quotaCard: {
-    marginTop: 14,
-    padding: 14,
-    borderRadius: 16,
+    marginTop: 18,
+    padding: 15,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#E1E5EE",
+    borderColor: "#E5E4DD",
     backgroundColor: "#FFFFFF",
   },
   cardTitle: {
@@ -378,7 +386,7 @@ const styles = StyleSheet.create({
   },
   quotaNumber: {
     marginLeft: 8,
-    color: "#6E63FF",
+    color: "#746BFF",
     fontSize: 20,
     fontWeight: "500",
   },
@@ -406,7 +414,7 @@ const styles = StyleSheet.create({
   progressFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: "#6E63FF",
+    backgroundColor: "#746BFF",
   },
   progressText: {
     minWidth: 92,
@@ -422,11 +430,11 @@ const styles = StyleSheet.create({
 
   proCard: {
     marginTop: 12,
-    padding: 14,
-    borderRadius: 16,
+    padding: 15,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#E1E5EE",
-    backgroundColor: "#FFFFFF",
+    borderColor: "#E2DFFF",
+    backgroundColor: "#F7F5FF",
   },
   proTitle: {
     color: "#111111",
@@ -454,7 +462,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#CDD2DE",
+    borderColor: "#D6D1F4",
+    backgroundColor: "rgba(255,255,255,0.72)",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -474,7 +483,7 @@ const styles = StyleSheet.create({
   settingsCard: {
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#E1E5EE",
+    borderColor: "#E5E4DD",
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },

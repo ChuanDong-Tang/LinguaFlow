@@ -24,15 +24,15 @@ function getAutoCopyOptions(contact: ChatContact): AutoCopyOption[] {
   if (contact.id === "english_friend") {
     return [
       { mode: "en", label: "复制问题", description: "自动复制改写后的用户问题" },
-      { mode: "zh", label: "复制回复", description: "自动复制 AI 的英文回复" },
+      { mode: "zh", label: "复制回复", description: "自动复制 AI 的自然回复" },
       { mode: "both", label: "两个都复制", description: "问题和回复一起复制" },
     ];
   }
 
   return [
-    { mode: "en", label: "复制英文", description: "自动复制英文改写" },
-    { mode: "zh", label: "复制中文", description: "自动复制中文解释" },
-    { mode: "both", label: "两个都复制", description: "英文和中文一起复制" },
+    { mode: "en", label: "复制表达", description: "自动复制改写后的表达" },
+    { mode: "zh", label: "复制解释", description: "自动复制说明内容" },
+    { mode: "both", label: "两个都复制", description: "表达和解释一起复制" },
   ];
 }
 

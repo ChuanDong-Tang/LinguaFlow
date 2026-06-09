@@ -13,7 +13,7 @@ export const CHAT_CONTACTS: ChatContact[] = [
   {
     id: "rewrite_assistant",
     name: "改写助手",
-    description: "帮你把英文说得更自然",
+    description: "把想说的话，变成自然表达",
     avatarLabel: "OIO",
     clozeSource: "tagged_en",
     practiceEnabled: true,
@@ -21,7 +21,7 @@ export const CHAT_CONTACTS: ChatContact[] = [
   {
     id: "english_friend",
     name: "好奇宝宝",
-    description: "用英文改写和回答",
+    description: "问一句，顺便学会怎么表达",
     avatarLabel: "WHY",
     clozeSource: "tagged_en_reply",
     practiceEnabled: true,

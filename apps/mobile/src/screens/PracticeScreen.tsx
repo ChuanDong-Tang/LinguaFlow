@@ -439,17 +439,23 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>练习</Text>
+        <View style={styles.header}>
+          <Text style={styles.title}>练习</Text>
+          <Text style={styles.subtitle}>你的表达练习记录</Text>
+        </View>
 
         <View style={styles.calendarPanel}>
-          <Text style={styles.sectionTitle}>日历</Text>
+          <View style={styles.calendarHeader}>
+            <Text style={styles.sectionTitle}>学习痕迹</Text>
+            {isSyncingPracticeDateKeys ? <ActivityDot /> : null}
+          </View>
           <View style={styles.monthRow}>
             <Pressable style={styles.arrowButton} onPress={() => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>
-              <Ionicons name="chevron-back" size={22} color="#111111" />
+              <Ionicons name="chevron-back" size={19} color="#303541" />
             </Pressable>
             <Text style={styles.monthTitle}>{monthCursor.getFullYear()}年 {monthCursor.getMonth() + 1}月</Text>
             <Pressable style={styles.arrowButton} onPress={() => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>
-              <Ionicons name="chevron-forward" size={22} color="#111111" />
+              <Ionicons name="chevron-forward" size={19} color="#303541" />
             </Pressable>
           </View>
           <View style={styles.weekRow}>{WEEK_LABELS.map((label) => <Text key={label} style={styles.weekText}>{label}</Text>)}</View>
@@ -459,11 +465,15 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
               const key = toDateKey(cell.date);
               const stats = localDayStats.get(key);
               const isCurrentMonth = cell.date.getMonth() === monthCursor.getMonth();
+              const isToday = businessTodayKey === key;
               const enabled = isCurrentMonth && !!stats;
               return (
                 <Pressable key={key} style={styles.dayCell} disabled={!enabled} onPress={() => void openDatePractice(cell.date!)}>
-                  <View style={[styles.dayBubble, enabled && bandBubble(stats.band)]}>
-                    <Text style={[styles.dayText, (!enabled || !isCurrentMonth) && styles.dayTextMuted]}>{cell.date.getDate()}</Text>
+                  <View style={[styles.dayBubble, isToday && styles.dayBubbleToday, enabled && bandBubble(stats.band)]}>
+                    <Text style={[styles.dayText, (!isCurrentMonth) && styles.dayTextMuted, enabled && styles.dayTextActive]}>
+                      {cell.date.getDate()}
+                    </Text>
+                    {enabled ? <View style={styles.practiceDot} /> : null}
                   </View>
                 </Pressable>
               );
@@ -472,15 +482,15 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
         </View>
 
         <View style={styles.reviewStack}>
-          <ReviewButton title="今日回顾" subtitle={`今天 · ${today.getMonth() + 1}月${today.getDate()}日`} onPress={() => void openDatePractice(today)} />
-          <ReviewButton title="昨日回顾" subtitle={`昨天 · ${yesterday.getMonth() + 1}月${yesterday.getDate()}日`} onPress={() => void openDatePractice(yesterday)} />
+          <ReviewButton title="今日回顾" subtitle={`看看今天聊过的表达 · ${today.getMonth() + 1}月${today.getDate()}日`} onPress={() => void openDatePractice(today)} />
+          <ReviewButton title="昨日回顾" subtitle={`捡起昨天的一两个句子 · ${yesterday.getMonth() + 1}月${yesterday.getDate()}日`} onPress={() => void openDatePractice(yesterday)} />
         </View>
 
         <Pressable style={styles.quickCard} onPress={resetAndOpenQuick}>
           <View style={styles.quickIcon}><Ionicons name="shuffle-outline" size={22} color="#111111" /></View>
           <View style={styles.quickBody}>
-            <Text style={styles.quickTitle}>快速练习</Text>
-            <Text style={styles.quickSubtitle}>随机开始一组练习</Text>
+            <Text style={styles.quickTitle}>随便练练</Text>
+            <Text style={styles.quickSubtitle}>不用准备，直接开始</Text>
           </View>
         </Pressable>
       </ScrollView>
@@ -616,6 +626,10 @@ function ReviewButton({ title, subtitle, onPress }: { title: string; subtitle: s
   );
 }
 
+function ActivityDot() {
+  return <View style={styles.activityDot} />;
+}
+
 function QuickPracticeSheet(props: {
   visible: boolean;
   recentDays: number;
@@ -732,7 +746,7 @@ function bandBubble(band: "low" | "mid" | "high") {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: "#F7F8FA",
   },
   scroll: {
     flex: 1,
@@ -742,43 +756,64 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 22,
   },
-  title: {
+  header: {
     marginBottom: 16,
-    color: "#111111",
+    alignItems: "center",
+  },
+  title: {
+    color: "#151515",
     fontSize: 18,
     fontWeight: "500",
     textAlign: "center",
+  },
+  subtitle: {
+    marginTop: 5,
+    color: "#7D8490",
+    fontSize: 12,
   },
 
   calendarPanel: {
     paddingHorizontal: 14,
     paddingTop: 14,
-    paddingBottom: 14,
-    borderRadius: 16,
+    paddingBottom: 16,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#E3E6ED",
+    borderColor: "#E5E4DD",
     backgroundColor: "#FFFFFF",
   },
+  calendarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   sectionTitle: {
-    color: "#111111",
-    fontSize: 16,
+    color: "#202124",
+    fontSize: 15,
     fontWeight: "500",
   },
+  activityDot: {
+    marginLeft: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#7A70F2",
+  },
   monthRow: {
-    marginTop: 12,
+    marginTop: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   arrowButton: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F5F5F1",
     alignItems: "center",
     justifyContent: "center",
   },
   monthTitle: {
-    color: "#111111",
-    fontSize: 17,
+    color: "#171717",
+    fontSize: 16,
     fontWeight: "500",
   },
   weekRow: {
@@ -798,34 +833,48 @@ const styles = StyleSheet.create({
   },
   dayCell: {
     width: "14.28%",
-    height: 36,
+    height: 39,
     alignItems: "center",
     justifyContent: "center",
   },
   dayBubble: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
+  dayBubbleToday: {
+    backgroundColor: "#EAF2E9",
+  },
   dayBubbleLow: {
-    backgroundColor: "#E8F1E8",
+    backgroundColor: "#EEF4EC",
   },
   dayBubbleMid: {
-    backgroundColor: "#BFDDBF",
+    backgroundColor: "#DDECD9",
   },
   dayBubbleHigh: {
-    backgroundColor: "#6DAE75",
+    backgroundColor: "#CADFC4",
   },
   dayText: {
-    color: "#111111",
+    color: "#9DA3AE",
     fontSize: 14,
     fontWeight: "400",
   },
+  dayTextActive: {
+    color: "#1E211F",
+  },
   dayTextMuted: {
-    color: "#B7BCC7",
+    color: "#C5CAD2",
+  },
+  practiceDot: {
+    position: "absolute",
+    bottom: 4,
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#7A70F2",
   },
 
   reviewStack: {
@@ -835,16 +884,16 @@ const styles = StyleSheet.create({
   reviewButton: {
     minHeight: 62,
     paddingHorizontal: 14,
-    borderRadius: 14,
+    borderRadius: 15,
     borderWidth: 1,
-    borderColor: "#E3E6ED",
+    borderColor: "#E5E4DD",
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
   },
   reviewTitle: {
     color: "#111111",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "500",
   },
   reviewSubtitle: {
@@ -860,7 +909,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#F0ECFF",
+    backgroundColor: "#F0EDFF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -869,9 +918,9 @@ const styles = StyleSheet.create({
     marginTop: 12,
     minHeight: 62,
     paddingHorizontal: 14,
-    borderRadius: 14,
+    borderRadius: 15,
     borderWidth: 1,
-    borderColor: "#E3E6ED",
+    borderColor: "#E5E4DD",
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
@@ -880,7 +929,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "#F0ECFF",
+    backgroundColor: "#F0EDFF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -890,7 +939,7 @@ const styles = StyleSheet.create({
   },
   quickTitle: {
     color: "#111111",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "500",
   },
   quickSubtitle: {

@@ -56,7 +56,10 @@ export function MainScreen({ onOpenChat }: MainScreenProps) {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.brandRow}>
-          <Text style={styles.brand}>OIO</Text>
+          <View>
+            <Text style={styles.brand}>OIO</Text>
+            <Text style={styles.brandSubtext}>今天过得怎么样？</Text>
+          </View>
           {SHOW_DEBUG_PROMPT_PANEL ? (
             <Pressable style={styles.debugButton} onPress={() => setIsDebugOpen(true)} hitSlop={8}>
               <Ionicons name="settings-outline" size={16} color="#5D6470" />
@@ -64,9 +67,16 @@ export function MainScreen({ onOpenChat }: MainScreenProps) {
           ) : null}
         </View>
 
-        {CHAT_CONTACTS.map((contact, index) => (
-          <React.Fragment key={contact.id}>
-            <Pressable style={styles.conversationRow} onPress={() => onOpenChat(contact)}>
+        <View style={styles.conversationStack}>
+          {CHAT_CONTACTS.map((contact) => (
+            <Pressable
+              key={contact.id}
+              style={[
+                styles.conversationRow,
+                contact.id === "rewrite_assistant" && styles.conversationRowPrimary,
+              ]}
+              onPress={() => onOpenChat(contact)}
+            >
               <View style={styles.avatarCircle}>
                 <Text style={styles.avatarText}>{contact.avatarLabel}</Text>
               </View>
@@ -74,14 +84,26 @@ export function MainScreen({ onOpenChat }: MainScreenProps) {
                 <Text style={styles.conversationTitle}>{contact.name}</Text>
                 <Text style={styles.conversationSubtitle}>{contact.description}</Text>
               </View>
+              <Ionicons name="chevron-forward" size={18} color="#9AA0AB" />
             </Pressable>
-            {index < CHAT_CONTACTS.length - 1 ? <View style={styles.divider} /> : null}
-          </React.Fragment>
-        ))}
+          ))}
+        </View>
 
         <View style={styles.emptyArea}>
-          <Ionicons name="chatbubble-ellipses-outline" size={60} color="#222222" />
-          <Text style={styles.emptyText}>想到什么，就从一句话开始</Text>
+          <View style={styles.promptCard}>
+            <View style={styles.promptHeader}>
+              <View style={styles.promptMark} />
+              <Text style={styles.emptyTitle}>不知道说什么时</Text>
+            </View>
+            <Text style={styles.emptyHint}>从生活日常开始</Text>
+            <View style={styles.promptStack}>
+              {["有没有好的想法计划？", "今天经历了什么印象深刻的事情？", "今天有没有一个小小的变化？"].map((prompt) => (
+                <View key={prompt} style={styles.promptPill}>
+                  <Text style={styles.promptText}>{prompt}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
         </View>
       </View>
 
@@ -139,7 +161,7 @@ export function MainScreen({ onOpenChat }: MainScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: "#F7F8FA",
   },
   content: {
     flex: 1,
@@ -152,9 +174,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   brand: {
-    color: "#090909",
-    fontSize: 24,
+    color: "#151515",
+    fontSize: 23,
     fontWeight: "500",
+  },
+  brandSubtext: {
+    marginTop: 6,
+    color: "#737A86",
+    fontSize: 14,
   },
   debugButton: {
     marginLeft: "auto",
@@ -166,18 +193,31 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  conversationStack: {
+    marginTop: 28,
+    gap: 12,
+  },
   conversationRow: {
-    marginTop: 30,
-    minHeight: 74,
+    minHeight: 82,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E4E5EA",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
   },
+  conversationRowPrimary: {
+    backgroundColor: "#F1F0FF",
+    borderColor: "#E3DFFF",
+  },
   avatarCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 1,
-    borderColor: "#DCDDE4",
+    borderColor: "#DADCE4",
+    backgroundColor: "rgba(255,255,255,0.72)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -188,13 +228,13 @@ const styles = StyleSheet.create({
   },
   conversationBody: {
     flex: 1,
-    marginLeft: 14,
+    marginLeft: 13,
     paddingRight: 12,
   },
   conversationTitle: {
     color: "#111111",
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "500",
   },
   conversationSubtitle: {
     marginTop: 4,
@@ -202,22 +242,61 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  divider: {
-    marginTop: 24,
-    height: 1,
-    backgroundColor: "#E5E7EB",
-  },
-
   emptyArea: {
     flex: 1,
-    paddingBottom: 120,
+    paddingBottom: 104,
     alignItems: "center",
     justifyContent: "center",
   },
-  emptyText: {
-    marginTop: 20,
-    color: "#8E93A0",
-    fontSize: 16,
+  promptCard: {
+    width: "86%",
+    maxWidth: 330,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E7E8ED",
+    backgroundColor: "rgba(255,255,255,0.72)",
+  },
+  promptHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  promptMark: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#746BFF",
+  },
+  emptyTitle: {
+    marginLeft: 8,
+    color: "#4F5663",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  emptyHint: {
+    marginTop: 7,
+    color: "#8B909B",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  promptStack: {
+    marginTop: 12,
+    gap: 8,
+  },
+  promptPill: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E8E9EE",
+    backgroundColor: "#FFFFFF",
+  },
+  promptText: {
+    color: "#626977",
+    fontSize: 13,
   },
 
   modalBackdrop: {

@@ -692,7 +692,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       {canFlipCard ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={isFlipped ? "翻到英文" : "翻到中文"}
+          accessibilityLabel={isFlipped ? "翻到表达" : "翻到解释"}
           style={[isFlipping && styles.flipButtonDisabled, styles.flipButton]}
           onPress={toggleFlip}
           disabled={isFlipping}
