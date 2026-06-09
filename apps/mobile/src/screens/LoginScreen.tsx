@@ -244,6 +244,7 @@ function toSessionUser(user: {
   email: string | null;
   phone: string | null;
   avatarUrl: string | null;
+  role?: "user" | "admin";
   createdAt: Date;
   updatedAt: Date;
 }): User {
@@ -255,6 +256,7 @@ function toSessionUser(user: {
     wechatOpenId: null,
     displayName: resolveDisplayName(user),
     avatarUrl: user.avatarUrl,
+    role: user.role ?? "user",
     createdAt: new Date(user.createdAt).toISOString(),
     updatedAt: new Date(user.updatedAt).toISOString(),
   };

@@ -19,7 +19,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.yueyantech.oio",
-      "buildNumber": "50",
+      "buildNumber": "51",
       "supportsTablet": true,
       "icon": "./assets/app/logo_main_apple.png",
       "config": {
@@ -28,7 +28,7 @@
     },
     "android": {
       "package": "com.yueyantech.oio",
-      "versionCode": 50,
+      "versionCode": 51,
       "adaptiveIcon": {
         "foregroundImage": "./assets/app/logo_main.png",
         "backgroundColor": "#ffffff"

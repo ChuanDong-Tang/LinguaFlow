@@ -39,6 +39,7 @@ export interface AuthingLoginResponse {
     email: string | null;
     phone: string | null;
     avatarUrl: string | null;
+    role: "user" | "admin";
     status: "active" | "disabled";
     createdAt: Date;
     updatedAt: Date;

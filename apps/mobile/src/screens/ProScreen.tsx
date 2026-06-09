@@ -752,7 +752,7 @@ function resolveAutoRenewDescription(input: {
   hasLoadedAutoRenew: boolean;
 }): string {
   if (!input.hasLoadedAutoRenew) {
-    return "正在同步自动续费状态。";
+    return "正在同步订阅状态。";
   }
   if (input.autoRenew?.status === "pending") {
     return "签约处理中，如未完成可稍后重试。";
@@ -761,9 +761,9 @@ function resolveAutoRenewDescription(input: {
     return `已通过${formatProviderName(input.autoRenew.provider)}开启，预计到期后续费。`;
   }
   if (input.isPro && input.expiresAt) {
-    return `${formatAutoRenewProviderLabel()}自动续费会在当前会员到期后接续，不会立即重复扣费。`;
+    return `${formatAutoRenewProviderLabel()}订阅会在当前会员到期后接续，不会立即重复扣费。`;
   }
-  return `${formatAutoRenewProviderLabel()}自动续费会先完成首期支付，之后按月自动续费，可随时管理。`;
+  return `${formatAutoRenewProviderLabel()}订阅会先完成首期支付，之后按月自动续费，可随时管理。`;
 }
 
 function resolveMembershipStatusLabel(input: {

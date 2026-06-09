@@ -68,6 +68,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
   }, [entitlement, session?.sessionFlags?.isPro]);
 
   const userName = session?.user.displayName ?? "";
+  const isAdmin = session?.user.role === "admin";
   const planLabel = (entitlement?.isPro ?? session?.sessionFlags?.isPro === true) ? "Pro" : "普通版";
   const quotaTitle = entitlement?.isPro ? "今日字符额度" : "免费字符额度";
   const quotaLabel = entitlement?.isPro ? "今日剩余" : "剩余额度";
@@ -81,6 +82,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scroller} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Pressable style={styles.profileRow} onPress={() => {
+          if (!isAdmin) return;
           setUpdatesTapCount((count) => {
             const next = count + 1;
             if (next >= 6) {

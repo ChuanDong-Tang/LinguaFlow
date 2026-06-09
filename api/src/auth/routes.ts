@@ -282,6 +282,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
           email: null,
           phone: null,
           avatarUrl: null,
+          role: existing?.role ?? "user",
           status: "active",
           createdAt: new Date(),
           updatedAt: new Date(),

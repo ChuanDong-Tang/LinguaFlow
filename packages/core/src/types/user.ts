@@ -5,6 +5,7 @@ export type User = {
   wechatOpenId: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  role?: "user" | "admin";
   createdAt: string;
   updatedAt: string;
 };
