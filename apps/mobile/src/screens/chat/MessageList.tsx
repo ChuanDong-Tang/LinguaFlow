@@ -259,7 +259,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
     assistantRenderState === "complete" || assistantRenderState === "failed";
 
   const shouldShowTranslation =
-    assistantRenderState === "complete" && !!clozeText.translation;
+    (assistantRenderState === "streaming" || assistantRenderState === "complete") && !!clozeText.translation;
 
   const shouldShowAiBadge =
     hasDisplayText &&

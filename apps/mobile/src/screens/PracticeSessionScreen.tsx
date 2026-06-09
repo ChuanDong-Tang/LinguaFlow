@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Keyboard,
   PanResponder,
   Pressable,
   NativeSyntheticEvent,
@@ -62,6 +63,7 @@ type PracticeEnglishSegment =
 const EDGE_SWITCH_COMMIT_THRESHOLD = 5;
 const DISCARD_SWIPE_RATIO = 0.15;
 const TOUCH_AXIS_LOCK_THRESHOLD = 8;
+const ACTIVE_BLANK_KEYBOARD_GAP = 88;
 
 function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegment[] {
   const phraseSet = new Set(card.phraseTokenIndexes);
@@ -127,6 +129,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const [isFlipped, setIsFlipped] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [keyboardScrollPadding, setKeyboardScrollPadding] = useState(0);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const translate = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -134,6 +137,10 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const cardMotionLocked = useRef(false);
   const segmentCacheRef = useRef(new Map<string, PracticeEnglishSegment[]>());
   const gestureAxis = useRef<"x" | null>(null);
+  const englishScrollRef = useRef<ScrollView | null>(null);
+  const activeBlankInputRef = useRef<TextInput | null>(null);
+  const keyboardTopRef = useRef<number | null>(null);
+  const isFlippedRef = useRef(false);
   const sessionMessageIdsRef = useRef(new Set(initialCards.map((row) => row.messageId)));
   const sessionContactByMessageIdRef = useRef(new Map(initialCards.map((row) => [row.messageId, getChatContact(row.contactId)])));
   const scrollStateRef = useRef({ y: 0, contentHeight: 0, layoutHeight: 0, maxY: 0 });
@@ -147,6 +154,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   } | null>(null);
   const card = cards[index] ?? null;
   const canFlipCard = !!card?.translation.trim();
+  isFlippedRef.current = isFlipped;
 
   const getCardSegments = (target: PracticeCard): PracticeEnglishSegment[] => {
     const cached = segmentCacheRef.current.get(target.id);
@@ -155,6 +163,29 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     segmentCacheRef.current.set(target.id, segments);
     return segments;
   };
+
+  const ensureActiveBlankVisible = React.useCallback((animated = true): void => {
+    const keyboardTop = keyboardTopRef.current;
+    const activeInput = activeBlankInputRef.current;
+    if (!keyboardTop || !activeInput || isFlippedRef.current) return;
+    requestAnimationFrame(() => {
+      activeInput.measureInWindow((_x, y, _width, height) => {
+        const visibleBottom = keyboardTop - ACTIVE_BLANK_KEYBOARD_GAP;
+        const overlap = y + height - visibleBottom;
+        if (overlap <= 0) return;
+        const { y: currentY, maxY } = scrollStateRef.current;
+        englishScrollRef.current?.scrollTo({
+          y: Math.min(maxY, currentY + overlap),
+          animated,
+        });
+      });
+    });
+  }, []);
+
+  const handleBlankFocus = React.useCallback((inputRef: TextInput | null): void => {
+    activeBlankInputRef.current = inputRef;
+    setTimeout(() => ensureActiveBlankVisible(true), 80);
+  }, [ensureActiveBlankVisible]);
 
   useEffect(() => {
     setIsFlipping(false);
@@ -178,6 +209,24 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       if (!keepIds.has(key)) segmentCacheRef.current.delete(key);
     }
   }, [cards, index]);
+
+  useEffect(() => {
+    const didShow = Keyboard.addListener("keyboardDidShow", (event) => {
+      keyboardTopRef.current = event.endCoordinates.screenY;
+      setKeyboardScrollPadding(Math.max(0, window.height - event.endCoordinates.screenY + ACTIVE_BLANK_KEYBOARD_GAP));
+      setTimeout(() => ensureActiveBlankVisible(true), 80);
+    });
+    const didHide = Keyboard.addListener("keyboardDidHide", () => {
+      keyboardTopRef.current = null;
+      activeBlankInputRef.current = null;
+      setKeyboardScrollPadding(0);
+    });
+
+    return () => {
+      didShow.remove();
+      didHide.remove();
+    };
+  }, [ensureActiveBlankVisible, window.height]);
 
   const frontRotateY = flipAnim.interpolate({
     inputRange: [0, 1],
@@ -239,7 +288,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
 
   function askExit(): void {
     setDialog({
-      message: "是否真的退出这次练习？",
+      message: "是否退出这次练习？",
       cancelText: "取消",
       confirmText: "确定",
       onConfirm: onBack,
@@ -577,7 +626,11 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
               >
                 <View style={styles.englishPane} onLayout={handleCardPaneLayout}>
                   <ScrollView
-                    contentContainerStyle={styles.englishContent}
+                    ref={englishScrollRef}
+                    contentContainerStyle={[
+                      styles.englishContent,
+                      keyboardScrollPadding > 0 && { paddingBottom: 20 + keyboardScrollPadding },
+                    ]}
                     bounces={false}
                     overScrollMode="never"
                     scrollEventThrottle={16}
@@ -593,6 +646,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
                       answers={answers}
                       checkedAnswers={checkedAnswers}
                       onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))}
+                      onBlankFocus={handleBlankFocus}
                     />
                   </ScrollView>
                 </View>
@@ -673,11 +727,13 @@ function PracticeEnglish({
   answers,
   checkedAnswers,
   onChangeAnswer,
+  onBlankFocus,
 }: {
   segments: PracticeEnglishSegment[];
   answers: Record<number, string>;
   checkedAnswers: Record<number, "correct" | "incorrect">;
   onChangeAnswer: (tokenIndex: number, value: string) => void;
+  onBlankFocus: (inputRef: TextInput | null) => void;
 }) {
   const sentenceRows = useMemo(() => groupPracticeEnglishSentences(segments), [segments]);
 
@@ -695,15 +751,11 @@ function PracticeEnglish({
           ) : isIncorrect ? (
             <Text style={[styles.tokenText, styles.phraseText, styles.incorrectAnswerText]}>{segment.expectedText}</Text>
           ) : (
-            <TextInput
-              style={[
-                styles.blankInput,
-                { width: segment.width },
-              ]}
-              value={answer}
-              onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)}
-              autoCapitalize="none"
-              autoCorrect={false}
+            <PracticeBlankInput
+              segment={segment}
+              answer={answer}
+              onChangeAnswer={onChangeAnswer}
+              onFocus={onBlankFocus}
             />
           )}
         </React.Fragment>
@@ -728,6 +780,35 @@ function PracticeEnglish({
         </View>
       ))}
     </View>
+  );
+}
+
+function PracticeBlankInput({
+  segment,
+  answer,
+  onChangeAnswer,
+  onFocus,
+}: {
+  segment: Extract<PracticeEnglishSegment, { type: "blank" }>;
+  answer: string;
+  onChangeAnswer: (tokenIndex: number, value: string) => void;
+  onFocus: (inputRef: TextInput | null) => void;
+}) {
+  const inputRef = useRef<TextInput | null>(null);
+
+  return (
+    <TextInput
+      ref={inputRef}
+      style={[
+        styles.blankInput,
+        { width: segment.width },
+      ]}
+      value={answer}
+      onFocus={() => onFocus(inputRef.current)}
+      onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)}
+      autoCapitalize="none"
+      autoCorrect={false}
+    />
   );
 }
 

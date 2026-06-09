@@ -99,6 +99,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
   const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
   const messageListRef = useRef<FlatList<any> | null>(null);
+  const scrollMetricsRef = useRef({ y: 0, contentHeight: 0, layoutHeight: 0 });
+  const pendingScrollToBottomRef = useRef<{ animated: boolean } | null>(null);
   const activeSelectionRef = useRef<SelectableMessageTextRef | null>(null);
   const activeCopyMenuRef = useRef(false);
   const closeCopyMenuRef = useRef<(() => void) | null>(null);
@@ -118,21 +120,50 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const daySyncMachine = useExclusiveSyncMachine<"chat_day">();
   const calendarSyncMachine = useExclusiveSyncMachine<"chat_calendar">();
   const clozeSaveMachine = useExclusiveSyncMachine<"cloze_save">();
-  const scrollToBottom = React.useCallback((animated = false): void => {
-    let attempts = 0;
-    const run = () => {
-      attempts += 1;
-      messageListRef.current?.scrollToEnd({ animated: attempts === 1 ? animated : false });
-      if (attempts < 4) {
-        requestAnimationFrame(run);
+  const scrollToBottomNow = React.useCallback((animated = false): void => {
+    requestAnimationFrame(() => {
+      const { contentHeight, layoutHeight } = scrollMetricsRef.current;
+      if (contentHeight > 0 && layoutHeight > 0) {
+        messageListRef.current?.scrollToOffset({
+          offset: Math.max(0, contentHeight - layoutHeight),
+          animated,
+        });
+        return;
       }
-    };
-    requestAnimationFrame(run);
+      messageListRef.current?.scrollToEnd({ animated });
+    });
   }, []);
+  const revealLatestMessage = React.useCallback((options?: { waitForLayout?: boolean; animated?: boolean }) => {
+    const animated = options?.animated ?? true;
+    setShowScrollToBottomButton(false);
+    if (options?.waitForLayout) {
+      pendingScrollToBottomRef.current = { animated };
+      requestAnimationFrame(() => scrollToBottomNow(animated));
+      return;
+    }
+    pendingScrollToBottomRef.current = null;
+    scrollToBottomNow(animated);
+  }, [scrollToBottomNow]);
   const handleScrollMetrics = React.useCallback((metrics: { y: number; contentHeight: number; layoutHeight: number }) => {
+    scrollMetricsRef.current = metrics;
     const distanceFromBottom = metrics.contentHeight - metrics.layoutHeight - metrics.y;
+    const isAtBottom = distanceFromBottom <= 64;
+
+    if (pendingScrollToBottomRef.current) {
+      const pending = pendingScrollToBottomRef.current;
+      pendingScrollToBottomRef.current = null;
+      setShowScrollToBottomButton(false);
+      scrollToBottomNow(pending.animated);
+      return;
+    }
+
+    if (isAtBottom) {
+      setShowScrollToBottomButton(false);
+      return;
+    }
+
     setShowScrollToBottomButton(distanceFromBottom > 160);
-  }, []);
+  }, [scrollToBottomNow]);
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
     const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
@@ -401,6 +432,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     setMessages(localNext);
     await appendChatMessages(contactId, [userLocal, assistantLocal]); // 写入本地缓存
     setLocalDateKeys((prev) => new Set([...prev, businessTodayKey])); // 合并datekey
+    revealLatestMessage({ waitForLayout: true });
 
     startChatSession({
       contactId,
@@ -451,6 +483,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     setMessages(toDisplayRows(localNext));
     await appendChatMessages(contactId, [userLocal, assistantLocal]);
     setLocalDateKeys((prev) => new Set([...prev, retryDateKey]));
+    revealLatestMessage({ waitForLayout: true });
 
     startChatSession({
       contactId,
@@ -899,9 +932,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             style={styles.scrollToBottomButton}
             hitSlop={10}
             onPress={() => {
-              prepareForCommand();
-              scrollToBottom(true);
-              setShowScrollToBottomButton(false);
+              closeCopyMenuRef.current?.();
+              clearActiveSelection();
+              revealLatestMessage();
             }}
           >
             <Ionicons name="chevron-down" size={21} color="#111111" />
