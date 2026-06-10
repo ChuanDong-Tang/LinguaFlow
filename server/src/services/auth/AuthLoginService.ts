@@ -107,27 +107,16 @@ export class AuthLoginService {
       throw new Error("Account is disabled");
     }
 
-    const now = new Date();
-    const nextSessionId = randomUUID();
-    const nextRefreshToken = signRefreshTokenWithSession(user.id, nextSessionId);
-    await this.userSessionRepository.rotateSession({
-      currentSessionId: currentSession.id,
-      revokedAt: now,
-      replacedBySessionId: nextSessionId,
-      lastUsedAt: now,
-      nextSession: {
-        id: nextSessionId,
-        userId: user.id,
-        refreshTokenHash: hashRefreshToken(nextRefreshToken),
-        userAgent: sessionContext.userAgent ?? currentSession.userAgent,
-        ip: sessionContext.ip ?? currentSession.ip,
-        expiresAt: resolveRefreshExpiry(now),
-      },
+    await this.userSessionRepository.update({
+      id: currentSession.id,
+      lastUsedAt: new Date(),
+      userAgent: sessionContext.userAgent ?? currentSession.userAgent,
+      ip: sessionContext.ip ?? currentSession.ip,
     });
 
     return {
-      accessToken: signAccessTokenWithSession(user.id, nextSessionId),
-      refreshToken: nextRefreshToken,
+      accessToken: signAccessTokenWithSession(user.id, currentSession.id),
+      refreshToken: input.refreshToken,
     };
   }
 
