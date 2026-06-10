@@ -261,11 +261,11 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   const shouldShowTranslation =
     (assistantRenderState === "streaming" || assistantRenderState === "complete") && !!clozeText.translation;
 
-  const shouldShowAiBadge =
-    hasDisplayText &&
-    (assistantRenderState === "streaming" ||
-      assistantRenderState === "complete" ||
-      assistantRenderState === "failed");
+  const shouldShowAiBadge = false
+    // hasDisplayText &&
+    // (assistantRenderState === "streaming" ||
+    //   assistantRenderState === "complete" ||
+    //   assistantRenderState === "failed");
 
   const canShowCloze = assistantRenderState === "complete";
 

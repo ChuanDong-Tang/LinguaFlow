@@ -53,6 +53,8 @@ const IOS_FILES = {
 @property (nonatomic, assign) BOOL answersVisible;
 @property (nonatomic, assign) BOOL hasEmittedSelectionStart;
 @property (nonatomic, assign) BOOL pendingSelectionRelease;
+@property (nonatomic, assign) NSRange lastSelectedRange;
+@property (nonatomic, assign) BOOL hasLastSelectedRange;
 - (void)handleFillBlankAction;
 - (void)handleCopyAction;
 @end
@@ -72,7 +74,7 @@ const IOS_FILES = {
     return [self.owner.selectionMode isEqualToString:@"all"] && self.selectedRange.length > 0;
   }
   if (action == @selector(copy:)) {
-    return [self.owner.selectionMode isEqualToString:@"all"] && self.selectedRange.length > 0;
+    return NO;
   }
   return NO;
 }
@@ -109,6 +111,8 @@ const IOS_FILES = {
     _currentLineHeight = @25;
     _currentFontWeight = @"";
     _selectionMode = @"range";
+    _lastSelectedRange = NSMakeRange(0, 0);
+    _hasLastSelectedRange = NO;
 
     _textView = [[ChatSelectableTextInnerTextView alloc] initWithFrame:self.bounds];
     _textView.owner = self;
@@ -175,6 +179,8 @@ const IOS_FILES = {
 - (void)setText:(NSString *)text
 {
   _rawText = text ?: @"";
+  _lastSelectedRange = NSMakeRange(0, 0);
+  _hasLastSelectedRange = NO;
   [self applyText];
 }
 
@@ -383,6 +389,9 @@ const IOS_FILES = {
 - (void)handleCopyAction
 {
   NSRange selectedRange = self.textView.selectedRange;
+  if ((selectedRange.location == NSNotFound || selectedRange.length == 0) && self.hasLastSelectedRange) {
+    selectedRange = self.lastSelectedRange;
+  }
   if (selectedRange.location == NSNotFound || selectedRange.length == 0) {
     return;
   }
@@ -395,12 +404,16 @@ const IOS_FILES = {
   if (selectedText.length > 0) {
     UIPasteboard.generalPasteboard.string = selectedText;
   }
+  self.lastSelectedRange = NSMakeRange(0, 0);
+  self.hasLastSelectedRange = NO;
   [self clearSelectionState];
 }
 
 - (void)textViewDidChangeSelection:(UITextView *)textView
 {
   if (textView.selectedRange.length > 0 && !self.hasEmittedSelectionStart) {
+    self.lastSelectedRange = textView.selectedRange;
+    self.hasLastSelectedRange = YES;
     self.hasEmittedSelectionStart = YES;
     [self startObservingOutsideSelectionTaps];
     [self updateMenuItems];
@@ -414,6 +427,9 @@ const IOS_FILES = {
   } else if (textView.selectedRange.length == 0) {
     self.hasEmittedSelectionStart = NO;
     [self stopObservingOutsideSelectionTaps];
+  } else if (textView.selectedRange.length > 0) {
+    self.lastSelectedRange = textView.selectedRange;
+    self.hasLastSelectedRange = YES;
   }
 }
 
@@ -421,7 +437,9 @@ const IOS_FILES = {
 {
   CGPoint point = [touch locationInView:self.textView];
   if (gestureRecognizer == self.outsideSelectionTapRecognizer) {
-    return self.textView.selectedRange.length > 0 && ![touch.view isDescendantOfView:self];
+    return self.textView.selectedRange.length > 0 &&
+      !UIMenuController.sharedMenuController.isMenuVisible &&
+      ![touch.view isDescendantOfView:self];
   }
   if (gestureRecognizer == self.doubleTapBlocker) {
     return YES;
@@ -483,6 +501,8 @@ const IOS_FILES = {
   if (![self.selectionMode isEqualToString:@"all"] || self.rawText.length == 0) return;
   [self.textView becomeFirstResponder];
   self.textView.selectedRange = NSMakeRange(0, self.textView.textStorage.length);
+  self.lastSelectedRange = self.textView.selectedRange;
+  self.hasLastSelectedRange = YES;
   self.hasEmittedSelectionStart = YES;
   [self startObservingOutsideSelectionTaps];
   if (self.onSelectionStart) {

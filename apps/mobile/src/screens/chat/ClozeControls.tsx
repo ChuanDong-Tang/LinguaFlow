@@ -38,8 +38,15 @@ export function ClozeControls({
   onCloseDelete,
   onConfirmDelete,
 }: ClozeControlsProps) {
-  const editorTokens = editor
-    ? tokenizeForCloze(getAssistantClozeText(editor.message, contact).text).filter((token) => editor.tokenIndexes.includes(token.index))
+  const lastEditorRef = React.useRef<ClozeEditorState | null>(null);
+  if (editor) {
+    lastEditorRef.current = editor;
+  }
+  const visibleEditor = editor ?? lastEditorRef.current;
+  const editorTokens = visibleEditor
+    ? tokenizeForCloze(getAssistantClozeText(visibleEditor.message, contact).text).filter((token) =>
+        visibleEditor.tokenIndexes.includes(token.index)
+      )
     : [];
 
   return (
@@ -50,7 +57,7 @@ export function ClozeControls({
             <Text style={styles.editorTitle}>编辑填空</Text>
             <ScrollView style={styles.editorScroll} contentContainerStyle={styles.editorTokens}>
               {editorTokens.map((token) => {
-                const active = editor?.draftBlankIndexes.includes(token.index) ?? false;
+                const active = visibleEditor?.draftBlankIndexes.includes(token.index) ?? false;
 
                 return (
                   <Pressable

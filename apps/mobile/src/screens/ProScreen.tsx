@@ -57,10 +57,12 @@ const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ON
 const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
 const PRODUCT_PRICE_CACHE_KEY = "lf_pro_product_price_v1";
+const AUTO_RENEW_CACHE_KEY = "lf_current_auto_renew_v1";
 const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
   process.env.EXPO_PUBLIC_PRO_PRICE_CACHE_TTL_MS,
   24 * 60 * 60 * 1000
 );
+const AUTO_RENEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function ProScreen({ onBack }: ProScreenProps) {
   const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
@@ -101,11 +103,17 @@ export function ProScreen({ onBack }: ProScreenProps) {
       (Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
       (Platform.OS === "android" && ENABLE_WECHAT_AUTO_RENEW));
   const shouldShowPurchaseActions = !isRenew || activeAutoRenew;
+  const shouldReservePurchaseActionSpace = shouldShowPurchaseActions || (isRenew && !hasLoadedAutoRenew);
 
   function applyEntitlementToState(entitlement: CurrentEntitlement): void {
     setIsRenew(entitlement.isPro);
     setProExpiresAt(entitlement.expiresAt);
     setCurrentEntitlement(entitlement);
+  }
+
+  function applyAutoRenewToState(subscription: MobileAutoRenewSubscription | null): void {
+    setAutoRenew(subscription);
+    void saveCachedAutoRenewSubscription(subscription);
   }
 
   async function syncSessionProFlag(entitlement: CurrentEntitlement): Promise<void> {
@@ -159,6 +167,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (cached && isScreenAlive()) {
         applyEntitlementToState(cached.data);
       }
+      const cachedAutoRenew = await loadCachedAutoRenewSubscription();
+      if (cachedAutoRenew && isScreenAlive()) {
+        setAutoRenew(cachedAutoRenew);
+      }
 
       // 页面打开时先恢复未完成订单，处理用户支付后返回 App 的场景。
       const recovered = await recoverPendingPaymentIfAny();
@@ -173,7 +185,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       const recoveredAutoRenew = await recoverPendingAutoRenewIfAny();
       if (!isScreenAlive()) return;
       if (recoveredAutoRenew.subscription) {
-        setAutoRenew(recoveredAutoRenew.subscription);
+        applyAutoRenewToState(recoveredAutoRenew.subscription);
       }
       if (recoveredAutoRenew.entitlementIsPro === true) {
         setIsRenew(true);
@@ -185,7 +197,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       try {
         const currentAutoRenew = await getCurrentAutoRenewSubscription();
         if (!isScreenAlive()) return;
-        setAutoRenew(currentAutoRenew);
+        applyAutoRenewToState(currentAutoRenew);
       } catch {
       } finally {
         if (isScreenAlive()) setHasLoadedAutoRenew(true);
@@ -348,7 +360,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       const currentAutoRenew = await getCurrentAutoRenewSubscription();
       const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
-      setAutoRenew(currentAutoRenew);
+      applyAutoRenewToState(currentAutoRenew);
       if (entitlementResult?.entitlement.isPro) {
         setIsRenew(true);
         await clearPendingAutoRenewFlow();
@@ -386,10 +398,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
     try {
       const cancelled = await cancelAutoRenewSubscription(autoRenew.id);
       if (!isScreenAlive()) return;
-      setAutoRenew((current) =>
-        current && current.id === cancelled.id
-          ? { ...current, status: cancelled.status, cancelledAt: cancelled.cancelledAt }
-          : current
+      applyAutoRenewToState(
+        autoRenew.id === cancelled.id
+          ? { ...autoRenew, status: cancelled.status, cancelledAt: cancelled.cancelledAt }
+          : autoRenew
       );
       safeAlert("已取消自动续费", "后续不会再自动扣费，当前 Pro 权益可继续使用至到期。");
     } catch (error) {
@@ -479,7 +491,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!isOneTimePurchase) {
         const currentAutoRenew = await getCurrentAutoRenewSubscription();
         if (!isScreenAlive()) return;
-        setAutoRenew(currentAutoRenew);
+        applyAutoRenewToState(currentAutoRenew);
       }
       if (isUserInitiatedPurchase) {
         safeAlert("开通成功", "Pro 权益已生效。");
@@ -545,7 +557,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
           if (verified.purchaseKind === "auto_renew") {
             const currentAutoRenew = await getCurrentAutoRenewSubscription();
             if (!isScreenAlive()) return;
-            setAutoRenew(currentAutoRenew);
+            applyAutoRenewToState(currentAutoRenew);
           }
           safeAlert("恢复成功", "Pro 权益已同步。");
           return;
@@ -622,48 +634,52 @@ export function ProScreen({ onBack }: ProScreenProps) {
             </View>
           </View>
 
-          {shouldShowPurchaseActions ? (
-            <View style={styles.actionRow}>
-              <Pressable
-                style={[
-                  styles.secondaryButton,
-                  styles.actionButton,
-                  (!canStartAutoRenew && !activeAutoRenew || isAutoRenewLoading || !hasLoadedAutoRenew) &&
-                    styles.subscribeButtonDisabled,
-                ]}
-                onPress={activeAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew()}
-                disabled={(!canStartAutoRenew && !activeAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
-              >
-                {isAutoRenewLoading || !hasLoadedAutoRenew ? (
-                  <ActivityIndicator color="#111111" />
-                ) : (
-                  <Text style={styles.secondaryButtonText}>
-                    {activeAutoRenew
-                      ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
-                      : canStartAutoRenew
-                        ? formatAutoRenewButtonLabel()
-                        : "暂未开放"}
-                  </Text>
-                )}
-              </Pressable>
-              {!activeAutoRenew ? (
-                <Pressable
-                  style={[
-                    styles.subscribeButton,
-                    styles.actionButton,
-                    (!canStartOneTimePurchase || isPaying) && styles.subscribeButtonDisabled,
-                  ]}
-                  onPress={() => void handleSubscribe()}
-                  disabled={!canStartOneTimePurchase || isPaying}
-                >
-                  {isPaying ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.subscribeText}>
-                      {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : "暂未开放"}
-                    </Text>
-                  )}
-                </Pressable>
+          {shouldReservePurchaseActionSpace ? (
+            <View style={[styles.actionSlot, !shouldShowPurchaseActions && styles.actionSlotReserved]}>
+              {shouldShowPurchaseActions ? (
+                <View style={styles.actionRow}>
+                  <Pressable
+                    style={[
+                      styles.secondaryButton,
+                      styles.actionButton,
+                      ((!canStartAutoRenew && !activeAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew) &&
+                        styles.subscribeButtonDisabled,
+                    ]}
+                    onPress={activeAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew()}
+                    disabled={(!canStartAutoRenew && !activeAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
+                  >
+                    {isAutoRenewLoading || !hasLoadedAutoRenew ? (
+                      <ActivityIndicator color="#111111" />
+                    ) : (
+                      <Text style={styles.secondaryButtonText}>
+                        {activeAutoRenew
+                          ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
+                          : canStartAutoRenew
+                            ? formatAutoRenewButtonLabel()
+                            : "暂未开放"}
+                      </Text>
+                    )}
+                  </Pressable>
+                  {!activeAutoRenew ? (
+                    <Pressable
+                      style={[
+                        styles.subscribeButton,
+                        styles.actionButton,
+                        (!canStartOneTimePurchase || isPaying) && styles.subscribeButtonDisabled,
+                      ]}
+                      onPress={() => void handleSubscribe()}
+                      disabled={!canStartOneTimePurchase || isPaying}
+                    >
+                      {isPaying ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.subscribeText}>
+                          {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : "暂未开放"}
+                        </Text>
+                      )}
+                    </Pressable>
+                  ) : null}
+                </View>
               ) : null}
             </View>
           ) : null}
@@ -829,6 +845,12 @@ type CachedProductPriceLabels = ProductPriceLabels & {
   cachedAt: number;
 };
 
+type CachedAutoRenewSubscription = {
+  platform: typeof Platform.OS;
+  subscription: MobileAutoRenewSubscription | null;
+  cachedAt: number;
+};
+
 async function loadCachedProductPrices(): Promise<ProductPriceLabels | null> {
   const raw = await AsyncStorage.getItem(PRODUCT_PRICE_CACHE_KEY);
   if (!raw) return null;
@@ -859,6 +881,44 @@ async function saveCachedProductPrices(prices: ProductPriceLabels): Promise<void
     cachedAt: Date.now(),
   };
   await AsyncStorage.setItem(PRODUCT_PRICE_CACHE_KEY, JSON.stringify(cached));
+}
+
+async function loadCachedAutoRenewSubscription(): Promise<MobileAutoRenewSubscription | null> {
+  const raw = await AsyncStorage.getItem(AUTO_RENEW_CACHE_KEY);
+  if (!raw) return null;
+
+  try {
+    const cached = JSON.parse(raw) as Partial<CachedAutoRenewSubscription>;
+    const isFresh = typeof cached.cachedAt === "number" && Date.now() - cached.cachedAt <= AUTO_RENEW_CACHE_TTL_MS;
+    if (!isFresh || cached.platform !== Platform.OS || !isValidCachedAutoRenewSubscription(cached.subscription)) {
+      return null;
+    }
+    return cached.subscription;
+  } catch {
+    await AsyncStorage.removeItem(AUTO_RENEW_CACHE_KEY);
+    return null;
+  }
+}
+
+async function saveCachedAutoRenewSubscription(subscription: MobileAutoRenewSubscription | null): Promise<void> {
+  const cached: CachedAutoRenewSubscription = {
+    platform: Platform.OS,
+    subscription,
+    cachedAt: Date.now(),
+  };
+  await AsyncStorage.setItem(AUTO_RENEW_CACHE_KEY, JSON.stringify(cached));
+}
+
+function isValidCachedAutoRenewSubscription(value: unknown): value is MobileAutoRenewSubscription | null {
+  if (value === null) return true;
+  if (typeof value !== "object" || !value) return false;
+  const candidate = value as Partial<MobileAutoRenewSubscription>;
+  return (
+    typeof candidate.id === "string" &&
+    (candidate.provider === "apple" || candidate.provider === "wechat") &&
+    candidate.productCode === "pro_monthly" &&
+    typeof candidate.status === "string"
+  );
 }
 
 function resolveProMonthlyPriceLabels(input: {
@@ -1182,9 +1242,15 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   actionRow: {
-    marginTop: 10,
     flexDirection: "row",
     gap: 10,
+  },
+  actionSlot: {
+    marginTop: 10,
+    minHeight: 38,
+  },
+  actionSlotReserved: {
+    opacity: 0,
   },
   actionButton: {
     flex: 1,
