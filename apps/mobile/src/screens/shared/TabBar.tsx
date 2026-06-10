@@ -13,16 +13,18 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
   return (
     <View style={styles.bar}>
       <Pressable style={styles.tab} onPress={activeTab === "main" ? undefined : onPressMain}>
-        <Ionicons
-          name="chatbubble-ellipses-outline"
-          size={24}
-          color={activeTab === "main" ? "#746BFF" : "#9AA0AB"}
-        />
+        <View style={styles.iconSlot}>
+          <Ionicons
+            name="chatbubble-ellipses-outline"
+            size={24}
+            color={activeTab === "main" ? "#746BFF" : "#9AA0AB"}
+          />
+        </View>
         <Text style={[styles.label, activeTab === "main" && styles.labelActive]}>对话</Text>
       </Pressable>
 
       <Pressable style={styles.tab} onPress={activeTab === "practice" ? undefined : onPressPractice}>
-        <View style={styles.practiceIconWrap}>
+        <View style={styles.iconSlot}>
           <Ionicons
             name="list-outline"
             size={24}
@@ -33,11 +35,13 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
       </Pressable>
 
       <Pressable style={styles.tab} onPress={activeTab === "me" ? undefined : onPressMe}>
-        <Ionicons
-          name="person-outline"
-          size={24}
-          color={activeTab === "me" ? "#746BFF" : "#9AA0AB"}
-        />
+        <View style={styles.iconSlot}>
+          <Ionicons
+            name="person-outline"
+            size={24}
+            color={activeTab === "me" ? "#746BFF" : "#9AA0AB"}
+          />
+        </View>
         <Text style={[styles.label, activeTab === "me" && styles.labelActive]}>我</Text>
       </Pressable>
     </View>
@@ -62,17 +66,17 @@ const styles = StyleSheet.create({
   },
   label: {
     marginTop: 4,
+    height: 16,
+    lineHeight: 16,
     fontSize: 12,
     color: "#9AA0AB",
   },
   labelActive: {
     color: "#746BFF",
-    fontWeight: "500",
   },
-  practiceIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  iconSlot: {
+    width: 24,
+    height: 24,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -10,7 +10,7 @@ type MainScreenProps = {
   onOpenChat: (contact: ChatContact) => void;
 };
 
-const SHOW_DEBUG_PROMPT_PANEL = process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
+const SHOW_DEBUG_PROMPT_PANEL = __DEV__ && process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
 const MODEL_OPTIONS: Array<{ label: string; value: DebugModelProvider; disabled?: boolean }> = [
   { label: "DeepSeek", value: "deepseek" },
   { label: "Kimi", value: "kimi", disabled: true },

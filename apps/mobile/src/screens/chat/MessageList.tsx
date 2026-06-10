@@ -334,7 +334,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
     <View style={styles.assistantBlock}>
       <View style={styles.assistantRow}>
         <View style={styles.assistantAvatar}>
-          <Text style={styles.assistantLogo}>OIO</Text>
+          <Text style={styles.assistantLogo}>{contact.avatarLabel}</Text>
         </View>
         <View style={styles.assistantCard}>
           {assistantRenderState === "typing" ? (

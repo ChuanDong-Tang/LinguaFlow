@@ -12,9 +12,9 @@ export type ChatContact = {
 export const CHAT_CONTACTS: ChatContact[] = [
   {
     id: "rewrite_assistant",
-    name: "改写助手",
-    description: "把想说的话，变成自然表达",
-    avatarLabel: "OIO",
+    name: "好奇笔记",
+    description: "把想说的话，记录下来",
+    avatarLabel: "CQN",
     clozeSource: "tagged_en",
     practiceEnabled: true,
   },

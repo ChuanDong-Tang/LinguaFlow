@@ -7,6 +7,8 @@ import { hasLocalProAccess } from "../entitlement/proAccess";
 import type { ChatMessage } from "../../domain/chat/types";
 import { toDateKey } from "../../domain/chat/messageState";
 
+const ENABLE_DEBUG_PROMPT_PANEL = __DEV__ && process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
+
 export type ChatGenerationStatus = "success" | "failed" | "stopped";
 
 export type LocalChatPair = {
@@ -146,8 +148,8 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   };
 
   try {
-    const debugSettings = await loadDebugSettings();
-    const contactPrompt = debugSettings.systemPromptsByContactId[input.contactId as keyof typeof debugSettings.systemPromptsByContactId]?.trim() || undefined;
+    const debugSettings = ENABLE_DEBUG_PROMPT_PANEL ? await loadDebugSettings() : null;
+    const contactPrompt = debugSettings?.systemPromptsByContactId[input.contactId as keyof typeof debugSettings.systemPromptsByContactId]?.trim() || undefined;
     const explicitPrompt = input.systemPrompt?.trim() || undefined;
     requestSystemPrompt = explicitPrompt ?? contactPrompt ?? "";
 

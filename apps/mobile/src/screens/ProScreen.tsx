@@ -710,6 +710,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
             </View>
           ))}
         </View>
+
       </ScrollView>
     </SafeAreaView>
   );
