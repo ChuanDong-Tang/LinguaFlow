@@ -26,3 +26,6 @@ scripts/
 /build_mobile_debug_apk.bat
 
 .tmp/
+
+/ecosystem.test.config.cjs
+/ecosystem.production.config.cjs
