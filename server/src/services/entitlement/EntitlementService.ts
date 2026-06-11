@@ -38,6 +38,7 @@ export class EntitlementService {
     private readonly subscriptionService: SubscriptionService
   ) {}
 
+  // 严格检查额度够不够
   async assertCanUse(userId: string, requestedChars: number, options?: { dateKey?: string }): Promise<void> {
     const quota = await this.resolveQuota(userId, options);
     // Pro 仍按自然日额度；免费用户复用一条固定 free_trial 记录作为总额度池。
@@ -53,6 +54,28 @@ export class EntitlementService {
     if (requestedChars > remainingChars) {
       throw new DailyQuotaExceededError({
         remainingChars: Math.max(0, remainingChars),
+        totalLimit: entitlement.dailyTotalLimit,
+        usedTotalChars: entitlement.usedTotalChars,
+      });
+    }
+  }
+
+  // 宽松检查，额度不够的时候，允许最后一次发送
+  async assertCanStartGeneration(userId: string, options?: { dateKey?: string }): Promise<void> {
+    const quota = await this.resolveQuota(userId, options);
+    // Pro 仍按自然日额度；免费用户复用一条固定 free_trial 记录作为总额度池。
+    const entitlement = await this.entitlementRepository.ensureDaily({
+      userId,
+      dateKey: quota.dateKey,
+      dailyTotalLimit: quota.totalLimit,
+    });
+    // 免费额度有效期从该额度记录首次创建时间开始计算，避免每次查询/使用都重新续期。
+    this.assertQuotaNotExpired(quota, entitlement.createdAt);
+
+    const remainingChars = entitlement.dailyTotalLimit - entitlement.usedTotalChars;
+    if (remainingChars <= 0) {
+      throw new DailyQuotaExceededError({
+        remainingChars: 0,
         totalLimit: entitlement.dailyTotalLimit,
         usedTotalChars: entitlement.usedTotalChars,
       });

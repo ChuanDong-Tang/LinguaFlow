@@ -151,7 +151,7 @@ export class ChatGenerationService {
     }
 
     try {
-      await this.entitlementService.assertCanUse(input.userId, input.text.length, { dateKey: quotaDateKey });
+      await this.entitlementService.assertCanStartGeneration(input.userId, { dateKey: quotaDateKey });
 
       await this.aiProvider.generateChatTextStream(
         {

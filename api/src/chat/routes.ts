@@ -114,6 +114,7 @@ export interface ChatRouteDeps {
   systemEventLogRepository?: SystemEventLogWriter;
   entitlementService :{
     assertCanUse: (userId: string, requestedChars: number) => Promise<void>;
+    assertCanStartGeneration: (userId: string) => Promise<void>;
     getCurrentEntitlement: (userId: string) => Promise<{ isPro: boolean }>;
   };
   rateLimiter: {
@@ -271,9 +272,8 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       "user exists before conversation.create"
     );
 
-    const textLen = body.text.trim().length;
     try {
-      await deps.entitlementService.assertCanUse(userContext.userId, textLen);
+      await deps.entitlementService.assertCanStartGeneration(userContext.userId);
       await assertProCloudAccess(deps, userContext.userId);
     } catch (error) {
       if(
