@@ -113,7 +113,6 @@ export interface ChatRouteDeps {
   };
   systemEventLogRepository?: SystemEventLogWriter;
   entitlementService :{
-    assertCanUse: (userId: string, requestedChars: number) => Promise<void>;
     assertCanStartGeneration: (userId: string) => Promise<void>;
     getCurrentEntitlement: (userId: string) => Promise<{ isPro: boolean }>;
   };
