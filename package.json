@@ -17,6 +17,7 @@
     "dependencies": {
         "@lf/core": "file:packages/core",
         "@prisma/client": "^6.19.3",
+        "authing-node-sdk": "^4.0.2",
         "ioredis": "^5.10.1",
         "jszip": "^3.10.1"
     },

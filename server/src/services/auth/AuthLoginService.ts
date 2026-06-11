@@ -53,6 +53,10 @@ export class AuthLoginService {
       avatarUrl: authingUser.picture,
     });
 
+    if (result.user.status === "pending_delete") {
+      throw new Error("Account deletion is in progress");
+    }
+
     if (result.user.status !== "active") {
       throw new Error("Account is disabled");
     }
@@ -101,6 +105,10 @@ export class AuthLoginService {
     const user = await this.userRepository.findById(currentSession.userId);
     if (!user) {
       throw new Error("User not found");
+    }
+
+    if (user.status === "pending_delete") {
+      throw new Error("Account deletion is in progress");
     }
 
     if (user.status !== "active") {

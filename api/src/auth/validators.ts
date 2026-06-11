@@ -1,4 +1,10 @@
-import type { AuthingLoginRequestBody, LoginCredential, RefreshTokenRequestBody } from "@lf/core/contracts/auth.js";
+import type {
+  AuthingLoginRequestBody,
+  ConfirmDeleteAccountRequestBody,
+  LoginCredential,
+  PrepareDeleteAccountRequestBody,
+  RefreshTokenRequestBody,
+} from "@lf/core/contracts/auth.js";
 
 /** 运行时校验：确保请求体符合 LoginCredential */
 export function isLoginRequest(value: unknown): value is LoginCredential {
@@ -28,4 +34,22 @@ export function isRefreshTokenBody(value: unknown): value is RefreshTokenRequest
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return typeof v.refreshToken === "string" && v.refreshToken.trim().length > 0;
+}
+
+export function isPrepareDeleteAccountBody(value: unknown): value is PrepareDeleteAccountRequestBody {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.authingToken === "string" && v.authingToken.trim().length > 0;
+}
+
+export function isConfirmDeleteAccountBody(value: unknown): value is ConfirmDeleteAccountRequestBody {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.authingToken === "string" &&
+    v.authingToken.trim().length > 0 &&
+    (v.method === "PHONE_PASSCODE" || v.method === "EMAIL_PASSCODE") &&
+    typeof v.passCode === "string" &&
+    v.passCode.trim().length > 0
+  );
 }

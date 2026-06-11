@@ -15,11 +15,12 @@ type MeScreenProps = {
   onOpenPro: () => void;
   onOpenAbout: () => void;
   onLogout: () => Promise<void> | void;
+  onDeleteAccount: () => Promise<void> | void;
 };
 
 const OTA_DEBUG_JS_LABEL = "Fix apple pay JWS";
 
-export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScreenProps) {
+export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteAccount }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
@@ -139,7 +140,8 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout }: MeScree
         <Text style={styles.sectionTitle}>更多</Text>
         <View style={styles.settingsCard}>
           <SettingsRow icon="information-circle-outline" label="关于 OIO" onPress={onOpenAbout} />
-          <SettingsRow icon="log-out-outline" label="退出登录" onPress={onLogout} isLast />
+          <SettingsRow icon="log-out-outline" label="退出登录" onPress={onLogout} />
+          <SettingsRow icon="person-remove-outline" label="注销账号" onPress={onDeleteAccount} tone="danger" isLast />
         </View>
       </ScrollView>
       <UpdatesDebugModal
@@ -236,17 +238,21 @@ function SettingsRow({
   label,
   onPress,
   isLast,
+  tone = "default",
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
   onPress: () => void | Promise<void>;
   isLast?: boolean;
+  tone?: "default" | "danger";
 }) {
+  const color = tone === "danger" ? "#C43D3D" : "#111111";
+
   return (
     <Pressable style={[styles.settingsRow, !isLast && styles.settingsRowBorder]} onPress={onPress}>
-      <Ionicons name={icon} size={20} color="#111111" />
-      <Text style={styles.settingsLabel}>{label}</Text>
-      <Ionicons name="chevron-forward" size={18} color="#111111" />
+      <Ionicons name={icon} size={20} color={color} />
+      <Text style={[styles.settingsLabel, tone === "danger" && styles.settingsLabelDanger]}>{label}</Text>
+      <Ionicons name="chevron-forward" size={18} color={color} />
     </Pressable>
   );
 }
@@ -504,6 +510,9 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     color: "#111111",
     fontSize: 15,
+  },
+  settingsLabelDanger: {
+    color: "#C43D3D",
   },
   updatesDebugBackdrop: {
     flex: 1,

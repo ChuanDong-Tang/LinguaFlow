@@ -1,7 +1,7 @@
 /** UserRepository：定义用户数据读写接口（不关心具体数据库实现）。 */
 
 export type AuthProvider = "authing";
-export type UserStatus = "active" | "disabled";
+export type UserStatus = "active" | "disabled" | "pending_delete";
 export type UserRole = "user" | "admin";
 
 /** 用户主数据 */
@@ -64,6 +64,8 @@ export interface UserRepository {
   ensureUserExists(input: EnsureUserExistsInput): Promise<void>;
 
   findById(userId: string): Promise<UserEntity | null>;
+
+  markPendingDeleteById(userId: string): Promise<UserEntity>;
 
   findOrCreateByAuthIdentity(input:{
     provider: AuthProvider;

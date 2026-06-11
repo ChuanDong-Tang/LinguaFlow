@@ -1,14 +1,19 @@
 import type {
   AuthingLoginRequestBody,
+  ConfirmDeleteAccountRequestBody,
+  DeleteAccountResponse,
   AuthingLoginResponse,
   LoginCredential,
   LoginResponse,
   LogoutRequestBody,
+  PrepareDeleteAccountRequestBody,
+  PrepareDeleteAccountResponse,
   RefreshTokenRequestBody,
   RefreshTokenResponse,
   TestPasswordLoginRequestBody,
 } from "@lf/core/contracts/auth";
 import { logEvent } from "../logger";
+import { getAuthHeaders } from "../auth/authHeaders";
 
 // 登录接口返回外层结构
 type ApiOk<T> = { ok: true; data: T };
@@ -151,4 +156,38 @@ export async function logout(input: LogoutRequestBody): Promise<void> {
   if (!apiResult.ok) {
     throw new Error(apiResult.error.message);
   }
+}
+
+export async function prepareDeleteAccount(input: PrepareDeleteAccountRequestBody): Promise<PrepareDeleteAccountResponse> {
+  const res = await fetch(`${BASE_URL}/auth/delete-account/prepare`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await getAuthHeaders()),
+    },
+    body: JSON.stringify(input),
+  });
+
+  const apiResult = (await res.json()) as ApiResult<PrepareDeleteAccountResponse>;
+  if (!apiResult.ok) {
+    throw new Error(apiResult.error.message);
+  }
+  return apiResult.data;
+}
+
+export async function confirmDeleteAccount(input: ConfirmDeleteAccountRequestBody): Promise<DeleteAccountResponse> {
+  const res = await fetch(`${BASE_URL}/auth/delete-account/confirm`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await getAuthHeaders()),
+    },
+    body: JSON.stringify(input),
+  });
+
+  const apiResult = (await res.json()) as ApiResult<DeleteAccountResponse>;
+  if (!apiResult.ok) {
+    throw new Error(apiResult.error.message);
+  }
+  return apiResult.data;
 }

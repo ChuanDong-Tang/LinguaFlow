@@ -96,6 +96,9 @@ export interface RuntimeConfig {
   aiRequestLogCleanupRetryMaxDelayMs: number;
   aiRequestLogCleanupCircuitFailThreshold: number;
   aiRequestLogCleanupCircuitOpenMs: number;
+  accountDeletionCleanupEnabled: boolean;
+  accountDeletionCleanupIntervalMs: number;
+  accountDeletionCleanupBatchSize: number;
   chatGenerationTaskTtlMs: number;
   chatGenerationGlobalRateLimit: number;
   chatGenerationGlobalRateWindowMs: number;
@@ -161,6 +164,9 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     aiRequestLogCleanupRetryMaxDelayMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_RETRY_MAX_DELAY_MS, 30_000),
     aiRequestLogCleanupCircuitFailThreshold: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_CIRCUIT_FAIL_THRESHOLD, 5),
     aiRequestLogCleanupCircuitOpenMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_CIRCUIT_OPEN_MS, 300_000),
+    accountDeletionCleanupEnabled: readBoolean(env.LF_ACCOUNT_DELETION_CLEANUP_ENABLED, true),
+    accountDeletionCleanupIntervalMs: readPositiveInt(env.LF_ACCOUNT_DELETION_CLEANUP_INTERVAL_MS, 7 * 24 * 60 * 60 * 1000),
+    accountDeletionCleanupBatchSize: readPositiveInt(env.LF_ACCOUNT_DELETION_CLEANUP_BATCH_SIZE, 5),
     chatGenerationTaskTtlMs: readPositiveInt(env.CHAT_GENERATION_TASK_TTL_MS, 60_000),
     chatGenerationGlobalRateLimit: readPositiveInt(env.CHAT_GENERATION_GLOBAL_RATE_LIMIT, 30),
     chatGenerationGlobalRateWindowMs: readPositiveInt(env.CHAT_GENERATION_GLOBAL_RATE_WINDOW_MS, 60_000),

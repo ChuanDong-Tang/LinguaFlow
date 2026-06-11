@@ -4,6 +4,7 @@ import { MockAuthProvider } from "@lf/core/ports/auth/MockAuthProvider.js";
 import { PrismaUserRepository } from "@lf/server/infrastructure/repository/PrismaUserRepository.js";
 import { PrismaUserSessionRepository } from "@lf/server/infrastructure/repository/PrismaUserSessionRepository.js";
 import { AuthLoginService } from "@lf/server/services/auth/AuthLoginService.js";
+import { AccountDeletionService } from "@lf/server/services/auth/AccountDeletionService.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
 import { DeepSeekAIProvider } from "@lf/server/providers/ai/DeepSeekAIProvider.js";
@@ -100,6 +101,7 @@ export function createApp() {
   const userRepository = new PrismaUserRepository(prisma);
   const userSessionRepository = new PrismaUserSessionRepository(prisma);
   const authLoginService = new AuthLoginService(userRepository, userSessionRepository);
+  const accountDeletionService = new AccountDeletionService(userRepository, userSessionRepository);
   const runtimeConfig = getRuntimeConfig();
   const aiProvider = new DeepSeekAIProvider({
     apiKey: runtimeConfig.deepSeekApiKey,
@@ -194,6 +196,7 @@ export function createApp() {
   registerAuthRoutes(app, {
     authProvider,
     authLoginService,
+    accountDeletionService,
     userRepository,
     systemEventLogRepository,
   });

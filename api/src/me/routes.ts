@@ -19,7 +19,7 @@ export interface MeRouteDeps {
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
-      status: "active" | "disabled";
+      status: "active" | "disabled" | "pending_delete";
     } | null>;
   };
   systemEventLogRepository?: SystemEventLogWriter;

@@ -102,13 +102,13 @@ export interface ChatRouteDeps {
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
-      status: "active" | "disabled";
+      status: "active" | "disabled" | "pending_delete";
     } | null>;
     ensureUserExists: (input: {
       id: string;
       nickname?: string | null;
       avatarUrl?: string | null;
-      status?: "active" | "disabled";
+      status?: "active" | "disabled" | "pending_delete";
     }) => Promise<void>;
   };
   systemEventLogRepository?: SystemEventLogWriter;

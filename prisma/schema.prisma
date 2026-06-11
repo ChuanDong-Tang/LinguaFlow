@@ -379,6 +379,7 @@ model TrustedCert {
 enum UserStatus {
   active
   disabled
+  pending_delete
 }
 
 enum UserRole {

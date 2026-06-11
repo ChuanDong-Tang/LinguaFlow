@@ -46,4 +46,5 @@ export interface UserSessionRepository {
   update(input: UpdateUserSessionInput): Promise<UserSessionEntity>;
   rotateSession(input: RotateUserSessionInput): Promise<void>;
   listActiveByUserId(userId: string): Promise<UserSessionEntity[]>;
+  revokeAllByUserId(userId: string, revokedAt: Date): Promise<number>;
 }

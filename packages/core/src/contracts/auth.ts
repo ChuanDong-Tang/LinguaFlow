@@ -40,7 +40,7 @@ export interface AuthingLoginResponse {
     phone: string | null;
     avatarUrl: string | null;
     role: "user" | "admin";
-    status: "active" | "disabled";
+    status: "active" | "disabled" | "pending_delete";
     createdAt: Date;
     updatedAt: Date;
   };
@@ -62,4 +62,26 @@ export interface LogoutRequestBody {
 
 export interface LogoutResponse {
   ok: true;
+}
+
+export type DeleteAccountVerifyMethod = "PHONE_PASSCODE" | "EMAIL_PASSCODE";
+
+export interface PrepareDeleteAccountRequestBody {
+  authingToken: string;
+}
+
+export interface PrepareDeleteAccountResponse {
+  authingToken: string;
+  method: DeleteAccountVerifyMethod;
+  target: string;
+}
+
+export interface ConfirmDeleteAccountRequestBody {
+  authingToken: string;
+  method: DeleteAccountVerifyMethod;
+  passCode: string;
+}
+
+export interface DeleteAccountResponse {
+  success: true;
 }

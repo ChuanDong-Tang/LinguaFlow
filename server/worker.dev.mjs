@@ -13,6 +13,7 @@ import { PrismaSystemEventLogRepository } from "./src/infrastructure/repository/
 import { PrismaTrustedCertRepository } from "./src/infrastructure/repository/PrismaTrustedCertRepository.ts";
 import { PrismaAutoRenewRepository } from "./src/infrastructure/repository/PrismaAutoRenewRepository.ts";
 import { SessionCleanupWorker } from "./src/workers/session/SessionCleanupWorker.ts";
+import { AccountDeletionCleanupWorker } from "./src/workers/auth/AccountDeletionCleanupWorker.ts";
 import { SystemEventLogCleanupWorker } from "./src/workers/system/SystemEventLogCleanupWorker.ts";
 import { AiRequestLogCleanupWorker } from "./src/workers/ai/AiRequestLogCleanupWorker.ts";
 import { PaymentCertSyncWorker } from "./src/workers/payment/PaymentCertSyncWorker.ts";
@@ -61,6 +62,7 @@ const benefitGrantWorker = new BenefitGrantWorker(
   systemEventLogRepository
 );
 const sessionCleanupWorker = new SessionCleanupWorker(prisma, systemEventLogRepository);
+const accountDeletionCleanupWorker = new AccountDeletionCleanupWorker(prisma, systemEventLogRepository);
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
 const paymentCertSyncWorker = new PaymentCertSyncWorker(
@@ -87,11 +89,12 @@ if (runtime.requireRedis) {
   }
 }
 
-console.log("[worker] payment/grant/session/log/ai/cert workers running");
+console.log("[worker] payment/grant/session/account-delete/log/ai/cert workers running");
 try {
   worker.start();
   benefitGrantWorker.start();
   sessionCleanupWorker.start();
+  accountDeletionCleanupWorker.start();
   systemEventLogCleanupWorker.start();
   aiRequestLogCleanupWorker.start();
   paymentCertSyncWorker.start();
@@ -116,6 +119,7 @@ async function shutdown() {
   worker.stop();
   benefitGrantWorker.stop();
   sessionCleanupWorker.stop();
+  accountDeletionCleanupWorker.stop();
   systemEventLogCleanupWorker.stop();
   aiRequestLogCleanupWorker.stop();
   paymentCertSyncWorker.stop();

@@ -9,7 +9,7 @@ export type UserContext = {
 export interface UserStatusLookup {
   findById: (userId: string) => Promise<{
     id: string;
-    status: "active" | "disabled";
+    status: "active" | "disabled" | "pending_delete";
   } | null>;
 }
 
@@ -25,6 +25,14 @@ export class AccountDisabledError extends Error {
   readonly code = "ACCOUNT_DISABLED";
 
   constructor(message = "Account is disabled") {
+    super(message);
+  }
+}
+
+export class AccountPendingDeleteError extends Error {
+  readonly code = "ACCOUNT_PENDING_DELETE";
+
+  constructor(message = "Account deletion is in progress") {
     super(message);
   }
 }
@@ -66,6 +74,10 @@ export async function resolveActiveUserContext(input: {
 }): Promise<UserContext> {
   const context = resolveUserContext(input);
   const user = await input.userRepository.findById(context.userId);
+
+  if (user?.status === "pending_delete") {
+    throw new AccountPendingDeleteError();
+  }
 
   if (user?.status === "disabled") {
     throw new AccountDisabledError();

@@ -13,6 +13,7 @@ type PrismaUserSessionClient = {
     findUnique: (args: any) => Promise<any>;
     findMany: (args: any) => Promise<any[]>;
     update: (args: any) => Promise<any>;
+    updateMany: (args: any) => Promise<{ count: number }>;
   };
 };
 
@@ -94,6 +95,20 @@ export class PrismaUserSessionRepository implements UserSessionRepository {
     });
 
     return rows.map((row) => this.toEntity(row));
+  }
+
+  async revokeAllByUserId(userId: string, revokedAt: Date): Promise<number> {
+    const result = await this.prisma.userSession.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt,
+      },
+    });
+
+    return result.count;
   }
 
   private toEntity(row: {

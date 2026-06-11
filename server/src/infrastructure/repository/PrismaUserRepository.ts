@@ -47,6 +47,10 @@ export class PrismaUserRepository implements UserRepository {
       });
 
       if(existing) {
+        if (existing.user.status !== "active") {
+          return { user: this.toUserEntity(existing.user), isNewUser: false };
+        }
+
         const updatedUser = await tx.user.update({
           where: { id: existing.user.id },
           data: {
@@ -184,6 +188,21 @@ export class PrismaUserRepository implements UserRepository {
     return row ? this.toUserEntity(row) : null;
   }
 
+  async markPendingDeleteById(userId: string): Promise<UserEntity> {
+    const row = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        status: "pending_delete",
+        nickname: null,
+        email: null,
+        phone: null,
+        avatarUrl: null,
+      },
+    });
+
+    return this.toUserEntity(row);
+  }
+
 
   private toUserEntity(record: {
     id: string;
@@ -191,7 +210,7 @@ export class PrismaUserRepository implements UserRepository {
     email: string | null;
     phone: string | null;
     avatarUrl: string | null;
-    status: "active" | "disabled";
+    status: "active" | "disabled" | "pending_delete";
     role: "user" | "admin";
     createdAt: Date;
     updatedAt: Date;

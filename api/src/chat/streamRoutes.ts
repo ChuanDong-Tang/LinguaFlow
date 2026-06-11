@@ -27,7 +27,7 @@ export interface ChatStreamRouteDeps {
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
-      status: "active" | "disabled";
+      status: "active" | "disabled" | "pending_delete";
     } | null>;
   };
   chatMessageService: ChatMessageService;

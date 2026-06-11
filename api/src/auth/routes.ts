@@ -1,7 +1,20 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { AuthingLoginResponse, LoginCredential, LoginResponse, RefreshTokenResponse } from "@lf/core/contracts/auth.js";
-import { isAuthingLoginBody, isLoginRequest, isRefreshTokenBody } from "./validators.js";
-import { isAllowedMockUserId, isMockAuthEnabled } from "./userContext.js";
+import {
+  isAuthingLoginBody,
+  isConfirmDeleteAccountBody,
+  isLoginRequest,
+  isPrepareDeleteAccountBody,
+  isRefreshTokenBody,
+} from "./validators.js";
+import {
+  isAllowedMockUserId,
+  isMockAuthEnabled,
+  resolveActiveUserContext,
+  AccountDisabledError,
+  AccountPendingDeleteError,
+  UnauthorizedError,
+} from "./userContext.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { resolveRequestId } from "../lib/httpResult.js";
@@ -39,18 +52,34 @@ export interface AuthRouteDeps {
     }) => Promise<RefreshTokenResponse>;
     logout: (input: { refreshToken: string }) => Promise<void>;
   };
+  accountDeletionService: {
+    prepare: (input: {
+      userId: string;
+      authingToken: string;
+    }) => Promise<{
+      authingToken: string;
+      method: "PHONE_PASSCODE" | "EMAIL_PASSCODE";
+      target: string;
+    }>;
+    confirm: (input: {
+      userId: string;
+      authingToken: string;
+      method: "PHONE_PASSCODE" | "EMAIL_PASSCODE";
+      passCode: string;
+    }) => Promise<{ success: true }>;
+  };
 
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
-      status: "active" | "disabled";
+      status: "active" | "disabled" | "pending_delete";
       role: "user" | "admin";
     } | null>;
     ensureUserExists: (input: {
       id: string;
       nickname?: string | null;
       avatarUrl?: string | null;
-      status?: "active" | "disabled";
+      status?: "active" | "disabled" | "pending_delete";
     }) => Promise<void>;
   };
   systemEventLogRepository?: SystemEventLogWriter;
@@ -98,6 +127,19 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
 
     if (isAllowedMockUserId(data.user.id)) {
       const existing = await deps.userRepository.findById(data.user.id);
+      if (existing?.status === "pending_delete") {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          module: "auth",
+          event: "auth.mock_login.pending_delete_account",
+          level: "warn",
+          status: "failed",
+          errorCode: "ACCOUNT_PENDING_DELETE",
+          userId: data.user.id,
+        });
+        return sendAccountPendingDeleteError(reply);
+      }
+
       if (existing?.status === "disabled") {
         await writeSystemEventLog(deps.systemEventLogRepository, {
           requestId,
@@ -176,6 +218,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unauthorized";
+      const isPendingDelete = message === "Account deletion is in progress";
       const isDisabled = message === "Account is disabled";
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
@@ -183,9 +226,11 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         event: "auth.authing_login.failed",
         level: "warn",
         status: "failed",
-        errorCode: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID",
+        errorCode: isPendingDelete ? "ACCOUNT_PENDING_DELETE" : isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID",
         errorMessage: message,
       });
+      if (isPendingDelete) return sendAccountPendingDeleteError(reply);
+      if (isDisabled) return sendAccountDisabledError(reply);
       return sendAuthGenericError(reply);
     }
 
@@ -241,6 +286,19 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     }
 
     const existing = await deps.userRepository.findById(testUserId);
+    if (existing?.status === "pending_delete") {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.test_password_login.pending_delete_account",
+        level: "warn",
+        status: "failed",
+        errorCode: "ACCOUNT_PENDING_DELETE",
+        userId: testUserId,
+      });
+      return sendAccountPendingDeleteError(reply);
+    }
+
     if (existing?.status === "disabled") {
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
@@ -328,6 +386,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unauthorized";
+      const isPendingDelete = message === "Account deletion is in progress";
       const isDisabled = message === "Account is disabled";
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
@@ -335,10 +394,12 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         event: "auth.admin_password_login.authing_failed",
         level: "warn",
         status: "failed",
-        errorCode: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID",
+        errorCode: isPendingDelete ? "ACCOUNT_PENDING_DELETE" : isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID",
         errorMessage: message,
         metadata: { account },
       });
+      if (isPendingDelete) return sendAccountPendingDeleteError(reply);
+      if (isDisabled) return sendAccountDisabledError(reply);
       return sendAuthGenericError(reply);
     }
 
@@ -401,6 +462,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unauthorized";
+      const isPendingDelete = message === "Account deletion is in progress";
       const isDisabled = message === "Account is disabled";
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
@@ -408,9 +470,11 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         event: "auth.refresh.failed",
         level: "warn",
         status: "failed",
-        errorCode: isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID",
+        errorCode: isPendingDelete ? "ACCOUNT_PENDING_DELETE" : isDisabled ? "ACCOUNT_DISABLED" : "AUTH_INVALID",
         errorMessage: message,
       });
+      if (isPendingDelete) return sendAccountPendingDeleteError(reply);
+      if (isDisabled) return sendAccountDisabledError(reply);
       return sendAuthGenericError(reply);
     }
   });
@@ -458,6 +522,170 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       return sendAuthGenericError(reply);
     }
   });
+
+  app.post("/auth/delete-account/prepare", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "delete_account", limit: 5, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
+    if (!isPrepareDeleteAccountBody(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.delete_account.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "REQUEST_INVALID",
+      });
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "REQUEST_INVALID", message: "Invalid delete account payload" },
+      });
+    }
+
+    const userContext = await resolveDeleteAccountUserContext(req, reply, deps, requestId);
+    if (!userContext) return;
+
+    try {
+      const data = await deps.accountDeletionService.prepare({
+        userId: userContext.userId,
+        authingToken: body.authingToken,
+      });
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "auth",
+        event: "auth.delete_account.prepare_success",
+        level: "info",
+        status: "success",
+        metadata: { method: data.method },
+      });
+      return reply.status(200).send({ ok: true, data });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Prepare delete account failed";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "auth",
+        event: "auth.delete_account.prepare_failed",
+        level: "warn",
+        status: "failed",
+        errorCode: "DELETE_ACCOUNT_PREPARE_FAILED",
+        errorMessage: message,
+      });
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "DELETE_ACCOUNT_FAILED", message: "Delete account failed" },
+      });
+    }
+  });
+
+  app.post("/auth/delete-account/confirm", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "delete_account", limit: 8, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
+    if (!isConfirmDeleteAccountBody(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.delete_account.confirm_invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "REQUEST_INVALID",
+      });
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "REQUEST_INVALID", message: "Invalid delete account payload" },
+      });
+    }
+
+    const userContext = await resolveDeleteAccountUserContext(req, reply, deps, requestId);
+    if (!userContext) return;
+
+    try {
+      const data = await deps.accountDeletionService.confirm({
+        userId: userContext.userId,
+        authingToken: body.authingToken,
+        method: body.method,
+        passCode: body.passCode,
+      });
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "auth",
+        event: "auth.delete_account.success",
+        level: "info",
+        status: "success",
+      });
+      return reply.status(200).send({ ok: true, data });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Delete account failed";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "auth",
+        event: "auth.delete_account.failed",
+        level: "warn",
+        status: "failed",
+        errorCode: "DELETE_ACCOUNT_FAILED",
+        errorMessage: message,
+      });
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "DELETE_ACCOUNT_FAILED", message: "Delete account failed" },
+      });
+    }
+  });
+}
+
+async function resolveDeleteAccountUserContext(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  deps: AuthRouteDeps,
+  _requestId: string
+) {
+  try {
+    return await resolveActiveUserContext({
+      authorization: req.headers.authorization,
+      userRepository: deps.userRepository,
+    });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      await reply.status(401).send({
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return null;
+    }
+    if (error instanceof AccountDisabledError) {
+      await sendAccountDisabledError(reply);
+      return null;
+    }
+    if (error instanceof AccountPendingDeleteError) {
+      await sendAccountPendingDeleteError(reply);
+      return null;
+    }
+    throw error;
+  }
 }
 
 function resolveSessionContext(req: FastifyRequest) {
@@ -475,7 +703,13 @@ function resolveTestPasswordLoginUserId(account: string): string | null {
 
 // redis限流
 type AuthRateLimitRule = {
-  routeKey: "authing_login" | "test_password_login" | "admin_password_login" | "refresh" | "logout";
+  routeKey:
+    | "authing_login"
+    | "test_password_login"
+    | "admin_password_login"
+    | "refresh"
+    | "logout"
+    | "delete_account";
   limit: number;
   windowSec: number;
 };
@@ -515,5 +749,19 @@ function sendAuthGenericError(reply: FastifyReply) {
   return reply.status(401).send({
     ok: false,
     error: { code: "AUTH_INVALID", message: "Authentication failed" },
+  });
+}
+
+function sendAccountDisabledError(reply: FastifyReply) {
+  return reply.status(403).send({
+    ok: false,
+    error: { code: "ACCOUNT_DISABLED", message: "Account is disabled" },
+  });
+}
+
+function sendAccountPendingDeleteError(reply: FastifyReply) {
+  return reply.status(403).send({
+    ok: false,
+    error: { code: "ACCOUNT_PENDING_DELETE", message: "账号正在注销流程中，暂时无法登录" },
   });
 }
