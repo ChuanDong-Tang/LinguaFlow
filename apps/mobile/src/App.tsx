@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Alert, Animated, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as AuthSession from "expo-auth-session";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -57,6 +57,8 @@ export default function App() {
   const [deleteAccountTarget, setDeleteAccountTarget] = useState("");
   const [deleteAccountCode, setDeleteAccountCode] = useState("");
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
+  const [deleteAccountUserId, setDeleteAccountUserId] = useState("");
+  const deleteAccountRunIdRef = useRef(0);
   const authingConfigured = isAuthingConfigured();
   const authingDiscovery = authingConfigured ? getAuthingDiscovery() : null;
   const authingClientId = authingConfigured ? getAuthingClientId() : "authing-disabled";
@@ -98,6 +100,7 @@ export default function App() {
   // 监听登录失效
   useEffect(() => {
     return onSessionInvalid(() => {
+      cancelDeleteAccountFlow();
       setScreen("login");
     });
   }, []);
@@ -109,6 +112,7 @@ export default function App() {
   }, [screen]);
 
   async function handleLogout(): Promise<void> {
+    cancelDeleteAccountFlow();
     const session = await getSession();
     if (session?.refreshToken) {
       try {
@@ -144,9 +148,18 @@ export default function App() {
     }
     if (deleteAccountLoading) return;
 
+    const session = await getSession();
+    const userId = session?.user.id;
+    if (!userId) {
+      Alert.alert("请先登录");
+      return;
+    }
+
+    const runId = ++deleteAccountRunIdRef.current;
     setDeleteAccountLoading(true);
     try {
       const result = await promptDeleteAuthingAsync();
+      if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
       if (result.type !== "success") {
         Alert.alert("已取消注销验证");
         return;
@@ -160,16 +173,23 @@ export default function App() {
         },
         authingDiscovery,
       );
+      if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
       const prepared = await prepareDeleteAccount({ authingToken: tokenResult.accessToken });
+      if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
       setDeleteAccountAuthingToken(prepared.authingToken);
       setDeleteAccountMethod(prepared.method);
       setDeleteAccountTarget(prepared.target);
       setDeleteAccountCode("");
+      setDeleteAccountUserId(userId);
       setDeleteAccountVisible(true);
     } catch {
-      Alert.alert("注销验证失败", "请稍后重试");
+      if (await isCurrentDeleteAccountRun(runId, userId)) {
+        Alert.alert("注销验证失败", "请稍后重试");
+      }
     } finally {
-      setDeleteAccountLoading(false);
+      if (await isCurrentDeleteAccountRun(runId, userId)) {
+        setDeleteAccountLoading(false);
+      }
     }
   }
 
@@ -180,6 +200,15 @@ export default function App() {
       return;
     }
 
+    const session = await getSession();
+    if (!deleteAccountUserId || session?.user.id !== deleteAccountUserId) {
+      cancelDeleteAccountFlow();
+      Alert.alert("注销流程已失效", "账号已切换，请重新发起注销");
+      return;
+    }
+
+    const runId = deleteAccountRunIdRef.current;
+    const userId = deleteAccountUserId;
     setDeleteAccountLoading(true);
     try {
       await confirmDeleteAccount({
@@ -187,6 +216,7 @@ export default function App() {
         method: deleteAccountMethod,
         passCode: deleteAccountCode.trim(),
       });
+      if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
       setDeleteAccountVisible(false);
       resetDeleteAccountState();
       await clearSession();
@@ -194,9 +224,13 @@ export default function App() {
       setScreen("login");
       Alert.alert("账号已注销");
     } catch {
-      Alert.alert("注销失败", "请确认验证码后重试");
+      if (await isCurrentDeleteAccountRun(runId, userId)) {
+        Alert.alert("注销失败", "请确认验证码后重试");
+      }
     } finally {
-      setDeleteAccountLoading(false);
+      if (await isCurrentDeleteAccountRun(runId, userId)) {
+        setDeleteAccountLoading(false);
+      }
     }
   }
 
@@ -205,6 +239,20 @@ export default function App() {
     setDeleteAccountMethod(null);
     setDeleteAccountTarget("");
     setDeleteAccountCode("");
+    setDeleteAccountUserId("");
+  }
+
+  function cancelDeleteAccountFlow(): void {
+    deleteAccountRunIdRef.current += 1;
+    setDeleteAccountVisible(false);
+    setDeleteAccountLoading(false);
+    resetDeleteAccountState();
+  }
+
+  async function isCurrentDeleteAccountRun(runId: number, userId: string): Promise<boolean> {
+    if (deleteAccountRunIdRef.current !== runId) return false;
+    const session = await getSession();
+    return session?.user.id === userId;
   }
 
   const showTabBar = screen === "main" || screen === "practice" || screen === "me";
@@ -217,7 +265,12 @@ export default function App() {
   else if (screen === "login") {
     content = (
       <FadingScreen>
-        <LoginScreen onLoginSuccess={() => setScreen("main")} />
+        <LoginScreen
+          onLoginSuccess={() => {
+            cancelDeleteAccountFlow();
+            setScreen("main");
+          }}
+        />
       </FadingScreen>
     );
   }
