@@ -168,7 +168,19 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     if (!userContext) return;
 
     try {
-      await deps.appleIapService.reconcileCurrentAutoRenewForUser(userContext.userId);
+      const reconcileResult = await deps.appleIapService.reconcileCurrentAutoRenewForUser(userContext.userId);
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.ios.autorenew.reconcile_checked",
+        level: "warn",
+        status: reconcileResult.status === "checked" && reconcileResult.action === "cancelled"
+          ? "success"
+          : "ignored",
+        errorCode: "APPLE_AUTORENEW_RECONCILE_CHECKED",
+        metadata: { appleAutoRenewReconcile: reconcileResult },
+      });
     } catch (error) {
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,

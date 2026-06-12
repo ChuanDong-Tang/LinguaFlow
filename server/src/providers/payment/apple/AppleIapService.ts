@@ -38,6 +38,25 @@ export interface VerifyAppleIapTransactionResult {
   alreadyApplied: boolean;
 }
 
+export type AppleAutoRenewReconcileResult =
+  | { status: "skipped"; reason: string }
+  | {
+      status: "checked";
+      action: "cancelled" | "kept";
+      autoRenewSubscriptionId: string;
+      providerAgreementId: string;
+      latestTransactionId: string | null;
+      localStatus: string;
+      appleEnvironment: "production" | "sandbox";
+      appleStatusCount: number;
+      matched: boolean;
+      appleStatus: number | null;
+      autoRenewStatus: number | null;
+      renewalProductId: string | null;
+      renewalAutoRenewProductId: string | null;
+      transactionProductId: string | null;
+    };
+
 export class AppleIapService {
   constructor(
     private readonly benefitGrantService: BenefitGrantService,
@@ -52,12 +71,16 @@ export class AppleIapService {
     return getRuntimeConfig().payment.appleIap.enabled && isAppleIapConfigured();
   }
 
-  async reconcileCurrentAutoRenewForUser(userId: string): Promise<void> {
-    if (!this.autoRenewService || !this.isConfigured()) return;
+  async reconcileCurrentAutoRenewForUser(userId: string): Promise<AppleAutoRenewReconcileResult> {
+    if (!this.autoRenewService) return { status: "skipped", reason: "auto_renew_service_missing" };
+    if (!this.isConfigured()) return { status: "skipped", reason: "apple_iap_not_configured" };
     const current = await this.autoRenewService.getCurrent(userId);
     const subscription = current.subscription;
-    if (!subscription || subscription.provider !== "apple") return;
-    if (!["active", "billing_retry"].includes(subscription.status)) return;
+    if (!subscription) return { status: "skipped", reason: "no_current_subscription" };
+    if (subscription.provider !== "apple") return { status: "skipped", reason: "current_subscription_not_apple" };
+    if (!["active", "billing_retry"].includes(subscription.status)) {
+      return { status: "skipped", reason: "current_subscription_not_active" };
+    }
 
     const config = loadAppleIapConfig();
     const { token } = createAppleServerTokenWithDiagnostics({
@@ -75,7 +98,24 @@ export class AppleIapService {
       originalTransactionId: subscription.providerAgreementId,
       productId: config.proProductId,
     });
-    if (!matching || !shouldCancelAppleAutoRenewFromStatus(matching)) return;
+    const shouldCancel = matching ? shouldCancelAppleAutoRenewFromStatus(matching) : false;
+    const result: AppleAutoRenewReconcileResult = {
+      status: "checked",
+      action: shouldCancel ? "cancelled" : "kept",
+      autoRenewSubscriptionId: subscription.id,
+      providerAgreementId: subscription.providerAgreementId,
+      latestTransactionId: subscription.latestTransactionId,
+      localStatus: subscription.status,
+      appleEnvironment: appleStatus.environment,
+      appleStatusCount: appleStatus.statuses.length,
+      matched: Boolean(matching),
+      appleStatus: matching?.status ?? null,
+      autoRenewStatus: matching?.renewalInfo?.autoRenewStatus ?? null,
+      renewalProductId: matching?.renewalInfo?.productId ?? null,
+      renewalAutoRenewProductId: matching?.renewalInfo?.autoRenewProductId ?? null,
+      transactionProductId: matching?.transaction?.productId ?? null,
+    };
+    if (!matching || !shouldCancel) return result;
 
     await this.autoRenewService.handleAppleCancelled({
       originalTransactionId: subscription.providerAgreementId,
@@ -87,6 +127,7 @@ export class AppleIapService {
         transaction: matching.transaction,
       },
     });
+    return result;
   }
 
   async registerAppAccountToken(input: {
@@ -538,6 +579,7 @@ export class AppleIapService {
       rawPayload: input.rawPayload,
     });
   }
+
 }
 
 function isApplePaidRenewal(notificationType: string | undefined): boolean {
