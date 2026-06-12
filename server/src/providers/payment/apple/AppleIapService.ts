@@ -75,7 +75,7 @@ export class AppleIapService {
       originalTransactionId: subscription.providerAgreementId,
       productId: config.proProductId,
     });
-    if (!matching || matching.renewalInfo?.autoRenewStatus !== 0) return;
+    if (!matching || !shouldCancelAppleAutoRenewFromStatus(matching)) return;
 
     await this.autoRenewService.handleAppleCancelled({
       originalTransactionId: subscription.providerAgreementId,
@@ -555,6 +555,15 @@ function findAppleSubscriptionStatus(
     const productId = item.transaction?.productId || item.renewalInfo?.productId || item.renewalInfo?.autoRenewProductId;
     return originalTransactionId === input.originalTransactionId && productId === input.productId;
   }) ?? null;
+}
+
+function shouldCancelAppleAutoRenewFromStatus(
+  status: Awaited<ReturnType<typeof fetchSubscriptionStatuses>>["statuses"][number]
+): boolean {
+  if (status.renewalInfo?.autoRenewStatus === 0) return true;
+  // App Store Server API status: 2 = expired, 5 = revoked.
+  // In both cases there is no ongoing Apple auto-renew relationship to manage locally.
+  return status.status === 2 || status.status === 5;
 }
 
 function isAppleCancellationNotice(
