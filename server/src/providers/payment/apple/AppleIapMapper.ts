@@ -21,6 +21,14 @@ export type AppleServerNotificationPayload = {
   };
 };
 
+export type AppleRenewalInfoPayload = {
+  autoRenewStatus: number | null;
+  productId: string | null;
+  autoRenewProductId: string | null;
+  originalTransactionId: string | null;
+  signedEnvironment: string | null;
+};
+
 export function decodeTransactionPayload(payload: Record<string, unknown>): AppleTransactionPayload {
   const transactionId = String(payload.transactionId ?? "").trim();
   const originalTransactionId = String(payload.originalTransactionId ?? "").trim();
@@ -44,6 +52,16 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
     appAccountToken,
     purchaseDate,
     expiresDate,
+  };
+}
+
+export function decodeRenewalInfoPayload(payload: Record<string, unknown>): AppleRenewalInfoPayload {
+  return {
+    autoRenewStatus: readNullableNumber(payload.autoRenewStatus),
+    productId: readNullableString(payload.productId),
+    autoRenewProductId: readNullableString(payload.autoRenewProductId),
+    originalTransactionId: readNullableString(payload.originalTransactionId),
+    signedEnvironment: readNullableString(payload.environment),
   };
 }
 

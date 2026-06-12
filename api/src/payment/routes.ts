@@ -167,6 +167,21 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
     if (!userContext) return;
 
+    try {
+      await deps.appleIapService.reconcileCurrentAutoRenewForUser(userContext.userId);
+    } catch (error) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.ios.autorenew.reconcile_failed",
+        level: "warn",
+        status: "failed",
+        errorCode: "APPLE_AUTORENEW_RECONCILE_FAILED",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     const data = await deps.autoRenewService.getCurrent(userContext.userId);
     return reply.status(200).send({
       ok: true,

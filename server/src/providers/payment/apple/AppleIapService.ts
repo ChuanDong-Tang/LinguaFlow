@@ -16,7 +16,7 @@ import {
   AppleIapSubscriptionAlreadyBoundError,
   AppleIapVerifyError,
 } from "./AppleIapErrors.js";
-import { fetchTransactionInfo } from "./AppleIapClient.js";
+import { fetchSubscriptionStatuses, fetchTransactionInfo } from "./AppleIapClient.js";
 import {
   type AppleServerNotificationPayload,
   decodeTransactionPayload,
@@ -50,6 +50,43 @@ export class AppleIapService {
 
   isConfigured(): boolean {
     return getRuntimeConfig().payment.appleIap.enabled && isAppleIapConfigured();
+  }
+
+  async reconcileCurrentAutoRenewForUser(userId: string): Promise<void> {
+    if (!this.autoRenewService || !this.isConfigured()) return;
+    const current = await this.autoRenewService.getCurrent(userId);
+    const subscription = current.subscription;
+    if (!subscription || subscription.provider !== "apple") return;
+    if (!["active", "billing_retry"].includes(subscription.status)) return;
+
+    const config = loadAppleIapConfig();
+    const { token } = createAppleServerTokenWithDiagnostics({
+      issuerId: config.issuerId,
+      keyId: config.keyId,
+      bundleId: config.bundleId,
+      privateKeyPem: config.privateKeyPem,
+    });
+    const appleStatus = await fetchSubscriptionStatuses(
+      subscription.providerAgreementId,
+      token,
+      config.rootCaPem
+    );
+    const matching = findAppleSubscriptionStatus(appleStatus.statuses, {
+      originalTransactionId: subscription.providerAgreementId,
+      productId: config.proProductId,
+    });
+    if (!matching || matching.renewalInfo?.autoRenewStatus !== 0) return;
+
+    await this.autoRenewService.handleAppleCancelled({
+      originalTransactionId: subscription.providerAgreementId,
+      rawPayload: {
+        source: "apple_subscription_status_reconcile",
+        environment: appleStatus.environment,
+        status: matching.status,
+        renewalInfo: matching.renewalInfo,
+        transaction: matching.transaction,
+      },
+    });
   }
 
   async registerAppAccountToken(input: {
@@ -404,7 +441,7 @@ export class AppleIapService {
                 },
               });
             }
-          } else if (["EXPIRED", "REFUND", "REVOKE"].includes(String(notification.notificationType ?? "").toUpperCase())) {
+          } else if (isAppleCancellationNotice(notification.notificationType, notification.subtype)) {
             await this.autoRenewService.handleAppleCancelled({
               originalTransactionId: tx.originalTransactionId,
               rawPayload: { notification: sanitizeAppleNotificationForStorage(notification), transaction: tx },
@@ -506,6 +543,30 @@ export class AppleIapService {
 function isApplePaidRenewal(notificationType: string | undefined): boolean {
   const type = String(notificationType ?? "").toUpperCase();
   return ["SUBSCRIBED", "DID_RENEW", "DID_RECOVER", "ONE_TIME_CHARGE"].includes(type);
+}
+
+function findAppleSubscriptionStatus(
+  statuses: Awaited<ReturnType<typeof fetchSubscriptionStatuses>>["statuses"],
+  input: { originalTransactionId: string; productId: string }
+) {
+  return statuses.find((item) => {
+    const originalTransactionId =
+      item.transaction?.originalTransactionId || item.renewalInfo?.originalTransactionId;
+    const productId = item.transaction?.productId || item.renewalInfo?.productId || item.renewalInfo?.autoRenewProductId;
+    return originalTransactionId === input.originalTransactionId && productId === input.productId;
+  }) ?? null;
+}
+
+function isAppleCancellationNotice(
+  notificationType: string | undefined,
+  subtype: string | undefined
+): boolean {
+  const type = String(notificationType ?? "").toUpperCase();
+  const normalizedSubtype = String(subtype ?? "").toUpperCase();
+  return (
+    ["EXPIRED", "REFUND", "REVOKE"].includes(type) ||
+    (type === "DID_CHANGE_RENEWAL_STATUS" && normalizedSubtype === "AUTO_RENEW_DISABLED")
+  );
 }
 
 function sanitizeAppleNotificationForStorage(notification: AppleServerNotificationPayload): unknown {

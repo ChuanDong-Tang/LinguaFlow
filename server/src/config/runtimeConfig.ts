@@ -40,7 +40,6 @@ export interface PaymentRuntimeConfig {
     rootCa: string | null;
     proMonthlyProductId: string | null;
     proMonthlyOneTimeProductId: string | null;
-    forceSandbox: boolean;
     allowSandboxFallback: boolean;
   };
 }
@@ -236,7 +235,6 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       rootCa: trimToNull(env.APPLE_IAP_ROOT_CA),
       proMonthlyProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_PRODUCT_ID),
       proMonthlyOneTimeProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_ONE_TIME_PRODUCT_ID),
-      forceSandbox: readBoolean(env.APPLE_IAP_FORCE_SANDBOX, false),
       allowSandboxFallback: readBoolean(env.APPLE_IAP_ALLOW_SANDBOX_FALLBACK, mode !== "production"),
     },
   };

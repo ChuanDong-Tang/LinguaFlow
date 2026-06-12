@@ -79,7 +79,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(null);
   const applePurchaseIntentRef = useRef(false);
+  const appleAppAccountTokenRef = useRef<string | null>(null);
+  const appleAppAccountTokenPromiseRef = useRef<Promise<string | null> | null>(null);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
+  const manageableAutoRenew = isRenew && activeAutoRenew;
   const liveProductPrices = resolveProMonthlyPriceLabels({ appleIap, wechatPriceLabel });
   const productPrices = liveProductPrices.primary ? liveProductPrices : cachedProductPrices ?? liveProductPrices;
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
@@ -100,10 +103,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const canStartAutoRenew =
     !isRenew &&
     hasLoadedAutoRenew &&
-    (activeAutoRenew ||
-      (Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
+    ((Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
       (Platform.OS === "android" && ENABLE_WECHAT_AUTO_RENEW));
-  const shouldShowPurchaseActions = !isRenew || activeAutoRenew;
+  const shouldShowPurchaseActions = !isRenew || manageableAutoRenew;
   const shouldReservePurchaseActionSpace = shouldShowPurchaseActions || (isRenew && !hasLoadedAutoRenew);
 
   function applyEntitlementToState(entitlement: CurrentEntitlement): void {
@@ -158,6 +160,31 @@ export function ProScreen({ onBack }: ProScreenProps) {
       return result;
     } catch {
       return null;
+    }
+  }
+
+  async function ensureAppleAppAccountTokenRegistered(): Promise<string | null> {
+    if (Platform.OS !== "ios") return null;
+    if (appleAppAccountTokenRef.current) return appleAppAccountTokenRef.current;
+    if (appleAppAccountTokenPromiseRef.current) return appleAppAccountTokenPromiseRef.current;
+
+    const promise = (async () => {
+      const session = await getSession();
+      const appAccountToken = session?.user?.id
+        ? await createAppleAppAccountToken(session.user.id)
+        : null;
+      if (appAccountToken) {
+        await registerAppleAppAccountToken(appAccountToken);
+        appleAppAccountTokenRef.current = appAccountToken;
+      }
+      return appAccountToken;
+    })();
+    appleAppAccountTokenPromiseRef.current = promise;
+    try {
+      return await promise;
+    } catch (error) {
+      appleAppAccountTokenPromiseRef.current = null;
+      throw error;
     }
   }
 
@@ -243,6 +270,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
       cancelled = true;
     };
   }, [isScreenAlive]);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    void ensureAppleAppAccountTokenRegistered().catch(() => { });
+  }, []);
 
   async function handleSubscribe(): Promise<void> {
     if (isPaying) return;
@@ -438,13 +470,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         return;
       }
       // iOS 一次性月卡与自动续费是两个 App Store 商品；真正权益以后端验单结果为准。
-      const session = await getSession();
-      const appAccountToken = session?.user?.id
-        ? await createAppleAppAccountToken(session.user.id)
-        : null;
-      if (appAccountToken) {
-        await registerAppleAppAccountToken(appAccountToken);
-      }
+      const appAccountToken = await ensureAppleAppAccountTokenRegistered();
       applePurchaseIntentRef.current = true;
       await appleIap.requestPurchase({
         type: source === "single_purchase" ? "in-app" : "subs",
@@ -506,11 +532,14 @@ export function ProScreen({ onBack }: ProScreenProps) {
             isConsumable: false,
           }).catch(() => { });
         }
-        safeAlert("Apple 订阅已绑定", "这笔 Apple 订阅已绑定其他 OIO 账号，请切换到原账号或联系客服处理。");
+        if (isUserInitiatedPurchase) {
+          safeAlert("Apple 订阅已绑定", "这笔 Apple 订阅已绑定其他 OIO 账号，请切换到原账号或联系客服处理。");
+        }
         return;
       }
-      const message = error instanceof Error ? error.message : "请稍后重试";
-      safeAlert("Apple 验单失败", message);
+      if (isUserInitiatedPurchase) {
+        safeAlert("Apple 验单失败", formatApplePaymentErrorMessage(error));
+      }
     } finally {
       if (isScreenAlive()) {
         setIsApplePurchaseFinishing(false);
@@ -567,12 +596,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
         }
       }
 
-      const message = lastError instanceof Error ? lastError.message : "请稍后重试";
       if (isAppleTransactionOwnedByDifferentAccount(lastError)) {
         safeAlert("恢复购买失败", "这笔 Apple 购买记录不属于当前账号，请切换到购买时使用的 OIO 账号后再恢复。");
         return;
       }
-      safeAlert("恢复购买失败", message);
+      safeAlert("恢复购买失败", formatApplePaymentErrorMessage(lastError));
     } catch (error) {
       if (!isScreenAlive()) return;
       const message = error instanceof Error ? error.message : "请稍后重试";
@@ -598,8 +626,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
               setIsAutoRenewLoading(false);
               return;
             }
-            const message = error instanceof Error ? error.message : "Apple 支付失败";
-            safeAlert("Apple 支付失败", message);
+            if (applePurchaseIntentRef.current) {
+              safeAlert("Apple 支付失败", formatApplePaymentErrorMessage(error, "Apple 支付失败"));
+            }
             setIsPaying(false);
             setIsAutoRenewLoading(false);
           }}
@@ -647,17 +676,17 @@ export function ProScreen({ onBack }: ProScreenProps) {
                     style={[
                       styles.secondaryButton,
                       styles.actionButton,
-                      ((!canStartAutoRenew && !activeAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew) &&
+                      ((!canStartAutoRenew && !manageableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew) &&
                         styles.subscribeButtonDisabled,
                     ]}
-                    onPress={activeAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew()}
-                    disabled={(!canStartAutoRenew && !activeAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
+                    onPress={manageableAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew()}
+                    disabled={(!canStartAutoRenew && !manageableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
                   >
                     {isAutoRenewLoading || !hasLoadedAutoRenew ? (
                       <ActivityIndicator color="#111111" />
                     ) : (
                       <Text style={styles.secondaryButtonText}>
-                        {activeAutoRenew
+                        {manageableAutoRenew
                           ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
                           : canStartAutoRenew
                             ? formatAutoRenewButtonLabel()
@@ -665,7 +694,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
                       </Text>
                     )}
                   </Pressable>
-                  {!activeAutoRenew ? (
+                  {!manageableAutoRenew ? (
                     <Pressable
                       style={[
                         styles.subscribeButton,
@@ -990,6 +1019,22 @@ function isAppleTransactionOwnedByDifferentAccount(error: unknown): boolean {
     error.code === "APPLE_APP_ACCOUNT_TOKEN_MISMATCH" ||
     error.code === "APPLE_SUBSCRIPTION_ALREADY_BOUND"
   );
+}
+
+function formatApplePaymentErrorMessage(error: unknown, fallback = "请稍后重试"): string {
+  if (error instanceof MobileApiError) {
+    if (error.code === "APPLE_SUBSCRIPTION_EXPIRED") {
+      return "这笔 Apple 订阅当前不可恢复。取消订阅后，当前 Pro 权益会保留至到期，到期后可重新订阅。";
+    }
+    if (error.code === "AUTO_RENEW_SWITCH_BLOCKED") {
+      return "当前 Pro 周期仍在有效期内，到期后可重新开通订阅。";
+    }
+    if (error.code === "PRO_RENEWAL_TOO_EARLY") {
+      return "当前 Pro 有效期内暂不支持重复购买。";
+    }
+    return error.message || fallback;
+  }
+  return error instanceof Error ? error.message : fallback;
 }
 
 function isAppleUserCancelledPurchase(error: unknown): boolean {
