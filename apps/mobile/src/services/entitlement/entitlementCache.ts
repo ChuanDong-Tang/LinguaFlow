@@ -1,7 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { CurrentEntitlement } from "../api/meApi";
+import { environmentStorageKey } from "../storage/environmentStorageKey";
 
-const ENTITLEMENT_CACHE_KEY = "lf_current_entitlement_v1";
+const ENTITLEMENT_CACHE_KEY = environmentStorageKey("lf_current_entitlement_v1");
 
 export type CachedEntitlement = {
   data: CurrentEntitlement;
@@ -20,6 +21,11 @@ export async function getCachedEntitlement(): Promise<CachedEntitlement | null> 
   }
 }
 
+export async function getCachedEntitlementForUser(userId: string): Promise<CachedEntitlement | null> {
+  const cached = await getCachedEntitlement();
+  return cached?.data.userId === userId ? cached : null;
+}
+
 export async function setCachedEntitlement(data: CurrentEntitlement): Promise<void> {
   await AsyncStorage.setItem(
     ENTITLEMENT_CACHE_KEY,
@@ -28,6 +34,10 @@ export async function setCachedEntitlement(data: CurrentEntitlement): Promise<vo
       cachedAt: Date.now(),
     })
   );
+}
+
+export async function clearCachedEntitlement(): Promise<void> {
+  await AsyncStorage.removeItem(ENTITLEMENT_CACHE_KEY);
 }
 
 export function isSameEntitlement(a: CurrentEntitlement | null, b: CurrentEntitlement): boolean {

@@ -328,12 +328,13 @@ export class AppleIapService {
 
     // Apple 已经支付成功，但 OIO 仍要先确认订阅链可归当前账号，再创建内部 paid order。
     // 否则 originalTransactionId 认领失败时，会留下“订单已 paid、权益没发”的半状态。
+    const appleAmount = resolveApplePaymentOrderAmount(transaction);
     const order = await this.paymentOrderRepository.findOrCreatePaidExternalOrder({
       userId: input.userId,
       productCode: "pro_monthly",
       provider: "apple_iap",
       providerOrderId: transaction.transactionId,
-      amount: getRuntimeConfig().payment.proMonthlyPriceCents,
+      amount: appleAmount.amount,
       currency: "CNY",
       metadata: {
         appleIap: {
@@ -342,6 +343,10 @@ export class AppleIapService {
           originalTransactionId,
           productId: transaction.productId,
           purchaseKind,
+          price: transaction.price,
+          currency: transaction.currency,
+          amountSource: appleAmount.source,
+          amountCents: appleAmount.amount,
         },
       },
     });
@@ -670,6 +675,25 @@ function createAppleAppAccountToken(userId: string): string {
 
 function sameAppleAppAccountToken(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function resolveApplePaymentOrderAmount(transaction: { price: number | null; currency: string | null }): {
+  amount: number;
+  source: "apple_transaction" | "runtime_config";
+} {
+  const currency = transaction.currency?.trim().toUpperCase();
+  if (currency === "CNY" && typeof transaction.price === "number" && Number.isFinite(transaction.price)) {
+    // App Store Server API 的 price 是货币单位的千分之一；库里的 amount 用分。
+    const amount = Math.round(transaction.price / 10);
+    if (amount > 0) {
+      return { amount, source: "apple_transaction" };
+    }
+  }
+
+  return {
+    amount: getRuntimeConfig().payment.proMonthlyPriceCents,
+    source: "runtime_config",
+  };
 }
 
 function assertAppleNotificationEnvironmentMatchesTransaction(input: {

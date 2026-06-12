@@ -27,7 +27,7 @@ import {
   savePendingPaymentOrder,
 } from "../services/payment/paymentRecovery";
 import { refreshEntitlementAndSession } from "../services/entitlement/entitlementSync";
-import { getCachedEntitlement, isSameEntitlement, setCachedEntitlement } from "../services/entitlement/entitlementCache";
+import { getCachedEntitlementForUser, isSameEntitlement, setCachedEntitlement } from "../services/entitlement/entitlementCache";
 import { getCurrentEntitlement, type CurrentEntitlement } from "../services/api/meApi";
 import { getSession, setSession } from "../services/auth/authStorage";
 import {
@@ -40,6 +40,7 @@ import {
   getAppleProductIdForSource,
 } from "../services/payment/appleIap";
 import { useMountedGuard } from "../hooks/useMountedGuard";
+import { environmentStorageKey } from "../services/storage/environmentStorageKey";
 
 type ProScreenProps = { onBack: () => void };
 type AppleIapBridgeState = Pick<
@@ -56,8 +57,8 @@ const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_
 const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ONE_TIME_PURCHASE === "true";
 const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
-const PRODUCT_PRICE_CACHE_KEY = "lf_pro_product_price_v1";
-const AUTO_RENEW_CACHE_KEY = "lf_current_auto_renew_v1";
+const PRODUCT_PRICE_CACHE_KEY = environmentStorageKey("lf_pro_product_price_v1");
+const AUTO_RENEW_CACHE_KEY = environmentStorageKey("lf_current_auto_renew_v1");
 const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
   process.env.EXPO_PUBLIC_PRO_PRICE_CACHE_TTL_MS,
   24 * 60 * 60 * 1000
@@ -116,7 +117,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   function applyAutoRenewToState(subscription: MobileAutoRenewSubscription | null): void {
     setAutoRenew(subscription);
-    void saveCachedAutoRenewSubscription(subscription);
+    void saveCachedAutoRenewSubscriptionForCurrentUser(subscription);
   }
 
   async function syncSessionProFlag(entitlement: CurrentEntitlement): Promise<void> {
@@ -132,7 +133,8 @@ export function ProScreen({ onBack }: ProScreenProps) {
   }
 
   async function loadProEntitlementState(): Promise<CurrentEntitlement | null> {
-    const cached = await getCachedEntitlement();
+    const session = await getSession();
+    const cached = session?.user.id ? await getCachedEntitlementForUser(session.user.id) : null;
     if (cached && isScreenAlive()) {
       applyEntitlementToState(cached.data);
     }
@@ -191,11 +193,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
   useEffect(() => {
     void (async () => {
       let didRefreshEntitlement = false;
-      const cached = await getCachedEntitlement();
+      const session = await getSession();
+      const cached = session?.user.id ? await getCachedEntitlementForUser(session.user.id) : null;
       if (cached && isScreenAlive()) {
         applyEntitlementToState(cached.data);
       }
-      const cachedAutoRenew = await loadCachedAutoRenewSubscription();
+      const cachedAutoRenew = session?.user.id ? await loadCachedAutoRenewSubscription(session.user.id) : null;
       if (cachedAutoRenew && isScreenAlive()) {
         setAutoRenew(cachedAutoRenew);
       }
@@ -881,6 +884,7 @@ type CachedProductPriceLabels = ProductPriceLabels & {
 };
 
 type CachedAutoRenewSubscription = {
+  userId: string;
   platform: typeof Platform.OS;
   subscription: MobileAutoRenewSubscription | null;
   cachedAt: number;
@@ -918,14 +922,19 @@ async function saveCachedProductPrices(prices: ProductPriceLabels): Promise<void
   await AsyncStorage.setItem(PRODUCT_PRICE_CACHE_KEY, JSON.stringify(cached));
 }
 
-async function loadCachedAutoRenewSubscription(): Promise<MobileAutoRenewSubscription | null> {
+async function loadCachedAutoRenewSubscription(userId: string): Promise<MobileAutoRenewSubscription | null> {
   const raw = await AsyncStorage.getItem(AUTO_RENEW_CACHE_KEY);
   if (!raw) return null;
 
   try {
     const cached = JSON.parse(raw) as Partial<CachedAutoRenewSubscription>;
     const isFresh = typeof cached.cachedAt === "number" && Date.now() - cached.cachedAt <= AUTO_RENEW_CACHE_TTL_MS;
-    if (!isFresh || cached.platform !== Platform.OS || !isValidCachedAutoRenewSubscription(cached.subscription)) {
+    if (
+      !isFresh ||
+      cached.userId !== userId ||
+      cached.platform !== Platform.OS ||
+      !isValidCachedAutoRenewSubscription(cached.subscription)
+    ) {
       return null;
     }
     return cached.subscription;
@@ -935,8 +944,20 @@ async function loadCachedAutoRenewSubscription(): Promise<MobileAutoRenewSubscri
   }
 }
 
-async function saveCachedAutoRenewSubscription(subscription: MobileAutoRenewSubscription | null): Promise<void> {
+async function saveCachedAutoRenewSubscriptionForCurrentUser(
+  subscription: MobileAutoRenewSubscription | null
+): Promise<void> {
+  const session = await getSession();
+  if (!session?.user.id) return;
+  await saveCachedAutoRenewSubscription(session.user.id, subscription);
+}
+
+async function saveCachedAutoRenewSubscription(
+  userId: string,
+  subscription: MobileAutoRenewSubscription | null
+): Promise<void> {
   const cached: CachedAutoRenewSubscription = {
+    userId,
     platform: Platform.OS,
     subscription,
     cachedAt: Date.now(),

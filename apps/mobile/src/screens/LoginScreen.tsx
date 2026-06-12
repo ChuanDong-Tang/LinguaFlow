@@ -12,6 +12,7 @@ import {
   isAuthingConfigured,
 } from "../services/auth/authingAuth";
 import { clearForceAuthingLogin, setSession, shouldForceAuthingLogin } from "../services/auth/authStorage";
+import { clearAccountScopedStorage } from "../services/auth/accountScopedStorage";
 import { logEvent } from "../services/logger";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
@@ -44,7 +45,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       clientId: authingClientId,
       redirectUri: authingRedirectUri,
       responseType: AuthSession.ResponseType.Code,
-      scopes: ["openid", "profile", "username", "email", "phone", "offline_access"],
+      scopes: ["openid", "profile", "email", "phone", "offline_access"],
       usePKCE: true,
       prompt: forceAuthingLogin ? AuthSession.Prompt.Login : undefined,
     },
@@ -63,6 +64,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setLoading(true);
     setStatusText("");
     try {
+      await clearAccountScopedStorage();
       if (ENABLE_TEST_PASSWORD_LOGIN) {
         const backendSession = await loginWithTestPassword({
           account: testAccount,
@@ -92,7 +94,30 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         const result = await promptAuthingAsync();
         if (!isMounted()) return;
         if (result.type !== "success") {
+          await logEvent("authing_oauth_cancelled", "warn", result.type, {
+            redirectUri: authingRedirectUri,
+          });
           setStatusText("已取消登录");
+          return;
+        }
+        if (typeof result.params.error === "string" && result.params.error) {
+          const authingError =
+            typeof result.params.error_description === "string" && result.params.error_description
+              ? result.params.error_description
+              : result.params.error;
+          await logEvent("authing_oauth_error", "warn", authingError, {
+            error: result.params.error,
+            redirectUri: authingRedirectUri,
+          });
+          setStatusText(authingError);
+          return;
+        }
+        if (typeof result.params.code !== "string" || !result.params.code) {
+          await logEvent("authing_oauth_missing_code", "warn", undefined, {
+            params: Object.keys(result.params),
+            redirectUri: authingRedirectUri,
+          });
+          setStatusText("Authing 登录未返回授权码，请稍后重试");
           return;
         }
         const tokenResult = await AuthSession.exchangeCodeAsync(
@@ -134,9 +159,10 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       onLoginSuccess();
     } catch (err) {
       if (!isMounted()) return;
-      const message = normalizeLoginError(err, t("auth.login.failed"));
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const message = rawMessage ? rawMessage.slice(0, 180) : t("auth.login.failed");
       setStatusText(message);
-      await logEvent("login_ui_failed", "warn", err instanceof Error ? err.message : message);
+      await logEvent("login_ui_failed", "warn", rawMessage || message);
     } finally {
       if (isMounted()) setLoading(false);
     }

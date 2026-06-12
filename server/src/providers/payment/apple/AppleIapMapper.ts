@@ -5,6 +5,8 @@ export type AppleTransactionPayload = {
   originalTransactionId: string;
   bundleId: string;
   productId: string;
+  price: number | null;
+  currency: string | null;
   signedEnvironment: string | null;
   appAccountToken: string | null;
   purchaseDate: number | null;
@@ -34,6 +36,8 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
   const originalTransactionId = String(payload.originalTransactionId ?? "").trim();
   const bundleId = String(payload.bundleId ?? "").trim();
   const productId = String(payload.productId ?? "").trim();
+  const price = readNullableNumber(payload.price);
+  const currency = readNullableString(payload.currency);
   const signedEnvironment = readNullableString(payload.environment);
   const appAccountToken = readNullableString(payload.appAccountToken);
   const purchaseDate = readNullableNumber(payload.purchaseDate);
@@ -48,6 +52,8 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
     originalTransactionId,
     bundleId,
     productId,
+    price,
+    currency,
     signedEnvironment,
     appAccountToken,
     purchaseDate,

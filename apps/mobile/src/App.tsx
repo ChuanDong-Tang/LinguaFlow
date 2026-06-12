@@ -6,6 +6,7 @@ import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-c
 import { LoginScreen } from "./screens/LoginScreen";
 import { initI18n } from "./i18n";
 import { clearSession, getSession, markForceAuthingLogin } from "./services/auth/authStorage";
+import { clearAccountScopedStorage } from "./services/auth/accountScopedStorage";
 import { confirmDeleteAccount, logout, prepareDeleteAccount } from "./services/api/authApi";
 import { MainScreen } from "./screens/MainScreen";
 import { MeScreen } from "./screens/MeScreen";
@@ -120,6 +121,7 @@ export default function App() {
       } catch {}
     }
     await clearSession();
+    await clearAccountScopedStorage();
     await markForceAuthingLogin();
     setScreen("login");
   }
@@ -220,6 +222,7 @@ export default function App() {
       setDeleteAccountVisible(false);
       resetDeleteAccountState();
       await clearSession();
+      await clearAccountScopedStorage();
       await markForceAuthingLogin();
       setScreen("login");
       Alert.alert("账号已注销");

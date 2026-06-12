@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import type { User } from "@lf/core/types";
+import { environmentStorageKey } from "../storage/environmentStorageKey";
 
 export type AuthSession = {
   accessToken: string;
@@ -11,8 +12,8 @@ export type AuthSession = {
   };
 };
 
-const SESSION_KEY = "lf_auth_session";
-const FORCE_AUTHING_LOGIN_KEY = "lf_force_authing_login";
+const SESSION_KEY = environmentStorageKey("lf_auth_session");
+const FORCE_AUTHING_LOGIN_KEY = environmentStorageKey("lf_force_authing_login");
 
 /** 保存登录会话：后续真登录也直接复用 */
 export async function setSession(session: AuthSession): Promise<void> {

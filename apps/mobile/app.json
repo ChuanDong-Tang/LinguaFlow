@@ -2,8 +2,8 @@
   "expo": {
     "name": "OIO",
     "slug": "oio",
-    "scheme": "oio-preview",
-    "version": "1.0.1",
+    "scheme": "oio",
+    "version": "1.0.2",
     "orientation": "portrait",
     "platforms": [
       "ios",
@@ -19,7 +19,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.yueyantech.oio",
-      "buildNumber": "53",
+      "buildNumber": "58",
       "supportsTablet": true,
       "icon": "./assets/app/logo_main_apple.png",
       "config": {
@@ -28,7 +28,7 @@
     },
     "android": {
       "package": "com.yueyantech.oio",
-      "versionCode": 51,
+      "versionCode": 54,
       "adaptiveIcon": {
         "foregroundImage": "./assets/app/logo_main.png",
         "backgroundColor": "#ffffff"

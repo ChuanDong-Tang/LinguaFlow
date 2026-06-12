@@ -1,4 +1,5 @@
 import { clearSession, getSession, setSession } from "./authStorage";
+import { clearAccountScopedStorage } from "./accountScopedStorage";
 import { refreshAccessToken } from "../api/authApi";
 import { emitSessionInvalid } from "./authSessionEvents";
 
@@ -43,6 +44,7 @@ async function ensureFreshSession(): Promise<void> {
       });
     } catch {
       await clearSession();
+      await clearAccountScopedStorage();
       emitSessionInvalid();
     } finally {
       refreshingPromise = null;

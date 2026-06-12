@@ -5,7 +5,7 @@ import * as Updates from "expo-updates";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession, type AuthSession } from "../services/auth/authStorage";
 import type { CurrentEntitlement } from "../services/api/meApi";
-import { getCachedEntitlement, isSameEntitlement } from "../services/entitlement/entitlementCache";
+import { getCachedEntitlementForUser, isSameEntitlement } from "../services/entitlement/entitlementCache";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
 import { recoverPendingPaymentIfAny } from "../services/payment/paymentRecovery";
 import { useMountedGuard } from "../hooks/useMountedGuard";
@@ -37,7 +37,8 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
       // 先恢复支付状态，再读取会话和权益，保证个人页展示尽量接近最新状态。
       if (isMounted()) setIsLoadingEntitlement(true);
       await recoverPendingPaymentIfAny();
-      const [localSession, cached] = await Promise.all([getSession(), getCachedEntitlement()]);
+      const localSession = await getSession();
+      const cached = localSession?.user.id ? await getCachedEntitlementForUser(localSession.user.id) : null;
       if (cancelled || !isMounted()) return;
       setSession(localSession);
       if (cached) setEntitlement(cached.data);

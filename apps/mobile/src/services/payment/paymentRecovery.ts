@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getSession } from "../auth/authStorage";
 import { refreshEntitlementAndSessionSafe } from "../entitlement/entitlementSync";
 import {
   getCurrentAutoRenewSubscription,
@@ -7,11 +8,13 @@ import {
   type MobilePaymentOrderResult,
   type MobilePaymentOrderStatus,
 } from "../api/paymentApi";
+import { environmentStorageKey } from "../storage/environmentStorageKey";
 
-const PENDING_PAYMENT_ORDER_KEY = "lf_pending_payment_order_v1";
-const PENDING_AUTO_RENEW_FLOW_KEY = "lf_pending_auto_renew_flow_v1";
+const PENDING_PAYMENT_ORDER_KEY = environmentStorageKey("lf_pending_payment_order_v1");
+const PENDING_AUTO_RENEW_FLOW_KEY = environmentStorageKey("lf_pending_auto_renew_flow_v1");
 
 type PendingPaymentOrder = {
+  userId: string;
   orderId: string;
   providerOrderId: string;
   createdAt: string;
@@ -24,6 +27,7 @@ type PollOptions = {
 };
 
 type PendingAutoRenewFlow = {
+  userId: string;
   autoRenewSubscriptionId: string;
   provider: "wechat" | "apple";
   providerOrderId: string | null;
@@ -34,7 +38,10 @@ export async function savePendingPaymentOrder(input: {
   orderId: string;
   providerOrderId: string;
 }): Promise<void> {
+  const session = await getSession();
+  if (!session?.user.id) return;
   const data: PendingPaymentOrder = {
+    userId: session.user.id,
     orderId: input.orderId,
     providerOrderId: input.providerOrderId,
     createdAt: new Date().toISOString(),
@@ -51,7 +58,10 @@ export async function savePendingAutoRenewFlow(input: {
   provider: "wechat" | "apple";
   providerOrderId: string | null;
 }): Promise<void> {
+  const session = await getSession();
+  if (!session?.user.id) return;
   const data: PendingAutoRenewFlow = {
+    userId: session.user.id,
     autoRenewSubscriptionId: input.autoRenewSubscriptionId,
     provider: input.provider,
     providerOrderId: input.providerOrderId,
@@ -64,11 +74,16 @@ export async function clearPendingAutoRenewFlow(): Promise<void> {
   await AsyncStorage.removeItem(PENDING_AUTO_RENEW_FLOW_KEY);
 }
 
+export async function clearPendingPaymentRecoveryState(): Promise<void> {
+  await Promise.all([clearPendingPaymentOrder(), clearPendingAutoRenewFlow()]);
+}
+
 export async function getPendingAutoRenewFlow(): Promise<PendingAutoRenewFlow | null> {
   const raw = await AsyncStorage.getItem(PENDING_AUTO_RENEW_FLOW_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as PendingAutoRenewFlow;
+    const pending = JSON.parse(raw) as PendingAutoRenewFlow;
+    return (await isPendingStateForCurrentUser(pending.userId)) ? pending : null;
   } catch {
     await AsyncStorage.removeItem(PENDING_AUTO_RENEW_FLOW_KEY);
     return null;
@@ -79,7 +94,8 @@ export async function getPendingPaymentOrder(): Promise<PendingPaymentOrder | nu
   const raw = await AsyncStorage.getItem(PENDING_PAYMENT_ORDER_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as PendingPaymentOrder;
+    const pending = JSON.parse(raw) as PendingPaymentOrder;
+    return (await isPendingStateForCurrentUser(pending.userId)) ? pending : null;
   } catch {
     await AsyncStorage.removeItem(PENDING_PAYMENT_ORDER_KEY);
     return null;
@@ -186,6 +202,12 @@ export async function recoverPendingAutoRenewIfAny(): Promise<{
 
 function isSuccessfulStatus(status: MobilePaymentOrderStatus): boolean {
   return status === "paid";
+}
+
+async function isPendingStateForCurrentUser(userId: unknown): Promise<boolean> {
+  if (typeof userId !== "string" || !userId) return false;
+  const session = await getSession();
+  return session?.user.id === userId;
 }
 
 function sleep(ms: number): Promise<void> {

@@ -1,5 +1,5 @@
 import { getSession, setSession } from "../auth/authStorage";
-import { getCachedEntitlement, isSameEntitlement, setCachedEntitlement } from "./entitlementCache";
+import { getCachedEntitlementForUser, isSameEntitlement, setCachedEntitlement } from "./entitlementCache";
 import { refreshCurrentEntitlement, type CurrentEntitlement } from "../api/meApi";
 
 export type RefreshEntitlementResult = {
@@ -12,7 +12,7 @@ export async function refreshEntitlementAndSession(): Promise<RefreshEntitlement
   // 这里走手动刷新接口：后端会先对当前用户的 pending 支付/自动续费做一次局部查单补偿，再返回最新权益。
   const refreshed = await refreshCurrentEntitlement();
   const entitlement = refreshed.entitlement;
-  const cached = await getCachedEntitlement();
+  const cached = await getCachedEntitlementForUser(entitlement.userId);
   const changed = !cached || !isSameEntitlement(cached.data, entitlement);
   if (changed) {
     await setCachedEntitlement(entitlement);
