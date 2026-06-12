@@ -93,6 +93,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
     autoRenew,
     hasLoadedAutoRenew,
   });
+  const shouldShowAutoRenewInfo = !isRenew || Boolean(autoRenew);
   const canStartOneTimePurchase =
     (Platform.OS === "ios" && ENABLE_APPLE_ONE_TIME_PURCHASE) ||
     (Platform.OS === "android" && ENABLE_WECHAT_ONE_TIME_PURCHASE);
@@ -629,8 +630,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
           <View style={styles.autoRenewBox}>
             <View style={styles.autoRenewCopy}>
               {membershipStatusLabel ? <Text style={styles.membershipStatus}>{membershipStatusLabel}</Text> : null}
-              <Text style={styles.autoRenewTitle}>自动续费</Text>
-              <Text style={styles.autoRenewText}>{autoRenewDescription}</Text>
+              {shouldShowAutoRenewInfo ? (
+                <>
+                  <Text style={styles.autoRenewTitle}>自动续费</Text>
+                  <Text style={styles.autoRenewText}>{autoRenewDescription}</Text>
+                </>
+              ) : null}
             </View>
           </View>
 

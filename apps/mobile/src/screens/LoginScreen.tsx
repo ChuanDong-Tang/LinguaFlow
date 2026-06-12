@@ -44,7 +44,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       clientId: authingClientId,
       redirectUri: authingRedirectUri,
       responseType: AuthSession.ResponseType.Code,
-      scopes: ["openid", "profile", "email", "phone", "offline_access"],
+      scopes: ["openid", "profile", "username", "email", "phone", "offline_access"],
       usePKCE: true,
       prompt: forceAuthingLogin ? AuthSession.Prompt.Login : undefined,
     },
@@ -240,6 +240,7 @@ function normalizeLoginError(error: unknown, fallback: string): string {
 
 function toSessionUser(user: {
   id: string;
+  username?: string | null;
   nickname: string | null;
   email: string | null;
   phone: string | null;
@@ -262,8 +263,13 @@ function toSessionUser(user: {
   };
 }
 
-function resolveDisplayName(user: { nickname: string | null; email: string | null; phone: string | null }): string | null {
-  return user.nickname?.trim() || user.email?.trim() || user.phone?.trim() || null;
+function resolveDisplayName(user: {
+  nickname: string | null;
+  username?: string | null;
+  email: string | null;
+  phone: string | null;
+}): string | null {
+  return user.nickname?.trim() || user.username?.trim() || user.email?.trim() || user.phone?.trim() || null;
 }
 
 const styles = StyleSheet.create({

@@ -226,7 +226,7 @@ export class AuthLoginService {
 
     return {
       sub,
-      nickname: typeof payload.nickname === "string" ? payload.nickname : null,
+      nickname: resolveAuthingDisplayName(payload),
       email: typeof payload.email === "string" ? payload.email : null,
       phone: getStringPayloadValue(payload, "phone_number") ?? getStringPayloadValue(payload, "phone"),
       picture: typeof payload.picture === "string" ? payload.picture : null,
@@ -294,6 +294,18 @@ function isPhone(value: string): boolean {
 function getStringPayloadValue(payload: Record<string, unknown>, key: string): string | null {
   const value = payload[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function resolveAuthingDisplayName(payload: Record<string, unknown>): string | null {
+  return (
+    getStringPayloadValue(payload, "username") ??
+    getStringPayloadValue(payload, "preferred_username") ??
+    getStringPayloadValue(payload, "nickname") ??
+    getStringPayloadValue(payload, "name") ??
+    getStringPayloadValue(payload, "email") ??
+    getStringPayloadValue(payload, "phone_number") ??
+    getStringPayloadValue(payload, "phone")
+  );
 }
 
 function hashRefreshToken(token: string): string {

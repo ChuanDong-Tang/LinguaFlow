@@ -68,7 +68,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
     return { dailyTotalLimit, remainingChars, ratio: Math.max(0, Math.min(1, ratio)) };
   }, [entitlement, session?.sessionFlags?.isPro]);
 
-  const userName = session?.user.displayName ?? "";
+  const userName = resolveUserName(session);
   const isAdmin = session?.user.role === "admin";
   const planLabel = (entitlement?.isPro ?? session?.sessionFlags?.isPro === true) ? "Pro" : "普通版";
   const quotaTitle = entitlement?.isPro ? "今日字符额度" : "免费字符额度";
@@ -259,6 +259,12 @@ function SettingsRow({
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
+}
+
+function resolveUserName(session: AuthSession | null): string {
+  if (!session) return "";
+  const user = session.user as AuthSession["user"] & { username?: string | null };
+  return user.displayName?.trim() || user.username?.trim() || user.email?.trim() || user.phone?.trim() || "";
 }
 
 function formatDateTime(value: string): string {

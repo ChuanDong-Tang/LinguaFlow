@@ -19,7 +19,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.yueyantech.oio",
-      "buildNumber": "52",
+      "buildNumber": "53",
       "supportsTablet": true,
       "icon": "./assets/app/logo_main_apple.png",
       "config": {
