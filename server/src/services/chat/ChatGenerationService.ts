@@ -110,7 +110,8 @@ export class ChatGenerationService {
     }
 
     const chatGenerationMaxInputChars = config.chatGenerationMaxInputChars;
-    if (input.text.length > chatGenerationMaxInputChars) {
+    const inputLimitLength = countInputCharsWithoutWhitespace(input.text);
+    if (inputLimitLength > chatGenerationMaxInputChars) {
       const error = createAppError("INPUT_TOO_LONG", "Input too long");
       await this.logFailedAiRequest(input, {
         startedAt,
@@ -122,7 +123,7 @@ export class ChatGenerationService {
     }
 
     const chatGenerationMinInputChars = config.chatGenerationMinInputChars;
-    if (input.text.length < chatGenerationMinInputChars) {
+    if (inputLimitLength < chatGenerationMinInputChars) {
       const error = createAppError("INPUT_TOO_SHORT", "Input too short");
       await this.logFailedAiRequest(input, {
         startedAt,
@@ -316,6 +317,10 @@ export class ChatGenerationService {
     }
     return fallback ?? "UNKNOWN";
   }
+}
+
+function countInputCharsWithoutWhitespace(value: string): number {
+  return value.replace(/\s/g, "").length;
 }
 
 function createAppError(code: AppErrorCode, message: string): AppError {

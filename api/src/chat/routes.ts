@@ -213,7 +213,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       });
     }
 
-    const inputLength = body.text.trim().length;
+    const inputLength = countInputCharsWithoutWhitespace(body.text);
     if (inputLength < runtimeConfig.chatGenerationMinInputChars) {
       return reply.status(400).send({
         ok: false,
@@ -1152,6 +1152,10 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       throw error;
     }
   });
+}
+
+function countInputCharsWithoutWhitespace(value: string): number {
+  return value.replace(/\s/g, "").length;
 }
 
 async function assertProCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {

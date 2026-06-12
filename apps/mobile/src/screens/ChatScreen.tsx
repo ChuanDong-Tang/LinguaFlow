@@ -39,7 +39,7 @@ import {
   saveChatInputDraft,
 } from "../services/chat/chatDraftStorage";
 import { getMonthRange, selectedDateLabelText } from "../services/chat/chatDateRange";
-import { getChatGenerationInputLimits } from "../services/chat/chatInputLimits";
+import { countChatGenerationInputChars, getChatGenerationInputLimits } from "../services/chat/chatInputLimits";
 import { areMessageRowsEquivalent, toDisplayRows } from "../services/chat/chatMessageView";
 import { useAssistantAutoCopyPreferences } from "../hooks/useAssistantAutoCopyPreferences";
 import { useExclusiveSyncMachine } from "../hooks/useExclusiveSyncMachine";
@@ -167,7 +167,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
     const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
-    const inputLength = inputText.trim().length;
+    const inputLength = countChatGenerationInputChars(inputText);
     return (
       !activeGenerationContactId &&
       !isTodaySyncing &&
@@ -382,11 +382,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const text = inputText.trim();
     if (!text || activeGenerationContactId) return;
     const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
-    if (text.length < minInputChars) {
+    const inputLength = countChatGenerationInputChars(text);
+    if (inputLength < minInputChars) {
       Alert.alert(`至少输入 ${minInputChars} 个字符`)
       return;
     }
-    if (text.length > maxInputChars) {
+    if (inputLength > maxInputChars) {
       Alert.alert(`最多输入 ${maxInputChars} 个字符`)
       return;
     }
@@ -961,7 +962,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
               Alert.alert("字符额度已用尽");
               return;
             }
-            const inputLength = inputText.trim().length;
+            const inputLength = countChatGenerationInputChars(inputText);
             const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
             if (inputLength > 0 && inputLength < minInputChars) {
               Alert.alert(`至少输入 ${minInputChars} 个字符`)

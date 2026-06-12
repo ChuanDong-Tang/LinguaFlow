@@ -18,3 +18,7 @@ export function getChatGenerationInputLimits(): { min: number; max: number } {
     ),
   };
 }
+
+export function countChatGenerationInputChars(value: string): number {
+  return value.replace(/\s/g, "").length;
+}
