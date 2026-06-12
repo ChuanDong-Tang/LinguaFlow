@@ -13,13 +13,14 @@ export async function fetchTransactionInfo(
   { environment: "production" | "sandbox" } & AppleTransactionPayload
 > {
   const runtime = getRuntimeConfig();
-  if (runtime.mode === "test") {
+  if (runtime.payment.appleIap.forceSandbox || runtime.mode === "test") {
     const sandbox = await fetchTransactionInfoFromEndpoint({
       endpoint: "sandbox",
       baseUrl: APPLE_SANDBOX_BASE_URL,
       transactionId,
       token,
       rootCaPem,
+      forceSandbox: runtime.payment.appleIap.forceSandbox,
     });
     if (sandbox.ok) return sandbox.transaction;
     throw sandbox.error;
@@ -31,6 +32,7 @@ export async function fetchTransactionInfo(
     transactionId,
     token,
     rootCaPem,
+    forceSandbox: false,
   });
   if (prod.ok) return prod.transaction;
   if (prod.status !== 404) throw prod.error;
@@ -44,6 +46,7 @@ export async function fetchTransactionInfo(
     transactionId,
     token,
     rootCaPem,
+    forceSandbox: false,
   });
   if (sandbox.ok) return sandbox.transaction;
   throw sandbox.error;
@@ -55,6 +58,7 @@ async function fetchTransactionInfoFromEndpoint(input: {
   transactionId: string;
   token: string;
   rootCaPem: string;
+  forceSandbox: boolean;
 }): Promise<
   | { ok: true; transaction: { environment: "production" | "sandbox" } & AppleTransactionPayload }
   | { ok: false; status: number; error: AppleIapVerifyError }
@@ -69,6 +73,7 @@ async function fetchTransactionInfoFromEndpoint(input: {
         `APPLE_${input.endpoint.toUpperCase()}_HTTP_${response.status}`,
         {
           endpoint: input.endpoint,
+          forceSandbox: input.forceSandbox,
           status: response.status,
           responseBody: truncateForLog(response.message),
         }
