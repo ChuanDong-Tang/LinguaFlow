@@ -500,9 +500,17 @@ export function ProScreen({ onBack }: ProScreenProps) {
       }
       // iOS 一次性月卡与自动续费是两个 App Store 商品；真正权益以后端验单结果为准。
       const appAccountToken = await ensureAppleAppAccountTokenRegistered();
+      if (source === "auto_renew") {
+        const handledExistingSubscription = await handleExistingAppleSubscriptionBeforePurchase(productId);
+        if (handledExistingSubscription) {
+          setIsPaying(false);
+          setIsAutoRenewLoading(false);
+          return;
+        }
+      }
       applePurchaseIntentRef.current = true;
       startApplePurchaseTimeout();
-      await appleIap.requestPurchase({
+      const purchaseResult = await appleIap.requestPurchase({
         type: source === "single_purchase" ? "in-app" : "subs",
         request: {
           apple: {
@@ -512,6 +520,13 @@ export function ProScreen({ onBack }: ProScreenProps) {
           },
         },
       });
+      if (isEmptyApplePurchaseResult(purchaseResult)) {
+        clearApplePurchaseTimeout();
+        applePurchaseIntentRef.current = false;
+        if (!isScreenAlive()) return;
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+      }
     } catch (error) {
       clearApplePurchaseTimeout();
       applePurchaseIntentRef.current = false;
@@ -531,6 +546,37 @@ export function ProScreen({ onBack }: ProScreenProps) {
       safeAlert("Apple 支付发起失败", message);
       setIsPaying(false);
       setIsAutoRenewLoading(false);
+    }
+  }
+
+  async function handleExistingAppleSubscriptionBeforePurchase(productId: string): Promise<boolean> {
+    const purchases = await getAvailablePurchases({ onlyIncludeActiveItemsIOS: true });
+    const existingSubscription = purchases
+      .filter((purchase) => purchase.productId === productId)
+      .sort((left, right) => Number(right.transactionDate ?? 0) - Number(left.transactionDate ?? 0))[0];
+    if (!existingSubscription) return false;
+
+    try {
+      const transactionId = getAppleTransactionId(existingSubscription);
+      const verified = await verifyAppleProMonthlyTransaction(transactionId);
+      const entitlementResult = await refreshProEntitlementState();
+      if (!isScreenAlive()) return true;
+      setIsRenew(entitlementResult?.entitlement.isPro ?? true);
+      if (verified.purchaseKind === "auto_renew") {
+        const currentAutoRenew = await getCurrentAutoRenewSubscription();
+        if (!isScreenAlive()) return true;
+        applyAutoRenewToState(currentAutoRenew);
+      }
+      safeAlert("开通成功", "Pro 权益已生效。");
+      return true;
+    } catch (error) {
+      if (!isScreenAlive()) return true;
+      if (isAppleTransactionOwnedByDifferentAccount(error)) {
+        safeAlert("Apple 订阅已绑定", "这笔 Apple 订阅已绑定其他 OIO 账号，请切换到原账号或联系客服处理。");
+        return true;
+      }
+      safeAlert("Apple 验单失败", formatApplePaymentErrorMessage(error));
+      return true;
     }
   }
 
@@ -1070,6 +1116,10 @@ function isAppleProPurchase(purchase: Purchase): boolean {
     purchase.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID ||
     purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
   );
+}
+
+function isEmptyApplePurchaseResult(result: unknown): boolean {
+  return result === null || (Array.isArray(result) && result.length === 0);
 }
 
 function isAppleTransactionOwnedByDifferentAccount(error: unknown): boolean {

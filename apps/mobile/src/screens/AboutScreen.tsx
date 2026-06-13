@@ -38,7 +38,11 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
 
         <SectionCard title="联系方式">
           <InfoRow icon="globe-outline" label="官方网站" value="www.yueyantech.com" onPress={() => openUrl("https://yueyantech.com")} />
-          <InfoRow icon="create-outline" label="意见反馈" value="欢迎向我们发送建议" onPress={() => openUrl("https://my.feishu.cn/wiki/XFaVwkkbyiqZ3iktSntcd5Thndf?from=from_copylink")} />
+          <InfoRow
+            icon="create-outline"
+            label="意见反馈"
+            value="contact@yueyantech.com"
+          />
         </SectionCard>
 
         <SectionCard title="更多信息">
