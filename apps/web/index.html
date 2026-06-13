@@ -6,239 +6,780 @@
     <title>LinguaFlow Admin</title>
     <style>
       :root {
-        --bg: #f6f7fb;
-        --card: #ffffff;
-        --border: #e4e6ee;
-        --text: #111111;
-        --muted: #6b7280;
-        --primary: #1f2937;
-        --danger: #b91c1c;
+        --bg: #f4f6f8;
+        --panel: #ffffff;
+        --panel-soft: #f9fafb;
+        --border: #dfe3ea;
+        --border-strong: #c7ced8;
+        --text: #15171a;
+        --muted: #667085;
+        --primary: #2563eb;
+        --primary-dark: #1d4ed8;
+        --danger: #b42318;
+        --warn: #b54708;
+        --success: #067647;
+        --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         background: var(--bg);
         color: var(--text);
-        font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;
       }
-      .wrap {
-        max-width: 1180px;
-        margin: 24px auto;
-        padding: 0 16px 24px;
+      button, input, select {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      .shell {
+        min-height: 100vh;
+      }
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(244, 246, 248, 0.94);
+        backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--border);
+      }
+      .topbar-inner {
+        max-width: 1360px;
+        margin: 0 auto;
+        padding: 16px 20px;
+        display: grid;
+        grid-template-columns: 220px 1fr auto;
+        gap: 14px;
+        align-items: center;
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.2;
+      }
+      .brand p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .auth-grid {
+        display: grid;
+        grid-template-columns: minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(140px, 0.8fr);
+        gap: 8px;
+      }
+      .field label {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      input, select {
+        width: 100%;
+        height: 36px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 7px 9px;
+        background: #fff;
+        color: var(--text);
+        font-size: 13px;
+      }
+      input[readonly] {
+        background: var(--panel-soft);
+      }
+      .top-actions {
+        display: grid;
+        grid-template-columns: 92px 92px;
+        gap: 8px;
+        align-self: end;
+      }
+      .btn {
+        min-height: 36px;
+        border: 1px solid var(--primary);
+        border-radius: 7px;
+        background: var(--primary);
+        color: #fff;
+        padding: 7px 10px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .btn:hover { background: var(--primary-dark); }
+      .btn.secondary {
+        background: #fff;
+        color: #1f2937;
+        border-color: var(--border-strong);
+      }
+      .btn.secondary:hover { background: var(--panel-soft); }
+      .btn.danger {
+        background: var(--danger);
+        border-color: var(--danger);
+      }
+      .btn.ghost {
+        background: transparent;
+        color: var(--primary);
+        border-color: transparent;
+        padding-inline: 4px;
+      }
+      .main {
+        max-width: 1360px;
+        margin: 0 auto;
+        padding: 18px 20px 30px;
+      }
+      .status-line {
+        min-height: 24px;
+        margin-bottom: 10px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .tab {
+        width: auto;
+        min-width: 96px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        color: #344054;
+        padding: 9px 14px;
+        font-weight: 700;
+      }
+      .tab.active {
+        background: #111827;
+        border-color: #111827;
+        color: #fff;
+      }
+      .panel {
+        display: none;
+      }
+      .panel.active {
+        display: block;
       }
       .card {
-        background: var(--card);
+        background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+      .section {
         padding: 14px;
       }
-      h1 {
-        margin: 0 0 14px;
-        font-size: 20px;
+      .section + .section {
+        border-top: 1px solid var(--border);
       }
-      .grid {
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .section-title {
+        margin: 0;
+        font-size: 15px;
+      }
+      .section-subtitle {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .metrics {
         display: grid;
         grid-template-columns: repeat(4, minmax(160px, 1fr));
         gap: 10px;
       }
-      label {
-        display: block;
-        font-size: 12px;
-        color: var(--muted);
-        margin-bottom: 6px;
-      }
-      input, select, textarea, button {
-        width: 100%;
+      .metric {
         border: 1px solid var(--border);
         border-radius: 8px;
-        padding: 8px 10px;
-        font-size: 13px;
+        padding: 12px;
         background: #fff;
       }
-      textarea { min-height: 70px; resize: vertical; }
-      .row { display: flex; gap: 10px; align-items: end; }
-      .row > div { flex: 1; }
-      .actions { display: flex; gap: 10px; }
-      .actions > * { flex: 1; }
-      .btn {
-        cursor: pointer;
-        border-color: var(--primary);
-        background: var(--primary);
-        color: #fff;
-      }
-      .btn.secondary {
-        background: #fff;
-        color: var(--primary);
-      }
-      .btn.danger {
-        border-color: var(--danger);
-        background: var(--danger);
-      }
-      .meta {
-        margin-top: 10px;
+      .metric span {
+        display: block;
         color: var(--muted);
         font-size: 12px;
       }
+      .metric strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 24px;
+        line-height: 1;
+      }
+      .metric small {
+        display: block;
+        margin-top: 7px;
+        color: var(--muted);
+      }
+      .two-col {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+        gap: 12px;
+      }
+      .form-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(140px, 1fr));
+        gap: 10px;
+        align-items: end;
+      }
+      .form-row.three {
+        grid-template-columns: minmax(220px, 1fr) 140px 140px;
+      }
+      .inline-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
       .table-wrap {
-        margin-top: 14px;
         overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
       }
       table {
         width: 100%;
+        min-width: 900px;
         border-collapse: collapse;
-        min-width: 980px;
       }
       th, td {
         border-bottom: 1px solid var(--border);
-        padding: 8px;
-        font-size: 12px;
+        padding: 8px 9px;
         text-align: left;
         vertical-align: top;
+        font-size: 12px;
       }
-      th { color: var(--muted); font-weight: 600; }
-      .ops {
-        display: flex;
-        gap: 6px;
+      th {
+        color: #475467;
+        background: var(--panel-soft);
+        font-weight: 700;
+        white-space: nowrap;
       }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        word-break: break-all;
+      }
+      .muted { color: var(--muted); }
       .pill {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
         border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 2px 8px;
         font-size: 11px;
+        font-weight: 700;
       }
-      .status-pending { background: #fff7ed; border-color: #fed7aa; }
-      .status-paid { background: #ecfdf5; border-color: #a7f3d0; }
-      .status-refunded { background: #fef2f2; border-color: #fecaca; }
-      .status-closed { background: #f3f4f6; border-color: #d1d5db; }
-      .status-failed { background: #fef2f2; border-color: #fecaca; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-      .logs-wrap {
-        margin-top: 14px;
+      .status-active, .status-paid, .status-success, .status-processed {
+        color: var(--success);
+        background: #ecfdf3;
+        border-color: #abefc6;
+      }
+      .status-pending, .status-billing_retry {
+        color: var(--warn);
+        background: #fffaeb;
+        border-color: #fedf89;
+      }
+      .status-failed, .status-refunded, .status-cancelled, .status-expired {
+        color: var(--danger);
+        background: #fef3f2;
+        border-color: #fecdca;
+      }
+      .status-closed, .status-ignored {
+        color: #344054;
+        background: #f2f4f7;
+        border-color: #d0d5dd;
+      }
+      .json-box {
+        max-height: 260px;
+        overflow: auto;
+        margin: 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #0b1020;
+        color: #d8e2ff;
+        padding: 10px;
+        font-size: 12px;
+      }
+      .mini-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .fact {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px;
+        background: var(--panel-soft);
+      }
+      .fact span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .fact strong {
+        display: block;
+        margin-top: 5px;
+        font-size: 13px;
+        word-break: break-all;
+      }
+      .mt { margin-top: 12px; }
+      @media (max-width: 980px) {
+        .topbar-inner, .auth-grid, .two-col, .form-row, .form-row.three, .metrics {
+          grid-template-columns: 1fr;
+        }
+        .top-actions, .inline-actions {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+        }
+        .tabs {
+          overflow: auto;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <h1>LinguaFlow 管理后台（简版）</h1>
-      <div class="card">
-        <div class="row">
-          <div>
-            <label>API Base URL</label>
-            <input id="apiBase" value="http://localhost:3001" />
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <div class="brand">
+            <h1>LinguaFlow Admin</h1>
+            <p>查询器 + 审计操作台</p>
           </div>
-          <div>
-            <label>管理员账号</label>
-            <input id="account" placeholder="邮箱 / 手机号 / 用户名" />
+          <div class="auth-grid">
+            <div class="field">
+              <label>API Base URL</label>
+              <input id="apiBase" value="http://localhost:3001" />
+            </div>
+            <div class="field">
+              <label>管理员账号</label>
+              <input id="account" placeholder="邮箱 / 手机号 / 用户名" />
+            </div>
+            <div class="field">
+              <label>管理员密码</label>
+              <input id="password" type="password" placeholder="密码" />
+            </div>
           </div>
-          <div>
-            <label>管理员密码</label>
-            <input id="password" type="password" placeholder="输入密码" />
-          </div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <div class="actions">
-            <button id="btnAuthingLogin" class="btn">管理员登录</button>
-            <button id="btnLogout" class="btn secondary">清空登录状态</button>
-          </div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <div>
-            <label>Admin Bearer Token（自动生成）</label>
-            <input id="token" placeholder="登录后自动填充" readonly />
+          <div class="top-actions">
+            <button id="btnLogin" class="btn">登录</button>
+            <button id="btnLogout" class="btn secondary">清空</button>
           </div>
         </div>
-        <div class="row" style="margin-top:10px">
-          <div>
-            <label>状态过滤</label>
-            <select id="status">
-              <option value="">全部</option>
-              <option value="pending">pending</option>
-              <option value="paid">paid</option>
-              <option value="closed">closed</option>
-              <option value="failed">failed</option>
-              <option value="refunded">refunded</option>
-            </select>
-          </div>
-          <div>
-            <label>用户ID过滤</label>
-            <input id="userId" placeholder="user_xxx" />
-          </div>
-          <div class="actions">
-            <button id="btnLoad" class="btn">查询订单</button>
-            <button id="btnSave" class="btn secondary">保存本地配置</button>
-          </div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <div>
-            <label>手动开通 Pro 用户ID</label>
-            <input id="grantUserId" placeholder="user_xxx" />
-          </div>
-          <div class="actions">
-            <button id="btnGrantPro" class="btn secondary">开通1个月Pro</button>
-          </div>
-        </div>
-        <div id="meta" class="meta">尚未查询</div>
-      </div>
+      </header>
 
-      <div class="card table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>用户</th>
-              <th>状态</th>
-              <th>产品</th>
-              <th>金额</th>
-              <th>渠道单号</th>
-              <th>创建时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
-      </div>
+      <main class="main">
+        <div id="statusLine" class="status-line">尚未登录。登录后可查询后台数据。</div>
+        <input id="token" readonly placeholder="Admin Bearer Token" style="margin-bottom:12px" />
 
-      <div class="card logs-wrap">
-        <div class="row">
-          <div>
-            <label>失败日志 Module</label>
-            <input id="logModule" placeholder="payment / auth / admin（可空）" />
+        <nav class="tabs">
+          <button class="tab active" data-tab="overview">概览</button>
+          <button class="tab" data-tab="user">用户排障</button>
+          <button class="tab" data-tab="payments">支付订阅</button>
+          <button class="tab" data-tab="logs">日志审计</button>
+        </nav>
+
+        <section id="panel-overview" class="panel active">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">运营概览</h2>
+                  <p id="overviewClock" class="section-subtitle">未加载</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="btnOverview7d" class="btn secondary">近 7 天</button>
+                  <button id="btnOverview14d" class="btn secondary">近 14 天</button>
+                  <button id="btnOverview30d" class="btn secondary">近 30 天</button>
+                </div>
+              </div>
+              <div class="form-row" style="margin-bottom:12px">
+                <div class="field">
+                  <label>开始日期</label>
+                  <input id="overviewFromDate" type="date" />
+                </div>
+                <div class="field">
+                  <label>结束日期</label>
+                  <input id="overviewToDate" type="date" />
+                </div>
+                <button id="btnLoadOverview" class="btn">查询概览</button>
+                <span class="muted">最多查询 90 天，默认近 14 天。</span>
+              </div>
+              <div id="metrics" class="metrics"></div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">每日用户活跃</h2>
+                  <p class="section-subtitle">使用用户=当天发过用户消息；活跃用户=当天有成功用户消息；平均使用=当天全部消息 input/output 字符合计 ÷ 使用用户数</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>日期</th>
+                      <th>总用户</th>
+                      <th>使用用户</th>
+                      <th>活跃用户</th>
+                      <th>Pro 用户</th>
+                      <th>Pro 占比</th>
+                      <th>总字符</th>
+                      <th>人均字符</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dailyActivityTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">额度记录概览</h2>
+                  <p class="section-subtitle">辅助观察 entitlements.dateKey；免费用户使用 free_trial 总额度池，不等同于每日实际使用。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>日期</th>
+                      <th>额度记录用户数</th>
+                      <th>平均已用额度</th>
+                      <th>总已用额度</th>
+                      <th>用满人数</th>
+                    </tr>
+                  </thead>
+                  <tbody id="usageTbody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
-          <div>
-            <label>失败日志 Event</label>
-            <input id="logEvent" placeholder="payment.worker.grant_failed（可空）" />
+        </section>
+
+        <section id="panel-user" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">用户查询与排障</h2>
+                  <p class="section-subtitle">先查询用户，再打开诊断详情。补 Pro / 取消 Pro 都会写审计。</p>
+                </div>
+              </div>
+              <div class="form-row three">
+                <div class="field">
+                  <label>搜索用户</label>
+                  <input id="userSearch" placeholder="userId / 昵称（现有 API 支持）" />
+                </div>
+                <button id="btnSearchUsers" class="btn">搜索</button>
+                <button id="btnLoadDiagnostics" class="btn secondary">查诊断</button>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>昵称</th>
+                      <th>邮箱</th>
+                      <th>手机</th>
+                      <th>状态</th>
+                      <th>角色</th>
+                      <th>创建时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="usersTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section two-col">
+              <div>
+                <div class="section-head">
+                  <div>
+                    <h2 class="section-title">诊断摘要</h2>
+                    <p id="diagnosticsMeta" class="section-subtitle">未加载</p>
+                  </div>
+                  <div class="inline-actions">
+                    <button id="btnGrantPro" class="btn secondary">补 1 个月 Pro</button>
+                    <button id="btnCancelPro" class="btn danger">取消 Pro</button>
+                  </div>
+                </div>
+                <div id="userFacts" class="mini-grid"></div>
+                <pre id="userJson" class="json-box mt">{}</pre>
+              </div>
+              <div>
+                <div class="section-head">
+                  <div>
+                    <h2 class="section-title">最近额度</h2>
+                    <p class="section-subtitle">最近 60 个 dateKey</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>日期</th>
+                        <th>使用</th>
+                        <th>上限</th>
+                        <th>剩余</th>
+                      </tr>
+                    </thead>
+                    <tbody id="entitlementsTbody"></tbody>
+                  </table>
+                </div>
+                <div class="section-head mt">
+                  <div>
+                    <h2 class="section-title">Apple 绑定</h2>
+                    <p class="section-subtitle">appAccountToken / originalTransactionId</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>token</th>
+                        <th>original</th>
+                        <th>latest</th>
+                      </tr>
+                    </thead>
+                    <tbody id="appleLinksTbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">用户最近记录</h2>
+                  <p class="section-subtitle">订单、订阅、自动续费、系统日志</p>
+                </div>
+              </div>
+              <div class="tabs" style="margin-bottom:10px">
+                <button class="tab active" data-user-subtab="diagOrders">订单</button>
+                <button class="tab" data-user-subtab="diagSubs">订阅</button>
+                <button class="tab" data-user-subtab="diagAutoRenew">自动续费</button>
+                <button class="tab" data-user-subtab="diagEvents">系统日志</button>
+              </div>
+              <div id="diagOrders" class="diag-subpanel table-wrap"></div>
+              <div id="diagSubs" class="diag-subpanel table-wrap" style="display:none"></div>
+              <div id="diagAutoRenew" class="diag-subpanel table-wrap" style="display:none"></div>
+              <div id="diagEvents" class="diag-subpanel table-wrap" style="display:none"></div>
+            </div>
           </div>
-          <div class="actions">
-            <button id="btnLoadLogs" class="btn secondary">查询失败日志</button>
+        </section>
+
+        <section id="panel-payments" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">自动续费状态</h2>
+                  <p class="section-subtitle">按 provider/status 聚合，随概览查询刷新。</p>
+                </div>
+                <button id="btnRefreshPaymentSummary" class="btn secondary">刷新状态</button>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>渠道</th>
+                      <th>状态</th>
+                      <th>数量</th>
+                    </tr>
+                  </thead>
+                  <tbody id="autoRenewSummaryTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">支付订单</h2>
+                  <p class="section-subtitle">支持手动关单/退款，操作会写审计。</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>订单状态</label>
+                  <select id="orderStatus">
+                    <option value="">全部</option>
+                    <option value="pending">pending</option>
+                    <option value="paid">paid</option>
+                    <option value="closed">closed</option>
+                    <option value="failed">failed</option>
+                    <option value="refunded">refunded</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>用户 ID</label>
+                  <input id="orderUserId" placeholder="可空" />
+                </div>
+                <button id="btnLoadOrders" class="btn">查询订单</button>
+                <button id="btnLoadSubscriptions" class="btn secondary">查询订阅</button>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>产品</th>
+                      <th>金额</th>
+                      <th>渠道单号</th>
+                      <th>创建时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ordersTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">订阅列表</h2>
+                  <p class="section-subtitle">按用户和状态过滤</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>订阅状态</label>
+                  <select id="subscriptionStatus">
+                    <option value="">全部</option>
+                    <option value="active">active</option>
+                    <option value="expired">expired</option>
+                    <option value="cancelled">cancelled</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>用户 ID</label>
+                  <input id="subscriptionUserId" placeholder="可空" />
+                </div>
+                <button id="btnLoadSubscriptions2" class="btn">查询订阅</button>
+                <span class="muted"></span>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>开始</th>
+                      <th>到期</th>
+                      <th>sourceOrderId</th>
+                    </tr>
+                  </thead>
+                  <tbody id="subscriptionsTbody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>
-        <div id="logsMeta" class="meta">尚未查询失败日志</div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>模块</th>
-                <th>事件</th>
-                <th>级别</th>
-                <th>状态</th>
-                <th>错误码</th>
-                <th>错误信息</th>
-              </tr>
-            </thead>
-            <tbody id="logsTbody"></tbody>
-          </table>
-        </div>
-      </div>
+        </section>
+
+        <section id="panel-logs" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">系统日志</h2>
+                  <p class="section-subtitle">默认查 failed，最多 200 条</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>Module</label>
+                  <input id="logModule" placeholder="payment / auth / admin" />
+                </div>
+                <div class="field">
+                  <label>Event</label>
+                  <input id="logEvent" placeholder="可空" />
+                </div>
+                <div class="field">
+                  <label>Status</label>
+                  <select id="logStatus">
+                    <option value="failed">failed</option>
+                    <option value="">全部</option>
+                    <option value="success">success</option>
+                    <option value="ignored">ignored</option>
+                  </select>
+                </div>
+                <button id="btnLoadLogs" class="btn">查询日志</button>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>模块</th>
+                      <th>事件</th>
+                      <th>级别</th>
+                      <th>状态</th>
+                      <th>错误码</th>
+                      <th>错误信息</th>
+                    </tr>
+                  </thead>
+                  <tbody id="logsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">审计日志</h2>
+                  <p class="section-subtitle">后台查询和人工操作记录</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>Target Type</label>
+                  <input id="auditTargetType" placeholder="user / payment_order / subscription" />
+                </div>
+                <div class="field">
+                  <label>Target ID</label>
+                  <input id="auditTargetId" placeholder="可空" />
+                </div>
+                <button id="btnLoadAuditLogs" class="btn">查询审计</button>
+                <span class="muted"></span>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>管理员</th>
+                      <th>动作</th>
+                      <th>对象</th>
+                      <th>原因</th>
+                      <th>requestId</th>
+                    </tr>
+                  </thead>
+                  <tbody id="auditTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
 
     <script>
       const $ = (id) => document.getElementById(id);
       const state = {
+        activeUserId: "",
+        diagnostics: null,
+        overview: null,
         orders: [],
-        logs: [],
+        subscriptions: [],
       };
+
+      function setStatus(message) {
+        $("statusLine").textContent = message;
+      }
 
       function loadLocal() {
         const saved = JSON.parse(localStorage.getItem("lf_admin_local") || "{}");
@@ -250,36 +791,28 @@
       function saveLocal() {
         localStorage.setItem(
           "lf_admin_local",
-            JSON.stringify({
-              apiBase: $("apiBase").value.trim(),
-              token: $("token").value.trim(),
-              account: $("account").value.trim(),
-            })
-          );
-        $("meta").textContent = "已保存本地配置";
+          JSON.stringify({
+            apiBase: $("apiBase").value.trim(),
+            token: $("token").value.trim(),
+            account: $("account").value.trim(),
+          })
+        );
       }
 
-      async function loginWithAdminPassword() {
+      async function login() {
         const apiBase = $("apiBase").value.trim();
         const account = $("account").value.trim();
         const password = $("password").value;
-        if (!apiBase || !account || !password) {
-          throw new Error("请先填写 API Base URL、管理员账号和密码");
-        }
+        if (!apiBase || !account || !password) throw new Error("请填写 API、账号和密码");
         const res = await fetch(`${apiBase}/auth/admin-password-login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ account, password }),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = data?.error?.message || JSON.stringify(data) || `HTTP ${res.status}`;
-          throw new Error(msg);
-        }
+        if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
         const accessToken = data?.data?.accessToken || "";
-        if (!accessToken) {
-          throw new Error("登录成功但未返回 access token");
-        }
+        if (!accessToken) throw new Error("登录成功但未返回 access token");
         $("token").value = accessToken;
         saveLocal();
       }
@@ -287,9 +820,7 @@
       async function request(path, options = {}) {
         const apiBase = $("apiBase").value.trim();
         const token = $("token").value.trim();
-        if (!apiBase || !token) {
-          throw new Error("请先完成 Authing 登录");
-        }
+        if (!apiBase || !token) throw new Error("请先登录");
         const res = await fetch(`${apiBase}${path}`, {
           ...options,
           headers: {
@@ -299,15 +830,8 @@
           },
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = data?.error?.message || JSON.stringify(data) || `HTTP ${res.status}`;
-          throw new Error(msg);
-        }
+        if (!res.ok) throw new Error(data?.error?.message || JSON.stringify(data) || `HTTP ${res.status}`);
         return data;
-      }
-
-      function statusClass(status) {
-        return `pill status-${status || "unknown"}`;
       }
 
       function escapeHtml(value) {
@@ -318,189 +842,434 @@
           .replaceAll('"', "&quot;");
       }
 
-      function render() {
-        const tbody = $("tbody");
-        tbody.innerHTML = "";
-        for (const row of state.orders) {
-          const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td class="mono">${escapeHtml(row.id)}</td>
-            <td class="mono">${escapeHtml(row.userId)}</td>
-            <td><span class="${statusClass(row.status)}">${escapeHtml(row.status)}</span></td>
-            <td>${escapeHtml(row.productCode)}</td>
-            <td>${escapeHtml(row.amount)} ${escapeHtml(row.currency)}</td>
-            <td class="mono">${escapeHtml(row.providerOrderId)}</td>
-            <td>${escapeHtml(row.createdAt)}</td>
-            <td>
-              <div class="ops">
-                <button data-op="refund" data-id="${row.id}" class="btn danger">手动退款</button>
-                <button data-op="close" data-id="${row.id}" class="btn secondary">手动关单</button>
-              </div>
-            </td>
-          `;
-          tbody.appendChild(tr);
-        }
+      function fmtDate(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return date.toLocaleString("zh-CN", { hour12: false });
       }
 
-      async function loadOrders() {
-        const status = $("status").value.trim();
-        const userId = $("userId").value.trim();
-        const qs = new URLSearchParams();
-        if (status) qs.set("status", status);
-        if (userId) qs.set("userId", userId);
-        $("meta").textContent = "查询中...";
-        const data = await request(`/admin/orders?${qs.toString()}`);
-        state.orders = Array.isArray(data.data) ? data.data : [];
-        render();
-        $("meta").textContent = `查询完成：${state.orders.length} 条`;
+      function statusPill(status) {
+        return `<span class="pill status-${escapeHtml(status || "unknown")}">${escapeHtml(status)}</span>`;
       }
 
-      function renderLogs() {
-        const tbody = $("logsTbody");
-        tbody.innerHTML = "";
-        for (const row of state.logs) {
-          const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td>${escapeHtml(row.createdAt)}</td>
-            <td>${escapeHtml(row.module)}</td>
-            <td class="mono">${escapeHtml(row.event)}</td>
-            <td>${escapeHtml(row.level)}</td>
-            <td>${escapeHtml(row.status)}</td>
-            <td>${escapeHtml(row.errorCode)}</td>
-            <td>${escapeHtml(row.errorMessage)}</td>
-          `;
-          tbody.appendChild(tr);
-        }
+      function rowEmpty(colspan, text = "暂无数据") {
+        return `<tr><td colspan="${colspan}" class="muted">${escapeHtml(text)}</td></tr>`;
       }
 
-      async function loadSystemLogs() {
-        const module = $("logModule").value.trim();
-        const event = $("logEvent").value.trim();
-        const qs = new URLSearchParams();
-        qs.set("status", "failed");
-        qs.set("limit", "50");
-        if (module) qs.set("module", module);
-        if (event) qs.set("event", event);
-        $("logsMeta").textContent = "失败日志查询中...";
-        const data = await request(`/admin/system-event-logs?${qs.toString()}`);
-        state.logs = Array.isArray(data.data) ? data.data : [];
-        renderLogs();
-        $("logsMeta").textContent = `失败日志：${state.logs.length} 条`;
-      }
-
-      async function runRefund(id) {
-        const reason = prompt("退款原因（必填，默认次日00:00生效）");
-        if (!reason) return;
-        const refundReference = prompt("退款凭证号（可空）") || "";
-        await request(`/admin/orders/${encodeURIComponent(id)}/manual-refund`, {
-          method: "POST",
-          body: JSON.stringify({ reason, refundReference }),
+      function setTab(name) {
+        document.querySelectorAll(".tab[data-tab]").forEach((item) => {
+          item.classList.toggle("active", item.dataset.tab === name);
         });
-        alert("已提交手动退款：权益默认在次日 00:00 失效（Asia/Shanghai）");
-        await loadOrders();
-      }
-
-      async function runClose(id) {
-        const reason = prompt("关单原因（必填）");
-        if (!reason) return;
-        await request(`/admin/orders/${encodeURIComponent(id)}/manual-close`, {
-          method: "POST",
-          body: JSON.stringify({ reason }),
+        document.querySelectorAll(".panel").forEach((item) => {
+          item.classList.toggle("active", item.id === `panel-${name}`);
         });
-        await loadOrders();
       }
 
-      async function runGrantPro(userId) {
-        const reason = prompt("开通原因（必填）");
+      function todayDateKey() {
+        return new Date().toISOString().slice(0, 10);
+      }
+
+      function addDays(dateKey, days) {
+        const date = new Date(`${dateKey}T00:00:00.000Z`);
+        date.setUTCDate(date.getUTCDate() + days);
+        return date.toISOString().slice(0, 10);
+      }
+
+      function setOverviewRange(days) {
+        const toDate = $("overviewToDate").value || todayDateKey();
+        $("overviewToDate").value = toDate;
+        $("overviewFromDate").value = addDays(toDate, -(days - 1));
+      }
+
+      async function loadOverview() {
+        setStatus("正在加载概览...");
+        const qs = new URLSearchParams();
+        if ($("overviewFromDate").value) qs.set("fromDate", $("overviewFromDate").value);
+        if ($("overviewToDate").value) qs.set("toDate", $("overviewToDate").value);
+        const res = await request(`/admin/metrics/overview?${qs.toString()}`);
+        state.overview = res.data || {};
+        renderOverview(res.data || {});
+        setStatus("概览已刷新");
+      }
+
+      function renderOverview(data) {
+        const summary = data.summary || {};
+        const todayActivity = (data.dailyUserActivity || [])[0] || {};
+        $("overviewClock").textContent = data.clock
+          ? `${data.range?.fromDate || ""} 至 ${data.range?.toDate || ""} · ${data.clock.businessTimeZone} · ${fmtDate(data.clock.serverNowIso)}`
+          : "未加载";
+        const cards = [
+          ["总用户", summary.totalUsers, "active users"],
+          ["当前 Pro", summary.proUsers, "active subscription"],
+          ["非 Pro", summary.nonProUsers, "active users - pro"],
+          ["今日使用用户", todayActivity.usingUsers, "sent user messages"],
+          ["今日活跃用户", todayActivity.activeUsers, "successful user messages"],
+          ["今日额度用户", summary.todayQuotaUsers, "entitlement rows"],
+          ["今日平均使用", summary.todayAvgUsedChars, "chars / user"],
+          ["今日总使用", summary.todayTotalUsedChars, "chars"],
+          ["今日用满", summary.todayQuotaFullUsers, "quota exhausted"],
+          ["Pro 占比", percent(summary.proUsers, summary.totalUsers), "current"],
+        ];
+        $("metrics").innerHTML = cards.map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+        $("usageTbody").innerHTML = (data.recentUsage || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.dateKey)}</td>
+            <td>${escapeHtml(row.users)}</td>
+            <td>${escapeHtml(row.avgUsedChars)}</td>
+            <td>${escapeHtml(row.totalUsedChars)}</td>
+            <td>${escapeHtml(row.quotaFullUsers)}</td>
+          </tr>
+        `).join("") || rowEmpty(5);
+        $("autoRenewSummaryTbody").innerHTML = (data.autoRenewSummary || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.provider)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.count)}</td>
+          </tr>
+        `).join("") || rowEmpty(3);
+        $("dailyActivityTbody").innerHTML = (data.dailyUserActivity || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.dateKey)}</td>
+            <td>${escapeHtml(row.totalUsers)}</td>
+            <td>${escapeHtml(row.usingUsers)}</td>
+            <td>${escapeHtml(row.activeUsers)}</td>
+            <td>${escapeHtml(row.proUsers)}</td>
+            <td>${escapeHtml(percent(row.proUsers, row.totalUsers))}</td>
+            <td>${escapeHtml(row.totalMessageChars)}</td>
+            <td>${escapeHtml(row.avgMessageCharsPerUsingUser)}</td>
+          </tr>
+        `).join("") || rowEmpty(8);
+      }
+
+      function percent(part, total) {
+        const p = Number(part || 0);
+        const t = Number(total || 0);
+        if (!t) return "0%";
+        return `${((p / t) * 100).toFixed(1)}%`;
+      }
+
+      async function searchUsers() {
+        const q = $("userSearch").value.trim();
+        setStatus("正在搜索用户...");
+        const qs = new URLSearchParams();
+        if (q) qs.set("q", q);
+        const res = await request(`/admin/users?${qs.toString()}`);
+        const users = Array.isArray(res.data) ? res.data : [];
+        $("usersTbody").innerHTML = users.map((user) => `
+          <tr>
+            <td class="mono">${escapeHtml(user.id)}</td>
+            <td>${escapeHtml(user.nickname)}</td>
+            <td>${escapeHtml(user.email)}</td>
+            <td>${escapeHtml(user.phone)}</td>
+            <td>${statusPill(user.status)}</td>
+            <td>${escapeHtml(user.role)}</td>
+            <td>${escapeHtml(fmtDate(user.createdAt))}</td>
+            <td><button class="btn secondary" data-user-id="${escapeHtml(user.id)}">诊断</button></td>
+          </tr>
+        `).join("") || rowEmpty(8);
+        setStatus(`搜索完成：${users.length} 个用户`);
+      }
+
+      async function loadDiagnostics(userId = $("userSearch").value.trim()) {
+        if (!userId) throw new Error("请输入 userId");
+        state.activeUserId = userId;
+        setStatus(`正在加载用户 ${userId} 诊断...`);
+        const res = await request(`/admin/users/${encodeURIComponent(userId)}/diagnostics`);
+        state.diagnostics = res.data;
+        renderDiagnostics(res.data);
+        setStatus("用户诊断已加载");
+      }
+
+      function renderDiagnostics(data) {
+        const user = data.user || {};
+        const sub = data.currentSubscription;
+        const autoRenew = data.currentAutoRenew;
+        $("diagnosticsMeta").textContent = user.id ? `当前用户：${user.id}` : "未加载";
+        $("userFacts").innerHTML = [
+          ["用户 ID", user.id],
+          ["昵称", user.nickname || "-"],
+          ["邮箱/手机", `${user.email || "-"} / ${user.phone || "-"}`],
+          ["账号状态", user.status],
+          ["当前 Pro", sub ? `是，到期 ${fmtDate(sub.expiresAt)}` : "否"],
+          ["自动续费", autoRenew ? `${autoRenew.provider} / ${autoRenew.status}` : "无"],
+        ].map(([label, value]) => `
+          <div class="fact"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+        `).join("");
+        $("userJson").textContent = JSON.stringify({
+          user: data.user,
+          currentSubscription: data.currentSubscription,
+          currentAutoRenew: data.currentAutoRenew,
+        }, null, 2);
+        $("entitlementsTbody").innerHTML = (data.entitlements || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.dateKey)}</td>
+            <td>${escapeHtml(row.usedTotalChars)}</td>
+            <td>${escapeHtml(row.dailyTotalLimit)}</td>
+            <td>${escapeHtml(Number(row.dailyTotalLimit || 0) - Number(row.usedTotalChars || 0))}</td>
+          </tr>
+        `).join("") || rowEmpty(4);
+        $("appleLinksTbody").innerHTML = (data.appleIapAccountLinks || []).map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.appAccountToken)}</td>
+            <td class="mono">${escapeHtml(row.originalTransactionId)}</td>
+            <td class="mono">${escapeHtml(row.latestTransactionId)}</td>
+          </tr>
+        `).join("") || rowEmpty(3);
+        renderDiagTables(data);
+      }
+
+      function renderDiagTables(data) {
+        $("diagOrders").innerHTML = tableHtml(["ID", "状态", "金额", "渠道单号", "创建时间"], (data.orders || []).map((row) => [
+          mono(row.id), statusPill(row.status), `${row.amount} ${row.currency}`, mono(row.providerOrderId), fmtDate(row.createdAt),
+        ]));
+        $("diagSubs").innerHTML = tableHtml(["ID", "状态", "开始", "到期", "sourceOrderId"], (data.subscriptions || []).map((row) => [
+          mono(row.id), statusPill(row.status), fmtDate(row.startedAt), fmtDate(row.expiresAt), mono(row.sourceOrderId),
+        ]));
+        $("diagAutoRenew").innerHTML = tableHtml(["ID", "渠道", "状态", "agreement", "latest", "周期结束"], (data.autoRenewSubscriptions || []).map((row) => [
+          mono(row.id), row.provider, statusPill(row.status), mono(row.providerAgreementId), mono(row.latestTransactionId), fmtDate(row.currentPeriodEnd),
+        ]));
+        $("diagEvents").innerHTML = tableHtml(["时间", "模块", "事件", "状态", "错误"], (data.systemEventLogs || []).map((row) => [
+          fmtDate(row.createdAt), row.module, mono(row.event), statusPill(row.status), row.errorMessage,
+        ]));
+      }
+
+      function mono(value) {
+        return `<span class="mono">${escapeHtml(value)}</span>`;
+      }
+
+      function tableHtml(headers, rows) {
+        return `
+          <table>
+            <thead><tr>${headers.map((item) => `<th>${escapeHtml(item)}</th>`).join("")}</tr></thead>
+            <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell ?? ""}</td>`).join("")}</tr>`).join("") || rowEmpty(headers.length)}</tbody>
+          </table>
+        `;
+      }
+
+      async function grantPro() {
+        const userId = state.activeUserId || $("userSearch").value.trim();
+        if (!userId) throw new Error("请先选择用户");
+        const reason = prompt("补 1 个月 Pro 的原因（必填）");
         if (!reason) return;
         await request(`/admin/users/${encodeURIComponent(userId)}/grant-pro-monthly`, {
           method: "POST",
           body: JSON.stringify({ reason, months: 1 }),
         });
-        alert(`已为用户 ${userId} 开通 1 个月 Pro`);
+        await loadDiagnostics(userId);
+        alert("已补 1 个月 Pro");
       }
 
-      $("btnSave").addEventListener("click", () => {
-        saveLocal();
-      });
+      async function cancelProNextDay() {
+        const userId = state.activeUserId || $("userSearch").value.trim();
+        if (!userId) throw new Error("请先选择用户");
+        const reason = prompt("取消 Pro 的原因（必填，次日 00:00 生效）");
+        if (!reason) return;
+        await request(`/admin/users/${encodeURIComponent(userId)}/cancel-pro-next-day`, {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        });
+        await loadDiagnostics(userId);
+        alert("已设置为次日 00:00 失效");
+      }
 
-      $("btnLoad").addEventListener("click", async () => {
-        try {
-          await loadOrders();
-        } catch (error) {
-          $("meta").textContent = `查询失败：${error.message}`;
-          alert(error.message);
+      async function loadOrders() {
+        const qs = new URLSearchParams();
+        if ($("orderStatus").value) qs.set("status", $("orderStatus").value);
+        if ($("orderUserId").value.trim()) qs.set("userId", $("orderUserId").value.trim());
+        const res = await request(`/admin/orders?${qs.toString()}`);
+        state.orders = Array.isArray(res.data) ? res.data : [];
+        $("ordersTbody").innerHTML = state.orders.map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.id)}</td>
+            <td class="mono">${escapeHtml(row.userId)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.productCode)}</td>
+            <td>${escapeHtml(row.amount)} ${escapeHtml(row.currency)}</td>
+            <td class="mono">${escapeHtml(row.providerOrderId)}</td>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td class="inline-actions">
+              <button class="btn danger" data-order-op="refund" data-order-id="${escapeHtml(row.id)}">退款</button>
+              <button class="btn secondary" data-order-op="close" data-order-id="${escapeHtml(row.id)}">关单</button>
+            </td>
+          </tr>
+        `).join("") || rowEmpty(8);
+        setStatus(`订单查询完成：${state.orders.length} 条`);
+      }
+
+      async function loadSubscriptions() {
+        const qs = new URLSearchParams();
+        if ($("subscriptionStatus").value) qs.set("status", $("subscriptionStatus").value);
+        const userId = $("subscriptionUserId").value.trim() || $("orderUserId").value.trim();
+        if (userId) qs.set("userId", userId);
+        const res = await request(`/admin/subscriptions?${qs.toString()}`);
+        state.subscriptions = Array.isArray(res.data) ? res.data : [];
+        $("subscriptionsTbody").innerHTML = state.subscriptions.map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.id)}</td>
+            <td class="mono">${escapeHtml(row.userId)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(fmtDate(row.startedAt))}</td>
+            <td>${escapeHtml(fmtDate(row.expiresAt))}</td>
+            <td class="mono">${escapeHtml(row.sourceOrderId)}</td>
+          </tr>
+        `).join("") || rowEmpty(6);
+        setStatus(`订阅查询完成：${state.subscriptions.length} 条`);
+      }
+
+      async function runOrderOp(op, id) {
+        if (op === "refund") {
+          const reason = prompt("退款原因（必填，默认次日 00:00 生效）");
+          if (!reason) return;
+          const refundReference = prompt("退款凭证号（可空）") || "";
+          await request(`/admin/orders/${encodeURIComponent(id)}/manual-refund`, {
+            method: "POST",
+            body: JSON.stringify({ reason, refundReference }),
+          });
+          alert("已提交手动退款");
         }
-      });
-
-      $("btnAuthingLogin").addEventListener("click", async () => {
-        try {
-          $("meta").textContent = "登录中...";
-          await loginWithAdminPassword();
-          $("meta").textContent = "登录成功，请点击“查询订单”";
-        } catch (error) {
-          $("meta").textContent = `登录失败：${error.message}`;
-          alert(error.message);
+        if (op === "close") {
+          const reason = prompt("关单原因（必填）");
+          if (!reason) return;
+          await request(`/admin/orders/${encodeURIComponent(id)}/manual-close`, {
+            method: "POST",
+            body: JSON.stringify({ reason }),
+          });
         }
-      });
+        await loadOrders();
+      }
 
-      $("btnLogout").addEventListener("click", () => {
-        $("token").value = "";
-        $("password").value = "";
-        saveLocal();
-        $("meta").textContent = "已清空登录状态";
-      });
+      async function loadLogs() {
+        const qs = new URLSearchParams();
+        qs.set("limit", "100");
+        if ($("logModule").value.trim()) qs.set("module", $("logModule").value.trim());
+        if ($("logEvent").value.trim()) qs.set("event", $("logEvent").value.trim());
+        if ($("logStatus").value.trim()) qs.set("status", $("logStatus").value.trim());
+        const res = await request(`/admin/system-event-logs?${qs.toString()}`);
+        const rows = Array.isArray(res.data) ? res.data : [];
+        $("logsTbody").innerHTML = rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td class="mono">${escapeHtml(row.userId)}</td>
+            <td>${escapeHtml(row.module)}</td>
+            <td class="mono">${escapeHtml(row.event)}</td>
+            <td>${escapeHtml(row.level)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.errorCode)}</td>
+            <td>${escapeHtml(row.errorMessage)}</td>
+          </tr>
+        `).join("") || rowEmpty(8);
+        setStatus(`系统日志：${rows.length} 条`);
+      }
 
-      $("tbody").addEventListener("click", async (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLButtonElement)) return;
-        const id = target.getAttribute("data-id");
-        const op = target.getAttribute("data-op");
-        if (!op) return;
-        try {
-          if (op === "refund" && id) await runRefund(id);
-          if (op === "close" && id) await runClose(id);
-          $("meta").textContent = `操作成功`;
-        } catch (error) {
-          $("meta").textContent = `操作失败：${error.message}`;
-          alert(error.message);
-        }
-      });
+      async function loadAuditLogs() {
+        const qs = new URLSearchParams();
+        qs.set("limit", "100");
+        if ($("auditTargetType").value.trim()) qs.set("targetType", $("auditTargetType").value.trim());
+        if ($("auditTargetId").value.trim()) qs.set("targetId", $("auditTargetId").value.trim());
+        const res = await request(`/admin/audit-logs?${qs.toString()}`);
+        const rows = Array.isArray(res.data) ? res.data : [];
+        $("auditTbody").innerHTML = rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td class="mono">${escapeHtml(row.adminId)}</td>
+            <td class="mono">${escapeHtml(row.action)}</td>
+            <td>${escapeHtml(row.targetType)} / <span class="mono">${escapeHtml(row.targetId)}</span></td>
+            <td>${escapeHtml(row.reason)}</td>
+            <td class="mono">${escapeHtml(row.requestId)}</td>
+          </tr>
+        `).join("") || rowEmpty(6);
+        setStatus(`审计日志：${rows.length} 条`);
+      }
 
-      $("btnGrantPro").addEventListener("click", async () => {
-        try {
-          const userId = $("grantUserId").value.trim();
-          if (!userId) {
-            throw new Error("请先填写用户ID");
+      function bindEvents() {
+        document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
+          tab.addEventListener("click", () => setTab(tab.dataset.tab));
+        });
+        document.querySelectorAll(".tab[data-user-subtab]").forEach((tab) => {
+          tab.addEventListener("click", () => {
+            document.querySelectorAll(".tab[data-user-subtab]").forEach((item) => item.classList.toggle("active", item === tab));
+            document.querySelectorAll(".diag-subpanel").forEach((panel) => {
+              panel.style.display = panel.id === tab.dataset.userSubtab ? "block" : "none";
+            });
+          });
+        });
+        $("btnLogin").addEventListener("click", guard(async () => {
+          setStatus("登录中...");
+          await login();
+          setStatus("登录成功");
+        }));
+        $("btnLogout").addEventListener("click", () => {
+          $("token").value = "";
+          $("password").value = "";
+          saveLocal();
+          setStatus("已清空登录状态");
+        });
+        $("btnLoadOverview").addEventListener("click", guard(loadOverview));
+        $("btnOverview7d").addEventListener("click", guard(async () => {
+          setOverviewRange(7);
+          await loadOverview();
+        }));
+        $("btnOverview14d").addEventListener("click", guard(async () => {
+          setOverviewRange(14);
+          await loadOverview();
+        }));
+        $("btnOverview30d").addEventListener("click", guard(async () => {
+          setOverviewRange(30);
+          await loadOverview();
+        }));
+        $("btnRefreshPaymentSummary").addEventListener("click", guard(loadOverview));
+        $("btnSearchUsers").addEventListener("click", guard(searchUsers));
+        $("btnLoadDiagnostics").addEventListener("click", guard(() => loadDiagnostics()));
+        $("btnGrantPro").addEventListener("click", guard(grantPro));
+        $("btnCancelPro").addEventListener("click", guard(cancelProNextDay));
+        $("btnLoadOrders").addEventListener("click", guard(loadOrders));
+        $("btnLoadSubscriptions").addEventListener("click", guard(loadSubscriptions));
+        $("btnLoadSubscriptions2").addEventListener("click", guard(loadSubscriptions));
+        $("btnLoadLogs").addEventListener("click", guard(loadLogs));
+        $("btnLoadAuditLogs").addEventListener("click", guard(loadAuditLogs));
+        $("usersTbody").addEventListener("click", guard(async (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLButtonElement)) return;
+          const userId = target.getAttribute("data-user-id");
+          if (!userId) return;
+          $("userSearch").value = userId;
+          await loadDiagnostics(userId);
+        }));
+        $("ordersTbody").addEventListener("click", guard(async (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLButtonElement)) return;
+          const op = target.getAttribute("data-order-op");
+          const id = target.getAttribute("data-order-id");
+          if (!op || !id) return;
+          await runOrderOp(op, id);
+        }));
+      }
+
+      function guard(fn) {
+        return async (...args) => {
+          try {
+            await fn(...args);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setStatus(`出错：${message}`);
+            alert(message);
           }
-          await runGrantPro(userId);
-          $("meta").textContent = `已开通：${userId}`;
-        } catch (error) {
-          $("meta").textContent = `开通失败：${error.message}`;
-          alert(error.message);
-        }
-      });
+        };
+      }
 
-      $("btnLoadLogs").addEventListener("click", async () => {
-        try {
-          await loadSystemLogs();
-        } catch (error) {
-          $("logsMeta").textContent = `查询失败：${error.message}`;
-          alert(error.message);
-        }
-      });
-
-      (async () => {
-        loadLocal();
-        try {
-          if ($("token").value.trim()) {
-            await loadOrders();
-          }
-        } catch (error) {
-          $("meta").textContent = `自动查询失败：${error.message}`;
-          alert(error.message);
-        }
-      })();
+      loadLocal();
+      setOverviewRange(14);
+      bindEvents();
+      if ($("token").value.trim()) {
+        setStatus("已加载本地登录状态");
+      }
     </script>
   </body>
 </html>

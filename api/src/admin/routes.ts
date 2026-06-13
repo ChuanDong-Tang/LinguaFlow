@@ -57,21 +57,13 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
             OR: [
               { id: { contains: q, mode: "insensitive" } },
               { nickname: { contains: q, mode: "insensitive" } },
+              { email: { contains: q, mode: "insensitive" } },
+              { phone: { contains: q, mode: "insensitive" } },
             ],
           }
         : undefined,
       take: 50,
       orderBy: { createdAt: "desc" },
-    });
-
-    await writeAuditLog(deps, {
-      adminId: admin.adminId,
-      action: "admin.users.query",
-      targetType: "user",
-      requestId,
-      ip: req.ip,
-      reason: q ? `q=${q}` : "list",
-      afterData: { count: users.length },
     });
 
     return reply.status(200).send({ ok: true, request_id: requestId, data: users });
@@ -93,16 +85,6 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       },
       take: 100,
       orderBy: { createdAt: "desc" },
-    });
-
-    await writeAuditLog(deps, {
-      adminId: admin.adminId,
-      action: "admin.orders.query",
-      targetType: "payment_order",
-      requestId,
-      ip: req.ip,
-      reason: `status=${status || "*"},userId=${userId || "*"}`,
-      afterData: { count: orders.length },
     });
 
     return reply.status(200).send({ ok: true, request_id: requestId, data: orders });
@@ -137,15 +119,107 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     }
 
     const data = { user, orders, subscriptions };
-    await writeAuditLog(deps, {
-      adminId: admin.adminId,
-      action: "admin.users.overview",
-      targetType: "user",
-      targetId: id,
-      requestId,
-      ip: req.ip,
-      afterData: { orderCount: orders.length, subscriptionCount: subscriptions.length },
-    });
+    return reply.status(200).send({ ok: true, request_id: requestId, data });
+  });
+
+  app.get("/admin/users/:id/diagnostics", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const id = String((req.params as Record<string, unknown>)?.id ?? "").trim();
+    if (!id) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "REQUEST_INVALID", message: "user id is required" },
+      });
+    }
+
+    const [
+      user,
+      orders,
+      subscriptions,
+      entitlements,
+      autoRenewSubscriptions,
+      appleIapAccountLinks,
+      systemEventLogs,
+      adminAuditLogs,
+    ] = await Promise.all([
+      deps.prisma.user.findUnique({ where: { id } }),
+      deps.prisma.paymentOrder.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
+      deps.prisma.subscription.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT *
+         FROM "entitlements"
+         WHERE "userId" = $1
+         ORDER BY "dateKey" DESC
+         LIMIT 60`,
+        id
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT *
+         FROM "auto_renew_subscriptions"
+         WHERE "userId" = $1
+         ORDER BY "updatedAt" DESC
+         LIMIT 50`,
+        id
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT *
+         FROM "apple_iap_account_links"
+         WHERE "userId" = $1
+         ORDER BY "updatedAt" DESC
+         LIMIT 50`,
+        id
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT "id","module","event","level","status","errorCode","errorMessage","userId","requestId","metadata","createdAt"
+         FROM "system_event_logs"
+         WHERE "userId" = $1
+         ORDER BY "createdAt" DESC
+         LIMIT 100`,
+        id
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT *
+         FROM "admin_audit_logs"
+         WHERE "targetType" = 'user'
+           AND "targetId" = $1
+         ORDER BY "createdAt" DESC
+         LIMIT 100`,
+        id
+      ),
+    ]);
+
+    if (!user) {
+      return reply.status(404).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "RESOURCE_NOT_FOUND", message: "User not found" },
+      });
+    }
+
+    const now = new Date();
+    const currentSubscription =
+      subscriptions.find((item) => item.status === "active" && item.expiresAt > now) ?? null;
+    const currentAutoRenew =
+      (autoRenewSubscriptions as any[]).find((item) =>
+        ["pending", "active", "billing_retry"].includes(String(item.status))
+      ) ?? null;
+
+    const data = {
+      user,
+      currentSubscription,
+      currentAutoRenew,
+      orders,
+      subscriptions,
+      entitlements,
+      autoRenewSubscriptions,
+      appleIapAccountLinks,
+      systemEventLogs,
+      adminAuditLogs,
+    };
 
     return reply.status(200).send({ ok: true, request_id: requestId, data });
   });
@@ -168,17 +242,150 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       orderBy: { createdAt: "desc" },
     });
 
-    await writeAuditLog(deps, {
-      adminId: admin.adminId,
-      action: "admin.subscriptions.query",
-      targetType: "subscription",
-      requestId,
-      ip: req.ip,
-      reason: `status=${status || "*"},userId=${userId || "*"}`,
-      afterData: { count: subscriptions.length },
-    });
-
     return reply.status(200).send({ ok: true, request_id: requestId, data: subscriptions });
+  });
+
+  app.get("/admin/metrics/overview", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const now = new Date();
+    const query = req.query as Record<string, unknown>;
+    const clock = {
+      serverNowIso: now.toISOString(),
+      businessTimeZone: getRuntimeConfig().quotaTimeZone,
+      businessDateKey: formatDateKeyInTimeZone(now),
+    };
+    const requestedToDate = readDateKeyQuery(query.toDate);
+    const requestedFromDate = readDateKeyQuery(query.fromDate);
+    const toDate = requestedToDate ?? clock.businessDateKey;
+    const fromDate = clampFromDateKey(requestedFromDate ?? addDateKeyDays(toDate, -13), toDate, 90);
+
+    const [summaryRows, recentUsage, dailyUserActivity, autoRenewSummary] = await Promise.all([
+      deps.prisma.$queryRawUnsafe(
+        `WITH active_users AS (
+           SELECT id FROM "users" WHERE status = 'active'
+         ),
+         active_pro AS (
+           SELECT DISTINCT "userId"
+           FROM "subscriptions"
+           WHERE status = 'active'
+             AND "expiresAt" > now()
+         ),
+         today_entitlements AS (
+           SELECT "userId","dailyTotalLimit","usedTotalChars"
+           FROM "entitlements"
+           WHERE "dateKey" = $1
+         )
+         SELECT
+           (SELECT COUNT(*)::int FROM active_users) AS "totalUsers",
+           (SELECT COUNT(*)::int FROM active_users u JOIN active_pro ap ON ap."userId" = u.id) AS "proUsers",
+           (SELECT COUNT(*)::int FROM active_users u LEFT JOIN active_pro ap ON ap."userId" = u.id WHERE ap."userId" IS NULL) AS "nonProUsers",
+           (SELECT COUNT(*)::int FROM today_entitlements) AS "todayQuotaUsers",
+           COALESCE((SELECT ROUND(AVG("usedTotalChars")::numeric, 2)::float8 FROM today_entitlements), 0) AS "todayAvgUsedChars",
+           COALESCE((SELECT SUM("usedTotalChars")::int FROM today_entitlements), 0) AS "todayTotalUsedChars",
+           (SELECT COUNT(*)::int FROM today_entitlements WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit") AS "todayQuotaFullUsers"`,
+        clock.businessDateKey
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT
+           "dateKey",
+           COUNT(*)::int AS "users",
+           ROUND(AVG("usedTotalChars")::numeric, 2)::float8 AS "avgUsedChars",
+           SUM("usedTotalChars")::int AS "totalUsedChars",
+           COUNT(*) FILTER (WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit")::int AS "quotaFullUsers"
+         FROM "entitlements"
+         WHERE "dateKey" >= $1
+           AND "dateKey" <= $2
+         GROUP BY "dateKey"
+         ORDER BY "dateKey" DESC`,
+        fromDate,
+        toDate
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `WITH days AS (
+           SELECT generate_series($1::date, $2::date, interval '1 day')::date AS day
+         ),
+         message_days AS (
+           SELECT
+             COALESCE("conversationDateKey", to_char("createdAt" AT TIME ZONE $3, 'YYYY-MM-DD')) AS "dateKey",
+             "userId",
+             role,
+             status,
+             "inputChars",
+             "outputChars"
+           FROM "messages"
+           WHERE "createdAt" >= (($1::date)::timestamp AT TIME ZONE $3)
+             AND "createdAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+         )
+         SELECT
+           to_char(d.day, 'YYYY-MM-DD') AS "dateKey",
+           (
+             SELECT COUNT(*)::int
+             FROM "users" u
+             WHERE u.status = 'active'
+               AND u."createdAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
+           ) AS "totalUsers",
+           (
+             SELECT COUNT(DISTINCT md."userId")::int
+             FROM message_days md
+             WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+               AND md.role = 'user'
+           ) AS "usingUsers",
+           (
+             SELECT COUNT(DISTINCT md."userId")::int
+             FROM message_days md
+             WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+               AND md.role = 'user'
+               AND md.status = 'success'
+           ) AS "activeUsers",
+           (
+             SELECT COUNT(DISTINCT s."userId")::int
+             FROM "subscriptions" s
+             JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
+             WHERE s.status = 'active'
+               AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
+               AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
+           ) AS "proUsers",
+           COALESCE((
+             SELECT SUM(md."inputChars" + md."outputChars")::int
+             FROM message_days md
+             WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+           ), 0) AS "totalMessageChars",
+           COALESCE((
+             SELECT ROUND(
+               SUM(md."inputChars" + md."outputChars")::numeric /
+               NULLIF(COUNT(DISTINCT md."userId"), 0),
+               2
+             )::float8
+             FROM message_days md
+             WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+           ), 0) AS "avgMessageCharsPerUsingUser"
+         FROM days d
+         ORDER BY d.day DESC`,
+        fromDate,
+        toDate,
+        clock.businessTimeZone
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT provider, status, COUNT(*)::int AS count
+         FROM "auto_renew_subscriptions"
+         GROUP BY provider, status
+         ORDER BY provider, status`
+      ),
+    ]);
+
+    const data = {
+      clock,
+      range: { fromDate, toDate },
+      summary: (summaryRows as any[])[0] ?? {},
+      recentUsage,
+      dailyUserActivity,
+      autoRenewSummary,
+    };
+
+    return reply.status(200).send({ ok: true, request_id: requestId, data });
   });
 
   app.post("/admin/orders/:id/manual-refund", async (req, reply) => {
@@ -527,6 +734,94 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     });
   });
 
+  app.post("/admin/users/:id/cancel-pro-next-day", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const userId = String((req.params as Record<string, unknown>)?.id ?? "").trim();
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const reason = String(body.reason ?? "").trim();
+
+    if (!userId || !reason) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "REQUEST_INVALID", message: "user id and reason are required" },
+      });
+    }
+
+    const user = await deps.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, status: true },
+    });
+    if (!user) {
+      return reply.status(404).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "RESOURCE_NOT_FOUND", message: "User not found" },
+      });
+    }
+
+    const now = new Date();
+    const effectiveAt = getNextDayStartInBusinessTimeZone(now);
+    const before = await deps.prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: "active",
+        expiresAt: { gt: now },
+      },
+      orderBy: { expiresAt: "desc" },
+    });
+    if (!before) {
+      return reply.status(409).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "NO_ACTIVE_PRO", message: "User has no active Pro subscription" },
+      });
+    }
+
+    const updated = await deps.prisma.subscription.update({
+      where: { id: before.id },
+      data: {
+        status: "active",
+        expiresAt: effectiveAt,
+      },
+    });
+
+    await writeAuditLog(deps, {
+      adminId: admin.adminId,
+      action: "admin.users.cancel_pro_next_day",
+      targetType: "user",
+      targetId: userId,
+      requestId,
+      ip: req.ip,
+      reason,
+      beforeData: {
+        subscriptionId: before.id,
+        status: before.status,
+        expiresAt: before.expiresAt,
+      },
+      afterData: {
+        subscriptionId: updated.id,
+        status: updated.status,
+        expiresAt: updated.expiresAt,
+        effectivePolicy: `next_day_00:00_${getRuntimeConfig().quotaTimeZone}`,
+      },
+    });
+
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: {
+        userId,
+        subscription: updated,
+        effectiveAt,
+        businessTimeZone: getRuntimeConfig().quotaTimeZone,
+      },
+    });
+  });
+
   app.get("/admin/audit-logs", async (req, reply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
@@ -547,16 +842,6 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       targetId || null,
       limit
     );
-
-    await writeAuditLog(deps, {
-      adminId: admin.adminId,
-      action: "admin.audit_logs.query",
-      targetType: "admin_audit_log",
-      requestId,
-      ip: req.ip,
-      reason: `targetType=${targetType || "*"},targetId=${targetId || "*"},limit=${limit}`,
-      afterData: { count: rows.length },
-    });
 
     return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
   });
@@ -605,15 +890,6 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       },
     };
 
-    await writeAuditLog(deps, {
-      adminId: admin.adminId,
-      action: "admin.ops.alerts.query",
-      targetType: "ops",
-      requestId,
-      ip: req.ip,
-      afterData: data,
-    });
-
     return reply.status(200).send({ ok: true, request_id: requestId, data });
   });
 
@@ -645,16 +921,6 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       limit
     );
 
-    await writeAuditLog(deps, {
-      adminId: admin.adminId,
-      action: "admin.system_event_logs.query",
-      targetType: "system_event_log",
-      requestId,
-      ip: req.ip,
-      reason: `module=${module || "*"},event=${event || "*"},status=${status || "*"},level=${level || "*"},limit=${limit}`,
-      afterData: { count: rows.length },
-    });
-
     return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
   });
 }
@@ -663,6 +929,31 @@ function getNextDayStartInBusinessTimeZone(base: Date): Date {
   const currentDateKey = formatDateKeyInTimeZone(base);
   const currentDayStart = dateKeyRangeInBusinessTimeZone(currentDateKey).start;
   return new Date(currentDayStart.getTime() + 24 * 60 * 60 * 1000);
+}
+
+function readDateKeyQuery(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+function addDateKeyDays(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function diffDateKeyDays(fromDate: string, toDate: string): number {
+  const from = Date.parse(`${fromDate}T00:00:00.000Z`);
+  const to = Date.parse(`${toDate}T00:00:00.000Z`);
+  return Math.round((to - from) / (24 * 60 * 60 * 1000));
+}
+
+function clampFromDateKey(fromDate: string, toDate: string, maxDaysInclusive: number): string {
+  if (fromDate > toDate) return toDate;
+  const diff = diffDateKeyDays(fromDate, toDate);
+  if (diff >= maxDaysInclusive) return addDateKeyDays(toDate, -(maxDaysInclusive - 1));
+  return fromDate;
 }
 
 async function writeAuditLog(
