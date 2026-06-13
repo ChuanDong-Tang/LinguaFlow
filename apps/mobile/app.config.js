@@ -1,0 +1,63 @@
+const isPreview = process.env.EAS_BUILD_PROFILE === "preview";
+
+const scheme = isPreview ? "oio-preview" : "oio";
+
+module.exports = {
+  expo: {
+    name: "OIO",
+    slug: "oio",
+    scheme,
+    version: "1.0.2",
+    orientation: "portrait",
+    platforms: ["ios", "android"],
+    icon: "./assets/icon.png",
+    userInterfaceStyle: "light",
+    newArchEnabled: true,
+    splash: {
+      image: "./assets/app/Splash_1.png",
+      resizeMode: "contain",
+      backgroundColor: "#ffffff",
+    },
+    ios: {
+      bundleIdentifier: "com.yueyantech.oio",
+      buildNumber: "61",
+      supportsTablet: true,
+      icon: "./assets/app/logo_main_apple.png",
+      config: {
+        usesNonExemptEncryption: false,
+      },
+    },
+    android: {
+      package: "com.yueyantech.oio",
+      versionCode: 54,
+      adaptiveIcon: {
+        foregroundImage: "./assets/app/logo_main.png",
+        backgroundColor: "#ffffff",
+      },
+      edgeToEdgeEnabled: true,
+      predictiveBackGestureEnabled: false,
+    },
+    web: {
+      favicon: "./assets/app/logo_main.png",
+    },
+    extra: {
+      wechatAppId: process.env.EXPO_PUBLIC_WECHAT_APP_ID,
+      eas: {
+        projectId: "0a8b5bb4-bdb1-4950-b3e9-6e2530b9c836",
+      },
+    },
+    plugins: [
+      "expo-web-browser",
+      "expo-secure-store",
+      "./plugins/with-chat-selectable-text",
+      "./plugins/with-wechat-pay",
+    ],
+    owner: "reedtang",
+    runtimeVersion: {
+      policy: "appVersion",
+    },
+    updates: {
+      url: "https://u.expo.dev/0a8b5bb4-bdb1-4950-b3e9-6e2530b9c836",
+    },
+  },
+};

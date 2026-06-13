@@ -1,4 +1,5 @@
 import * as AuthSession from "expo-auth-session";
+import Constants from "expo-constants";
 
 const AUTHING_DOMAIN = process.env.EXPO_PUBLIC_AUTHING_DOMAIN;
 const AUTHING_CLIENT_ID = process.env.EXPO_PUBLIC_AUTHING_CLIENT_ID;
@@ -33,7 +34,7 @@ export function getAuthingClientId(): string {
 
 export function getAuthingRedirectUri(): string {
   return AuthSession.makeRedirectUri({
-    scheme: process.env.EXPO_PUBLIC_AUTHING_REDIRECT_SCHEME ?? "oio",
+    scheme: process.env.EXPO_PUBLIC_AUTHING_REDIRECT_SCHEME ?? getExpoScheme() ?? "oio",
     path: "auth/callback",
   });
 }
@@ -44,4 +45,14 @@ function normalizeAuthingDomain(): string {
   }
 
   return AUTHING_DOMAIN.replace(/\/+$/, "");
+}
+
+function getExpoScheme(): string | null {
+  const scheme = Constants.expoConfig?.scheme;
+  if (typeof scheme === "string" && scheme.trim()) return scheme.trim();
+  if (Array.isArray(scheme)) {
+    const first = scheme.find((item) => typeof item === "string" && item.trim());
+    return first?.trim() ?? null;
+  }
+  return null;
 }
