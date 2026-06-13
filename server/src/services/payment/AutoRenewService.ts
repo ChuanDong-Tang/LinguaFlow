@@ -145,7 +145,9 @@ export class AutoRenewService {
       currentPeriodStart: input.periodStart ?? null,
       currentPeriodEnd: input.periodEnd ?? null,
       nextBillingAt: input.periodEnd ? computeEarlyBillingAt(input.periodEnd) : null,
+      cancelledAt: null,
       metadata: input.metadata,
+      allowReactivation: true,
     });
   }
 
@@ -172,7 +174,29 @@ export class AutoRenewService {
       providerAgreementId: input.providerAgreementId,
     });
 
-    if (existing) return existing;
+    if (existing) {
+      if (
+        input.provider === "apple" &&
+        input.status === "active" &&
+        (input.latestTransactionId || input.currentPeriodEnd)
+      ) {
+        return this.autoRenewRepository.updateSubscription({
+          id: existing.id,
+          userId: input.userId,
+          status: "active",
+          latestTransactionId: input.latestTransactionId ?? existing.latestTransactionId,
+          currentPeriodStart: input.currentPeriodStart ?? existing.currentPeriodStart,
+          currentPeriodEnd: input.currentPeriodEnd ?? existing.currentPeriodEnd,
+          nextBillingAt:
+            input.nextBillingAt ??
+            (input.nextPeriodEnd ? computeEarlyBillingAt(input.nextPeriodEnd) : existing.nextBillingAt),
+          cancelledAt: null,
+          metadata: input.metadata ?? existing.metadata,
+          allowReactivation: true,
+        });
+      }
+      return existing;
+    }
 
     try {
       return await this.autoRenewRepository.createSubscription({
@@ -580,6 +604,8 @@ export class AutoRenewService {
       currentPeriodStart: input.periodStart ?? subscription.currentPeriodStart,
       currentPeriodEnd: input.periodEnd ?? subscription.currentPeriodEnd,
       nextBillingAt: input.periodEnd ? computeEarlyBillingAt(input.periodEnd) : subscription.nextBillingAt,
+      cancelledAt: null,
+      allowReactivation: true,
     });
 
     return { status: "processed", userId: subscription.userId };

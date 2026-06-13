@@ -115,7 +115,9 @@ export interface AutoRenewRepository {
     currentPeriodStart?: Date | null;
     currentPeriodEnd?: Date | null;
     nextBillingAt?: Date | null;
+    cancelledAt?: Date | null;
     metadata?: unknown;
+    allowReactivation?: boolean;
   }): Promise<AutoRenewSubscriptionEntity>;
   cancelSubscription(input: {
     id: string;

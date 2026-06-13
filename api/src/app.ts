@@ -174,7 +174,8 @@ export function createApp() {
     paymentEventRepository,
     paymentOrderRepository,
     autoRenewService,
-    appleIapAccountLinkRepository
+    appleIapAccountLinkRepository,
+    subscriptionService
   );
   const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
   const chatGenerationService = new ChatGenerationService(

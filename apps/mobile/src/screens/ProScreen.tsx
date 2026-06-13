@@ -64,6 +64,7 @@ const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
   24 * 60 * 60 * 1000
 );
 const AUTO_RENEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const APPLE_PURCHASE_TIMEOUT_MS = 120 * 1000;
 
 export function ProScreen({ onBack }: ProScreenProps) {
   const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
@@ -80,6 +81,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(null);
   const applePurchaseIntentRef = useRef(false);
+  const applePurchaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appleAppAccountTokenRef = useRef<string | null>(null);
   const appleAppAccountTokenPromiseRef = useRef<Promise<string | null> | null>(null);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
@@ -189,6 +191,30 @@ export function ProScreen({ onBack }: ProScreenProps) {
       throw error;
     }
   }
+
+  function clearApplePurchaseTimeout(): void {
+    if (!applePurchaseTimeoutRef.current) return;
+    clearTimeout(applePurchaseTimeoutRef.current);
+    applePurchaseTimeoutRef.current = null;
+  }
+
+  function startApplePurchaseTimeout(): void {
+    clearApplePurchaseTimeout();
+    applePurchaseTimeoutRef.current = setTimeout(() => {
+      applePurchaseTimeoutRef.current = null;
+      if (!isScreenAlive()) return;
+      applePurchaseIntentRef.current = false;
+      setIsPaying(false);
+      setIsAutoRenewLoading(false);
+      safeAlert("Apple 支付未完成", "暂时没有收到 Apple 的支付结果，请确认没有支付弹窗后再重试。");
+    }, APPLE_PURCHASE_TIMEOUT_MS);
+  }
+
+  useEffect(() => {
+    return () => {
+      clearApplePurchaseTimeout();
+    };
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -475,6 +501,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       // iOS 一次性月卡与自动续费是两个 App Store 商品；真正权益以后端验单结果为准。
       const appAccountToken = await ensureAppleAppAccountTokenRegistered();
       applePurchaseIntentRef.current = true;
+      startApplePurchaseTimeout();
       await appleIap.requestPurchase({
         type: source === "single_purchase" ? "in-app" : "subs",
         request: {
@@ -486,9 +513,16 @@ export function ProScreen({ onBack }: ProScreenProps) {
         },
       });
     } catch (error) {
+      clearApplePurchaseTimeout();
       applePurchaseIntentRef.current = false;
       if (!isScreenAlive()) return;
       if (isAppleUserCancelledPurchase(error)) {
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+        return;
+      }
+      if (isAppleInactiveSubscriptionTransactionError(error)) {
+        safeAlert("Apple 支付出错", "请再次点击 Apple 订阅。");
         setIsPaying(false);
         setIsAutoRenewLoading(false);
         return;
@@ -502,6 +536,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   async function handleApplePurchaseSuccess(purchase: Purchase): Promise<void> {
     if (isApplePurchaseFinishing) return;
+    clearApplePurchaseTimeout();
     setIsApplePurchaseFinishing(true);
     const isUserInitiatedPurchase = applePurchaseIntentRef.current;
     applePurchaseIntentRef.current = false;
@@ -623,13 +658,15 @@ export function ProScreen({ onBack }: ProScreenProps) {
           }}
           onPurchaseError={(error) => {
             if (!isScreenAlive()) return;
+            clearApplePurchaseTimeout();
+            const isUserInitiatedPurchase = applePurchaseIntentRef.current;
             applePurchaseIntentRef.current = false;
             if (isAppleUserCancelledPurchase(error)) {
               setIsPaying(false);
               setIsAutoRenewLoading(false);
               return;
             }
-            if (applePurchaseIntentRef.current) {
+            if (isUserInitiatedPurchase) {
               safeAlert("Apple 支付失败", formatApplePaymentErrorMessage(error, "Apple 支付失败"));
             }
             setIsPaying(false);
@@ -1043,6 +1080,9 @@ function isAppleTransactionOwnedByDifferentAccount(error: unknown): boolean {
 }
 
 function formatApplePaymentErrorMessage(error: unknown, fallback = "请稍后重试"): string {
+  if (isAppleInactiveSubscriptionTransactionError(error)) {
+    return "请再次点击 Apple 订阅。";
+  }
   if (error instanceof MobileApiError) {
     if (error.code === "APPLE_SUBSCRIPTION_EXPIRED") {
       return "这笔 Apple 订阅当前不可恢复。取消订阅后，当前 Pro 权益会保留至到期，到期后可重新订阅。";
@@ -1056,6 +1096,15 @@ function formatApplePaymentErrorMessage(error: unknown, fallback = "请稍后重
     return error.message || fallback;
   }
   return error instanceof Error ? error.message : fallback;
+}
+
+function isAppleInactiveSubscriptionTransactionError(error: unknown): boolean {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "object" && error !== null && "message" in error
+      ? String((error as { message?: unknown }).message ?? "")
+      : "";
+  return message.toLowerCase().includes("inactive subscription transaction");
 }
 
 function isAppleUserCancelledPurchase(error: unknown): boolean {

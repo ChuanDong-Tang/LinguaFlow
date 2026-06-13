@@ -6,6 +6,7 @@ import type { PaymentOrderStatus } from "@lf/core/ports/payment/PaymentTypes.js"
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
 import type { AutoRenewService } from "../../../services/payment/AutoRenewService.js";
+import type { SubscriptionService } from "../../../services/subscription/SubscriptionService.js";
 import { ProRenewalTooEarlyError } from "../../../services/payment/ProPrepaidLimit.js";
 import { createEntitlementGrantPayload } from "../../../services/payment/EntitlementGrantSnapshot.js";
 import { getExpectedCurrentStatusesForNextStatus } from "../../../services/payment/PaymentOrderStateMachine.js";
@@ -64,7 +65,8 @@ export class AppleIapService {
     private readonly paymentEventRepository: PaymentEventRepository,
     private readonly paymentOrderRepository: PaymentOrderRepository,
     private readonly autoRenewService?: AutoRenewService,
-    private readonly appleIapAccountLinkRepository?: AppleIapAccountLinkRepository
+    private readonly appleIapAccountLinkRepository?: AppleIapAccountLinkRepository,
+    private readonly subscriptionService?: SubscriptionService
   ) {}
 
   isConfigured(): boolean {
@@ -248,7 +250,7 @@ export class AppleIapService {
       const existingByOriginal =
         await this.appleIapAccountLinkRepository?.findByOriginalTransactionId(originalTransactionId);
       const existingAutoRenew =
-        await this.autoRenewService?.getAppleSubscriptionByOriginalTransactionId(originalTransactionId);
+        (await this.autoRenewService?.getAppleSubscriptionByOriginalTransactionId(originalTransactionId)) ?? null;
       const boundUserId =
         existingByOriginal?.userId !== input.userId
           ? existingByOriginal?.userId
@@ -257,9 +259,14 @@ export class AppleIapService {
             : null;
 
       if (boundUserId) {
-        // 这次 Apple 交易的 appAccountToken 已经校验为当前 OIO 账号，
-        // 且 expiresDate 仍有效；这里信 Apple 当前交易，允许从旧 OIO 账号转绑。
-        // 旧账号本地仍是 Pro/旧 auto-renew 周期未及时同步，不能再阻断当前账号发权益。
+        const canTransfer = await this.canTransferAppleSubscriptionFromUser({
+          boundUserId,
+          existingAutoRenew,
+          now,
+        });
+        if (!canTransfer) {
+          throw new AppleIapSubscriptionAlreadyBoundError({ originalTransactionId });
+        }
         shouldTransferAppleSubscription = Boolean(existingAutoRenew && existingAutoRenew.userId !== input.userId);
       }
 
@@ -583,6 +590,21 @@ export class AppleIapService {
       periodEnd: input.periodEnd,
       rawPayload: input.rawPayload,
     });
+  }
+
+  private async canTransferAppleSubscriptionFromUser(input: {
+    boundUserId: string;
+    existingAutoRenew: Awaited<ReturnType<AutoRenewService["getAppleSubscriptionByOriginalTransactionId"]>> | null;
+    now: Date;
+  }): Promise<boolean> {
+    if (!input.existingAutoRenew || input.existingAutoRenew.userId !== input.boundUserId) {
+      return false;
+    }
+    if (!["cancelled", "expired"].includes(input.existingAutoRenew.status)) {
+      return false;
+    }
+    const current = await this.subscriptionService?.getCurrentSubscription(input.boundUserId, input.now);
+    return current?.isPro !== true || !current.expiresAt || current.expiresAt <= input.now;
   }
 
 }

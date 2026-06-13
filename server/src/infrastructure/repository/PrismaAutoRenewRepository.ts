@@ -179,7 +179,9 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     currentPeriodStart?: Date | null;
     currentPeriodEnd?: Date | null;
     nextBillingAt?: Date | null;
+    cancelledAt?: Date | null;
     metadata?: unknown;
+    allowReactivation?: boolean;
   }): Promise<AutoRenewSubscriptionEntity> {
     const current = await this.prisma.autoRenewSubscription.findUnique({
       where: { id: input.id },
@@ -191,6 +193,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
       ["cancelled", "expired"].includes(current.status) &&
       input.status &&
       !["cancelled", "expired"].includes(input.status) &&
+      input.allowReactivation !== true &&
       input.userId === undefined
     ) {
       return this.toSubscriptionEntity(current);
@@ -209,6 +212,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
           : { currentPeriodStart: input.currentPeriodStart }),
         ...(input.currentPeriodEnd === undefined ? {} : { currentPeriodEnd: input.currentPeriodEnd }),
         ...(input.nextBillingAt === undefined ? {} : { nextBillingAt: input.nextBillingAt }),
+        ...(input.cancelledAt === undefined ? {} : { cancelledAt: input.cancelledAt }),
         ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       },
     });
