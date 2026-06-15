@@ -450,6 +450,8 @@
                       <th>平均已用额度</th>
                       <th>总已用额度</th>
                       <th>用满人数</th>
+                      <th>Pro 用满</th>
+                      <th>免费用满</th>
                     </tr>
                   </thead>
                   <tbody id="usageTbody"></tbody>
@@ -911,7 +913,9 @@
           ["今日额度用户", summary.todayQuotaUsers, "daily + free_trial"],
           ["今日平均使用", summary.todayAvgUsedChars, "chars / user"],
           ["今日总使用", summary.todayTotalUsedChars, "chars"],
-          ["今日用满", summary.todayQuotaFullUsers, "quota exhausted"],
+          ["今日用满", summary.todayQuotaFullUsers, "pro + free"],
+          ["Pro 用满", summary.todayProQuotaFullUsers, "daily quota"],
+          ["免费用满", summary.todayFreeQuotaFullUsers, "free trial"],
           ["Pro 占比", percent(summary.proUsers, summary.totalUsers), "current"],
         ];
         $("metrics").innerHTML = cards.map(([label, value, hint]) => `
@@ -928,8 +932,10 @@
             <td>${escapeHtml(row.avgUsedChars)}</td>
             <td>${escapeHtml(row.totalUsedChars)}</td>
             <td>${escapeHtml(row.quotaFullUsers)}</td>
+            <td>${escapeHtml(row.proQuotaFullUsers)}</td>
+            <td>${escapeHtml(row.freeQuotaFullUsers)}</td>
           </tr>
-        `).join("") || rowEmpty(5);
+        `).join("") || rowEmpty(7);
         $("autoRenewSummaryTbody").innerHTML = (data.autoRenewSummary || []).map((row) => `
           <tr>
             <td>${escapeHtml(row.provider)}</td>

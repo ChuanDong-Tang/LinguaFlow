@@ -274,7 +274,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
              AND "expiresAt" > now()
          ),
          today_entitlements AS (
-           SELECT "userId","dailyTotalLimit","usedTotalChars"
+           SELECT "userId","dateKey","dailyTotalLimit","usedTotalChars"
            FROM "entitlements"
            WHERE "dateKey" = $1
               OR (
@@ -291,7 +291,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            (SELECT COUNT(*)::int FROM today_entitlements) AS "todayQuotaUsers",
            COALESCE((SELECT ROUND(AVG("usedTotalChars")::numeric, 2)::float8 FROM today_entitlements), 0) AS "todayAvgUsedChars",
            COALESCE((SELECT SUM("usedTotalChars")::int FROM today_entitlements), 0) AS "todayTotalUsedChars",
-           (SELECT COUNT(*)::int FROM today_entitlements WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit") AS "todayQuotaFullUsers"`,
+           (SELECT COUNT(*)::int FROM today_entitlements WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit") AS "todayQuotaFullUsers",
+           (SELECT COUNT(*)::int FROM today_entitlements WHERE "dateKey" <> 'free_trial' AND "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit") AS "todayProQuotaFullUsers",
+           (SELECT COUNT(*)::int FROM today_entitlements WHERE "dateKey" = 'free_trial' AND "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit") AS "todayFreeQuotaFullUsers"`,
         clock.businessDateKey,
         clock.businessTimeZone
       ),
@@ -303,6 +305,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
                ELSE "dateKey"
              END AS "dateKey",
              "userId",
+             "dateKey" = 'free_trial' AS "isFreeTrial",
              "dailyTotalLimit",
              "usedTotalChars"
            FROM "entitlements"
@@ -312,7 +315,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            COUNT(*)::int AS "users",
            ROUND(AVG("usedTotalChars")::numeric, 2)::float8 AS "avgUsedChars",
            SUM("usedTotalChars")::int AS "totalUsedChars",
-           COUNT(*) FILTER (WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit")::int AS "quotaFullUsers"
+           COUNT(*) FILTER (WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit")::int AS "quotaFullUsers",
+           COUNT(*) FILTER (WHERE NOT "isFreeTrial" AND "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit")::int AS "proQuotaFullUsers",
+           COUNT(*) FILTER (WHERE "isFreeTrial" AND "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit")::int AS "freeQuotaFullUsers"
          FROM usage_rows
          WHERE "dateKey" >= $1
            AND "dateKey" <= $2
