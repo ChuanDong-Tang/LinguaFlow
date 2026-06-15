@@ -288,7 +288,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            (SELECT COUNT(*)::int FROM active_users) AS "totalUsers",
            (SELECT COUNT(*)::int FROM active_users u JOIN active_pro ap ON ap."userId" = u.id) AS "proUsers",
            (SELECT COUNT(*)::int FROM active_users u LEFT JOIN active_pro ap ON ap."userId" = u.id WHERE ap."userId" IS NULL) AS "nonProUsers",
-           (SELECT COUNT(*)::int FROM today_entitlements) AS "todayQuotaUsers",
+           (SELECT COUNT(DISTINCT "userId")::int FROM today_entitlements) AS "todayQuotaUsers",
            COALESCE((SELECT ROUND(AVG("usedTotalChars")::numeric, 2)::float8 FROM today_entitlements), 0) AS "todayAvgUsedChars",
            COALESCE((SELECT SUM("usedTotalChars")::int FROM today_entitlements), 0) AS "todayTotalUsedChars",
            (SELECT COUNT(*)::int FROM today_entitlements WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit") AS "todayQuotaFullUsers",
@@ -312,7 +312,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
          )
          SELECT
            "dateKey",
-           COUNT(*)::int AS "users",
+           COUNT(DISTINCT "userId")::int AS "users",
            ROUND(AVG("usedTotalChars")::numeric, 2)::float8 AS "avgUsedChars",
            SUM("usedTotalChars")::int AS "totalUsedChars",
            COUNT(*) FILTER (WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit")::int AS "quotaFullUsers",
