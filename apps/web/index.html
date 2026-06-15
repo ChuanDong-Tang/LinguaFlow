@@ -438,7 +438,7 @@
               <div class="section-head">
                 <div>
                   <h2 class="section-title">额度记录概览</h2>
-                  <p class="section-subtitle">Pro 按 entitlements.dateKey 归档；普通用户 free_trial 按额度更新时间归档。</p>
+                  <p class="section-subtitle">Pro 按 entitlements.dateKey 归档；普通用户 free_trial 是累计池，当前只展示累计已用，不是每日差值。</p>
                 </div>
               </div>
               <div class="table-wrap">
@@ -447,8 +447,8 @@
                     <tr>
                       <th>日期</th>
                       <th>额度记录用户数</th>
-                      <th>平均已用额度</th>
-                      <th>总已用额度</th>
+                      <th>平均累计已用</th>
+                      <th>累计已用合计</th>
                       <th>用满人数</th>
                       <th>Pro 用满</th>
                       <th>免费用满</th>
@@ -911,8 +911,8 @@
           ["今日使用用户", todayActivity.usingUsers, "messages or quota"],
           ["今日活跃用户", todayActivity.activeUsers, "success or quota"],
           ["今日额度用户", summary.todayQuotaUsers, "daily + free_trial"],
-          ["今日平均使用", summary.todayAvgUsedChars, "chars / user"],
-          ["今日总使用", summary.todayTotalUsedChars, "chars"],
+          ["今日平均累计", summary.todayAvgUsedChars, "quota pool / user"],
+          ["今日累计合计", summary.todayTotalUsedChars, "quota pool total"],
           ["今日用满", summary.todayQuotaFullUsers, "pro + free"],
           ["Pro 用满", summary.todayProQuotaFullUsers, "daily quota"],
           ["免费用满", summary.todayFreeQuotaFullUsers, "free trial"],
