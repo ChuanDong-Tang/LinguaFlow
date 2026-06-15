@@ -277,6 +277,12 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            SELECT "userId","dailyTotalLimit","usedTotalChars"
            FROM "entitlements"
            WHERE "dateKey" = $1
+              OR (
+                "dateKey" = 'free_trial'
+                AND "usedTotalChars" > 0
+                AND "updatedAt" >= (($1::date)::timestamp AT TIME ZONE $2)
+                AND "updatedAt" < (($1::date + 1)::timestamp AT TIME ZONE $2)
+              )
          )
          SELECT
            (SELECT COUNT(*)::int FROM active_users) AS "totalUsers",
@@ -286,22 +292,35 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            COALESCE((SELECT ROUND(AVG("usedTotalChars")::numeric, 2)::float8 FROM today_entitlements), 0) AS "todayAvgUsedChars",
            COALESCE((SELECT SUM("usedTotalChars")::int FROM today_entitlements), 0) AS "todayTotalUsedChars",
            (SELECT COUNT(*)::int FROM today_entitlements WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit") AS "todayQuotaFullUsers"`,
-        clock.businessDateKey
+        clock.businessDateKey,
+        clock.businessTimeZone
       ),
       deps.prisma.$queryRawUnsafe(
-        `SELECT
+        `WITH usage_rows AS (
+           SELECT
+             CASE
+               WHEN "dateKey" = 'free_trial' AND "usedTotalChars" > 0 THEN to_char("updatedAt" AT TIME ZONE $3, 'YYYY-MM-DD')
+               ELSE "dateKey"
+             END AS "dateKey",
+             "userId",
+             "dailyTotalLimit",
+             "usedTotalChars"
+           FROM "entitlements"
+         )
+         SELECT
            "dateKey",
            COUNT(*)::int AS "users",
            ROUND(AVG("usedTotalChars")::numeric, 2)::float8 AS "avgUsedChars",
            SUM("usedTotalChars")::int AS "totalUsedChars",
            COUNT(*) FILTER (WHERE "dailyTotalLimit" > 0 AND "usedTotalChars" >= "dailyTotalLimit")::int AS "quotaFullUsers"
-         FROM "entitlements"
+         FROM usage_rows
          WHERE "dateKey" >= $1
            AND "dateKey" <= $2
          GROUP BY "dateKey"
          ORDER BY "dateKey" DESC`,
         fromDate,
-        toDate
+        toDate,
+        clock.businessTimeZone
       ),
       deps.prisma.$queryRawUnsafe(
         `WITH days AS (
@@ -318,6 +337,16 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            FROM "messages"
            WHERE "createdAt" >= (($1::date)::timestamp AT TIME ZONE $3)
              AND "createdAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+         ),
+         quota_days AS (
+           SELECT DISTINCT
+             to_char("updatedAt" AT TIME ZONE $3, 'YYYY-MM-DD') AS "dateKey",
+             "userId"
+           FROM "entitlements"
+           WHERE "dateKey" = 'free_trial'
+             AND "usedTotalChars" > 0
+             AND "updatedAt" >= (($1::date)::timestamp AT TIME ZONE $3)
+             AND "updatedAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
          )
          SELECT
            to_char(d.day, 'YYYY-MM-DD') AS "dateKey",
@@ -327,19 +356,33 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
              WHERE u.status = 'active'
                AND u."createdAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
            ) AS "totalUsers",
-           (
-             SELECT COUNT(DISTINCT md."userId")::int
-             FROM message_days md
-             WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
-               AND md.role = 'user'
-           ) AS "usingUsers",
-           (
-             SELECT COUNT(DISTINCT md."userId")::int
-             FROM message_days md
-             WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
-               AND md.role = 'user'
-               AND md.status = 'success'
-           ) AS "activeUsers",
+          (
+            SELECT COUNT(DISTINCT users."userId")::int
+            FROM (
+              SELECT md."userId"
+              FROM message_days md
+              WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+                AND md.role = 'user'
+              UNION
+              SELECT qd."userId"
+              FROM quota_days qd
+              WHERE qd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+            ) users
+          ) AS "usingUsers",
+          (
+            SELECT COUNT(DISTINCT users."userId")::int
+            FROM (
+              SELECT md."userId"
+              FROM message_days md
+              WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+                AND md.role = 'user'
+                AND md.status = 'success'
+              UNION
+              SELECT qd."userId"
+              FROM quota_days qd
+              WHERE qd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+            ) users
+          ) AS "activeUsers",
            (
              SELECT COUNT(DISTINCT s."userId")::int
              FROM "subscriptions" s

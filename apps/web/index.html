@@ -413,7 +413,7 @@
               <div class="section-head">
                 <div>
                   <h2 class="section-title">每日用户活跃</h2>
-                  <p class="section-subtitle">使用用户=当天发过用户消息；活跃用户=当天有成功用户消息；平均使用=当天全部消息 input/output 字符合计 ÷ 使用用户数</p>
+                  <p class="section-subtitle">使用/活跃用户=当天发过消息或有额度变动的用户；平均使用=当天全部消息 input/output 字符合计 ÷ 使用用户数</p>
                 </div>
               </div>
               <div class="table-wrap">
@@ -438,7 +438,7 @@
               <div class="section-head">
                 <div>
                   <h2 class="section-title">额度记录概览</h2>
-                  <p class="section-subtitle">辅助观察 entitlements.dateKey；免费用户使用 free_trial 总额度池，不等同于每日实际使用。</p>
+                  <p class="section-subtitle">Pro 按 entitlements.dateKey 归档；普通用户 free_trial 按额度更新时间归档。</p>
                 </div>
               </div>
               <div class="table-wrap">
@@ -867,7 +867,11 @@
       }
 
       function todayDateKey() {
-        return new Date().toISOString().slice(0, 10);
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, "0");
+        const day = String(today.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
       }
 
       function addDays(dateKey, days) {
@@ -876,8 +880,7 @@
         return date.toISOString().slice(0, 10);
       }
 
-      function setOverviewRange(days) {
-        const toDate = $("overviewToDate").value || todayDateKey();
+      function setOverviewRange(days, toDate = todayDateKey()) {
         $("overviewToDate").value = toDate;
         $("overviewFromDate").value = addDays(toDate, -(days - 1));
       }
@@ -903,9 +906,9 @@
           ["总用户", summary.totalUsers, "active users"],
           ["当前 Pro", summary.proUsers, "active subscription"],
           ["非 Pro", summary.nonProUsers, "active users - pro"],
-          ["今日使用用户", todayActivity.usingUsers, "sent user messages"],
-          ["今日活跃用户", todayActivity.activeUsers, "successful user messages"],
-          ["今日额度用户", summary.todayQuotaUsers, "entitlement rows"],
+          ["今日使用用户", todayActivity.usingUsers, "messages or quota"],
+          ["今日活跃用户", todayActivity.activeUsers, "success or quota"],
+          ["今日额度用户", summary.todayQuotaUsers, "daily + free_trial"],
           ["今日平均使用", summary.todayAvgUsedChars, "chars / user"],
           ["今日总使用", summary.todayTotalUsedChars, "chars"],
           ["今日用满", summary.todayQuotaFullUsers, "quota exhausted"],
