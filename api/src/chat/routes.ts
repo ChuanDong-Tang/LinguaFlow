@@ -195,6 +195,31 @@ function isDiscardClozePracticeBody(value: unknown): value is DiscardClozePracti
 export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): void {
   const runtimeConfig = getRuntimeConfig();
 
+  app.get("/chat/ai-options", async (_req, reply) => {
+    const providers = [
+      {
+        id: "deepseek",
+        label: "DeepSeek",
+        defaultModel: runtimeConfig.deepSeekModel,
+        models: runtimeConfig.deepSeekAllowedModels,
+      },
+      {
+        id: "openai",
+        label: "OpenAI",
+        defaultModel: runtimeConfig.openAiModel,
+        models: runtimeConfig.openAiAllowedModels,
+      },
+    ];
+
+    return reply.status(200).send({
+      ok: true,
+      data: {
+        defaultProvider: runtimeConfig.aiProvider,
+        providers,
+      },
+    });
+  });
+
   // 发用户消息（先落库 pending）
   app.post("/chat/messages", async (req, reply) => {
     const body = req.body as unknown;

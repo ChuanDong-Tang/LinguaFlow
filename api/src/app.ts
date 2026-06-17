@@ -7,7 +7,7 @@ import { AuthLoginService } from "@lf/server/services/auth/AuthLoginService.js";
 import { AccountDeletionService } from "@lf/server/services/auth/AccountDeletionService.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
-import { DeepSeekAIProvider } from "@lf/server/providers/ai/DeepSeekAIProvider.js";
+import { createAIProvider } from "@lf/server/providers/ai/createAIProvider.js";
 import { ChatGenerationService } from "@lf/server/services/chat/ChatGenerationService.js";
 import { registerChatRoutes } from "./chat/routes.js";
 import { PrismaConversationRepository } from "@lf/server/infrastructure/repository/PrismaConversationRepository.js";
@@ -103,11 +103,7 @@ export function createApp() {
   const authLoginService = new AuthLoginService(userRepository, userSessionRepository);
   const accountDeletionService = new AccountDeletionService(userRepository, userSessionRepository);
   const runtimeConfig = getRuntimeConfig();
-  const aiProvider = new DeepSeekAIProvider({
-    apiKey: runtimeConfig.deepSeekApiKey,
-    baseUrl: runtimeConfig.deepSeekBaseUrl,
-    model: runtimeConfig.deepSeekModel,
-  });
+  const aiProvider = createAIProvider(runtimeConfig);
   const conversationRepository = new PrismaConversationRepository(prisma);
   const messageRepository = new PrismaMessageRepository(prisma);
   const chatMessageService = new ChatMessageService(conversationRepository, messageRepository);

@@ -8,6 +8,8 @@ export interface ChatTextGenerationInput{
     userId: string;
     text: string;
     contactId?: string;
+    provider?: string;
+    model?: string;
     systemPrompt?: string;
     signal?: AbortSignalLike;
 }
@@ -25,11 +27,16 @@ export interface AIProviderConfig{
     apiKey: string;
     baseUrl: string;
     model: string;
+    timeoutMs?: number;
+    allowClientModel?: boolean;
+    allowedModels?: string[];
 }
 
 export interface AIProvider{
     readonly providerName: string;
     readonly modelName: string;
+    resolveProviderName?(requestedProvider?: string): string;
+    resolveModelName?(input?: string | { provider?: string; model?: string }): string;
 
     generateChatTextStream(
         input: ChatTextGenerationInput,

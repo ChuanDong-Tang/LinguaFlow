@@ -46,6 +46,15 @@ export class ChatGenerationService {
     let assistantText = "";
     const shouldPersist = Boolean(input.conversationId && input.userMessageId);
     let quotaDateKey: string | undefined;
+    let effectiveProvider = this.aiProvider.providerName;
+    let effectiveModel = this.aiProvider.modelName;
+    try {
+      effectiveProvider = this.aiProvider.resolveProviderName?.(input.provider) ?? this.aiProvider.providerName;
+      effectiveModel = this.aiProvider.resolveModelName?.(input) ?? this.aiProvider.modelName;
+    } catch {
+      // Let the provider throw the canonical error during generation; this only
+      // keeps preflight validation paths from hiding the original status.
+    }
 
     if (shouldPersist) {
       await this.chatMessageService.assertUserMessageOwnership({
@@ -82,6 +91,8 @@ export class ChatGenerationService {
         status: "rate_limited",
         error,
         outputChars: 0,
+        provider: effectiveProvider,
+        model: effectiveModel,
       });
       throw error;
     }
@@ -105,6 +116,8 @@ export class ChatGenerationService {
         status: "rate_limited",
         error,
         outputChars: 0,
+        provider: effectiveProvider,
+        model: effectiveModel,
       });
       throw error;
     }
@@ -118,6 +131,8 @@ export class ChatGenerationService {
         status: "failed",
         error,
         outputChars: 0,
+        provider: effectiveProvider,
+        model: effectiveModel,
       });
       throw error;
     }
@@ -130,6 +145,8 @@ export class ChatGenerationService {
         status: "failed",
         error,
         outputChars: 0,
+        provider: effectiveProvider,
+        model: effectiveModel,
       });
       throw error;
     }
@@ -147,6 +164,8 @@ export class ChatGenerationService {
         status: "task_in_progress",
         error,
         outputChars: 0,
+        provider: effectiveProvider,
+        model: effectiveModel,
       });
       throw error;
     }
@@ -159,6 +178,8 @@ export class ChatGenerationService {
           userId: input.userId,
           text: input.text,
           contactId: input.contactId,
+          provider: input.provider,
+          model: input.model,
           systemPrompt: input.systemPrompt,
           signal: input.signal,
         },
@@ -186,6 +207,8 @@ export class ChatGenerationService {
           outputChars: assistantText.length,
           totalChars,
           dateKey: quotaDateKey,
+          provider: effectiveProvider,
+          model: effectiveModel,
         });
       }
       await onEvent({ type: "done", assistantMessage });
@@ -200,6 +223,8 @@ export class ChatGenerationService {
         status: failureStatus,
         error,
         outputChars: assistantText.length,
+        provider: effectiveProvider,
+        model: effectiveModel,
       });
       throw error;
     } finally {
@@ -239,6 +264,8 @@ export class ChatGenerationService {
       status: AiRequestLogStatus;
       error: unknown;
       outputChars: number;
+      provider?: string;
+      model?: string;
     }
   ): Promise<void> {
     try {
@@ -247,8 +274,8 @@ export class ChatGenerationService {
         userId: input.userId,
         conversationId: input.conversationId,
         userMessageId: input.userMessageId,
-        provider: this.aiProvider.providerName,
-        model: this.aiProvider.modelName,
+        provider: params.provider ?? this.aiProvider.providerName,
+        model: params.model ?? this.aiProvider.modelName,
         status: params.status,
         inputChars: input.text.length,
         outputChars: params.outputChars,
@@ -269,6 +296,8 @@ export class ChatGenerationService {
       outputChars: number;
       totalChars: number;
       dateKey?: string;
+      provider?: string;
+      model?: string;
     }
   ): Promise<void> {
     try {
@@ -277,8 +306,8 @@ export class ChatGenerationService {
         userId: input.userId,
         conversationId: input.conversationId,
         userMessageId: input.userMessageId,
-        provider: this.aiProvider.providerName,
-        model: this.aiProvider.modelName,
+        provider: params.provider ?? this.aiProvider.providerName,
+        model: params.model ?? this.aiProvider.modelName,
         status: "failed",
         inputChars: params.inputChars,
         outputChars: params.outputChars,

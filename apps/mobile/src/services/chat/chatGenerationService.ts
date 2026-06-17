@@ -7,7 +7,7 @@ import { hasLocalProAccess } from "../entitlement/proAccess";
 import type { ChatMessage } from "../../domain/chat/types";
 import { toDateKey } from "../../domain/chat/messageState";
 
-const ENABLE_DEBUG_PROMPT_PANEL = __DEV__ && process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
+const ENABLE_DEBUG_PROMPT_PANEL = process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
 
 export type ChatGenerationStatus = "success" | "failed" | "stopped";
 
@@ -150,6 +150,8 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   try {
     const debugSettings = ENABLE_DEBUG_PROMPT_PANEL ? await loadDebugSettings() : null;
     const contactPrompt = debugSettings?.systemPromptsByContactId[input.contactId as keyof typeof debugSettings.systemPromptsByContactId]?.trim() || undefined;
+    const requestProvider = debugSettings?.provider.trim() || undefined;
+    const requestModel = debugSettings?.model.trim() || undefined;
     const explicitPrompt = input.systemPrompt?.trim() || undefined;
     requestSystemPrompt = explicitPrompt ?? contactPrompt ?? "";
 
@@ -177,6 +179,8 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       {
         text: input.text,
         contactId: input.contactId,
+        provider: requestProvider,
+        model: requestModel,
         conversationId: cloud?.conversationId,
         userMessageId: cloud?.userMessage.id,
         systemPrompt: requestSystemPrompt || undefined,

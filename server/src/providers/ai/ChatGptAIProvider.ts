@@ -12,9 +12,8 @@ import {
   buildRewriteUserPrompt,
 } from "@lf/core/Prompts/rewriteAssistantPrompt.js";
 
-/** DeepSeekAIProvider：调用 DeepSeek 流式接口实现改写能力。 */
-export class DeepSeekAIProvider implements AIProvider {
-  readonly providerName = "deepseek";
+export class ChatGPTAIProvider implements AIProvider {
+  readonly providerName = "openai";
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -67,7 +66,7 @@ export class DeepSeekAIProvider implements AIProvider {
     const model = this.resolveModelName(input);
     try {
       if (!this.apiKey) {
-        throw new Error("DEEPSEEK_API_KEY is required");
+        throw new Error("OPENAI_API_KEY is required");
       }
 
       if (input.signal?.aborted) {
@@ -76,7 +75,7 @@ export class DeepSeekAIProvider implements AIProvider {
         input.signal?.addEventListener("abort", abortFromCaller, { once: true });
       }
 
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await fetch(`${this.baseUrl}/responses`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -84,18 +83,9 @@ export class DeepSeekAIProvider implements AIProvider {
         },
         body: JSON.stringify({
           model,
-          temperature: 0.3,
+          instructions: systemPrompt,
           stream: true,
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt,
-            },
-            {
-              role: "user",
-              content: userPrompt,
-            },
-          ],
+          input: userPrompt,
         }),
         signal: controller.signal,
       });
@@ -126,13 +116,13 @@ export class DeepSeekAIProvider implements AIProvider {
         buffer = parts.pop() ?? "";
 
         for (const part of parts) {
-          const line = part
+          const dataLines = part
             .split("\n")
-            .find((item) => item.startsWith("data:"));
+            .filter((item) => item.startsWith("data:"));
 
-          if (!line) continue;
+          if (dataLines.length === 0) continue;
 
-          const raw = line.slice(5).trim();
+          const raw = dataLines.map((line) => line.slice(5).trim()).join("\n");
           if (!raw) continue;
           if (raw === "[DONE]") {
             await onEvent({ type: "done" });
@@ -140,16 +130,29 @@ export class DeepSeekAIProvider implements AIProvider {
           }
 
           const json = JSON.parse(raw) as {
-            choices?: Array<{
-              delta?: {
-                content?: string;
-              };
-            }>;
+            type?: string;
+            delta?: string;
+            error?: {
+              code?: string;
+              message?: string;
+            };
           };
 
-          const deltaText = json.choices?.[0]?.delta?.content ?? "";
-          if (deltaText) {
-            await onEvent({ type: "delta", text: deltaText });
+          if (json.type === "response.output_text.delta" && json.delta) {
+            await onEvent({ type: "delta", text: json.delta });
+            continue;
+          }
+
+          if (json.type === "response.completed") {
+            await onEvent({ type: "done" });
+            return;
+          }
+
+          if (json.type === "response.failed" || json.type === "error") {
+            const err = new Error(json.error?.message ?? "UPSTREAM_AI_ERROR");
+            (err as Error & { code?: string; upstreamCode?: string }).code = "UPSTREAM_AI_ERROR";
+            (err as Error & { code?: string; upstreamCode?: string }).upstreamCode = json.error?.code;
+            throw err;
           }
         }
       }
@@ -161,3 +164,4 @@ export class DeepSeekAIProvider implements AIProvider {
     }
   }
 }
+

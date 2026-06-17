@@ -2,7 +2,8 @@ import React, { useEffect, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { type DebugModelProvider, loadDebugSettings, saveDebugSettings } from "../services/preferences/debugSettingsStorage";
+import { loadDebugSettings, saveDebugSettings } from "../services/preferences/debugSettingsStorage";
+import { getAiOptions, type AiProviderOption } from "../services/api/aiOptionsApi";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import { CHAT_CONTACTS, type ChatContact } from "../domain/chat/contacts";
 
@@ -10,28 +11,34 @@ type MainScreenProps = {
   onOpenChat: (contact: ChatContact) => void;
 };
 
-const SHOW_DEBUG_PROMPT_PANEL = __DEV__ && process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
-const MODEL_OPTIONS: Array<{ label: string; value: DebugModelProvider; disabled?: boolean }> = [
-  { label: "DeepSeek", value: "deepseek" },
-  { label: "Kimi", value: "kimi", disabled: true },
-  { label: "讯飞", value: "xunfei", disabled: true },
-];
+const SHOW_DEBUG_PROMPT_PANEL = process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
 
 export function MainScreen({ onOpenChat }: MainScreenProps) {
   const { isMounted } = useMountedGuard();
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [rewriteAssistantPromptDraft, setRewriteAssistantPromptDraft] = useState("");
   const [englishFriendPromptDraft, setEnglishFriendPromptDraft] = useState("");
-  const [modelProvider, setModelProvider] = useState<DebugModelProvider>("deepseek");
+  const [aiProviders, setAiProviders] = useState<AiProviderOption[]>([]);
+  const [providerDraft, setProviderDraft] = useState("");
+  const [modelDraft, setModelDraft] = useState("");
 
   useEffect(() => {
     if (!SHOW_DEBUG_PROMPT_PANEL) return;
     async function bootstrapDebugSettings() {
-      const settings = await loadDebugSettings();
+      const [settings, options] = await Promise.all([
+        loadDebugSettings(),
+        getAiOptions().catch(() => null),
+      ]);
       if (!isMounted()) return;
+      const providers = options?.providers ?? [];
+      const provider = settings.provider || options?.defaultProvider || providers[0]?.id || "";
+      const selectedProvider = providers.find((item) => item.id === provider) ?? providers[0];
+      const model = settings.model || selectedProvider?.defaultModel || selectedProvider?.models[0] || "";
+      setAiProviders(providers);
       setRewriteAssistantPromptDraft(settings.systemPromptsByContactId.rewrite_assistant ?? "");
       setEnglishFriendPromptDraft(settings.systemPromptsByContactId.english_friend ?? "");
-      setModelProvider(settings.modelProvider);
+      setProviderDraft(provider);
+      setModelDraft(model);
     }
     void bootstrapDebugSettings();
   }, [isMounted]);
@@ -47,10 +54,20 @@ export function MainScreen({ onOpenChat }: MainScreenProps) {
         rewrite_assistant: rewriteAssistantPromptDraft,
         english_friend: englishFriendPromptDraft,
       },
-      modelProvider,
+      provider: providerDraft,
+      model: modelDraft.trim(),
     });
     setIsDebugOpen(false);
   }
+
+  function handleSelectProvider(providerId: string): void {
+    setProviderDraft(providerId);
+    const provider = aiProviders.find((item) => item.id === providerId);
+    setModelDraft(provider?.defaultModel || provider?.models[0] || "");
+  }
+
+  const selectedProvider = aiProviders.find((item) => item.id === providerDraft);
+  const modelOptions = selectedProvider?.models ?? [];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -132,17 +149,34 @@ export function MainScreen({ onOpenChat }: MainScreenProps) {
                 multiline
                 textAlignVertical="top"
               />
-              <View style={styles.modelRow}>
-                {MODEL_OPTIONS.map((option) => {
-                  const active = modelProvider === option.value;
-
+              <Text style={styles.fieldLabel}>AI 服务</Text>
+              <View style={styles.optionGrid}>
+                {aiProviders.map((provider) => {
+                  const active = providerDraft === provider.id;
                   return (
                     <Pressable
-                      key={option.value}
-                      style={[styles.modelOption, active && styles.modelOptionActive]}
-                      onPress={() => !option.disabled && setModelProvider(option.value)}
+                      key={provider.id}
+                      style={[styles.optionChip, active && styles.optionChipActive]}
+                      onPress={() => handleSelectProvider(provider.id)}
                     >
-                      <Text style={[styles.modelText, active && styles.modelTextActive]}>{option.label}</Text>
+                      <Text style={[styles.optionText, active && styles.optionTextActive]}>
+                        {provider.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={styles.fieldLabel}>测试模型</Text>
+              <View style={styles.optionGrid}>
+                {modelOptions.map((model) => {
+                  const active = modelDraft === model;
+                  return (
+                    <Pressable
+                      key={model}
+                      style={[styles.optionChip, styles.modelChip, active && styles.optionChipActive]}
+                      onPress={() => setModelDraft(model)}
+                    >
+                      <Text style={[styles.optionText, active && styles.optionTextActive]}>{model}</Text>
                     </Pressable>
                   );
                 })}
@@ -334,14 +368,16 @@ const styles = StyleSheet.create({
     color: "#151922",
     fontSize: 14,
   },
-  modelRow: {
-    marginTop: 12,
+  optionGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
-  modelOption: {
-    flex: 1,
-    height: 40,
+  optionChip: {
+    minHeight: 38,
+    minWidth: 94,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#DFE3EA",
@@ -349,16 +385,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  modelOptionActive: {
+  modelChip: {
+    alignItems: "flex-start",
+  },
+  optionChipActive: {
     borderColor: "#111111",
     backgroundColor: "#111111",
   },
-  modelText: {
+  optionText: {
+    maxWidth: 260,
     color: "#5D6470",
     fontSize: 13,
     fontWeight: "700",
   },
-  modelTextActive: {
+  optionTextActive: {
     color: "#FFFFFF",
   },
   saveButton: {

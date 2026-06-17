@@ -1,4 +1,5 @@
 export type RuntimeMode = "development" | "production" | "test";
+export type AiProviderName = "deepseek" | "openai";
 
 export interface PaymentRuntimeConfig {
   wechatPayEnabled: boolean;
@@ -57,10 +58,18 @@ export interface RuntimeConfig {
   authJwtSecret: string;
   authAccessTokenTtlSeconds: number;
   authRefreshTokenTtlSeconds: number;
+  aiProvider: AiProviderName;
+  aiAllowClientModel: boolean;
   deepSeekApiKey: string;
   deepSeekBaseUrl: string;
   deepSeekModel: string;
+  deepSeekAllowedModels: string[];
   deepSeekTimeoutMs: number;
+  openAiApiKey: string;
+  openAiBaseUrl: string;
+  openAiModel: string;
+  openAiAllowedModels: string[];
+  openAiTimeoutMs: number;
   quotaTimeZone: string;
   proDailyTotalLimit: number;
   freeTrialTotalLimit: number;
@@ -125,10 +134,24 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     authJwtSecret: env.AUTH_JWT_SECRET?.trim() || "dev-only-change-me",
     authAccessTokenTtlSeconds: readPositiveInt(env.AUTH_ACCESS_TOKEN_TTL_SECONDS, 60 * 30),
     authRefreshTokenTtlSeconds: readPositiveInt(env.AUTH_REFRESH_TOKEN_TTL_SECONDS, 60 * 60 * 24 * 30),
+    aiProvider: readAiProvider(env.LF_AI_DEFAULT_PROVIDER, "deepseek"),
+    aiAllowClientModel: readBoolean(env.LF_AI_ALLOW_CLIENT_MODEL, mode !== "production"),
     deepSeekApiKey: env.DEEPSEEK_API_KEY?.trim() || "",
     deepSeekBaseUrl: env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
-    deepSeekModel: env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash",
+    deepSeekModel: env.DEEPSEEK_DEFAULT_MODEL?.trim() || "deepseek-v4-flash",
+    deepSeekAllowedModels: readCsv(
+      env.DEEPSEEK_ALLOWED_MODELS,
+      [env.DEEPSEEK_DEFAULT_MODEL?.trim() || "deepseek-v4-flash"]
+    ),
     deepSeekTimeoutMs: readPositiveInt(env.DEEPSEEK_TIMEOUT_MS, 20_000),
+    openAiApiKey: env.OPENAI_API_KEY?.trim() || env.ChatGPT_API_KEY?.trim() || "",
+    openAiBaseUrl: env.OPENAI_BASE_URL?.trim() || env.ChatGPT_BASE_URL?.trim() || "https://api.openai.com/v1",
+    openAiModel: env.OPENAI_DEFAULT_MODEL?.trim() || "gpt-5.4-mini",
+    openAiAllowedModels: readCsv(
+      env.OPENAI_ALLOWED_MODELS,
+      [env.OPENAI_DEFAULT_MODEL?.trim() || "gpt-5.4-mini"]
+    ),
+    openAiTimeoutMs: readPositiveInt(env.OPENAI_TIMEOUT_MS ?? env.ChatGPT_TIMEOUT_MS, 20_000),
     quotaTimeZone: env.LF_QUOTA_TIME_ZONE?.trim() || "Asia/Shanghai",
     proDailyTotalLimit: readPositiveInt(env.LF_PRO_DAILY_TOTAL_LIMIT, 10_000),
     freeTrialTotalLimit: readPositiveInt(env.LF_FREE_TRIAL_TOTAL_LIMIT, 5000),
@@ -183,6 +206,13 @@ function normalizeMode(value: string | undefined): RuntimeMode {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "production" || normalized === "test") return normalized;
   return "development";
+}
+
+function readAiProvider(value: string | undefined, fallback: AiProviderName): AiProviderName {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "openai" || normalized === "chatgpt") return "openai";
+  if (normalized === "deepseek") return "deepseek";
+  return fallback;
 }
 
 function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): PaymentRuntimeConfig {

@@ -74,6 +74,8 @@ export class ReactNativeSseStreamClient implements StreamClient {
             body: JSON.stringify({
               text: input.text,
               contactId: input.contactId,
+              provider: input.provider,
+              model: input.model,
               ...(input.conversationId
                 ? { conversationId: input.conversationId }
                 : {}),

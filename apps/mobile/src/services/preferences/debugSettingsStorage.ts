@@ -3,16 +3,16 @@ import type { ChatContactId } from "../../domain/chat/contacts";
 
 const DEBUG_SETTINGS_KEY = "linguaflow.debug.settings.v1";
 
-export type DebugModelProvider = "deepseek" | "kimi" | "xunfei";
-
 export type DebugSettings = {
   systemPromptsByContactId: Partial<Record<ChatContactId, string>>;
-  modelProvider: DebugModelProvider;
+  provider: string;
+  model: string;
 };
 
 const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
   systemPromptsByContactId: {},
-  modelProvider: "deepseek",
+  provider: "",
+  model: "",
 };
 
 export async function loadDebugSettings(): Promise<DebugSettings> {
@@ -26,7 +26,8 @@ export async function loadDebugSettings(): Promise<DebugSettings> {
       : {};
     return {
       systemPromptsByContactId: promptMap,
-      modelProvider: isDebugModelProvider(parsed.modelProvider) ? parsed.modelProvider : "deepseek",
+      provider: typeof parsed.provider === "string" ? parsed.provider : "",
+      model: typeof parsed.model === "string" ? parsed.model : "",
     };
   } catch {
     return DEFAULT_DEBUG_SETTINGS;
@@ -35,10 +36,6 @@ export async function loadDebugSettings(): Promise<DebugSettings> {
 
 export async function saveDebugSettings(settings: DebugSettings): Promise<void> {
   await AsyncStorage.setItem(DEBUG_SETTINGS_KEY, JSON.stringify(settings));
-}
-
-function isDebugModelProvider(value: unknown): value is DebugModelProvider {
-  return value === "deepseek" || value === "kimi" || value === "xunfei";
 }
 
 function normalizePromptMap(value: object): Partial<Record<ChatContactId, string>> {

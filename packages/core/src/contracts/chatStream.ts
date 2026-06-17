@@ -2,6 +2,8 @@
 export interface ChatGenerationStreamRequestBody {
   text: string;
   contactId?: string;
+  provider?: string;
+  model?: string;
   systemPrompt?: string;
   conversationId?: string;
   userMessageId?: string;

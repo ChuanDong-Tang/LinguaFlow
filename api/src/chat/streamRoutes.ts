@@ -44,6 +44,8 @@ function isChatGenerationStreamBody(value: unknown): value is ChatGenerationStre
     v.text.trim().length > 0 &&
     hasConversationId === hasUserMessageId &&
     (v.contactId === undefined || v.contactId === null || typeof v.contactId === "string") &&
+    (v.provider === undefined || v.provider === null || typeof v.provider === "string") &&
+    (v.model === undefined || v.model === null || typeof v.model === "string") &&
     (v.systemPrompt === undefined || v.systemPrompt === null || typeof v.systemPrompt === "string")
   );
 }
@@ -72,6 +74,12 @@ function mapChatGenerationErrorToHttp(code: string | undefined): {
       code: "UPSTREAM_AI_ERROR",
       message: "AI service is temporarily unavailable",
     };
+  }
+  if (code === "AI_MODEL_NOT_ALLOWED") {
+    return { status: 400, code: "AI_MODEL_NOT_ALLOWED", message: "AI model is not allowed" };
+  }
+  if (code === "AI_PROVIDER_NOT_ALLOWED") {
+    return { status: 400, code: "AI_PROVIDER_NOT_ALLOWED", message: "AI provider is not allowed" };
   }
   if (code === "RATE_LIMITED") {
     return { status: 429, code: "RATE_LIMITED", message: "Too many requests" };
@@ -164,6 +172,8 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
           text: body.text,
           userId: userContext.userId,
           contactId: body.contactId?.trim() || "rewrite_assistant",
+          provider: body.provider?.trim() || undefined,
+          model: body.model?.trim() || undefined,
           systemPrompt: body.systemPrompt ?? undefined,
           conversationId: body.conversationId,
           userMessageId: body.userMessageId,
