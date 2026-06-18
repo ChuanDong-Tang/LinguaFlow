@@ -86,6 +86,9 @@ export class ChatGPTAIProvider implements AIProvider {
           instructions: systemPrompt,
           stream: true,
           input: userPrompt,
+          reasoning: {
+            effort: "medium",
+          },
         }),
         signal: controller.signal,
       });
