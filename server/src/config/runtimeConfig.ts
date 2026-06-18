@@ -1,5 +1,5 @@
 export type RuntimeMode = "development" | "production" | "test";
-export type AiProviderName = "deepseek" | "openai";
+export type AiProviderName = "deepseek" | "openai" | "grok";
 
 export interface PaymentRuntimeConfig {
   wechatPayEnabled: boolean;
@@ -70,6 +70,11 @@ export interface RuntimeConfig {
   openAiModel: string;
   openAiAllowedModels: string[];
   openAiTimeoutMs: number;
+  grokApiKey: string;
+  grokBaseUrl: string;
+  grokModel: string;
+  grokAllowedModels: string[];
+  grokTimeoutMs: number;
   quotaTimeZone: string;
   proDailyTotalLimit: number;
   freeTrialTotalLimit: number;
@@ -152,6 +157,18 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
       [env.OPENAI_DEFAULT_MODEL?.trim() || "gpt-5.4-mini"]
     ),
     openAiTimeoutMs: readPositiveInt(env.OPENAI_TIMEOUT_MS ?? env.ChatGPT_TIMEOUT_MS, 20_000),
+    grokApiKey: env.GROK_API_KEY?.trim() || env.OPENAI_API_KEY?.trim() || env.ChatGPT_API_KEY?.trim() || "",
+    grokBaseUrl:
+      env.GROK_BASE_URL?.trim() ||
+      env.OPENAI_BASE_URL?.trim() ||
+      env.ChatGPT_BASE_URL?.trim() ||
+      "https://api.openai.com/v1",
+    grokModel: env.GROK_DEFAULT_MODEL?.trim() || "grok-4-1-fast-non-reasoning",
+    grokAllowedModels: readCsv(
+      env.GROK_ALLOWED_MODELS,
+      [env.GROK_DEFAULT_MODEL?.trim() || "grok-4-1-fast-non-reasoning"]
+    ),
+    grokTimeoutMs: readPositiveInt(env.GROK_TIMEOUT_MS ?? env.OPENAI_TIMEOUT_MS ?? env.ChatGPT_TIMEOUT_MS, 20_000),
     quotaTimeZone: env.LF_QUOTA_TIME_ZONE?.trim() || "Asia/Shanghai",
     proDailyTotalLimit: readPositiveInt(env.LF_PRO_DAILY_TOTAL_LIMIT, 10_000),
     freeTrialTotalLimit: readPositiveInt(env.LF_FREE_TRIAL_TOTAL_LIMIT, 5000),
@@ -211,6 +228,7 @@ function normalizeMode(value: string | undefined): RuntimeMode {
 function readAiProvider(value: string | undefined, fallback: AiProviderName): AiProviderName {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "openai" || normalized === "chatgpt") return "openai";
+  if (normalized === "grok") return "grok";
   if (normalized === "deepseek") return "deepseek";
   return fallback;
 }

@@ -25,7 +25,7 @@ export class SelectableAIProvider implements AIProvider {
     if (!provider) return this.defaultProviderName;
     if (!this.allowClientProvider) return this.defaultProviderName;
     if (provider === "chatgpt") return "openai";
-    if (provider === "openai" || provider === "deepseek") return provider;
+    if (provider === "openai" || provider === "deepseek" || provider === "grok") return provider;
 
     const err = new Error("AI_PROVIDER_NOT_ALLOWED");
     (err as Error & { code?: string }).code = "AI_PROVIDER_NOT_ALLOWED";

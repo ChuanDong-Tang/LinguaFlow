@@ -209,6 +209,12 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
         defaultModel: runtimeConfig.openAiModel,
         models: runtimeConfig.openAiAllowedModels,
       },
+      {
+        id: "grok",
+        label: "Grok",
+        defaultModel: runtimeConfig.grokModel,
+        models: runtimeConfig.grokAllowedModels,
+      },
     ];
 
     return reply.status(200).send({
