@@ -7,7 +7,7 @@ module.exports = {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.0.2",
+    version: "1.0.3",
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
@@ -20,7 +20,7 @@ module.exports = {
     },
     ios: {
       bundleIdentifier: "com.yueyantech.oio",
-      buildNumber: "61",
+      buildNumber: "62",
       supportsTablet: true,
       icon: "./assets/app/logo_main_apple.png",
       config: {
@@ -29,7 +29,7 @@ module.exports = {
     },
     android: {
       package: "com.yueyantech.oio",
-      versionCode: 54,
+      versionCode: 55,
       adaptiveIcon: {
         foregroundImage: "./assets/app/logo_main.png",
         backgroundColor: "#ffffff",
@@ -47,6 +47,8 @@ module.exports = {
       },
     },
     plugins: [
+      "expo-asset",
+      "expo-font",
       "expo-web-browser",
       "expo-audio",
       "expo-secure-store",

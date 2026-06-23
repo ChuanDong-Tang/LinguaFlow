@@ -13,6 +13,7 @@ const IOS_FILES = {
 @property (nonatomic, copy) RCTDirectEventBlock onSelection;
 @property (nonatomic, copy) RCTDirectEventBlock onClozeRangePress;
 @property (nonatomic, copy) RCTDirectEventBlock onClozeRangeLongPress;
+@property (nonatomic, copy) RCTDirectEventBlock onContentHeightChange;
 
 - (void)setText:(NSString *)text;
 - (void)setHighlightRangesJson:(NSString *)json;
@@ -30,6 +31,7 @@ const IOS_FILES = {
 @end
 `,
   "ChatSelectableTextView.m": String.raw`#import "ChatSelectableTextView.h"
+#import <math.h>
 
 @class ChatSelectableTextInnerTextView;
 
@@ -55,6 +57,7 @@ const IOS_FILES = {
 @property (nonatomic, assign) BOOL pendingSelectionRelease;
 @property (nonatomic, assign) NSRange lastSelectedRange;
 @property (nonatomic, assign) BOOL hasLastSelectedRange;
+@property (nonatomic, assign) CGFloat lastReportedContentHeight;
 - (void)handleFillBlankAction;
 - (void)handleCopyAction;
 @end
@@ -113,6 +116,7 @@ const IOS_FILES = {
     _selectionMode = @"range";
     _lastSelectedRange = NSMakeRange(0, 0);
     _hasLastSelectedRange = NO;
+    _lastReportedContentHeight = 0;
 
     _textView = [[ChatSelectableTextInnerTextView alloc] initWithFrame:self.bounds];
     _textView.owner = self;
@@ -174,6 +178,7 @@ const IOS_FILES = {
 {
   [super layoutSubviews];
   self.textView.frame = self.bounds;
+  [self emitContentHeightIfNeeded];
 }
 
 - (void)setText:(NSString *)text
@@ -246,6 +251,12 @@ const IOS_FILES = {
     _selectionMode = @"range";
   }
   [self updateMenuItems];
+}
+
+- (void)setOnContentHeightChange:(RCTDirectEventBlock)onContentHeightChange
+{
+  _onContentHeightChange = [onContentHeightChange copy];
+  [self emitContentHeightIfNeeded];
 }
 
 - (void)clearSelectionState
@@ -337,6 +348,19 @@ const IOS_FILES = {
     self.textView.selectedRange = previousSelection;
   }
   [self updateMenuItems];
+  [self emitContentHeightIfNeeded];
+}
+
+- (void)emitContentHeightIfNeeded
+{
+  if (!self.onContentHeightChange) return;
+  CGFloat width = self.bounds.size.width;
+  if (width <= 0) return;
+  CGSize fittingSize = [self.textView sizeThatFits:CGSizeMake(width, CGFLOAT_MAX)];
+  CGFloat nextHeight = ceil(MAX(fittingSize.height, self.currentLineHeight.floatValue));
+  if (fabs(nextHeight - self.lastReportedContentHeight) < 1.0) return;
+  self.lastReportedContentHeight = nextHeight;
+  self.onContentHeightChange(@{ @"height": @(nextHeight) });
 }
 
 - (UIFont *)fontForCurrentStyle
@@ -629,6 +653,7 @@ RCT_EXPORT_VIEW_PROPERTY(lineHeight, NSNumber)
 RCT_EXPORT_VIEW_PROPERTY(fontWeight, NSString)
 RCT_EXPORT_VIEW_PROPERTY(menuOptions, NSArray)
 RCT_EXPORT_VIEW_PROPERTY(selectionMode, NSString)
+RCT_EXPORT_VIEW_PROPERTY(onContentHeightChange, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onSelectionStart, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onSelection, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onClozeRangePress, RCTDirectEventBlock)

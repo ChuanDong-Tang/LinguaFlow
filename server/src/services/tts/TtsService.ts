@@ -411,7 +411,11 @@ export class TtsService {
     const cached = await this.findReadyAsset(input);
     if (cached) return { asset: cached, cacheHit: true, deduped: false };
 
-    const sentenceSegments = segmentLearningSentences({ text: input.sourceText, languageCode: input.languageCode });
+    const sentenceSegments = segmentLearningSentences({
+      text: input.sourceText,
+      languageCode: input.languageCode,
+      minSegmentChars: 1,
+    });
     const synthesized = await withRetry(
       () => this.ttsProvider.synthesize({
         text: input.sourceText,
@@ -599,7 +603,7 @@ function resolvePlaybackRange(
   if (!requestedRange || !asset.durationMs) return null;
   const { textStart, textEnd } = requestedRange;
   const sentenceMark = asset.sentenceMarks?.find((mark) =>
-    mark.textStart <= textStart && mark.textEnd >= textEnd
+    mark.textStart === textStart && mark.textEnd === textEnd
   );
   if (sentenceMark) {
     return padPlaybackRange({

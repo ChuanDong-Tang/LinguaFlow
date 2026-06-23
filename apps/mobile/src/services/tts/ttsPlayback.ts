@@ -1,5 +1,5 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
-import * as FileSystem from "expo-file-system/legacy";
+import { Directory, File, Paths } from "expo-file-system";
 
 let activePlayer: AudioPlayer | null = null;
 let activeStopTimer: ReturnType<typeof setInterval> | null = null;
@@ -85,33 +85,27 @@ async function resolveCachedTtsAudioUri(source: TtsAudioSource): Promise<string>
   const cacheKey = sanitizeCacheKey(source.cacheKey);
   if (!cacheKey) return source.url;
 
-  const cacheDir = FileSystem.cacheDirectory ? `${FileSystem.cacheDirectory}tts/` : null;
-  if (!cacheDir) return source.url;
-
   try {
+    const cacheDir = new Directory(Paths.cache, "tts");
     if (!cacheDirectoryReady) {
-      await FileSystem.makeDirectoryAsync(cacheDir, { intermediates: true });
+      cacheDir.create({ intermediates: true, idempotent: true });
       cacheDirectoryReady = true;
     }
 
-    const cachedUri = `${cacheDir}${cacheKey}.mp3`;
-    const cachedInfo = await FileSystem.getInfoAsync(cachedUri);
-    if (cachedInfo.exists && !cachedInfo.isDirectory) {
-      return cachedUri;
+    const cachedFile = new File(cacheDir, `${cacheKey}.mp3`);
+    if (cachedFile.exists) {
+      return cachedFile.uri;
     }
 
-    await pruneTtsAudioCache(cacheDir, cachedUri);
+    await pruneTtsAudioCache(cacheDir, cachedFile.uri);
 
-    const tempUri = `${cacheDir}${cacheKey}.${Date.now()}.${Math.random().toString(36).slice(2)}.download`;
-    await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => undefined);
-    const downloaded = await FileSystem.downloadAsync(source.url, tempUri);
-    if (downloaded.status < 200 || downloaded.status >= 300) {
-      await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => undefined);
-      return source.url;
-    }
-    await FileSystem.moveAsync({ from: tempUri, to: cachedUri });
-    await pruneTtsAudioCache(cacheDir, cachedUri, { force: true });
-    return cachedUri;
+    const tempFile = new File(cacheDir, `${cacheKey}.${Date.now()}.${Math.random().toString(36).slice(2)}.download`);
+    deleteFileIfExists(tempFile);
+    await File.downloadFileAsync(source.url, tempFile, { idempotent: true });
+    deleteFileIfExists(cachedFile);
+    tempFile.move(cachedFile);
+    await pruneTtsAudioCache(cacheDir, cachedFile.uri, { force: true });
+    return cachedFile.uri;
   } catch {
     cacheDirectoryReady = false;
     return source.url;
@@ -119,7 +113,7 @@ async function resolveCachedTtsAudioUri(source: TtsAudioSource): Promise<string>
 }
 
 async function pruneTtsAudioCache(
-  cacheDir: string,
+  cacheDir: Directory,
   keepUri?: string,
   options: { force?: boolean } = {}
 ): Promise<void> {
@@ -128,29 +122,21 @@ async function pruneTtsAudioCache(
   lastCachePruneAt = now;
 
   try {
-    const names = await FileSystem.readDirectoryAsync(cacheDir);
-    const entries = await Promise.all(
-      names
-        .filter((name) => name.endsWith(".mp3"))
-        .map(async (name) => {
-          const uri = `${cacheDir}${name}`;
-          const info = await FileSystem.getInfoAsync(uri).catch(() => null);
-          if (!info?.exists || info.isDirectory) return null;
-          const typedInfo = info as typeof info & { size?: number; modificationTime?: number };
-          return {
-            uri,
-            size: Math.max(0, typedInfo.size ?? 0),
-            modifiedAt: normalizeFileTimestamp(typedInfo.modificationTime),
-          };
-        })
-    );
-    const files = entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    const files = cacheDir
+      .list()
+      .filter((entry): entry is File => entry instanceof File && entry.uri.endsWith(".mp3") && entry.exists)
+      .map((file) => ({
+        file,
+        uri: file.uri,
+        size: Math.max(0, file.size ?? 0),
+        modifiedAt: normalizeFileTimestamp(file.modificationTime ?? undefined),
+      }));
 
     let totalBytes = 0;
     for (const file of files) {
       totalBytes += file.size;
       if (file.uri !== keepUri && now - file.modifiedAt > TTS_AUDIO_CACHE_MAX_AGE_MS) {
-        await FileSystem.deleteAsync(file.uri, { idempotent: true }).catch(() => undefined);
+        deleteFileIfExists(file.file);
         totalBytes -= file.size;
       }
     }
@@ -161,11 +147,19 @@ async function pruneTtsAudioCache(
       .sort((a, b) => a.modifiedAt - b.modifiedAt);
     for (const file of candidates) {
       if (totalBytes <= TTS_AUDIO_CACHE_MAX_BYTES) break;
-      await FileSystem.deleteAsync(file.uri, { idempotent: true }).catch(() => undefined);
+      deleteFileIfExists(file.file);
       totalBytes -= file.size;
     }
   } catch {
     // Cache pruning is best-effort; playback should not fail because cleanup did.
+  }
+}
+
+function deleteFileIfExists(file: File): void {
+  try {
+    if (file.exists) file.delete();
+  } catch {
+    // Best-effort cleanup.
   }
 }
 

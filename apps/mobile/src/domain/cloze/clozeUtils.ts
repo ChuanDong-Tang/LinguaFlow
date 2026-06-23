@@ -19,7 +19,8 @@ export type ClozeBlankRange = {
   end: number;
 };
 
-const TOKEN_RE = /[\p{L}\p{N}'’-]+|[^\s\p{L}\p{N}'’-]/gu;
+const TOKEN_RE = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]|[\p{L}\p{N}'’-]+|[^\s\p{L}\p{N}'’-]/gu;
+const WORD_RE = /[\p{L}\p{N}'’-]/u;
 
 function uniqueSortedIndexes(values: unknown[], isAllowed?: (value: number) => boolean): number[] {
   const seen = new Set<number>();
@@ -50,7 +51,7 @@ export function tokenizeForCloze(text: string): ClozeToken[] {
       text: value,
       start,
       end: start + value.length,
-      kind: /[\p{L}\p{N}'’-]/u.test(value) ? "word" : "punctuation",
+      kind: WORD_RE.test(value) ? "word" : "punctuation",
     });
   }
   return tokens;

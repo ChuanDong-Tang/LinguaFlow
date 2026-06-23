@@ -879,8 +879,30 @@ function PracticeEnglish({
   onPlaySentence: (range: { textStart: number; textEnd: number }) => void;
 }) {
   const sentenceRows = useMemo(() => groupPracticeEnglishSentences(card, segments), [card, segments]);
+  const [flashingSentenceKey, setFlashingSentenceKey] = useState<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastLongPressKeyRef = useRef<string | null>(null);
 
-  function renderSegment(segment: PracticeEnglishSegment, row: PracticeSentenceRow): React.ReactNode {
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    };
+  }, []);
+
+  function flashSentence(row: PracticeSentenceRow): void {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    setFlashingSentenceKey(row.key);
+    flashTimerRef.current = setTimeout(() => {
+      setFlashingSentenceKey((current) => (current === row.key ? null : current));
+    }, 260);
+  }
+
+  function playSentence(row: PracticeSentenceRow): void {
+    flashSentence(row);
+    onPlaySentence({ textStart: row.textStart, textEnd: row.textEnd });
+  }
+
+  function renderSegment(segment: PracticeEnglishSegment): React.ReactNode {
     if (segment.type === "blank") {
       const checked = checkedAnswers[segment.tokenIndex];
       const isCorrect = checked === "correct";
@@ -908,10 +930,7 @@ function PracticeEnglish({
     return (
       <React.Fragment key={segment.key}>
         {segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
-        <Text
-          style={[styles.tokenText, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}
-          onPress={() => onPlaySentence({ textStart: row.textStart, textEnd: row.textEnd })}
-        >
+        <Text style={[styles.tokenText, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}>
           {segment.text}
         </Text>
       </React.Fragment>
@@ -921,11 +940,29 @@ function PracticeEnglish({
   return (
     <View style={styles.englishSentences}>
       {sentenceRows.map((row) => (
-        <View key={row.key} style={styles.englishSentenceRow}>
+        <Pressable
+          key={row.key}
+          style={({ pressed }) => [
+            styles.englishSentenceRow,
+            (pressed || flashingSentenceKey === row.key) && styles.englishSentenceRowActive,
+          ]}
+          onPress={() => {
+            if (lastLongPressKeyRef.current === row.key) {
+              lastLongPressKeyRef.current = null;
+              return;
+            }
+            playSentence(row);
+          }}
+          onLongPress={() => {
+            lastLongPressKeyRef.current = row.key;
+            playSentence(row);
+          }}
+          delayLongPress={350}
+        >
           <View style={styles.englishFlow}>
-            {row.segments.map((segment) => renderSegment(segment, row))}
+            {row.segments.map((segment) => renderSegment(segment))}
           </View>
-        </View>
+        </Pressable>
       ))}
     </View>
   );
@@ -953,6 +990,7 @@ function PracticeBlankInput({
       ]}
       value={answer}
       onFocus={() => onFocus(inputRef.current)}
+      onPressIn={(event) => event.stopPropagation()}
       onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)}
       autoCapitalize="none"
       autoCorrect={false}
@@ -1070,6 +1108,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 4,
+    marginHorizontal: -8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  englishSentenceRowActive: {
+    backgroundColor: "#E6F4EA",
   },
   englishFlow: {
     flex: 1,
