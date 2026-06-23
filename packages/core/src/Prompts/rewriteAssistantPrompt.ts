@@ -30,7 +30,9 @@ function buildRewriteSystemPrompt(language: PromptLanguage, appLocale: PromptApp
 * Use natural spoken Japanese suitable for messages or casual conversation.
 * Avoid overly formal textbook expressions unless the user's tone requires it.
 * Use natural Japanese vocabulary and orthography. Convert Chinese-only wording into normal Japanese wording when needed.
-* Do not output Chinese-style Japanese such as 日語 or 中文 when natural Japanese would be 日本語 or 中国語.
+* Do not output Chinese-style Japanese such as 日文, 日語, 中文, or 汉字 when natural Japanese would be 日本語, 中国語, or 漢字.
+* The rewrite should normally include kana. If the result is only Chinese characters, it is probably not natural Japanese.
+* Example: "我刚才发的那句日文，全都是中文汉字写的吧？" should become something like "さっき送った日本語の文、全部中国語の漢字で書かれてたよね？", not Chinese.
 * You may restructure, combine, simplify, or shorten sentences when it sounds more natural.`
     : `* Sound like a real person, not a translation.
 * Use the most common and natural everyday American English.
@@ -50,16 +52,22 @@ The user's original message will be placed inside <user_text></user_text>. ${inp
 
 ${taskLine}
 
+Language contract:
+
+* The <rewrite> section must be only ${rewriteLanguage}. It must not follow the app UI language.
+* The <note> section must be only ${uiLanguage}. It must not follow the learning language.
+* Never swap the two sections.
+
 Rewrite principles:
 
 ${rewritePrinciples}
 
-Also output a natural ${uiLanguage} rewrite of the user's original message for the app UI. This <note> section must use ${uiLanguage}, not the learning language. Preserve the user's original meaning, tone, and style. Do not explain the rewrite unless the user's intent would otherwise be unclear.
+Also output a natural ${uiLanguage} restatement of the user's original meaning for the app UI. This <note> section must use ${uiLanguage}, not the learning language. Preserve the user's original meaning, tone, and style. Do not explain the expression unless the user's intent would otherwise be unclear.
 
 Return exactly this format and no other text:
 
 <rewrite>${rewriteLanguage} rewrite</rewrite>
-<note>${uiLanguage} UI rewrite</note>
+<note>${uiLanguage} restatement</note>
 `;
 }
 
@@ -91,6 +99,9 @@ function buildFriendSystemPrompt(language: PromptLanguage, appLocale: PromptAppL
 * Preserve the user's original meaning, emotions, tone, and intent.
 * Use natural Japanese suitable for casual chat.
 * Do not translate literally.
+* Use natural Japanese vocabulary and orthography. Convert Chinese-only wording into normal Japanese wording when needed.
+* Do not output Chinese-style Japanese such as 日文, 日語, 中文, or 汉字 when natural Japanese would be 日本語, 中国語, or 漢字.
+* The rewrite should normally include kana. If the result is only Chinese characters, it is probably not natural Japanese.
 * Feel free to restructure, combine, simplify, or shorten sentences when it sounds more natural.`
     : `* Sound like a real native speaker, not a translation.
 * Preserve the user's original meaning, emotions, tone, and intent.
@@ -109,6 +120,12 @@ The user's original message will be placed inside <user_text></user_text>.
 
 You must produce two clearly separated parts.
 
+Language contract:
+
+* The <rewrite> section must be only ${rewriteLanguage}. It must not follow the app UI language.
+* The <reply> section must also be only ${rewriteLanguage}. It must not follow the app UI language.
+* Never swap the two sections.
+
 Part 1, inside <rewrite></rewrite>, rewrites the user's message in natural ${rewriteLanguage}.
 
 Rewrite principles:
@@ -117,7 +134,7 @@ ${rewritePrinciples}
 
 Do not answer the user in this part.
 
-Part 2, inside <reply></reply>, is ONLY your natural ${uiLanguage} response to the user. This section must use ${uiLanguage}, not the learning language.
+Part 2, inside <reply></reply>, is ONLY your natural ${rewriteLanguage} response to the user. This section must use ${rewriteLanguage}, not the app UI language.
 
 Guidelines for the reply:
 
@@ -129,18 +146,18 @@ Guidelines for the reply:
 * Do not turn every response into a question.
 * Avoid sounding like a teacher, therapist, interviewer, or customer support agent.
 * Do not rewrite the user's message in this section.
-* Use ${uiLanguage} only.
+* Use ${rewriteLanguage} only.
 
 Return exactly this format and no other text:
 
 <rewrite>natural ${rewriteLanguage} rewrite of the user's message</rewrite>
-<reply>your ${uiLanguage} reply</reply>
+<reply>your ${rewriteLanguage} reply</reply>
 `;
 }
 
 /** 构建用户提示词 */
 export function buildRewriteUserPrompt(text: string): string {
-  return `Please rewrite the content between <user_text></user_text>:
+  return `Please produce the tagged learning-language expression and UI-language note for the content between <user_text></user_text>:
 
 <user_text>${text}</user_text>`;
 }

@@ -23,15 +23,15 @@ export async function copyAssistantTaggedText(
   contactId: ChatContactId = "rewrite_assistant",
 ): Promise<void> {
   const tagged = parseTaggedRewrite(text);
-  const en = tagged.en.trim();
-  const zh = contactId === "english_friend"
+  const expression = (tagged.rewrite || tagged.en).trim();
+  const note = contactId === "english_friend"
     ? tagged.reply.trim()
-    : tagged.zh.trim();
+    : (tagged.note || tagged.zh).trim();
   const copyText =
     mode === "en"
-      ? en
+      ? expression
       : mode === "zh"
-        ? zh
-        : [en, zh].filter(Boolean).join("\n");
-  await copyAssistantText(copyText || text, silent);
+        ? note
+        : [expression, note].filter(Boolean).join("\n");
+  await copyAssistantText(copyText, silent);
 }

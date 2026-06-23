@@ -95,7 +95,7 @@ const ttsGenerationLocks = new Map<string, Promise<TtsGenerationResult>>();
 const TTS_GENERATION_LOCK_TTL_MS = readPositiveInt(process.env.TTS_GENERATION_LOCK_TTL_MS, 120_000);
 const TTS_GENERATION_LOCK_WAIT_MS = readPositiveInt(process.env.TTS_GENERATION_LOCK_WAIT_MS, 120_000);
 const TTS_GENERATION_LOCK_POLL_MS = readPositiveInt(process.env.TTS_GENERATION_LOCK_POLL_MS, 500);
-const TTS_ASSET_ALGORITHM_VERSION = "tts-v2";
+const TTS_ASSET_ALGORITHM_VERSION = "tts-v3";
 
 export class TtsService {
   constructor(
