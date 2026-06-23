@@ -4,13 +4,13 @@ import {
   Alert,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession } from "../services/auth/authStorage";
 import { getCurrentEntitlement } from "../services/api/meApi";
@@ -1031,7 +1031,7 @@ function ChatContentFrame({
   return (
     <KeyboardAvoidingView
       style={styles.content}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="height"
       onTouchEnd={Platform.OS === "android" ? onAndroidTouchEnd : undefined}
     >
       {children}

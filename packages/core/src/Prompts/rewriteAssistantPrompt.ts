@@ -1,4 +1,5 @@
 export type PromptLanguage = "en-US" | "ja-JP";
+export type PromptAppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
 export type PromptContactCode = "rewrite_assistant" | "english_friend";
 
 export type PromptProfile = {
@@ -8,16 +9,28 @@ export type PromptProfile = {
 };
 
 /** 默认系统提示词（可在调试页覆盖） */
-export const DEFAULT_REWRITE_SYSTEM_PROMPT = `
-You are a native American English speaker.
+export const DEFAULT_REWRITE_SYSTEM_PROMPT = buildRewriteSystemPrompt("en-US", "zh-CN");
 
-The user's original message will be placed inside <user_text></user_text>. The user may write in Chinese, English, mixed Chinese and English, or use grammar that is incomplete, repetitive, casual, emotional, or unnatural.
+export const JAPANESE_REWRITE_SYSTEM_PROMPT = buildRewriteSystemPrompt("ja-JP", "zh-CN");
 
-Your task is to first understand what the user truly means, including their emotion, tone, and situation, then rewrite it in the most natural way an American would actually say it.
-
-Rewrite principles:
-
-* Sound like a real person, not a translation.
+function buildRewriteSystemPrompt(language: PromptLanguage, appLocale: PromptAppLocale): string {
+  const rewriteLanguage = language === "ja-JP" ? "Japanese" : "English";
+  const speakerLine = language === "ja-JP"
+    ? "You are a native Japanese speaker."
+    : "You are a native American English speaker.";
+  const inputLanguageLine = language === "ja-JP"
+    ? "The user may write in Chinese, English, Japanese, or mixed language."
+    : "The user may write in Chinese, English, mixed Chinese and English, or use grammar that is incomplete, repetitive, casual, emotional, or unnatural.";
+  const taskLine = language === "ja-JP"
+    ? "Your task is to understand what the user truly means, including emotion, tone, and situation, then rewrite it in natural everyday Japanese."
+    : "Your task is to first understand what the user truly means, including their emotion, tone, and situation, then rewrite it in the most natural way an American would actually say it.";
+  const rewritePrinciples = language === "ja-JP"
+    ? `* Sound like a real Japanese speaker, not a literal translation.
+* Preserve the user's original meaning, emotion, and tone.
+* Use natural spoken Japanese suitable for messages or casual conversation.
+* Avoid overly formal textbook expressions unless the user's tone requires it.
+* You may restructure, combine, simplify, or shorten sentences when it sounds more natural.`
+    : `* Sound like a real person, not a translation.
 * Use the most common and natural everyday American English.
 * Preserve the user's original meaning, emotion, and tone.
 * Do not translate word for word.
@@ -25,15 +38,42 @@ Rewrite principles:
 * Feel free to restructure, combine, simplify, or shorten sentences to make the writing sound more natural.
 * If an American would usually say it in a shorter, more direct, or more conversational way, do that.
 * Make it sound like a text message, casual conversation, or personal life update, not an essay, report, or news article.
-* Use natural spoken English, but do not force slang or filler words.
+* Use natural spoken English, but do not force slang or filler words.`;
+  const uiLanguage = getAppLocalePromptName(appLocale);
 
-Also output a brief Chinese note that preserves the user's original style or explains the rewrite.
+  return `
+${speakerLine}
+
+The user's original message will be placed inside <user_text></user_text>. ${inputLanguageLine}
+
+${taskLine}
+
+Rewrite principles:
+
+${rewritePrinciples}
+
+Also output a natural ${uiLanguage} rewrite of the user's original message for the app UI. Preserve the user's original meaning, tone, and style. Do not explain the rewrite unless the user's intent would otherwise be unclear.
 
 Return exactly this format and no other text:
 
-<rewrite>English rewrite</rewrite>
-<note>Chinese note</note>
+<rewrite>${rewriteLanguage} rewrite</rewrite>
+<note>${uiLanguage} UI rewrite</note>
 `;
+}
+
+function getAppLocalePromptName(appLocale: PromptAppLocale): string {
+  switch (appLocale) {
+    case "zh-TW":
+      return "Traditional Chinese";
+    case "en-US":
+      return "English";
+    case "ja-JP":
+      return "Japanese";
+    case "zh-CN":
+    default:
+      return "Simplified Chinese";
+  }
+}
 
 /** 好奇宝宝：英文聊天好友，用标签区分用户原话改写和 AI 回复。 */
 export const ENGLISH_FRIEND_SYSTEM_PROMPT = `
@@ -77,29 +117,6 @@ Return exactly this format and no other text:
 
 <rewrite>natural English rewrite of the user's message</rewrite>
 <reply>your English reply</reply>
-`;
-
-export const JAPANESE_REWRITE_SYSTEM_PROMPT = `
-You are a native Japanese speaker.
-
-The user's original message will be placed inside <user_text></user_text>. The user may write in Chinese, English, Japanese, or mixed language.
-
-Your task is to understand what the user truly means, including emotion, tone, and situation, then rewrite it in natural everyday Japanese.
-
-Rewrite principles:
-
-* Sound like a real Japanese speaker, not a literal translation.
-* Preserve the user's original meaning, emotion, and tone.
-* Use natural spoken Japanese suitable for messages or casual conversation.
-* Avoid overly formal textbook expressions unless the user's tone requires it.
-* You may restructure, combine, simplify, or shorten sentences when it sounds more natural.
-
-Also output a brief Chinese note that preserves or explains the meaning.
-
-Return exactly this format and no other text:
-
-<rewrite>Japanese rewrite</rewrite>
-<note>Chinese note</note>
 `;
 
 export const JAPANESE_FRIEND_SYSTEM_PROMPT = `
@@ -155,11 +172,13 @@ export function buildEnglishFriendUserPrompt(text: string): string {
 export function getPromptProfile(input: {
   contactCode?: string | null;
   language?: string | null;
+  appLocale?: string | null;
   systemPromptOverride?: string | null;
 }): PromptProfile {
   const contactCode: PromptContactCode = input.contactCode === "english_friend" ? "english_friend" : "rewrite_assistant";
   const language: PromptLanguage = input.language === "ja-JP" ? "ja-JP" : "en-US";
-  const systemPrompt = input.systemPromptOverride?.trim() || getDefaultSystemPrompt(contactCode, language);
+  const appLocale = normalizeAppLocale(input.appLocale);
+  const systemPrompt = input.systemPromptOverride?.trim() || getDefaultSystemPrompt(contactCode, language, appLocale);
   return {
     systemPrompt,
     buildUserPrompt: contactCode === "english_friend" ? buildEnglishFriendUserPrompt : buildRewriteUserPrompt,
@@ -167,11 +186,20 @@ export function getPromptProfile(input: {
   };
 }
 
-function getDefaultSystemPrompt(contactCode: PromptContactCode, language: PromptLanguage): string {
+function normalizeAppLocale(value?: string | null): PromptAppLocale {
+  if (value === "zh-TW" || value === "en-US" || value === "ja-JP") return value;
+  return "zh-CN";
+}
+
+function getDefaultSystemPrompt(
+  contactCode: PromptContactCode,
+  language: PromptLanguage,
+  appLocale: PromptAppLocale
+): string {
   if (contactCode === "english_friend") {
     return language === "ja-JP" ? JAPANESE_FRIEND_SYSTEM_PROMPT : ENGLISH_FRIEND_SYSTEM_PROMPT;
   }
-  return language === "ja-JP" ? JAPANESE_REWRITE_SYSTEM_PROMPT : DEFAULT_REWRITE_SYSTEM_PROMPT;
+  return buildRewriteSystemPrompt(language, appLocale);
 }
 
 /** AI 返回的标签契约：改写助手用 <en>/<zh>，好奇宝宝用 <en>/<reply>。 */

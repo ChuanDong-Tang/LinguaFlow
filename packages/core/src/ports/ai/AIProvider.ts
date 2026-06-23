@@ -9,6 +9,7 @@ export interface ChatTextGenerationInput{
     text: string;
     contactId?: string;
     languageCode?: string;
+    appLocale?: string;
     provider?: string;
     model?: string;
     systemPrompt?: string;

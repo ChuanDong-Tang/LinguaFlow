@@ -61,6 +61,7 @@ export class DeepSeekAIProvider implements AIProvider {
     const promptProfile = getPromptProfile({
       contactCode: input.contactId,
       language: input.languageCode,
+      appLocale: input.appLocale,
       systemPromptOverride: input.systemPrompt,
     });
     const systemPrompt = promptProfile.systemPrompt;

@@ -50,7 +50,7 @@ export class ChatGenerationService {
     let quotaDateKey: string | undefined;
     let effectiveProvider = this.aiProvider.providerName;
     let effectiveModel = this.aiProvider.modelName;
-    const resolvedLanguage = await this.resolveLearningLanguage(input.userId);
+    const userPreference = await this.resolveUserPreference(input.userId);
     try {
       effectiveProvider = this.aiProvider.resolveProviderName?.(input.provider) ?? this.aiProvider.providerName;
       effectiveModel = this.aiProvider.resolveModelName?.(input) ?? this.aiProvider.modelName;
@@ -183,7 +183,8 @@ export class ChatGenerationService {
           contactId: input.contactId,
           provider: input.provider,
           model: input.model,
-          languageCode: resolvedLanguage,
+          languageCode: userPreference.learningLanguage,
+          appLocale: userPreference.appLocale,
           systemPrompt: input.systemPrompt,
           signal: input.signal,
         },
@@ -199,7 +200,7 @@ export class ChatGenerationService {
       );
       const totalChars = input.text.length + assistantText.length;
       const assistantMessage = shouldPersist
-        ? await this.createPersistedAssistantMessage(input, assistantText, resolvedLanguage)
+        ? await this.createPersistedAssistantMessage(input, assistantText, userPreference.learningLanguage)
         : undefined;
       try {
         // 输出长度由模型决定；用户只要有额度发起本轮，就让回复完整返回，最终扣费最多扣到当日上限。
@@ -263,9 +264,12 @@ export class ChatGenerationService {
     );
   }
 
-  private async resolveLearningLanguage(userId: string): Promise<string> {
+  private async resolveUserPreference(userId: string): Promise<{ learningLanguage: string; appLocale: string }> {
     const preference = await this.userPreferenceRepository.getByUserId(userId);
-    return preference.learningLanguage;
+    return {
+      learningLanguage: preference.learningLanguage,
+      appLocale: preference.appLocale,
+    };
   }
 
   private async logFailedAiRequest(
