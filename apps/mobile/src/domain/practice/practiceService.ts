@@ -3,7 +3,7 @@ import { DEFAULT_CHAT_CONTACT, type ChatContact } from "../chat/contacts";
 import { getMessageDateKey } from "../chat/messageState";
 import { normalizeClozeState, tokenizeForCloze, type ClozeToken } from "../cloze/clozeUtils";
 import { getAssistantClozeText } from "../cloze/clozeText";
-import { normalizeLearningText } from "@lf/core/text/learningText";
+import { normalizeLearningText } from "../learning/learningText";
 
 export type PracticeAccuracyBand = "low" | "mid" | "high" | "any";
 

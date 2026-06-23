@@ -16,6 +16,10 @@
     "dev:worker": "node --env-file-if-exists=../.env --import tsx worker.dev.mjs",
     "start:worker": "node --env-file-if-exists=../.env --import tsx worker.dev.mjs"
   },
+  "dependencies": {
+    "cos-nodejs-sdk-v5": "^2.15.4",
+    "microsoft-cognitiveservices-speech-sdk": "^1.50.0"
+  },
   "devDependencies": {
     "tsx": "^4.21.0"
   }

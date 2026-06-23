@@ -1,7 +1,9 @@
-import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk";
+import type * as SpeechSDKTypes from "microsoft-cognitiveservices-speech-sdk";
 import type { TtsSentenceMark, TtsWordMark } from "@lf/core/ports/repository/TtsAssetRepository.js";
 import type { SynthesizeSpeechInput, SynthesizeSpeechResult, TtsProvider } from "../../services/tts/TtsProvider.js";
 import { resolveDefaultTtsVoice } from "../../services/tts/TtsVoiceCatalog.js";
+
+type SpeechSdkModule = typeof SpeechSDKTypes;
 
 export class AzureGlobalTtsProvider implements TtsProvider {
   readonly providerName = "azure_global";
@@ -16,6 +18,7 @@ export class AzureGlobalTtsProvider implements TtsProvider {
       throw new Error("AZURE_SPEECH_KEY and AZURE_SPEECH_REGION are required");
     }
 
+    const SpeechSDK = await loadSpeechSdk();
     const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(this.subscriptionKey, this.region);
     speechConfig.speechSynthesisOutputFormat = SpeechSDK.SpeechSynthesisOutputFormat.Audio24Khz96KBitRateMonoMp3;
     speechConfig.setProperty(
@@ -64,7 +67,20 @@ export class AzureGlobalTtsProvider implements TtsProvider {
   }
 }
 
-function speakSsml(synthesizer: SpeechSDK.SpeechSynthesizer, ssml: string): Promise<SpeechSDK.SpeechSynthesisResult> {
+async function loadSpeechSdk(): Promise<SpeechSdkModule> {
+  try {
+    return await import("microsoft-cognitiveservices-speech-sdk");
+  } catch (error) {
+    throw new Error(
+      `microsoft-cognitiveservices-speech-sdk is required for Azure TTS: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+function speakSsml(
+  synthesizer: SpeechSDKTypes.SpeechSynthesizer,
+  ssml: string
+): Promise<SpeechSDKTypes.SpeechSynthesisResult> {
   return new Promise((resolve, reject) => {
     synthesizer.speakSsmlAsync(
       ssml,

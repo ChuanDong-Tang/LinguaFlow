@@ -21,6 +21,7 @@ type ApiFail = { ok: false; error: { code: string; message: string } };
 type ApiResult<T> = ApiOk<T> | ApiFail;
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
+const NON_JSON_RESPONSE_MESSAGE = "服务暂时不可用，请稍后再试";
 
 export async function login(input: LoginCredential): Promise<LoginResponse> {
   // 记录发起登录（不记录验证码和 token）
@@ -33,7 +34,7 @@ export async function login(input: LoginCredential): Promise<LoginResponse> {
       body: JSON.stringify(input)
     });
 
-    const apiResult = (await res.json()) as ApiResult<LoginResponse>;
+    const apiResult = await readApiResult<LoginResponse>(res);
 
     if (!apiResult.ok) {
       // 记录业务失败（例如参数不合法、验证码错误）
@@ -72,7 +73,7 @@ export async function loginWithAuthing(input: AuthingLoginRequestBody): Promise<
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
-    const apiResult = (await res.json()) as ApiResult<AuthingLoginResponse>;
+    const apiResult = await readApiResult<AuthingLoginResponse>(res);
 
     if (!apiResult.ok) {
       await logEvent("authing_login_failed", "warn", apiResult.error.message, {
@@ -105,7 +106,7 @@ export async function loginWithTestPassword(input: TestPasswordLoginRequestBody)
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
-    const apiResult = (await res.json()) as ApiResult<AuthingLoginResponse>;
+    const apiResult = await readApiResult<AuthingLoginResponse>(res);
 
     if (!apiResult.ok) {
       await logEvent("test_password_login_failed", "warn", apiResult.error.message, {
@@ -138,7 +139,7 @@ export async function refreshAccessToken(input: RefreshTokenRequestBody): Promis
     body: JSON.stringify(input),
   });
 
-  const apiResult = (await res.json()) as ApiResult<RefreshTokenResponse>;
+  const apiResult = await readApiResult<RefreshTokenResponse>(res);
   if (!apiResult.ok) {
     throw new Error(apiResult.error.message);
   }
@@ -152,7 +153,7 @@ export async function logout(input: LogoutRequestBody): Promise<void> {
     body: JSON.stringify(input),
   });
 
-  const apiResult = (await res.json()) as ApiResult<{ ok: true }>;
+  const apiResult = await readApiResult<{ ok: true }>(res);
   if (!apiResult.ok) {
     throw new Error(apiResult.error.message);
   }
@@ -168,7 +169,7 @@ export async function prepareDeleteAccount(input: PrepareDeleteAccountRequestBod
     body: JSON.stringify(input),
   });
 
-  const apiResult = (await res.json()) as ApiResult<PrepareDeleteAccountResponse>;
+  const apiResult = await readApiResult<PrepareDeleteAccountResponse>(res);
   if (!apiResult.ok) {
     throw new Error(apiResult.error.message);
   }
@@ -185,9 +186,47 @@ export async function confirmDeleteAccount(input: ConfirmDeleteAccountRequestBod
     body: JSON.stringify(input),
   });
 
-  const apiResult = (await res.json()) as ApiResult<DeleteAccountResponse>;
+  const apiResult = await readApiResult<DeleteAccountResponse>(res);
   if (!apiResult.ok) {
     throw new Error(apiResult.error.message);
   }
   return apiResult.data;
+}
+
+async function readApiResult<T>(res: Response): Promise<ApiResult<T>> {
+  const contentType = res.headers.get("content-type") ?? "";
+  const raw = await res.text();
+
+  if (!contentType.toLowerCase().includes("application/json")) {
+    const preview = raw.trim().slice(0, 80);
+    console.warn("[authApi] non-json response", {
+      status: res.status,
+      contentType,
+      preview,
+    });
+    return {
+      ok: false,
+      error: {
+        code: "NON_JSON_RESPONSE",
+        message: NON_JSON_RESPONSE_MESSAGE,
+      },
+    };
+  }
+
+  try {
+    return JSON.parse(raw) as ApiResult<T>;
+  } catch (error) {
+    console.warn("[authApi] invalid json response", {
+      status: res.status,
+      contentType,
+      error,
+    });
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_JSON_RESPONSE",
+        message: NON_JSON_RESPONSE_MESSAGE,
+      },
+    };
+  }
 }

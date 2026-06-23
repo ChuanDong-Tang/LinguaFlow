@@ -36,7 +36,7 @@ import { t } from "../i18n";
 import { TtsPlayButton } from "../components/TtsPlayButton";
 import { getMessageTtsAsset } from "../services/api/ttsApi";
 import { playTtsAudio, stopTtsAudio } from "../services/tts/ttsPlayback";
-import { segmentLearningSentences } from "@lf/core/text/learningText";
+import { segmentLearningSentences } from "../domain/learning/learningText";
 
 type PracticeSessionScreenProps = {
   initialCards: PracticeCard[];

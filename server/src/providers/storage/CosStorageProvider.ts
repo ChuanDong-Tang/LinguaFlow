@@ -1,4 +1,3 @@
-import COS from "cos-nodejs-sdk-v5";
 import type {
   GetTtsObjectUrlResult,
   TtsStorageProvider,
@@ -6,31 +5,34 @@ import type {
   UploadTtsObjectResult,
 } from "../../services/tts/TtsStorageProvider.js";
 
+type CosClient = {
+  putObject(input: Record<string, unknown>, callback: (error: unknown) => void): void;
+  getObjectUrl(input: Record<string, unknown>, callback: (error: unknown, data: { Url?: string }) => void): void;
+  deleteObject(input: Record<string, unknown>, callback: (error: unknown) => void): void;
+};
+type CosConstructor = new (options: { SecretId: string; SecretKey: string }) => CosClient;
+
 export class CosStorageProvider implements TtsStorageProvider {
-  private readonly cos: any | null;
+  private cos: CosClient | null = null;
+  private cosPromise: Promise<CosClient | null> | null = null;
+  private readonly secretId: string;
+  private readonly secretKey: string;
   private readonly bucket: string;
   private readonly region: string;
   private readonly publicBaseUrl: string | null;
   private readonly signedUrlExpiresSeconds: number;
 
   constructor(env: NodeJS.ProcessEnv = process.env) {
-    const secretId = env.TENCENT_COS_SECRET_ID ?? env.COS_SECRET_ID ?? "";
-    const secretKey = env.TENCENT_COS_SECRET_KEY ?? env.COS_SECRET_KEY ?? "";
+    this.secretId = env.TENCENT_COS_SECRET_ID ?? env.COS_SECRET_ID ?? "";
+    this.secretKey = env.TENCENT_COS_SECRET_KEY ?? env.COS_SECRET_KEY ?? "";
     this.bucket = env.TENCENT_COS_BUCKET ?? env.COS_BUCKET ?? "";
     this.region = env.TENCENT_COS_REGION ?? env.COS_REGION ?? "";
     this.publicBaseUrl = normalizeBaseUrl(env.TENCENT_COS_PUBLIC_BASE_URL ?? env.COS_PUBLIC_BASE_URL ?? null);
     this.signedUrlExpiresSeconds = readPositiveInt(env.TTS_SIGNED_URL_EXPIRES_SECONDS, 3600);
-
-    this.cos = secretId && secretKey && this.bucket && this.region
-      ? new COS({
-          SecretId: secretId,
-          SecretKey: secretKey,
-        })
-      : null;
   }
 
   async upload(input: UploadTtsObjectInput): Promise<UploadTtsObjectResult> {
-    const cos = this.ensureConfigured();
+    const cos = await this.ensureConfigured();
     await new Promise<void>((resolve, reject) => {
       cos.putObject(
         {
@@ -56,7 +58,7 @@ export class CosStorageProvider implements TtsStorageProvider {
   }
 
   async getObjectUrl(key: string): Promise<GetTtsObjectUrlResult> {
-    const cos = this.ensureConfigured();
+    const cos = await this.ensureConfigured();
     if (this.publicBaseUrl) {
       return {
         objectUrl: `${this.publicBaseUrl}/${encodeObjectKey(key)}`,
@@ -87,7 +89,7 @@ export class CosStorageProvider implements TtsStorageProvider {
   }
 
   async deleteObject(key: string): Promise<void> {
-    const cos = this.ensureConfigured();
+    const cos = await this.ensureConfigured();
     await new Promise<void>((resolve, reject) => {
       cos.deleteObject(
         {
@@ -103,11 +105,36 @@ export class CosStorageProvider implements TtsStorageProvider {
     });
   }
 
-  private ensureConfigured(): any {
-    if (!this.cos || !this.bucket || !this.region) {
+  private async ensureConfigured(): Promise<CosClient> {
+    const cos = await this.getCosClient();
+    if (!cos || !this.bucket || !this.region) {
       throw new Error("COS_SECRET_ID, COS_SECRET_KEY, COS_BUCKET and COS_REGION are required");
     }
-    return this.cos;
+    return cos;
+  }
+
+  private async getCosClient(): Promise<CosClient | null> {
+    if (this.cos) return this.cos;
+    if (!this.secretId || !this.secretKey || !this.bucket || !this.region) return null;
+    this.cosPromise ??= loadCosModule().then(({ default: COS }) => {
+      this.cos = new COS({
+        SecretId: this.secretId,
+        SecretKey: this.secretKey,
+      });
+      return this.cos;
+    });
+    return this.cosPromise;
+  }
+}
+
+async function loadCosModule(): Promise<{ default: CosConstructor }> {
+  try {
+    const module = await import("cos-nodejs-sdk-v5") as unknown as { default?: CosConstructor } & CosConstructor;
+    return { default: module.default ?? module };
+  } catch (error) {
+    throw new Error(
+      `cos-nodejs-sdk-v5 is required for COS storage: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 

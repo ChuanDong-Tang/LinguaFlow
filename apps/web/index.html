@@ -352,7 +352,7 @@
           <div class="auth-grid">
             <div class="field">
               <label>API Base URL</label>
-              <input id="apiBase" value="http://localhost:3001" />
+              <input id="apiBase" />
             </div>
             <div class="field">
               <label>管理员账号</label>
@@ -804,14 +804,46 @@
         orders: [],
         subscriptions: [],
       };
+      const DEFAULT_API_BASE_BY_HOST = {
+        "admin.yueyantech.com": "https://api.yueyantech.com",
+        "admin-test.yueyantech.com": "https://api-test.yueyantech.com",
+      };
 
       function setStatus(message) {
         $("statusLine").textContent = message;
       }
 
+      function resolveDefaultApiBase() {
+        const metaApiBase = document.querySelector('meta[name="lf-api-base"]')?.content?.trim();
+        const runtimeApiBase = typeof window.LF_ADMIN_API_BASE === "string" ? window.LF_ADMIN_API_BASE.trim() : "";
+        const configured = runtimeApiBase || metaApiBase;
+        if (configured) return normalizeApiBase(configured);
+
+        if (window.location.protocol === "file:" || ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+          return "http://localhost:3001";
+        }
+        return DEFAULT_API_BASE_BY_HOST[window.location.hostname] || "";
+      }
+
+      function normalizeApiBase(value) {
+        return String(value || "").trim().replace(/\/+$/, "");
+      }
+
+      function shouldUseSavedApiBase(apiBase) {
+        if (!apiBase) return false;
+        if (window.location.protocol !== "https:") return true;
+        try {
+          const url = new URL(apiBase);
+          return url.protocol === "https:" && !["localhost", "127.0.0.1"].includes(url.hostname);
+        } catch {
+          return false;
+        }
+      }
+
       function loadLocal() {
         const saved = JSON.parse(localStorage.getItem("lf_admin_local") || "{}");
-        if (saved.apiBase) $("apiBase").value = saved.apiBase;
+        const savedApiBase = normalizeApiBase(saved.apiBase);
+        $("apiBase").value = shouldUseSavedApiBase(savedApiBase) ? savedApiBase : resolveDefaultApiBase();
         if (saved.token) $("token").value = saved.token;
         if (saved.account) $("account").value = saved.account;
       }
@@ -828,15 +860,18 @@
       }
 
       async function login() {
-        const apiBase = $("apiBase").value.trim();
+        const apiBase = normalizeApiBase($("apiBase").value);
+        $("apiBase").value = apiBase;
         const account = $("account").value.trim();
         const password = $("password").value;
         if (!apiBase || !account || !password) throw new Error("请填写 API、账号和密码");
-        const res = await fetch(`${apiBase}/auth/admin-password-login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ account, password }),
-        });
+        const res = await adminFetch(`${apiBase}/auth/admin-password-login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ account, password }),
+          },
+          apiBase
+        );
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
         const accessToken = data?.data?.accessToken || "";
@@ -846,20 +881,50 @@
       }
 
       async function request(path, options = {}) {
-        const apiBase = $("apiBase").value.trim();
+        const apiBase = normalizeApiBase($("apiBase").value);
+        $("apiBase").value = apiBase;
         const token = $("token").value.trim();
         if (!apiBase || !token) throw new Error("请先登录");
-        const res = await fetch(`${apiBase}${path}`, {
+        const res = await adminFetch(`${apiBase}${path}`, {
           ...options,
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
             ...(options.headers || {}),
           },
-        });
+        }, apiBase);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error?.message || JSON.stringify(data) || `HTTP ${res.status}`);
         return data;
+      }
+
+      async function adminFetch(url, options, apiBase) {
+        try {
+          return await fetch(url, options);
+        } catch (error) {
+          if (error instanceof TypeError) {
+            const pageProtocol = window.location.protocol;
+            const apiProtocol = (() => {
+              try {
+                return new URL(apiBase).protocol;
+              } catch {
+                return "";
+              }
+            })();
+            const mixedContentHint =
+              pageProtocol === "https:" && apiProtocol === "http:" ? "当前后台是 HTTPS，API Base 也必须使用 HTTPS。" : "";
+            throw new Error(
+              [
+                "无法连接 API。请检查 API Base URL 是否正确、服务是否在线，以及服务端 CORS_ALLOW_ORIGINS 是否包含当前后台域名。",
+                mixedContentHint,
+                `当前 API Base: ${apiBase || "(空)"}`,
+              ]
+                .filter(Boolean)
+                .join(" ")
+            );
+          }
+          throw error;
+        }
       }
 
       function escapeHtml(value) {
