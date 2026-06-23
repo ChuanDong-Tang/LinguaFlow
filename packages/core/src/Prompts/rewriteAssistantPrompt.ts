@@ -54,20 +54,20 @@ ${taskLine}
 
 Language contract:
 
-* The <rewrite> section must be only ${rewriteLanguage}. It must not follow the app UI language.
-* The <note> section must be only ${uiLanguage}. It must not follow the learning language.
+* The <en> section must be only ${rewriteLanguage}. It must not follow the app UI language.
+* The <zh> section must be only ${uiLanguage}. It must not follow the learning language.
 * Never swap the two sections.
 
 Rewrite principles:
 
 ${rewritePrinciples}
 
-Also output a natural ${uiLanguage} restatement of the user's original meaning for the app UI. This <note> section must use ${uiLanguage}, not the learning language. Preserve the user's original meaning, tone, and style. Do not explain the expression unless the user's intent would otherwise be unclear.
+Also output a natural ${uiLanguage} restatement of the user's original meaning for the app UI. This <zh> section must use ${uiLanguage}, not the learning language. Preserve the user's original meaning, tone, and style. Do not explain the expression unless the user's intent would otherwise be unclear.
 
 Return exactly this format and no other text:
 
-<rewrite>${rewriteLanguage} rewrite</rewrite>
-<note>${uiLanguage} restatement</note>
+<en>${rewriteLanguage} expression</en>
+<zh>${uiLanguage} restatement</zh>
 `;
 }
 
@@ -122,11 +122,11 @@ You must produce two clearly separated parts.
 
 Language contract:
 
-* The <rewrite> section must be only ${rewriteLanguage}. It must not follow the app UI language.
+* The <en> section must be only ${rewriteLanguage}. It must not follow the app UI language.
 * The <reply> section must also be only ${rewriteLanguage}. It must not follow the app UI language.
 * Never swap the two sections.
 
-Part 1, inside <rewrite></rewrite>, rewrites the user's message in natural ${rewriteLanguage}.
+Part 1, inside <en></en>, rewrites the user's message in natural ${rewriteLanguage}.
 
 Rewrite principles:
 
@@ -150,7 +150,7 @@ Guidelines for the reply:
 
 Return exactly this format and no other text:
 
-<rewrite>natural ${rewriteLanguage} rewrite of the user's message</rewrite>
+<en>natural ${rewriteLanguage} rewrite of the user's message</en>
 <reply>your ${rewriteLanguage} reply</reply>
 `;
 }
