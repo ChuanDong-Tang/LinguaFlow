@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
+import { t } from "../../i18n";
 
 type ChatComposerProps = {
   value: string;
@@ -142,7 +143,7 @@ export function ChatComposer({
         />
         {pasteText ? (
           <Pressable style={styles.pasteButton} onPress={handlePaste} hitSlop={8}>
-            <Text style={styles.pasteButtonText}>粘贴</Text>
+            <Text style={styles.pasteButtonText}>{t("common.paste")}</Text>
           </Pressable>
         ) : null}
         <Text

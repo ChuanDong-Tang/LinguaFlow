@@ -6,6 +6,7 @@ import type { ChatGenerationStreamEvent } from "./streamClient";
 import { hasLocalProAccess } from "../entitlement/proAccess";
 import type { ChatMessage } from "../../domain/chat/types";
 import { toDateKey } from "../../domain/chat/messageState";
+import { t, tf } from "../../i18n";
 
 const ENABLE_DEBUG_PROMPT_PANEL = process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
 
@@ -99,6 +100,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       retryCount: input.retryCount,
       retrySystemPrompt: requestSystemPrompt,
       conversationDateKey: event.assistantMessage?.conversationDateKey ?? row.conversationDateKey,
+      languageCode: event.assistantMessage?.languageCode ?? row.languageCode ?? null,
       createdAt: event.assistantMessage?.createdAt ?? new Date().toISOString(),
     }));
   };
@@ -171,6 +173,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         serverId: cloud.userMessage.id,
         status: cloud.userMessage.status ?? row.status,
         conversationDateKey: cloud.userMessage.conversationDateKey ?? row.conversationDateKey,
+        languageCode: cloud.userMessage.languageCode ?? row.languageCode ?? null,
         createdAt: cloud.userMessage.createdAt ?? row.createdAt,
       }));
     }
@@ -199,7 +202,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
           }
           flushDelta({ all: true });
           streamErrorMessage = event.message;
-          markFailed(input, `[错误] ${event.message}`, requestSystemPrompt, userMessageClientId);
+          markFailed(input, tf("chat.error.prefix", { message: event.message }), requestSystemPrompt, userMessageClientId);
         }
 
         if (event.type === "done") {
@@ -238,8 +241,8 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     }
     flushDelta({ all: true });
     const wasStopped = input.isStopRequested?.() === true;
-    const message = wasStopped ? "已停止生成" : error instanceof Error ? error.message : "stream failed";
-    markFailed(input, `[错误] ${message}`, requestSystemPrompt, userMessageClientId);
+    const message = wasStopped ? t("chat.error.stopped") : error instanceof Error ? error.message : "stream failed";
+    markFailed(input, tf("chat.error.prefix", { message }), requestSystemPrompt, userMessageClientId);
     return {
       status: wasStopped ? "stopped" : "failed",
       assistantText,

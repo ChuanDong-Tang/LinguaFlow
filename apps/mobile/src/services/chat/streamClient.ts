@@ -17,6 +17,7 @@ export type ChatGenerationStreamEvent =
         content: string;
         createdAt: string;
         conversationDateKey?: string | null;
+        languageCode?: string | null;
         clozeState: {
           groups: Array<{
             tokenIndexes: number[];

@@ -34,15 +34,24 @@ import {
   type PracticeDayStats,
 } from "../domain/practice/practiceService";
 import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
+import { t, tf } from "../i18n";
 
 type PracticeScreenProps = {
   isActive: boolean;
   onOpenPracticeSession: (cards: PracticeCard[], allMessages: ChatMessage[]) => void;
 };
 
-const WEEK_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
+const WEEK_LABEL_KEYS = [
+  "chat.date.week.sun",
+  "chat.date.week.mon",
+  "chat.date.week.tue",
+  "chat.date.week.wed",
+  "chat.date.week.thu",
+  "chat.date.week.fri",
+  "chat.date.week.sat",
+] as const;
 const BAND_OPTIONS: Array<{ label: string; value: PracticeAccuracyBand; color: string }> = [
-  { label: "都可以", value: "any", color: "#F1F5F2" },
+  { label: "practice.any", value: "any", color: "#F1F5F2" },
   { label: "0-20%", value: "low", color: "#D7E6D9" },
   { label: "20-60%", value: "mid", color: "#ABD1B0" },
   { label: "60%+", value: "high", color: "#6FAE78" },
@@ -157,7 +166,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
         abortable: true,
         cancelableAfterMs: 10000,
         timeoutMs: 20000,
-        onTimeout: () => setDialog({ message: "处理超时，请稍后重试。" }),
+        onTimeout: () => setDialog({ message: t("practice.timeout") }),
       },
     );
   }
@@ -257,7 +266,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   // 同步日期和拉练习消息还没结束时直接无反应，右上角转圈提示负责告诉用户正在做什么。
   async function openDatePractice(date: Date): Promise<void> {
     if (isSyncingPracticeDateKeys) {
-      showDialogAfterInteractions({ message: "正在同步练习日历，请稍后再试。" });
+      showDialogAfterInteractions({ message: t("practice.syncing_try_later") });
       return;
     }
     const result = await runWithLoading(async (signal): Promise<
@@ -280,7 +289,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       return { type: "start", cards: nextCards, messages: nextMessages };
     });
     if (result.type === "empty") {
-      showDialogAfterInteractions({ message: "这一天没有可练习的填空。" });
+      showDialogAfterInteractions({ message: t("practice.empty_day") });
       return;
     }
     onOpenPracticeSession(result.cards, result.messages);
@@ -289,7 +298,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
   // 快速练习只随机挑选符合条件的现有练习卡，不记忆用户这次的筛选条件。
   async function openQuickPractice(): Promise<void> {
     if (isSyncingPracticeDateKeys) {
-      showDialogAfterInteractions({ message: "正在同步练习日历，请稍后再试。" });
+      showDialogAfterInteractions({ message: t("practice.syncing_try_later") });
       return;
     }
     const result = await runWithLoading(async (signal): Promise<
@@ -333,11 +342,11 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       return { type: "start", cards: picked, messages: nextMessages };
     });
     if (result.type === "offline") {
-      showDialogAfterInteractions({ message: "当前网络不可用，请连接网络后再试。" });
+      showDialogAfterInteractions({ message: t("practice.network") });
       return;
     }
     if (result.type === "empty") {
-      showDialogAfterInteractions({ message: "没有检索到合适的，请调整选项。" });
+      showDialogAfterInteractions({ message: t("practice.no_match") });
       return;
     }
     setQuickOpen(false);
@@ -346,7 +355,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
 
   function resetAndOpenQuick(): void {
     if (isSyncingPracticeDateKeys) {
-      showDialogAfterInteractions({ message: "正在同步练习日历，请稍后再试。" });
+      showDialogAfterInteractions({ message: t("practice.syncing_try_later") });
       return;
     }
     setRecentDays(7);
@@ -385,7 +394,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
     const notice = {
       kind: "calendar" as const,
       ...showNotice({
-        message: "正在同步练习日历...",
+        message: t("practice.notice.syncing"),
         type: "info",
         position: "top-right",
         durationMs: 0,
@@ -421,7 +430,7 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
       }
       loadedPracticeMonthKeysRef.current.delete(monthKey);
       notice.update({
-        message: "同步失败，稍后再试",
+        message: t("practice.notice.sync_failed"),
         type: "warning",
         durationMs: 2200,
       });
@@ -440,25 +449,25 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.title}>练习</Text>
-          <Text style={styles.subtitle}>你的表达练习记录</Text>
+          <Text style={styles.title}>{t("practice.title")}</Text>
+          <Text style={styles.subtitle}>{t("practice.subtitle")}</Text>
         </View>
 
         <View style={styles.calendarPanel}>
           <View style={styles.calendarHeader}>
-            <Text style={styles.sectionTitle}>学习痕迹</Text>
+            <Text style={styles.sectionTitle}>{t("practice.trace")}</Text>
             {isSyncingPracticeDateKeys ? <ActivityDot /> : null}
           </View>
           <View style={styles.monthRow}>
             <Pressable style={styles.arrowButton} onPress={() => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>
               <Ionicons name="chevron-back" size={19} color="#303541" />
             </Pressable>
-            <Text style={styles.monthTitle}>{monthCursor.getFullYear()}年 {monthCursor.getMonth() + 1}月</Text>
+            <Text style={styles.monthTitle}>{tf("chat.date.month_format", { year: monthCursor.getFullYear(), month: monthCursor.getMonth() + 1 })}</Text>
             <Pressable style={styles.arrowButton} onPress={() => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>
               <Ionicons name="chevron-forward" size={19} color="#303541" />
             </Pressable>
           </View>
-          <View style={styles.weekRow}>{WEEK_LABELS.map((label) => <Text key={label} style={styles.weekText}>{label}</Text>)}</View>
+          <View style={styles.weekRow}>{WEEK_LABEL_KEYS.map((key) => <Text key={key} style={styles.weekText}>{t(key)}</Text>)}</View>
           <View style={styles.grid}>
             {cells.map((cell, index) => {
               if (!cell.date) return <View key={`blank-${index}`} style={styles.dayCell} />;
@@ -482,15 +491,15 @@ export function PracticeScreen({ isActive, onOpenPracticeSession }: PracticeScre
         </View>
 
         <View style={styles.reviewStack}>
-          <ReviewButton title="今日回顾" subtitle={`看看今天聊过的表达 · ${today.getMonth() + 1}月${today.getDate()}日`} onPress={() => void openDatePractice(today)} />
-          <ReviewButton title="昨日回顾" subtitle={`捡起昨天的一两个句子 · ${yesterday.getMonth() + 1}月${yesterday.getDate()}日`} onPress={() => void openDatePractice(yesterday)} />
+          <ReviewButton title={t("practice.today_review")} subtitle={tf("practice.today_review_subtitle", { date: formatPracticeMonthDay(today) })} onPress={() => void openDatePractice(today)} />
+          <ReviewButton title={t("practice.yesterday_review")} subtitle={tf("practice.yesterday_review_subtitle", { date: formatPracticeMonthDay(yesterday) })} onPress={() => void openDatePractice(yesterday)} />
         </View>
 
         <Pressable style={styles.quickCard} onPress={resetAndOpenQuick}>
           <View style={styles.quickIcon}><Ionicons name="shuffle-outline" size={22} color="#111111" /></View>
           <View style={styles.quickBody}>
-            <Text style={styles.quickTitle}>随便练练</Text>
-            <Text style={styles.quickSubtitle}>不用准备，直接开始</Text>
+            <Text style={styles.quickTitle}>{t("practice.quick")}</Text>
+            <Text style={styles.quickSubtitle}>{t("practice.quick_subtitle")}</Text>
           </View>
         </Pressable>
       </ScrollView>
@@ -648,27 +657,27 @@ function QuickPracticeSheet(props: {
       <Pressable style={styles.sheetScrim} onPress={props.onClose} />
       <View style={[styles.sheet, Platform.OS === "ios" && styles.sheetAboveTabBar]}>
         <View style={styles.sheetGrab} />
-        <Text style={styles.sheetTitle}>快速练习</Text>
+        <Text style={styles.sheetTitle}>{t("practice.quick_sheet")}</Text>
         <OptionGroup
-          title="最近天数"
-          options={RECENT_DAY_OPTIONS.map((value) => ({ label: `${value}天`, value }))}
+          title={t("practice.recent_days")}
+          options={RECENT_DAY_OPTIONS.map((value) => ({ label: tf("practice.days_unit", { count: value }), value }))}
           value={props.recentDays}
           onChange={props.onChangeRecentDays}
         />
         <OptionGroup
-          title="练习条数"
-          options={QUICK_LIMIT_OPTIONS.map((value) => ({ label: `${value}条`, value }))}
+          title={t("practice.limit")}
+          options={QUICK_LIMIT_OPTIONS.map((value) => ({ label: tf("practice.items_unit", { count: value }), value }))}
           value={props.limit}
           onChange={props.onChangeLimit}
         />
         <OptionGroup
-          title="正确率"
-          options={BAND_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
+          title={t("practice.accuracy")}
+          options={BAND_OPTIONS.map((option) => ({ label: option.value === "any" ? t("practice.any") : option.label, value: option.value }))}
           value={props.band}
           onChange={props.onChangeBand}
         />
         <Pressable style={styles.startButton} onPress={props.onStart}>
-          <Text style={styles.startButtonText}>开始</Text>
+          <Text style={styles.startButtonText}>{t("practice.start")}</Text>
         </Pressable>
       </View>
     </View>
@@ -735,6 +744,10 @@ function getMonthRange(cursor: Date): { monthKey: string; fromDateKey: string; t
     fromDateKey: toDateKey(firstDay),
     toDateKey: toDateKey(lastDay),
   };
+}
+
+function formatPracticeMonthDay(date: Date): string {
+  return tf("chat.date.day_month", { month: date.getMonth() + 1, day: date.getDate() });
 }
 
 function bandBubble(band: "low" | "mid" | "high") {

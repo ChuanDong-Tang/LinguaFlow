@@ -11,6 +11,8 @@ import {
   type NativeTextSelectionPayload,
   type SelectableMessageTextRef,
 } from "./SelectableMessageText";
+import { t } from "../../i18n";
+import { TtsPlayButton } from "../../components/TtsPlayButton";
 
 const TypingDots = React.memo(function TypingDots() {
   const dot1 = React.useRef(new Animated.Value(0.35)).current;
@@ -71,6 +73,7 @@ type MessageListProps = {
   contact: ChatContact;
   messages: ChatMessage[];
   selectedDateLabel: string;
+  canUseTts?: boolean;
   listRef?: React.RefObject<FlatList<RowItem> | null>;
   inputProtectionActive?: boolean;
   onMessageTextInteractionStart?: () => void;
@@ -99,16 +102,16 @@ const SLOW_MESSAGE_RENDER_MS = 12;
 function getCopyOptions(contact: ChatContact): { label: string; mode: AutoCopyMode }[] {
   if (contact.id === "english_friend") {
     return [
-      { label: "问题", mode: "en" },
-      { label: "回复", mode: "zh" },
-      { label: "全部", mode: "both" },
+      { label: t("chat.copy.question"), mode: "en" },
+      { label: t("chat.copy.reply"), mode: "zh" },
+      { label: t("chat.copy.all"), mode: "both" },
     ];
   }
 
   return [
-    { label: "表达", mode: "en" },
-    { label: "解释", mode: "zh" },
-    { label: "全部", mode: "both" },
+    { label: t("chat.copy.expression"), mode: "en" },
+    { label: t("chat.copy.note"), mode: "zh" },
+    { label: t("chat.copy.all"), mode: "both" },
   ];
 }
 
@@ -187,6 +190,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
 const AssistantMessageRow = React.memo(function AssistantMessageRow({
   message,
   contact,
+  canUseTts,
   onSelectionRefChange,
   onRetryMessage,
   onCopyMessage,
@@ -202,6 +206,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
 }: {
   message: ChatMessage;
   contact: ChatContact;
+  canUseTts: boolean;
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage, mode: AutoCopyMode) => void;
@@ -349,7 +354,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               correctRanges={correctRanges}
               trailingElement={
                 shouldShowAiBadge && !shouldShowTranslation ? (
-                  <Text style={styles.inlineAiBadge}> (AI生成) </Text>
+                  <Text style={styles.inlineAiBadge}>{t("chat.ai_badge")}</Text>
                 ) : undefined
               }
               onSelectionStart={
@@ -378,7 +383,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
           {shouldShowTranslation ? (
             <Text style={styles.translationText}>
               {clozeText.translation}
-              {shouldShowAiBadge ? <Text style={styles.inlineAiBadge}> (AI生成) </Text> : null}
+              {shouldShowAiBadge ? <Text style={styles.inlineAiBadge}>{t("chat.ai_badge")}</Text> : null}
             </Text>
           ) : null}
           {shouldShowActions ? (
@@ -395,7 +400,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                     onRetryMessage(message);
                   }}
                 >
-                  <Text style={styles.retryText}>重试</Text>
+                  <Text style={styles.retryText}>{t("common.retry")}</Text>
                 </Pressable>
               ) : hasBlank ? (
                 <Pressable
@@ -416,7 +421,16 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                 <View />
               )}
 
-              <View style={styles.copyControl}>
+              <View style={styles.actionControlGroup}>
+                {canUseTts ? (
+                  <TtsPlayButton
+                    messageId={message.id ?? message.serverId}
+                    disabled={!message.text.trim()}
+                    size={18}
+                    style={styles.ttsButton}
+                  />
+                ) : null}
+                <View style={styles.copyControl}>
                 {isCopyMenuOpen ? (
                   <View style={styles.copyMenu}>
                     {copyOptions.map((option) => (
@@ -447,6 +461,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                 >
                   <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
                 </Pressable>
+                </View>
               </View>
             </View>
           ) : null}
@@ -463,6 +478,7 @@ export function MessageList({
   messages,
   contact,
   selectedDateLabel,
+  canUseTts = false,
   listRef,
   inputProtectionActive = false,
   onMessageTextInteractionStart,
@@ -589,6 +605,7 @@ export function MessageList({
         <AssistantMessageRow
           message={message}
           contact={contact}
+          canUseTts={canUseTts}
           onSelectionRefChange={handleSelectionRefChange}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
@@ -614,6 +631,7 @@ export function MessageList({
     [
       activeCopyMenuId,
       contact,
+      canUseTts,
       handleCopyMessage,
       handleCloseCopyMenu,
       handleDeleteClozeGroup,
@@ -791,6 +809,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
+  },
+  actionControlGroup: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 2,
+  },
+  ttsButton: {
+    minWidth: 32,
+    minHeight: 36,
   },
   copyMenu: {
     flexDirection: "row",

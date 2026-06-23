@@ -4,6 +4,7 @@ import type { ChatMessage } from "../../domain/chat/types";
 import type { ChatContact } from "../../domain/chat/contacts";
 import { tokenizeForCloze } from "../../domain/cloze/clozeUtils";
 import { getAssistantClozeText } from "../../domain/cloze/clozeText";
+import { t } from "../../i18n";
 
 export type ClozeEditorState = {
   message: ChatMessage;
@@ -54,7 +55,7 @@ export function ClozeControls({
       <Modal visible={!!editor} transparent animationType="fade" onRequestClose={onCloseEditor}>
         <View style={styles.editorScrim}>
           <View style={styles.editorCard}>
-            <Text style={styles.editorTitle}>编辑填空</Text>
+            <Text style={styles.editorTitle}>{t("cloze.edit")}</Text>
             <ScrollView style={styles.editorScroll} contentContainerStyle={styles.editorTokens}>
               {editorTokens.map((token) => {
                 const active = visibleEditor?.draftBlankIndexes.includes(token.index) ?? false;
@@ -74,10 +75,10 @@ export function ClozeControls({
             </ScrollView>
             <View style={styles.editorActions}>
               <Pressable style={styles.editorCancel} onPress={onCloseEditor}>
-                <Text style={styles.editorCancelText}>取消</Text>
+                <Text style={styles.editorCancelText}>{t("common.cancel")}</Text>
               </Pressable>
               <Pressable style={styles.editorConfirm} onPress={onConfirmEditor}>
-                <Text style={styles.editorConfirmText}>确定</Text>
+                <Text style={styles.editorConfirmText}>{t("common.confirm")}</Text>
               </Pressable>
             </View>
           </View>
@@ -88,7 +89,7 @@ export function ClozeControls({
         <Pressable style={styles.selectionOverlay} onPress={onCloseDelete}>
           <View style={styles.deleteClozeDock}>
             <Pressable style={styles.deleteClozeButton} onPress={onConfirmDelete}>
-              <Text style={styles.deleteClozeText}>删除填空</Text>
+              <Text style={styles.deleteClozeText}>{t("cloze.delete")}</Text>
             </Pressable>
           </View>
         </Pressable>

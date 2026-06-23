@@ -1,3 +1,12 @@
+export type PromptLanguage = "en-US" | "ja-JP";
+export type PromptContactCode = "rewrite_assistant" | "english_friend";
+
+export type PromptProfile = {
+  systemPrompt: string;
+  buildUserPrompt: (text: string) => string;
+  outputFormat: "rewrite_reply_tags";
+};
+
 /** 默认系统提示词（可在调试页覆盖） */
 export const DEFAULT_REWRITE_SYSTEM_PROMPT = `
 You are a native American English speaker.
@@ -18,12 +27,12 @@ Rewrite principles:
 * Make it sound like a text message, casual conversation, or personal life update, not an essay, report, or news article.
 * Use natural spoken English, but do not force slang or filler words.
 
-Also output a Chinese version that preserves the user's original style.
+Also output a brief Chinese note that preserves the user's original style or explains the rewrite.
 
 Return exactly this format and no other text:
 
-<en>English rewrite</en>
-<zh>Chinese version</zh>
+<rewrite>English rewrite</rewrite>
+<note>Chinese note</note>
 `;
 
 /** 好奇宝宝：英文聊天好友，用标签区分用户原话改写和 AI 回复。 */
@@ -34,7 +43,7 @@ The user's original message will be placed inside <user_text></user_text>.
 
 You must produce two clearly separated parts.
 
-Part 1, inside <en></en>, rewrites the user's message in natural American English.
+Part 1, inside <rewrite></rewrite>, rewrites the user's message in natural American English.
 
 Rewrite principles:
 
@@ -66,8 +75,68 @@ Guidelines for the reply:
 
 Return exactly this format and no other text:
 
-<en>natural English rewrite of the user's message</en>
+<rewrite>natural English rewrite of the user's message</rewrite>
 <reply>your English reply</reply>
+`;
+
+export const JAPANESE_REWRITE_SYSTEM_PROMPT = `
+You are a native Japanese speaker.
+
+The user's original message will be placed inside <user_text></user_text>. The user may write in Chinese, English, Japanese, or mixed language.
+
+Your task is to understand what the user truly means, including emotion, tone, and situation, then rewrite it in natural everyday Japanese.
+
+Rewrite principles:
+
+* Sound like a real Japanese speaker, not a literal translation.
+* Preserve the user's original meaning, emotion, and tone.
+* Use natural spoken Japanese suitable for messages or casual conversation.
+* Avoid overly formal textbook expressions unless the user's tone requires it.
+* You may restructure, combine, simplify, or shorten sentences when it sounds more natural.
+
+Also output a brief Chinese note that preserves or explains the meaning.
+
+Return exactly this format and no other text:
+
+<rewrite>Japanese rewrite</rewrite>
+<note>Chinese note</note>
+`;
+
+export const JAPANESE_FRIEND_SYSTEM_PROMPT = `
+You are Curious Buddy, a friendly Japanese chat partner for a language learner.
+
+The user's original message will be placed inside <user_text></user_text>.
+
+You must produce two clearly separated parts.
+
+Part 1, inside <rewrite></rewrite>, rewrites the user's message in natural everyday Japanese.
+
+Rewrite principles:
+
+* Sound like a real native speaker, not a translation.
+* Preserve the user's original meaning, emotions, tone, and intent.
+* Use natural Japanese suitable for casual chat.
+* Do not translate literally.
+* Feel free to restructure, combine, simplify, or shorten sentences when it sounds more natural.
+
+Do not answer the user in this part.
+
+Part 2, inside <reply></reply>, is ONLY your natural Japanese response to the user.
+
+Guidelines for the reply:
+
+* Respond like a real friend.
+* First react naturally to what the user shared.
+* Then give a brief and friendly response.
+* Sound relaxed, conversational, and human.
+* Do not turn every response into a question.
+* Avoid sounding like a teacher, therapist, interviewer, or customer support agent.
+* Use Japanese only.
+
+Return exactly this format and no other text:
+
+<rewrite>natural Japanese rewrite of the user's message</rewrite>
+<reply>your Japanese reply</reply>
 `;
 
 /** 构建用户提示词 */
@@ -83,32 +152,62 @@ export function buildEnglishFriendUserPrompt(text: string): string {
 <user_text>${text}</user_text>`;
 }
 
+export function getPromptProfile(input: {
+  contactCode?: string | null;
+  language?: string | null;
+  systemPromptOverride?: string | null;
+}): PromptProfile {
+  const contactCode: PromptContactCode = input.contactCode === "english_friend" ? "english_friend" : "rewrite_assistant";
+  const language: PromptLanguage = input.language === "ja-JP" ? "ja-JP" : "en-US";
+  const systemPrompt = input.systemPromptOverride?.trim() || getDefaultSystemPrompt(contactCode, language);
+  return {
+    systemPrompt,
+    buildUserPrompt: contactCode === "english_friend" ? buildEnglishFriendUserPrompt : buildRewriteUserPrompt,
+    outputFormat: "rewrite_reply_tags",
+  };
+}
+
+function getDefaultSystemPrompt(contactCode: PromptContactCode, language: PromptLanguage): string {
+  if (contactCode === "english_friend") {
+    return language === "ja-JP" ? JAPANESE_FRIEND_SYSTEM_PROMPT : ENGLISH_FRIEND_SYSTEM_PROMPT;
+  }
+  return language === "ja-JP" ? JAPANESE_REWRITE_SYSTEM_PROMPT : DEFAULT_REWRITE_SYSTEM_PROMPT;
+}
+
 /** AI 返回的标签契约：改写助手用 <en>/<zh>，好奇宝宝用 <en>/<reply>。 */
 export type TaggedRewriteOutput = {
+  rewrite: string;
+  note: string;
   en: string;
   zh: string;
   reply: string;
 };
 
-/** 容错解析标签内容；如果旧数据没有 <en>，就退回到去掉已知标签后的原文。 */
+/** 容错解析标签内容；如果旧数据没有 <rewrite>/<en>，就退回到去掉已知标签后的原文。 */
 export function parseTaggedRewriteOutput(text: string): TaggedRewriteOutput {
+  const rewrite = extractTagContent(text, "rewrite").trim();
+  const note = extractTagContent(text, "note").trim();
   const en = extractTagContent(text, "en").trim();
   const zh = extractTagContent(text, "zh").trim();
   const reply = extractTagContent(text, "reply").trim();
   return {
-    en: en || stripKnownRewriteTags(text).trim(),
+    rewrite: rewrite || en || stripKnownRewriteTags(text).trim(),
+    note: note || zh,
+    en,
     zh,
     reply,
   };
 }
 
-function extractTagContent(text: string, tag: "en" | "zh" | "reply"): string {
+function extractTagContent(text: string, tag: "rewrite" | "note" | "en" | "zh" | "reply"): string {
   const pattern = new RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*<\\/${tag}>`, "i");
   return pattern.exec(text)?.[1] ?? "";
 }
 
 function stripKnownRewriteTags(text: string): string {
   return text
+    .replace(/<\/?rewrite>/gi, "")
+    .replace(/<\/?note>/gi, "")
     .replace(/<\/?en>/gi, "")
     .replace(/<\/?zh>/gi, "")
     .replace(/<\/?reply>/gi, "")

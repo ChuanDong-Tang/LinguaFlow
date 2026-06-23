@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { t } from "../../i18n";
 
 export type BlockingLoadingOptions = {
   text?: string;
@@ -98,7 +99,7 @@ export async function runWithDeferredBlockingLoading<T>(
   try {
     const result = await task(controller.signal);
     if (ignoreResult) {
-      throw new Error("操作已取消");
+      throw new Error(t("common.operation_cancelled"));
     }
     return result;
   } finally {

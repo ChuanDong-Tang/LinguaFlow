@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Alert,
   Keyboard,
   PanResponder,
   Pressable,
@@ -31,6 +32,11 @@ import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import { getMessageDateKey } from "../domain/chat/messageState";
 import { getChatContact } from "../domain/chat/contacts";
 import { markChatDateDirty, markPracticeStatsDirty } from "../services/chat/chatPracticeSyncState";
+import { t } from "../i18n";
+import { TtsPlayButton } from "../components/TtsPlayButton";
+import { getMessageTtsAsset } from "../services/api/ttsApi";
+import { playTtsAudio, stopTtsAudio } from "../services/tts/ttsPlayback";
+import { segmentLearningSentences } from "@lf/core/text/learningText";
 
 type PracticeSessionScreenProps = {
   initialCards: PracticeCard[];
@@ -47,7 +53,8 @@ type PracticeEnglishSegment =
       correct: boolean;
       spacer: boolean;
       spacerHighlighted: boolean;
-      sentenceBreakAfter: boolean;
+      textStart: number;
+      textEnd: number;
     }
   | {
       type: "blank";
@@ -57,7 +64,8 @@ type PracticeEnglishSegment =
       spacer: boolean;
       spacerHighlighted: boolean;
       expectedText: string;
-      sentenceBreakAfter: boolean;
+      textStart: number;
+      textEnd: number;
     };
 
 const EDGE_SWITCH_COMMIT_THRESHOLD = 5;
@@ -85,7 +93,8 @@ function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegmen
         spacer,
         spacerHighlighted,
         expectedText: token.text,
-        sentenceBreakAfter: false,
+        textStart: token.start,
+        textEnd: token.end,
       };
     }
     return {
@@ -96,27 +105,41 @@ function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegmen
       correct: isAnsweredBlank,
       spacer,
       spacerHighlighted,
-      sentenceBreakAfter: isSentenceBreakToken(token.text),
+      textStart: token.start,
+      textEnd: token.end,
     };
   });
 }
 
-function isSentenceBreakToken(text: string): boolean {
-  return /^[.!?;。！？；]+$/.test(text);
-}
+type PracticeSentenceRow = {
+  key: string;
+  textStart: number;
+  textEnd: number;
+  segments: PracticeEnglishSegment[];
+};
 
-function groupPracticeEnglishSentences(segments: PracticeEnglishSegment[]): PracticeEnglishSegment[][] {
-  const rows: PracticeEnglishSegment[][] = [];
-  let current: PracticeEnglishSegment[] = [];
-  for (const segment of segments) {
-    current.push(segment);
-    if (segment.sentenceBreakAfter) {
-      rows.push(current);
-      current = [];
-    }
-  }
-  if (current.length) rows.push(current);
-  return rows;
+function groupPracticeEnglishSentences(card: PracticeCard, segments: PracticeEnglishSegment[]): PracticeSentenceRow[] {
+  const sentenceSegments = segmentLearningSentences({
+    text: card.sourceText,
+    languageCode: card.languageCode,
+    minSegmentChars: 1,
+  });
+  const rows = sentenceSegments
+    .map((sentence, index) => ({
+      key: `${card.id}:sentence-${index}-${sentence.textStart}-${sentence.textEnd}`,
+      textStart: sentence.textStart,
+      textEnd: sentence.textEnd,
+      segments: segments.filter((segment) => segment.textEnd > sentence.textStart && segment.textStart < sentence.textEnd),
+    }))
+    .filter((row) => row.segments.length > 0);
+  if (rows.length) return rows;
+  if (!segments.length) return [];
+  return [{
+    key: `${card.id}:sentence-fallback`,
+    textStart: card.textStart,
+    textEnd: card.textEnd,
+    segments,
+  }];
 }
 
 export function PracticeSessionScreen({ initialCards, allMessages, onBack }: PracticeSessionScreenProps) {
@@ -132,6 +155,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const [keyboardScrollPadding, setKeyboardScrollPadding] = useState(0);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
+  const [canUseTts, setCanUseTts] = useState(false);
   const translate = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const flipAnim = useRef(new Animated.Value(0)).current;
   const cardMotionLocked = useRef(false);
@@ -139,6 +163,8 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const gestureAxis = useRef<"x" | null>(null);
   const englishScrollRef = useRef<ScrollView | null>(null);
   const activeBlankInputRef = useRef<TextInput | null>(null);
+  const sentenceTtsControllerRef = useRef<AbortController | null>(null);
+  const practiceMountedRef = useRef(true);
   const keyboardTopRef = useRef<number | null>(null);
   const isFlippedRef = useRef(false);
   const sessionMessageIdsRef = useRef(new Set(initialCards.map((row) => row.messageId)));
@@ -155,6 +181,37 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const card = cards[index] ?? null;
   const canFlipCard = !!card?.translation.trim();
   isFlippedRef.current = isFlipped;
+
+  const stopPracticeTts = React.useCallback(() => {
+    sentenceTtsControllerRef.current?.abort();
+    sentenceTtsControllerRef.current = null;
+    stopTtsAudio();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      practiceMountedRef.current = false;
+      stopPracticeTts();
+    };
+  }, [stopPracticeTts]);
+
+  useEffect(() => {
+    if (!card) stopPracticeTts();
+  }, [card?.id, stopPracticeTts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    hasLocalProAccess()
+      .then((value) => {
+        if (!cancelled) setCanUseTts(value);
+      })
+      .catch(() => {
+        if (!cancelled) setCanUseTts(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const getCardSegments = (target: PracticeCard): PracticeEnglishSegment[] => {
     const cached = segmentCacheRef.current.get(target.id);
@@ -281,25 +338,25 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
         abortable: true,
         cancelableAfterMs: 10000,
         timeoutMs: 20000,
-        onTimeout: () => setDialog({ message: "处理超时，请稍后重试。" }),
+        onTimeout: () => setDialog({ message: t("practice.timeout") }),
       },
     );
   }
 
   function askExit(): void {
     setDialog({
-      message: "是否退出这次练习？",
-      cancelText: "取消",
-      confirmText: "确定",
+      message: t("practice.session.exit_confirm"),
+      cancelText: t("common.cancel"),
+      confirmText: t("common.confirm"),
       onConfirm: onBack,
     });
   }
 
   function askDiscardCurrentCard(): void {
     setDialog({
-      message: "是否丢弃这张卡片？丢弃后不会再进入练习。",
-      cancelText: "取消",
-      confirmText: "丢弃",
+      message: t("practice.session.discard_confirm"),
+      cancelText: t("common.cancel"),
+      confirmText: t("practice.session.discard"),
       onConfirm: () => {
         void discardCurrentCard();
       },
@@ -442,6 +499,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
 
   function toggleFlip(): void {
     if (!canFlipCard || isFlipping || !beginCardMotion()) return;
+    stopPracticeTts();
     const nextValue = isFlipped ? 0 : 1;
     setIsFlipping(true);
     Animated.timing(flipAnim, {
@@ -461,6 +519,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       resetMotion();
       return;
     }
+    stopPracticeTts();
     const nextIndex = Math.min(cards.length - 1, index + 1);
     resetMotion();
     resetPracticeInputs(nextIndex);
@@ -473,6 +532,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       resetMotion();
       return;
     }
+    stopPracticeTts();
     const nextIndex = Math.max(0, index - 1);
     resetMotion();
     resetPracticeInputs(nextIndex);
@@ -540,11 +600,12 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
         return next;
       });
       setIsFlipped(false);
-    }, "正在处理...");
+    }, t("practice.session.processing"));
   }
 
   async function discardCurrentCard(): Promise<void> {
     if (!card || isFlipping || cardMotionLocked.current) return;
+    stopPracticeTts();
     // Pro 用户右滑丢弃必须以云端成功为准；非 Pro 只写本地，不产生云端交互。
     await runWithLoading(async () => {
       const isPro = await hasLocalProAccess();
@@ -569,8 +630,8 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       setAnswers({});
       setIsFlipped(false);
       if (index >= nextCards.length) setIndex(Math.max(0, nextCards.length - 1));
-    }, "正在处理...").catch(() => {
-      setDialog({ message: "丢弃失败，请稍后重试。" });
+    }, t("practice.session.processing")).catch(() => {
+      setDialog({ message: t("practice.session.discard_failed") });
     });
   }
 
@@ -579,12 +640,12 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <Pressable style={styles.headerButton} onPress={onBack}><Ionicons name="chevron-back" size={26} color="#111111" /></Pressable>
-          <Text style={styles.headerTitle}>卡片练习</Text>
+          <Text style={styles.headerTitle}>{t("practice.session.title")}</Text>
           <View style={styles.headerButton} />
         </View>
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>这组练习已经完成。</Text>
-          <Pressable style={styles.doneButton} onPress={onBack}><Text style={styles.doneText}>返回</Text></Pressable>
+          <Text style={styles.emptyText}>{t("practice.session.completed")}</Text>
+          <Pressable style={styles.doneButton} onPress={onBack}><Text style={styles.doneText}>{t("practice.session.back")}</Text></Pressable>
         </View>
       </SafeAreaView>
     );
@@ -594,7 +655,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Pressable style={styles.headerButton} onPress={askExit}><Ionicons name="chevron-back" size={26} color="#111111" /></Pressable>
-        <Text style={styles.headerTitle}>卡片练习</Text>
+        <Text style={styles.headerTitle}>{t("practice.session.title")}</Text>
         <Pressable style={styles.headerButton} onPress={() => setRulesOpen((value) => !value)}>
           <Ionicons name="help-circle-outline" size={22} color="#111111" />
         </Pressable>
@@ -604,9 +665,9 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
         <View style={styles.rulesLayer} pointerEvents="box-none">
           <Pressable style={styles.rulesBackdrop} onPress={() => setRulesOpen(false)} />
           <View style={styles.rulesPanel}>
-            <Text style={styles.ruleText}>上滑：下一张</Text>
-            <Text style={styles.ruleText}>下滑：上一张</Text>
-            <Text style={styles.ruleText}>右滑：丢弃此卡片</Text>
+            <Text style={styles.ruleText}>{t("practice.session.rule.next")}</Text>
+            <Text style={styles.ruleText}>{t("practice.session.rule.prev")}</Text>
+            <Text style={styles.ruleText}>{t("practice.session.rule.discard")}</Text>
           </View>
         </View>
       ) : null}
@@ -642,11 +703,26 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
                     onTouchCancel={handleCardScrollTouchEnd}
                   >
                     <PracticeEnglish
+                      card={card}
                       segments={getCardSegments(card)}
                       answers={answers}
                       checkedAnswers={checkedAnswers}
                       onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))}
                       onBlankFocus={handleBlankFocus}
+                      onPlaySentence={(range) => {
+                        if (!canUseTts) return;
+                        sentenceTtsControllerRef.current?.abort();
+                        const controller = new AbortController();
+                        sentenceTtsControllerRef.current = controller;
+                        void playPracticeSentence(card, range, {
+                          signal: controller.signal,
+                          shouldPlay: () => practiceMountedRef.current && sentenceTtsControllerRef.current === controller,
+                        }).finally(() => {
+                          if (sentenceTtsControllerRef.current === controller) {
+                            sentenceTtsControllerRef.current = null;
+                          }
+                        });
+                      }}
                     />
                   </ScrollView>
                 </View>
@@ -689,26 +765,89 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
         <Text style={styles.progressText}>{index + 1}/{cards.length}</Text>
       </View>
 
-      {canFlipCard ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={isFlipped ? "翻到表达" : "翻到解释"}
-          style={[isFlipping && styles.flipButtonDisabled, styles.flipButton]}
-          onPress={toggleFlip}
-          disabled={isFlipping}
-        >
-          <Ionicons name="sync-outline" size={20} color="#111111" />
-        </Pressable>
-      ) : null}
+      <View style={styles.sessionActionRow}>
+        {canUseTts ? (
+          <TtsPlayButton
+            messageId={card.message.id ?? card.message.serverId}
+            textStart={card.textStart}
+            textEnd={card.textEnd}
+            size={18}
+            style={styles.roundActionButton}
+          />
+        ) : null}
+        {canFlipCard ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={isFlipped ? t("practice.session.flip_to_expression") : t("practice.session.flip_to_note")}
+            style={[isFlipping && styles.flipButtonDisabled, styles.roundActionButton]}
+            onPress={toggleFlip}
+            disabled={isFlipping}
+          >
+            <Ionicons name="sync-outline" size={20} color="#111111" />
+          </Pressable>
+        ) : null}
+      </View>
 
       <Pressable style={styles.checkButton} onPress={() => void checkAnswers()}>
-        <Text style={styles.checkText}>检查</Text>
+        <Text style={styles.checkText}>{t("practice.session.check")}</Text>
       </Pressable>
 
       <BlockingLoading visible={!!loadingOptions} options={loadingOptions} />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
     </SafeAreaView>
   );
+}
+
+async function playPracticeSentence(
+  card: PracticeCard,
+  range: { textStart: number; textEnd: number },
+  options?: {
+    signal?: AbortSignal;
+    shouldPlay?: () => boolean;
+  }
+): Promise<void> {
+  const messageId = card.message.id ?? card.message.serverId;
+  if (!messageId) return;
+  try {
+    const asset = await getMessageTtsAsset({
+      messageId,
+      sourceKey: "rewrite",
+      textStart: range.textStart,
+      textEnd: range.textEnd,
+      signal: options?.signal,
+    });
+    if (options?.signal?.aborted || options?.shouldPlay?.() === false) return;
+    await playTtsAudio({
+      url: asset.audioUrl,
+      cacheKey: buildTtsCacheKey(asset),
+      playbackRange: asset.playbackRange ?? undefined,
+    });
+  } catch (error) {
+    if (options?.signal?.aborted || options?.shouldPlay?.() === false) return;
+    const normalized = error instanceof Error ? error : new Error(String(error));
+    Alert.alert(t("tts.error.title"), toFriendlyTtsErrorMessage(normalized));
+  }
+}
+
+function toFriendlyTtsErrorMessage(error: Error & { code?: string; status?: number }): string {
+  if (error.code === "PRO_REQUIRED" || error.status === 403) return t("tts.error.pro_required");
+  return t("tts.error.failed");
+}
+
+function buildTtsCacheKey(asset: {
+  id: string;
+  voiceCode: string;
+  languageCode: string;
+  sourceKey: string;
+  sourceTextHash: string;
+}): string {
+  return [
+    asset.id,
+    asset.voiceCode,
+    asset.languageCode,
+    asset.sourceKey,
+    asset.sourceTextHash,
+  ].join("-");
 }
 
 async function persistPracticeMessageUpdate(contactId: string, message: ChatMessage): Promise<void> {
@@ -723,21 +862,25 @@ async function persistPracticeMessageUpdate(contactId: string, message: ChatMess
 }
 
 function PracticeEnglish({
+  card,
   segments,
   answers,
   checkedAnswers,
   onChangeAnswer,
   onBlankFocus,
+  onPlaySentence,
 }: {
+  card: PracticeCard;
   segments: PracticeEnglishSegment[];
   answers: Record<number, string>;
   checkedAnswers: Record<number, "correct" | "incorrect">;
   onChangeAnswer: (tokenIndex: number, value: string) => void;
   onBlankFocus: (inputRef: TextInput | null) => void;
+  onPlaySentence: (range: { textStart: number; textEnd: number }) => void;
 }) {
-  const sentenceRows = useMemo(() => groupPracticeEnglishSentences(segments), [segments]);
+  const sentenceRows = useMemo(() => groupPracticeEnglishSentences(card, segments), [card, segments]);
 
-  function renderSegment(segment: PracticeEnglishSegment): React.ReactNode {
+  function renderSegment(segment: PracticeEnglishSegment, row: PracticeSentenceRow): React.ReactNode {
     if (segment.type === "blank") {
       const checked = checkedAnswers[segment.tokenIndex];
       const isCorrect = checked === "correct";
@@ -765,7 +908,10 @@ function PracticeEnglish({
     return (
       <React.Fragment key={segment.key}>
         {segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
-        <Text style={[styles.tokenText, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}>
+        <Text
+          style={[styles.tokenText, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}
+          onPress={() => onPlaySentence({ textStart: row.textStart, textEnd: row.textEnd })}
+        >
           {segment.text}
         </Text>
       </React.Fragment>
@@ -774,9 +920,11 @@ function PracticeEnglish({
 
   return (
     <View style={styles.englishSentences}>
-      {sentenceRows.map((row, index) => (
-        <View key={`sentence-${index}`} style={styles.englishFlow}>
-          {row.map(renderSegment)}
+      {sentenceRows.map((row) => (
+        <View key={row.key} style={styles.englishSentenceRow}>
+          <View style={styles.englishFlow}>
+            {row.segments.map((segment) => renderSegment(segment, row))}
+          </View>
         </View>
       ))}
     </View>
@@ -918,7 +1066,13 @@ const styles = StyleSheet.create({
   englishSentences: {
     gap: 6,
   },
+  englishSentenceRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 4,
+  },
   englishFlow: {
+    flex: 1,
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
@@ -999,12 +1153,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
   },
-  flipButton: {
-    alignSelf: "center",
-    width: 40,
-    height: 40,
+  sessionActionRow: {
+    minHeight: 40,
     marginTop: 4,
-    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  roundActionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: "#E3E6ED",
     backgroundColor: "#FFFFFF",

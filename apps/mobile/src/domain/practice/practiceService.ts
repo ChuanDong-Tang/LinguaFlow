@@ -3,6 +3,7 @@ import { DEFAULT_CHAT_CONTACT, type ChatContact } from "../chat/contacts";
 import { getMessageDateKey } from "../chat/messageState";
 import { normalizeClozeState, tokenizeForCloze, type ClozeToken } from "../cloze/clozeUtils";
 import { getAssistantClozeText } from "../cloze/clozeText";
+import { normalizeLearningText } from "@lf/core/text/learningText";
 
 export type PracticeAccuracyBand = "low" | "mid" | "high" | "any";
 
@@ -14,6 +15,10 @@ export type PracticeCard = {
   dateKey: string;
   text: string;
   translation: string;
+  sourceText: string;
+  languageCode: string;
+  textStart: number;
+  textEnd: number;
   tokens: ClozeToken[];
   groupIndex: number;
   phraseTokenIndexes: number[];
@@ -29,8 +34,7 @@ export type PracticeDayStats = {
   band: Exclude<PracticeAccuracyBand, "any">;
 };
 
-// 从聊天消息生成练习卡。练习只基于主文本 <en></en>，因此 clozeState 的 token
-// 索引也必须对应英文正文；<zh></zh> 和 <reply></reply> 仅作为卡片下方的弱化对照。
+// 从聊天消息生成练习卡。练习基于统一规范化后的 sourceText；标签里的 note/reply 只作为卡片下方的弱化对照。
 export function buildPracticeCards(
   messages: ChatMessage[],
   options?: { includeCompleted?: boolean; contact?: ChatContact; contactByMessageId?: Map<string, ChatContact> },
@@ -45,9 +49,12 @@ export function buildPracticeCards(
     const state = normalizeClozeState(message.clozeState);
     if (!state) continue;
     const clozeText = getAssistantClozeText(message, contact);
-    const englishText = clozeText.text;
-    if (!englishText) continue;
-    const tokens = tokenizeForCloze(englishText);
+    const sourceText = normalizeLearningText({
+      text: clozeText.text,
+      languageCode: message.languageCode,
+    });
+    if (!sourceText) continue;
+    const tokens = tokenizeForCloze(sourceText);
     const translation = clozeText.translation || findPreviousUserText(messages, i);
     const dateKey = getMessageDateKey(message);
     const phraseTokenIndexes = new Set<number>();
@@ -69,8 +76,12 @@ export function buildPracticeCards(
       contactId: contact.id,
       message,
       dateKey,
-      text: englishText,
+      text: sourceText,
       translation,
+      sourceText,
+      languageCode: message.languageCode ?? "en-US",
+      textStart: 0,
+      textEnd: sourceText.length,
       tokens,
       groupIndex: 0,
       phraseTokenIndexes: Array.from(phraseTokenIndexes).sort((a, b) => a - b),

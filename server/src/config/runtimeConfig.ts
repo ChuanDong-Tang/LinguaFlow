@@ -110,6 +110,19 @@ export interface RuntimeConfig {
   aiRequestLogCleanupRetryMaxDelayMs: number;
   aiRequestLogCleanupCircuitFailThreshold: number;
   aiRequestLogCleanupCircuitOpenMs: number;
+  ttsAssetCleanupEnabled: boolean;
+  ttsAssetCleanupIntervalMs: number;
+  ttsFailedAssetRetentionDays: number;
+  ttsAssetCleanupBatchSize: number;
+  ttsRequestLogCleanupEnabled: boolean;
+  ttsRequestLogCleanupIntervalMs: number;
+  ttsRequestLogRetentionDays: number;
+  ttsRequestLogCleanupBatchSize: number;
+  ttsRequestLogCleanupMaxRetryAttempts: number;
+  ttsRequestLogCleanupRetryBaseDelayMs: number;
+  ttsRequestLogCleanupRetryMaxDelayMs: number;
+  ttsRequestLogCleanupCircuitFailThreshold: number;
+  ttsRequestLogCleanupCircuitOpenMs: number;
   accountDeletionCleanupEnabled: boolean;
   accountDeletionCleanupIntervalMs: number;
   accountDeletionCleanupBatchSize: number;
@@ -122,6 +135,10 @@ export interface RuntimeConfig {
   chatGenerationMinInputChars: number;
   chatMessagesUserRateLimit: number;
   chatMessagesUserRateWindowMs: number;
+  ttsMessagesGlobalRateLimit: number;
+  ttsMessagesGlobalRateWindowMs: number;
+  ttsCostPerMillionCharsCents: number;
+  ttsCostCurrency: string;
 }
 
 export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -204,6 +221,19 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     aiRequestLogCleanupRetryMaxDelayMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_RETRY_MAX_DELAY_MS, 30_000),
     aiRequestLogCleanupCircuitFailThreshold: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_CIRCUIT_FAIL_THRESHOLD, 5),
     aiRequestLogCleanupCircuitOpenMs: readPositiveInt(env.LF_AI_REQUEST_LOG_CLEANUP_CIRCUIT_OPEN_MS, 300_000),
+    ttsAssetCleanupEnabled: readBoolean(env.LF_TTS_ASSET_CLEANUP_ENABLED, true),
+    ttsAssetCleanupIntervalMs: readPositiveInt(env.LF_TTS_ASSET_CLEANUP_INTERVAL_MS, 86_400_000),
+    ttsFailedAssetRetentionDays: readPositiveInt(env.LF_TTS_FAILED_ASSET_RETENTION_DAYS, 7),
+    ttsAssetCleanupBatchSize: readPositiveInt(env.LF_TTS_ASSET_CLEANUP_BATCH_SIZE, 1000),
+    ttsRequestLogCleanupEnabled: readBoolean(env.LF_TTS_REQUEST_LOG_CLEANUP_ENABLED, true),
+    ttsRequestLogCleanupIntervalMs: readPositiveInt(env.LF_TTS_REQUEST_LOG_CLEANUP_INTERVAL_MS, 86_400_000),
+    ttsRequestLogRetentionDays: readPositiveInt(env.LF_TTS_REQUEST_LOG_RETENTION_DAYS, 30),
+    ttsRequestLogCleanupBatchSize: readPositiveInt(env.LF_TTS_REQUEST_LOG_CLEANUP_BATCH_SIZE, 2000),
+    ttsRequestLogCleanupMaxRetryAttempts: readPositiveInt(env.LF_TTS_REQUEST_LOG_CLEANUP_MAX_RETRY_ATTEMPTS, 3),
+    ttsRequestLogCleanupRetryBaseDelayMs: readPositiveInt(env.LF_TTS_REQUEST_LOG_CLEANUP_RETRY_BASE_DELAY_MS, 1000),
+    ttsRequestLogCleanupRetryMaxDelayMs: readPositiveInt(env.LF_TTS_REQUEST_LOG_CLEANUP_RETRY_MAX_DELAY_MS, 30_000),
+    ttsRequestLogCleanupCircuitFailThreshold: readPositiveInt(env.LF_TTS_REQUEST_LOG_CLEANUP_CIRCUIT_FAIL_THRESHOLD, 5),
+    ttsRequestLogCleanupCircuitOpenMs: readPositiveInt(env.LF_TTS_REQUEST_LOG_CLEANUP_CIRCUIT_OPEN_MS, 300_000),
     accountDeletionCleanupEnabled: readBoolean(env.LF_ACCOUNT_DELETION_CLEANUP_ENABLED, true),
     accountDeletionCleanupIntervalMs: readPositiveInt(env.LF_ACCOUNT_DELETION_CLEANUP_INTERVAL_MS, 7 * 24 * 60 * 60 * 1000),
     accountDeletionCleanupBatchSize: readPositiveInt(env.LF_ACCOUNT_DELETION_CLEANUP_BATCH_SIZE, 5),
@@ -216,6 +246,10 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     chatGenerationMinInputChars: readPositiveInt(env.CHAT_GENERATION_MIN_INPUT_CHARS, 10),
     chatMessagesUserRateLimit: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_LIMIT, 20),
     chatMessagesUserRateWindowMs: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_WINDOW_MS, 60_000),
+    ttsMessagesGlobalRateLimit: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_LIMIT, 100),
+    ttsMessagesGlobalRateWindowMs: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_WINDOW_MS, 60_000),
+    ttsCostPerMillionCharsCents: readNonNegativeInt(env.TTS_COST_PER_1M_CHARS_CENTS, 0),
+    ttsCostCurrency: env.TTS_COST_CURRENCY?.trim() || "USD",
   };
 }
 
@@ -298,6 +332,11 @@ function readBoolean(value: string | undefined, fallback: boolean): boolean {
 function readPositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readNonNegativeInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function trimToNull(value: string | undefined): string | null {

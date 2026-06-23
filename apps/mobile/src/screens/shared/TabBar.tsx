@@ -1,6 +1,7 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { t } from "../../i18n";
 
 type TabBarProps = {
   activeTab: "main" | "practice" | "me";
@@ -20,7 +21,7 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
             color={activeTab === "main" ? "#746BFF" : "#9AA0AB"}
           />
         </View>
-        <Text style={[styles.label, activeTab === "main" && styles.labelActive]}>对话</Text>
+        <Text style={[styles.label, activeTab === "main" && styles.labelActive]}>{t("tabs.chat")}</Text>
       </Pressable>
 
       <Pressable style={styles.tab} onPress={activeTab === "practice" ? undefined : onPressPractice}>
@@ -31,7 +32,7 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
             color={activeTab === "practice" ? "#746BFF" : "#9AA0AB"}
           />
         </View>
-        <Text style={[styles.label, activeTab === "practice" && styles.labelActive]}>练习</Text>
+        <Text style={[styles.label, activeTab === "practice" && styles.labelActive]}>{t("tabs.practice")}</Text>
       </Pressable>
 
       <Pressable style={styles.tab} onPress={activeTab === "me" ? undefined : onPressMe}>
@@ -42,7 +43,7 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
             color={activeTab === "me" ? "#746BFF" : "#9AA0AB"}
           />
         </View>
-        <Text style={[styles.label, activeTab === "me" && styles.labelActive]}>我</Text>
+        <Text style={[styles.label, activeTab === "me" && styles.labelActive]}>{t("tabs.me")}</Text>
       </Pressable>
     </View>
   );

@@ -22,6 +22,9 @@ import { getRuntimeConfig } from "./src/config/runtimeConfig.ts";
 import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
 import { AutoRenewService } from "./src/services/payment/AutoRenewService.ts";
 import { WeChatAutoRenewProvider } from "./src/providers/payment/index.ts";
+import { CosStorageProvider } from "./src/providers/storage/CosStorageProvider.ts";
+import { TtsAssetCleanupWorker } from "./src/workers/tts/TtsAssetCleanupWorker.ts";
+import { TtsRequestLogCleanupWorker } from "./src/workers/tts/TtsRequestLogCleanupWorker.ts";
 
 const prisma = new PrismaClient();
 const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
@@ -62,9 +65,16 @@ const benefitGrantWorker = new BenefitGrantWorker(
   systemEventLogRepository
 );
 const sessionCleanupWorker = new SessionCleanupWorker(prisma, systemEventLogRepository);
-const accountDeletionCleanupWorker = new AccountDeletionCleanupWorker(prisma, systemEventLogRepository);
+const ttsStorageProvider = new CosStorageProvider();
+const accountDeletionCleanupWorker = new AccountDeletionCleanupWorker(
+  prisma,
+  systemEventLogRepository,
+  ttsStorageProvider
+);
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
+const ttsAssetCleanupWorker = new TtsAssetCleanupWorker(prisma, systemEventLogRepository);
+const ttsRequestLogCleanupWorker = new TtsRequestLogCleanupWorker(prisma, systemEventLogRepository);
 const paymentCertSyncWorker = new PaymentCertSyncWorker(
   trustedCertRepository,
   systemEventLogRepository
@@ -89,7 +99,7 @@ if (runtime.requireRedis) {
   }
 }
 
-console.log("[worker] payment/grant/session/account-delete/log/ai/cert workers running");
+console.log("[worker] payment/grant/session/account-delete/log/ai/tts/cert workers running");
 try {
   worker.start();
   benefitGrantWorker.start();
@@ -97,6 +107,8 @@ try {
   accountDeletionCleanupWorker.start();
   systemEventLogCleanupWorker.start();
   aiRequestLogCleanupWorker.start();
+  ttsAssetCleanupWorker.start();
+  ttsRequestLogCleanupWorker.start();
   paymentCertSyncWorker.start();
   weChatAutoRenewBillingWorker.start();
 } catch (error) {
@@ -122,6 +134,8 @@ async function shutdown() {
   accountDeletionCleanupWorker.stop();
   systemEventLogCleanupWorker.stop();
   aiRequestLogCleanupWorker.stop();
+  ttsAssetCleanupWorker.stop();
+  ttsRequestLogCleanupWorker.stop();
   paymentCertSyncWorker.stop();
   weChatAutoRenewBillingWorker.stop();
   await prisma.$disconnect();

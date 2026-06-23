@@ -41,6 +41,7 @@ import {
 } from "../services/payment/appleIap";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import { environmentStorageKey } from "../services/storage/environmentStorageKey";
+import { t, tf } from "../i18n";
 
 type ProScreenProps = { onBack: () => void };
 type AppleIapBridgeState = Pick<
@@ -206,7 +207,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       applePurchaseIntentRef.current = false;
       setIsPaying(false);
       setIsAutoRenewLoading(false);
-      safeAlert("Apple 支付未完成", "暂时没有收到 Apple 的支付结果，请确认没有支付弹窗后再重试。");
+      safeAlert(t("pro.alert.apple_unfinished_title"), t("pro.alert.apple_unfinished_message"));
     }, APPLE_PURCHASE_TIMEOUT_MS);
   }
 
@@ -237,7 +238,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         await refreshProEntitlementState();
         didRefreshEntitlement = true;
         if (!isScreenAlive()) return;
-        safeAlert("开通成功", "Pro 权益已生效。");
+        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
       }
       const recoveredAutoRenew = await recoverPendingAutoRenewIfAny();
       if (!isScreenAlive()) return;
@@ -249,7 +250,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         await refreshProEntitlementState();
         didRefreshEntitlement = true;
         if (!isScreenAlive()) return;
-        safeAlert("开通成功", "Pro 权益已生效。");
+        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
       }
       try {
         const currentAutoRenew = await getCurrentAutoRenewSubscription();
@@ -308,11 +309,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
   async function handleSubscribe(): Promise<void> {
     if (isPaying) return;
     if (isRenew) {
-      safeAlert("Pro 已生效", "当前 Pro 有效期结束后可再次购买。");
+      safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_buy_later"));
       return;
     }
     if (!canStartOneTimePurchase) {
-      safeAlert("暂未开放", "购买 1 个月暂未开放。");
+      safeAlert(t("pro.not_open"), t("pro.alert.one_time_not_open"));
       return;
     }
     if (Platform.OS === "ios") {
@@ -325,7 +326,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       return;
     }
 
-    safeAlert("暂不支持", "当前平台暂不支持购买 Pro。");
+    safeAlert(t("pro.alert.unsupported_title"), t("pro.alert.unsupported_purchase"));
   }
 
   async function startWechatOneTimePurchase(): Promise<void> {
@@ -346,20 +347,20 @@ export function ProScreen({ onBack }: ProScreenProps) {
         const entitlementResult = await refreshProEntitlementState();
         if (!isScreenAlive()) return;
         setIsRenew(entitlementResult?.entitlement.isPro ?? true);
-        safeAlert("开通成功", "Pro 权益已生效。");
+        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
         return;
       }
       if (settled.status === "pending") {
-        safeAlert("支付处理中", "订单状态仍在确认中，稍后会自动继续同步。");
+        safeAlert(t("pro.alert.payment_processing_title"), t("pro.alert.payment_processing_message"));
         return;
       }
       await clearPendingPaymentOrder();
       if (!isScreenAlive()) return;
-      safeAlert("支付未完成", `当前状态：${settled.status}`);
+      safeAlert(t("pro.alert.payment_unfinished_title"), tf("pro.alert.payment_status", { status: settled.status }));
     } catch (error) {
       if (!isScreenAlive()) return;
-      const message = error instanceof Error ? error.message : "请稍后重试";
-      safeAlert("支付发起失败", message);
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.payment_start_failed"), message);
     } finally {
       if (isScreenAlive()) setIsPaying(false);
     }
@@ -368,18 +369,18 @@ export function ProScreen({ onBack }: ProScreenProps) {
   async function handleStartAutoRenew(): Promise<void> {
     if (isAutoRenewLoading) return;
     if (isRenew) {
-      safeAlert("Pro 已生效", "当前 Pro 有效期结束后可开通订阅。");
+      safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_subscribe_later"));
       return;
     }
 
     if (hasActiveAutoRenew(autoRenew)) {
-      safeAlert("已开通自动续费", `当前已通过${formatProviderName(autoRenew.provider)}开通自动续费。`);
+      safeAlert(t("pro.alert.auto_active_title"), tf("pro.alert.auto_active_message", { provider: formatProviderName(autoRenew.provider) }));
       return;
     }
 
     if (Platform.OS === "ios") {
       if (!ENABLE_APPLE_AUTO_RENEW) {
-        safeAlert("暂未开放", "Apple 自动续费暂未开放。");
+        safeAlert(t("pro.not_open"), t("pro.alert.apple_auto_not_open"));
         return;
       }
       await startAppleIapPurchase("auto_renew");
@@ -388,14 +389,14 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
     if (Platform.OS === "android") {
       if (!ENABLE_WECHAT_AUTO_RENEW) {
-        safeAlert("暂未开放", "微信自动续费暂未开放。");
+        safeAlert(t("pro.not_open"), t("pro.alert.wechat_auto_not_open"));
         return;
       }
       await startWechatAutoRenew();
       return;
     }
 
-    safeAlert("暂不支持", "当前平台暂不支持自动续费。");
+    safeAlert(t("pro.alert.unsupported_title"), t("pro.alert.unsupported_auto"));
   }
 
   async function startWechatAutoRenew(): Promise<void> {
@@ -426,9 +427,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (entitlementResult?.entitlement.isPro) {
         setIsRenew(true);
         await clearPendingAutoRenewFlow();
-        safeAlert("开通成功", "Pro 权益已生效。");
+        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
       } else if (currentAutoRenew?.status === "active" || currentAutoRenew?.status === "pending") {
-        safeAlert("签约处理中", "自动续费状态已同步，首期权益到账后会自动刷新。");
+        safeAlert(t("pro.alert.contract_processing_title"), t("pro.alert.contract_processing_message"));
       }
     } catch (error) {
       if (preSign && isWechatUserCancelError(error)) {
@@ -446,14 +447,14 @@ export function ProScreen({ onBack }: ProScreenProps) {
       await WebBrowser.openBrowserAsync(redirectUrl);
     }
     if (!isScreenAlive()) return;
-    safeAlert("签约处理中", "已有 Pro 权益，本次只创建自动续费签约，后续周期会自动衔接。");
+    safeAlert(t("pro.alert.contract_processing_title"), t("pro.alert.contract_pending_only"));
   }
 
   async function handleManageAutoRenew(): Promise<void> {
     if (!autoRenew) return;
     if (autoRenew.provider === "apple") {
       // Apple 订阅只能去 Apple ID 订阅管理里取消，服务端不能替用户直接取消平台订阅。
-      safeAlert("前往 Apple 管理", "请在 iOS 的 Apple ID 订阅管理中取消自动续费。");
+      safeAlert(t("pro.alert.apple_manage_title"), t("pro.alert.apple_manage_message"));
       return;
     }
     setIsAutoRenewLoading(true);
@@ -465,11 +466,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
           ? { ...autoRenew, status: cancelled.status, cancelledAt: cancelled.cancelledAt }
           : autoRenew
       );
-      safeAlert("已取消自动续费", "后续不会再自动扣费，当前 Pro 权益可继续使用至到期。");
+      safeAlert(t("pro.alert.auto_cancelled_title"), t("pro.alert.auto_cancelled_message"));
     } catch (error) {
       if (!isScreenAlive()) return;
-      const message = error instanceof Error ? error.message : "请稍后重试";
-      safeAlert("取消失败", message);
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.cancel_failed_title"), message);
     } finally {
       if (isScreenAlive()) setIsAutoRenewLoading(false);
     }
@@ -478,12 +479,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
   async function startAppleIapPurchase(source: ApplePurchaseSource): Promise<void> {
     assertAppleIapAvailable(source);
     if (!appleIap?.connected) {
-      safeAlert("Apple 支付初始化中", "请稍后重试。");
+      safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
       return;
     }
     const productId = getAppleProductIdForSource(source);
     if (!hasLoadedAppleProduct(appleIap, source, productId)) {
-      safeAlert("Apple 商品未加载", "商品信息还在加载中，请稍后重试。");
+      safeAlert(t("pro.alert.apple_product_loading_title"), t("pro.alert.apple_product_loading_message"));
       return;
     }
     setIsPaying(true);
@@ -493,7 +494,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!isScreenAlive()) return;
       if (latestEntitlement?.entitlement.isPro) {
         setIsRenew(true);
-        safeAlert("Pro 已生效", "当前 Pro 有效期结束后可再次购买。");
+        safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_buy_later"));
         setIsPaying(false);
         setIsAutoRenewLoading(false);
         return;
@@ -537,13 +538,13 @@ export function ProScreen({ onBack }: ProScreenProps) {
         return;
       }
       if (isAppleInactiveSubscriptionTransactionError(error)) {
-        safeAlert("Apple 支付出错", "请再次点击 Apple 订阅。");
+        safeAlert(t("pro.alert.apple_payment_error_title"), t("pro.alert.apple_retry_subscription"));
         setIsPaying(false);
         setIsAutoRenewLoading(false);
         return;
       }
-      const message = error instanceof Error ? error.message : "请稍后重试";
-      safeAlert("Apple 支付发起失败", message);
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.apple_payment_start_failed"), message);
       setIsPaying(false);
       setIsAutoRenewLoading(false);
     }
@@ -567,15 +568,15 @@ export function ProScreen({ onBack }: ProScreenProps) {
         if (!isScreenAlive()) return true;
         applyAutoRenewToState(currentAutoRenew);
       }
-      safeAlert("开通成功", "Pro 权益已生效。");
+      safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
       return true;
     } catch (error) {
       if (!isScreenAlive()) return true;
       if (isAppleTransactionOwnedByDifferentAccount(error)) {
-        safeAlert("Apple 订阅已绑定", "这笔 Apple 订阅已绑定其他 OIO 账号，请切换到原账号或联系客服处理。");
+        safeAlert(t("pro.alert.apple_bound_title"), t("pro.alert.apple_bound_message"));
         return true;
       }
-      safeAlert("Apple 验单失败", formatApplePaymentErrorMessage(error));
+      safeAlert(t("pro.alert.apple_verify_failed"), formatApplePaymentErrorMessage(error));
       return true;
     }
   }
@@ -590,7 +591,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       const transactionId = getAppleTransactionId(purchase);
       // 先让服务端用 App Store Server API 验单并发权益，再 finish transaction。
       const verified = await verifyAppleProMonthlyTransaction(transactionId);
-      if (!appleIap) throw new Error("Apple 支付未初始化");
+      if (!appleIap) throw new Error(t("pro.alert.apple_not_initialized"));
       const isOneTimePurchase = verified.purchaseKind === "single_purchase";
       await appleIap.finishTransaction({
         purchase,
@@ -605,7 +606,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         applyAutoRenewToState(currentAutoRenew);
       }
       if (isUserInitiatedPurchase) {
-        safeAlert("开通成功", "Pro 权益已生效。");
+        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
       }
     } catch (error) {
       if (!isScreenAlive()) return;
@@ -617,12 +618,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
           }).catch(() => { });
         }
         if (isUserInitiatedPurchase) {
-          safeAlert("Apple 订阅已绑定", "这笔 Apple 订阅已绑定其他 OIO 账号，请切换到原账号或联系客服处理。");
+          safeAlert(t("pro.alert.apple_bound_title"), t("pro.alert.apple_bound_message"));
         }
         return;
       }
       if (isUserInitiatedPurchase) {
-        safeAlert("Apple 验单失败", formatApplePaymentErrorMessage(error));
+        safeAlert(t("pro.alert.apple_verify_failed"), formatApplePaymentErrorMessage(error));
       }
     } finally {
       if (isScreenAlive()) {
@@ -637,7 +638,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
     if (Platform.OS !== "ios") return;
     assertAppleIapAvailable();
     if (!appleIap?.connected) {
-      safeAlert("Apple 支付初始化中", "请稍后重试。");
+      safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
       return;
     }
     if (isRestoringApplePurchases) return;
@@ -652,7 +653,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
       if (candidates.length === 0) {
         if (!isScreenAlive()) return;
-        safeAlert("未找到可恢复购买", "没有找到当前 Apple ID 下可恢复的 Pro 购买。");
+        safeAlert(t("pro.alert.restore_not_found_title"), t("pro.alert.restore_not_found_message"));
         return;
       }
 
@@ -673,7 +674,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
             if (!isScreenAlive()) return;
             applyAutoRenewToState(currentAutoRenew);
           }
-          safeAlert("恢复成功", "Pro 权益已同步。");
+          safeAlert(t("pro.alert.restore_success_title"), t("pro.alert.restore_success_message"));
           return;
         } catch (error) {
           lastError = error;
@@ -681,14 +682,14 @@ export function ProScreen({ onBack }: ProScreenProps) {
       }
 
       if (isAppleTransactionOwnedByDifferentAccount(lastError)) {
-        safeAlert("恢复购买失败", "这笔 Apple 购买记录不属于当前账号，请切换到购买时使用的 OIO 账号后再恢复。");
+        safeAlert(t("pro.alert.restore_failed_title"), t("pro.alert.restore_wrong_account"));
         return;
       }
-      safeAlert("恢复购买失败", formatApplePaymentErrorMessage(lastError));
+      safeAlert(t("pro.alert.restore_failed_title"), formatApplePaymentErrorMessage(lastError));
     } catch (error) {
       if (!isScreenAlive()) return;
-      const message = error instanceof Error ? error.message : "请稍后重试";
-      safeAlert("恢复购买失败", message);
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.restore_failed_title"), message);
     } finally {
       if (isScreenAlive()) setIsRestoringApplePurchases(false);
     }
@@ -713,7 +714,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
               return;
             }
             if (isUserInitiatedPurchase) {
-              safeAlert("Apple 支付失败", formatApplePaymentErrorMessage(error, "Apple 支付失败"));
+              safeAlert(t("pro.alert.apple_payment_failed"), formatApplePaymentErrorMessage(error, t("pro.alert.apple_payment_failed")));
             }
             setIsPaying(false);
             setIsAutoRenewLoading(false);
@@ -731,12 +732,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.benefitCard}>
           <BenefitItem icon="text-outline" title={quotaBenefit.title} subtitle={quotaBenefit.subtitle} />
-          <BenefitItem icon="leaf-outline" title="支持云端同步" subtitle="适合持续练习和记录" />
+          <BenefitItem icon="leaf-outline" title={t("pro.cloud_sync.title")} subtitle={t("pro.cloud_sync.subtitle")} />
         </View>
 
         <View style={styles.priceCard}>
           <View style={styles.priceHead}>
-            <Text style={styles.priceTitle}>Pro 月度</Text>
+            <Text style={styles.priceTitle}>{t("pro.monthly")}</Text>
           </View>
           <View style={styles.priceRow}>
             <Text style={styles.price}>{productPrices.primary ?? "--"}</Text>
@@ -747,7 +748,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
               {membershipStatusLabel ? <Text style={styles.membershipStatus}>{membershipStatusLabel}</Text> : null}
               {shouldShowAutoRenewInfo ? (
                 <>
-                  <Text style={styles.autoRenewTitle}>自动续费</Text>
+                  <Text style={styles.autoRenewTitle}>{t("pro.auto_renew")}</Text>
                   <Text style={styles.autoRenewText}>{autoRenewDescription}</Text>
                 </>
               ) : null}
@@ -776,7 +777,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
                           ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
                           : canStartAutoRenew
                             ? formatAutoRenewButtonLabel()
-                            : "暂未开放"}
+                            : t("pro.not_open")}
                       </Text>
                     )}
                   </Pressable>
@@ -794,7 +795,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
                         <ActivityIndicator color="#FFFFFF" />
                       ) : (
                         <Text style={styles.subscribeText}>
-                          {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : "暂未开放"}
+                          {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : t("pro.not_open")}
                         </Text>
                       )}
                     </Pressable>
@@ -813,8 +814,8 @@ export function ProScreen({ onBack }: ProScreenProps) {
                 <ActivityIndicator color="#111111" />
               ) : (
                 <>
-                  <Text style={styles.restoreHintText}>已通过 Apple 购买？</Text>
-                  <Text style={styles.restoreButtonText}>恢复权益</Text>
+                  <Text style={styles.restoreHintText}>{t("pro.restore.hint")}</Text>
+                  <Text style={styles.restoreButtonText}>{t("pro.restore.button")}</Text>
                 </>
               )}
             </Pressable>
@@ -822,11 +823,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
         </View>
 
         <View style={styles.ruleCard}>
-          <Text style={styles.ruleTitle}>付款与权益规则</Text>
-          {PAYMENT_RULES.map((rule) => (
-            <View key={rule} style={styles.ruleItem}>
+          <Text style={styles.ruleTitle}>{t("pro.rules.title")}</Text>
+          {PAYMENT_RULE_KEYS.map((ruleKey) => (
+            <View key={ruleKey} style={styles.ruleItem}>
               <View style={styles.ruleDot} />
-              <Text style={styles.ruleText}>{rule}</Text>
+              <Text style={styles.ruleText}>{t(ruleKey)}</Text>
             </View>
           ))}
         </View>
@@ -872,7 +873,7 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError }: AppleIa
 
 function assertWechatPayAvailable(): void {
   if (Platform.OS !== "android") {
-    throw new Error("当前平台不支持微信支付");
+    throw new Error(t("pro.alert.wechat_pay_unsupported"));
   }
 }
 
@@ -889,18 +890,18 @@ function resolveAutoRenewDescription(input: {
   hasLoadedAutoRenew: boolean;
 }): string {
   if (!input.hasLoadedAutoRenew) {
-    return "正在同步订阅状态。";
+    return t("pro.auto.desc.syncing");
   }
   if (input.autoRenew?.status === "pending") {
-    return "签约处理中，如未完成可稍后重试。";
+    return t("pro.auto.desc.pending");
   }
   if (hasActiveAutoRenew(input.autoRenew)) {
-    return `已通过${formatProviderName(input.autoRenew.provider)}开启，预计到期后续费。`;
+    return tf("pro.auto.desc.active", { provider: formatProviderName(input.autoRenew.provider) });
   }
   if (input.isPro && input.expiresAt) {
-    return `${formatAutoRenewProviderLabel()}订阅会在当前会员到期后接续，不会立即重复扣费。`;
+    return tf("pro.auto.desc.after_expiry", { provider: formatAutoRenewProviderLabel() });
   }
-  return `${formatAutoRenewProviderLabel()}订阅会先完成首期支付，之后按月自动续费，可随时管理。`;
+  return tf("pro.auto.desc.first_payment", { provider: formatAutoRenewProviderLabel() });
 }
 
 function resolveMembershipStatusLabel(input: {
@@ -908,7 +909,7 @@ function resolveMembershipStatusLabel(input: {
   expiresAt: string | null;
 }): string | null {
   if (input.isPro && input.expiresAt) {
-    return `有效期至：${formatDate(input.expiresAt)}`;
+    return tf("pro.valid_until", { date: formatDate(input.expiresAt) });
   }
   return null;
 }
@@ -916,11 +917,11 @@ function resolveMembershipStatusLabel(input: {
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+  return tf("pro.date_full", { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() });
 }
 
 function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): string {
-  return provider === "apple" ? "Apple" : "微信";
+  return provider === "apple" ? "Apple" : t("pro.provider.wechat");
 }
 
 function readPositiveIntEnv(value: string | undefined, fallback: number): number {
@@ -929,28 +930,30 @@ function readPositiveIntEnv(value: string | undefined, fallback: number): number
 }
 
 function formatNumber(value: number): string {
-  return new Intl.NumberFormat("zh-CN").format(value);
+  return new Intl.NumberFormat().format(value);
 }
 
 function resolveQuotaBenefit(entitlement: CurrentEntitlement | null): { title: string; subtitle: string } {
   if (!entitlement) {
     return {
-      title: "正在同步额度",
-      subtitle: "获取后显示当前权益",
+      title: t("pro.quota.syncing_title"),
+      subtitle: t("pro.quota.syncing_subtitle"),
     };
   }
 
   if (entitlement.isPro) {
     return {
-      title: `每日 ${formatNumber(entitlement.dailyTotalLimit)} 字额度`,
-      subtitle: entitlement.expiresAt ? `Pro 权益有效期至 ${formatDate(entitlement.expiresAt)}` : "Pro 权益已生效",
+      title: tf("pro.quota.pro_title", { count: formatNumber(entitlement.dailyTotalLimit) }),
+      subtitle: entitlement.expiresAt
+        ? tf("pro.quota.pro_subtitle", { date: formatDate(entitlement.expiresAt) })
+        : t("pro.quota.pro_active"),
     };
   }
 
-  const validUntil = entitlement.validUntil ? `，有效期至 ${formatDate(entitlement.validUntil)}` : "";
+  const validUntil = entitlement.validUntil ? tf("pro.quota.free_valid_until", { date: formatDate(entitlement.validUntil) }) : "";
   return {
-    title: `普通版 ${formatNumber(entitlement.dailyTotalLimit)} 体验字符`,
-    subtitle: `剩余 ${formatNumber(entitlement.remainingChars)} 字${validUntil}`,
+    title: tf("pro.quota.free_title", { count: formatNumber(entitlement.dailyTotalLimit) }),
+    subtitle: tf("pro.quota.free_subtitle", { count: formatNumber(entitlement.remainingChars), validUntil }),
   };
 }
 
@@ -1074,7 +1077,7 @@ function resolveProMonthlyPriceLabels(input: {
     const primary = subscriptionPrice || oneTimePrice || null;
     return {
       primary,
-      primarySuffix: primary ? " / 月" : "",
+      primarySuffix: primary ? t("pro.price.month_suffix") : "",
       oneTime: oneTimePrice ?? null,
       autoRenew: subscriptionPrice ?? null,
     };
@@ -1084,7 +1087,7 @@ function resolveProMonthlyPriceLabels(input: {
     const price = input.wechatPriceLabel;
     return {
       primary: price,
-      primarySuffix: price ? " / 月" : "",
+      primarySuffix: price ? t("pro.price.month_suffix") : "",
       oneTime: price,
       autoRenew: price,
     };
@@ -1104,7 +1107,7 @@ function hasLoadedAppleProduct(appleIap: AppleIapBridgeState, source: ApplePurch
 }
 
 function formatOneTimePurchaseButtonLabel(): string {
-  return "Pro 月卡";
+  return t("pro.month_card");
 }
 
 function hasActiveAutoRenew(autoRenew: MobileAutoRenewSubscription | null): autoRenew is MobileAutoRenewSubscription {
@@ -1129,19 +1132,19 @@ function isAppleTransactionOwnedByDifferentAccount(error: unknown): boolean {
   );
 }
 
-function formatApplePaymentErrorMessage(error: unknown, fallback = "请稍后重试"): string {
+function formatApplePaymentErrorMessage(error: unknown, fallback = t("app.delete.retry_later")): string {
   if (isAppleInactiveSubscriptionTransactionError(error)) {
-    return "请再次点击 Apple 订阅。";
+    return t("pro.alert.apple_retry_subscription");
   }
   if (error instanceof MobileApiError) {
     if (error.code === "APPLE_SUBSCRIPTION_EXPIRED") {
-      return "这笔 Apple 订阅当前不可恢复。取消订阅后，当前 Pro 权益会保留至到期，到期后可重新订阅。";
+      return t("pro.alert.apple_subscription_expired");
     }
     if (error.code === "AUTO_RENEW_SWITCH_BLOCKED") {
-      return "当前 Pro 周期仍在有效期内，到期后可重新开通订阅。";
+      return t("pro.alert.pro_active_subscribe_later");
     }
     if (error.code === "PRO_RENEWAL_TOO_EARLY") {
-      return "当前 Pro 有效期内暂不支持重复购买。";
+      return t("pro.alert.pro_active_buy_later");
     }
     return error.message || fallback;
   }
@@ -1167,23 +1170,23 @@ function isAppleUserCancelledPurchase(error: unknown): boolean {
 }
 
 function isWechatUserCancelError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes("用户取消微信支付");
+  return error instanceof Error && error.name === "WECHAT_PAY_USER_CANCELLED";
 }
 
 function formatAutoRenewProviderLabel(): string {
   if (Platform.OS === "ios") return "Apple ";
-  if (Platform.OS === "android") return "微信";
+  if (Platform.OS === "android") return t("pro.provider.wechat");
   return "";
 }
 
 function formatAutoRenewButtonLabel(): string {
-  if (Platform.OS === "ios") return `Apple 订阅`;
-  if (Platform.OS === "android") return `微信订阅`;
-  return "开通";
+  if (Platform.OS === "ios") return t("pro.auto.apple_subscription");
+  if (Platform.OS === "android") return t("pro.auto.wechat_subscription");
+  return t("pro.auto.start");
 }
 
 function formatAutoRenewCancelButtonLabel(provider: MobileAutoRenewSubscription["provider"]): string {
-  return provider === "apple" ? "Apple 退订" : "微信退订";
+  return provider === "apple" ? t("pro.auto.cancel_apple") : t("pro.auto.cancel_wechat");
 }
 
 function BenefitItem({
@@ -1210,14 +1213,14 @@ function BenefitItem({
   );
 }
 
-const PAYMENT_RULES = [
-  "随着其他语言、语音合成播放等新功能加入，Pro 价格可能会随服务内容调整。",
-  "单月购买每次开通 1 个月 Pro，有效期内不再提供重复购买入口。",
-  "开通自动续费后，平台会按订阅周期续费并延续 Pro 权益。",
-  "已有 Pro 期间不支持新开订阅或单买月卡，到期后可重新选择购买方式。",
-  "价格或权益调整后，在后续购买或自动续费时生效。",
-  "取消订阅只停止后续扣款，当前权益保留至到期。",
-];
+const PAYMENT_RULE_KEYS = [
+  "pro.rules.1",
+  "pro.rules.2",
+  "pro.rules.3",
+  "pro.rules.4",
+  "pro.rules.5",
+  "pro.rules.6",
+] as const;
 
 const styles = StyleSheet.create({
   container: {

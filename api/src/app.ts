@@ -2,7 +2,10 @@ import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
 import { MockAuthProvider } from "@lf/core/ports/auth/MockAuthProvider.js";
 import { PrismaUserRepository } from "@lf/server/infrastructure/repository/PrismaUserRepository.js";
+import { PrismaUserPreferenceRepository } from "@lf/server/infrastructure/repository/PrismaUserPreferenceRepository.js";
 import { PrismaUserSessionRepository } from "@lf/server/infrastructure/repository/PrismaUserSessionRepository.js";
+import { PrismaTtsAssetRepository } from "@lf/server/infrastructure/repository/PrismaTtsAssetRepository.js";
+import { PrismaTtsRequestLogRepository } from "@lf/server/infrastructure/repository/PrismaTtsRequestLogRepository.js";
 import { AuthLoginService } from "@lf/server/services/auth/AuthLoginService.js";
 import { AccountDeletionService } from "@lf/server/services/auth/AccountDeletionService.js";
 import { registerAuthRoutes } from "./auth/routes.js";
@@ -45,11 +48,15 @@ import {
 import { registerMeRoutes } from "./me/routes.js";
 import { registerPaymentRoutes } from "./payment/routes.js";
 import { registerAdminRoutes } from "./admin/routes.js";
+import { registerTtsRoutes } from "./tts/routes.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { PaymentCertSyncService } from "@lf/server/services/payment/PaymentCertSyncService.js";
 import { AutoRenewService } from "@lf/server/services/payment/AutoRenewService.js";
 import { PaymentEntitlementRefreshService } from "@lf/server/services/payment/PaymentEntitlementRefreshService.js";
 import { getBusinessClockSnapshot } from "@lf/server/services/time/businessClock.js";
+import { TtsService } from "@lf/server/services/tts/TtsService.js";
+import { AzureGlobalTtsProvider } from "@lf/server/providers/tts/AzureGlobalTtsProvider.js";
+import { CosStorageProvider } from "@lf/server/providers/storage/CosStorageProvider.js";
 import type {
   CreateProviderOrderInput,
   CreateProviderOrderResult,
@@ -99,7 +106,10 @@ export function createApp() {
 
   const authProvider = new MockAuthProvider();
   const userRepository = new PrismaUserRepository(prisma);
+  const userPreferenceRepository = new PrismaUserPreferenceRepository(prisma);
   const userSessionRepository = new PrismaUserSessionRepository(prisma);
+  const ttsAssetRepository = new PrismaTtsAssetRepository(prisma);
+  const ttsRequestLogRepository = new PrismaTtsRequestLogRepository(prisma);
   const authLoginService = new AuthLoginService(userRepository, userSessionRepository);
   const accountDeletionService = new AccountDeletionService(userRepository, userSessionRepository);
   const runtimeConfig = getRuntimeConfig();
@@ -181,7 +191,18 @@ export function createApp() {
     entitlementService,
     aiRequestLogRepository,
     chatGenerationRateLimiter,
-    conversationRepository
+    conversationRepository,
+    userPreferenceRepository
+  );
+  const ttsService = new TtsService(
+    messageRepository,
+    userPreferenceRepository,
+    ttsAssetRepository,
+    entitlementService,
+    new AzureGlobalTtsProvider(),
+    new CosStorageProvider(),
+    ttsRequestLogRepository,
+    redisClient
   );
 
   registerChatStreamRoutes(app, {
@@ -208,6 +229,7 @@ export function createApp() {
     subscriptionService,
     entitlementService,
     paymentEntitlementRefreshService,
+    userPreferenceRepository,
     userRepository,
     systemEventLogRepository,
   });
@@ -216,6 +238,12 @@ export function createApp() {
     paymentNotifyService,
     autoRenewService,
     appleIapService,
+    userRepository,
+    systemEventLogRepository,
+  });
+  registerTtsRoutes(app, {
+    ttsService,
+    rateLimiter: chatGenerationRateLimiter,
     userRepository,
     systemEventLogRepository,
   });

@@ -21,14 +21,31 @@ model User {
   sessions       UserSession[]
   conversations  Conversation[]
   messages       Message[]
+  ttsAssets      TtsAsset[]
+  ttsRequestLogs TtsRequestLog[]
   entitlements   Entitlement[]
   subscriptions  Subscription[]
   autoRenewSubscriptions AutoRenewSubscription[]
   appleIapAccountLinks AppleIapAccountLink[]
+  preference     UserPreference?
 
   @@map("users")
   @@index([email])
   @@index([phone])
+}
+
+model UserPreference {
+  userId           String   @id
+  appLocale        String   @default("zh-CN")
+  learningLanguage String   @default("en-US")
+  ttsProvider      String   @default("azure_global")
+  ttsVoiceCode     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
 }
 
 model UserAuthIdentity {
@@ -114,11 +131,13 @@ model Message {
   clozeVersion     Int           @default(0)
   clozePracticeDiscardedAt DateTime?
   conversationDateKey String?
+  languageCode     String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ttsAssets    TtsAsset[]
 
   @@index([conversationId, conversationDateKey, createdAt])
   @@index([userId, conversationDateKey])
@@ -127,6 +146,66 @@ model Message {
   @@index([userId, status, createdAt])
   @@unique([userId, conversationId, clientId])
   @@map("messages")
+}
+
+model TtsAsset {
+  id                 String   @id @default(cuid())
+  userId             String
+  messageId          String
+  provider           String
+  voiceCode          String
+  languageCode       String
+  sourceKey          String   @default("rewrite")
+  sourceText         String
+  sourceTextHash     String
+  format             String   @default("mp3")
+  status             String   @default("ready")
+  objectKey          String
+  objectUrl          String?
+  objectUrlExpiresAt DateTime?
+  durationMs         Int?
+  wordMarks          Json?
+  sentenceMarks      Json?
+  errorMessage       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, provider, voiceCode, languageCode, sourceKey, sourceTextHash])
+  @@index([userId, createdAt])
+  @@index([messageId])
+  @@index([status, updatedAt])
+  @@map("tts_assets")
+}
+
+model TtsRequestLog {
+  id              String   @id @default(cuid())
+  requestId       String?
+  userId          String
+  messageId       String
+  assetId         String?
+  provider        String
+  voiceCode       String
+  languageCode    String
+  sourceTextHash  String
+  sourceTextChars Int
+  cacheHit        Boolean  @default(false)
+  deduped         Boolean  @default(false)
+  status          String
+  durationMs      Int?
+  errorCode       String?
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([provider, languageCode, createdAt])
+  @@map("tts_request_logs")
 }
 
 model Entitlement {

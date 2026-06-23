@@ -40,6 +40,7 @@ type ImportLocalDayMessagesBody = {
     } | null;
     clozeVersion?: number;
     clozePracticeDiscardedAt?: string | null;
+    languageCode?: string | null;
   }>;
 };
 
@@ -166,6 +167,10 @@ function isImportLocalDayMessagesBody(value: unknown): value is ImportLocalDayMe
       Number.isFinite(new Date(row.createdAt).getTime()) &&
       (row.clozeState === undefined || row.clozeState === null || typeof row.clozeState === "object") &&
       (row.clozeVersion === undefined || Number.isFinite(row.clozeVersion)) &&
+      (row.languageCode === undefined ||
+        row.languageCode === null ||
+        row.languageCode === "en-US" ||
+        row.languageCode === "ja-JP") &&
       (row.clozePracticeDiscardedAt === undefined ||
         row.clozePracticeDiscardedAt === null ||
         (typeof row.clozePracticeDiscardedAt === "string" &&

@@ -9,8 +9,9 @@ let currentLanguage: SupportedLanguage = DEFAULT_LANGUAGE;
 /** 初始化语言：启动时调用，优先使用本地已保存的用户语言。 */
 export async function initI18n(): Promise<SupportedLanguage> {
   const saved = await AsyncStorage.getItem(LANGUAGE_KEY);
-  if (saved === "zh-CN" || saved === "en") {
-    currentLanguage = saved;
+  const normalized = normalizeLanguage(saved);
+  if (normalized) {
+    currentLanguage = normalized;
     return currentLanguage;
   }
   return currentLanguage;
@@ -30,4 +31,16 @@ export async function setLanguage(language: SupportedLanguage): Promise<void> {
 /** 文案翻译函数：优先当前语言，缺失时回退到中文。 */
 export function t(key: TranslationKey): string {
   return messages[currentLanguage][key] ?? messages["zh-CN"][key] ?? key;
+}
+
+export function tf(key: TranslationKey, params: Record<string, string | number>): string {
+  return t(key).replace(/\{(\w+)\}/g, (_, name: string) => String(params[name] ?? `{${name}}`));
+}
+
+function normalizeLanguage(value: string | null): SupportedLanguage | null {
+  if (value === "zh-CN" || value === "zh-TW" || value === "en-US" || value === "ja-JP") {
+    return value;
+  }
+  if (value === "en") return "en-US";
+  return null;
 }

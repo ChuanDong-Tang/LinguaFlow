@@ -33,6 +33,13 @@ export interface AdminRouteDeps {
       count: (args: any) => Promise<number>;
       findMany: (args: any) => Promise<any[]>;
     };
+    ttsAsset: {
+      count: (args: any) => Promise<number>;
+      findMany: (args: any) => Promise<any[]>;
+    };
+    ttsRequestLog: {
+      findMany: (args: any) => Promise<any[]>;
+    };
     adminAuditLog: {
       create: (args: any) => Promise<any>;
     };
@@ -252,9 +259,10 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     const now = new Date();
     const query = req.query as Record<string, unknown>;
+    const runtimeConfig = getRuntimeConfig();
     const clock = {
       serverNowIso: now.toISOString(),
-      businessTimeZone: getRuntimeConfig().quotaTimeZone,
+      businessTimeZone: runtimeConfig.quotaTimeZone,
       businessDateKey: formatDateKeyInTimeZone(now),
     };
     const requestedToDate = readDateKeyQuery(query.toDate);
@@ -262,7 +270,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const toDate = requestedToDate ?? clock.businessDateKey;
     const fromDate = clampFromDateKey(requestedFromDate ?? addDateKeyDays(toDate, -13), toDate, 90);
 
-    const [summaryRows, recentUsage, dailyUserActivity, autoRenewSummary] = await Promise.all([
+    const [summaryRows, recentUsage, dailyUserActivity, dailyTtsUsage, autoRenewSummary] = await Promise.all([
       deps.prisma.$queryRawUnsafe(
         `WITH active_users AS (
            SELECT id FROM "users" WHERE status = 'active'
@@ -417,6 +425,46 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         clock.businessTimeZone
       ),
       deps.prisma.$queryRawUnsafe(
+        `WITH days AS (
+           SELECT generate_series($1::date, $2::date, interval '1 day')::date AS day
+         ),
+         tts_days AS (
+           SELECT
+             to_char("createdAt" AT TIME ZONE $3, 'YYYY-MM-DD') AS "dateKey",
+             status,
+             "sourceTextChars",
+             "cacheHit",
+             "deduped"
+           FROM "tts_request_logs"
+           WHERE "createdAt" >= (($1::date)::timestamp AT TIME ZONE $3)
+             AND "createdAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+         )
+         SELECT
+           to_char(d.day, 'YYYY-MM-DD') AS "dateKey",
+           COALESCE(COUNT(t."dateKey"), 0)::int AS "totalRequests",
+           COALESCE(COUNT(*) FILTER (WHERE t.status = 'success'), 0)::int AS "successRequests",
+           COALESCE(COUNT(*) FILTER (WHERE t.status = 'failed'), 0)::int AS "failedRequests",
+           COALESCE(COUNT(*) FILTER (WHERE t."cacheHit" = true), 0)::int AS "cacheHitRequests",
+           COALESCE(COUNT(*) FILTER (WHERE t."deduped" = true), 0)::int AS "dedupedRequests",
+           COALESCE(COUNT(*) FILTER (
+             WHERE t.status = 'success'
+               AND t."cacheHit" = false
+               AND t."deduped" = false
+           ), 0)::int AS "generatedRequests",
+           COALESCE(SUM(t."sourceTextChars") FILTER (
+             WHERE t.status = 'success'
+               AND t."cacheHit" = false
+               AND t."deduped" = false
+           ), 0)::int AS "generatedChars"
+         FROM days d
+         LEFT JOIN tts_days t ON t."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+         GROUP BY d.day
+         ORDER BY d.day DESC`,
+        fromDate,
+        toDate,
+        clock.businessTimeZone
+      ),
+      deps.prisma.$queryRawUnsafe(
         `SELECT provider, status, COUNT(*)::int AS count
          FROM "auto_renew_subscriptions"
          GROUP BY provider, status
@@ -424,12 +472,28 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       ),
     ]);
 
+    const ttsUsageRows = Array.isArray(dailyTtsUsage) ? dailyTtsUsage as any[] : [];
+    const ttsCost = buildTtsCostSummary({
+      rows: ttsUsageRows,
+      costPerMillionCharsCents: runtimeConfig.ttsCostPerMillionCharsCents,
+      currency: runtimeConfig.ttsCostCurrency,
+    });
+
     const data = {
       clock,
       range: { fromDate, toDate },
       summary: (summaryRows as any[])[0] ?? {},
       recentUsage,
       dailyUserActivity,
+      dailyTtsUsage: ttsUsageRows.map((row) => ({
+        ...row,
+        estimatedCostCents: estimateCostCents(row.generatedChars, runtimeConfig.ttsCostPerMillionCharsCents),
+        estimatedCost: formatMinorCurrency(
+          estimateCostCents(row.generatedChars, runtimeConfig.ttsCostPerMillionCharsCents),
+          runtimeConfig.ttsCostCurrency
+        ),
+      })),
+      ttsCost,
       autoRenewSummary,
     };
 
@@ -903,7 +967,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const pendingCutoff = new Date(now.getTime() - 15 * 60 * 1000);
 
-    const [paymentNotifyFailed24h, pendingBacklog, aiFailed24h, quotaExceeded24h, durations] = await Promise.all([
+    const [paymentNotifyFailed24h, pendingBacklog, aiFailed24h, quotaExceeded24h, ttsFailed24h, durations] = await Promise.all([
       deps.prisma.paymentEvent.count({ where: { status: "failed", createdAt: { gte: last24h } } }),
       deps.prisma.paymentOrder.count({ where: { status: "pending", createdAt: { lt: pendingCutoff } } }),
       deps.prisma.aiRequestLog.count({
@@ -913,6 +977,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         },
       }),
       deps.prisma.aiRequestLog.count({ where: { status: "quota_exceeded", createdAt: { gte: last24h } } }),
+      deps.prisma.ttsAsset.count({ where: { status: "failed", updatedAt: { gte: last24h } } }),
       deps.prisma.aiRequestLog.findMany({
         where: { createdAt: { gte: last24h }, durationMs: { not: null } },
         select: { durationMs: true },
@@ -928,12 +993,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       pendingBacklog,
       aiFailed24h,
       quotaExceeded24h,
+      ttsFailed24h,
       apiP95Ms: p95Ms,
       thresholds: {
         paymentNotifyFailed24h: 0,
         pendingBacklog: 10,
         aiFailed24h: 20,
         quotaExceeded24h: 50,
+        ttsFailed24h: 10,
         apiP95Ms: 3000,
       },
     };
@@ -971,6 +1038,76 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
 
     return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
   });
+
+  app.get("/admin/tts/assets", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const query = req.query as Record<string, unknown>;
+    const userId = typeof query.userId === "string" ? query.userId.trim() : "";
+    const messageId = typeof query.messageId === "string" ? query.messageId.trim() : "";
+    const status = typeof query.status === "string" ? query.status.trim() : "";
+    const languageCode = typeof query.languageCode === "string" ? query.languageCode.trim() : "";
+    const limit = Math.min(200, Math.max(1, Number(query.limit ?? 50)));
+
+    const rows = await deps.prisma.ttsAsset.findMany({
+      where: {
+        ...(userId ? { userId } : {}),
+        ...(messageId ? { messageId } : {}),
+        ...(status ? { status } : {}),
+        ...(languageCode ? { languageCode } : {}),
+      },
+      select: {
+        id: true,
+        userId: true,
+        messageId: true,
+        provider: true,
+        voiceCode: true,
+        languageCode: true,
+        sourceTextHash: true,
+        format: true,
+        status: true,
+        objectKey: true,
+        durationMs: true,
+        errorMessage: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { updatedAt: "desc" },
+      take: limit,
+    });
+
+    return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
+  });
+
+  app.get("/admin/tts/request-logs", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const query = req.query as Record<string, unknown>;
+    const userId = typeof query.userId === "string" ? query.userId.trim() : "";
+    const status = typeof query.status === "string" ? query.status.trim() : "";
+    const cacheHit = typeof query.cacheHit === "string" ? query.cacheHit.trim() : "";
+    const deduped = typeof query.deduped === "string" ? query.deduped.trim() : "";
+    const limit = Math.min(500, Math.max(1, Number(query.limit ?? 100)));
+
+    const rows = await deps.prisma.ttsRequestLog.findMany({
+      where: {
+        ...(userId ? { userId } : {}),
+        ...(status ? { status } : {}),
+        ...(cacheHit === "true" ? { cacheHit: true } : {}),
+        ...(cacheHit === "false" ? { cacheHit: false } : {}),
+        ...(deduped === "true" ? { deduped: true } : {}),
+        ...(deduped === "false" ? { deduped: false } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+
+    return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
+  });
 }
 
 function getNextDayStartInBusinessTimeZone(base: Date): Date {
@@ -1002,6 +1139,66 @@ function clampFromDateKey(fromDate: string, toDate: string, maxDaysInclusive: nu
   const diff = diffDateKeyDays(fromDate, toDate);
   if (diff >= maxDaysInclusive) return addDateKeyDays(toDate, -(maxDaysInclusive - 1));
   return fromDate;
+}
+
+function buildTtsCostSummary(input: {
+  rows: any[];
+  costPerMillionCharsCents: number;
+  currency: string;
+}): {
+  currency: string;
+  costPerMillionCharsCents: number;
+  generatedChars: number;
+  generatedRequests: number;
+  totalRequests: number;
+  successRequests: number;
+  failedRequests: number;
+  cacheHitRequests: number;
+  dedupedRequests: number;
+  estimatedCostCents: number;
+  estimatedCost: string;
+} {
+  const summary = input.rows.reduce(
+    (acc, row) => ({
+      generatedChars: acc.generatedChars + toInt(row.generatedChars),
+      generatedRequests: acc.generatedRequests + toInt(row.generatedRequests),
+      totalRequests: acc.totalRequests + toInt(row.totalRequests),
+      successRequests: acc.successRequests + toInt(row.successRequests),
+      failedRequests: acc.failedRequests + toInt(row.failedRequests),
+      cacheHitRequests: acc.cacheHitRequests + toInt(row.cacheHitRequests),
+      dedupedRequests: acc.dedupedRequests + toInt(row.dedupedRequests),
+    }),
+    {
+      generatedChars: 0,
+      generatedRequests: 0,
+      totalRequests: 0,
+      successRequests: 0,
+      failedRequests: 0,
+      cacheHitRequests: 0,
+      dedupedRequests: 0,
+    }
+  );
+  const estimatedCostCents = estimateCostCents(summary.generatedChars, input.costPerMillionCharsCents);
+  return {
+    currency: input.currency,
+    costPerMillionCharsCents: input.costPerMillionCharsCents,
+    ...summary,
+    estimatedCostCents,
+    estimatedCost: formatMinorCurrency(estimatedCostCents, input.currency),
+  };
+}
+
+function estimateCostCents(chars: unknown, costPerMillionCharsCents: number): number {
+  return Math.round(toInt(chars) * costPerMillionCharsCents / 1_000_000);
+}
+
+function formatMinorCurrency(cents: number, currency: string): string {
+  return `${currency} ${(cents / 100).toFixed(2)}`;
+}
+
+function toInt(value: unknown): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
 }
 
 async function writeAuditLog(

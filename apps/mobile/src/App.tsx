@@ -4,10 +4,11 @@ import * as AuthSession from "expo-auth-session";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { LoginScreen } from "./screens/LoginScreen";
-import { initI18n } from "./i18n";
+import { initI18n, setLanguage, t, tf } from "./i18n";
 import { clearSession, getSession, markForceAuthingLogin } from "./services/auth/authStorage";
 import { clearAccountScopedStorage } from "./services/auth/accountScopedStorage";
 import { confirmDeleteAccount, logout, prepareDeleteAccount } from "./services/api/authApi";
+import { getUserPreference } from "./services/api/meApi";
 import { MainScreen } from "./screens/MainScreen";
 import { MeScreen } from "./screens/MeScreen";
 import { ProScreen } from "./screens/ProScreen";
@@ -85,6 +86,10 @@ export default function App() {
       try {
         await Promise.all([initI18n(), preloadImages(PRELOAD_IMAGES)]);
         const session = await getSession();
+        if (session) {
+          const preference = await getUserPreference().catch(() => null);
+          if (preference) await setLanguage(preference.appLocale);
+        }
         if (!mounted) return;
         setScreen(session ? "main" : "login");
       } catch {
@@ -128,12 +133,12 @@ export default function App() {
 
   async function handleDeleteAccount(): Promise<void> {
     Alert.alert(
-      "注销账号",
-      "注销后当前账号将无法继续使用。再次用同一手机号或邮箱注册，会作为新账号进入。",
+      t("app.delete.title"),
+      t("app.delete.message"),
       [
-        { text: "取消", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "继续",
+          text: t("app.delete.continue"),
           style: "destructive",
           onPress: () => {
             void startDeleteAccountVerification();
@@ -145,7 +150,7 @@ export default function App() {
 
   async function startDeleteAccountVerification(): Promise<void> {
     if (!authingConfigured || !authingDiscovery || !deleteAuthingRequest) {
-      Alert.alert("暂时无法注销", "Authing 登录尚未准备好，请稍后重试");
+      Alert.alert(t("app.delete.unavailable_title"), t("app.delete.unavailable_message"));
       return;
     }
     if (deleteAccountLoading) return;
@@ -153,7 +158,7 @@ export default function App() {
     const session = await getSession();
     const userId = session?.user.id;
     if (!userId) {
-      Alert.alert("请先登录");
+      Alert.alert(t("app.delete.login_required"));
       return;
     }
 
@@ -163,7 +168,7 @@ export default function App() {
       const result = await promptDeleteAuthingAsync();
       if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
       if (result.type !== "success") {
-        Alert.alert("已取消注销验证");
+        Alert.alert(t("app.delete.cancelled"));
         return;
       }
       const tokenResult = await AuthSession.exchangeCodeAsync(
@@ -186,7 +191,7 @@ export default function App() {
       setDeleteAccountVisible(true);
     } catch {
       if (await isCurrentDeleteAccountRun(runId, userId)) {
-        Alert.alert("注销验证失败", "请稍后重试");
+        Alert.alert(t("app.delete.verify_failed_title"), t("app.delete.retry_later"));
       }
     } finally {
       if (await isCurrentDeleteAccountRun(runId, userId)) {
@@ -198,14 +203,14 @@ export default function App() {
   async function submitDeleteAccount(): Promise<void> {
     if (deleteAccountLoading) return;
     if (!deleteAccountAuthingToken || !deleteAccountMethod || !deleteAccountCode.trim()) {
-      Alert.alert("请输入验证码");
+      Alert.alert(t("app.delete.enter_code"));
       return;
     }
 
     const session = await getSession();
     if (!deleteAccountUserId || session?.user.id !== deleteAccountUserId) {
       cancelDeleteAccountFlow();
-      Alert.alert("注销流程已失效", "账号已切换，请重新发起注销");
+      Alert.alert(t("app.delete.expired_title"), t("app.delete.expired_message"));
       return;
     }
 
@@ -225,10 +230,10 @@ export default function App() {
       await clearAccountScopedStorage();
       await markForceAuthingLogin();
       setScreen("login");
-      Alert.alert("账号已注销");
+      Alert.alert(t("app.delete.done"));
     } catch {
       if (await isCurrentDeleteAccountRun(runId, userId)) {
-        Alert.alert("注销失败", "请确认验证码后重试");
+        Alert.alert(t("app.delete.failed_title"), t("app.delete.failed_message"));
       }
     } finally {
       if (await isCurrentDeleteAccountRun(runId, userId)) {
@@ -389,29 +394,29 @@ function DeleteAccountModal({
   onCancel: () => void;
   onSubmit: () => void;
 }) {
-  const channelLabel = method === "EMAIL_PASSCODE" ? "邮箱" : "手机";
+  const channelLabel = method === "EMAIL_PASSCODE" ? t("app.delete.channel.email") : t("app.delete.channel.phone");
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={styles.deleteBackdrop}>
         <View style={styles.deletePanel}>
-          <Text style={styles.deleteTitle}>验证后注销账号</Text>
-          <Text style={styles.deleteDesc}>验证码已发送到{channelLabel} {target}。验证通过后将立即注销账号。</Text>
+          <Text style={styles.deleteTitle}>{t("app.delete.verify_title")}</Text>
+          <Text style={styles.deleteDesc}>{tf("app.delete.verify_desc", { channel: channelLabel, target })}</Text>
           <TextInput
             style={styles.deleteInput}
             value={passCode}
             onChangeText={onChangePassCode}
-            placeholder="验证码"
+            placeholder={t("app.delete.code_placeholder")}
             placeholderTextColor="#8A8E99"
             keyboardType="number-pad"
             editable={!loading}
           />
           <View style={styles.deleteActions}>
             <Pressable style={styles.deleteCancelButton} onPress={onCancel} disabled={loading}>
-              <Text style={styles.deleteCancelText}>取消</Text>
+              <Text style={styles.deleteCancelText}>{t("common.cancel")}</Text>
             </Pressable>
             <Pressable style={[styles.deleteSubmitButton, loading && styles.deleteButtonDisabled]} onPress={onSubmit} disabled={loading}>
-              <Text style={styles.deleteSubmitText}>{loading ? "注销中..." : "确认注销"}</Text>
+              <Text style={styles.deleteSubmitText}>{loading ? t("app.delete.deleting") : t("app.delete.confirm")}</Text>
             </Pressable>
           </View>
         </View>

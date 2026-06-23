@@ -1,9 +1,11 @@
+import { t } from "../../i18n";
+
 export type ChatContactId = "rewrite_assistant" | "english_friend";
 
 export type ChatContact = {
   id: ChatContactId;
-  name: string;
-  description: string;
+  nameKey: "contact.rewrite_assistant.name" | "contact.english_friend.name";
+  descriptionKey: "contact.rewrite_assistant.description" | "contact.english_friend.description";
   avatarLabel: string;
   clozeSource: "tagged_en" | "tagged_en_reply" | "full_text";
   practiceEnabled: boolean;
@@ -12,16 +14,16 @@ export type ChatContact = {
 export const CHAT_CONTACTS: ChatContact[] = [
   {
     id: "rewrite_assistant",
-    name: "好奇笔记",
-    description: "把想说的话，记录下来",
+    nameKey: "contact.rewrite_assistant.name",
+    descriptionKey: "contact.rewrite_assistant.description",
     avatarLabel: "CQN",
     clozeSource: "tagged_en",
     practiceEnabled: true,
   },
   {
     id: "english_friend",
-    name: "好奇宝宝",
-    description: "问一句，顺便学会怎么表达",
+    nameKey: "contact.english_friend.name",
+    descriptionKey: "contact.english_friend.description",
     avatarLabel: "WHY",
     clozeSource: "tagged_en_reply",
     practiceEnabled: true,
@@ -34,4 +36,12 @@ export const PRACTICE_CONTACTS = CHAT_CONTACTS.filter((contact) => contact.pract
 
 export function getChatContact(contactId: string | null | undefined): ChatContact {
   return CHAT_CONTACTS.find((contact) => contact.id === contactId) ?? DEFAULT_CHAT_CONTACT;
+}
+
+export function getChatContactName(contact: Pick<ChatContact, "nameKey">): string {
+  return t(contact.nameKey);
+}
+
+export function getChatContactDescription(contact: Pick<ChatContact, "descriptionKey">): string {
+  return t(contact.descriptionKey);
 }

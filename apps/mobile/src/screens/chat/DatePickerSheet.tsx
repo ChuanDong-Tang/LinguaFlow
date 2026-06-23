@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { t, tf } from "../../i18n";
 
 type DatePickerSheetProps = {
   visible: boolean;
@@ -13,11 +14,22 @@ type DatePickerSheetProps = {
   hasRecordDateKeys: Set<string>;
 };
 
-const WEEK_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
+const WEEK_LABEL_KEYS = [
+  "chat.date.week.sun",
+  "chat.date.week.mon",
+  "chat.date.week.tue",
+  "chat.date.week.wed",
+  "chat.date.week.thu",
+  "chat.date.week.fri",
+  "chat.date.week.sat",
+] as const;
 
 export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, onPrevMonth, onNextMonth, onSelectDate, hasRecordDateKeys }: DatePickerSheetProps) {
   const cells = useMemo(() => buildMonthCells(monthCursor), [monthCursor]);
-  const title = `${monthCursor.getFullYear()}年${monthCursor.getMonth() + 1}月`;
+  const title = tf("chat.date.month_format", {
+    year: monthCursor.getFullYear(),
+    month: monthCursor.getMonth() + 1,
+  });
 
   function renderDayCell(cellDate: Date | null, index: number) {
     if (!cellDate) {
@@ -55,7 +67,7 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
             <Pressable style={styles.closeBtn} onPress={onClose}>
               <Ionicons name="close" size={26} color="#111111" />
             </Pressable>
-            <Text style={styles.title}>选择日期</Text>
+            <Text style={styles.title}>{t("chat.date.select")}</Text>
             <View style={styles.closeBtn} />
           </View>
 
@@ -76,9 +88,9 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
           </View>
 
           <View style={styles.weekRow}>
-            {WEEK_LABELS.map((weekLabel) => (
-              <Text key={weekLabel} style={styles.weekText}>
-                {weekLabel}
+            {WEEK_LABEL_KEYS.map((weekKey) => (
+              <Text key={weekKey} style={styles.weekText}>
+                {t(weekKey)}
               </Text>
             ))}
           </View>

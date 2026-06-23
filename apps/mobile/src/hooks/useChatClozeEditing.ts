@@ -22,6 +22,7 @@ import { isSameChatMessage } from "../services/chat/chatMessageView";
 import { markPracticeStatsDirty } from "../services/chat/chatPracticeSyncState";
 import type { ClozeDeleteState, ClozeEditorState } from "../screens/chat/ClozeControls";
 import type { InfoDialogConfig } from "../screens/shared/InfoDialog";
+import { t } from "../i18n";
 
 type ChatNotice = {
   hide: () => void;
@@ -232,7 +233,7 @@ export function useChatClozeEditing({
   async function confirmDeleteCloze(): Promise<void> {
     if (!clozeDelete) return;
     if (clozeMutatingRef.current) {
-      Alert.alert("正在处理填空，请稍后再试");
+      Alert.alert(t("cloze.processing"));
       return;
     }
     const target = clozeDelete;
@@ -243,7 +244,7 @@ export function useChatClozeEditing({
     const notice = {
       kind: "cloze" as const,
       ...showNotice({
-        message: "正在删除填空...",
+        message: t("cloze.deleting"),
         type: "info",
         position: "top-right",
         durationMs: 0,
@@ -257,8 +258,8 @@ export function useChatClozeEditing({
       syncMachine.setPhase(token, "settling");
       notice.hide();
     } catch (error) {
-      notice.update({ message: "删除失败", type: "warning", durationMs: 1800 });
-      setDialog({ message: "删除填空失败，请稍后重试。" });
+      notice.update({ message: t("cloze.delete_failed"), type: "warning", durationMs: 1800 });
+      setDialog({ message: t("cloze.delete_failed_message") });
     } finally {
       if (syncNoticeRef.current === notice) {
         syncNoticeRef.current = null;
@@ -281,7 +282,7 @@ export function useChatClozeEditing({
   async function confirmClozeEditor(): Promise<void> {
     if (!clozeEditor) return;
     if (clozeMutatingRef.current) {
-      Alert.alert("正在处理填空，请稍后再试");
+      Alert.alert(t("cloze.processing"));
       return;
     }
     const nextState = replaceClozeGroup(
@@ -298,7 +299,7 @@ export function useChatClozeEditing({
     const notice = {
       kind: "cloze" as const,
       ...showNotice({
-        message: "正在保存...",
+        message: t("cloze.saving"),
         type: "info",
         position: "top-right",
         durationMs: 0,
@@ -312,8 +313,8 @@ export function useChatClozeEditing({
       syncMachine.setPhase(token, "settling");
       notice.hide();
     } catch (error) {
-      notice.update({ message: "保存失败", type: "warning", durationMs: 1800 });
-      setDialog({ message: "保存填空失败，请稍后重试。" });
+      notice.update({ message: t("cloze.save_failed"), type: "warning", durationMs: 1800 });
+      setDialog({ message: t("cloze.save_failed_message") });
     } finally {
       if (syncNoticeRef.current === notice) {
         syncNoticeRef.current = null;

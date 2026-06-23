@@ -1,14 +1,24 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Updates from "expo-updates";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession, type AuthSession } from "../services/auth/authStorage";
-import type { CurrentEntitlement } from "../services/api/meApi";
+import {
+  getUserPreference,
+  updateUserPreference,
+  type AppLocale,
+  type CurrentEntitlement,
+  type LearningLanguage,
+  type UserPreference,
+} from "../services/api/meApi";
 import { getCachedEntitlementForUser, isSameEntitlement } from "../services/entitlement/entitlementCache";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
 import { recoverPendingPaymentIfAny } from "../services/payment/paymentRecovery";
 import { useMountedGuard } from "../hooks/useMountedGuard";
+import { setLanguage, t, tf } from "../i18n";
+import { DebugPromptModal } from "./shared/DebugPromptModal";
+import { listTtsVoices, type TtsVoiceOption } from "../services/api/ttsApi";
 
 type MeScreenProps = {
   isActive: boolean;
@@ -24,6 +34,10 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
   const { isMounted } = useMountedGuard();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
+  const [preference, setPreference] = useState<UserPreference | null>(null);
+  const [languageSettingsVisible, setLanguageSettingsVisible] = useState(false);
+  const [devDebugVisible, setDevDebugVisible] = useState(false);
+  const [aiDebugVisible, setAiDebugVisible] = useState(false);
   const [isLoadingEntitlement, setIsLoadingEntitlement] = useState(true);
   const [updatesDebugVisible, setUpdatesDebugVisible] = useState(false);
   const [updatesTapCount, setUpdatesTapCount] = useState(0);
@@ -38,10 +52,14 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
       if (isMounted()) setIsLoadingEntitlement(true);
       await recoverPendingPaymentIfAny();
       const localSession = await getSession();
-      const cached = localSession?.user.id ? await getCachedEntitlementForUser(localSession.user.id) : null;
+      const [cached, localPreference] = await Promise.all([
+        localSession?.user.id ? getCachedEntitlementForUser(localSession.user.id) : Promise.resolve(null),
+        localSession ? getUserPreference().catch(() => null) : Promise.resolve(null),
+      ]);
       if (cancelled || !isMounted()) return;
       setSession(localSession);
       if (cached) setEntitlement(cached.data);
+      if (localPreference) setPreference(localPreference);
       setIsLoadingEntitlement(!cached);
       try {
         const refreshed = await refreshEntitlementAndSessionSafe();
@@ -71,14 +89,14 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
 
   const userName = resolveUserName(session);
   const isAdmin = session?.user.role === "admin";
-  const planLabel = (entitlement?.isPro ?? session?.sessionFlags?.isPro === true) ? "Pro" : "普通版";
-  const quotaTitle = entitlement?.isPro ? "今日字符额度" : "免费字符额度";
-  const quotaLabel = entitlement?.isPro ? "今日剩余" : "剩余额度";
+  const planLabel = (entitlement?.isPro ?? session?.sessionFlags?.isPro === true) ? t("me.plan.pro") : t("me.plan.free");
+  const quotaTitle = entitlement?.isPro ? t("me.quota.pro_title") : t("me.quota.free_title");
+  const quotaLabel = entitlement?.isPro ? t("me.quota.pro_label") : t("me.quota.free_label");
   const quotaResetText = entitlement?.isPro
-    ? "每天 24:00 自动恢复"
+    ? t("me.quota.reset_daily")
     : entitlement?.validUntil
-      ? `有效期至 ${formatDateTime(entitlement.validUntil)}`
-      : "首次使用后 7 天内有效";
+      ? tf("me.quota.valid_until", { time: formatDateTime(entitlement.validUntil) })
+      : t("me.quota.free_valid");
 
   return (
     <SafeAreaView style={styles.container}>
@@ -88,7 +106,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
           setUpdatesTapCount((count) => {
             const next = count + 1;
             if (next >= 6) {
-              setUpdatesDebugVisible(true);
+              setDevDebugVisible(true);
               return 0;
             }
             return next;
@@ -108,7 +126,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
           <View style={styles.quotaRow}>
             <Text style={styles.quotaLabel}>{quotaLabel}</Text>
             <Text style={styles.quotaNumber}>{quota.remainingChars === null ? "--" : formatNumber(quota.remainingChars)}</Text>
-            <Text style={styles.quotaUnit}>字</Text>
+            <Text style={styles.quotaUnit}>{t("me.quota.unit")}</Text>
             {isLoadingEntitlement ? <ActivityIndicator size="small" color="#6E63FF" style={styles.quotaLoading} /> : null}
           </View>
           <View style={styles.progressRow}>
@@ -124,27 +142,61 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
         </View>
 
         <View style={styles.proCard}>
-          <Text style={styles.proTitle}>OIO Pro</Text>
-          <Text style={styles.proSubtitle}>给常练的人多一点空间</Text>
-          {["更多每日字符额度", "云端同步"].map((item) => (
+          <Text style={styles.proTitle}>{t("me.pro.title")}</Text>
+          <Text style={styles.proSubtitle}>{t("me.pro.subtitle")}</Text>
+          {([t("me.pro.benefit.quota"), t("me.pro.benefit.cloud")]).map((item) => (
             <View key={item} style={styles.benefitRow}>
               <Ionicons name="checkmark-circle-outline" size={18} color="#746BFF" />
               <Text style={styles.benefitText}>{item}</Text>
             </View>
           ))}
           <Pressable style={styles.proButton} onPress={onOpenPro}>
-            <Text style={styles.proButtonText}>了解 Pro</Text>
+            <Text style={styles.proButtonText}>{t("me.pro.learn_more")}</Text>
             <Ionicons name="chevron-forward" size={20} color="#111111" />
           </Pressable>
         </View>
 
-        <Text style={styles.sectionTitle}>更多</Text>
+        <Text style={styles.sectionTitle}>{t("me.section.more")}</Text>
         <View style={styles.settingsCard}>
-          <SettingsRow icon="information-circle-outline" label="关于 OIO" onPress={onOpenAbout} />
-          <SettingsRow icon="log-out-outline" label="退出登录" onPress={onLogout} />
-          <SettingsRow icon="person-remove-outline" label="注销账号" onPress={onDeleteAccount} tone="danger" isLast />
+          <SettingsRow
+            icon="language-outline"
+            label={t("me.language_settings")}
+            value={preference ? `${appLocaleLabel(preference.appLocale)} · ${learningLanguageLabel(preference.learningLanguage)}` : undefined}
+            onPress={() => setLanguageSettingsVisible(true)}
+          />
+          <SettingsRow icon="information-circle-outline" label={t("me.about")} onPress={onOpenAbout} />
+          <SettingsRow icon="log-out-outline" label={t("me.logout")} onPress={onLogout} />
+          <SettingsRow icon="person-remove-outline" label={t("me.delete_account")} onPress={onDeleteAccount} tone="danger" isLast />
         </View>
       </ScrollView>
+      <LanguageSettingsModal
+        visible={languageSettingsVisible}
+        preference={preference}
+        onClose={() => setLanguageSettingsVisible(false)}
+        onSave={async (next) => {
+          try {
+            const saved = await updateUserPreference(next);
+            await setLanguage(saved.appLocale);
+            setPreference(saved);
+            setLanguageSettingsVisible(false);
+          } catch {
+            Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
+          }
+        }}
+      />
+      <DeveloperDebugModal
+        visible={devDebugVisible}
+        onClose={() => setDevDebugVisible(false)}
+        onOpenAiDebug={() => {
+          setDevDebugVisible(false);
+          setAiDebugVisible(true);
+        }}
+        onOpenUpdatesDebug={() => {
+          setDevDebugVisible(false);
+          setUpdatesDebugVisible(true);
+        }}
+      />
+      <DebugPromptModal visible={aiDebugVisible} onClose={() => setAiDebugVisible(false)} />
       <UpdatesDebugModal
         visible={updatesDebugVisible}
         runningAction={updatesAction}
@@ -164,6 +216,200 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
         }}
       />
     </SafeAreaView>
+  );
+}
+
+function LanguageSettingsModal({
+  visible,
+  preference,
+  onClose,
+  onSave,
+}: {
+  visible: boolean;
+  preference: UserPreference | null;
+  onClose: () => void;
+  onSave: (next: { appLocale: AppLocale; learningLanguage: LearningLanguage; ttsVoiceCode: string }) => Promise<void>;
+}) {
+  const [appLocale, setAppLocale] = useState<AppLocale>("zh-CN");
+  const [learningLanguage, setLearningLanguage] = useState<LearningLanguage>("en-US");
+  const [ttsVoiceCode, setTtsVoiceCode] = useState("");
+  const [ttsVoiceOptions, setTtsVoiceOptions] = useState<TtsVoiceOption[]>([]);
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const [voiceError, setVoiceError] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const currentLanguageVoiceOptions = ttsVoiceOptions.filter((option) => option.languageCode === learningLanguage);
+  const canSave = !saving && currentLanguageVoiceOptions.some((option) => option.voiceCode === ttsVoiceCode);
+
+  useEffect(() => {
+    if (!visible) return;
+    const nextLearningLanguage = preference?.learningLanguage ?? "en-US";
+    setAppLocale(preference?.appLocale ?? "zh-CN");
+    setLearningLanguage(nextLearningLanguage);
+  }, [preference, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    setVoiceLoading(true);
+    setVoiceError(false);
+    listTtsVoices()
+      .then((options) => {
+        if (cancelled) return;
+        setTtsVoiceOptions(options);
+        setTtsVoiceCode(resolveTtsVoiceCodeForLanguage(options, learningLanguage, preference?.ttsVoiceCode));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTtsVoiceOptions([]);
+        setTtsVoiceCode("");
+        setVoiceError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setVoiceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [learningLanguage, preference?.ttsVoiceCode, visible]);
+
+  async function handleSave(): Promise<void> {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await onSave({ appLocale, learningLanguage, ttsVoiceCode });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.languageBackdrop}>
+        <View style={styles.languagePanel}>
+          <View style={styles.languageHeader}>
+            <Text style={styles.languageTitle}>{t("me.language_settings")}</Text>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#111111" />
+            </Pressable>
+          </View>
+          <Text style={styles.languageFieldTitle}>{t("me.language.app_locale")}</Text>
+          <View style={styles.languageOptionGrid}>
+            {APP_LOCALE_OPTIONS.map((option) => (
+              <OptionChip
+                key={option.value}
+                label={t(option.labelKey)}
+                active={appLocale === option.value}
+                onPress={() => setAppLocale(option.value)}
+              />
+            ))}
+          </View>
+          <Text style={styles.languageFieldTitle}>{t("me.language.learning")}</Text>
+          <Text style={styles.languageHint}>{t("me.language.hint")}</Text>
+          <View style={styles.languageOptionGrid}>
+            {LEARNING_LANGUAGE_OPTIONS.map((option) => (
+              <OptionChip
+                key={option.value}
+                label={t(option.labelKey)}
+                active={learningLanguage === option.value}
+                onPress={() => {
+                  setLearningLanguage(option.value);
+                  setTtsVoiceCode(resolveTtsVoiceCodeForLanguage(ttsVoiceOptions, option.value, null));
+                }}
+              />
+            ))}
+          </View>
+          <Text style={styles.languageFieldTitle}>{t("me.language.tts_voice")}</Text>
+          <Text style={styles.languageHint}>{t("me.language.tts_voice_hint")}</Text>
+          <View style={styles.languageOptionGrid}>
+            {voiceLoading ? <ActivityIndicator size="small" color="#1F6FEB" /> : null}
+            {voiceError ? <Text style={styles.languageHint}>{t("tts.error.failed")}</Text> : null}
+            {!voiceLoading && !voiceError && currentLanguageVoiceOptions.map((option) => (
+              <VoiceOptionChip
+                key={option.voiceCode}
+                languageLabel={learningLanguageLabel(option.languageCode as LearningLanguage)}
+                label={option.label}
+                active={ttsVoiceCode === option.voiceCode}
+                onPress={() => setTtsVoiceCode(option.voiceCode)}
+              />
+            ))}
+          </View>
+          <View style={styles.languageActions}>
+            <Pressable style={styles.languageCancelButton} onPress={onClose} disabled={saving}>
+              <Text style={styles.languageCancelText}>{t("common.cancel")}</Text>
+            </Pressable>
+            <Pressable style={[styles.languageSaveButton, !canSave && styles.languageButtonDisabled]} onPress={() => void handleSave()} disabled={!canSave}>
+              <Text style={styles.languageSaveText}>{saving ? t("common.saving") : t("common.save")}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function VoiceOptionChip({
+  languageLabel,
+  label,
+  active,
+  onPress,
+}: {
+  languageLabel: string;
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.voiceOptionChip, active && styles.languageOptionChipActive]} onPress={onPress}>
+      <Text style={[styles.voiceOptionTag, active && styles.voiceOptionTagActive]}>{languageLabel}</Text>
+      <Text style={[styles.voiceOptionText, active && styles.languageOptionTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function DeveloperDebugModal({
+  visible,
+  onClose,
+  onOpenAiDebug,
+  onOpenUpdatesDebug,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onOpenAiDebug: () => void;
+  onOpenUpdatesDebug: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.languageBackdrop}>
+        <View style={styles.devDebugPanel}>
+          <View style={styles.languageHeader}>
+            <Text style={styles.languageTitle}>开发调试</Text>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#111111" />
+            </Pressable>
+          </View>
+          <View style={styles.settingsCard}>
+            <SettingsRow icon="sparkles-outline" label="AI 调试设置" onPress={onOpenAiDebug} />
+            <SettingsRow icon="cloud-download-outline" label="EAS Update 诊断" onPress={onOpenUpdatesDebug} isLast />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function OptionChip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.languageOptionChip, active && styles.languageOptionChipActive]} onPress={onPress}>
+      <Text style={[styles.languageOptionText, active && styles.languageOptionTextActive]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -237,12 +483,14 @@ function DebugButton({ label, disabled, onPress }: { label: string; disabled: bo
 function SettingsRow({
   icon,
   label,
+  value,
   onPress,
   isLast,
   tone = "default",
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
+  value?: string;
   onPress: () => void | Promise<void>;
   isLast?: boolean;
   tone?: "default" | "danger";
@@ -253,9 +501,44 @@ function SettingsRow({
     <Pressable style={[styles.settingsRow, !isLast && styles.settingsRowBorder]} onPress={onPress}>
       <Ionicons name={icon} size={20} color={color} />
       <Text style={[styles.settingsLabel, tone === "danger" && styles.settingsLabelDanger]}>{label}</Text>
+      {value ? <Text style={styles.settingsValue} numberOfLines={1}>{value}</Text> : null}
       <Ionicons name="chevron-forward" size={18} color={color} />
     </Pressable>
   );
+}
+
+const APP_LOCALE_OPTIONS: Array<{ value: AppLocale; labelKey: Parameters<typeof t>[0] }> = [
+  { value: "zh-CN", labelKey: "language.zh_cn" },
+  { value: "zh-TW", labelKey: "language.zh_tw" },
+  { value: "en-US", labelKey: "language.en_us" },
+  { value: "ja-JP", labelKey: "language.ja_jp" },
+];
+
+const LEARNING_LANGUAGE_OPTIONS: Array<{ value: LearningLanguage; labelKey: Parameters<typeof t>[0] }> = [
+  { value: "en-US", labelKey: "learning.en_us" },
+  { value: "ja-JP", labelKey: "learning.ja_jp" },
+];
+
+function resolveTtsVoiceCodeForLanguage(
+  options: TtsVoiceOption[],
+  languageCode: LearningLanguage,
+  voiceCode: string | null | undefined
+): string {
+  const languageOptions = options.filter((option) => option.languageCode === languageCode);
+  if (voiceCode && languageOptions.some((option) => option.voiceCode === voiceCode)) {
+    return voiceCode;
+  }
+  return languageOptions.find((option) => option.isDefault)?.voiceCode ?? languageOptions[0]?.voiceCode ?? "";
+}
+
+function appLocaleLabel(value: AppLocale): string {
+  const option = APP_LOCALE_OPTIONS.find((item) => item.value === value) ?? APP_LOCALE_OPTIONS[0];
+  return t(option.labelKey);
+}
+
+function learningLanguageLabel(value: LearningLanguage): string {
+  const option = LEARNING_LANGUAGE_OPTIONS.find((item) => item.value === value) ?? LEARNING_LANGUAGE_OPTIONS[0];
+  return t(option.labelKey);
 }
 
 function formatNumber(value: number): string {
@@ -518,8 +801,143 @@ const styles = StyleSheet.create({
     color: "#111111",
     fontSize: 15,
   },
+  settingsValue: {
+    maxWidth: 160,
+    marginRight: 8,
+    color: "#7E8491",
+    fontSize: 13,
+  },
   settingsLabelDanger: {
     color: "#C43D3D",
+  },
+  languageBackdrop: {
+    flex: 1,
+    paddingHorizontal: 18,
+    backgroundColor: "rgba(0,0,0,0.32)",
+    justifyContent: "center",
+  },
+  languagePanel: {
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+  },
+  devDebugPanel: {
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+  },
+  languageHeader: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  languageTitle: {
+    flex: 1,
+    color: "#111111",
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  languageFieldTitle: {
+    marginTop: 16,
+    color: "#343A45",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  languageHint: {
+    marginTop: 6,
+    color: "#7E8491",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  languageOptionGrid: {
+    marginTop: 10,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  languageOptionChip: {
+    minHeight: 38,
+    minWidth: 90,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DFE3EA",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  languageOptionChipActive: {
+    borderColor: "#111111",
+    backgroundColor: "#111111",
+  },
+  languageOptionText: {
+    color: "#5D6470",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  languageOptionTextActive: {
+    color: "#FFFFFF",
+  },
+  voiceOptionChip: {
+    minHeight: 48,
+    minWidth: 124,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DFE3EA",
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+  },
+  voiceOptionTag: {
+    color: "#7E8491",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  voiceOptionTagActive: {
+    color: "rgba(255,255,255,0.72)",
+  },
+  voiceOptionText: {
+    marginTop: 2,
+    color: "#343A45",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  languageActions: {
+    marginTop: 16,
+    flexDirection: "row",
+    gap: 10,
+  },
+  languageCancelButton: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D8DAE0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  languageSaveButton: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#111111",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  languageButtonDisabled: {
+    opacity: 0.62,
+  },
+  languageCancelText: {
+    color: "#111111",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  languageSaveText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
   },
   updatesDebugBackdrop: {
     flex: 1,

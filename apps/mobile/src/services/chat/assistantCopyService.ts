@@ -3,15 +3,16 @@ import type { AutoCopyMode } from "../preferences/assistantPreferences";
 import { copyTextToClipboard } from "../device/clipboardService";
 import type { ChatContactId } from "../../domain/chat/contacts";
 import { parseTaggedRewrite } from "../../domain/rewrite/taggedRewrite";
+import { t } from "../../i18n";
 
 export async function copyAssistantText(text: string, silent = false): Promise<void> {
   try {
     const ok = await copyTextToClipboard(text);
     if (!ok && !silent) {
-      Alert.alert("没有可复制的内容");
+      Alert.alert(t("common.copy.empty"));
     }
   } catch {
-    Alert.alert("复制失败", "请稍后重试，或手动选择内容复制。");
+    Alert.alert(t("common.copy.failed_title"), t("common.copy.failed_message"));
   }
 }
 

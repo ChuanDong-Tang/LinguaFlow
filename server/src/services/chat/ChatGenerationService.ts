@@ -13,6 +13,7 @@ import type {
 import type { ChatGenerationRateLimiter } from "./ChatGenerationRateLimiter.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository.js";
+import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 
 type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
   userId: string;
@@ -37,6 +38,7 @@ export class ChatGenerationService {
     private readonly aiRequestLogRepository: AiRequestLogRepository,
     private readonly rateLimiter: ChatGenerationRateLimiter,
     private readonly conversationRepository: ConversationRepository,
+    private readonly userPreferenceRepository: UserPreferenceRepository,
   ) {}
   
   async generateChatStream(
@@ -48,6 +50,7 @@ export class ChatGenerationService {
     let quotaDateKey: string | undefined;
     let effectiveProvider = this.aiProvider.providerName;
     let effectiveModel = this.aiProvider.modelName;
+    const resolvedLanguage = await this.resolveLearningLanguage(input.userId);
     try {
       effectiveProvider = this.aiProvider.resolveProviderName?.(input.provider) ?? this.aiProvider.providerName;
       effectiveModel = this.aiProvider.resolveModelName?.(input) ?? this.aiProvider.modelName;
@@ -180,6 +183,7 @@ export class ChatGenerationService {
           contactId: input.contactId,
           provider: input.provider,
           model: input.model,
+          languageCode: resolvedLanguage,
           systemPrompt: input.systemPrompt,
           signal: input.signal,
         },
@@ -195,7 +199,7 @@ export class ChatGenerationService {
       );
       const totalChars = input.text.length + assistantText.length;
       const assistantMessage = shouldPersist
-        ? await this.createPersistedAssistantMessage(input, assistantText)
+        ? await this.createPersistedAssistantMessage(input, assistantText, resolvedLanguage)
         : undefined;
       try {
         // 输出长度由模型决定；用户只要有额度发起本轮，就让回复完整返回，最终扣费最多扣到当日上限。
@@ -246,15 +250,22 @@ export class ChatGenerationService {
 
   private async createPersistedAssistantMessage(
     input: ChatGenerationStreamServiceInput,
-    assistantText: string
+    assistantText: string,
+    languageCode: string
   ): Promise<MessageView> {
     await this.chatMessageService.markUserMessageSuccess(input.userMessageId!);
     return this.chatMessageService.createAssistantMessage(
       input.conversationId!,
       input.userId,
       assistantText,
-      input.userMessageId!
+      input.userMessageId!,
+      languageCode
     );
+  }
+
+  private async resolveLearningLanguage(userId: string): Promise<string> {
+    const preference = await this.userPreferenceRepository.getByUserId(userId);
+    return preference.learningLanguage;
   }
 
   private async logFailedAiRequest(

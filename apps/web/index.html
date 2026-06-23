@@ -437,6 +437,32 @@
             <div class="section">
               <div class="section-head">
                 <div>
+                  <h2 class="section-title">TTS 成本估算</h2>
+                  <p class="section-subtitle">仅按真实新生成的成功请求估算：success 且 cacheHit=false 且 deduped=false。缓存命中和并发复用不计 Azure 生成成本。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>日期</th>
+                      <th>总请求</th>
+                      <th>成功</th>
+                      <th>失败</th>
+                      <th>新生成</th>
+                      <th>生成字符</th>
+                      <th>估算成本</th>
+                      <th>缓存命中</th>
+                      <th>并发复用</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ttsCostTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
                   <h2 class="section-title">额度记录概览</h2>
                   <p class="section-subtitle">Pro 按 entitlements.dateKey 归档；普通用户 free_trial 是累计池，当前只展示累计已用，不是每日差值。</p>
                 </div>
@@ -901,6 +927,7 @@
       function renderOverview(data) {
         const summary = data.summary || {};
         const todayActivity = (data.dailyUserActivity || [])[0] || {};
+        const ttsCost = data.ttsCost || {};
         $("overviewClock").textContent = data.clock
           ? `${data.range?.fromDate || ""} 至 ${data.range?.toDate || ""} · ${data.clock.businessTimeZone} · ${fmtDate(data.clock.serverNowIso)}`
           : "未加载";
@@ -917,6 +944,10 @@
           ["Pro 用满", summary.todayProQuotaFullUsers, "daily quota"],
           ["免费用满", summary.todayFreeQuotaFullUsers, "free trial"],
           ["Pro 占比", percent(summary.proUsers, summary.totalUsers), "current"],
+          ["TTS 估算成本", ttsCost.estimatedCost || "USD 0.00", `rate ${ttsCost.costPerMillionCharsCents ?? 0} cents / 1M chars`],
+          ["TTS 生成字符", ttsCost.generatedChars, "new synthesis only"],
+          ["TTS 新生成", ttsCost.generatedRequests, "cache/dedupe excluded"],
+          ["TTS 缓存/复用", `${ttsCost.cacheHitRequests ?? 0} / ${ttsCost.dedupedRequests ?? 0}`, "cacheHit / deduped"],
         ];
         $("metrics").innerHTML = cards.map(([label, value, hint]) => `
           <div class="metric">
@@ -955,6 +986,19 @@
             <td>${escapeHtml(row.avgMessageCharsPerUsingUser)}</td>
           </tr>
         `).join("") || rowEmpty(8);
+        $("ttsCostTbody").innerHTML = (data.dailyTtsUsage || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.dateKey)}</td>
+            <td>${escapeHtml(row.totalRequests)}</td>
+            <td>${escapeHtml(row.successRequests)}</td>
+            <td>${escapeHtml(row.failedRequests)}</td>
+            <td>${escapeHtml(row.generatedRequests)}</td>
+            <td>${escapeHtml(row.generatedChars)}</td>
+            <td>${escapeHtml(row.estimatedCost)}</td>
+            <td>${escapeHtml(row.cacheHitRequests)}</td>
+            <td>${escapeHtml(row.dedupedRequests)}</td>
+          </tr>
+        `).join("") || rowEmpty(9);
       }
 
       function percent(part, total) {

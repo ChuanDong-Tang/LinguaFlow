@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import Constants from "expo-constants";
+import { t } from "../i18n";
 
 export function getAppVersionText() {
   const version =
@@ -27,7 +28,7 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
         <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
           <Ionicons name="chevron-back" size={24} color="#111111" />
         </Pressable>
-        <Text style={styles.headerTitle}>关于 OIO</Text>
+        <Text style={styles.headerTitle}>{t("about.title")}</Text>
         <View style={styles.backButton} />
       </View>
 
@@ -36,23 +37,23 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
           <Image source={require("../../assets/app/logo.png")} style={styles.logoImage} resizeMode="contain" />
         </View>
 
-        <SectionCard title="联系方式">
-          <InfoRow icon="globe-outline" label="官方网站" value="www.yueyantech.com" onPress={() => openUrl("https://yueyantech.com")} />
+        <SectionCard title={t("about.contact")}>
+          <InfoRow icon="globe-outline" label={t("about.website")} value="www.yueyantech.com" onPress={() => openUrl("https://yueyantech.com")} />
           <InfoRow
             icon="create-outline"
-            label="意见反馈"
+            label={t("about.feedback")}
             value="contact@yueyantech.com"
           />
         </SectionCard>
 
-        <SectionCard title="更多信息">
-          <InfoRow icon="information-circle-outline" label="当前版本" value={getAppVersionText()} />
-          <InfoRow icon="shield-outline" label="隐私政策" value="" onPress={() => openUrl(PRIVACY_URL)} />
-          <InfoRow icon="document-text-outline" label="用户协议" value="" onPress={() => openUrl(TERMS_URL)} isLast />
+        <SectionCard title={t("about.more")}>
+          <InfoRow icon="information-circle-outline" label={t("about.version")} value={getAppVersionText()} />
+          <InfoRow icon="shield-outline" label={t("about.privacy")} value="" onPress={() => openUrl(PRIVACY_URL)} />
+          <InfoRow icon="document-text-outline" label={t("about.terms")} value="" onPress={() => openUrl(TERMS_URL)} isLast />
         </SectionCard>
 
-        <Text style={styles.footer}>© 2026 跃言科技 版权所有</Text>
-        <Text style={styles.footer}>ICP备案号: 浙ICP备2026035182号-2A</Text>
+        <Text style={styles.footer}>{t("about.footer.copyright")}</Text>
+        <Text style={styles.footer}>{t("about.footer.icp")}</Text>
       </ScrollView>
     </SafeAreaView>
   );

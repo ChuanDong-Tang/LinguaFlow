@@ -88,7 +88,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       if (authingConfigured) {
         if (!authingRequest || !authingDiscovery) {
           if (!isMounted()) return;
-          setStatusText("Authing 登录尚未准备好，请稍后重试");
+          setStatusText(t("app.delete.unavailable_message"));
           return;
         }
         const result = await promptAuthingAsync();
@@ -97,7 +97,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           await logEvent("authing_oauth_cancelled", "warn", result.type, {
             redirectUri: authingRedirectUri,
           });
-          setStatusText("已取消登录");
+          setStatusText(t("auth.login.failed"));
           return;
         }
         if (typeof result.params.error === "string" && result.params.error) {
@@ -117,7 +117,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             params: Object.keys(result.params),
             redirectUri: authingRedirectUri,
           });
-          setStatusText("Authing 登录未返回授权码，请稍后重试");
+          setStatusText(t("auth.login.failed"));
           return;
         }
         const tokenResult = await AuthSession.exchangeCodeAsync(
@@ -192,7 +192,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               style={styles.testLoginInput}
               value={testAccount}
               onChangeText={setTestAccount}
-              placeholder="用户名"
+              placeholder={t("auth.login.username")}
               placeholderTextColor="#8A8E99"
               autoCapitalize="none"
               autoCorrect={false}
@@ -202,7 +202,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               style={styles.testLoginInput}
               value={testPassword}
               onChangeText={setTestPassword}
-              placeholder="密码"
+              placeholder={t("auth.login.password")}
               placeholderTextColor="#8A8E99"
               secureTextEntry
               editable={!loading}
@@ -215,7 +215,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           onPress={handlePrimaryLogin}
           disabled={loading}
         >
-          <Text style={styles.loginText}>{loading ? "登录中..." : "登录"}</Text>
+          <Text style={styles.loginText}>{loading ? t("auth.login.loading") : t("auth.login.button")}</Text>
         </Pressable>
 
         <Animated.View
@@ -259,8 +259,8 @@ function normalizeLoginError(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : fallback;
 
   // 后端枚举迁移期间的报错对用户不可读，这里转成稳定提示。
-  if (message.includes("invalid input value for enum")) return "登录服务配置正在更新，请稍后重试";
-  if (message.length > 90) return "登录失败，请稍后重试";
+  if (message.includes("invalid input value for enum")) return t("auth.login.failed");
+  if (message.length > 90) return t("auth.login.failed");
   return message || fallback;
 }
 

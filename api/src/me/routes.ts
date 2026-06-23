@@ -1,11 +1,21 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type {
+  AppLocale,
+  LearningLanguage,
+  TtsProviderCode,
+  UserPreferenceEntity,
+  UserPreferenceRepository,
+} from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import type { EntitlementService } from "@lf/server/services/entitlement/EntitlementService.js";
 import type { SubscriptionService } from "@lf/server/services/subscription/SubscriptionService.js";
 import type { PaymentEntitlementRefreshService } from "@lf/server/services/payment/PaymentEntitlementRefreshService.js";
+import { isConfiguredTtsVoice, resolveDefaultTtsVoice } from "@lf/server/services/tts/TtsVoiceCatalog.js";
 import {
   AccountDisabledError,
+  AccountPendingDeleteError,
   resolveActiveUserContext,
   UnauthorizedError,
+  type UserContext,
 } from "../auth/userContext.js";
 import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
@@ -16,6 +26,7 @@ export interface MeRouteDeps {
   subscriptionService: SubscriptionService;
   entitlementService: EntitlementService;
   paymentEntitlementRefreshService: PaymentEntitlementRefreshService;
+  userPreferenceRepository: UserPreferenceRepository;
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
@@ -25,11 +36,96 @@ export interface MeRouteDeps {
   systemEventLogRepository?: SystemEventLogWriter;
 }
 
+type UpdatePreferencesBody = {
+  appLocale?: AppLocale;
+  learningLanguage?: LearningLanguage;
+  ttsProvider?: TtsProviderCode;
+  ttsVoiceCode?: string | null;
+};
+
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
 export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void {
+  app.get("/me/preferences", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/preferences");
+    if (!userContext) return;
+
+    const preference = await deps.userPreferenceRepository.getByUserId(userContext.userId);
+
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: toPreferenceResponse(preference),
+    });
+  });
+
+  app.put("/me/preferences", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const body = req.body as unknown;
+    if (!isUpdatePreferencesBody(body)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid preferences payload" },
+      });
+    }
+
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/preferences");
+    if (!userContext) return;
+
+    const currentPreference = await deps.userPreferenceRepository.getByUserId(userContext.userId);
+    const nextProvider = body.ttsProvider ?? currentPreference.ttsProvider;
+    const nextLearningLanguage = body.learningLanguage ?? currentPreference.learningLanguage;
+    const requestedTtsVoiceCode = typeof body.ttsVoiceCode === "string" ? body.ttsVoiceCode.trim() : body.ttsVoiceCode;
+    const nextTtsVoiceCode = resolveNextTtsVoiceCode({
+      currentVoiceCode: currentPreference.ttsVoiceCode,
+      requestedVoiceCode: requestedTtsVoiceCode,
+      provider: nextProvider,
+      learningLanguage: nextLearningLanguage,
+      shouldNormalizeExisting:
+        body.learningLanguage !== undefined ||
+        body.ttsProvider !== undefined ||
+        body.ttsVoiceCode !== undefined,
+    });
+    if (
+      nextTtsVoiceCode &&
+      !isConfiguredTtsVoice({
+        provider: nextProvider,
+        languageCode: nextLearningLanguage,
+        voiceCode: nextTtsVoiceCode,
+      })
+    ) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "TTS voice does not match learning language" },
+      });
+    }
+
+    const preference = await deps.userPreferenceRepository.upsert({
+      userId: userContext.userId,
+      appLocale: body.appLocale,
+      learningLanguage: body.learningLanguage,
+      ttsProvider: body.ttsProvider,
+      ttsVoiceCode: body.ttsVoiceCode !== undefined || nextTtsVoiceCode !== currentPreference.ttsVoiceCode
+        ? nextTtsVoiceCode
+        : undefined,
+    });
+
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: toPreferenceResponse(preference),
+    });
+  });
+
   app.get("/me/subscription", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
@@ -228,4 +324,124 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       });
     }
   });
+}
+
+async function resolveMeUserContext(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  deps: MeRouteDeps,
+  requestId: string,
+  path: string
+): Promise<UserContext | null> {
+  try {
+    return await resolveActiveUserContext({
+      authorization: firstHeaderValue(req.headers.authorization),
+      userRepository: deps.userRepository,
+    });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      await reply.status(401).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: error.code, message: error.message },
+      });
+      return null;
+    }
+    if (error instanceof AccountDisabledError) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.account_disabled",
+        level: "warn",
+        status: "failed",
+        errorCode: "ACCOUNT_DISABLED",
+        metadata: { path },
+      });
+      await reply.status(403).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: error.code, message: error.message },
+      });
+      return null;
+    }
+    if (error instanceof AccountPendingDeleteError) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.account_pending_delete",
+        level: "warn",
+        status: "failed",
+        errorCode: "ACCOUNT_PENDING_DELETE",
+        metadata: { path },
+      });
+      await reply.status(403).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: error.code, message: error.message },
+      });
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody {
+  if (!value || typeof value !== "object") return false;
+  const body = value as Record<string, unknown>;
+  const keys = ["appLocale", "learningLanguage", "ttsProvider", "ttsVoiceCode"];
+  if (!Object.keys(body).some((key) => keys.includes(key))) return false;
+
+  return (
+    (body.appLocale === undefined || isAppLocale(body.appLocale)) &&
+    (body.learningLanguage === undefined || isLearningLanguage(body.learningLanguage)) &&
+    (body.ttsProvider === undefined || body.ttsProvider === "azure_global") &&
+    (body.ttsVoiceCode === undefined ||
+      body.ttsVoiceCode === null ||
+      (typeof body.ttsVoiceCode === "string" &&
+        body.ttsVoiceCode.trim().length > 0 &&
+        body.ttsVoiceCode.length <= 120))
+  );
+}
+
+function isAppLocale(value: unknown): value is AppLocale {
+  return value === "zh-CN" || value === "zh-TW" || value === "en-US" || value === "ja-JP";
+}
+
+function isLearningLanguage(value: unknown): value is LearningLanguage {
+  return value === "en-US" || value === "ja-JP";
+}
+
+function resolveNextTtsVoiceCode(input: {
+  currentVoiceCode: string | null;
+  requestedVoiceCode: string | null | undefined;
+  provider: TtsProviderCode;
+  learningLanguage: LearningLanguage;
+  shouldNormalizeExisting: boolean;
+}): string | null {
+  if (input.requestedVoiceCode !== undefined) return input.requestedVoiceCode;
+  if (!input.shouldNormalizeExisting) return input.currentVoiceCode;
+  if (
+    input.currentVoiceCode &&
+    isConfiguredTtsVoice({
+      provider: input.provider,
+      languageCode: input.learningLanguage,
+      voiceCode: input.currentVoiceCode,
+    })
+  ) {
+    return input.currentVoiceCode;
+  }
+  return resolveDefaultTtsVoice(input.learningLanguage, input.provider);
+}
+
+function toPreferenceResponse(preference: UserPreferenceEntity) {
+  return {
+    userId: preference.userId,
+    appLocale: preference.appLocale,
+    learningLanguage: preference.learningLanguage,
+    ttsProvider: preference.ttsProvider,
+    ttsVoiceCode: preference.ttsVoiceCode,
+    createdAt: preference.createdAt.toISOString(),
+    updatedAt: preference.updatedAt.toISOString(),
+  };
 }

@@ -15,7 +15,7 @@ export function getAssistantClozeText(
 
   if (contact.clozeSource === "tagged_en_reply") {
     return {
-      text: tagged.en || (tagged.reply ? "" : message.text),
+      text: tagged.rewrite || (tagged.reply ? "" : message.text),
       translation: tagged.reply,
     };
   }
@@ -25,7 +25,7 @@ export function getAssistantClozeText(
   }
 
   return {
-    text: tagged.en,
-    translation: tagged.zh,
+    text: tagged.rewrite,
+    translation: tagged.note,
   };
 }

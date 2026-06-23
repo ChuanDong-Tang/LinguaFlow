@@ -8,6 +8,7 @@ export interface ChatTextGenerationInput{
     userId: string;
     text: string;
     contactId?: string;
+    languageCode?: string;
     provider?: string;
     model?: string;
     systemPrompt?: string;

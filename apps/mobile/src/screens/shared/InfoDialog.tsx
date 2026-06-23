@@ -1,5 +1,6 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { t } from "../../i18n";
 
 export type InfoDialogConfig = {
   message: string;
@@ -29,7 +30,7 @@ export function InfoDialog({ config, onClose }: { config: InfoDialogConfig | nul
             </Pressable>
           ) : null}
           <Pressable style={[styles.button, styles.confirmButton]} onPress={() => closeThen(config.onConfirm)}>
-            <Text style={styles.confirmText}>{config.confirmText ?? "确定"}</Text>
+            <Text style={styles.confirmText}>{config.confirmText ?? t("common.confirm")}</Text>
           </Pressable>
         </View>
       </View>

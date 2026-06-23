@@ -3,6 +3,7 @@ import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatContact } from "../../domain/chat/contacts";
 import type { AutoCopyMode } from "../../services/preferences/assistantPreferences";
+import { t } from "../../i18n";
 
 type AutoCopySheetProps = {
   visible: boolean;
@@ -23,16 +24,16 @@ type AutoCopyOption = {
 function getAutoCopyOptions(contact: ChatContact): AutoCopyOption[] {
   if (contact.id === "english_friend") {
     return [
-      { mode: "en", label: "复制问题", description: "自动复制改写后的用户问题" },
-      { mode: "zh", label: "复制回复", description: "自动复制 AI 的自然回复" },
-      { mode: "both", label: "两个都复制", description: "问题和回复一起复制" },
+      { mode: "en", label: t("chat.autocopy.copy_question"), description: t("chat.autocopy.copy_question_desc") },
+      { mode: "zh", label: t("chat.autocopy.copy_reply"), description: t("chat.autocopy.copy_reply_desc") },
+      { mode: "both", label: t("chat.autocopy.copy_both"), description: t("chat.autocopy.copy_both_question_desc") },
     ];
   }
 
   return [
-    { mode: "en", label: "复制表达", description: "自动复制改写后的表达" },
-    { mode: "zh", label: "复制解释", description: "自动复制说明内容" },
-    { mode: "both", label: "两个都复制", description: "表达和解释一起复制" },
+    { mode: "en", label: t("chat.autocopy.copy_expression"), description: t("chat.autocopy.copy_expression_desc") },
+    { mode: "zh", label: t("chat.autocopy.copy_note"), description: t("chat.autocopy.copy_note_desc") },
+    { mode: "both", label: t("chat.autocopy.copy_both"), description: t("chat.autocopy.copy_both_expression_desc") },
   ];
 }
 
@@ -53,8 +54,8 @@ export function AutoCopySheet({
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>自动复制</Text>
-              <Text style={styles.subtitle}>回复完成后复制哪些内容</Text>
+              <Text style={styles.title}>{t("chat.autocopy.title")}</Text>
+              <Text style={styles.subtitle}>{t("chat.autocopy.subtitle")}</Text>
             </View>
             <Pressable style={styles.closeButton} hitSlop={8} onPress={onClose}>
               <Ionicons name="close" size={20} color="#111111" />
@@ -63,9 +64,9 @@ export function AutoCopySheet({
 
           <View style={styles.toggleRow}>
             <View style={styles.toggleTextWrap}>
-              <Text style={styles.toggleLabel}>回复后自动复制</Text>
+              <Text style={styles.toggleLabel}>{t("chat.autocopy.toggle")}</Text>
               <Text style={styles.toggleDescription}>
-                关闭后，回复完成时不会自动写入剪贴板
+                {t("chat.autocopy.desc")}
               </Text>
             </View>
             <Switch

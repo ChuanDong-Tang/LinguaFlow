@@ -34,6 +34,27 @@ export type RefreshEntitlementResult = {
   };
 };
 
+export type AppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
+export type LearningLanguage = "en-US" | "ja-JP";
+export type TtsProviderCode = "azure_global";
+
+export type UserPreference = {
+  userId: string;
+  appLocale: AppLocale;
+  learningLanguage: LearningLanguage;
+  ttsProvider: TtsProviderCode;
+  ttsVoiceCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UpdateUserPreferenceInput = Partial<{
+  appLocale: AppLocale;
+  learningLanguage: LearningLanguage;
+  ttsProvider: TtsProviderCode;
+  ttsVoiceCode: string | null;
+}>;
+
 export async function getCurrentEntitlement(): Promise<CurrentEntitlement> {
   const res = await fetch(`${BASE_URL}/me/entitlement`, {
     headers: await getAuthHeaders(),
@@ -54,6 +75,37 @@ export async function refreshCurrentEntitlement(): Promise<RefreshEntitlementRes
   });
 
   const json = (await res.json()) as ApiResult<RefreshEntitlementResult>;
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+
+  return json.data;
+}
+
+export async function getUserPreference(): Promise<UserPreference> {
+  const res = await fetch(`${BASE_URL}/me/preferences`, {
+    headers: await getAuthHeaders(),
+  });
+
+  const json = (await res.json()) as ApiResult<UserPreference>;
+  if (!json.ok) {
+    throw new Error(json.error.message);
+  }
+
+  return json.data;
+}
+
+export async function updateUserPreference(input: UpdateUserPreferenceInput): Promise<UserPreference> {
+  const res = await fetch(`${BASE_URL}/me/preferences`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await getAuthHeaders()),
+    },
+    body: JSON.stringify(input),
+  });
+
+  const json = (await res.json()) as ApiResult<UserPreference>;
   if (!json.ok) {
     throw new Error(json.error.message);
   }

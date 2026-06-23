@@ -6,10 +6,7 @@ import type {
 } from "@lf/core/ports/ai/AIProvider.js";
 
 import {
-  DEFAULT_REWRITE_SYSTEM_PROMPT,
-  ENGLISH_FRIEND_SYSTEM_PROMPT,
-  buildEnglishFriendUserPrompt,
-  buildRewriteUserPrompt,
+  getPromptProfile,
 } from "@lf/core/Prompts/rewriteAssistantPrompt.js";
 
 /** DeepSeekAIProvider：调用 DeepSeek 流式接口实现改写能力。 */
@@ -61,9 +58,13 @@ export class DeepSeekAIProvider implements AIProvider {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     const abortFromCaller = () => controller.abort();
-    const isEnglishFriend = input.contactId === "english_friend";
-    const systemPrompt = input.systemPrompt?.trim() || (isEnglishFriend ? ENGLISH_FRIEND_SYSTEM_PROMPT : DEFAULT_REWRITE_SYSTEM_PROMPT);
-    const userPrompt = isEnglishFriend ? buildEnglishFriendUserPrompt(input.text) : buildRewriteUserPrompt(input.text);
+    const promptProfile = getPromptProfile({
+      contactCode: input.contactId,
+      language: input.languageCode,
+      systemPromptOverride: input.systemPrompt,
+    });
+    const systemPrompt = promptProfile.systemPrompt;
+    const userPrompt = promptProfile.buildUserPrompt(input.text);
     const model = this.resolveModelName(input);
     try {
       if (!this.apiKey) {

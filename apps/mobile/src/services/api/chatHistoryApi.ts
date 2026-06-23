@@ -15,6 +15,7 @@ export type MessageView = {
   content: string;
   createdAt: string;
   conversationDateKey?: string | null;
+  languageCode?: string | null;
   clozeState?: {
     groups: Array<{
       tokenIndexes: number[];
@@ -81,6 +82,7 @@ export async function importLocalDayMessagesToCloud(input: {
     clozeState?: MessageView["clozeState"];
     clozeVersion?: number;
     clozePracticeDiscardedAt?: string | null;
+    languageCode?: string | null;
   }>;
 }): Promise<ImportLocalDayMessagesResult> {
   const res = await fetch(`${BASE_URL}/chat/messages/import-day`, {

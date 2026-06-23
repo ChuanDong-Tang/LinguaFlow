@@ -1,21 +1,28 @@
 export type TaggedRewriteParts = {
+  rewrite: string;
+  note: string;
   en: string;
   zh: string;
   reply: string;
 };
 
-const DEFAULT_REWRITE_TAGS = ["en", "zh", "cn", "reply"] as const;
+const DEFAULT_REWRITE_TAGS = ["rewrite", "note", "en", "zh", "cn", "reply"] as const;
 
 // 前端只把 <en></en> 中间的内容当作“可展示/可挖空”的英文正文。
 // <zh></zh> 只做辅助中文展示，不参与 token 索引和练习判定。
 // 好奇宝宝使用 <en></en> 表示用户原话的自然英文改写，<reply></reply> 表示 AI 回复。
 export function parseTaggedRewrite(text: string): TaggedRewriteParts {
   const parts = parseTaggedParts(text, DEFAULT_REWRITE_TAGS);
+  const rewrite = parts.rewrite.trim();
+  const note = parts.note.trim();
   const en = parts.en.trim();
   const zh = parts.zh.trim() || parts.cn.trim();
   const reply = parts.reply.trim();
+  const fallback = hasAnyTag(text, DEFAULT_REWRITE_TAGS) ? "" : stripKnownTags(text, DEFAULT_REWRITE_TAGS).trim();
   return {
-    en: en || (hasAnyTag(text, DEFAULT_REWRITE_TAGS) ? "" : stripKnownTags(text, DEFAULT_REWRITE_TAGS).trim()),
+    rewrite: rewrite || en || fallback,
+    note: note || zh,
+    en,
     zh,
     reply,
   };
@@ -35,11 +42,11 @@ export function parseTaggedParts<const T extends readonly string[]>(
 
 /** 旧消息可能没有标签；这里保持兼容，避免历史消息变成空白。 */
 export function getRewriteEnglish(text: string): string {
-  return parseTaggedRewrite(text).en;
+  return parseTaggedRewrite(text).rewrite;
 }
 
 export function getRewriteChinese(text: string): string {
-  return parseTaggedRewrite(text).zh;
+  return parseTaggedRewrite(text).note;
 }
 
 export function getCuriousReply(text: string): string {

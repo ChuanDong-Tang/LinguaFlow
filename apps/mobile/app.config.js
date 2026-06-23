@@ -48,6 +48,7 @@ module.exports = {
     },
     plugins: [
       "expo-web-browser",
+      "expo-audio",
       "expo-secure-store",
       "./plugins/with-chat-selectable-text",
       "./plugins/with-wechat-pay",

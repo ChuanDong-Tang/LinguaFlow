@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
+import type { TtsStorageProvider } from "../../services/tts/TtsStorageProvider.js";
 
 export interface AccountDeletionCleanupWorkerOptions {
   intervalMs?: number;
@@ -9,12 +10,13 @@ export interface AccountDeletionCleanupWorkerOptions {
 
 export class AccountDeletionCleanupWorker {
   private static readonly LOCK_KEY = 620057;
-  private timer: NodeJS.Timeout | null = null;
+  private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
   constructor(
     private readonly prisma: PrismaClient,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
+    private readonly ttsStorageProvider?: TtsStorageProvider,
     private readonly options: AccountDeletionCleanupWorkerOptions = {}
   ) {}
 
@@ -111,6 +113,17 @@ export class AccountDeletionCleanupWorker {
   }
 
   private async disableUserAndDeleteData(userId: string): Promise<void> {
+    const ttsObjectKeys = await this.prisma.ttsAsset.findMany({
+      where: { userId, status: "ready" },
+      select: { objectKey: true },
+    });
+    if (this.ttsStorageProvider) {
+      for (const row of ttsObjectKeys) {
+        if (!row.objectKey) continue;
+        await this.ttsStorageProvider.deleteObject(row.objectKey);
+      }
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.aiRequestLog.deleteMany({ where: { userId } });
       await tx.benefitGrant.deleteMany({ where: { userId } });
@@ -120,6 +133,8 @@ export class AccountDeletionCleanupWorker {
       await tx.appleIapAccountLink.deleteMany({ where: { userId } });
       await tx.subscription.deleteMany({ where: { userId } });
       await tx.entitlement.deleteMany({ where: { userId } });
+      await tx.ttsRequestLog.deleteMany({ where: { userId } });
+      await tx.ttsAsset.deleteMany({ where: { userId } });
       await tx.message.deleteMany({ where: { userId } });
       await tx.conversation.deleteMany({ where: { userId } });
       await tx.userSession.deleteMany({ where: { userId } });
@@ -144,6 +159,10 @@ export class AccountDeletionCleanupWorker {
       level: "info",
       status: "success",
       userId,
+      metadata: {
+        ttsCosObjectsDeleted: this.ttsStorageProvider ? ttsObjectKeys.length : 0,
+        ttsCosCleanupSkipped: !this.ttsStorageProvider,
+      },
     });
   }
 

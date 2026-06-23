@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import type { Purchase } from "expo-iap";
 import * as Crypto from "expo-crypto";
+import { t } from "../../i18n";
 
 export const APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID =
   process.env.EXPO_PUBLIC_APPLE_PRO_MONTHLY_PRODUCT_ID || "pro_monthly";
@@ -18,18 +19,18 @@ export function getAppleProductIdForSource(source: ApplePurchaseSource): string 
 
 export function assertAppleIapAvailable(source?: ApplePurchaseSource): void {
   if (Platform.OS !== "ios") {
-    throw new Error("当前平台不支持 Apple IAP");
+    throw new Error(t("payment.apple.unsupported"));
   }
   const productId = source ? getAppleProductIdForSource(source) : APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
   if (!productId) {
-    throw new Error("Apple IAP 商品 ID 未配置");
+    throw new Error(t("payment.apple.product_missing"));
   }
 }
 
 export function getAppleTransactionId(purchase: Purchase): string {
   const transactionId = String(purchase.transactionId ?? purchase.id ?? "").trim();
   if (!transactionId) {
-    throw new Error("Apple 交易 ID 为空，无法验单");
+    throw new Error(t("payment.apple.transaction_missing"));
   }
   return transactionId;
 }

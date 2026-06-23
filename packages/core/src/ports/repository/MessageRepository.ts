@@ -26,6 +26,7 @@ export interface MessageEntity {
   clozeVersion: number;
   clozePracticeDiscardedAt?: Date | null;
   conversationDateKey?: string | null;
+  languageCode?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -44,6 +45,7 @@ export interface CreateMessageInput {
   clozeVersion?: number;
   clozePracticeDiscardedAt?: Date | null;
   conversationDateKey?: string | null;
+  languageCode?: string | null;
   createdAt?: Date;
 }
 

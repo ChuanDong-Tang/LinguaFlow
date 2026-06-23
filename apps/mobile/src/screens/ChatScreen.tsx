@@ -61,6 +61,8 @@ import {
 import type { ChatContact } from "../domain/chat/contacts";
 import type { AutoCopyMode } from "../services/preferences/assistantPreferences";
 import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
+import { t, tf } from "../i18n";
+import { stopTtsAudio } from "../services/tts/ttsPlayback";
 
 type ChatScreenProps = {
   contact: ChatContact;
@@ -192,6 +194,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       daySyncMachine.cancel();
       calendarSyncMachine.cancel();
       clozeSaveMachine.cancel();
+      stopTtsAudio();
     };
   }, []);
 
@@ -376,7 +379,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   async function handleSend(): Promise<void> {
     if (netInfo.isConnected !== true) {
-      Alert.alert("当前网络不可用，请连接网络后再发送");
+      Alert.alert(t("chat.error.network_send"));
       return;
     }
     const text = inputText.trim();
@@ -384,25 +387,25 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
     const inputLength = countChatGenerationInputChars(text);
     if (inputLength < minInputChars) {
-      Alert.alert(`至少输入 ${minInputChars} 个字符`)
+      Alert.alert(tf("chat.error.min_chars", { count: minInputChars }))
       return;
     }
     if (inputLength > maxInputChars) {
-      Alert.alert(`最多输入 ${maxInputChars} 个字符`)
+      Alert.alert(tf("chat.error.max_chars", { count: maxInputChars }))
       return;
     }
     if (isTodaySyncingRef.current) {
-      Alert.alert("正在同步消息，请稍后发送")
+      Alert.alert(t("chat.error.syncing_send"))
       return;
     }
     if (remainingChars !== null && remainingChars <= 0) {
-      Alert.alert("字符额度已用尽");
+      Alert.alert(t("chat.error.quota_empty"));
       return;
     }
 
     const businessTodayKey = await getBusinessDateKey().catch(() => null);
     if (!businessTodayKey) {
-      Alert.alert("当前网络不可用，请连接网络后再发送");
+      Alert.alert(t("chat.error.network_send"));
       return;
     }
     setBusinessTodayKey(businessTodayKey);
@@ -458,7 +461,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const text = message.retryText?.trim();
     if (!text || activeGenerationContactId || (message.retryCount ?? 0) >= 1) return;
     if (remainingChars !== null && remainingChars <= 0) {
-      Alert.alert("字符额度已用尽");
+      Alert.alert(t("chat.error.quota_empty"));
       return;
     }
 
@@ -467,7 +470,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const businessTodayKey = await getBusinessDateKey().catch(() => null);
     if (!businessTodayKey) {
       setIsSending(false);
-      Alert.alert("当前网络不可用，请连接网络后再发送");
+      Alert.alert(t("chat.error.network_send"));
       return;
     }
     setBusinessTodayKey(businessTodayKey);
@@ -521,7 +524,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const notice = {
       kind: "calendar" as const,
       ...showNotice({
-        message: "正在同步日历记录...",
+        message: t("chat.notice.calendar_syncing"),
         type: "info",
         position: "top-right",
         durationMs: 0,
@@ -547,7 +550,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       });
       if (isDateSheetOpen && syncNoticeRef.current === notice) {
         notice.update({
-          message: "日历记录已更新",
+          message: t("chat.notice.calendar_updated"),
           type: "success",
           durationMs: 1200,
         });
@@ -568,7 +571,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       loadedCloudMonthKeysRef.current.delete(monthKey);
       if (isDateSheetOpen && syncNoticeRef.current === notice) {
         notice.update({
-          message: "日历记录同步失败",
+          message: t("chat.notice.calendar_failed"),
           type: "warning",
           durationMs: 1800,
         });
@@ -613,6 +616,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       time: new Date(row.createdAt).toTimeString().slice(0, 5),
       createdAt: row.createdAt,
       conversationDateKey: row.conversationDateKey ?? null,
+      languageCode: row.languageCode ?? null,
       status: row.status,
       clozeState: row.clozeState ?? null,
       clozeVersion: row.clozeVersion ?? 0,
@@ -737,6 +741,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           clozeState: row.role === "assistant" ? row.clozeState ?? null : null,
           clozeVersion: row.role === "assistant" ? row.clozeVersion ?? 0 : 0,
           clozePracticeDiscardedAt: row.role === "assistant" ? row.clozePracticeDiscardedAt ?? null : null,
+          languageCode: row.role === "assistant" ? row.languageCode ?? null : null,
         })),
       });
       resolvedConversationId = imported.conversationId;
@@ -817,7 +822,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const notice = {
       kind: "messages" as const,
       ...showNotice({
-      message: "正在同步最新消息...",
+      message: t("chat.notice.messages_syncing"),
       type: "info",
       position: "top-right",
       durationMs: 0,
@@ -838,7 +843,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       daySyncMachine.setPhase(token, "settling");
       // 业务已经更新完了，再把 notice 收成成功态；这里和业务阶段是两条线。
       notice.update({
-        message: "消息已更新",
+        message: t("chat.notice.messages_updated"),
         type: "success",
         durationMs: 1800,
       });
@@ -852,7 +857,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         return;
       }
       notice.update({
-        message: "同步失败，稍后再试",
+        message: t("chat.notice.sync_failed"),
         type: "warning",
         durationMs: 2200,
       });
@@ -913,6 +918,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           contact={contact}
           messages={messages}
           selectedDateLabel={selectedDateLabelText(selectedDate, businessTodayKey ?? undefined)}
+          canUseTts={isProEntitled}
           listRef={messageListRef}
           inputProtectionActive={inputProtectionActive}
           onMessageTextInteractionStart={handleMessageTextInteractionStart}
@@ -951,25 +957,25 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onBlur={handleComposerBlur}
           onDisabledPress={() => {
             if (isAnotherContactGenerating) {
-              Alert.alert("另一个好友正在回复，请稍后再发")
+              Alert.alert(t("chat.error.other_generating"))
               return;
             }
             if (isTodaySyncing) {
-              Alert.alert("正在同步消息，请稍后发送")
+              Alert.alert(t("chat.error.syncing_send"))
               return;
             }
             if (remainingChars !== null && remainingChars <= 0) {
-              Alert.alert("字符额度已用尽");
+              Alert.alert(t("chat.error.quota_empty"));
               return;
             }
             const inputLength = countChatGenerationInputChars(inputText);
             const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
             if (inputLength > 0 && inputLength < minInputChars) {
-              Alert.alert(`至少输入 ${minInputChars} 个字符`)
+              Alert.alert(tf("chat.error.min_chars", { count: minInputChars }))
               return;
             }
             if (inputLength > maxInputChars) {
-              Alert.alert(`最多输入 ${maxInputChars} 个字符`)
+              Alert.alert(tf("chat.error.max_chars", { count: maxInputChars }))
             }
           }}
           disabled={!canSend}

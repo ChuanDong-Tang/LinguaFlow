@@ -19,6 +19,7 @@ export interface MessageView {
   clozeState: ClozeState | null;
   clozeVersion: number;
   clozePracticeDiscardedAt: string | null;
+  languageCode: string | null;
 }
 
 export interface SendMessageResult {
@@ -104,6 +105,7 @@ export interface ImportLocalMessageInput {
   clozeState?: ClozeState | null;
   clozeVersion?: number;
   clozePracticeDiscardedAt?: string | null;
+  languageCode?: string | null;
 }
 
 export interface ImportLocalDayMessagesInput {
@@ -272,6 +274,7 @@ export class ChatMessageService {
           clozeVersion: row.role === "assistant" ? Math.max(0, Math.floor(row.clozeVersion ?? 0)) : 0,
           clozePracticeDiscardedAt: row.clozePracticeDiscardedAt ? new Date(row.clozePracticeDiscardedAt) : null,
           conversationDateKey: conversation.dateKey,
+          languageCode: row.role === "assistant" ? row.languageCode ?? null : null,
           createdAt: safeCreatedAt,
         });
       } catch (error) {
@@ -315,7 +318,8 @@ export class ChatMessageService {
     conversationId: string,
     userId: string,
     content: string,
-    sourceMessageId: string
+    sourceMessageId: string,
+    languageCode?: string | null
   ): Promise<MessageView> {
     const existing = await this.messageRepository.findAssistantBySourceMessageId(sourceMessageId);
     if (existing) return this.toView(existing);
@@ -334,6 +338,7 @@ export class ChatMessageService {
       outputChars: content.length,
       sourceMessageId,
       conversationDateKey: conversation.dateKey,
+      languageCode: languageCode ?? "en-US",
     });
 
     return this.toView(msg);
@@ -496,6 +501,7 @@ export class ChatMessageService {
     clozeVersion?: number;
     clozePracticeDiscardedAt?: Date | null;
     conversationDateKey?: string | null;
+    languageCode?: string | null;
     createdAt: Date;
   }): MessageView {
     return {
@@ -509,6 +515,7 @@ export class ChatMessageService {
       clozeState: row.clozeState ?? null,
       clozeVersion: Number.isFinite(row.clozeVersion) ? Number(row.clozeVersion) : 0,
       clozePracticeDiscardedAt: row.clozePracticeDiscardedAt?.toISOString() ?? null,
+      languageCode: row.languageCode ?? null,
     };
   }
 

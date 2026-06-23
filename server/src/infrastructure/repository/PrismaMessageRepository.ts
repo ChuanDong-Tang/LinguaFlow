@@ -44,6 +44,7 @@ export class PrismaMessageRepository implements MessageRepository {
         clozeVersion: input.clozeVersion ?? undefined,
         clozePracticeDiscardedAt: input.clozePracticeDiscardedAt ?? undefined,
         conversationDateKey: input.conversationDateKey ?? null,
+        languageCode: input.languageCode ?? null,
         createdAt: input.createdAt ?? undefined,
       },
     });
@@ -371,6 +372,7 @@ export class PrismaMessageRepository implements MessageRepository {
     clozeVersion?: number;
     clozePracticeDiscardedAt?: Date | null;
     conversationDateKey?: string | null;
+    languageCode?: string | null;
     createdAt: Date;
     updatedAt: Date;
   }): MessageEntity {
@@ -389,6 +391,7 @@ export class PrismaMessageRepository implements MessageRepository {
       clozeVersion: Number.isFinite(record.clozeVersion) ? Number(record.clozeVersion) : 0,
       clozePracticeDiscardedAt: record.clozePracticeDiscardedAt ?? null,
       conversationDateKey: record.conversationDateKey ?? null,
+      languageCode: record.languageCode ?? null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

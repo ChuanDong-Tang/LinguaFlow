@@ -16,6 +16,7 @@ import {
   type ChatSelectableTextRangeEvent,
   type ChatSelectableTextSelectionEvent,
 } from "./ChatSelectableTextView";
+import { t } from "../../i18n";
 
 export type NativeTextSelectionPayload = {
   start: number;
@@ -58,7 +59,6 @@ type Props = {
 const SELECTABLE_TEXT_PERF_LOGS = false;
 const SLOW_SELECTABLE_TEXT_MS = 12;
 const LONG_SELECTABLE_TEXT_CHARS = 600;
-const CLOZE_MENU_OPTION = "填空";
 const shouldNotifyInteractionOnTouchStart = Platform.OS === "android";
 function perfNow(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
@@ -146,6 +146,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     onClozeRangeLongPress,
   }, ref) {
     const renderStart = perfNow();
+    const clozeMenuOption = t("cloze.menu");
     const highlights = React.useMemo(() => normalizeBlockedRanges(text, highlightRanges), [highlightRanges, text]);
     const blanks = React.useMemo(() => {
       const startedAt = perfNow();
@@ -176,7 +177,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const handleNativeSelection = React.useCallback(
       (event: { nativeEvent: ChatSelectableTextSelectionEvent }) => {
         const payload = event.nativeEvent;
-        if (payload.chosenOption !== CLOZE_MENU_OPTION) return;
+        if (payload.chosenOption !== clozeMenuOption) return;
         const selectedText = payload.highlightedText;
         if (!selectedText) return;
         const hasNativeRange = typeof payload.selectionStart === "number" && typeof payload.selectionEnd === "number";
@@ -189,7 +190,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         if (insideExistingCloze) return;
         const crossesExistingCloze = existingClozeRanges.some((range) => rangesOverlap(range, selectedRange));
         if (crossesExistingCloze) {
-          Alert.alert("不能跨过已有填空");
+          Alert.alert(t("cloze.cross_existing"));
           return;
         }
         onSelectionStart?.();
@@ -199,7 +200,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           selectedText: text.slice(selectedRange.start, selectedRange.end),
         });
       },
-      [blanks, highlights, onSelectionChange, onSelectionStart, text],
+      [blanks, clozeMenuOption, highlights, onSelectionChange, onSelectionStart, text],
     );
     const handleClozeRangePress = React.useCallback(
       (event: { nativeEvent: ChatSelectableTextRangeEvent }) => {
@@ -225,7 +226,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const nativeInteractionProps = Platform.select({
       ios: {
         selectionMode,
-        menuOptions: enableClozeMenu ? [CLOZE_MENU_OPTION] : [],
+        menuOptions: enableClozeMenu ? [clozeMenuOption] : [],
         onSelectionStart,
         onSelection: handleNativeSelection,
         onClozeRangePress: handleClozeRangePress,
@@ -234,7 +235,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       default: {
         pointerEvents: interactionsDisabled ? "none" as const : "auto" as const,
         selectionMode,
-        menuOptions: !interactionsDisabled && enableClozeMenu ? [CLOZE_MENU_OPTION] : [],
+        menuOptions: !interactionsDisabled && enableClozeMenu ? [clozeMenuOption] : [],
         onTouchStart: interactionsDisabled || !shouldNotifyInteractionOnTouchStart ? undefined : handleTouchStart,
         onSelectionStart: interactionsDisabled ? undefined : onSelectionStart,
         onSelection: interactionsDisabled ? undefined : handleNativeSelection,
