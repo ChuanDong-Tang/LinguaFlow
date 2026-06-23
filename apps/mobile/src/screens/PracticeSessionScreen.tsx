@@ -769,8 +769,6 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
         {canUseTts ? (
           <TtsPlayButton
             messageId={card.message.id ?? card.message.serverId}
-            textStart={card.textStart}
-            textEnd={card.textEnd}
             size={18}
             style={styles.roundActionButton}
           />

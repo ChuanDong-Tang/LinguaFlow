@@ -49,9 +49,10 @@ export function buildPracticeCards(
     const state = normalizeClozeState(message.clozeState);
     if (!state) continue;
     const clozeText = getAssistantClozeText(message, contact);
+    const sourceLanguageCode = message.languageCode ?? "en-US";
     const sourceText = normalizeLearningText({
       text: clozeText.text,
-      languageCode: message.languageCode,
+      languageCode: sourceLanguageCode,
     });
     if (!sourceText) continue;
     const tokens = tokenizeForCloze(sourceText);
@@ -79,7 +80,7 @@ export function buildPracticeCards(
       text: sourceText,
       translation,
       sourceText,
-      languageCode: message.languageCode ?? "en-US",
+      languageCode: sourceLanguageCode,
       textStart: 0,
       textEnd: sourceText.length,
       tokens,

@@ -95,6 +95,7 @@ const ttsGenerationLocks = new Map<string, Promise<TtsGenerationResult>>();
 const TTS_GENERATION_LOCK_TTL_MS = readPositiveInt(process.env.TTS_GENERATION_LOCK_TTL_MS, 120_000);
 const TTS_GENERATION_LOCK_WAIT_MS = readPositiveInt(process.env.TTS_GENERATION_LOCK_WAIT_MS, 120_000);
 const TTS_GENERATION_LOCK_POLL_MS = readPositiveInt(process.env.TTS_GENERATION_LOCK_POLL_MS, 500);
+const TTS_ASSET_ALGORITHM_VERSION = "tts-v2";
 
 export class TtsService {
   constructor(
@@ -125,13 +126,14 @@ export class TtsService {
       throw new TtsAccessDeniedError();
     }
 
-    const preference = await this.userPreferenceRepository.getByUserId(input.userId);
-    const languageCode = message.languageCode ?? preference.learningLanguage;
     const sourceKey = input.sourceKey ?? "rewrite";
-    const sourceText = resolveSourceText(message.content, languageCode, sourceKey);
+    const rawSourceText = extractTtsLearningText(message.content, sourceKey);
+    const preference = await this.userPreferenceRepository.getByUserId(input.userId);
+    const languageCode = message.languageCode ?? "en-US";
+    const sourceText = normalizeLearningText({ text: rawSourceText, languageCode });
     if (!sourceText) throw new TtsSourceTextEmptyError();
     const requestedRange = resolveRequestedRange(input, sourceText.length);
-    const sourceTextHash = sha256(sourceText);
+    const sourceTextHash = sha256(`${TTS_ASSET_ALGORITHM_VERSION}\n${sourceText}`);
     const provider = preference.ttsProvider || this.ttsProvider.providerName;
     const voiceCode = resolveVoiceCode({
       provider,
@@ -542,15 +544,6 @@ export class TtsService {
   }
 }
 
-function resolveSourceText(
-  rawText: string,
-  languageCode: string,
-  sourceKey: TtsSourceKey
-): string {
-  const base = extractTtsLearningText(rawText, sourceKey);
-  return normalizeLearningText({ text: base, languageCode });
-}
-
 function extractTtsLearningText(rawText: string, sourceKey: TtsSourceKey): string {
   if (sourceKey === "reply") {
     return extractTagContent(rawText, "reply").trim();
@@ -606,7 +599,7 @@ function resolvePlaybackRange(
     mark.textStart === textStart && mark.textEnd === textEnd
   );
   if (sentenceMark) {
-    return padPlaybackRange({
+    return clampPlaybackRange({
       startMs: sentenceMark.startMs,
       endMs: sentenceMark.startMs + sentenceMark.durationMs,
       durationMs: asset.durationMs,
@@ -622,20 +615,9 @@ function resolvePlaybackRange(
   if (wordMarks.length > 0) {
     const first = wordMarks[0];
     const last = wordMarks[wordMarks.length - 1];
-    return padPlaybackRange({
+    return clampPlaybackRange({
       startMs: first.startMs,
       endMs: last.startMs + last.durationMs,
-      durationMs: asset.durationMs,
-    });
-  }
-
-  const overlappingSentence = asset.sentenceMarks?.find((mark) =>
-    mark.textEnd > textStart && mark.textStart < textEnd
-  );
-  if (overlappingSentence) {
-    return padPlaybackRange({
-      startMs: overlappingSentence.startMs,
-      endMs: overlappingSentence.startMs + overlappingSentence.durationMs,
       durationMs: asset.durationMs,
     });
   }
@@ -645,16 +627,16 @@ function resolvePlaybackRange(
     ...(asset.sentenceMarks ?? []).map((mark) => mark.textEnd),
     textEnd
   );
-  return padPlaybackRange({
+  return clampPlaybackRange({
     startMs: Math.round(textStart / sourceLength * asset.durationMs),
     endMs: Math.round(textEnd / sourceLength * asset.durationMs),
     durationMs: asset.durationMs,
   });
 }
 
-function padPlaybackRange(input: { startMs: number; endMs: number; durationMs: number }): TtsPlaybackRange {
-  const startMs = Math.max(0, Math.floor(input.startMs - 80));
-  const endMs = Math.min(input.durationMs, Math.ceil(input.endMs + 120));
+function clampPlaybackRange(input: { startMs: number; endMs: number; durationMs: number }): TtsPlaybackRange {
+  const startMs = Math.max(0, Math.floor(input.startMs));
+  const endMs = Math.min(input.durationMs, Math.ceil(input.endMs));
   return {
     startMs,
     endMs: Math.max(startMs, endMs),
