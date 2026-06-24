@@ -96,6 +96,35 @@ export async function fetchSubscriptionStatuses(
   throw sandbox.error;
 }
 
+export async function setAppAccountToken(
+  input: {
+    environment: "production" | "sandbox";
+    originalTransactionId: string;
+    appAccountToken: string;
+  },
+  token: string
+): Promise<void> {
+  const baseUrl = input.environment === "sandbox" ? APPLE_SANDBOX_BASE_URL : APPLE_PROD_BASE_URL;
+  const response = await requestSetAppAccountToken({
+    baseUrl,
+    originalTransactionId: input.originalTransactionId,
+    appAccountToken: input.appAccountToken,
+    token,
+  });
+  if (response.ok) return;
+
+  throw new AppleIapVerifyError(
+    `Apple ${input.environment} appAccountToken update failed: HTTP ${response.status}`,
+    `APPLE_${input.environment.toUpperCase()}_APP_ACCOUNT_TOKEN_HTTP_${response.status}`,
+    {
+      endpoint: input.environment,
+      status: response.status,
+      responseBody: truncateForLog(response.message),
+      originalTransactionId: input.originalTransactionId,
+    }
+  );
+}
+
 async function fetchTransactionInfoFromEndpoint(input: {
   endpoint: "production" | "sandbox";
   baseUrl: string;
@@ -302,6 +331,32 @@ async function requestSubscriptionStatuses(
         }))
       : [],
   };
+}
+
+async function requestSetAppAccountToken(input: {
+  baseUrl: string;
+  originalTransactionId: string;
+  appAccountToken: string;
+  token: string;
+}): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+  const response = await fetch(
+    `${input.baseUrl}/inApps/v1/transactions/${encodeURIComponent(input.originalTransactionId)}/appAccountToken`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ appAccountToken: input.appAccountToken }),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    return { ok: false, status: response.status, message };
+  }
+
+  return { ok: true };
 }
 
 function assertAppleTransactionEnvironment(

@@ -22,4 +22,10 @@ export interface AppleIapAccountLinkRepository {
     originalTransactionId: string;
     latestTransactionId?: string | null;
   }): Promise<AppleIapAccountLinkEntity>;
+  claimOriginalTransactionIfUnbound(input: {
+    appAccountToken: string;
+    userId: string;
+    originalTransactionId: string;
+    latestTransactionId?: string | null;
+  }): Promise<AppleIapAccountLinkEntity>;
 }

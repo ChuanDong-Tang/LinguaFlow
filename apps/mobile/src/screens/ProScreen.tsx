@@ -2,7 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { ErrorCode, getAvailablePurchases, restorePurchases as restoreIapPurchases, useIAP, type Purchase } from "expo-iap";
+import {
+  ErrorCode,
+  getAvailablePurchases,
+  presentCodeRedemptionSheetIOS,
+  restorePurchases as restoreIapPurchases,
+  useIAP,
+  type Purchase,
+} from "expo-iap";
 import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -77,6 +84,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [hasLoadedAutoRenew, setHasLoadedAutoRenew] = useState(false);
   const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
   const [isRestoringApplePurchases, setIsRestoringApplePurchases] = useState(false);
+  const [isRedeemingAppleOffer, setIsRedeemingAppleOffer] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
   const [wechatPriceLabel, setWechatPriceLabel] = useState<string | null>(null);
   const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
@@ -695,6 +703,25 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
+  async function handleRedeemAppleOfferCode(): Promise<void> {
+    if (Platform.OS !== "ios") return;
+    if (isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading) return;
+
+    setIsRedeemingAppleOffer(true);
+    try {
+      await ensureAppleAppAccountTokenRegistered();
+      const presented = await presentCodeRedemptionSheetIOS();
+      if (!presented || !isScreenAlive()) return;
+      await handleRestoreApplePurchases();
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.redeem_failed_title"), message);
+    } finally {
+      if (isScreenAlive()) setIsRedeemingAppleOffer(false);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       {Platform.OS === "ios" ? (
@@ -803,13 +830,33 @@ export function ProScreen({ onBack }: ProScreenProps) {
                   ) : null}
                 </View>
               ) : null}
+              {Platform.OS === "ios" && shouldShowPurchaseActions && !manageableAutoRenew ? (
+                <Pressable
+                  style={[
+                    styles.redeemButton,
+                    (isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading) &&
+                      styles.subscribeButtonDisabled,
+                  ]}
+                  onPress={() => void handleRedeemAppleOfferCode()}
+                  disabled={isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading}
+                >
+                  {isRedeemingAppleOffer ? (
+                    <ActivityIndicator color="#111111" />
+                  ) : (
+                    <Text style={styles.redeemButtonText}>{t("pro.redeem.button")}</Text>
+                  )}
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
           {Platform.OS === "ios" ? (
             <Pressable
-              style={[styles.restoreButton, isRestoringApplePurchases && styles.subscribeButtonDisabled]}
+              style={[
+                styles.restoreButton,
+                (isRestoringApplePurchases || isRedeemingAppleOffer) && styles.subscribeButtonDisabled,
+              ]}
               onPress={() => void handleRestoreApplePurchases()}
-              disabled={isRestoringApplePurchases}
+              disabled={isRestoringApplePurchases || isRedeemingAppleOffer}
             >
               {isRestoringApplePurchases ? (
                 <ActivityIndicator color="#111111" />
@@ -1429,6 +1476,22 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
+  },
+  redeemButton: {
+    marginTop: 8,
+    minHeight: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DDE2EC",
+    backgroundColor: "#FAFBFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  redeemButtonText: {
+    color: "#111111",
+    fontSize: 12,
+    fontWeight: "500",
+    textAlign: "center",
   },
   restoreButton: {
     marginTop: 8,

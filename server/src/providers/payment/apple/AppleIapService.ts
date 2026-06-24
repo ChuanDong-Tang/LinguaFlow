@@ -17,7 +17,7 @@ import {
   AppleIapSubscriptionAlreadyBoundError,
   AppleIapVerifyError,
 } from "./AppleIapErrors.js";
-import { fetchSubscriptionStatuses, fetchTransactionInfo } from "./AppleIapClient.js";
+import { fetchSubscriptionStatuses, fetchTransactionInfo, setAppAccountToken } from "./AppleIapClient.js";
 import {
   type AppleServerNotificationPayload,
   decodeTransactionPayload,
@@ -150,6 +150,112 @@ export class AppleIapService {
     return { appAccountToken: expectedAppAccountToken };
   }
 
+  private async backfillMissingAppAccountToken(input: {
+    userId: string;
+    transaction: Awaited<ReturnType<typeof fetchTransactionInfo>>;
+    originalTransactionId: string;
+    purchaseKind: "single_purchase" | "auto_renew";
+    expectedAppAccountToken: string;
+    serverToken: string;
+    rootCaPem: string;
+  }): Promise<Awaited<ReturnType<typeof fetchTransactionInfo>>> {
+    if (!this.appleIapAccountLinkRepository) {
+      throw new AppleIapVerifyError(
+        "Apple account link repository is not configured",
+        "APPLE_IAP_ACCOUNT_LINK_REPOSITORY_NOT_CONFIGURED",
+        {
+          environment: input.transaction.environment,
+          transactionId: input.transaction.transactionId,
+          originalTransactionId: input.originalTransactionId,
+        }
+      );
+    }
+
+    for (const providerOrderId of new Set([input.transaction.transactionId, input.originalTransactionId])) {
+      const existingOrder = await this.paymentOrderRepository.findByProviderOrderId(providerOrderId);
+      if (existingOrder && existingOrder.userId !== input.userId) {
+        throw new AppleIapSubscriptionAlreadyBoundError({
+          originalTransactionId: input.originalTransactionId,
+        });
+      }
+    }
+
+    const existingByOriginal = await this.appleIapAccountLinkRepository.findByOriginalTransactionId(
+      input.originalTransactionId
+    );
+    if (existingByOriginal && existingByOriginal.userId !== input.userId) {
+      throw new AppleIapSubscriptionAlreadyBoundError({
+        originalTransactionId: input.originalTransactionId,
+      });
+    }
+
+    const existingAutoRenew =
+      (await this.autoRenewService?.getAppleSubscriptionByOriginalTransactionId(
+        input.originalTransactionId
+      )) ?? null;
+    if (existingAutoRenew && existingAutoRenew.userId !== input.userId) {
+      throw new AppleIapSubscriptionAlreadyBoundError({
+        originalTransactionId: input.originalTransactionId,
+      });
+    }
+
+    if (input.purchaseKind === "auto_renew") {
+      const periodEnd = input.transaction.expiresDate ? new Date(input.transaction.expiresDate) : null;
+      if (!periodEnd || periodEnd <= new Date()) {
+        throw new AppleIapVerifyError("Apple subscription is expired", "APPLE_SUBSCRIPTION_EXPIRED", {
+          environment: input.transaction.environment,
+          transactionId: input.transaction.transactionId,
+          originalTransactionId: input.originalTransactionId,
+          expiresDate: input.transaction.expiresDate,
+        });
+      }
+    }
+
+    try {
+      await this.appleIapAccountLinkRepository.claimOriginalTransactionIfUnbound({
+        userId: input.userId,
+        appAccountToken: input.expectedAppAccountToken,
+        originalTransactionId: input.originalTransactionId,
+        latestTransactionId: input.transaction.transactionId,
+      });
+    } catch (error) {
+      if (isAppleSubscriptionBoundRepositoryError(error)) {
+        throw new AppleIapSubscriptionAlreadyBoundError({
+          originalTransactionId: input.originalTransactionId,
+        });
+      }
+      throw error;
+    }
+
+    await setAppAccountToken(
+      {
+        environment: input.transaction.environment,
+        originalTransactionId: input.originalTransactionId,
+        appAccountToken: input.expectedAppAccountToken,
+      },
+      input.serverToken
+    );
+
+    const updated = await fetchTransactionInfo(
+      input.transaction.transactionId,
+      input.serverToken,
+      input.rootCaPem
+    );
+    if (!sameAppleAppAccountToken(updated.appAccountToken, input.expectedAppAccountToken)) {
+      throw new AppleIapVerifyError(
+        "appAccountToken backfill did not apply",
+        "APPLE_APP_ACCOUNT_TOKEN_BACKFILL_FAILED",
+        {
+          environment: updated.environment,
+          transactionId: updated.transactionId,
+          originalTransactionId: input.originalTransactionId,
+        }
+      );
+    }
+
+    return updated;
+  }
+
   async verifyProMonthlyTransaction(input: {
     userId: string;
     transactionId: string;
@@ -196,23 +302,28 @@ export class AppleIapService {
       });
     }
 
-    const expectedAppAccountToken = createAppleAppAccountToken(input.userId);
-    if (!transaction.appAccountToken) {
-      throw new AppleIapVerifyError("Missing appAccountToken", "APPLE_APP_ACCOUNT_TOKEN_MISSING", {
-        environment: transaction.environment,
-        transactionId: transaction.transactionId,
-      });
-    }
-    if (!sameAppleAppAccountToken(transaction.appAccountToken, expectedAppAccountToken)) {
-      throw new AppleIapVerifyError("appAccountToken mismatch", "APPLE_APP_ACCOUNT_TOKEN_MISMATCH", {
+    const originalTransactionId = transaction.originalTransactionId || transaction.transactionId;
+    if (!originalTransactionId) {
+      throw new AppleIapVerifyError("Missing originalTransactionId", "APPLE_ORIGINAL_TRANSACTION_ID_MISSING", {
         environment: transaction.environment,
         transactionId: transaction.transactionId,
       });
     }
 
-    const originalTransactionId = transaction.originalTransactionId || transaction.transactionId;
-    if (!originalTransactionId) {
-      throw new AppleIapVerifyError("Missing originalTransactionId", "APPLE_ORIGINAL_TRANSACTION_ID_MISSING", {
+    const expectedAppAccountToken = createAppleAppAccountToken(input.userId);
+    if (!transaction.appAccountToken) {
+      transaction = await this.backfillMissingAppAccountToken({
+        userId: input.userId,
+        transaction,
+        originalTransactionId,
+        purchaseKind,
+        expectedAppAccountToken,
+        serverToken: token,
+        rootCaPem: config.rootCaPem,
+      });
+    }
+    if (!sameAppleAppAccountToken(transaction.appAccountToken, expectedAppAccountToken)) {
+      throw new AppleIapVerifyError("appAccountToken mismatch", "APPLE_APP_ACCOUNT_TOKEN_MISMATCH", {
         environment: transaction.environment,
         transactionId: transaction.transactionId,
       });
@@ -695,7 +806,8 @@ function createAppleAppAccountToken(userId: string): string {
   ].join("-");
 }
 
-function sameAppleAppAccountToken(left: string, right: string): boolean {
+function sameAppleAppAccountToken(left: string | null, right: string | null): boolean {
+  if (!left || !right) return false;
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
