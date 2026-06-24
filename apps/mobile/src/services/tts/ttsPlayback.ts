@@ -11,6 +11,7 @@ let lastCachePruneAt = 0;
 const TTS_AUDIO_CACHE_MAX_BYTES = 50 * 1024 * 1024;
 const TTS_AUDIO_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const TTS_AUDIO_CACHE_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+const TTS_RANGE_STOP_GUARD_MS = 80;
 
 export type TtsPlaybackRange = {
   startMs: number;
@@ -45,10 +46,14 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
 
   const effectivePlaybackRange = resolvedSource.playbackRange ?? playbackRange;
 
-  const player = createAudioPlayer({ uri: audioUri }, { updateInterval: 100 });
+  const player = createAudioPlayer({ uri: audioUri }, { updateInterval: 30 });
   activePlayer = player;
   if (effectivePlaybackRange) {
     const startSeconds = Math.max(0, effectivePlaybackRange.startMs / 1000);
+    const stopAtMs = Math.max(
+      effectivePlaybackRange.startMs,
+      effectivePlaybackRange.endMs - TTS_RANGE_STOP_GUARD_MS
+    );
     await player.seekTo(startSeconds, 0, 0);
     if (requestId !== playbackRequestId) {
       player.remove();
@@ -57,10 +62,10 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     activeStopTimer = setInterval(() => {
       if (activePlayer !== player) return;
       const currentMs = player.currentStatus.currentTime * 1000;
-      if (currentMs >= effectivePlaybackRange.endMs) {
+      if (currentMs >= stopAtMs) {
         stopTtsAudio();
       }
-    }, 80);
+    }, 30);
   }
   player.play();
 }

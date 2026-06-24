@@ -707,6 +707,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
                       segments={getCardSegments(card)}
                       answers={answers}
                       checkedAnswers={checkedAnswers}
+                      canUseTts={canUseTts}
                       onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))}
                       onBlankFocus={handleBlankFocus}
                       onPlaySentence={(range) => {
@@ -864,6 +865,7 @@ function PracticeEnglish({
   segments,
   answers,
   checkedAnswers,
+  canUseTts,
   onChangeAnswer,
   onBlankFocus,
   onPlaySentence,
@@ -872,6 +874,7 @@ function PracticeEnglish({
   segments: PracticeEnglishSegment[];
   answers: Record<number, string>;
   checkedAnswers: Record<number, "correct" | "incorrect">;
+  canUseTts: boolean;
   onChangeAnswer: (tokenIndex: number, value: string) => void;
   onBlankFocus: (inputRef: TextInput | null) => void;
   onPlaySentence: (range: { textStart: number; textEnd: number }) => void;
@@ -896,6 +899,7 @@ function PracticeEnglish({
   }
 
   function playSentence(row: PracticeSentenceRow): void {
+    if (!canUseTts) return;
     flashSentence(row);
     onPlaySentence({ textStart: row.textStart, textEnd: row.textEnd });
   }

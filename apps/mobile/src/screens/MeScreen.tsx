@@ -144,7 +144,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
         <View style={styles.proCard}>
           <Text style={styles.proTitle}>{t("me.pro.title")}</Text>
           <Text style={styles.proSubtitle}>{t("me.pro.subtitle")}</Text>
-          {([t("me.pro.benefit.quota"), t("me.pro.benefit.cloud")]).map((item) => (
+          {([t("me.pro.benefit.quota"), t("me.pro.benefit.cloud"), t("me.pro.benefit.tts")]).map((item) => (
             <View key={item} style={styles.benefitRow}>
               <Ionicons name="checkmark-circle-outline" size={18} color="#746BFF" />
               <Text style={styles.benefitText}>{item}</Text>

@@ -733,6 +733,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         <View style={styles.benefitCard}>
           <BenefitItem icon="text-outline" title={quotaBenefit.title} subtitle={quotaBenefit.subtitle} />
           <BenefitItem icon="leaf-outline" title={t("pro.cloud_sync.title")} subtitle={t("pro.cloud_sync.subtitle")} />
+          <BenefitItem icon="volume-medium-outline" title={t("pro.tts.title")} subtitle={t("pro.tts.subtitle")} />
         </View>
 
         <View style={styles.priceCard}>
