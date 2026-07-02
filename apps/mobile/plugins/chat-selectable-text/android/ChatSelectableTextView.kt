@@ -41,7 +41,6 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   private var pendingDownX: Float = 0f
   private var pendingDownY: Float = 0f
   private var pendingSelectionRelease: Boolean = false
-  private var pendingTextApply: Boolean = false
   private var textApplyRequested: Boolean = false
   private var rangeLongPressed: Boolean = false
   private val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
@@ -104,14 +103,14 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
   fun setFontSizeSp(value: Float) {
     setTextSize(TypedValue.COMPLEX_UNIT_SP, value)
+    requestApplyText()
   }
 
   fun setLineHeightSp(value: Float) {
-    post {
-      val fontHeight = paint.fontMetrics.descent - paint.fontMetrics.ascent
-      val desiredPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
-      setLineSpacing((desiredPx - fontHeight).coerceAtLeast(0f), 1f)
-    }
+    val fontHeight = paint.fontMetrics.descent - paint.fontMetrics.ascent
+    val desiredPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
+    setLineSpacing((desiredPx - fontHeight).coerceAtLeast(0f), 1f)
+    requestApplyText()
   }
 
   fun setFontWeight(value: String?) {
@@ -119,6 +118,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       "bold", "700", "800", "900" -> Typeface.DEFAULT_BOLD
       else -> Typeface.DEFAULT
     }
+    requestApplyText()
   }
 
   fun clearSelectionState() {
@@ -194,19 +194,15 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
   private fun requestApplyText() {
     textApplyRequested = true
-    if (pendingTextApply) return
-    pendingTextApply = true
-    post {
-      pendingTextApply = false
-      applyTextIfReady()
-    }
+    applyTextIfReady()
   }
 
   private fun applyTextIfReady() {
     if (!textApplyRequested) return
-    if (!isAttachedToWindow || layoutParams == null) return
     textApplyRequested = false
     applyText()
+    requestLayout()
+    invalidate()
   }
 
   private fun applyText() {

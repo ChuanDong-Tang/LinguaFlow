@@ -5,7 +5,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
   type StyleProp,
   type TextStyle,
@@ -167,13 +166,6 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const nativeCorrectRangesJson = React.useMemo(() => rangesToJson(correct), [correct]);
     const flattenedTextStyle = React.useMemo(() => StyleSheet.flatten(style) ?? {}, [style]);
     const nativeTextRef = React.useRef<React.ElementRef<typeof ChatSelectableTextView> | null>(null);
-    const defaultLineHeight = typeof flattenedTextStyle.lineHeight === "number" ? flattenedTextStyle.lineHeight : 25;
-    const [iosContentHeight, setIosContentHeight] = React.useState(defaultLineHeight);
-
-    React.useEffect(() => {
-      if (Platform.OS !== "ios") return;
-      setIosContentHeight((current) => Math.max(current, defaultLineHeight));
-    }, [defaultLineHeight]);
 
     const clearSelection = React.useCallback(() => {
       clearChatSelectableTextSelection(nativeTextRef);
@@ -230,16 +222,10 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const handleTouchStart = React.useCallback(() => {
       onInteractionStart?.();
     }, [onInteractionStart]);
-    const handleContentHeightChange = React.useCallback((event: { nativeEvent: { height: number } }) => {
-      const nextHeight = Math.ceil(event.nativeEvent.height);
-      if (!Number.isFinite(nextHeight) || nextHeight <= 0) return;
-      setIosContentHeight((current) => (Math.abs(current - nextHeight) < 1 ? current : nextHeight));
-    }, []);
     const nativeInteractionProps = Platform.select({
       ios: {
         selectionMode,
         menuOptions: enableClozeMenu ? [clozeMenuOption] : [],
-        onContentHeightChange: handleContentHeightChange,
         onSelectionStart,
         onSelection: handleNativeSelection,
         onClozeRangePress: handleClozeRangePress,
@@ -258,8 +244,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     });
 
     return (
-      <View style={Platform.OS === "ios" ? { minHeight: iosContentHeight } : undefined}>
-        <Text pointerEvents="none" style={[style, { opacity: 0 }]}>{nativeText}</Text>
+      <View style={styles.nativeTextContainer}>
         <ChatSelectableTextView
           ref={nativeTextRef}
           text={nativeText}
@@ -277,7 +262,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
                 ? String(flattenedTextStyle.fontWeight)
                 : undefined
           }
-          style={StyleSheet.absoluteFillObject}
+          style={styles.nativeTextView}
           {...nativeInteractionProps}
         />
         {Platform.OS !== "ios" && interactionsDisabled ? (
@@ -290,3 +275,12 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     );
   },
 );
+
+const styles = StyleSheet.create({
+  nativeTextContainer: {
+    alignSelf: "stretch",
+  },
+  nativeTextView: {
+    alignSelf: "stretch",
+  },
+});

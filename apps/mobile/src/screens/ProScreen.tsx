@@ -642,11 +642,14 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
-  async function handleRestoreApplePurchases(): Promise<void> {
+  async function handleRestoreApplePurchases(options?: { silentFailure?: boolean }): Promise<void> {
+    const silentFailure = options?.silentFailure ?? false;
     if (Platform.OS !== "ios") return;
     assertAppleIapAvailable();
     if (!appleIap?.connected) {
-      safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
+      if (!silentFailure) {
+        safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
+      }
       return;
     }
     if (isRestoringApplePurchases) return;
@@ -661,7 +664,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
       if (candidates.length === 0) {
         if (!isScreenAlive()) return;
-        safeAlert(t("pro.alert.restore_not_found_title"), t("pro.alert.restore_not_found_message"));
+        if (!silentFailure) {
+          safeAlert(t("pro.alert.restore_not_found_title"), t("pro.alert.restore_not_found_message"));
+        }
         return;
       }
 
@@ -682,7 +687,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
             if (!isScreenAlive()) return;
             applyAutoRenewToState(currentAutoRenew);
           }
-          safeAlert(t("pro.alert.restore_success_title"), t("pro.alert.restore_success_message"));
+          if (!silentFailure) {
+            safeAlert(t("pro.alert.restore_success_title"), t("pro.alert.restore_success_message"));
+          }
           return;
         } catch (error) {
           lastError = error;
@@ -690,12 +697,17 @@ export function ProScreen({ onBack }: ProScreenProps) {
       }
 
       if (isAppleTransactionOwnedByDifferentAccount(lastError)) {
-        safeAlert(t("pro.alert.restore_failed_title"), t("pro.alert.restore_wrong_account"));
+        if (!silentFailure) {
+          safeAlert(t("pro.alert.restore_failed_title"), t("pro.alert.restore_wrong_account"));
+        }
         return;
       }
-      safeAlert(t("pro.alert.restore_failed_title"), formatApplePaymentErrorMessage(lastError));
+      if (!silentFailure) {
+        safeAlert(t("pro.alert.restore_failed_title"), formatApplePaymentErrorMessage(lastError));
+      }
     } catch (error) {
       if (!isScreenAlive()) return;
+      if (silentFailure) return;
       const message = error instanceof Error ? error.message : t("app.delete.retry_later");
       safeAlert(t("pro.alert.restore_failed_title"), message);
     } finally {
@@ -712,7 +724,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       await ensureAppleAppAccountTokenRegistered();
       const presented = await presentCodeRedemptionSheetIOS();
       if (!presented || !isScreenAlive()) return;
-      await handleRestoreApplePurchases();
+      await handleRestoreApplePurchases({ silentFailure: true });
     } catch (error) {
       if (!isScreenAlive()) return;
       const message = error instanceof Error ? error.message : t("app.delete.retry_later");
