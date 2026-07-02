@@ -91,6 +91,9 @@ function mapChatGenerationErrorToHttp(code: string | undefined): {
       message: "A chat generation task is already running for this user.",
     };
   }
+  if (code === "CONTENT_BLOCKED") {
+    return { status: 400, code: "CONTENT_BLOCKED", message: "This content cannot be sent." };
+  }
   return null;
 }
 

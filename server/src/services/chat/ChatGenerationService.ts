@@ -14,6 +14,10 @@ import type { ChatGenerationRateLimiter } from "./ChatGenerationRateLimiter.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { ConversationRepository } from "@lf/core/ports/repository/ConversationRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
+import {
+  ContentSafetyBlockedError,
+  type ContentSafetyService,
+} from "../contentSafety/ContentSafetyService.js";
 
 type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
   userId: string;
@@ -25,7 +29,8 @@ type AppErrorCode =
   | "RATE_LIMITED"
   | "TASK_IN_PROGRESS"
   | "INPUT_TOO_LONG"
-  | "INPUT_TOO_SHORT";
+  | "INPUT_TOO_SHORT"
+  | "CONTENT_BLOCKED";
 
 type AppError = Error & { code: AppErrorCode };
 
@@ -39,6 +44,7 @@ export class ChatGenerationService {
     private readonly rateLimiter: ChatGenerationRateLimiter,
     private readonly conversationRepository: ConversationRepository,
     private readonly userPreferenceRepository: UserPreferenceRepository,
+    private readonly contentSafetyService?: ContentSafetyService,
   ) {}
   
   async generateChatStream(
@@ -46,6 +52,7 @@ export class ChatGenerationService {
     onEvent: (event: ChatGenerationStreamEvent) => Promise<void> | void
   ): Promise<void> {
     let assistantText = "";
+    let outputBuffer = "";
     const shouldPersist = Boolean(input.conversationId && input.userMessageId);
     let quotaDateKey: string | undefined;
     let effectiveProvider = this.aiProvider.providerName;
@@ -74,6 +81,7 @@ export class ChatGenerationService {
     const startedAt = Date.now();
     const taskId = input.userMessageId ?? input.requestId;
     const config = getRuntimeConfig();
+
     const taskTtlMs = config.chatGenerationTaskTtlMs;
     const rateLimit = config.chatGenerationGlobalRateLimit;
     const rateWindowMs = config.chatGenerationGlobalRateWindowMs;
@@ -154,6 +162,43 @@ export class ChatGenerationService {
       throw error;
     }
 
+    try {
+      this.contentSafetyService?.assertAllowed(input.text, "input");
+      if (!shouldPersist) {
+        await this.contentSafetyService?.assertAllowedRemote({
+          text: input.text,
+          stage: "input",
+          requestId: input.requestId,
+          userId: input.userId,
+          conversationId: input.conversationId,
+        });
+      }
+    } catch (error) {
+      if (error instanceof ContentSafetyBlockedError) {
+        if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
+        await this.contentSafetyService?.logBlocked({
+          requestId: input.requestId,
+          userId: input.userId,
+          stage: "input",
+          path: "/chat/generation/stream",
+          text: input.text,
+          contactId: input.contactId,
+          conversationId: input.conversationId,
+          userMessageId: input.userMessageId,
+          violation: error.violation,
+        });
+        await this.logFailedAiRequest(input, {
+          startedAt,
+          status: "failed",
+          error,
+          outputChars: 0,
+          provider: "content_safety",
+          model: error.violation.ruleId,
+        });
+      }
+      throw error;
+    }
+
     const acquired = await this.taskGuard.acquire(input.userId, taskId, taskTtlMs);
 
     if (!acquired) {
@@ -191,6 +236,31 @@ export class ChatGenerationService {
         async (event) => {
           if (event.type === "delta" && typeof event.text === "string") {
             assistantText += event.text;
+            outputBuffer += event.text;
+            try {
+              this.contentSafetyService?.assertAllowed(assistantText, "output");
+            } catch (error) {
+              if (error instanceof ContentSafetyBlockedError) {
+                await this.contentSafetyService?.logBlocked({
+                  requestId: input.requestId,
+                  userId: input.userId,
+                  stage: "output",
+                  path: "/chat/generation/stream",
+                  text: assistantText,
+                  contactId: input.contactId,
+                  conversationId: input.conversationId,
+                  userMessageId: input.userMessageId,
+                  violation: error.violation,
+                });
+              }
+              throw error;
+            }
+            const releasable = getReleasableOutput(outputBuffer);
+            if (releasable) {
+              outputBuffer = outputBuffer.slice(releasable.length);
+              await onEvent({ type: "delta", text: releasable });
+            }
+            return;
           }
           if (event.type === "done") {
             return;
@@ -198,6 +268,35 @@ export class ChatGenerationService {
           await onEvent(event);
         }
       );
+      if (outputBuffer) {
+        this.contentSafetyService?.assertAllowed(assistantText, "output");
+        try {
+          await this.contentSafetyService?.assertAllowedRemote({
+            text: assistantText,
+            stage: "output",
+            requestId: input.requestId,
+            userId: input.userId,
+            conversationId: input.conversationId,
+          });
+        } catch (error) {
+          if (error instanceof ContentSafetyBlockedError) {
+            await this.contentSafetyService?.logBlocked({
+              requestId: input.requestId,
+              userId: input.userId,
+              stage: "output",
+              path: "/chat/generation/stream",
+              text: assistantText,
+              contactId: input.contactId,
+              conversationId: input.conversationId,
+              userMessageId: input.userMessageId,
+              violation: error.violation,
+            });
+          }
+          throw error;
+        }
+        await onEvent({ type: "delta", text: outputBuffer });
+        outputBuffer = "";
+      }
       const totalChars = input.text.length + assistantText.length;
       const assistantMessage = shouldPersist
         ? await this.createPersistedAssistantMessage(input, assistantText, userPreference.learningLanguage)
@@ -361,6 +460,12 @@ export class ChatGenerationService {
     }
     return fallback ?? "UNKNOWN";
   }
+}
+
+function getReleasableOutput(outputBuffer: string): string {
+  const safetyTailChars = 80;
+  if (outputBuffer.length <= safetyTailChars) return "";
+  return outputBuffer.slice(0, outputBuffer.length - safetyTailChars);
 }
 
 function countInputCharsWithoutWhitespace(value: string): number {
