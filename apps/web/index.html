@@ -718,6 +718,13 @@
                 </div>
                 <div class="inline-actions">
                   <button id="btnLoadContentSafetyLogs" class="btn">查询拦截</button>
+                  <button id="btnPrevContentSafetyLogs" class="btn secondary" disabled>上一页</button>
+                  <button id="btnNextContentSafetyLogs" class="btn secondary" disabled>下一页</button>
+                  <select id="contentSafetyLimit">
+                    <option value="50">50 条</option>
+                    <option value="100" selected>100 条</option>
+                    <option value="200">200 条</option>
+                  </select>
                   <button id="btnFillContentSafetyFilter" class="btn secondary">填入系统日志筛选</button>
                 </div>
               </div>
@@ -730,10 +737,12 @@
                       <th>阶段</th>
                       <th>分类</th>
                       <th>规则</th>
+                      <th>命中词</th>
                       <th>来源</th>
                       <th>建议</th>
                       <th>标签</th>
                       <th>分数</th>
+                      <th>腾讯关键词</th>
                       <th>入口</th>
                       <th>文本 hash</th>
                       <th>长度</th>
@@ -1319,16 +1328,34 @@
         setStatus(`系统日志：${rows.length} 条`);
       }
 
-      async function loadContentSafetyLogs() {
+      let contentSafetyPageIndex = 0;
+      let contentSafetyPageCursors = [null];
+      let contentSafetyNextCursor = null;
+
+      async function loadContentSafetyLogs(options = {}) {
+        if (options.reset) {
+          contentSafetyPageIndex = 0;
+          contentSafetyPageCursors = [null];
+          contentSafetyNextCursor = null;
+        }
+        const cursor = contentSafetyPageCursors[contentSafetyPageIndex];
         const qs = new URLSearchParams();
-        qs.set("limit", "100");
+        qs.set("limit", $("contentSafetyLimit").value || "100");
         qs.set("module", "content_safety");
         qs.set("event", "content_safety.blocked");
         qs.set("status", "failed");
+        if (cursor?.createdAt && cursor?.id) {
+          qs.set("cursorCreatedAt", cursor.createdAt);
+          qs.set("cursorId", cursor.id);
+        }
         const res = await request(`/admin/system-event-logs?${qs.toString()}`);
         const rows = Array.isArray(res.data) ? res.data : [];
+        contentSafetyNextCursor = res.pagination?.nextCursor || null;
         $("contentSafetyTbody").innerHTML = rows.map((row) => {
           const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+          const vendorKeywords = Array.isArray(metadata.vendorKeywords)
+            ? metadata.vendorKeywords.join(", ")
+            : metadata.vendorKeywords || "-";
           return `
             <tr>
               <td>${escapeHtml(fmtDate(row.createdAt))}</td>
@@ -1336,17 +1363,34 @@
               <td>${escapeHtml(metadata.stage)}</td>
               <td>${escapeHtml(metadata.category)}</td>
               <td class="mono">${escapeHtml(metadata.ruleId)}</td>
+              <td class="mono">${escapeHtml(metadata.matchedTerm || "-")}</td>
               <td>${escapeHtml(metadata.vendor || "local")}</td>
               <td>${escapeHtml(metadata.vendorSuggestion || "-")}</td>
               <td>${escapeHtml(metadata.vendorLabel || "-")}${metadata.vendorSubLabel ? ` / ${escapeHtml(metadata.vendorSubLabel)}` : ""}</td>
               <td>${escapeHtml(metadata.vendorScore ?? "-")}</td>
+              <td class="mono">${escapeHtml(vendorKeywords)}</td>
               <td class="mono">${escapeHtml(metadata.path)}</td>
               <td class="mono">${escapeHtml(metadata.textHash)}</td>
               <td>${escapeHtml(metadata.textLength)}</td>
             </tr>
           `;
-        }).join("") || rowEmpty(12);
-        setStatus(`内容安全拦截：${rows.length} 条`);
+        }).join("") || rowEmpty(14);
+        $("btnPrevContentSafetyLogs").disabled = contentSafetyPageIndex <= 0;
+        $("btnNextContentSafetyLogs").disabled = !contentSafetyNextCursor;
+        setStatus(`内容安全拦截：第 ${contentSafetyPageIndex + 1} 页，${rows.length} 条${contentSafetyNextCursor ? "，还有下一页" : ""}`);
+      }
+
+      async function loadNextContentSafetyLogs() {
+        if (!contentSafetyNextCursor) return;
+        contentSafetyPageCursors[contentSafetyPageIndex + 1] = contentSafetyNextCursor;
+        contentSafetyPageIndex += 1;
+        await loadContentSafetyLogs();
+      }
+
+      async function loadPrevContentSafetyLogs() {
+        if (contentSafetyPageIndex <= 0) return;
+        contentSafetyPageIndex -= 1;
+        await loadContentSafetyLogs();
       }
 
       function fillContentSafetyFilter() {
@@ -1421,7 +1465,10 @@
         $("btnLoadSubscriptions").addEventListener("click", guard(loadSubscriptions));
         $("btnLoadSubscriptions2").addEventListener("click", guard(loadSubscriptions));
         $("btnLoadLogs").addEventListener("click", guard(loadLogs));
-        $("btnLoadContentSafetyLogs").addEventListener("click", guard(loadContentSafetyLogs));
+        $("btnLoadContentSafetyLogs").addEventListener("click", guard(() => loadContentSafetyLogs({ reset: true })));
+        $("btnPrevContentSafetyLogs").addEventListener("click", guard(loadPrevContentSafetyLogs));
+        $("btnNextContentSafetyLogs").addEventListener("click", guard(loadNextContentSafetyLogs));
+        $("contentSafetyLimit").addEventListener("change", guard(() => loadContentSafetyLogs({ reset: true })));
         $("btnFillContentSafetyFilter").addEventListener("click", fillContentSafetyFilter);
         $("btnLoadAuditLogs").addEventListener("click", guard(loadAuditLogs));
         $("usersTbody").addEventListener("click", guard(async (event) => {

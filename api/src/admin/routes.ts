@@ -1018,11 +1018,16 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const event = typeof query.event === "string" ? query.event.trim() : "";
     const statusRaw = typeof query.status === "string" ? query.status.trim() : "failed";
     const levelRaw = typeof query.level === "string" ? query.level.trim() : "";
+    const cursorCreatedAtRaw = typeof query.cursorCreatedAt === "string" ? query.cursorCreatedAt.trim() : "";
+    const cursorId = typeof query.cursorId === "string" ? query.cursorId.trim() : "";
     const allowedStatuses = new Set(["success", "failed", "ignored"]);
     const allowedLevels = new Set(["info", "warn", "error"]);
     const status = statusRaw && allowedStatuses.has(statusRaw) ? statusRaw : "";
     const level = levelRaw && allowedLevels.has(levelRaw) ? levelRaw : "";
-    const limit = Math.min(200, Math.max(1, Number(query.limit ?? 50)));
+    const requestedLimit = Number(query.limit ?? 50);
+    const limit = Math.min(200, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 50));
+    const cursorCreatedAt = cursorCreatedAtRaw ? new Date(cursorCreatedAtRaw) : null;
+    const hasCursor = Boolean(cursorId && cursorCreatedAt && !Number.isNaN(cursorCreatedAt.getTime()));
 
     const rows = await deps.prisma.$queryRawUnsafe(
       `SELECT "id","module","event","level","status","errorCode","errorMessage","userId","requestId","metadata","createdAt"
@@ -1031,16 +1036,42 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
          AND ($2::text IS NULL OR "event" = $2)
          AND ($3::text IS NULL OR "status" = $3::"SystemEventLogStatus")
          AND ($4::text IS NULL OR "level" = $4::"SystemEventLogLevel")
-       ORDER BY "createdAt" DESC
-       LIMIT $5`,
+         AND ($5::timestamptz IS NULL OR ("createdAt", "id") < ($5::timestamptz, $6::text))
+       ORDER BY "createdAt" DESC, "id" DESC
+       LIMIT $7`,
       module || null,
       event || null,
       status || null,
       level || null,
-      limit
-    );
+      hasCursor ? cursorCreatedAt : null,
+      hasCursor ? cursorId : null,
+      limit + 1
+    ) as Array<{
+      id: string;
+      module: string;
+      event: string;
+      level: string;
+      status: string;
+      errorCode: string | null;
+      errorMessage: string | null;
+      userId: string | null;
+      requestId: string | null;
+      metadata: unknown;
+      createdAt: Date;
+    }>;
+    const pageRows = rows.slice(0, limit);
+    const last = pageRows[pageRows.length - 1];
+    const hasNext = rows.length > limit;
+    const nextCursor = hasNext && last
+      ? { createdAt: last.createdAt.toISOString(), id: last.id }
+      : null;
 
-    return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: pageRows,
+      pagination: { limit, hasNext, nextCursor },
+    });
   });
 
   app.get("/admin/tts/assets", async (req, reply) => {
