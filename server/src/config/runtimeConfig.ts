@@ -139,6 +139,15 @@ export interface RuntimeConfig {
   ttsMessagesGlobalRateWindowMs: number;
   ttsCostPerMillionCharsCents: number;
   ttsCostCurrency: string;
+  contentSafetyTencentTmsEnabled: boolean;
+  contentSafetyTencentSecretId: string;
+  contentSafetyTencentSecretKey: string;
+  contentSafetyTencentRegion: string;
+  contentSafetyTencentBizType: string | null;
+  contentSafetyTencentTimeoutMs: number;
+  contentSafetyTencentBlockSuggestions: string[];
+  contentSafetyTencentFailClosed: boolean;
+  contentSafetyTencentReviewMode: "suspect" | "all";
 }
 
 export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -250,6 +259,15 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     ttsMessagesGlobalRateWindowMs: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_WINDOW_MS, 60_000),
     ttsCostPerMillionCharsCents: readNonNegativeInt(env.TTS_COST_PER_1M_CHARS_CENTS, 0),
     ttsCostCurrency: env.TTS_COST_CURRENCY?.trim() || "USD",
+    contentSafetyTencentTmsEnabled: readBoolean(env.LF_TENCENT_TMS_ENABLED, false),
+    contentSafetyTencentSecretId: env.TENCENTCLOUD_SECRET_ID?.trim() || env.TENCENT_TMS_SECRET_ID?.trim() || "",
+    contentSafetyTencentSecretKey: env.TENCENTCLOUD_SECRET_KEY?.trim() || env.TENCENT_TMS_SECRET_KEY?.trim() || "",
+    contentSafetyTencentRegion: env.TENCENT_TMS_REGION?.trim() || "ap-guangzhou",
+    contentSafetyTencentBizType: trimToNull(env.TENCENT_TMS_BIZ_TYPE),
+    contentSafetyTencentTimeoutMs: readPositiveInt(env.TENCENT_TMS_TIMEOUT_MS, 1500),
+    contentSafetyTencentBlockSuggestions: readCsv(env.TENCENT_TMS_BLOCK_SUGGESTIONS, ["Block", "Review"]),
+    contentSafetyTencentFailClosed: readBoolean(env.TENCENT_TMS_FAIL_CLOSED, false),
+    contentSafetyTencentReviewMode: readTencentTmsReviewMode(env.TENCENT_TMS_REVIEW_MODE, "suspect"),
   };
 }
 
@@ -264,6 +282,13 @@ function readAiProvider(value: string | undefined, fallback: AiProviderName): Ai
   if (normalized === "openai" || normalized === "chatgpt") return "openai";
   if (normalized === "grok") return "grok";
   if (normalized === "deepseek") return "deepseek";
+  return fallback;
+}
+
+function readTencentTmsReviewMode(value: string | undefined, fallback: "suspect" | "all"): "suspect" | "all" {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "all") return "all";
+  if (normalized === "suspect" || normalized === "suspicious") return "suspect";
   return fallback;
 }
 

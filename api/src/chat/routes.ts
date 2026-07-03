@@ -15,6 +15,10 @@ import {
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
+import {
+  ContentSafetyBlockedError,
+  type ContentSafetyService,
+} from "@lf/server/services/contentSafety/ContentSafetyService.js";
 
 type SendMessageBody = {
   userId: string;
@@ -113,6 +117,7 @@ export interface ChatRouteDeps {
     }) => Promise<void>;
   };
   systemEventLogRepository?: SystemEventLogWriter;
+  contentSafetyService?: ContentSafetyService;
   entitlementService :{
     assertCanUse: (userId: string, requestedChars: number) => Promise<void>;
     assertCanStartGeneration: (userId: string) => Promise<void>;
@@ -348,6 +353,34 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
       });
     }
 
+    try {
+      deps.contentSafetyService?.assertAllowed(body.text, "input");
+      await deps.contentSafetyService?.assertAllowedRemote({
+        text: body.text,
+        stage: "input",
+        requestId,
+        userId: userContext.userId,
+      });
+    } catch (error) {
+      if (error instanceof ContentSafetyBlockedError) {
+        await deps.contentSafetyService?.logBlocked({
+          requestId,
+          userId: userContext.userId,
+          stage: "input",
+          path: "/chat/messages",
+          text: body.text,
+          contactId: body.contactId,
+          violation: error.violation,
+        });
+        return reply.status(400).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "CONTENT_BLOCKED", message: "This message cannot be sent." },
+        });
+      }
+      throw error;
+    }
+
 
     const data = await deps.chatMessageService.sendUserMessage({
       userId: userContext.userId,
@@ -408,13 +441,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
 
     try {
       await assertProCloudAccess(deps, userContext.userId);
-      const data = await deps.chatMessageService.importLocalDayMessages({
-        userId: userContext.userId,
-        contactId: body.contactId,
-        dateKey: body.dateKey,
-        messages: body.messages,
-      });
-      return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       if (isProRequiredError(error)) {
         return reply.status(403).send({
@@ -423,6 +449,63 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
           error: { code: "PRO_REQUIRED", message: "Pro access required" },
         });
       }
+      throw error;
+    }
+
+    const importWindowMs = runtimeConfig.chatMessagesUserRateWindowMs;
+    const importLimit = Math.max(3, Math.ceil(runtimeConfig.chatMessagesUserRateLimit / 2));
+    const importBucket = Math.floor(Date.now() / importWindowMs);
+    const importKey = `chat:messages-import:user:${userContext.userId}:${importBucket}`;
+    const importAllowed = await deps.rateLimiter.consume(importKey, importLimit, importWindowMs);
+    if (!importAllowed) {
+      return reply.status(429).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "RATE_LIMITED", message: "You're sending requests too quickly. Please try again later." },
+      });
+    }
+
+    for (const message of body.messages) {
+      const violation = deps.contentSafetyService?.scan(message.content);
+      const stage = message.role === "assistant" ? "output" : "input";
+      try {
+        if (violation) throw new ContentSafetyBlockedError(stage, violation);
+        await deps.contentSafetyService?.assertAllowedRemote({
+          text: message.content,
+          stage,
+          requestId,
+          userId: userContext.userId,
+        });
+      } catch (error) {
+        if (error instanceof ContentSafetyBlockedError) {
+          await deps.contentSafetyService?.logBlocked({
+            requestId,
+            userId: userContext.userId,
+            stage,
+            path: "/chat/messages/import-day",
+            text: message.content,
+            contactId: body.contactId,
+            violation: error.violation,
+          });
+          return reply.status(400).send({
+            ok: false,
+            request_id: requestId,
+            error: { code: "CONTENT_BLOCKED", message: "This message cannot be imported." },
+          });
+        }
+        throw error;
+      }
+    }
+
+    try {
+      const data = await deps.chatMessageService.importLocalDayMessages({
+        userId: userContext.userId,
+        contactId: body.contactId,
+        dateKey: body.dateKey,
+        messages: body.messages,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
       throw error;
     }
   });

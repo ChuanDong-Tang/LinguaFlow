@@ -1016,8 +1016,12 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const query = req.query as Record<string, unknown>;
     const module = typeof query.module === "string" ? query.module.trim() : "";
     const event = typeof query.event === "string" ? query.event.trim() : "";
-    const status = typeof query.status === "string" ? query.status.trim() : "failed";
-    const level = typeof query.level === "string" ? query.level.trim() : "";
+    const statusRaw = typeof query.status === "string" ? query.status.trim() : "failed";
+    const levelRaw = typeof query.level === "string" ? query.level.trim() : "";
+    const allowedStatuses = new Set(["success", "failed", "ignored"]);
+    const allowedLevels = new Set(["info", "warn", "error"]);
+    const status = statusRaw && allowedStatuses.has(statusRaw) ? statusRaw : "";
+    const level = levelRaw && allowedLevels.has(levelRaw) ? levelRaw : "";
     const limit = Math.min(200, Math.max(1, Number(query.limit ?? 50)));
 
     const rows = await deps.prisma.$queryRawUnsafe(
@@ -1025,8 +1029,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
        FROM "system_event_logs"
        WHERE ($1::text IS NULL OR "module" = $1)
          AND ($2::text IS NULL OR "event" = $2)
-         AND ($3::text IS NULL OR "status" = $3)
-         AND ($4::text IS NULL OR "level" = $4)
+         AND ($3::text IS NULL OR "status" = $3::"SystemEventLogStatus")
+         AND ($4::text IS NULL OR "level" = $4::"SystemEventLogLevel")
        ORDER BY "createdAt" DESC
        LIMIT $5`,
       module || null,

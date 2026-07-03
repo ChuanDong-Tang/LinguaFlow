@@ -57,6 +57,8 @@ import { getBusinessClockSnapshot } from "@lf/server/services/time/businessClock
 import { TtsService } from "@lf/server/services/tts/TtsService.js";
 import { AzureGlobalTtsProvider } from "@lf/server/providers/tts/AzureGlobalTtsProvider.js";
 import { CosStorageProvider } from "@lf/server/providers/storage/CosStorageProvider.js";
+import { ContentSafetyService } from "@lf/server/services/contentSafety/ContentSafetyService.js";
+import { TencentTmsClient } from "@lf/server/services/contentSafety/TencentTmsClient.js";
 import type {
   CreateProviderOrderInput,
   CreateProviderOrderResult,
@@ -132,6 +134,25 @@ export function createApp() {
   const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
   const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
   const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
+  const tencentTmsClient =
+    runtimeConfig.contentSafetyTencentTmsEnabled &&
+    runtimeConfig.contentSafetyTencentSecretId &&
+    runtimeConfig.contentSafetyTencentSecretKey
+      ? new TencentTmsClient({
+          secretId: runtimeConfig.contentSafetyTencentSecretId,
+          secretKey: runtimeConfig.contentSafetyTencentSecretKey,
+          region: runtimeConfig.contentSafetyTencentRegion,
+          bizType: runtimeConfig.contentSafetyTencentBizType,
+          timeoutMs: runtimeConfig.contentSafetyTencentTimeoutMs,
+        })
+      : undefined;
+  const contentSafetyService = new ContentSafetyService(systemEventLogRepository, {
+    tencentTmsClient,
+    tencentTmsEnabled: Boolean(tencentTmsClient),
+    tencentTmsBlockSuggestions: runtimeConfig.contentSafetyTencentBlockSuggestions,
+    tencentTmsFailClosed: runtimeConfig.contentSafetyTencentFailClosed,
+    tencentTmsReviewMode: runtimeConfig.contentSafetyTencentReviewMode,
+  });
   const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
   const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
   const appleIapAccountLinkRepository = new PrismaAppleIapAccountLinkRepository(prisma);
@@ -192,7 +213,8 @@ export function createApp() {
     aiRequestLogRepository,
     chatGenerationRateLimiter,
     conversationRepository,
-    userPreferenceRepository
+    userPreferenceRepository,
+    contentSafetyService
   );
   const ttsService = new TtsService(
     messageRepository,
@@ -222,6 +244,7 @@ export function createApp() {
     chatMessageService,
     userRepository,
     systemEventLogRepository,
+    contentSafetyService,
     entitlementService,
     rateLimiter: chatGenerationRateLimiter,
   });

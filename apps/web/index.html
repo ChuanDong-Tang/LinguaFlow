@@ -713,6 +713,39 @@
             <div class="section">
               <div class="section-head">
                 <div>
+                  <h2 class="section-title">内容安全审计</h2>
+                  <p class="section-subtitle">查看本地规则拦截记录；日志只保存分类、规则和文本 hash，不保存原文。</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="btnLoadContentSafetyLogs" class="btn">查询拦截</button>
+                  <button id="btnFillContentSafetyFilter" class="btn secondary">填入系统日志筛选</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>阶段</th>
+                      <th>分类</th>
+                      <th>规则</th>
+                      <th>来源</th>
+                      <th>建议</th>
+                      <th>标签</th>
+                      <th>分数</th>
+                      <th>入口</th>
+                      <th>文本 hash</th>
+                      <th>长度</th>
+                    </tr>
+                  </thead>
+                  <tbody id="contentSafetyTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
                   <h2 class="section-title">系统日志</h2>
                   <p class="section-subtitle">默认查 failed，最多 200 条</p>
                 </div>
@@ -720,7 +753,7 @@
               <div class="form-row">
                 <div class="field">
                   <label>Module</label>
-                  <input id="logModule" placeholder="payment / auth / admin" />
+                  <input id="logModule" placeholder="payment / auth / admin / content_safety" />
                 </div>
                 <div class="field">
                   <label>Event</label>
@@ -1286,6 +1319,43 @@
         setStatus(`系统日志：${rows.length} 条`);
       }
 
+      async function loadContentSafetyLogs() {
+        const qs = new URLSearchParams();
+        qs.set("limit", "100");
+        qs.set("module", "content_safety");
+        qs.set("event", "content_safety.blocked");
+        qs.set("status", "failed");
+        const res = await request(`/admin/system-event-logs?${qs.toString()}`);
+        const rows = Array.isArray(res.data) ? res.data : [];
+        $("contentSafetyTbody").innerHTML = rows.map((row) => {
+          const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+          return `
+            <tr>
+              <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+              <td class="mono">${escapeHtml(row.userId)}</td>
+              <td>${escapeHtml(metadata.stage)}</td>
+              <td>${escapeHtml(metadata.category)}</td>
+              <td class="mono">${escapeHtml(metadata.ruleId)}</td>
+              <td>${escapeHtml(metadata.vendor || "local")}</td>
+              <td>${escapeHtml(metadata.vendorSuggestion || "-")}</td>
+              <td>${escapeHtml(metadata.vendorLabel || "-")}${metadata.vendorSubLabel ? ` / ${escapeHtml(metadata.vendorSubLabel)}` : ""}</td>
+              <td>${escapeHtml(metadata.vendorScore ?? "-")}</td>
+              <td class="mono">${escapeHtml(metadata.path)}</td>
+              <td class="mono">${escapeHtml(metadata.textHash)}</td>
+              <td>${escapeHtml(metadata.textLength)}</td>
+            </tr>
+          `;
+        }).join("") || rowEmpty(12);
+        setStatus(`内容安全拦截：${rows.length} 条`);
+      }
+
+      function fillContentSafetyFilter() {
+        $("logModule").value = "content_safety";
+        $("logEvent").value = "content_safety.blocked";
+        $("logStatus").value = "failed";
+        setStatus("已填入内容安全日志筛选条件");
+      }
+
       async function loadAuditLogs() {
         const qs = new URLSearchParams();
         qs.set("limit", "100");
@@ -1351,6 +1421,8 @@
         $("btnLoadSubscriptions").addEventListener("click", guard(loadSubscriptions));
         $("btnLoadSubscriptions2").addEventListener("click", guard(loadSubscriptions));
         $("btnLoadLogs").addEventListener("click", guard(loadLogs));
+        $("btnLoadContentSafetyLogs").addEventListener("click", guard(loadContentSafetyLogs));
+        $("btnFillContentSafetyFilter").addEventListener("click", fillContentSafetyFilter);
         $("btnLoadAuditLogs").addEventListener("click", guard(loadAuditLogs));
         $("usersTbody").addEventListener("click", guard(async (event) => {
           const target = event.target;
