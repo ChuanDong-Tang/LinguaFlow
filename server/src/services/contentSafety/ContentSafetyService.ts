@@ -18,6 +18,7 @@ export interface ContentSafetyViolation {
   category: ContentSafetyCategory;
   ruleId: string;
   severity: "block";
+  matchedTerm?: string;
   vendor?: "tencent_tms";
   vendorRequestId?: string;
   vendorSuggestion?: string;
@@ -49,6 +50,7 @@ export interface ContentSafetyServiceOptions {
 
 type ScanText = {
   raw: string;
+  normalized: string;
   compact: string;
   loose: string;
 };
@@ -116,6 +118,9 @@ const ILLEGAL_TERMS = ["洗钱", "洗錢", "黑产", "黑產", "盗号", "盜號
 const FRAUD_TERMS = ["诈骗话术", "詐騙話術", "杀猪盘", "殺豬盤", "钓鱼链接", "釣魚鏈接", "phishing kit", "scam script"];
 const DRUG_TERMS = ["冰毒", "海洛因", "可卡因", "贩毒", "販毒", "meth", "heroin", "cocaine"];
 const GAMBLING_TERMS = ["赌博", "賭博", "博彩", "赌盘", "賭盤", "casino", "betting"];
+const DIRECT_VIOLENCE_TERMS = ["恐怖袭击", "恐怖襲擊", "爆炸物", "炸弹", "炸彈", "枪支", "槍支", "砍杀", "砍殺", "屠杀", "屠殺"];
+const DIRECT_RELIGION_EXTREMISM_TERMS = ["圣战", "聖戰", "极端宗教", "極端宗教", "邪教", "religious extremist"];
+const DIRECT_GAMBLING_TERMS = ["赌盘", "賭盤"];
 const REMOTE_SEXUAL_TERMS = [...SEXUAL_TERMS, "低俗", "成人内容", "成人內容", "约炮", "約炮", "smut"];
 const REMOTE_VIOLENCE_TERMS = [...VIOLENCE_TERMS, ...SELF_HARM_TERMS, "暴力", "杀人", "殺人", "自杀", "自殺", "血腥", "武器", "weapon", "kill"];
 const REMOTE_RELIGION_TERMS = [...RELIGION_EXTREMISM_TERMS, "宗教", "religion", "cult"];
@@ -146,13 +151,13 @@ const DIRECT_RULES: Array<{
   terms: string[];
 }> = [
   { category: "political", ruleId: "political_direct_entity", terms: POLITICAL_DIRECT_TERMS },
-  { category: "violence", ruleId: "violence_direct_high_risk", terms: VIOLENCE_TERMS },
+  { category: "violence", ruleId: "violence_direct_high_risk", terms: DIRECT_VIOLENCE_TERMS },
   { category: "violence", ruleId: "self_harm_direct_instruction", terms: SELF_HARM_TERMS },
-  { category: "religion_extremism", ruleId: "religion_extremism_direct", terms: RELIGION_EXTREMISM_TERMS },
+  { category: "religion_extremism", ruleId: "religion_extremism_direct", terms: DIRECT_RELIGION_EXTREMISM_TERMS },
   { category: "illegal", ruleId: "illegal_direct", terms: ILLEGAL_TERMS },
   { category: "fraud", ruleId: "fraud_direct", terms: FRAUD_TERMS },
   { category: "drugs", ruleId: "drugs_direct", terms: DRUG_TERMS },
-  { category: "gambling", ruleId: "gambling_direct", terms: GAMBLING_TERMS },
+  { category: "gambling", ruleId: "gambling_direct", terms: DIRECT_GAMBLING_TERMS },
 ];
 
 const COMBO_RULES: ComboRule[] = [
@@ -184,17 +189,23 @@ export class ContentSafetyService {
     const scanText = buildScanText(text);
 
     for (const rule of DIRECT_RULES) {
-      if (rule.terms.some((term) => includesTerm(scanText, term))) {
-        return { category: rule.category, ruleId: rule.ruleId, severity: "block" };
+      const matchedTerm = findMatchedTerm(scanText, rule.terms);
+      if (matchedTerm) {
+        return { category: rule.category, ruleId: rule.ruleId, severity: "block", matchedTerm };
       }
     }
 
     for (const rule of COMBO_RULES) {
-      const hasLeft = rule.left.some((term) => includesTerm(scanText, term));
-      if (!hasLeft) continue;
-      const hasRight = rule.right.some((term) => includesTerm(scanText, term));
-      if (hasRight) {
-        return { category: rule.category, ruleId: rule.ruleId, severity: "block" };
+      const leftTerm = findMatchedTerm(scanText, rule.left);
+      if (!leftTerm) continue;
+      const rightTerm = findMatchedTerm(scanText, rule.right);
+      if (rightTerm) {
+        return {
+          category: rule.category,
+          ruleId: rule.ruleId,
+          severity: "block",
+          matchedTerm: `${leftTerm}+${rightTerm}`,
+        };
       }
     }
 
@@ -247,6 +258,7 @@ export class ContentSafetyService {
       category: mapTencentLabelToCategory(result.label),
       ruleId: "tencent_tms_suggestion",
       severity: "block",
+      matchedTerm: reviewSignal?.matchedTerm,
       vendor: "tencent_tms",
       vendorRequestId: result.requestId,
       vendorSuggestion: result.suggestion,
@@ -257,11 +269,12 @@ export class ContentSafetyService {
     });
   }
 
-  scanRemoteReviewSignal(text: string): { category: ContentSafetyCategory; ruleId: string } | null {
+  scanRemoteReviewSignal(text: string): { category: ContentSafetyCategory; ruleId: string; matchedTerm: string } | null {
     const scanText = buildScanText(text);
     for (const rule of REMOTE_REVIEW_RULES) {
-      if (rule.terms.some((term) => includesTerm(scanText, term))) {
-        return { category: rule.category, ruleId: rule.ruleId };
+      const matchedTerm = findMatchedTerm(scanText, rule.terms);
+      if (matchedTerm) {
+        return { category: rule.category, ruleId: rule.ruleId, matchedTerm };
       }
     }
     return null;
@@ -301,6 +314,7 @@ export class ContentSafetyService {
           vendorSubLabel: input.violation.vendorSubLabel ?? null,
           vendorScore: input.violation.vendorScore ?? null,
           vendorKeywords: input.violation.vendorKeywords ?? [],
+          matchedTerm: input.violation.matchedTerm ?? null,
           textHash: hashText(input.text),
           textLength: input.text.length,
           contactId: input.contactId ?? null,
@@ -363,16 +377,30 @@ function buildScanText(raw: string): ScanText {
     .replace(/[4@]/g, "a");
   const loose = normalized.replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, " ").trim();
   const compact = loose.replace(/\s+/g, "");
-  return { raw, compact, loose: ` ${loose} ` };
+  return { raw, normalized, compact, loose: ` ${loose} ` };
+}
+
+function findMatchedTerm(text: ScanText, terms: string[]): string | null {
+  return terms.find((term) => includesTerm(text, term)) ?? null;
 }
 
 function includesTerm(text: ScanText, term: string): boolean {
   const normalizedTerm = buildScanText(term);
   if (!normalizedTerm.compact) return false;
-  if (/^[a-z0-9]{1,3}$/.test(normalizedTerm.compact)) {
-    return new RegExp(`(^|[^a-z0-9])${escapeRegExp(normalizedTerm.compact)}([^a-z0-9]|$)`).test(text.loose);
+  if (/^[a-z0-9]+$/.test(normalizedTerm.compact)) {
+    const normalizedText = normalizedTerm.compact === "xi" ? maskXianPlaceName(text.normalized) : text.normalized;
+    return buildAsciiTermRegex(normalizedTerm.compact).test(normalizedText);
   }
   return text.compact.includes(normalizedTerm.compact);
+}
+
+function maskXianPlaceName(text: string): string {
+  return text.replace(/(^|[^a-z0-9])xi['’ʼ`-]?an([^a-z0-9]|$)/g, "$1xian$2");
+}
+
+function buildAsciiTermRegex(term: string): RegExp {
+  const chars = Array.from(term).map(escapeRegExp).join("[^a-z0-9]*");
+  return new RegExp(`(^|[^a-z0-9])${chars}([^a-z0-9]|$)`);
 }
 
 function escapeRegExp(value: string): string {
