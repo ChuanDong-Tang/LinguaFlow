@@ -7,11 +7,19 @@ let audioModeReady = false;
 let cacheDirectoryReady = false;
 let playbackRequestId = 0;
 let lastCachePruneAt = 0;
+let playbackState: TtsPlaybackState = {
+  hasActiveAudio: false,
+  status: "idle",
+  playbackRate: 1,
+  loopEnabled: false,
+};
+const playbackSubscribers = new Set<() => void>();
 
 const TTS_AUDIO_CACHE_MAX_BYTES = 50 * 1024 * 1024;
 const TTS_AUDIO_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const TTS_AUDIO_CACHE_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
 const TTS_RANGE_STOP_GUARD_MS = 80;
+const TTS_PLAYBACK_RATES = [1, 1.5, 2, 0.5] as const;
 
 export type TtsPlaybackRange = {
   startMs: number;
@@ -22,6 +30,13 @@ export type TtsAudioSource = {
   url: string;
   cacheKey?: string | null;
   playbackRange?: TtsPlaybackRange;
+};
+
+export type TtsPlaybackState = {
+  hasActiveAudio: boolean;
+  status: "idle" | "playing" | "paused";
+  playbackRate: number;
+  loopEnabled: boolean;
 };
 
 export async function playTtsAudio(source: string | TtsAudioSource, playbackRange?: TtsPlaybackRange): Promise<void> {
@@ -48,6 +63,11 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
 
   const player = createAudioPlayer({ uri: audioUri }, { updateInterval: 30 });
   activePlayer = player;
+  applyPlayerControls(player);
+  setPlaybackState({
+    hasActiveAudio: true,
+    status: "playing",
+  });
   if (effectivePlaybackRange) {
     const startSeconds = Math.max(0, effectivePlaybackRange.startMs / 1000);
     const stopAtMs = Math.max(
@@ -63,16 +83,69 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
       if (activePlayer !== player) return;
       const currentMs = player.currentStatus.currentTime * 1000;
       if (currentMs >= stopAtMs) {
+        if (playbackState.loopEnabled) {
+          void player.seekTo(startSeconds, 0, 0).then(() => {
+            if (activePlayer === player && playbackState.status === "playing") player.play();
+          });
+          return;
+        }
         stopTtsAudio();
       }
     }, 30);
+  } else {
+    activeStopTimer = setInterval(() => {
+      if (activePlayer !== player) return;
+      const status = player.currentStatus;
+      if (status.didJustFinish && !playbackState.loopEnabled) {
+        stopTtsAudio();
+      }
+    }, 120);
   }
   player.play();
 }
 
-export function stopTtsAudio(): void {
+export function stopTtsAudio(options: { resetControls?: boolean } = {}): void {
   playbackRequestId += 1;
   stopActivePlayer();
+  if (options.resetControls) {
+    setPlaybackState({
+      playbackRate: 1,
+      loopEnabled: false,
+    });
+  }
+}
+
+export function toggleTtsPlayback(): void {
+  if (!activePlayer) return;
+  if (playbackState.status === "playing") {
+    activePlayer.pause();
+    setPlaybackState({ status: "paused" });
+    return;
+  }
+  activePlayer.play();
+  setPlaybackState({ status: "playing" });
+}
+
+export function cycleTtsPlaybackRate(): void {
+  const currentIndex = TTS_PLAYBACK_RATES.findIndex((rate) => rate === playbackState.playbackRate);
+  const nextRate = TTS_PLAYBACK_RATES[(currentIndex + 1) % TTS_PLAYBACK_RATES.length] ?? 1;
+  if (activePlayer) activePlayer.setPlaybackRate(nextRate, "medium");
+  setPlaybackState({ playbackRate: nextRate });
+}
+
+export function toggleTtsLoop(): void {
+  const loopEnabled = !playbackState.loopEnabled;
+  if (activePlayer) activePlayer.loop = loopEnabled;
+  setPlaybackState({ loopEnabled });
+}
+
+export function getTtsPlaybackState(): TtsPlaybackState {
+  return playbackState;
+}
+
+export function subscribeTtsPlayback(listener: () => void): () => void {
+  playbackSubscribers.add(listener);
+  return () => playbackSubscribers.delete(listener);
 }
 
 function stopActivePlayer(): void {
@@ -80,10 +153,34 @@ function stopActivePlayer(): void {
     clearInterval(activeStopTimer);
     activeStopTimer = null;
   }
-  if (!activePlayer) return;
-  activePlayer.pause();
-  activePlayer.remove();
+  if (activePlayer) {
+    activePlayer.pause();
+    activePlayer.remove();
+  }
   activePlayer = null;
+  setPlaybackState({
+    hasActiveAudio: false,
+    status: "idle",
+  });
+}
+
+function applyPlayerControls(player: AudioPlayer): void {
+  player.loop = playbackState.loopEnabled;
+  player.setPlaybackRate(playbackState.playbackRate, "medium");
+}
+
+function setPlaybackState(next: Partial<TtsPlaybackState>): void {
+  const merged = { ...playbackState, ...next };
+  if (
+    merged.hasActiveAudio === playbackState.hasActiveAudio &&
+    merged.status === playbackState.status &&
+    merged.playbackRate === playbackState.playbackRate &&
+    merged.loopEnabled === playbackState.loopEnabled
+  ) {
+    return;
+  }
+  playbackState = merged;
+  playbackSubscribers.forEach((listener) => listener());
 }
 
 async function resolveCachedTtsAudioUri(source: TtsAudioSource): Promise<string> {

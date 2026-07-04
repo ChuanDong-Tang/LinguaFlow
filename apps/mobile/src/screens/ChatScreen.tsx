@@ -53,6 +53,7 @@ import { DatePickerSheet } from "./chat/DatePickerSheet";
 import { useFloatingNotice } from "./shared/FloatingNotice";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import { ClozeControls } from "./chat/ClozeControls";
+import { TtsMiniPlayer } from "../components/TtsMiniPlayer";
 import type { ChatMessage } from "../domain/chat/types";
 import { useChatClozeEditing } from "../hooks/useChatClozeEditing";
 import { consumeChatDateDirty } from "../services/chat/chatPracticeSyncState";
@@ -212,7 +213,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       clozeSaveMachine.cancel();
       dictionaryAbortRef.current?.abort();
       dictionaryAbortRef.current = null;
-      stopTtsAudio();
+      stopTtsAudio({ resetControls: true });
     };
   }, []);
 
@@ -997,6 +998,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             openAutoCopyMenu();
           }}
         />
+        <TtsMiniPlayer storageKey="linguaflow.tts_mini_player.chat.v1" />
 
         <MessageList
           contact={contact}

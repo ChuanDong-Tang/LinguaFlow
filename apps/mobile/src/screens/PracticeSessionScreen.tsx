@@ -20,6 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { ChatMessage } from "../domain/chat/types";
 import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLoading } from "./shared/BlockingLoading";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
+import { TtsMiniPlayer } from "../components/TtsMiniPlayer";
 import {
   applyCorrectAnswers,
   buildPracticeCards,
@@ -182,16 +183,16 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const canFlipCard = !!card?.translation.trim();
   isFlippedRef.current = isFlipped;
 
-  const stopPracticeTts = React.useCallback(() => {
+  const stopPracticeTts = React.useCallback((options?: { resetControls?: boolean }) => {
     sentenceTtsControllerRef.current?.abort();
     sentenceTtsControllerRef.current = null;
-    stopTtsAudio();
+    stopTtsAudio(options);
   }, []);
 
   useEffect(() => {
     return () => {
       practiceMountedRef.current = false;
-      stopPracticeTts();
+      stopPracticeTts({ resetControls: true });
     };
   }, [stopPracticeTts]);
 
@@ -660,6 +661,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
           <Ionicons name="help-circle-outline" size={22} color="#111111" />
         </Pressable>
       </View>
+      <TtsMiniPlayer storageKey="linguaflow.tts_mini_player.practice.v1" />
 
       {rulesOpen ? (
         <View style={styles.rulesLayer} pointerEvents="box-none">
