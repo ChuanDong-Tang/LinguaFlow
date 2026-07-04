@@ -21,6 +21,12 @@ export type NativeTextSelectionPayload = {
   start: number;
   end: number;
   selectedText: string;
+  selectionRect?: {
+    pageX: number;
+    pageY: number;
+    width: number;
+    height: number;
+  };
 };
 
 export type NativeClozeHighlightRange = {
@@ -46,11 +52,13 @@ type Props = {
   correctRanges?: NativeClozeBlankRange[];
   trailingElement?: React.ReactNode;
   enableClozeMenu?: boolean;
+  enableDictionaryMenu?: boolean;
   selectionMode?: "range" | "all";
   interactionsDisabled?: boolean;
   onInteractionStart?: () => void;
   onSelectionStart?: () => void;
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
+  onDictionarySelection?: (payload: NativeTextSelectionPayload) => void;
   onClozeRangePress?: (groupIndex: number) => void;
   onClozeRangeLongPress?: (groupIndex: number) => void;
 };
@@ -136,16 +144,19 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     correctRanges,
     trailingElement,
     enableClozeMenu = true,
+    enableDictionaryMenu = false,
     selectionMode = "range",
     interactionsDisabled = false,
     onInteractionStart,
     onSelectionStart,
     onSelectionChange,
+    onDictionarySelection,
     onClozeRangePress,
     onClozeRangeLongPress,
   }, ref) {
     const renderStart = perfNow();
     const clozeMenuOption = t("cloze.menu");
+    const dictionaryMenuOption = t("dictionary.menu");
     const highlights = React.useMemo(() => normalizeBlockedRanges(text, highlightRanges), [highlightRanges, text]);
     const blanks = React.useMemo(() => {
       const startedAt = perfNow();
@@ -176,7 +187,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const handleNativeSelection = React.useCallback(
       (event: { nativeEvent: ChatSelectableTextSelectionEvent }) => {
         const payload = event.nativeEvent;
-        if (payload.chosenOption !== clozeMenuOption) return;
+        if (payload.chosenOption !== clozeMenuOption && payload.chosenOption !== dictionaryMenuOption) return;
         const selectedText = payload.highlightedText;
         if (!selectedText) return;
         const hasNativeRange = typeof payload.selectionStart === "number" && typeof payload.selectionEnd === "number";
@@ -184,6 +195,17 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         if (start < 0) return;
         const end = hasNativeRange ? payload.selectionEnd! : start + selectedText.length;
         const selectedRange = { start: Math.min(start, end), end: Math.max(start, end) };
+        const normalizedPayload = {
+          start: selectedRange.start,
+          end: selectedRange.end,
+          selectedText: text.slice(selectedRange.start, selectedRange.end),
+          selectionRect: payload.selectionRect,
+        };
+        if (payload.chosenOption === dictionaryMenuOption) {
+          onSelectionStart?.();
+          onDictionarySelection?.(normalizedPayload);
+          return;
+        }
         const existingClozeRanges = highlights.length ? highlights : blanks;
         const insideExistingCloze = existingClozeRanges.some((range) => rangeContains(range, selectedRange.start, selectedRange.end));
         if (insideExistingCloze) return;
@@ -193,13 +215,9 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           return;
         }
         onSelectionStart?.();
-        onSelectionChange?.({
-          start: selectedRange.start,
-          end: selectedRange.end,
-          selectedText: text.slice(selectedRange.start, selectedRange.end),
-        });
+        onSelectionChange?.(normalizedPayload);
       },
-      [blanks, clozeMenuOption, highlights, onSelectionChange, onSelectionStart, text],
+      [blanks, clozeMenuOption, dictionaryMenuOption, highlights, onDictionarySelection, onSelectionChange, onSelectionStart, text],
     );
     const handleClozeRangePress = React.useCallback(
       (event: { nativeEvent: ChatSelectableTextRangeEvent }) => {
@@ -225,7 +243,10 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const nativeInteractionProps = Platform.select({
       ios: {
         selectionMode,
-        menuOptions: enableClozeMenu ? [clozeMenuOption] : [],
+        menuOptions: [
+          ...(enableClozeMenu ? [clozeMenuOption] : []),
+          ...(enableDictionaryMenu ? [dictionaryMenuOption] : []),
+        ],
         onSelectionStart,
         onSelection: handleNativeSelection,
         onClozeRangePress: handleClozeRangePress,
@@ -234,7 +255,12 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       default: {
         pointerEvents: interactionsDisabled ? "none" as const : "auto" as const,
         selectionMode,
-        menuOptions: !interactionsDisabled && enableClozeMenu ? [clozeMenuOption] : [],
+        menuOptions: !interactionsDisabled
+          ? [
+            ...(enableClozeMenu ? [clozeMenuOption] : []),
+            ...(enableDictionaryMenu ? [dictionaryMenuOption] : []),
+          ]
+          : [],
         onTouchStart: interactionsDisabled || !shouldNotifyInteractionOnTouchStart ? undefined : handleTouchStart,
         onSelectionStart: interactionsDisabled ? undefined : onSelectionStart,
         onSelection: interactionsDisabled ? undefined : handleNativeSelection,

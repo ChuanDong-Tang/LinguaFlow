@@ -65,7 +65,7 @@ export class DeepSeekAIProvider implements AIProvider {
       systemPromptOverride: input.systemPrompt,
     });
     const systemPrompt = promptProfile.systemPrompt;
-    const userPrompt = promptProfile.buildUserPrompt(input.text);
+    const userPrompt = input.rawUserPrompt ? input.text : promptProfile.buildUserPrompt(input.text);
     const model = this.resolveModelName(input);
     try {
       if (!this.apiKey) {
@@ -87,6 +87,7 @@ export class DeepSeekAIProvider implements AIProvider {
         body: JSON.stringify({
           model,
           temperature: 0.3,
+          ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
           stream: true,
           messages: [
             {

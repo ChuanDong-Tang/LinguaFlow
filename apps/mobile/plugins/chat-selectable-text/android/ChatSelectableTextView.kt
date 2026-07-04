@@ -1,14 +1,16 @@
 package com.yueyantech.oio.chatselectabletext
 
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.SpannableString
 import android.text.Selection
 import android.text.Spannable
 import android.text.Spanned
 import android.widget.TextView
-import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.util.TypedValue
@@ -22,6 +24,7 @@ import androidx.appcompat.widget.AppCompatTextView
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
 import com.facebook.react.uimanager.events.RCTEventEmitter
+import com.facebook.react.uimanager.PixelUtil
 import org.json.JSONArray
 
 class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
@@ -43,6 +46,10 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   private var pendingSelectionRelease: Boolean = false
   private var textApplyRequested: Boolean = false
   private var rangeLongPressed: Boolean = false
+  private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    color = Color.parseColor("#FFF0B8")
+    style = Paint.Style.FILL
+  }
   private val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
   private val rangeLongPressRunnable = Runnable {
     val range = pendingRange ?: return@Runnable
@@ -171,6 +178,11 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     return super.onTouchEvent(event)
   }
 
+  override fun onDraw(canvas: Canvas) {
+    drawHighlightUnderlay(canvas)
+    super.onDraw(canvas)
+  }
+
   override fun performLongClick(): Boolean {
     ensureSpannableTextBuffer()
     return try {
@@ -215,7 +227,6 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     }
 
     parseRanges(highlightRangesJson).forEach { range ->
-      applyRangeSpan(spannable, range.start, range.end, visibleText.length, BackgroundColorSpan(Color.parseColor("#FFF0B8")))
       applyRangeSpan(spannable, range.start, range.end, visibleText.length, ForegroundColorSpan(Color.parseColor("#3D3420")))
     }
 
@@ -385,13 +396,77 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
   private fun emitSelection(chosenOption: String, selectedText: String, selectedStart: Int, selectedEnd: Int) {
     val reactContext = context as? ReactContext ?: return
+    val rect = selectionRectForRange(selectedStart, selectedEnd)
     val event = Arguments.createMap().apply {
       putString("chosenOption", chosenOption)
       putString("highlightedText", selectedText)
       putInt("selectionStart", selectedStart)
       putInt("selectionEnd", selectedEnd)
+      putMap("selectionRect", Arguments.createMap().apply {
+        putDouble("pageX", PixelUtil.toDIPFromPixel(rect.left).toDouble())
+        putDouble("pageY", PixelUtil.toDIPFromPixel(rect.top).toDouble())
+        putDouble("width", PixelUtil.toDIPFromPixel(rect.width()).toDouble())
+        putDouble("height", PixelUtil.toDIPFromPixel(rect.height()).toDouble())
+      })
     }
     reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(id, "topSelection", event)
+  }
+
+  private fun drawHighlightUnderlay(canvas: Canvas) {
+    val currentText = text
+    if (currentText.isNullOrEmpty() || layout == null) return
+    parseRanges(highlightRangesJson).forEach { range ->
+      val start = range.start.coerceIn(0, currentText.length)
+      val end = range.end.coerceIn(start, currentText.length)
+      if (start >= end) return@forEach
+      val startLine = layout.getLineForOffset(start)
+      val endLine = layout.getLineForOffset((end - 1).coerceAtLeast(start))
+      for (line in startLine..endLine) {
+        val lineStart = layout.getLineStart(line)
+        val lineEnd = layout.getLineVisibleEnd(line).coerceAtLeast(lineStart)
+        val segmentStart = maxOf(start, lineStart)
+        val segmentEnd = minOf(end, lineEnd)
+        if (segmentStart >= segmentEnd) continue
+        val left = layout.getPrimaryHorizontal(segmentStart) + totalPaddingLeft - scrollX
+        val right = layout.getPrimaryHorizontal(segmentEnd) + totalPaddingLeft - scrollX
+        val top = layout.getLineTop(line).toFloat() + totalPaddingTop - scrollY + 1f
+        val bottom = layout.getLineBottom(line).toFloat() + totalPaddingTop - scrollY - 1f
+        val rect = RectF(minOf(left, right), top, maxOf(left, right), bottom)
+        canvas.drawRoundRect(rect, 3f, 3f, highlightPaint)
+      }
+    }
+  }
+
+  private fun selectionRectForRange(start: Int, end: Int): RectF {
+    val result = RectF()
+    val currentText = text ?: return result
+    if (currentText.isEmpty() || layout == null) return result
+    val safeStart = start.coerceIn(0, currentText.length)
+    val safeEnd = end.coerceIn(safeStart, currentText.length)
+    if (safeStart >= safeEnd) return result
+    val startLine = layout.getLineForOffset(safeStart)
+    val endLine = layout.getLineForOffset((safeEnd - 1).coerceAtLeast(safeStart))
+    for (line in startLine..endLine) {
+      val lineStart = layout.getLineStart(line)
+      val lineEnd = layout.getLineVisibleEnd(line).coerceAtLeast(lineStart)
+      val segmentStart = maxOf(safeStart, lineStart)
+      val segmentEnd = minOf(safeEnd, lineEnd)
+      if (segmentStart >= segmentEnd) continue
+      val left = layout.getPrimaryHorizontal(segmentStart) + totalPaddingLeft - scrollX
+      val right = layout.getPrimaryHorizontal(segmentEnd) + totalPaddingLeft - scrollX
+      val top = layout.getLineTop(line).toFloat() + totalPaddingTop - scrollY
+      val bottom = layout.getLineBottom(line).toFloat() + totalPaddingTop - scrollY
+      val rect = RectF(minOf(left, right), top, maxOf(left, right), bottom)
+      if (result.isEmpty) {
+        result.set(rect)
+      } else {
+        result.union(rect)
+      }
+    }
+    val location = IntArray(2)
+    getLocationOnScreen(location)
+    result.offset(location[0].toFloat(), location[1].toFloat())
+    return result
   }
 
   private fun emitClozeRange(eventName: String, groupIndex: Int) {

@@ -64,7 +64,7 @@ export class ChatGPTAIProvider implements AIProvider {
       systemPromptOverride: input.systemPrompt,
     });
     const systemPrompt = promptProfile.systemPrompt;
-    const userPrompt = promptProfile.buildUserPrompt(input.text);
+    const userPrompt = input.rawUserPrompt ? input.text : promptProfile.buildUserPrompt(input.text);
     const model = this.resolveModelName(input);
     try {
       if (!this.apiKey) {
@@ -88,6 +88,7 @@ export class ChatGPTAIProvider implements AIProvider {
           instructions: systemPrompt,
           stream: true,
           input: userPrompt,
+          ...(input.maxOutputTokens ? { max_output_tokens: input.maxOutputTokens } : {}),
           reasoning: {
             effort: "medium",
           },

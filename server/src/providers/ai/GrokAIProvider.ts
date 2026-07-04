@@ -63,7 +63,7 @@ export class GrokAIProvider implements AIProvider {
       systemPromptOverride: input.systemPrompt,
     });
     const systemPrompt = promptProfile.systemPrompt;
-    const userPrompt = promptProfile.buildUserPrompt(input.text);
+    const userPrompt = input.rawUserPrompt ? input.text : promptProfile.buildUserPrompt(input.text);
     const model = this.resolveModelName(input);
 
     try {
@@ -85,7 +85,7 @@ export class GrokAIProvider implements AIProvider {
         },
         body: JSON.stringify({
           model,
-          //max_completion_tokens: 16000,
+          ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
           temperature: 1,
           top_p: 1,
           frequency_penalty: 0,

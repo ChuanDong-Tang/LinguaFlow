@@ -49,6 +49,7 @@ import { registerMeRoutes } from "./me/routes.js";
 import { registerPaymentRoutes } from "./payment/routes.js";
 import { registerAdminRoutes } from "./admin/routes.js";
 import { registerTtsRoutes } from "./tts/routes.js";
+import { registerDictionaryRoutes } from "./dictionary/routes.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { PaymentCertSyncService } from "@lf/server/services/payment/PaymentCertSyncService.js";
 import { AutoRenewService } from "@lf/server/services/payment/AutoRenewService.js";
@@ -266,6 +267,12 @@ export function createApp() {
   });
   registerTtsRoutes(app, {
     ttsService,
+    rateLimiter: chatGenerationRateLimiter,
+    userRepository,
+    systemEventLogRepository,
+  });
+  registerDictionaryRoutes(app, {
+    aiProvider,
     rateLimiter: chatGenerationRateLimiter,
     userRepository,
     systemEventLogRepository,

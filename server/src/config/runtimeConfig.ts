@@ -135,6 +135,10 @@ export interface RuntimeConfig {
   chatGenerationMinInputChars: number;
   chatMessagesUserRateLimit: number;
   chatMessagesUserRateWindowMs: number;
+  dictionaryLookupGlobalRateLimit: number;
+  dictionaryLookupUserRateLimit: number;
+  dictionaryLookupRateWindowMs: number;
+  dictionaryLookupMaxOutputTokens: number;
   ttsMessagesGlobalRateLimit: number;
   ttsMessagesGlobalRateWindowMs: number;
   ttsCostPerMillionCharsCents: number;
@@ -255,6 +259,10 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     chatGenerationMinInputChars: readPositiveInt(env.CHAT_GENERATION_MIN_INPUT_CHARS, 10),
     chatMessagesUserRateLimit: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_LIMIT, 20),
     chatMessagesUserRateWindowMs: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_WINDOW_MS, 60_000),
+    dictionaryLookupGlobalRateLimit: readPositiveInt(env.DICTIONARY_LOOKUP_GLOBAL_RATE_LIMIT, 500),
+    dictionaryLookupUserRateLimit: readPositiveInt(env.DICTIONARY_LOOKUP_USER_RATE_LIMIT, 80),
+    dictionaryLookupRateWindowMs: readPositiveInt(env.DICTIONARY_LOOKUP_RATE_WINDOW_MS, 60_000),
+    dictionaryLookupMaxOutputTokens: readPositiveInt(env.DICTIONARY_LOOKUP_MAX_OUTPUT_TOKENS, 420),
     ttsMessagesGlobalRateLimit: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_LIMIT, 100),
     ttsMessagesGlobalRateWindowMs: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_WINDOW_MS, 60_000),
     ttsCostPerMillionCharsCents: readNonNegativeInt(env.TTS_COST_PER_1M_CHARS_CENTS, 0),

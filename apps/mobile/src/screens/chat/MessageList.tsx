@@ -89,6 +89,11 @@ type MessageListProps = {
     payload: NativeTextSelectionPayload,
     clearSelection: () => void,
   ) => void;
+  onDictionarySelection: (
+    message: ChatMessage,
+    payload: NativeTextSelectionPayload,
+    clearSelection: () => void,
+  ) => void;
   onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
 };
@@ -195,6 +200,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onRetryMessage,
   onCopyMessage,
   onTextSelection,
+  onDictionarySelection,
   onEditClozeGroup,
   onDeleteClozeGroup,
   isCopyMenuOpen,
@@ -211,6 +217,11 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage, mode: AutoCopyMode) => void;
   onTextSelection: (
+    message: ChatMessage,
+    payload: NativeTextSelectionPayload,
+    clearSelection: () => void,
+  ) => void;
+  onDictionarySelection: (
     message: ChatMessage,
     payload: NativeTextSelectionPayload,
     clearSelection: () => void,
@@ -370,9 +381,16 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                   }
                   : undefined
               }
-              onClozeRangePress={
-                hasClozeGroup && !interactionsDisabled ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined
+              enableDictionaryMenu={canShowCloze && !interactionsDisabled}
+              onDictionarySelection={
+                canShowCloze && !interactionsDisabled
+                  ? (payload) => {
+                    onSelectionRefChange(selectableRef.current);
+                    onDictionarySelection({ ...message, text: displayText }, payload, () => selectableRef.current?.clearSelection());
+                  }
+                  : undefined
               }
+              onClozeRangePress={undefined}
               onClozeRangeLongPress={
                 hasClozeGroup && !interactionsDisabled ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined
               }
@@ -490,6 +508,7 @@ export function MessageList({
   onRetryMessage,
   onCopyMessage,
   onTextSelection,
+  onDictionarySelection,
   onEditClozeGroup,
   onDeleteClozeGroup,
 }: MessageListProps) {
@@ -497,6 +516,7 @@ export function MessageList({
   const retryMessageRef = useLatestRef(onRetryMessage);
   const copyMessageRef = useLatestRef(onCopyMessage);
   const textSelectionRef = useLatestRef(onTextSelection);
+  const dictionarySelectionRef = useLatestRef(onDictionarySelection);
   const editClozeGroupRef = useLatestRef(onEditClozeGroup);
   const deleteClozeGroupRef = useLatestRef(onDeleteClozeGroup);
   const isDraggingRef = React.useRef(false);
@@ -571,6 +591,12 @@ export function MessageList({
     },
     [textSelectionRef],
   );
+  const handleDictionarySelection = React.useCallback(
+    (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
+      dictionarySelectionRef.current(message, payload, clearSelection);
+    },
+    [dictionarySelectionRef],
+  );
   const messageTextInteractionsDisabled = Platform.OS === "android" ? inputProtectionActive : false;
   const handleEditClozeGroup = React.useCallback(
     (message: ChatMessage, groupIndex: number) => {
@@ -610,6 +636,7 @@ export function MessageList({
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
           onTextSelection={handleTextSelection}
+          onDictionarySelection={handleDictionarySelection}
           onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
           isCopyMenuOpen={activeCopyMenuId === item.id}
@@ -641,6 +668,7 @@ export function MessageList({
       handleSelectionRefChange,
       handleRetryMessage,
       handleTextSelection,
+      handleDictionarySelection,
       inputProtectionActive,
       messageTextInteractionsDisabled,
       selectedDateLabel,

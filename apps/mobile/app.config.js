@@ -7,7 +7,7 @@ module.exports = {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.0.3",
+    version: "1.0.4",
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",

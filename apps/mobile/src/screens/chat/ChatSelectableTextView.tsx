@@ -13,6 +13,12 @@ export type ChatSelectableTextSelectionEvent = {
   highlightedText: string;
   selectionStart?: number;
   selectionEnd?: number;
+  selectionRect?: {
+    pageX: number;
+    pageY: number;
+    width: number;
+    height: number;
+  };
 };
 
 export type ChatSelectableTextRangeEvent = {

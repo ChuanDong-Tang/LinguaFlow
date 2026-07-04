@@ -27,7 +27,9 @@
 @property (nonatomic, assign) BOOL hasLastSelectedRange;
 @property (nonatomic, assign) CGFloat lastReportedContentHeight;
 - (void)handleFillBlankAction;
+- (void)handleMenuActionAtIndex:(NSUInteger)index;
 - (void)handleCopyAction;
+- (void)drawHighlightBackgroundsInTextView:(UITextView *)textView;
 @end
 
 @interface ChatSelectableTextInnerTextView : UITextView
@@ -38,8 +40,11 @@
 
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender
 {
-  if (action == @selector(chatFillBlank:)) {
-    return [self.owner.selectionMode isEqualToString:@"range"] && self.owner.menuOptions.count > 0 && self.selectedRange.length > 0;
+  NSInteger menuIndex = [self chatMenuIndexForAction:action];
+  if (menuIndex >= 0) {
+    return [self.owner.selectionMode isEqualToString:@"range"] &&
+      menuIndex < (NSInteger)self.owner.menuOptions.count &&
+      self.selectedRange.length > 0;
   }
   if (action == @selector(chatCopy:)) {
     return [self.owner.selectionMode isEqualToString:@"all"] && self.selectedRange.length > 0;
@@ -50,10 +55,27 @@
   return NO;
 }
 
-- (void)chatFillBlank:(id)sender
+- (NSInteger)chatMenuIndexForAction:(SEL)action
 {
-  [self.owner handleFillBlankAction];
+  if (action == @selector(chatMenuAction0:)) return 0;
+  if (action == @selector(chatMenuAction1:)) return 1;
+  if (action == @selector(chatMenuAction2:)) return 2;
+  if (action == @selector(chatMenuAction3:)) return 3;
+  if (action == @selector(chatMenuAction4:)) return 4;
+  if (action == @selector(chatMenuAction5:)) return 5;
+  if (action == @selector(chatMenuAction6:)) return 6;
+  if (action == @selector(chatMenuAction7:)) return 7;
+  return -1;
 }
+
+- (void)chatMenuAction0:(id)sender { [self.owner handleMenuActionAtIndex:0]; }
+- (void)chatMenuAction1:(id)sender { [self.owner handleMenuActionAtIndex:1]; }
+- (void)chatMenuAction2:(id)sender { [self.owner handleMenuActionAtIndex:2]; }
+- (void)chatMenuAction3:(id)sender { [self.owner handleMenuActionAtIndex:3]; }
+- (void)chatMenuAction4:(id)sender { [self.owner handleMenuActionAtIndex:4]; }
+- (void)chatMenuAction5:(id)sender { [self.owner handleMenuActionAtIndex:5]; }
+- (void)chatMenuAction6:(id)sender { [self.owner handleMenuActionAtIndex:6]; }
+- (void)chatMenuAction7:(id)sender { [self.owner handleMenuActionAtIndex:7]; }
 
 - (void)chatCopy:(id)sender
 {
@@ -63,6 +85,12 @@
 - (void)copy:(id)sender
 {
   [self.owner handleCopyAction];
+}
+
+- (void)drawRect:(CGRect)rect
+{
+  [self.owner drawHighlightBackgroundsInTextView:self];
+  [super drawRect:rect];
 }
 
 @end
@@ -292,7 +320,6 @@
   for (NSDictionary *range in [self parseRanges:self.highlightRangesJson]) {
     NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
     if (safe.length == 0) continue;
-    [attributed addAttribute:NSBackgroundColorAttributeName value:[self colorFromString:@"#FFF0B8" fallback:UIColor.yellowColor] range:safe];
     [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#3D3420" fallback:self.currentTextColor] range:safe];
   }
 
@@ -351,11 +378,31 @@
     UIMenuController.sharedMenuController.menuItems = nil;
     return;
   }
-  UIMenuItem *item = [[UIMenuItem alloc] initWithTitle:self.menuOptions.firstObject action:@selector(chatFillBlank:)];
-  UIMenuController.sharedMenuController.menuItems = @[item];
+  NSMutableArray<UIMenuItem *> *items = [NSMutableArray new];
+  NSArray<NSValue *> *actions = @[
+    [NSValue valueWithPointer:@selector(chatMenuAction0:)],
+    [NSValue valueWithPointer:@selector(chatMenuAction1:)],
+    [NSValue valueWithPointer:@selector(chatMenuAction2:)],
+    [NSValue valueWithPointer:@selector(chatMenuAction3:)],
+    [NSValue valueWithPointer:@selector(chatMenuAction4:)],
+    [NSValue valueWithPointer:@selector(chatMenuAction5:)],
+    [NSValue valueWithPointer:@selector(chatMenuAction6:)],
+    [NSValue valueWithPointer:@selector(chatMenuAction7:)]
+  ];
+  NSUInteger count = MIN(self.menuOptions.count, actions.count);
+  for (NSUInteger index = 0; index < count; index += 1) {
+    SEL action = (SEL)[actions[index] pointerValue];
+    [items addObject:[[UIMenuItem alloc] initWithTitle:self.menuOptions[index] action:action]];
+  }
+  UIMenuController.sharedMenuController.menuItems = items;
 }
 
 - (void)handleFillBlankAction
+{
+  [self handleMenuActionAtIndex:0];
+}
+
+- (void)handleMenuActionAtIndex:(NSUInteger)index
 {
   NSRange selectedRange = self.textView.selectedRange;
   if (selectedRange.location == NSNotFound || selectedRange.length == 0) {
@@ -368,11 +415,18 @@
   }
   NSString *selectedText = [self.rawText substringWithRange:NSMakeRange(safeStart, safeEnd - safeStart)];
   if (self.onSelection) {
+    CGRect selectionRect = [self selectionRectForRange:selectedRange];
     self.onSelection(@{
-      @"chosenOption": self.menuOptions.firstObject ?: @"",
+      @"chosenOption": index < self.menuOptions.count ? self.menuOptions[index] : @"",
       @"highlightedText": selectedText ?: @"",
       @"selectionStart": @(safeStart),
-      @"selectionEnd": @(safeEnd)
+      @"selectionEnd": @(safeEnd),
+      @"selectionRect": @{
+        @"pageX": @(selectionRect.origin.x),
+        @"pageY": @(selectionRect.origin.y),
+        @"width": @(selectionRect.size.width),
+        @"height": @(selectionRect.size.height)
+      }
     });
   }
   [self clearSelectionState];
@@ -532,6 +586,57 @@
   NSUInteger index = [layoutManager characterIndexForPoint:adjusted inTextContainer:container fractionOfDistanceBetweenInsertionPoints:&fraction];
   if (index >= self.textView.textStorage.length) return NSNotFound;
   return index;
+}
+
+- (CGRect)selectionRectForRange:(NSRange)range
+{
+  if (range.location == NSNotFound || range.length == 0 || self.textView.textStorage.length == 0) {
+    return CGRectZero;
+  }
+  NSRange safeRange = NSMakeRange(MIN(range.location, self.textView.textStorage.length), 0);
+  NSUInteger safeEnd = MIN(NSMaxRange(range), self.textView.textStorage.length);
+  safeRange.length = safeEnd > safeRange.location ? safeEnd - safeRange.location : 0;
+  if (safeRange.length == 0) return CGRectZero;
+
+  NSLayoutManager *layoutManager = self.textView.layoutManager;
+  NSTextContainer *container = self.textView.textContainer;
+  NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:safeRange actualCharacterRange:nil];
+  __block CGRect unionRect = CGRectNull;
+  [layoutManager enumerateEnclosingRectsForGlyphRange:glyphRange
+                            withinSelectedGlyphRange:NSMakeRange(NSNotFound, 0)
+                                     inTextContainer:container
+                                          usingBlock:^(CGRect rect, BOOL *stop) {
+    CGRect adjusted = CGRectOffset(rect, self.textView.textContainerInset.left, self.textView.textContainerInset.top);
+    unionRect = CGRectIsNull(unionRect) ? adjusted : CGRectUnion(unionRect, adjusted);
+  }];
+  if (CGRectIsNull(unionRect)) return CGRectZero;
+  return [self.textView convertRect:unionRect toView:nil];
+}
+
+- (void)drawHighlightBackgroundsInTextView:(UITextView *)textView
+{
+  if (self.highlightRangesJson.length == 0 || textView.textStorage.length == 0) return;
+  UIColor *color = [self colorFromString:@"#FFF0B8" fallback:UIColor.yellowColor];
+  NSLayoutManager *layoutManager = textView.layoutManager;
+  NSTextContainer *container = textView.textContainer;
+  CGContextRef context = UIGraphicsGetCurrentContext();
+  if (!context) return;
+  CGContextSaveGState(context);
+  [color setFill];
+  for (NSDictionary *range in [self parseRanges:self.highlightRangesJson]) {
+    NSRange safe = [self safeRangeFromDictionary:range length:textView.textStorage.length];
+    if (safe.length == 0) continue;
+    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:safe actualCharacterRange:nil];
+    [layoutManager enumerateEnclosingRectsForGlyphRange:glyphRange
+                              withinSelectedGlyphRange:NSMakeRange(NSNotFound, 0)
+                                       inTextContainer:container
+                                            usingBlock:^(CGRect rect, BOOL *stop) {
+      CGRect adjusted = CGRectOffset(rect, textView.textContainerInset.left, textView.textContainerInset.top);
+      UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(adjusted, 0, 1) cornerRadius:2];
+      [path fill];
+    }];
+  }
+  CGContextRestoreGState(context);
 }
 
 - (NSArray<NSDictionary *> *)parseRanges:(NSString *)json

@@ -13,7 +13,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession } from "../services/auth/authStorage";
-import { getCurrentEntitlement } from "../services/api/meApi";
+import { getCurrentEntitlement, getUserPreference } from "../services/api/meApi";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import {
   findConversationIdByDateFromCloud,
@@ -47,7 +47,8 @@ import { ChatHeader } from "./chat/ChatHeader";
 import { ChatComposer } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
 import { AutoCopySheet } from "./chat/AutoCopySheet";
-import type { SelectableMessageTextRef } from "./chat/SelectableMessageText";
+import type { NativeTextSelectionPayload, SelectableMessageTextRef } from "./chat/SelectableMessageText";
+import { DictionaryPopover } from "./chat/DictionaryPopover";
 import { DatePickerSheet } from "./chat/DatePickerSheet";
 import { useFloatingNotice } from "./shared/FloatingNotice";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
@@ -61,12 +62,24 @@ import {
 import type { ChatContact } from "../domain/chat/contacts";
 import type { AutoCopyMode } from "../services/preferences/assistantPreferences";
 import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
-import { t, tf } from "../i18n";
+import { getLanguage, t, tf } from "../i18n";
 import { stopTtsAudio } from "../services/tts/ttsPlayback";
+import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 
 type ChatScreenProps = {
   contact: ChatContact;
   onBack: () => void;
+};
+
+type DictionaryLookupState = {
+  term: string;
+  messageId?: string | null;
+  textStart: number;
+  textEnd: number;
+  anchor?: NativeTextSelectionPayload["selectionRect"];
+  loading: boolean;
+  error: string | null;
+  result: DictionaryLookupResult | null;
 };
 
 export function ChatScreen({ contact, onBack }: ChatScreenProps) {
@@ -100,6 +113,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [syncingDateKey, setSyncingDateKey] = useState<string | null>(null);
   const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
   const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
+  const [dictionaryLookup, setDictionaryLookup] = useState<DictionaryLookupState | null>(null);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const scrollMetricsRef = useRef({ y: 0, contentHeight: 0, layoutHeight: 0 });
   const pendingScrollToBottomRef = useRef<{ animated: boolean } | null>(null);
@@ -115,6 +129,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const lastCloudSyncAtByDateRef = useRef<Record<string, number>>({});
   const loadedCloudMonthKeysRef = useRef<Set<string>>(new Set());
   const isMountedRef = useRef(true);
+  const dictionaryAbortRef = useRef<AbortController | null>(null);
+  const dictionaryRequestSeqRef = useRef(0);
   const isProEntitledRef = useRef(false);
   const isTodaySyncingRef = useRef(false);
   const draftLoadedContactRef = useRef<string | null>(null);
@@ -194,6 +210,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       daySyncMachine.cancel();
       calendarSyncMachine.cancel();
       clozeSaveMachine.cancel();
+      dictionaryAbortRef.current?.abort();
+      dictionaryAbortRef.current = null;
       stopTtsAudio();
     };
   }, []);
@@ -376,6 +394,72 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const handleComposerBlur = React.useCallback(() => {
     setInputProtectionActive(false);
   }, []);
+  const closeDictionaryLookup = React.useCallback(() => {
+    dictionaryAbortRef.current?.abort();
+    dictionaryAbortRef.current = null;
+    setDictionaryLookup(null);
+  }, []);
+  const handleDictionarySelection = React.useCallback(
+    (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
+      const term = payload.selectedText.trim();
+      if (!term) return;
+      closeCopyMenuRef.current?.();
+      Keyboard.dismiss();
+      clearSelection();
+
+      dictionaryAbortRef.current?.abort();
+      const controller = new AbortController();
+      dictionaryAbortRef.current = controller;
+      const requestSeq = dictionaryRequestSeqRef.current + 1;
+      dictionaryRequestSeqRef.current = requestSeq;
+      const messageId = message.id ?? message.serverId ?? null;
+      const textStart = payload.start;
+      const textEnd = payload.end;
+
+      setDictionaryLookup({
+        term,
+        messageId,
+        textStart,
+        textEnd,
+        anchor: payload.selectionRect,
+        loading: true,
+        error: null,
+        result: null,
+      });
+
+      void (async () => {
+        const fallbackPreference = message.languageCode ? null : await getUserPreference().catch(() => null);
+        const result = await lookupDictionary({
+          term,
+          context: message.text,
+          selectionStart: textStart,
+          selectionEnd: textEnd,
+          targetLanguage: message.languageCode ?? fallbackPreference?.learningLanguage ?? "en-US",
+          uiLanguage: getLanguage(),
+          contactId,
+          messageId,
+          signal: controller.signal,
+        });
+        return result;
+      })().then((result) => {
+        if (!isMountedRef.current || controller.signal.aborted || dictionaryRequestSeqRef.current !== requestSeq) return;
+        setDictionaryLookup((current) => current && current.textStart === textStart && current.textEnd === textEnd
+          ? { ...current, loading: false, result, error: null }
+          : current);
+      }).catch((error) => {
+        if (!isMountedRef.current || controller.signal.aborted || dictionaryRequestSeqRef.current !== requestSeq) return;
+        console.warn("dictionary lookup failed", error);
+        setDictionaryLookup((current) => current
+          ? { ...current, loading: false, error: t("dictionary.error.failed") }
+          : current);
+      }).finally(() => {
+        if (dictionaryAbortRef.current === controller) {
+          dictionaryAbortRef.current = null;
+        }
+      });
+    },
+    [contactId],
+  );
 
   async function handleSend(): Promise<void> {
     if (netInfo.isConnected !== true) {
@@ -930,6 +1014,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
           onTextSelection={handleTextSelection}
+          onDictionarySelection={handleDictionarySelection}
           onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
         />
@@ -1006,6 +1091,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         onConfirmEditor={() => void confirmClozeEditor()}
         onCloseDelete={() => setClozeDelete(null)}
         onConfirmDelete={() => void confirmDeleteCloze()}
+        onEditDeleteTarget={handleEditClozeGroup}
+        onLookupDeleteTarget={(message, payload) => {
+          handleDictionarySelection(message, payload, () => setClozeDelete(null));
+        }}
       />
       <AutoCopySheet
         visible={isAutoCopyMenuOpen}
@@ -1017,6 +1106,19 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         onSelectMode={setAutoCopyMode}
       />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
+      <DictionaryPopover
+        visible={!!dictionaryLookup}
+        anchor={dictionaryLookup?.anchor}
+        term={dictionaryLookup?.term ?? ""}
+        loading={dictionaryLookup?.loading ?? false}
+        error={dictionaryLookup?.error}
+        result={dictionaryLookup?.result}
+        messageId={dictionaryLookup?.messageId}
+        textStart={dictionaryLookup?.textStart}
+        textEnd={dictionaryLookup?.textEnd}
+        canUseTts={isProEntitled}
+        onClose={closeDictionaryLookup}
+      />
     </SafeAreaView>
   );
 }

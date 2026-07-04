@@ -13,6 +13,8 @@ export interface ChatTextGenerationInput{
     provider?: string;
     model?: string;
     systemPrompt?: string;
+    rawUserPrompt?: boolean;
+    maxOutputTokens?: number;
     signal?: AbortSignalLike;
 }
 

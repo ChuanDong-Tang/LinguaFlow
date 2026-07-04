@@ -791,6 +791,47 @@
             <div class="section">
               <div class="section-head">
                 <div>
+                  <h2 class="section-title">智能词典审计</h2>
+                  <p class="section-subtitle">来自 system_event_logs / dictionary.lookup，不扣用户字符额度</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>Status</label>
+                  <select id="dictionaryLogStatus">
+                    <option value="">全部</option>
+                    <option value="success">success</option>
+                    <option value="failed">failed</option>
+                  </select>
+                </div>
+                <button id="btnLoadDictionaryLogs" class="btn">查询智能词典</button>
+                <button id="btnUseDictionaryFilter" class="btn secondary">填入系统日志筛选</button>
+                <span class="muted"></span>
+              </div>
+              <div id="dictionaryMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>词长</th>
+                      <th>输入</th>
+                      <th>输出</th>
+                      <th>耗时</th>
+                      <th>语言</th>
+                      <th>消息</th>
+                      <th>错误</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dictionaryLogsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
                   <h2 class="section-title">审计日志</h2>
                   <p class="section-subtitle">后台查询和人工操作记录</p>
                 </div>
@@ -1356,6 +1397,71 @@
         setStatus("已填入内容安全日志筛选条件");
       }
 
+      async function loadDictionaryLogs() {
+        const qs = new URLSearchParams();
+        qs.set("limit", "100");
+        qs.set("module", "dictionary");
+        qs.set("event", "dictionary.lookup");
+        if ($("dictionaryLogStatus").value.trim()) qs.set("status", $("dictionaryLogStatus").value.trim());
+        const res = await request(`/admin/system-event-logs?${qs.toString()}`);
+        const rows = Array.isArray(res.data) ? res.data : [];
+        renderDictionaryLogs(rows);
+        setStatus(`智能词典审计：${rows.length} 条`);
+      }
+
+      function renderDictionaryLogs(rows) {
+        const summary = rows.reduce((acc, row) => {
+          const meta = row.metadata || {};
+          acc.total += 1;
+          if (row.status === "success") acc.success += 1;
+          if (row.status === "failed") acc.failed += 1;
+          acc.inputChars += Number(meta.inputChars || 0);
+          acc.outputChars += Number(meta.outputChars || 0);
+          acc.durationMs += Number(meta.durationMs || 0);
+          return acc;
+        }, { total: 0, success: 0, failed: 0, inputChars: 0, outputChars: 0, durationMs: 0 });
+        const avgDuration = summary.total ? Math.round(summary.durationMs / summary.total) : 0;
+        $("dictionaryMetrics").innerHTML = [
+          ["查询数", summary.total, "latest 100"],
+          ["成功 / 失败", `${summary.success} / ${summary.failed}`, "system status"],
+          ["输入字符", summary.inputChars, "context + term"],
+          ["输出字符", summary.outputChars, "model output"],
+          ["平均耗时", `${avgDuration} ms`, "server duration"],
+        ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+        $("dictionaryLogsTbody").innerHTML = rows.map((row) => {
+          const meta = row.metadata || {};
+          const language = `${meta.targetLanguage || "-"} / ${meta.uiLanguage || "-"}`;
+          const message = meta.messageId || row.requestId || "";
+          return `
+            <tr>
+              <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+              <td class="mono">${escapeHtml(row.userId)}</td>
+              <td>${statusPill(row.status)}</td>
+              <td>${escapeHtml(meta.termLength ?? "")}</td>
+              <td>${escapeHtml(meta.inputChars ?? "")}</td>
+              <td>${escapeHtml(meta.outputChars ?? "")}</td>
+              <td>${escapeHtml(meta.durationMs ?? "")}</td>
+              <td>${escapeHtml(language)}</td>
+              <td class="mono">${escapeHtml(message)}</td>
+              <td>${escapeHtml(row.errorMessage || row.errorCode || "")}</td>
+            </tr>
+          `;
+        }).join("") || rowEmpty(10);
+      }
+
+      function useDictionaryLogFilter() {
+        $("logModule").value = "dictionary";
+        $("logEvent").value = "dictionary.lookup";
+        $("logStatus").value = "";
+        setStatus("已填入智能词典系统日志筛选");
+      }
+
       async function loadAuditLogs() {
         const qs = new URLSearchParams();
         qs.set("limit", "100");
@@ -1423,6 +1529,8 @@
         $("btnLoadLogs").addEventListener("click", guard(loadLogs));
         $("btnLoadContentSafetyLogs").addEventListener("click", guard(loadContentSafetyLogs));
         $("btnFillContentSafetyFilter").addEventListener("click", fillContentSafetyFilter);
+        $("btnLoadDictionaryLogs").addEventListener("click", guard(loadDictionaryLogs));
+        $("btnUseDictionaryFilter").addEventListener("click", useDictionaryLogFilter);
         $("btnLoadAuditLogs").addEventListener("click", guard(loadAuditLogs));
         $("usersTbody").addEventListener("click", guard(async (event) => {
           const target = event.target;
