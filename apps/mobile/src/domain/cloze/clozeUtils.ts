@@ -19,7 +19,7 @@ export type ClozeBlankRange = {
   end: number;
 };
 
-const TOKEN_RE = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]|[\p{L}\p{N}'’-]+|[^\s\p{L}\p{N}'’-]/gu;
+const TOKEN_RE = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+|[\p{L}\p{N}'’-]+|[^\s\p{L}\p{N}'’-]/gu;
 const WORD_RE = /[\p{L}\p{N}'’-]/u;
 
 function uniqueSortedIndexes(values: unknown[], isAllowed?: (value: number) => boolean): number[] {
@@ -42,7 +42,9 @@ export function tokenizeForCloze(text: string): ClozeToken[] {
   const tokens: ClozeToken[] = [];
 
   // 记录每个 token 在原文中的字符范围，后续高亮和挖空都依赖这个范围。
-  for (const match of text.matchAll(TOKEN_RE)) {
+  TOKEN_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = TOKEN_RE.exec(text))) {
     const value = match[0] ?? "";
     const start = match.index ?? 0;
     if (!value) continue;

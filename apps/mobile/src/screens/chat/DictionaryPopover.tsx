@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
 import type { DictionaryLookupResult } from "../../services/api/dictionaryApi";
@@ -28,6 +28,7 @@ type DictionaryPopoverProps = {
 
 const POPOVER_WIDTH = 312;
 const POPOVER_MARGIN = 12;
+const POPOVER_BODY_HEIGHT = 260;
 
 export function DictionaryPopover({
   visible,
@@ -60,30 +61,39 @@ export function DictionaryPopover({
       : Math.max(POPOVER_MARGIN, anchor.pageY - 252);
     return { left, top };
   }, [anchor, window.height, window.width]);
+  const bodyHeight = clamp(POPOVER_BODY_HEIGHT, 120, window.height - position.top - POPOVER_MARGIN - 92);
+
+  if (!visible) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.card, { left: position.left, top: position.top }]} onPress={() => {}}>
-          <View style={styles.headerRow}>
-            <Text style={styles.term} numberOfLines={2}>{term}</Text>
-            <View style={styles.headerActions}>
-              {canUseTts ? (
-                <TtsPlayButton
-                  messageId={messageId}
-                  textStart={textStart}
-                  textEnd={textEnd}
-                  size={18}
-                  color="#6A5CFF"
-                  style={styles.ttsButton}
-                />
-              ) : null}
-              <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} style={styles.iconButton} onPress={onClose}>
-                <Ionicons name="close" size={22} color="#111111" />
-              </Pressable>
-            </View>
+    <View style={styles.overlay} pointerEvents="box-none">
+      <Pressable style={styles.backdrop} onPress={onClose} />
+      <View style={[styles.card, { left: position.left, top: position.top }]}>
+        <View style={styles.headerRow}>
+          <Text style={styles.term} numberOfLines={2}>{term}</Text>
+          <View style={styles.headerActions}>
+            {canUseTts ? (
+              <TtsPlayButton
+                messageId={messageId}
+                textStart={textStart}
+                textEnd={textEnd}
+                size={18}
+                color="#6A5CFF"
+                style={styles.ttsButton}
+              />
+            ) : null}
+            <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} style={styles.iconButton} onPress={onClose}>
+              <Ionicons name="close" size={22} color="#111111" />
+            </Pressable>
           </View>
+        </View>
 
+        <ScrollView
+          style={[styles.bodyScroll, { height: bodyHeight }]}
+          contentContainerStyle={styles.bodyContent}
+          showsVerticalScrollIndicator
+          persistentScrollbar
+        >
           {loading ? (
             <View style={styles.loadingRow}>
               <ActivityIndicator size="small" color="#6A5CFF" />
@@ -117,9 +127,9 @@ export function DictionaryPopover({
               ) : null}
             </>
           ) : null}
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </ScrollView>
+      </View>
+    </View>
   );
 }
 
@@ -129,8 +139,12 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 const styles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+  },
   backdrop: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(17, 17, 17, 0.08)",
   },
   card: {
@@ -187,6 +201,12 @@ const styles = StyleSheet.create({
   loadingText: {
     color: "#727988",
     fontSize: 13,
+  },
+  bodyScroll: {
+    marginTop: 8,
+  },
+  bodyContent: {
+    paddingBottom: 2,
   },
   errorText: {
     marginTop: 12,

@@ -19,6 +19,7 @@ import { useMountedGuard } from "../hooks/useMountedGuard";
 import { setLanguage, t, tf } from "../i18n";
 import { DebugPromptModal } from "./shared/DebugPromptModal";
 import { listTtsVoices, type TtsVoiceOption } from "../services/api/ttsApi";
+import { getLogs, type AppLog } from "../services/logger";
 
 type MeScreenProps = {
   isActive: boolean;
@@ -28,7 +29,9 @@ type MeScreenProps = {
   onDeleteAccount: () => Promise<void> | void;
 };
 
-const OTA_DEBUG_JS_LABEL = "Fix apple pay JWS";
+const OTA_DEBUG_JS_LABEL = "Dictionary overlay close fix";
+const UPDATE_LOG_KEYWORDS = ["error", "fail", "exception", "crash", "rollback", "emergency", "launch", "reset", "delete"];
+const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
 export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteAccount }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
@@ -207,7 +210,11 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
           setUpdatesResult(`${label}...`);
           try {
             const result = await action();
-            setUpdatesResult(formatDebugValue(result));
+            setUpdatesResult(
+              label === "logs"
+                ? formatCombinedDiagnostics(result)
+                : formatUpdateActionResult(label, result),
+            );
           } catch (error) {
             setUpdatesResult(formatError(error));
           } finally {
@@ -460,9 +467,10 @@ function UpdatesDebugModal({
             <View style={styles.updatesDebugActions}>
               <DebugButton label="检查更新" disabled={!!runningAction} onPress={() => onRun("check", Updates.checkForUpdateAsync)} />
               <DebugButton label="下载更新" disabled={!!runningAction} onPress={() => onRun("fetch", Updates.fetchUpdateAsync)} />
-              <DebugButton label="重载应用" disabled={!!runningAction} onPress={() => onRun("reload", Updates.reloadAsync)} />
-              <DebugButton label="读取日志" disabled={!!runningAction} onPress={() => onRun("logs", () => Updates.readLogEntriesAsync(24 * 60 * 60 * 1000))} />
+              <DebugButton label="重载(谨慎)" disabled={!!runningAction} onPress={() => onRun("reload", Updates.reloadAsync)} />
+              <DebugButton label="读取日志" disabled={!!runningAction} onPress={() => onRun("logs", readCombinedDiagnostics)} />
             </View>
+            <Text style={styles.updatesDebugHint}>下载后优先从系统后台划掉 App 再手动打开；只有需要验证 reloadAsync 时再点重载。</Text>
             <Text style={styles.updatesDebugResultTitle}>结果</Text>
             <Text selectable style={styles.updatesDebugResult}>{runningAction ? `${runningAction} running...\n\n` : ""}{result}</Text>
           </ScrollView>
@@ -478,6 +486,142 @@ function DebugButton({ label, disabled, onPress }: { label: string; disabled: bo
       <Text style={styles.updatesDebugButtonText}>{label}</Text>
     </Pressable>
   );
+}
+
+async function readCombinedDiagnostics(): Promise<{ updateLogs: unknown; appLogs: AppLog[] }> {
+  const [updateLogs, appLogs] = await Promise.all([
+    Updates.readLogEntriesAsync(24 * 60 * 60 * 1000),
+    getLogs(),
+  ]);
+  return { updateLogs, appLogs };
+}
+
+function formatCombinedDiagnostics(value: unknown): string {
+  if (!isRecord(value)) return formatDebugValue(value);
+  return [
+    formatAppLogs(value.appLogs),
+    "",
+    formatUpdateLogs(value.updateLogs),
+  ].join("\n");
+}
+
+function formatUpdateLogs(value: unknown): string {
+  if (!Array.isArray(value)) return formatDebugValue(value);
+  const rows = value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const record = entry as Record<string, unknown>;
+      const rawMessage = typeof record.message === "string" ? record.message : "";
+      const message = summarizeUpdateLogMessage(rawMessage);
+      const level = typeof record.level === "string" ? record.level : "unknown";
+      const code = typeof record.code === "string" ? record.code : "None";
+      const timestamp = typeof record.timestamp === "number" ? new Date(record.timestamp).toISOString() : String(record.timestamp ?? "");
+      return {
+        level,
+        code,
+        timestamp,
+        message,
+        searchable: `${level} ${code} ${message}`.toLowerCase(),
+      };
+    })
+    .filter((entry): entry is { level: string; code: string; timestamp: string; message: string; searchable: string } => !!entry);
+  const important = rows.filter((entry) => UPDATE_LOG_KEYWORDS.some((keyword) => entry.searchable.includes(keyword)));
+  const recent = rows.slice(-12);
+  return [
+    `important logs (${important.length}/${rows.length})`,
+    ...important.slice(-24).map(formatUpdateLogLine),
+    "",
+    "recent logs",
+    ...recent.map(formatUpdateLogLine),
+  ].join("\n");
+}
+
+function formatUpdateLogLine(entry: { level: string; code: string; timestamp: string; message: string }): string {
+  return `[${entry.level}/${entry.code}] ${entry.timestamp}\n${entry.message}`;
+}
+
+function formatAppLogs(value: unknown): string {
+  if (!Array.isArray(value)) return formatDebugValue(value);
+  const rows = value.filter((entry): entry is AppLog => isRecord(entry) && typeof entry.event === "string");
+  const important = rows.filter((entry) => entry.level === "error" || /update|error|crash|fatal|global/i.test(entry.event));
+  const recent = rows.slice(-6);
+  return [
+    `app failures (${important.length}/${rows.length})`,
+    ...important.slice(-8).map(formatAppLogLine),
+    "",
+    "recent app",
+    ...recent.map(formatAppLogLine),
+  ].join("\n");
+}
+
+function formatAppLogLine(entry: AppLog): string {
+  const extra = entry.extra ? `\n${JSON.stringify(entry.extra, null, 2).slice(0, 420)}` : "";
+  return `[${entry.level}] ${entry.time}\n${entry.event}${entry.message ? `: ${entry.message}` : ""}${extra}`;
+}
+
+function formatUpdateActionResult(label: string, value: unknown): string {
+  if (label === "reload") {
+    return "reloadAsync called. If the app closes or returns to embedded, read logs after reopening.";
+  }
+  if (!isRecord(value)) return formatDebugValue(value);
+  const lines = [`${label} result`];
+  for (const key of ["isAvailable", "isNew", "isRollBackToEmbedded"] as const) {
+    if (key in value) lines.push(`${key}: ${String(value[key])}`);
+  }
+  const manifest = isRecord(value.manifest) ? value.manifest : null;
+  if (manifest) {
+    const metadata = isRecord(manifest.metadata) ? manifest.metadata : null;
+    const extra = isRecord(manifest.extra) ? manifest.extra : null;
+    lines.push(`id: ${String(manifest.id ?? "null")}`);
+    lines.push(`createdAt: ${String(manifest.createdAt ?? "null")}`);
+    lines.push(`runtimeVersion: ${String(manifest.runtimeVersion ?? "null")}`);
+    lines.push(`branch: ${String(metadata?.branchName ?? "null")}`);
+    lines.push(`group: ${String(metadata?.updateGroup ?? "null")}`);
+    lines.push(`message: ${getUpdateMessage(manifest)}`);
+    if (extra && isRecord(extra.eas)) lines.push(`projectId: ${String(extra.eas.projectId ?? "null")}`);
+  }
+  return lines.join("\n");
+}
+
+function summarizeUpdateLogMessage(rawMessage: string): string {
+  const compact = rawMessage.replace(/\s+/g, " ").trim();
+  if (compact.length <= 360) return compact;
+  const pieces: string[] = [];
+  const stateMatch = compact.match(/state = [^,)]*/);
+  const eventMatch = compact.match(/event = [^,)]*/);
+  const failureMatch = compact.match(/failureCount = \d+/);
+  const updateGroups = collectRegexMatches(compact, /updateGroup = "?([0-9a-f-]{36})"?/gi);
+  const ids = Array.from(new Set(compact.match(UPDATE_ID_PATTERN) ?? []));
+  const flags = [
+    "isStartupProcedureRunning",
+    "isUpdateAvailable",
+    "isUpdatePending",
+    "isChecking",
+    "isDownloading",
+    "isRestarting",
+  ]
+    .map((key) => compact.match(new RegExp(`${key}: (true|false)`, "i"))?.[0])
+    .filter((item): item is string => !!item);
+  if (stateMatch) pieces.push(stateMatch[0]);
+  if (eventMatch) pieces.push(eventMatch[0]);
+  if (failureMatch) pieces.push(failureMatch[0]);
+  if (updateGroups.length) pieces.push(`groups: ${updateGroups.slice(-3).join(", ")}`);
+  if (ids.length) pieces.push(`ids: ${ids.slice(-4).join(", ")}`);
+  if (flags.length) pieces.push(flags.join(", "));
+  if (/checkError: nil/i.test(compact)) pieces.push("checkError: nil");
+  if (/downloadError: nil/i.test(compact)) pieces.push("downloadError: nil");
+  if (/Deleted assets and updates/i.test(compact)) pieces.push(compact.slice(0, 180));
+  return pieces.length ? pieces.join("\n") : `${compact.slice(0, 340)}...`;
+}
+
+function collectRegexMatches(value: string, pattern: RegExp): string[] {
+  const output: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value))) {
+    const item = match[1];
+    if (item && !output.includes(item)) output.push(item);
+  }
+  return output;
 }
 
 function SettingsRow({
@@ -1003,6 +1147,12 @@ const styles = StyleSheet.create({
     color: "#111111",
     fontSize: 13,
     fontWeight: "600",
+  },
+  updatesDebugHint: {
+    marginTop: 8,
+    color: "#7E8491",
+    fontSize: 11,
+    lineHeight: 16,
   },
   updatesDebugResultTitle: {
     marginTop: 14,

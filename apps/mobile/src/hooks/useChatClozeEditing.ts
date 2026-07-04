@@ -23,6 +23,7 @@ import { markPracticeStatsDirty } from "../services/chat/chatPracticeSyncState";
 import type { ClozeDeleteState, ClozeEditorState } from "../screens/chat/ClozeControls";
 import type { InfoDialogConfig } from "../screens/shared/InfoDialog";
 import { t } from "../i18n";
+import { logEvent } from "../services/logger";
 
 type ChatNotice = {
   hide: () => void;
@@ -143,6 +144,13 @@ export function useChatClozeEditing({
           clozeVersion: saved.clozeVersion,
         });
       } catch (error) {
+        await logEvent("cloze_save_failed", "error", error instanceof Error ? error.message : "Unknown cloze save failure", {
+          messageId: currentMessage.id ?? currentMessage.localId,
+          languageCode: currentMessage.languageCode ?? null,
+          baseVersion,
+          clozeState,
+          status: typeof error === "object" && error !== null ? (error as { status?: unknown }).status : undefined,
+        });
         const latest = (error as { latest?: { clozeState: ChatMessage["clozeState"]; clozeVersion: number } }).latest;
         if (latest) {
           await applyMessageUpdate({

@@ -558,7 +558,7 @@ function normalizeClozeState(input: ClozeState | null, messageContent: string): 
 
   const used = new Set<number>();
   const blankUsed = new Set<number>();
-  const tokenCount = tokenizeForCloze(messageContent).length;
+  const tokenCount = tokenizeForCloze(extractClozeLearningText(messageContent)).length;
   const groups = rawGroups.map((group) => {
     if (!group || typeof group !== "object") throw new InvalidClozeStateError();
     if (!Array.isArray(group.tokenIndexes) || !Array.isArray(group.blankTokenIndexes)) {
@@ -608,12 +608,56 @@ function normalizeClozeState(input: ClozeState | null, messageContent: string): 
 
 function tokenizeForCloze(text: string): Array<{ start: number; end: number }> {
   const tokens: Array<{ start: number; end: number }> = [];
-  const tokenRe = /[\p{L}\p{N}'’-]+|[^\s\p{L}\p{N}'’-]/gu;
-  for (const match of text.matchAll(tokenRe)) {
+  const tokenRe = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+|[\p{L}\p{N}'’-]+|[^\s\p{L}\p{N}'’-]/gu;
+  tokenRe.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tokenRe.exec(text))) {
     const value = match[0] ?? "";
     const start = match.index ?? 0;
     if (!value) continue;
     tokens.push({ start, end: start + value.length });
   }
   return tokens;
+}
+
+function extractClozeLearningText(text: string): string {
+  const tags = ["rewrite", "note", "en", "ja", "jp", "zh", "cn", "reply"] as const;
+  const rewrite = extractTag(text, "rewrite").trim();
+  const en = extractTag(text, "en").trim();
+  const ja = (extractTag(text, "ja") || extractTag(text, "jp")).trim();
+  const fallback = hasAnyTag(text, tags) ? "" : stripKnownTags(text, tags).trim();
+  return rewrite || en || ja || fallback;
+}
+
+function extractTag(text: string, tag: string): string {
+  const safeTag = escapeRegExp(tag);
+  const match = new RegExp(`<${safeTag}>\\s*([\\s\\S]*?)\\s*<\\/${safeTag}>`, "i").exec(text);
+  if (match?.[1]) return match[1];
+  return extractOpenTagText(text, tag, ["rewrite", "note", "en", "ja", "jp", "zh", "cn", "reply"]);
+}
+
+function extractOpenTagText(text: string, tag: string, tags: readonly string[]): string {
+  const startMatch = new RegExp(`<${escapeRegExp(tag)}>\\s*`, "i").exec(text);
+  if (!startMatch) return "";
+  const start = startMatch.index + startMatch[0].length;
+  const rest = text.slice(start);
+  const nextKnownTag = rest.search(createKnownTagPattern(tags));
+  return nextKnownTag >= 0 ? rest.slice(0, nextKnownTag) : rest;
+}
+
+function stripKnownTags(text: string, tags: readonly string[]): string {
+  return text.replace(createKnownTagPattern(tags, "gi"), "");
+}
+
+function hasAnyTag(text: string, tags: readonly string[]): boolean {
+  return createKnownTagPattern(tags).test(text);
+}
+
+function createKnownTagPattern(tags: readonly string[], flags = "i"): RegExp {
+  const source = tags.map(escapeRegExp).join("|");
+  return new RegExp(`<\\/?(${source})>`, flags);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

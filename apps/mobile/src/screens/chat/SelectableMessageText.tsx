@@ -5,6 +5,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Text,
   View,
   type StyleProp,
   type TextStyle,
@@ -135,6 +136,69 @@ function rangesToJson(ranges?: Array<NativeClozeHighlightRange | NativeClozeBlan
   return JSON.stringify(ranges ?? []);
 }
 
+function visibleTextForBlanks(text: string, blankRanges: NativeClozeBlankRange[]): string {
+  if (blankRanges.length === 0) return text;
+  const chars = text.split("");
+  for (const range of blankRanges) {
+    const start = Math.max(0, Math.min(range.start, chars.length));
+    const end = Math.max(start, Math.min(range.end, chars.length));
+    for (let index = start; index < end; index += 1) {
+      if (!/\s/.test(chars[index])) chars[index] = "_";
+    }
+  }
+  return chars.join("");
+}
+
+function normalizeLayoutHeight(value: number): number {
+  return typeof value === "number" && value > 0 && value < Infinity ? Math.ceil(value) : 0;
+}
+
+function isDictionaryWordChar(char: string): boolean {
+  return /[A-Za-z0-9']/.test(char);
+}
+
+function expandSelectionToWord(text: string, start: number, end: number): NativeClozeBlankRange {
+  let safeStart = Math.max(0, Math.min(start, text.length));
+  let safeEnd = Math.max(safeStart, Math.min(end, text.length));
+  while (safeStart < safeEnd && /\s/.test(text[safeStart])) safeStart += 1;
+  while (safeEnd > safeStart && /\s/.test(text[safeEnd - 1])) safeEnd -= 1;
+  if (safeStart >= safeEnd) return { start: safeStart, end: safeEnd };
+  const selected = text.slice(safeStart, safeEnd);
+  if (!/[A-Za-z0-9]/.test(selected)) return { start: safeStart, end: safeEnd };
+  while (safeStart > 0 && isDictionaryWordChar(text[safeStart - 1])) safeStart -= 1;
+  while (safeEnd < text.length && isDictionaryWordChar(text[safeEnd])) safeEnd += 1;
+  return { start: safeStart, end: safeEnd };
+}
+
+function renderLayoutTextSegments(
+  text: string,
+  highlightRanges: NativeClozeHighlightRange[],
+  textStyle: StyleProp<TextStyle>,
+): React.ReactNode {
+  if (highlightRanges.length === 0) return text;
+  const segments: React.ReactNode[] = [];
+  let cursor = 0;
+  highlightRanges.forEach((range, index) => {
+    const start = Math.max(cursor, Math.min(range.start, text.length));
+    const end = Math.max(start, Math.min(range.end, text.length));
+    if (cursor < start) {
+      segments.push(<Text key={`normal-${index}-${cursor}`} style={textStyle}>{text.slice(cursor, start)}</Text>);
+    }
+    if (start < end) {
+      segments.push(
+        <Text key={`highlight-${index}-${start}`} style={[textStyle, styles.layoutHighlightText]}>
+          {text.slice(start, end)}
+        </Text>,
+      );
+    }
+    cursor = end;
+  });
+  if (cursor < text.length) {
+    segments.push(<Text key={`normal-end-${cursor}`} style={textStyle}>{text.slice(cursor)}</Text>);
+  }
+  return segments;
+}
+
 export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, Props>(
   function SelectableMessageText({
     text,
@@ -172,11 +236,13 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       const trailingText = typeof trailingElement === "string" ? trailingElement : "";
       return trailingText ? `${text}${trailingText}` : text;
     }, [text, trailingElement]);
+    const layoutText = React.useMemo(() => visibleTextForBlanks(nativeText, blanks), [blanks, nativeText]);
     const nativeHighlightRangesJson = React.useMemo(() => rangesToJson(highlights), [highlights]);
     const nativeBlankRangesJson = React.useMemo(() => rangesToJson(blanks), [blanks]);
     const nativeCorrectRangesJson = React.useMemo(() => rangesToJson(correct), [correct]);
     const flattenedTextStyle = React.useMemo(() => StyleSheet.flatten(style) ?? {}, [style]);
     const nativeTextRef = React.useRef<React.ElementRef<typeof ChatSelectableTextView> | null>(null);
+    const [nativeContentHeight, setNativeContentHeight] = React.useState(0);
 
     const clearSelection = React.useCallback(() => {
       clearChatSelectableTextSelection(nativeTextRef);
@@ -195,17 +261,24 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         if (start < 0) return;
         const end = hasNativeRange ? payload.selectionEnd! : start + selectedText.length;
         const selectedRange = { start: Math.min(start, end), end: Math.max(start, end) };
+        if (payload.chosenOption === dictionaryMenuOption) {
+          const expandedRange = expandSelectionToWord(text, selectedRange.start, selectedRange.end);
+          if (expandedRange.start >= expandedRange.end) return;
+          onSelectionStart?.();
+          onDictionarySelection?.({
+            start: expandedRange.start,
+            end: expandedRange.end,
+            selectedText: text.slice(expandedRange.start, expandedRange.end),
+            selectionRect: payload.selectionRect,
+          });
+          return;
+        }
         const normalizedPayload = {
           start: selectedRange.start,
           end: selectedRange.end,
           selectedText: text.slice(selectedRange.start, selectedRange.end),
           selectionRect: payload.selectionRect,
         };
-        if (payload.chosenOption === dictionaryMenuOption) {
-          onSelectionStart?.();
-          onDictionarySelection?.(normalizedPayload);
-          return;
-        }
         const existingClozeRanges = highlights.length ? highlights : blanks;
         const insideExistingCloze = existingClozeRanges.some((range) => rangeContains(range, selectedRange.start, selectedRange.end));
         if (insideExistingCloze) return;
@@ -240,6 +313,18 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const handleTouchStart = React.useCallback(() => {
       onInteractionStart?.();
     }, [onInteractionStart]);
+    const handleNativeContentHeightChange = React.useCallback((event: { nativeEvent: { height: number } }) => {
+      const nextHeight = normalizeLayoutHeight(event.nativeEvent.height);
+      setNativeContentHeight((current) => (Math.abs(current - nextHeight) < 1 ? current : nextHeight));
+    }, []);
+    const layoutBaseTextStyle = React.useMemo(
+      () => [style, styles.layoutText],
+      [style],
+    );
+    const layoutTextContent = React.useMemo(
+      () => renderLayoutTextSegments(layoutText, highlights, layoutBaseTextStyle),
+      [highlights, layoutBaseTextStyle, layoutText],
+    );
     const nativeInteractionProps = Platform.select({
       ios: {
         selectionMode,
@@ -247,6 +332,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           ...(enableClozeMenu ? [clozeMenuOption] : []),
           ...(enableDictionaryMenu ? [dictionaryMenuOption] : []),
         ],
+        onContentHeightChange: handleNativeContentHeightChange,
         onSelectionStart,
         onSelection: handleNativeSelection,
         onClozeRangePress: handleClozeRangePress,
@@ -270,7 +356,10 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     });
 
     return (
-      <View style={styles.nativeTextContainer}>
+      <View style={[styles.nativeTextContainer, nativeContentHeight > 0 ? { minHeight: nativeContentHeight } : null]}>
+        <Text pointerEvents="none" style={layoutBaseTextStyle}>
+          {layoutTextContent}
+        </Text>
         <ChatSelectableTextView
           ref={nativeTextRef}
           text={nativeText}
@@ -305,8 +394,15 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
 const styles = StyleSheet.create({
   nativeTextContainer: {
     alignSelf: "stretch",
+    position: "relative",
   },
   nativeTextView: {
-    alignSelf: "stretch",
+    ...StyleSheet.absoluteFillObject,
+  },
+  layoutText: {
+    color: "transparent",
+  },
+  layoutHighlightText: {
+    backgroundColor: "#FFF0B8",
   },
 });
