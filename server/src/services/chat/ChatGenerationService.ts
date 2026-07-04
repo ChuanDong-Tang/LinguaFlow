@@ -230,6 +230,8 @@ export class ChatGenerationService {
           model: input.model,
           languageCode: userPreference.learningLanguage,
           appLocale: userPreference.appLocale,
+          promptDifficulty: userPreference.promptDifficulty,
+          promptStyle: userPreference.promptStyle,
           systemPrompt: input.systemPrompt,
           signal: input.signal,
         },
@@ -363,11 +365,18 @@ export class ChatGenerationService {
     );
   }
 
-  private async resolveUserPreference(userId: string): Promise<{ learningLanguage: string; appLocale: string }> {
+  private async resolveUserPreference(userId: string): Promise<{
+    learningLanguage: string;
+    appLocale: string;
+    promptDifficulty: string;
+    promptStyle: string;
+  }> {
     const preference = await this.userPreferenceRepository.getByUserId(userId);
     return {
       learningLanguage: preference.learningLanguage,
       appLocale: preference.appLocale,
+      promptDifficulty: preference.promptDifficulty,
+      promptStyle: preference.promptStyle,
     };
   }
 

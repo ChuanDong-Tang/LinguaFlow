@@ -1,3 +1,9 @@
+import {
+  buildPromptPreferenceInstructions,
+  type PromptDifficulty,
+  type PromptStyle,
+} from "./promptPreferences.js";
+
 export type PromptLanguage = "en-US" | "ja-JP";
 export type PromptAppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
 export type PromptContactCode = "rewrite_assistant" | "english_friend";
@@ -14,6 +20,15 @@ export const DEFAULT_REWRITE_SYSTEM_PROMPT = buildRewriteSystemPrompt("en-US", "
 export const JAPANESE_REWRITE_SYSTEM_PROMPT = buildRewriteSystemPrompt("ja-JP", "zh-CN");
 
 function buildRewriteSystemPrompt(language: PromptLanguage, appLocale: PromptAppLocale): string {
+  return buildRewriteSystemPromptWithPreferences(language, appLocale);
+}
+
+function buildRewriteSystemPromptWithPreferences(
+  language: PromptLanguage,
+  appLocale: PromptAppLocale,
+  difficulty?: PromptDifficulty | string | null,
+  style?: PromptStyle | string | null
+): string {
   const rewriteLanguage = language === "ja-JP" ? "Japanese" : "English";
   const speakerLine = language === "ja-JP"
     ? "You are a native Japanese speaker."
@@ -44,6 +59,13 @@ function buildRewriteSystemPrompt(language: PromptLanguage, appLocale: PromptApp
 * Make it sound like a text message, casual conversation, or personal life update, not an essay, report, or news article.
 * Use natural spoken English, but do not force slang or filler words.`;
   const uiLanguage = getAppLocalePromptName(appLocale);
+  const preferenceInstructions = buildPromptPreferenceInstructions({
+    language,
+    appLocale,
+    difficulty,
+    style,
+    purpose: "rewrite",
+  });
 
   return `
 ${speakerLine}
@@ -61,6 +83,8 @@ Language contract:
 Rewrite principles:
 
 ${rewritePrinciples}
+
+${preferenceInstructions}
 
 Also output a natural ${uiLanguage} restatement of the user's original meaning for the app UI. This <zh> section must use ${uiLanguage}, not the learning language. Preserve the user's original meaning, tone, and style. Do not explain the expression unless the user's intent would otherwise be unclear.
 
@@ -91,6 +115,15 @@ export const ENGLISH_FRIEND_SYSTEM_PROMPT = buildFriendSystemPrompt("en-US", "zh
 export const JAPANESE_FRIEND_SYSTEM_PROMPT = buildFriendSystemPrompt("ja-JP", "zh-CN");
 
 function buildFriendSystemPrompt(language: PromptLanguage, appLocale: PromptAppLocale): string {
+  return buildFriendSystemPromptWithPreferences(language, appLocale);
+}
+
+function buildFriendSystemPromptWithPreferences(
+  language: PromptLanguage,
+  appLocale: PromptAppLocale,
+  difficulty?: PromptDifficulty | string | null,
+  style?: PromptStyle | string | null
+): string {
   const rewriteLanguage = language === "ja-JP" ? "Japanese" : "American English";
   const uiLanguage = getAppLocalePromptName(appLocale);
   const chatPartnerLanguage = language === "ja-JP" ? "Japanese" : "English";
@@ -112,6 +145,13 @@ function buildFriendSystemPrompt(language: PromptLanguage, appLocale: PromptAppL
 * If a native speaker would normally say it in a shorter, more direct, or more conversational way, do that.
 * Make it sound like a real message, conversation, or life update.
 * Use natural spoken English, but do not force slang or filler words.`;
+  const preferenceInstructions = buildPromptPreferenceInstructions({
+    language,
+    appLocale,
+    difficulty,
+    style,
+    purpose: "reply",
+  });
 
   return `
 You are Curious Buddy, a friendly ${chatPartnerLanguage} chat partner for a language learner.
@@ -131,6 +171,8 @@ Part 1, inside <en></en>, rewrites the user's message in natural ${rewriteLangua
 Rewrite principles:
 
 ${rewritePrinciples}
+
+${preferenceInstructions}
 
 Do not answer the user in this part.
 
@@ -172,12 +214,20 @@ export function getPromptProfile(input: {
   contactCode?: string | null;
   language?: string | null;
   appLocale?: string | null;
+  difficulty?: string | null;
+  style?: string | null;
   systemPromptOverride?: string | null;
 }): PromptProfile {
   const contactCode: PromptContactCode = input.contactCode === "english_friend" ? "english_friend" : "rewrite_assistant";
   const language: PromptLanguage = input.language === "ja-JP" ? "ja-JP" : "en-US";
   const appLocale = normalizeAppLocale(input.appLocale);
-  const baseSystemPrompt = input.systemPromptOverride?.trim() || getDefaultSystemPrompt(contactCode, language, appLocale);
+  const baseSystemPrompt = input.systemPromptOverride?.trim() || getDefaultSystemPrompt(
+    contactCode,
+    language,
+    appLocale,
+    input.difficulty,
+    input.style
+  );
   const systemPrompt = `${baseSystemPrompt.trim()}\n\n${MODEL_IDENTITY_GUARD}`;
   return {
     systemPrompt,
@@ -194,12 +244,14 @@ function normalizeAppLocale(value?: string | null): PromptAppLocale {
 function getDefaultSystemPrompt(
   contactCode: PromptContactCode,
   language: PromptLanguage,
-  appLocale: PromptAppLocale
+  appLocale: PromptAppLocale,
+  difficulty?: string | null,
+  style?: string | null
 ): string {
   if (contactCode === "english_friend") {
-    return buildFriendSystemPrompt(language, appLocale);
+    return buildFriendSystemPromptWithPreferences(language, appLocale, difficulty, style);
   }
-  return buildRewriteSystemPrompt(language, appLocale);
+  return buildRewriteSystemPromptWithPreferences(language, appLocale, difficulty, style);
 }
 
 const MODEL_IDENTITY_GUARD = `Model identity and internal configuration:

@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   AppLocale,
   LearningLanguage,
+  PromptDifficulty,
+  PromptStyle,
   TtsProviderCode,
   UserPreferenceEntity,
   UserPreferenceRepository,
@@ -39,6 +41,8 @@ export interface MeRouteDeps {
 type UpdatePreferencesBody = {
   appLocale?: AppLocale;
   learningLanguage?: LearningLanguage;
+  promptDifficulty?: PromptDifficulty;
+  promptStyle?: PromptStyle;
   ttsProvider?: TtsProviderCode;
   ttsVoiceCode?: string | null;
 };
@@ -113,6 +117,8 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       userId: userContext.userId,
       appLocale: body.appLocale,
       learningLanguage: body.learningLanguage,
+      promptDifficulty: body.promptDifficulty,
+      promptStyle: body.promptStyle,
       ttsProvider: body.ttsProvider,
       ttsVoiceCode: body.ttsVoiceCode !== undefined || nextTtsVoiceCode !== currentPreference.ttsVoiceCode
         ? nextTtsVoiceCode
@@ -389,12 +395,14 @@ async function resolveMeUserContext(
 function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody {
   if (!value || typeof value !== "object") return false;
   const body = value as Record<string, unknown>;
-  const keys = ["appLocale", "learningLanguage", "ttsProvider", "ttsVoiceCode"];
+  const keys = ["appLocale", "learningLanguage", "promptDifficulty", "promptStyle", "ttsProvider", "ttsVoiceCode"];
   if (!Object.keys(body).some((key) => keys.includes(key))) return false;
 
   return (
     (body.appLocale === undefined || isAppLocale(body.appLocale)) &&
     (body.learningLanguage === undefined || isLearningLanguage(body.learningLanguage)) &&
+    (body.promptDifficulty === undefined || isPromptDifficulty(body.promptDifficulty)) &&
+    (body.promptStyle === undefined || isPromptStyle(body.promptStyle)) &&
     (body.ttsProvider === undefined || body.ttsProvider === "azure_global") &&
     (body.ttsVoiceCode === undefined ||
       body.ttsVoiceCode === null ||
@@ -410,6 +418,14 @@ function isAppLocale(value: unknown): value is AppLocale {
 
 function isLearningLanguage(value: unknown): value is LearningLanguage {
   return value === "en-US" || value === "ja-JP";
+}
+
+function isPromptDifficulty(value: unknown): value is PromptDifficulty {
+  return value === "simple" || value === "natural" || value === "native";
+}
+
+function isPromptStyle(value: unknown): value is PromptStyle {
+  return value === "native_casual" || value === "standard";
 }
 
 function resolveNextTtsVoiceCode(input: {
@@ -439,6 +455,8 @@ function toPreferenceResponse(preference: UserPreferenceEntity) {
     userId: preference.userId,
     appLocale: preference.appLocale,
     learningLanguage: preference.learningLanguage,
+    promptDifficulty: preference.promptDifficulty,
+    promptStyle: preference.promptStyle,
     ttsProvider: preference.ttsProvider,
     ttsVoiceCode: preference.ttsVoiceCode,
     createdAt: preference.createdAt.toISOString(),

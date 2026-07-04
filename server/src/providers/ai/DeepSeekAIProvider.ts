@@ -62,6 +62,8 @@ export class DeepSeekAIProvider implements AIProvider {
       contactCode: input.contactId,
       language: input.languageCode,
       appLocale: input.appLocale,
+      difficulty: input.promptDifficulty,
+      style: input.promptStyle,
       systemPromptOverride: input.systemPrompt,
     });
     const systemPrompt = promptProfile.systemPrompt;

@@ -275,6 +275,7 @@ export function createApp() {
     aiProvider,
     rateLimiter: chatGenerationRateLimiter,
     userRepository,
+    userPreferenceRepository,
     systemEventLogRepository,
   });
   registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository });

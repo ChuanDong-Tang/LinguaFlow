@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import { buildDictionarySystemPrompt, buildDictionaryUserPrompt } from "@lf/core/Prompts/dictionaryLookupPrompt.js";
 import type { PromptAppLocale, PromptLanguage } from "@lf/core/Prompts/rewriteAssistantPrompt.js";
+import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import type { ChatGenerationRateLimiter } from "@lf/server/services/chat/ChatGenerationRateLimiter.js";
 import {
   AccountDisabledError,
@@ -23,6 +24,7 @@ export interface DictionaryRouteDeps {
       status: "active" | "disabled" | "pending_delete";
     } | null>;
   };
+  userPreferenceRepository?: UserPreferenceRepository;
   systemEventLogRepository?: SystemEventLogWriter;
 }
 
@@ -110,7 +112,7 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
       userLimit: runtimeConfig.dictionaryLookupUserRateLimit,
       windowMs: runtimeConfig.dictionaryLookupRateWindowMs,
     });
-    if (!rateLimit.allowed) {
+    if (rateLimit.allowed === false) {
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
         userId: userContext.userId,
@@ -145,6 +147,7 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
     try {
       const targetLanguage = normalizeLearningLanguage(body.targetLanguage);
       const uiLanguage = normalizeAppLocale(body.uiLanguage);
+      const userPreference = await deps.userPreferenceRepository?.getByUserId(userContext.userId);
       const prompt = buildDictionaryUserPrompt({
         term: body.term,
         context: body.context,
@@ -160,7 +163,14 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
           contactId: body.contactId,
           languageCode: targetLanguage,
           appLocale: uiLanguage,
-          systemPrompt: buildDictionarySystemPrompt({ targetLanguage, uiLanguage }),
+          promptDifficulty: userPreference?.promptDifficulty,
+          promptStyle: userPreference?.promptStyle,
+          systemPrompt: buildDictionarySystemPrompt({
+            targetLanguage,
+            uiLanguage,
+            difficulty: userPreference?.promptDifficulty,
+            style: userPreference?.promptStyle,
+          }),
           rawUserPrompt: true,
           maxOutputTokens: runtimeConfig.dictionaryLookupMaxOutputTokens,
           signal: abortController.signal,

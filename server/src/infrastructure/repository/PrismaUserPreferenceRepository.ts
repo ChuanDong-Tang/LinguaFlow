@@ -1,6 +1,8 @@
 import type {
   AppLocale,
   LearningLanguage,
+  PromptDifficulty,
+  PromptStyle,
   TtsProviderCode,
   UpdateUserPreferenceInput,
   UserPreferenceEntity,
@@ -9,10 +11,12 @@ import type {
 
 const DEFAULT_PREFERENCE: Pick<
   UserPreferenceEntity,
-  "appLocale" | "learningLanguage" | "ttsProvider" | "ttsVoiceCode"
+  "appLocale" | "learningLanguage" | "promptDifficulty" | "promptStyle" | "ttsProvider" | "ttsVoiceCode"
 > = {
   appLocale: "zh-CN",
   learningLanguage: "en-US",
+  promptDifficulty: "natural",
+  promptStyle: "native_casual",
   ttsProvider: "azure_global",
   ttsVoiceCode: null,
 };
@@ -49,12 +53,16 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
         userId: input.userId,
         appLocale: input.appLocale ?? DEFAULT_PREFERENCE.appLocale,
         learningLanguage: input.learningLanguage ?? DEFAULT_PREFERENCE.learningLanguage,
+        promptDifficulty: input.promptDifficulty ?? DEFAULT_PREFERENCE.promptDifficulty,
+        promptStyle: input.promptStyle ?? DEFAULT_PREFERENCE.promptStyle,
         ttsProvider: input.ttsProvider ?? DEFAULT_PREFERENCE.ttsProvider,
         ttsVoiceCode: input.ttsVoiceCode ?? DEFAULT_PREFERENCE.ttsVoiceCode,
       },
       update: {
         ...(input.appLocale !== undefined ? { appLocale: input.appLocale } : {}),
         ...(input.learningLanguage !== undefined ? { learningLanguage: input.learningLanguage } : {}),
+        ...(input.promptDifficulty !== undefined ? { promptDifficulty: input.promptDifficulty } : {}),
+        ...(input.promptStyle !== undefined ? { promptStyle: input.promptStyle } : {}),
         ...(input.ttsProvider !== undefined ? { ttsProvider: input.ttsProvider } : {}),
         ...(input.ttsVoiceCode !== undefined ? { ttsVoiceCode: input.ttsVoiceCode } : {}),
       },
@@ -67,6 +75,8 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
     userId: string;
     appLocale: string;
     learningLanguage: string;
+    promptDifficulty?: string | null;
+    promptStyle?: string | null;
     ttsProvider: string;
     ttsVoiceCode: string | null;
     createdAt: Date;
@@ -76,6 +86,8 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
       userId: row.userId,
       appLocale: normalizeAppLocale(row.appLocale),
       learningLanguage: normalizeLearningLanguage(row.learningLanguage),
+      promptDifficulty: normalizePromptDifficulty(row.promptDifficulty),
+      promptStyle: normalizePromptStyle(row.promptStyle),
       ttsProvider: normalizeTtsProvider(row.ttsProvider),
       ttsVoiceCode: row.ttsVoiceCode ?? null,
       createdAt: row.createdAt,
@@ -94,4 +106,12 @@ function normalizeLearningLanguage(value: string): LearningLanguage {
 
 function normalizeTtsProvider(value: string): TtsProviderCode {
   return value === "azure_global" ? "azure_global" : "azure_global";
+}
+
+function normalizePromptDifficulty(value: string | null | undefined): PromptDifficulty {
+  return value === "simple" || value === "native" ? value : "natural";
+}
+
+function normalizePromptStyle(value: string | null | undefined): PromptStyle {
+  return value === "standard" ? "standard" : "native_casual";
 }

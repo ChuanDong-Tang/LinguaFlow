@@ -37,11 +37,15 @@ export type RefreshEntitlementResult = {
 export type AppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
 export type LearningLanguage = "en-US" | "ja-JP";
 export type TtsProviderCode = "azure_global";
+export type PromptDifficulty = "simple" | "natural" | "native";
+export type PromptStyle = "native_casual" | "standard";
 
 export type UserPreference = {
   userId: string;
   appLocale: AppLocale;
   learningLanguage: LearningLanguage;
+  promptDifficulty: PromptDifficulty;
+  promptStyle: PromptStyle;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
   createdAt: string;
@@ -51,6 +55,8 @@ export type UserPreference = {
 export type UpdateUserPreferenceInput = Partial<{
   appLocale: AppLocale;
   learningLanguage: LearningLanguage;
+  promptDifficulty: PromptDifficulty;
+  promptStyle: PromptStyle;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
 }>;
