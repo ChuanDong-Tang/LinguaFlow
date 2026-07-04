@@ -24,7 +24,7 @@ export async function copyAssistantTaggedText(
 ): Promise<void> {
   const tagged = parseTaggedRewrite(text);
   const expression = (tagged.rewrite || tagged.en).trim();
-  const note = contactId === "english_friend"
+  const note = contactId === "english_friend" || (contactId === "curious_companion" && tagged.reply.trim())
     ? tagged.reply.trim()
     : (tagged.note || tagged.zh).trim();
   const copyText =

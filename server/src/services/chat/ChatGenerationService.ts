@@ -232,6 +232,7 @@ export class ChatGenerationService {
           appLocale: userPreference.appLocale,
           promptDifficulty: userPreference.promptDifficulty,
           promptStyle: userPreference.promptStyle,
+          companionMode: input.companionMode,
           systemPrompt: input.systemPrompt,
           signal: input.signal,
         },

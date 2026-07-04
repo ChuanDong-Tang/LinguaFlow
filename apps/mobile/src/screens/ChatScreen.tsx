@@ -101,12 +101,15 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const {
     autoCopyAfterGeneration,
     autoCopyMode,
+    companionModeByContactId,
     isAutoCopyMenuOpen,
     openAutoCopyMenu,
     closeAutoCopyMenu,
     setAutoCopyAfterGeneration,
     setAutoCopyMode,
+    setCompanionMode,
   } = useAssistantAutoCopyPreferences();
+  const companionMode = companionModeByContactId[contactId] ?? contact.defaultCompanionMode ?? "rewrite_only";
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
@@ -199,6 +202,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
   const netInfo = useNetInfo();
+  const historyContactIds = useMemo(
+    () => Array.from(new Set((contact.historyContactIds?.length ? contact.historyContactIds : [contactId]).filter(Boolean))),
+    [contact.historyContactIds, contactId],
+  );
 
   
   // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示
@@ -278,11 +285,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     let cancelled = false;
     async function bootstrapLocal() {
       const dateKey = toDateKey(selectedDate);
-      const storedDateKeys = await listStoredChatDateKeys(contactId);
+      const storedDateKeys = await listStoredChatDateKeysForHistory();
       if (!cancelled) {
         setLocalDateKeys(new Set(storedDateKeys));
       }
-      const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, dateKey));
+      const byDay = toDisplayRows(await loadChatMessagesByDateForHistory(dateKey));
       if (cancelled) return;
       dayLoadedRowsRef.current[dateKey] = byDay;
       setDayMessages(byDay);
@@ -292,7 +299,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [contactId]);
+  }, [contactId, historyContactIds.join(",")]);
 
   // 生成会话订阅：接收流式改写状态和消息列表更新。
   useEffect(() => {
@@ -301,12 +308,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       if (snapshot.conversationId) setConversationId(snapshot.conversationId);
       if (!snapshot.changedDateKey || snapshot.changedDateKey !== toDateKey(selectedDate)) return;
       void (async () => {
-        const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(selectedDate)));
+        const byDay = toDisplayRows(await loadChatMessagesByDateForHistory(toDateKey(selectedDate)));
         setDayMessages(byDay);
         setMessages(byDay);
       })();
     });
-  }, [contactId, selectedDate]);
+  }, [contactId, historyContactIds.join(","), selectedDate]);
 
   useEffect(() => {
     return subscribeChatGenerationActivity((snapshot) => {
@@ -462,6 +469,28 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     [contactId],
   );
 
+  async function listStoredChatDateKeysForHistory(): Promise<string[]> {
+    const all = await Promise.all(historyContactIds.map((sourceContactId) => listStoredChatDateKeys(sourceContactId)));
+    return Array.from(new Set(all.flat())).sort();
+  }
+
+  async function loadChatMessagesByDateForHistory(dateKey: string): Promise<ChatMessage[]> {
+    const groups = await Promise.all(historyContactIds.map(async (sourceContactId) => {
+      const rows = await loadChatMessagesByDate(sourceContactId, dateKey);
+      return rows.map((row) => ({ ...row, contactId: row.contactId ?? sourceContactId }));
+    }));
+    return mergeMessageRows(groups.flat());
+  }
+
+  function mergeMessageRows(rows: ChatMessage[]): ChatMessage[] {
+    const map = new Map<string, ChatMessage>();
+    for (const row of rows) {
+      const key = `${row.contactId ?? contactId}:${row.serverId ?? row.clientId ?? row.id ?? row.localId}`;
+      map.set(key, row);
+    }
+    return Array.from(map.values()).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  }
+
   async function handleSend(): Promise<void> {
     if (netInfo.isConnected !== true) {
       Alert.alert(t("chat.error.network_send"));
@@ -514,7 +543,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       new Date(),
       businessTodayKey
     );
-    const todayRows = isViewingToday ? dayMessages : toDisplayRows(await loadChatMessagesByDate(contactId, businessTodayKey));
+    userLocal.contactId = contactId;
+    assistantLocal.contactId = contactId;
+    const todayRows = isViewingToday ? dayMessages : toDisplayRows(await loadChatMessagesByDateForHistory(businessTodayKey));
     const localNextRaw = [...todayRows, userLocal, assistantLocal];
     const localNext = toDisplayRows(localNextRaw);
     setDayMessages(localNext);
@@ -530,6 +561,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       assistantClientId: assistantLocal.clientId,
       conversationDateKey: businessTodayKey,
       retryCount: 0,
+      companionMode,
       conversationId,
       autoCopyAfterGeneration,
       autoCopyMode,
@@ -567,6 +599,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       new Date(),
       retryDateKey
     );
+    userLocal.contactId = contactId;
+    assistantLocal.contactId = contactId;
     const localNext = [...dayMessages, userLocal, assistantLocal];
     setDayMessages(localNext);
     setMessages(toDisplayRows(localNext));
@@ -581,6 +615,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       assistantClientId: assistantLocal.clientId,
       conversationDateKey: retryDateKey,
       retryCount,
+      companionMode,
       systemPrompt: message.retrySystemPrompt,
       conversationId,
       autoCopyAfterGeneration,
@@ -620,12 +655,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     try {
       calendarSyncMachine.setPhase(token, "fetching");
       loadedCloudMonthKeysRef.current.add(monthKey);
-      const keys = await listConversationDateKeysFromCloud({
-        contactId,
+      const keySets = await Promise.all(historyContactIds.map((sourceContactId) => listConversationDateKeysFromCloud({
+        contactId: sourceContactId,
         fromDateKey,
         toDateKey: monthEndDateKey,
         signal: controller.signal,
-      });
+      })));
+      const keys = new Set<string>();
+      keySets.forEach((set) => set.forEach((key) => keys.add(key)));
       if (!isMountedRef.current) return;
       calendarSyncMachine.setPhase(token, "merging");
       setCloudDateKeys((prev) => {
@@ -689,7 +726,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }
 
   function mapCloudRows(
-    rows: Awaited<ReturnType<typeof listDayMessagesFromCloud>>
+    rows: Array<Awaited<ReturnType<typeof listDayMessagesFromCloud>>[number] & { contactId?: string | null }>
   ): ChatMessage[] {
     return rows.map((row) => ({
       id: row.id,
@@ -706,6 +743,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       clozeState: row.clozeState ?? null,
       clozeVersion: row.clozeVersion ?? 0,
       clozePracticeDiscardedAt: row.clozePracticeDiscardedAt ?? null,
+      contactId: row.contactId ?? contactId,
     }));
   }
 
@@ -778,7 +816,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "checking");
     }
-    const cachedLoaded = toDisplayRows(await loadChatMessagesByDate(contactId, dateKey)).sort((a, b) =>
+    const cachedLoaded = toDisplayRows(await loadChatMessagesByDateForHistory(dateKey)).sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : 1
     );
     let resolvedConversationId = await resolveConversationIdForDate(dateKey, options?.signal);
@@ -787,14 +825,22 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "fetching");
     }
-    let allRows = resolvedConversationId
-      ? await listDayMessagesFromCloud({
-          conversationId: resolvedConversationId,
-          userId,
-          dateKey,
-          signal: options?.signal,
-        })
-      : [];
+    const cloudRowsByContact = await Promise.all(historyContactIds.map(async (sourceContactId) => {
+      const sourceConversationId = await findConversationIdByDateFromCloud({
+        dateKey,
+        contactId: sourceContactId,
+        signal: options?.signal,
+      });
+      if (!sourceConversationId) return [];
+      const rows = await listDayMessagesFromCloud({
+        conversationId: sourceConversationId,
+        userId,
+        dateKey,
+        signal: options?.signal,
+      });
+      return rows.map((row) => ({ ...row, contactId: sourceContactId }));
+    }));
+    let allRows = cloudRowsByContact.flat();
     if (!isMountedRef.current) return { synced: false, changed: false };
     if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
 
@@ -804,6 +850,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const unsyncedLocalRows = cachedLoaded.filter(
       (row) =>
         row.status === "success" &&
+        (row.contactId === contactId || !row.contactId) &&
         !row.serverId &&
         !!row.clientId &&
         !row.clientId.startsWith("cloud-") &&
@@ -833,17 +880,20 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       if (isMountedRef.current && resolvedConversationId !== conversationId) {
         setConversationId(resolvedConversationId);
       }
-      allRows = await listDayMessagesFromCloud({
-        conversationId: resolvedConversationId,
-        userId,
-        dateKey,
-        signal: options?.signal,
-      });
+      allRows = [
+        ...cloudRowsByContact.flat().filter((row) => row.contactId !== contactId),
+        ...(await listDayMessagesFromCloud({
+          conversationId: resolvedConversationId,
+          userId,
+          dateKey,
+          signal: options?.signal,
+        })).map((row) => ({ ...row, contactId })),
+      ];
       if (!isMountedRef.current) return { synced: false, changed: false };
       if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
     }
 
-    if (!resolvedConversationId) return { synced: false, changed: false };
+    if (!resolvedConversationId && allRows.length === 0) return { synced: false, changed: false };
 
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "merging");
@@ -863,7 +913,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (!options?.force && nextVisibleDay.length < cachedLoaded.length) {
       nextVisibleDay = cachedLoaded;
     }
-    const previousVisibleDay = toDisplayRows(await loadChatMessagesByDate(contactId, dayKey)).sort((a, b) =>
+    const previousVisibleDay = toDisplayRows(await loadChatMessagesByDateForHistory(dayKey)).sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : 1
     );
     const changed = !areMessageRowsEquivalent(previousVisibleDay, nextVisibleDay);
@@ -969,7 +1019,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     setIsDateSheetOpen(false);
     setMonthCursor(new Date(d.getFullYear(), d.getMonth(), 1));
 
-    const visibleLocalRows = toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(d)));
+    const visibleLocalRows = toDisplayRows(await loadChatMessagesByDateForHistory(toDateKey(d)));
     setDayMessages(visibleLocalRows);
     setMessages(visibleLocalRows);
 
@@ -1103,9 +1153,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         contact={contact}
         autoCopyEnabled={autoCopyAfterGeneration}
         selectedMode={autoCopyMode}
+        companionMode={companionMode}
         onClose={closeAutoCopyMenu}
         onSetAutoCopyEnabled={setAutoCopyAfterGeneration}
         onSelectMode={setAutoCopyMode}
+        onSelectCompanionMode={(mode) => setCompanionMode(contactId, mode)}
       />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
       <DictionaryPopover

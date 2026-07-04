@@ -22,6 +22,7 @@ export type RunChatGenerationInput = {
   text: string;
   assistantClientId: string;
   retryCount: number;
+  companionMode?: "rewrite_only" | "native_note" | "simple_reply";
   signal: AbortSignal;
   systemPrompt?: string;
   userClientId?: string;
@@ -56,6 +57,7 @@ export function createLocalChatPair(
       createdAt,
       conversationDateKey,
       status: "pending",
+      contactId: null,
     },
     assistantMessage: {
       localId: `local-assistant-${stamp}`,
@@ -67,6 +69,7 @@ export function createLocalChatPair(
       createdAt,
       conversationDateKey,
       status: "pending",
+      contactId: null,
       retryText: text,
       retryCount: 0,
     },
@@ -184,6 +187,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         contactId: input.contactId,
         provider: requestProvider,
         model: requestModel,
+        companionMode: input.companionMode,
         conversationId: cloud?.conversationId,
         userMessageId: cloud?.userMessage.id,
         systemPrompt: requestSystemPrompt || undefined,

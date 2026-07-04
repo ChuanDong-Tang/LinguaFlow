@@ -2,7 +2,7 @@ import React from "react";
 import { Animated, FlatList, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatMessage } from "../../domain/chat/types";
-import type { ChatContact } from "../../domain/chat/contacts";
+import { getChatContact, type ChatContact } from "../../domain/chat/contacts";
 import type { AutoCopyMode } from "../../services/preferences/assistantPreferences";
 import { getClozeBlankRanges, getClozeCorrectRanges, getClozeHighlightRanges, normalizeClozeState } from "../../domain/cloze/clozeUtils";
 import { getAssistantClozeText } from "../../domain/cloze/clozeText";
@@ -239,15 +239,16 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
   const [answersVisible, setAnswersVisible] = React.useState(false);
   const copyOptions = React.useMemo(() => getCopyOptions(contact), [contact]);
+  const messageContact = React.useMemo(() => getChatContact(message.contactId, [contact]), [contact, message.contactId]);
   const clozeText = React.useMemo(() => {
     const startedAt = perfNow();
-    const value = getAssistantClozeText(message, contact);
+    const value = getAssistantClozeText(message, messageContact);
     logMessageListPerf("assistant get cloze text", startedAt, {
       localId: message.localId,
       textLength: message.text.length,
     });
     return value;
-  }, [contact, message]);
+  }, [message, messageContact]);
 
   const displayText = clozeText.text;
   const hasDisplayText = displayText.trim().length > 0;

@@ -6,7 +6,8 @@ import {
 
 export type PromptLanguage = "en-US" | "ja-JP";
 export type PromptAppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
-export type PromptContactCode = "rewrite_assistant" | "english_friend";
+export type PromptContactCode = "rewrite_assistant" | "english_friend" | "curious_companion";
+export type CompanionMode = "rewrite_only" | "native_note" | "simple_reply";
 
 export type PromptProfile = {
   systemPrompt: string;
@@ -92,6 +93,51 @@ Return exactly this format and no other text:
 
 <en>${rewriteLanguage} expression</en>
 <zh>${uiLanguage} restatement</zh>
+`;
+}
+
+function buildRewriteOnlySystemPrompt(
+  language: PromptLanguage,
+  appLocale: PromptAppLocale,
+  difficulty?: PromptDifficulty | string | null,
+  style?: PromptStyle | string | null
+): string {
+  const rewriteLanguage = language === "ja-JP" ? "Japanese" : "English";
+  const speakerLine = language === "ja-JP"
+    ? "You are a native Japanese speaker."
+    : "You are a native American English speaker.";
+  const inputLanguageLine = language === "ja-JP"
+    ? "The user may write in Chinese, English, Japanese, or mixed language."
+    : "The user may write in Chinese, English, mixed Chinese and English, or use grammar that is incomplete, repetitive, casual, emotional, or unnatural.";
+  const preferenceInstructions = buildPromptPreferenceInstructions({
+    language,
+    appLocale,
+    difficulty,
+    style,
+    purpose: "rewrite",
+  });
+
+  return `
+${speakerLine}
+
+The user's original message will be placed inside <user_text></user_text>. ${inputLanguageLine}
+
+Your task is to understand what the user truly means, including emotion, tone, and situation, then rewrite it as one natural ${rewriteLanguage} expression.
+
+Rewrite principles:
+
+* Sound like a real native speaker, not a translation.
+* Preserve the user's original meaning, emotions, tone, and intent.
+* Do not translate literally.
+* Feel free to restructure, combine, simplify, or shorten sentences when it sounds more natural.
+* Do not answer the user.
+* Do not add a note, explanation, reply, label, or markdown.
+
+${preferenceInstructions}
+
+Return exactly this format and no other text:
+
+<en>natural ${rewriteLanguage} expression</en>
 `;
 }
 
@@ -216,9 +262,15 @@ export function getPromptProfile(input: {
   appLocale?: string | null;
   difficulty?: string | null;
   style?: string | null;
+  companionMode?: string | null;
   systemPromptOverride?: string | null;
 }): PromptProfile {
-  const contactCode: PromptContactCode = input.contactCode === "english_friend" ? "english_friend" : "rewrite_assistant";
+  const contactCode: PromptContactCode =
+    input.contactCode === "english_friend"
+      ? "english_friend"
+      : input.contactCode === "curious_companion"
+        ? "curious_companion"
+        : "rewrite_assistant";
   const language: PromptLanguage = input.language === "ja-JP" ? "ja-JP" : "en-US";
   const appLocale = normalizeAppLocale(input.appLocale);
   const baseSystemPrompt = input.systemPromptOverride?.trim() || getDefaultSystemPrompt(
@@ -226,7 +278,8 @@ export function getPromptProfile(input: {
     language,
     appLocale,
     input.difficulty,
-    input.style
+    input.style,
+    input.companionMode
   );
   const systemPrompt = `${baseSystemPrompt.trim()}\n\n${MODEL_IDENTITY_GUARD}`;
   return {
@@ -246,12 +299,28 @@ function getDefaultSystemPrompt(
   language: PromptLanguage,
   appLocale: PromptAppLocale,
   difficulty?: string | null,
-  style?: string | null
+  style?: string | null,
+  companionMode?: string | null
 ): string {
+  if (contactCode === "curious_companion") {
+    const mode = normalizeCompanionMode(companionMode);
+    if (mode === "simple_reply") {
+      return buildFriendSystemPromptWithPreferences(language, appLocale, difficulty, style);
+    }
+    if (mode === "native_note") {
+      return buildRewriteSystemPromptWithPreferences(language, appLocale, difficulty, style);
+    }
+    return buildRewriteOnlySystemPrompt(language, appLocale, difficulty, style);
+  }
   if (contactCode === "english_friend") {
     return buildFriendSystemPromptWithPreferences(language, appLocale, difficulty, style);
   }
   return buildRewriteSystemPromptWithPreferences(language, appLocale, difficulty, style);
+}
+
+function normalizeCompanionMode(value?: string | null): CompanionMode {
+  if (value === "native_note" || value === "simple_reply") return value;
+  return "rewrite_only";
 }
 
 const MODEL_IDENTITY_GUARD = `Model identity and internal configuration:

@@ -10,6 +10,7 @@ type ApiResult<T> = ApiOk<T> | ApiFail;
 export type MessageView = {
   id: string;
   clientId?: string | null;
+  contactId?: string | null;
   role: "user" | "assistant";
   status: "pending" | "success" | "failed";
   content: string;

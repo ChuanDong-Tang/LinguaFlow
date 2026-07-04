@@ -2,7 +2,7 @@ import React from "react";
 import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatContact } from "../../domain/chat/contacts";
-import type { AutoCopyMode } from "../../services/preferences/assistantPreferences";
+import type { AutoCopyMode, CompanionMode } from "../../services/preferences/assistantPreferences";
 import { t } from "../../i18n";
 
 type AutoCopySheetProps = {
@@ -10,9 +10,11 @@ type AutoCopySheetProps = {
   contact: ChatContact;
   autoCopyEnabled: boolean;
   selectedMode: AutoCopyMode;
+  companionMode: CompanionMode;
   onClose: () => void;
   onSetAutoCopyEnabled: (enabled: boolean) => void;
   onSelectMode: (mode: AutoCopyMode) => void;
+  onSelectCompanionMode: (mode: CompanionMode) => void;
 };
 
 type AutoCopyOption = {
@@ -42,11 +44,14 @@ export function AutoCopySheet({
   contact,
   autoCopyEnabled,
   selectedMode,
+  companionMode,
   onClose,
   onSetAutoCopyEnabled,
   onSelectMode,
+  onSelectCompanionMode,
 }: AutoCopySheetProps) {
   const options = getAutoCopyOptions(contact);
+  const showCompanionMode = contact.capabilities?.companionMode === true;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -54,13 +59,39 @@ export function AutoCopySheet({
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>{t("chat.autocopy.title")}</Text>
-              <Text style={styles.subtitle}>{t("chat.autocopy.subtitle")}</Text>
+              <Text style={styles.title}>{t(showCompanionMode ? "chat.settings.title" : "chat.autocopy.title")}</Text>
+              <Text style={styles.subtitle}>{t(showCompanionMode ? "chat.settings.subtitle" : "chat.autocopy.subtitle")}</Text>
             </View>
             <Pressable style={styles.closeButton} hitSlop={8} onPress={onClose}>
               <Ionicons name="close" size={20} color="#111111" />
             </Pressable>
           </View>
+
+          {showCompanionMode ? (
+            <View style={styles.modeSection}>
+              <Text style={styles.sectionLabel}>{t("chat.settings.companion_mode")}</Text>
+              <View style={styles.options}>
+                {COMPANION_MODE_OPTIONS.map((option) => {
+                  const selected = companionMode === option.mode;
+                  return (
+                    <Pressable
+                      key={option.mode}
+                      style={[styles.option, selected && styles.optionSelected]}
+                      onPress={() => onSelectCompanionMode(option.mode)}
+                    >
+                      <View style={styles.optionTextWrap}>
+                        <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>{t(option.labelKey)}</Text>
+                        <Text style={styles.optionDescription}>{t(option.descriptionKey)}</Text>
+                      </View>
+                      <View style={[styles.radio, selected && styles.radioSelected]}>
+                        {selected ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.toggleRow}>
             <View style={styles.toggleTextWrap}>
@@ -132,6 +163,16 @@ export function AutoCopySheet({
   );
 }
 
+const COMPANION_MODE_OPTIONS: Array<{
+  mode: CompanionMode;
+  labelKey: Parameters<typeof t>[0];
+  descriptionKey: Parameters<typeof t>[0];
+}> = [
+  { mode: "rewrite_only", labelKey: "chat.companion_mode.rewrite_only", descriptionKey: "chat.companion_mode.rewrite_only_desc" },
+  { mode: "native_note", labelKey: "chat.companion_mode.native_note", descriptionKey: "chat.companion_mode.native_note_desc" },
+  { mode: "simple_reply", labelKey: "chat.companion_mode.simple_reply", descriptionKey: "chat.companion_mode.simple_reply_desc" },
+];
+
 const styles = StyleSheet.create({
   scrim: {
     flex: 1,
@@ -162,6 +203,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 10,
+  },
+  modeSection: {
+    marginBottom: 12,
+  },
+  sectionLabel: {
+    marginBottom: 8,
+    color: "#606775",
+    fontSize: 12,
+    fontWeight: "700",
   },
   toggleTextWrap: {
     flex: 1,

@@ -12,6 +12,7 @@ export interface ChatTextGenerationInput{
     appLocale?: string;
     promptDifficulty?: string;
     promptStyle?: string;
+    companionMode?: string;
     provider?: string;
     model?: string;
     systemPrompt?: string;

@@ -76,6 +76,7 @@ export class ReactNativeSseStreamClient implements StreamClient {
               contactId: input.contactId,
               provider: input.provider,
               model: input.model,
+              companionMode: input.companionMode,
               ...(input.conversationId
                 ? { conversationId: input.conversationId }
                 : {}),

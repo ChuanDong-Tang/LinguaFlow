@@ -46,6 +46,11 @@ function isChatGenerationStreamBody(value: unknown): value is ChatGenerationStre
     (v.contactId === undefined || v.contactId === null || typeof v.contactId === "string") &&
     (v.provider === undefined || v.provider === null || typeof v.provider === "string") &&
     (v.model === undefined || v.model === null || typeof v.model === "string") &&
+    (v.companionMode === undefined ||
+      v.companionMode === null ||
+      v.companionMode === "rewrite_only" ||
+      v.companionMode === "native_note" ||
+      v.companionMode === "simple_reply") &&
     (v.systemPrompt === undefined || v.systemPrompt === null || typeof v.systemPrompt === "string")
   );
 }
@@ -177,6 +182,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
           contactId: body.contactId?.trim() || "rewrite_assistant",
           provider: body.provider?.trim() || undefined,
           model: body.model?.trim() || undefined,
+          companionMode: body.companionMode,
           systemPrompt: body.systemPrompt ?? undefined,
           conversationId: body.conversationId,
           userMessageId: body.userMessageId,

@@ -52,6 +52,7 @@ import {
   DEFAULT_CHAT_CONTACT,
   type ChatContact,
 } from "./domain/chat/contacts";
+import { fetchChatContacts, loadCachedChatContacts } from "./services/api/chatContactsApi";
 
 type Screen =
   | "booting"
@@ -74,6 +75,9 @@ export default function App() {
     messages: ChatMessage[];
   } | null>(null);
   const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
+  const [chatContacts, setChatContacts] = useState<ChatContact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsError, setContactsError] = useState(false);
   const [uiLocaleSetupVisible, setUiLocaleSetupVisible] = useState(false);
   const [uiLocaleDraft, setUiLocaleDraft] = useState<AppLocale>("zh-CN");
   const [learningPreferenceVisible, setLearningPreferenceVisible] = useState(false);
@@ -134,6 +138,7 @@ export default function App() {
         }
         if (session) {
           void runPostLoginGuideFlow(preference);
+          void loadChatContacts();
         }
       } catch {
         if (!mounted) return;
@@ -178,7 +183,30 @@ export default function App() {
   async function handleLoginSuccess(): Promise<void> {
     cancelDeleteAccountFlow();
     setScreen("main");
+    void loadChatContacts();
     void runPostLoginGuideFlow();
+  }
+
+  async function loadChatContacts(): Promise<void> {
+    setContactsLoading(true);
+    setContactsError(false);
+    const cached = await loadCachedChatContacts();
+    if (cached?.contacts.length) {
+      setChatContacts(cached.contacts);
+      setActiveContact((current) => cached.contacts.find((item) => item.id === current.id) ?? cached.contacts[0]);
+    }
+    try {
+      const remote = await fetchChatContacts();
+      setChatContacts((current) => {
+        if (current.length && cached?.version === remote.version) return current;
+        return remote.contacts;
+      });
+      setActiveContact((current) => remote.contacts.find((item) => item.id === current.id) ?? remote.contacts[0]);
+    } catch {
+      if (!cached?.contacts.length) setContactsError(true);
+    } finally {
+      setContactsLoading(false);
+    }
   }
 
   async function runPostLoginGuideFlow(preloadedPreference?: UserPreference | null): Promise<void> {
@@ -434,6 +462,10 @@ export default function App() {
         <FadingScreen>
           <TabScreens
             activeTab={activeTab}
+            contacts={chatContacts}
+            contactsLoading={contactsLoading}
+            contactsError={contactsError}
+            onReloadContacts={() => void loadChatContacts()}
             onOpenChat={(contact) => {
               setActiveContact(contact);
               setScreen("chat");
@@ -596,6 +628,10 @@ function FadingScreen({ children }: { children: React.ReactNode }) {
 
 function TabScreens({
   activeTab,
+  contacts,
+  contactsLoading,
+  contactsError,
+  onReloadContacts,
   onOpenChat,
   onOpenPracticeSession,
   onOpenPro,
@@ -605,6 +641,10 @@ function TabScreens({
   onDeleteAccount,
 }: {
   activeTab: "main" | "practice" | "me";
+  contacts: ChatContact[];
+  contactsLoading: boolean;
+  contactsError: boolean;
+  onReloadContacts: () => void;
   onOpenChat: (contact: ChatContact) => void;
   onOpenPracticeSession: (cards: PracticeCard[], allMessages: ChatMessage[]) => void;
   onOpenPro: () => void;
@@ -616,7 +656,13 @@ function TabScreens({
   return (
     <View style={styles.tabHost}>
       <View style={[styles.tabPage, activeTab !== "main" && styles.tabPageHidden]}>
-        <MainScreen onOpenChat={onOpenChat} />
+        <MainScreen
+          contacts={contacts}
+          loadingContacts={contactsLoading}
+          contactsError={contactsError}
+          onReloadContacts={onReloadContacts}
+          onOpenChat={onOpenChat}
+        />
       </View>
       <View style={[styles.tabPage, activeTab !== "practice" && styles.tabPageHidden]}>
         <PracticeScreen isActive={activeTab === "practice"} onOpenPracticeSession={onOpenPracticeSession} />

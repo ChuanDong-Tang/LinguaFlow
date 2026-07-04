@@ -38,6 +38,14 @@ const SYSTEM_CONTACTS = [
     kind: "ai_assistant" as const,
     enabled: true,
   },
+  {
+    id: "curious_companion",
+    code: "curious_companion",
+    name: "好奇伙伴",
+    avatarUrl: null,
+    kind: "ai_assistant" as const,
+    enabled: true,
+  },
 ];
 
 export async function seedSystemContacts(prisma: PrismaContactClient): Promise<void> {

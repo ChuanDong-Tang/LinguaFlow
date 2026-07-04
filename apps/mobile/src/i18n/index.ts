@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { messages, type SupportedLanguage, type TranslationKey } from "./messages";
+export type { SupportedLanguage, TranslationKey } from "./messages";
 
 const LANGUAGE_KEY = "lf_i18n_language";
 const DEFAULT_LANGUAGE: SupportedLanguage = "zh-CN";

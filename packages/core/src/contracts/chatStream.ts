@@ -4,6 +4,7 @@ export interface ChatGenerationStreamRequestBody {
   contactId?: string;
   provider?: string;
   model?: string;
+  companionMode?: "rewrite_only" | "native_note" | "simple_reply";
   systemPrompt?: string;
   conversationId?: string;
   userMessageId?: string;

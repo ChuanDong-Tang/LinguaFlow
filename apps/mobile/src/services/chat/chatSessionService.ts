@@ -29,6 +29,7 @@ type StartChatSessionInput = {
   userClientId?: string
   conversationDateKey: string;
   retryCount: number;
+  companionMode?: "rewrite_only" | "native_note" | "simple_reply";
   systemPrompt?: string;
   conversationId?: string | null;
   autoCopyAfterGeneration: boolean;
@@ -247,6 +248,7 @@ export function startChatSession(input: StartChatSessionInput): void {
       text: input.text,
       assistantClientId: input.assistantClientId,
       retryCount: input.retryCount,
+      companionMode: input.companionMode,
       signal: abortController.signal,
       systemPrompt: input.systemPrompt,
       userClientId: input.userClientId,

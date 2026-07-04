@@ -63,6 +63,7 @@ export class ChatGPTAIProvider implements AIProvider {
       appLocale: input.appLocale,
       difficulty: input.promptDifficulty,
       style: input.promptStyle,
+      companionMode: input.companionMode,
       systemPromptOverride: input.systemPrompt,
     });
     const systemPrompt = promptProfile.systemPrompt;
