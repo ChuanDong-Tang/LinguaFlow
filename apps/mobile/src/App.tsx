@@ -4,11 +4,19 @@ import * as AuthSession from "expo-auth-session";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { LoginScreen } from "./screens/LoginScreen";
-import { initI18n, setLanguage, t, tf } from "./i18n";
+import { getLanguage, getSavedLanguage, initI18n, setLanguage, t, tf } from "./i18n";
 import { clearSession, getSession, markForceAuthingLogin } from "./services/auth/authStorage";
 import { clearAccountScopedStorage } from "./services/auth/accountScopedStorage";
 import { confirmDeleteAccount, logout, prepareDeleteAccount } from "./services/api/authApi";
-import { getUserPreference } from "./services/api/meApi";
+import {
+  getUserPreference,
+  updateUserPreference,
+  type AppLocale,
+  type LearningLanguage,
+  type PromptDifficulty,
+  type PromptStyle,
+  type UserPreference,
+} from "./services/api/meApi";
 import { MainScreen } from "./screens/MainScreen";
 import { MeScreen } from "./screens/MeScreen";
 import { ProScreen } from "./screens/ProScreen";
@@ -18,6 +26,19 @@ import { PracticeSessionScreen } from "./screens/PracticeSessionScreen";
 import { AboutScreen } from "./screens/AboutScreen";
 import { FloatingNoticeProvider } from "./screens/shared/FloatingNotice";
 import { TabBar } from "./screens/shared/TabBar";
+import { LearningFlowHelpModal, LearningPreferenceModal, UiLocaleSetupModal } from "./screens/shared/OnboardingModals";
+import {
+  completeGuide,
+  GUIDE_FIRST_LEARNING_SETUP,
+  GUIDE_INITIAL_UI_LOCALE,
+  GUIDE_LEARNING_FLOW_HELP,
+  isGuideCompleted,
+  loadLocalGuideState,
+  markLocalGuideCompleted,
+  mergeGuideState,
+  saveLocalGuideState,
+  type GuideState,
+} from "./services/preferences/guideState";
 import {
   getAuthingClientId,
   getAuthingDiscovery,
@@ -53,6 +74,16 @@ export default function App() {
     messages: ChatMessage[];
   } | null>(null);
   const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
+  const [uiLocaleSetupVisible, setUiLocaleSetupVisible] = useState(false);
+  const [uiLocaleDraft, setUiLocaleDraft] = useState<AppLocale>("zh-CN");
+  const [learningPreferenceVisible, setLearningPreferenceVisible] = useState(false);
+  const [learningPreferenceSaving, setLearningPreferenceSaving] = useState(false);
+  const [learningLanguageDraft, setLearningLanguageDraft] = useState<LearningLanguage>("en-US");
+  const [promptDifficultyDraft, setPromptDifficultyDraft] = useState<PromptDifficulty>("natural");
+  const [promptStyleDraft, setPromptStyleDraft] = useState<PromptStyle>("native_casual");
+  const [guideState, setGuideState] = useState<GuideState>({});
+  const [onboardingHelpVisible, setOnboardingHelpVisible] = useState(false);
+  const [manualHelpVisible, setManualHelpVisible] = useState(false);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteAccountAuthingToken, setDeleteAccountAuthingToken] = useState("");
   const [deleteAccountMethod, setDeleteAccountMethod] = useState<"PHONE_PASSCODE" | "EMAIL_PASSCODE" | null>(null);
@@ -85,16 +116,29 @@ export default function App() {
     async function bootstrap() {
       try {
         await Promise.all([initI18n(), preloadImages(PRELOAD_IMAGES)]);
+        const savedLanguage = await getSavedLanguage();
+        if (savedLanguage) {
+          setUiLocaleDraft(savedLanguage);
+          await markLocalGuideCompleted(GUIDE_INITIAL_UI_LOCALE);
+        }
         const session = await getSession();
+        let preference: UserPreference | null = null;
         if (session) {
-          const preference = await getUserPreference().catch(() => null);
+          preference = await getUserPreference().catch(() => null);
           if (preference) await setLanguage(preference.appLocale);
         }
         if (!mounted) return;
         setScreen(session ? "main" : "login");
+        if (!session && !savedLanguage) {
+          setUiLocaleSetupVisible(true);
+        }
+        if (session) {
+          void runPostLoginGuideFlow(preference);
+        }
       } catch {
         if (!mounted) return;
         setScreen("login");
+        setUiLocaleSetupVisible(true);
       }
     }
     void bootstrap();
@@ -129,6 +173,78 @@ export default function App() {
     await clearAccountScopedStorage();
     await markForceAuthingLogin();
     setScreen("login");
+  }
+
+  async function handleLoginSuccess(): Promise<void> {
+    cancelDeleteAccountFlow();
+    setScreen("main");
+    void runPostLoginGuideFlow();
+  }
+
+  async function runPostLoginGuideFlow(preloadedPreference?: UserPreference | null): Promise<void> {
+    const localGuideState = await loadLocalGuideState();
+    const preference = preloadedPreference ?? await getUserPreference().catch(() => null);
+    const mergedGuideState = mergeGuideState(localGuideState, preference?.guideState);
+    setGuideState(mergedGuideState);
+    await saveLocalGuideState(mergedGuideState);
+    const appLocale = getLanguage() as AppLocale;
+    await updateUserPreference({ appLocale, guideState: mergedGuideState }).catch(() => null);
+
+    if (preference) {
+      setLearningLanguageDraft(preference.learningLanguage);
+      setPromptDifficultyDraft(preference.promptDifficulty);
+      setPromptStyleDraft(preference.promptStyle);
+    }
+
+    if (!isGuideCompleted(mergedGuideState, GUIDE_FIRST_LEARNING_SETUP)) {
+      setLearningPreferenceVisible(true);
+      return;
+    }
+    if (!isGuideCompleted(mergedGuideState, GUIDE_LEARNING_FLOW_HELP)) {
+      setOnboardingHelpVisible(true);
+    }
+  }
+
+  async function completeUiLocaleSetup(): Promise<void> {
+    await setLanguage(uiLocaleDraft);
+    await markLocalGuideCompleted(GUIDE_INITIAL_UI_LOCALE);
+    setUiLocaleSetupVisible(false);
+  }
+
+  async function completeLearningPreferenceSetup(): Promise<void> {
+    if (learningPreferenceSaving) return;
+    setLearningPreferenceSaving(true);
+    try {
+      const nextGuideState = completeGuide(guideState, GUIDE_FIRST_LEARNING_SETUP);
+      const saved = await updateUserPreference({
+        appLocale: getLanguage() as AppLocale,
+        learningLanguage: learningLanguageDraft,
+        promptDifficulty: promptDifficultyDraft,
+        promptStyle: promptStyleDraft,
+        guideState: nextGuideState,
+      });
+      setLearningLanguageDraft(saved.learningLanguage);
+      setPromptDifficultyDraft(saved.promptDifficulty);
+      setPromptStyleDraft(saved.promptStyle);
+      setGuideState(saved.guideState);
+      await saveLocalGuideState(saved.guideState);
+      setLearningPreferenceVisible(false);
+      if (!isGuideCompleted(saved.guideState, GUIDE_LEARNING_FLOW_HELP)) {
+        setOnboardingHelpVisible(true);
+      }
+    } catch {
+      Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
+    } finally {
+      setLearningPreferenceSaving(false);
+    }
+  }
+
+  async function completeOnboardingHelp(): Promise<void> {
+    const nextGuideState = completeGuide(guideState, GUIDE_LEARNING_FLOW_HELP);
+    setGuideState(nextGuideState);
+    await saveLocalGuideState(nextGuideState);
+    await updateUserPreference({ guideState: nextGuideState }).catch(() => null);
+    setOnboardingHelpVisible(false);
   }
 
   async function handleDeleteAccount(): Promise<void> {
@@ -275,8 +391,7 @@ export default function App() {
       <FadingScreen>
         <LoginScreen
           onLoginSuccess={() => {
-            cancelDeleteAccountFlow();
-            setScreen("main");
+            void handleLoginSuccess();
           }}
         />
       </FadingScreen>
@@ -329,6 +444,7 @@ export default function App() {
             }}
             onOpenPro={() => setScreen("pro")}
             onOpenAbout={() => setScreen("about")}
+            onOpenHelp={() => setManualHelpVisible(true)}
             onLogout={handleLogout}
             onDeleteAccount={handleDeleteAccount}
           />
@@ -357,6 +473,40 @@ export default function App() {
                 resetDeleteAccountState();
               }}
               onSubmit={() => void submitDeleteAccount()}
+            />
+            <UiLocaleSetupModal
+              visible={uiLocaleSetupVisible}
+              value={uiLocaleDraft}
+              onChange={(value) => {
+                setUiLocaleDraft(value);
+                void setLanguage(value);
+              }}
+              onContinue={() => void completeUiLocaleSetup()}
+            />
+            <LearningPreferenceModal
+              visible={learningPreferenceVisible}
+              learningLanguage={learningLanguageDraft}
+              promptDifficulty={promptDifficultyDraft}
+              promptStyle={promptStyleDraft}
+              saving={learningPreferenceSaving}
+              onChangeLearningLanguage={(value) => {
+                setLearningLanguageDraft(value);
+                setPromptStyleDraft("native_casual");
+              }}
+              onChangePromptDifficulty={setPromptDifficultyDraft}
+              onChangePromptStyle={setPromptStyleDraft}
+              onContinue={() => void completeLearningPreferenceSetup()}
+            />
+            <LearningFlowHelpModal
+              visible={onboardingHelpVisible}
+              mode="onboarding"
+              onDone={() => void completeOnboardingHelp()}
+            />
+            <LearningFlowHelpModal
+              visible={manualHelpVisible}
+              mode="manual"
+              onClose={() => setManualHelpVisible(false)}
+              onDone={() => setManualHelpVisible(false)}
             />
             {showTabBar ? (
               <View style={styles.tabBarOverlay}>
@@ -450,6 +600,7 @@ function TabScreens({
   onOpenPracticeSession,
   onOpenPro,
   onOpenAbout,
+  onOpenHelp,
   onLogout,
   onDeleteAccount,
 }: {
@@ -458,6 +609,7 @@ function TabScreens({
   onOpenPracticeSession: (cards: PracticeCard[], allMessages: ChatMessage[]) => void;
   onOpenPro: () => void;
   onOpenAbout: () => void;
+  onOpenHelp: () => void;
   onLogout: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
 }) {
@@ -474,6 +626,7 @@ function TabScreens({
           isActive={activeTab === "me"}
           onOpenPro={onOpenPro}
           onOpenAbout={onOpenAbout}
+          onOpenHelp={onOpenHelp}
           onLogout={onLogout}
           onDeleteAccount={onDeleteAccount}
         />

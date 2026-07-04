@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   AppLocale,
+  GuideState,
   LearningLanguage,
   PromptDifficulty,
   PromptStyle,
@@ -43,6 +44,7 @@ type UpdatePreferencesBody = {
   learningLanguage?: LearningLanguage;
   promptDifficulty?: PromptDifficulty;
   promptStyle?: PromptStyle;
+  guideState?: GuideState;
   ttsProvider?: TtsProviderCode;
   ttsVoiceCode?: string | null;
 };
@@ -119,6 +121,7 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       learningLanguage: body.learningLanguage,
       promptDifficulty: body.promptDifficulty,
       promptStyle: body.promptStyle,
+      guideState: body.guideState ? mergeGuideState(currentPreference.guideState, body.guideState) : undefined,
       ttsProvider: body.ttsProvider,
       ttsVoiceCode: body.ttsVoiceCode !== undefined || nextTtsVoiceCode !== currentPreference.ttsVoiceCode
         ? nextTtsVoiceCode
@@ -395,7 +398,7 @@ async function resolveMeUserContext(
 function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody {
   if (!value || typeof value !== "object") return false;
   const body = value as Record<string, unknown>;
-  const keys = ["appLocale", "learningLanguage", "promptDifficulty", "promptStyle", "ttsProvider", "ttsVoiceCode"];
+  const keys = ["appLocale", "learningLanguage", "promptDifficulty", "promptStyle", "guideState", "ttsProvider", "ttsVoiceCode"];
   if (!Object.keys(body).some((key) => keys.includes(key))) return false;
 
   return (
@@ -403,6 +406,7 @@ function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody
     (body.learningLanguage === undefined || isLearningLanguage(body.learningLanguage)) &&
     (body.promptDifficulty === undefined || isPromptDifficulty(body.promptDifficulty)) &&
     (body.promptStyle === undefined || isPromptStyle(body.promptStyle)) &&
+    (body.guideState === undefined || isGuideState(body.guideState)) &&
     (body.ttsProvider === undefined || body.ttsProvider === "azure_global") &&
     (body.ttsVoiceCode === undefined ||
       body.ttsVoiceCode === null ||
@@ -426,6 +430,24 @@ function isPromptDifficulty(value: unknown): value is PromptDifficulty {
 
 function isPromptStyle(value: unknown): value is PromptStyle {
   return value === "native_casual" || value === "standard";
+}
+
+function isGuideState(value: unknown): value is GuideState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.entries(value as Record<string, unknown>).every(([key, entry]) => (
+    key.length > 0 &&
+    key.length <= 80 &&
+    /^[a-z0-9_]+$/.test(key) &&
+    !!entry &&
+    typeof entry === "object" &&
+    !Array.isArray(entry) &&
+    (((entry as Record<string, unknown>).completedAt === undefined) ||
+      typeof (entry as Record<string, unknown>).completedAt === "string")
+  ));
+}
+
+function mergeGuideState(current: GuideState, next: GuideState): GuideState {
+  return { ...current, ...next };
 }
 
 function resolveNextTtsVoiceCode(input: {
@@ -457,6 +479,7 @@ function toPreferenceResponse(preference: UserPreferenceEntity) {
     learningLanguage: preference.learningLanguage,
     promptDifficulty: preference.promptDifficulty,
     promptStyle: preference.promptStyle,
+    guideState: preference.guideState,
     ttsProvider: preference.ttsProvider,
     ttsVoiceCode: preference.ttsVoiceCode,
     createdAt: preference.createdAt.toISOString(),

@@ -40,6 +40,7 @@ model UserPreference {
   learningLanguage String   @default("en-US")
   promptDifficulty String   @default("natural")
   promptStyle      String   @default("native_casual")
+  guideState       Json     @default("{}")
   ttsProvider      String   @default("azure_global")
   ttsVoiceCode     String?
   createdAt        DateTime @default(now())

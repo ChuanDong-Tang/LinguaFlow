@@ -27,6 +27,7 @@ type MeScreenProps = {
   isActive: boolean;
   onOpenPro: () => void;
   onOpenAbout: () => void;
+  onOpenHelp: () => void;
   onLogout: () => Promise<void> | void;
   onDeleteAccount: () => Promise<void> | void;
 };
@@ -35,7 +36,7 @@ const OTA_DEBUG_JS_LABEL = "Dictionary overlay close fix";
 const UPDATE_LOG_KEYWORDS = ["error", "fail", "exception", "crash", "rollback", "emergency", "launch", "reset", "delete"];
 const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
-export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteAccount }: MeScreenProps) {
+export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onLogout, onDeleteAccount }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
@@ -174,6 +175,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
             ].join(" · ") : undefined}
             onPress={() => setLanguageSettingsVisible(true)}
           />
+          <SettingsRow icon="help-circle-outline" label={t("me.help")} onPress={onOpenHelp} />
           <SettingsRow icon="information-circle-outline" label={t("me.about")} onPress={onOpenAbout} />
           <SettingsRow icon="log-out-outline" label={t("me.logout")} onPress={onLogout} />
           <SettingsRow icon="person-remove-outline" label={t("me.delete_account")} onPress={onDeleteAccount} tone="danger" isLast />

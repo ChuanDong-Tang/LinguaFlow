@@ -17,6 +17,10 @@ export async function initI18n(): Promise<SupportedLanguage> {
   return currentLanguage;
 }
 
+export async function getSavedLanguage(): Promise<SupportedLanguage | null> {
+  return normalizeLanguage(await AsyncStorage.getItem(LANGUAGE_KEY));
+}
+
 /** 获取当前语言。 */
 export function getLanguage(): SupportedLanguage {
   return currentLanguage;
