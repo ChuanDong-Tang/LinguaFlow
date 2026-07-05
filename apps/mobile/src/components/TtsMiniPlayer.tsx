@@ -18,13 +18,18 @@ type TtsMiniPlayerProps = {
 type StoredTtsMiniPlayerPosition = {
   xRatio: number;
   yRatio: number;
+  dockSide?: DockSide;
 };
+
+type DockSide = "left" | "right";
 
 export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
   const window = useWindowDimensions();
   const [expanded, setExpanded] = React.useState(false);
+  const [dockSide, setDockSide] = React.useState<DockSide>("left");
+  const [dragging, setDragging] = React.useState(false);
   const [position, setPosition] = React.useState(() => ({
-    x: PLAYER_MARGIN,
+    x: getDockedX("left", false, window.width),
     y: Math.max(PLAYER_MARGIN, window.height * 0.28),
   }));
   const dragStartRef = React.useRef(position);
@@ -42,38 +47,46 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
   );
   const active = playback.hasActiveAudio;
   const isPlaying = playback.status === "playing";
-  const opensLeft = position.x > window.width / 2;
   const playerWidth = expanded ? EXPANDED_WIDTH : COLLAPSED_SIZE;
-  const maxX = Math.max(PLAYER_MARGIN, window.width - playerWidth - PLAYER_MARGIN);
+  const dragMinX = expanded ? PLAYER_MARGIN : -(COLLAPSED_SIZE - COLLAPSED_PEEK_WIDTH);
+  const dragMaxX = expanded
+    ? Math.max(PLAYER_MARGIN, window.width - EXPANDED_WIDTH - PLAYER_MARGIN)
+    : window.width - COLLAPSED_PEEK_WIDTH;
+  const dockedX = getDockedX(dockSide, expanded, window.width);
   const maxY = Math.max(PLAYER_MARGIN, window.height - COLLAPSED_SIZE - PLAYER_MARGIN);
   const clampedPosition = React.useMemo(
     () => ({
-      x: clamp(position.x, PLAYER_MARGIN, maxX),
+      x: dragging ? clamp(position.x, dragMinX, dragMaxX) : dockedX,
       y: clamp(position.y, PLAYER_MARGIN, maxY),
     }),
-    [maxX, maxY, position.x, position.y],
+    [dockedX, dragMaxX, dragMinX, dragging, maxY, position.x, position.y],
   );
+  const visualDockSide: DockSide =
+    dragging && clampedPosition.x + playerWidth / 2 > window.width / 2 ? "right" : dockSide;
+  const opensLeft = visualDockSide === "right";
   React.useEffect(() => {
     positionRef.current = clampedPosition;
   }, [clampedPosition]);
   React.useEffect(() => {
-    boundsRef.current = { maxX, maxY };
+    boundsRef.current = { maxX: dragMaxX, maxY };
     windowSizeRef.current = { width: window.width, height: window.height };
     storageKeyRef.current = storageKey;
-  }, [maxX, maxY, storageKey, window.height, window.width]);
+  }, [dragMaxX, maxY, storageKey, window.height, window.width]);
   React.useEffect(() => {
     let cancelled = false;
     const { width, height } = windowSizeRef.current;
-    const { maxX: initialMaxX, maxY: initialMaxY } = boundsRef.current;
+    const { maxY: initialMaxY } = boundsRef.current;
     setPosition({
-      x: PLAYER_MARGIN,
+      x: getDockedX("left", false, width),
       y: Math.max(PLAYER_MARGIN, height * DEFAULT_Y_RATIO),
     });
     void loadStoredPosition(storageKey).then((stored) => {
       if (cancelled) return;
       if (!stored) return;
+      const nextDockSide = stored.dockSide ?? (stored.xRatio > 0.5 ? "right" : "left");
+      setDockSide(nextDockSide);
       setPosition({
-        x: clamp(stored.xRatio * width, PLAYER_MARGIN, initialMaxX),
+        x: getDockedX(nextDockSide, false, width),
         y: clamp(stored.yRatio * height, PLAYER_MARGIN, initialMaxY),
       });
     });
@@ -83,10 +96,10 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
   }, [storageKey]);
   React.useEffect(() => {
     setPosition((current) => ({
-      x: clamp(current.x, PLAYER_MARGIN, maxX),
+      x: dragging ? clamp(current.x, dragMinX, dragMaxX) : getDockedX(dockSide, expanded, window.width),
       y: clamp(current.y, PLAYER_MARGIN, maxY),
     }));
-  }, [maxX, maxY]);
+  }, [dockSide, dragMaxX, dragMinX, dragging, expanded, maxY, window.width]);
   const panResponder = React.useMemo(
     () =>
       PanResponder.create({
@@ -94,14 +107,16 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
         onMoveShouldSetPanResponder: (_event, gesture) =>
           Math.abs(gesture.dx) > 4 || Math.abs(gesture.dy) > 4,
         onPanResponderGrant: () => {
+          setDragging(true);
           dragStartRef.current = positionRef.current;
         },
         onPanResponderMove: (_event, gesture) => {
           const { maxX: currentMaxX, maxY: currentMaxY } = boundsRef.current;
+          const currentMinX = expanded ? PLAYER_MARGIN : -(COLLAPSED_SIZE - COLLAPSED_PEEK_WIDTH);
           setPosition({
             x: clamp(
               dragStartRef.current.x + gesture.dx,
-              PLAYER_MARGIN,
+              currentMinX,
               currentMaxX,
             ),
             y: clamp(
@@ -115,16 +130,27 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           const { maxX: currentMaxX, maxY: currentMaxY } = boundsRef.current;
           const { width, height } = windowSizeRef.current;
           setPosition((current) => {
-            const next = {
-              x: clamp(current.x, PLAYER_MARGIN, currentMaxX),
+            const currentMinX = expanded ? PLAYER_MARGIN : -(COLLAPSED_SIZE - COLLAPSED_PEEK_WIDTH);
+            const clamped = {
+              x: clamp(current.x, currentMinX, currentMaxX),
               y: clamp(current.y, PLAYER_MARGIN, currentMaxY),
             };
-            void saveStoredPosition(storageKeyRef.current, next, width, height);
+            const nextDockSide: DockSide = clamped.x + playerWidth / 2 > width / 2 ? "right" : "left";
+            const next = {
+              x: getDockedX(nextDockSide, expanded, width),
+              y: clamped.y,
+            };
+            setDockSide(nextDockSide);
+            setDragging(false);
+            void saveStoredPosition(storageKeyRef.current, next, width, height, nextDockSide);
             return next;
           });
         },
+        onPanResponderTerminate: () => {
+          setDragging(false);
+        },
       }),
-    [],
+    [expanded, playerWidth],
   );
 
   return (
@@ -132,7 +158,9 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
       style={[
         styles.shell,
         !expanded && styles.shellCollapsed,
-        opensLeft && styles.shellReverse,
+        expanded && opensLeft && styles.shellReverse,
+        !expanded && visualDockSide === "left" && styles.shellCollapsedLeft,
+        !expanded && visualDockSide === "right" && styles.shellCollapsedRight,
         { left: clampedPosition.x, top: clampedPosition.y, width: playerWidth },
       ]}
       {...panResponder.panHandlers}
@@ -140,12 +168,12 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
       <Pressable
         accessibilityRole="button"
         hitSlop={8}
-        style={styles.collapseButton}
+        style={[styles.collapseButton, !expanded && styles.collapsedHandleButton]}
         onPress={() => setExpanded((value) => !value)}
       >
         <Ionicons
-          name={expanded ? (opensLeft ? "chevron-forward" : "chevron-back") : opensLeft ? "chevron-back" : "chevron-forward"}
-          size={18}
+          name={expanded ? (opensLeft ? "chevron-forward" : "chevron-back") : visualDockSide === "right" ? "chevron-back" : "chevron-forward"}
+          size={expanded ? 18 : 14}
           color="#4D5361"
         />
       </Pressable>
@@ -199,6 +227,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
 }
 
 const COLLAPSED_SIZE = 46;
+const COLLAPSED_PEEK_WIDTH = 18;
 const EXPANDED_WIDTH = 244;
 const PLAYER_MARGIN = 14;
 const DEFAULT_Y_RATIO = 0.28;
@@ -217,22 +246,34 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     shadowColor: "#111111",
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   shellCollapsed: {
     justifyContent: "center",
+    paddingHorizontal: 0,
+    borderColor: "rgba(210, 215, 226, 0.95)",
   },
   shellReverse: {
     flexDirection: "row-reverse",
+  },
+  shellCollapsedLeft: {
+    flexDirection: "row-reverse",
+  },
+  shellCollapsedRight: {
+    flexDirection: "row",
   },
   collapseButton: {
     width: 32,
     height: 32,
     alignItems: "center",
     justifyContent: "center",
+  },
+  collapsedHandleButton: {
+    width: COLLAPSED_PEEK_WIDTH,
+    height: COLLAPSED_SIZE,
   },
   controls: {
     flexDirection: "row",
@@ -244,7 +285,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#7065F8",
+    backgroundColor: "#111111",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -279,8 +320,8 @@ const styles = StyleSheet.create({
     color: "#AEB4C0",
   },
   loopButtonActive: {
-    borderColor: "#7065F8",
-    backgroundColor: "#7065F8",
+    borderColor: "#111111",
+    backgroundColor: "#111111",
   },
   disabled: {
     opacity: 0.58,
@@ -291,13 +332,28 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function getDockedX(dockSide: DockSide, expanded: boolean, width: number): number {
+  if (expanded) {
+    return dockSide === "right"
+      ? Math.max(PLAYER_MARGIN, width - EXPANDED_WIDTH - PLAYER_MARGIN)
+      : PLAYER_MARGIN;
+  }
+  return dockSide === "right"
+    ? width - COLLAPSED_PEEK_WIDTH
+    : -(COLLAPSED_SIZE - COLLAPSED_PEEK_WIDTH);
+}
+
 async function loadStoredPosition(storageKey: string): Promise<StoredTtsMiniPlayerPosition | null> {
   try {
     const raw = await AsyncStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredTtsMiniPlayerPosition>;
     if (!isValidRatio(parsed.xRatio) || !isValidRatio(parsed.yRatio)) return null;
-    return { xRatio: parsed.xRatio, yRatio: parsed.yRatio };
+    return {
+      xRatio: parsed.xRatio,
+      yRatio: parsed.yRatio,
+      dockSide: parsed.dockSide === "left" || parsed.dockSide === "right" ? parsed.dockSide : undefined,
+    };
   } catch {
     return null;
   }
@@ -308,6 +364,7 @@ async function saveStoredPosition(
   position: { x: number; y: number },
   width: number,
   height: number,
+  dockSide: DockSide,
 ): Promise<void> {
   if (!width || !height) return;
   try {
@@ -316,6 +373,7 @@ async function saveStoredPosition(
       JSON.stringify({
         xRatio: clamp(position.x / width, 0, 1),
         yRatio: clamp(position.y / height, 0, 1),
+        dockSide,
       }),
     );
   } catch {

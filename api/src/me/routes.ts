@@ -184,7 +184,10 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
         userId: userContext.userId,
         source: userContext.source,
         plan: subscription.plan,
+        tier: subscription.tier,
         isPro: subscription.isPro,
+        isPlus: subscription.isPlus,
+        isMember: subscription.isMember,
         expiresAt: subscription.expiresAt?.toISOString() ?? null,
       },
     });

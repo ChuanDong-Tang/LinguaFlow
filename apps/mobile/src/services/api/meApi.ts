@@ -8,14 +8,24 @@ type ApiResult<T> = ApiOk<T> | ApiFail;
 
 export type CurrentEntitlement = {
   userId: string;
-  plan: "free" | "pro_monthly";
+  plan: "free" | "plus_monthly" | "pro_monthly";
+  tier: "free" | "plus" | "pro";
   isPro: boolean;
+  isPlus: boolean;
+  isMember: boolean;
   expiresAt: string | null;
   dateKey: string;
   dailyTotalLimit: number;
   validUntil: string | null;
   usedTotalChars: number;
   remainingChars: number;
+  quotas?: {
+    aiDailyChars: number;
+  };
+  features?: {
+    cloudSync: boolean;
+    highQualityTts: boolean;
+  };
   source?: "authing" | "mock";
 };
 

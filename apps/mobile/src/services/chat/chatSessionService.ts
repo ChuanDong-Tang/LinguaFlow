@@ -7,6 +7,7 @@ import {
   saveLocalMessagesByDateScoped,
 } from "./chatLocalStorage";
 import { runChatGeneration } from "./chatGenerationService";
+import { updateMessageClozeState } from "../api/chatHistoryApi";
 import { getSession } from "../auth/authStorage";
 import type { AutoCopyMode } from "../preferences/assistantPreferences";
 
@@ -34,6 +35,7 @@ type StartChatSessionInput = {
   conversationId?: string | null;
   autoCopyAfterGeneration: boolean;
   autoCopyMode: AutoCopyMode;
+  autoClozeAfterGeneration: boolean;
   onSuccessText?: (text: string, mode: AutoCopyMode) => Promise<void>;
   onStreamDone?: () => void;
 };
@@ -261,9 +263,28 @@ export function startChatSession(input: StartChatSessionInput): void {
       onUpdateMessage: (clientId, updater) => {
         void updateChatMessage(input.contactId, clientId, updater, input.conversationDateKey);
       },
+      autoClozeAfterGeneration: input.autoClozeAfterGeneration,
     });
 
-    if (result.status === "success" && input.autoCopyAfterGeneration && result.assistantText) {
+    if (result.status === "success" && result.assistantMessageId && result.autoClozeState && result.autoClozeBaseVersion !== undefined) {
+      try {
+        const saved = await updateMessageClozeState({
+          messageId: result.assistantMessageId,
+          baseVersion: result.autoClozeBaseVersion,
+          clozeState: result.autoClozeState,
+        });
+        await updateChatMessage(
+          input.contactId,
+          input.assistantClientId,
+          (row) => ({ ...row, clozeState: saved.clozeState ?? null, clozeVersion: saved.clozeVersion }),
+          input.conversationDateKey,
+        );
+      } catch {
+        // 自动挖空失败不阻断回复展示；下一次云端同步会以服务端状态为准。
+      }
+    }
+
+    if (result.status === "success" && input.autoCopyAfterGeneration && input.autoCopyMode !== "none" && result.assistantText) {
       await input.onSuccessText?.(result.assistantText, input.autoCopyMode);
     }
     if (result.status === "success") {

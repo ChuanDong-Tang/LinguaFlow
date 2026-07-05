@@ -1,9 +1,12 @@
 export type RuntimeMode = "development" | "production" | "test";
 export type AiProviderName = "deepseek" | "openai" | "grok";
+export type MembershipFeatureTier = "free" | "plus" | "pro";
 
 export interface PaymentRuntimeConfig {
   wechatPayEnabled: boolean;
+  plusMonthlyPriceCents: number;
   proMonthlyPriceCents: number;
+  descriptionPlusMonthly: string;
   descriptionProMonthly: string;
   pendingReuseWindowMs: number;
   reconcileGraceMs: number;
@@ -25,6 +28,8 @@ export interface PaymentRuntimeConfig {
     contractNotifyUrl: string | null;
     debitNotifyUrl: string | null;
     planId: string | null;
+    plusPlanId: string | null;
+    proPlanId: string | null;
     contractReturnUrl: string | null;
     intervalMs: number;
     batchSize: number;
@@ -39,6 +44,7 @@ export interface PaymentRuntimeConfig {
     bundleId: string | null;
     privateKey: string | null;
     rootCa: string | null;
+    plusMonthlyProductId: string | null;
     proMonthlyProductId: string | null;
     proMonthlyOneTimeProductId: string | null;
     allowSandboxFallback: boolean;
@@ -76,7 +82,12 @@ export interface RuntimeConfig {
   grokAllowedModels: string[];
   grokTimeoutMs: number;
   quotaTimeZone: string;
+  plusDailyTotalLimit: number;
   proDailyTotalLimit: number;
+  membershipFeatures: {
+    cloudSync: MembershipFeatureTier[];
+    highQualityTts: MembershipFeatureTier[];
+  };
   freeTrialTotalLimit: number;
   freeTrialValidDays: number;
   benefitGrantRetryEnabled: boolean;
@@ -205,7 +216,12 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     ),
     grokTimeoutMs: readPositiveInt(env.GROK_TIMEOUT_MS ?? env.OPENAI_TIMEOUT_MS ?? env.ChatGPT_TIMEOUT_MS, 20_000),
     quotaTimeZone: env.LF_QUOTA_TIME_ZONE?.trim() || "Asia/Shanghai",
+    plusDailyTotalLimit: readPositiveInt(env.LF_PLUS_DAILY_TOTAL_LIMIT, 5_000),
     proDailyTotalLimit: readPositiveInt(env.LF_PRO_DAILY_TOTAL_LIMIT, 10_000),
+    membershipFeatures: {
+      cloudSync: readTierCsv(env.LF_FEATURE_CLOUD_SYNC_TIERS, ["plus", "pro"]),
+      highQualityTts: readTierCsv(env.LF_FEATURE_HIGH_QUALITY_TTS_TIERS, ["plus", "pro"]),
+    },
     freeTrialTotalLimit: readPositiveInt(env.LF_FREE_TRIAL_TOTAL_LIMIT, 5000),
     freeTrialValidDays: readPositiveInt(env.LF_FREE_TRIAL_VALID_DAYS, 7),
     payment: readPaymentRuntimeConfig(env, mode),
@@ -319,7 +335,9 @@ function readTencentTmsReviewMode(value: string | undefined, fallback: "suspect"
 function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): PaymentRuntimeConfig {
   return {
     wechatPayEnabled: readBoolean(env.WECHAT_PAY_ENABLED, false),
+    plusMonthlyPriceCents: readPositiveInt(env.LF_PLUS_MONTHLY_PRICE_CENTS, 1500),
     proMonthlyPriceCents: readPositiveInt(env.LF_PRO_MONTHLY_PRICE_CENTS, 3000),
+    descriptionPlusMonthly: env.LF_PAYMENT_DESC_PLUS_MONTHLY?.trim() || "OIO Plus 月卡",
     descriptionProMonthly: env.LF_PAYMENT_DESC_PRO_MONTHLY?.trim() || "OIO Pro 月卡",
     pendingReuseWindowMs: readPositiveInt(env.LF_PAYMENT_PENDING_REUSE_WINDOW_MS, 300_000),
     reconcileGraceMs: readPositiveInt(env.LF_PAYMENT_RECONCILE_GRACE_MS, 120_000),
@@ -350,6 +368,8 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       contractNotifyUrl: trimToNull(env.WECHAT_AUTORENEW_CONTRACT_NOTIFY_URL),
       debitNotifyUrl: trimToNull(env.WECHAT_AUTORENEW_DEBIT_NOTIFY_URL),
       planId: trimToNull(env.WECHAT_AUTORENEW_PLAN_ID),
+      plusPlanId: trimToNull(env.WECHAT_AUTORENEW_PLUS_PLAN_ID),
+      proPlanId: trimToNull(env.WECHAT_AUTORENEW_PRO_PLAN_ID),
       contractReturnUrl: trimToNull(env.WECHAT_AUTORENEW_CONTRACT_RETURN_URL),
       intervalMs: readPositiveInt(env.WECHAT_AUTORENEW_INTERVAL_MS, 300_000),
       batchSize: readPositiveInt(env.WECHAT_AUTORENEW_BATCH_SIZE, 20),
@@ -364,6 +384,7 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       bundleId: trimToNull(env.APPLE_IAP_BUNDLE_ID),
       privateKey: trimToNull(env.APPLE_IAP_PRIVATE_KEY),
       rootCa: trimToNull(env.APPLE_IAP_ROOT_CA),
+      plusMonthlyProductId: trimToNull(env.APPLE_IAP_PLUS_MONTHLY_PRODUCT_ID),
       proMonthlyProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_PRODUCT_ID),
       proMonthlyOneTimeProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_ONE_TIME_PRODUCT_ID),
       allowSandboxFallback: readBoolean(env.APPLE_IAP_ALLOW_SANDBOX_FALLBACK, mode !== "production"),
@@ -400,4 +421,11 @@ function readCsv(value: string | undefined, fallback: string[]): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function readTierCsv(value: string | undefined, fallback: MembershipFeatureTier[]): MembershipFeatureTier[] {
+  const tiers = readCsv(value, fallback);
+  const allowed = new Set<MembershipFeatureTier>(["free", "plus", "pro"]);
+  const parsed = tiers.filter((tier): tier is MembershipFeatureTier => allowed.has(tier as MembershipFeatureTier));
+  return parsed.length ? parsed : fallback;
 }

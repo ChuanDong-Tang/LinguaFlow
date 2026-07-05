@@ -1,5 +1,6 @@
 import type {
   AutoRenewChargeEntity,
+  AutoRenewProductCode,
   AutoRenewProvider,
   AutoRenewRepository,
   AutoRenewSubscriptionEntity,
@@ -33,6 +34,7 @@ export interface CreateWeChatPreSignResult {
 export interface RegisterAutoRenewInput {
   userId: string;
   provider: AutoRenewProvider;
+  productCode?: AutoRenewProductCode;
   providerAgreementId: string;
   status?: "pending" | "active";
   latestTransactionId?: string | null;
@@ -46,6 +48,7 @@ export interface RegisterAutoRenewInput {
 export interface RecordPaidChargeInput {
   userId: string;
   provider: AutoRenewProvider;
+  productCode?: AutoRenewProductCode;
   providerAgreementId: string;
   providerChargeId: string;
   periodKey?: string | null;
@@ -97,7 +100,7 @@ export class AutoRenewSwitchBlockedError extends Error {
   readonly currentPeriodEnd: Date;
 
   constructor(input: { provider: AutoRenewProvider; currentPeriodEnd: Date }) {
-    super("Cannot switch auto renew provider while current Pro period is still active");
+    super("Cannot switch auto renew provider while current membership period is still active");
     this.provider = input.provider;
     this.currentPeriodEnd = input.currentPeriodEnd;
   }
@@ -135,18 +138,19 @@ export class AutoRenewService {
     latestTransactionId: string;
     periodStart?: Date | null;
     periodEnd?: Date | null;
+    productCode?: AutoRenewProductCode;
     metadata?: unknown;
   }): Promise<AutoRenewSubscriptionEntity> {
     return this.autoRenewRepository.updateSubscription({
       id: input.subscriptionId,
       userId: input.userId,
       status: "active",
+      metadata: input.metadata,
       latestTransactionId: input.latestTransactionId,
       currentPeriodStart: input.periodStart ?? null,
       currentPeriodEnd: input.periodEnd ?? null,
       nextBillingAt: input.periodEnd ? computeEarlyBillingAt(input.periodEnd) : null,
       cancelledAt: null,
-      metadata: input.metadata,
       allowReactivation: true,
     });
   }
@@ -202,7 +206,7 @@ export class AutoRenewService {
       return await this.autoRenewRepository.createSubscription({
         userId: input.userId,
         provider: input.provider,
-        productCode: "pro_monthly",
+        productCode: input.productCode ?? "pro_monthly",
         status: input.status ?? "active",
         providerAgreementId: input.providerAgreementId,
         latestTransactionId: input.latestTransactionId ?? null,
@@ -224,6 +228,7 @@ export class AutoRenewService {
 
   async createWeChatPreSign(input: {
     userId: string;
+    productCode: AutoRenewProductCode;
   }): Promise<CreateWeChatPreSignResult> {
     if (!this.weChatAutoRenewProvider) {
       throw new Error("WECHAT_AUTORENEW_PROVIDER_NOT_CONFIGURED");
@@ -259,21 +264,23 @@ export class AutoRenewService {
       provider: "wechat",
     }); 
 
-    const currentPro = await this.subscriptionService?.getCurrentSubscription(input.userId, now);
-    const activePro =
-      currentPro?.isPro === true && currentPro.expiresAt && currentPro.expiresAt > now
-        ? currentPro
+    const currentMembership = await this.subscriptionService?.getCurrentSubscription(input.userId, now);
+    const activeMembership =
+      currentMembership?.isMember === true && currentMembership.expiresAt && currentMembership.expiresAt > now
+        ? currentMembership
         : null;
-    if (activePro?.expiresAt) {
-      // 已有有效 Pro 时不再创建新的自动续费签约，避免“还在 Pro 期间又签一笔首期扣款”。
-      throw new ProRenewalTooEarlyError({ expiresAt: activePro.expiresAt });
+    if (activeMembership?.expiresAt) {
+      // 已有有效会员时不再创建新的自动续费签约，避免有效期内又签一笔首期扣款。
+      throw new ProRenewalTooEarlyError({ expiresAt: activeMembership.expiresAt });
     }
+    const product = resolveAutoRenewProduct(input.productCode);
 
     const preSign = await this.weChatAutoRenewProvider.createH5PreSign({
       userId: input.userId,
-      productCode: "pro_monthly",
-      description: runtime.payment.wechatAutoRenew.chargeDescription,
-      amount: runtime.payment.proMonthlyPriceCents,
+      productCode: input.productCode,
+      planId: product.wechatPlanId,
+      description: product.description,
+      amount: product.amount,
       currency: "CNY",
     });
     // 这里先用 out_contract_code 作为 providerAgreementId。
@@ -281,6 +288,7 @@ export class AutoRenewService {
     const subscription = await this.register({
       userId: input.userId,
       provider: "wechat",
+      productCode: input.productCode,
       providerAgreementId: preSign.outContractCode,
       status: "pending",
       currentPeriodStart: null,
@@ -300,11 +308,11 @@ export class AutoRenewService {
       autoRenewSubscriptionId: subscription.id,
       userId: input.userId,
       provider: "wechat",
-      productCode: "pro_monthly",
+      productCode: input.productCode,
       providerChargeId: preSign.outTradeNo,
       periodKey: "initial",
       status: "pending",
-      amount: runtime.payment.proMonthlyPriceCents,
+      amount: product.amount,
       currency: "CNY",
       periodStart,
       periodEnd,
@@ -478,8 +486,9 @@ export class AutoRenewService {
       // 微信回调可能重复投递，已 paid 的 charge 不能再次推进 currentPeriodEnd。
       return { chargeId: notification.outTradeNo, status: "ignored" };
     }
+    const product = resolveAutoRenewProduct(subscription.productCode);
     assertWeChatDebitAmountMatches({
-      expectedAmount: existingCharge?.amount ?? getRuntimeConfig().payment.proMonthlyPriceCents,
+      expectedAmount: existingCharge?.amount ?? product.amount,
       expectedCurrency: existingCharge?.currency ?? "CNY",
       actualAmount: notification.amount,
       actualCurrency: notification.currency,
@@ -494,7 +503,7 @@ export class AutoRenewService {
         autoRenewSubscriptionId: subscription.id,
         userId: subscription.userId,
         provider: "wechat",
-        productCode: "pro_monthly",
+        productCode: subscription.productCode,
         providerChargeId: notification.outTradeNo,
         periodKey: notification.outTradeNo,
         status: "failed",
@@ -528,6 +537,7 @@ export class AutoRenewService {
     await this.recordPaidCharge({
       userId: subscription.userId,
       provider: "wechat",
+      productCode: subscription.productCode,
       providerAgreementId: subscription.providerAgreementId,
       providerChargeId: notification.outTradeNo,
       periodKey: notification.outTradeNo,
@@ -568,6 +578,7 @@ export class AutoRenewService {
   async handleApplePaidTransaction(input: {
     originalTransactionId: string;
     transactionId: string;
+    productCode?: AutoRenewProductCode;
     periodStart?: Date | null;
     periodEnd?: Date | null;
     rawPayload?: unknown;
@@ -589,6 +600,7 @@ export class AutoRenewService {
     await this.recordPaidCharge({
       userId: subscription.userId,
       provider: "apple",
+      productCode: input.productCode ?? subscription.productCode,
       providerAgreementId: input.originalTransactionId,
       providerChargeId: input.transactionId,
       periodKey: input.transactionId,
@@ -702,16 +714,17 @@ export class AutoRenewService {
           continue;
         }
 
+        const product = resolveAutoRenewProduct(subscription.productCode);
         // 先落本期 charge，再调用微信。periodKey 是同周期幂等护栏，避免 worker 重启或并发扫描导致重复扣款。
         await this.autoRenewRepository.upsertCharge({
           autoRenewSubscriptionId: subscription.id,
           userId: subscription.userId,
           provider: "wechat",
-          productCode: "pro_monthly",
+          productCode: subscription.productCode,
           providerChargeId: outTradeNo,
           periodKey,
           status: "pending",
-          amount: runtime.payment.proMonthlyPriceCents,
+          amount: product.amount,
           currency: "CNY",
           periodStart,
           periodEnd,
@@ -719,23 +732,23 @@ export class AutoRenewService {
         });
 
         // 微信 V3 扣费服务需要商户主动受理本期续扣；成功权益以验签后的异步通知/查单结果为准。
-        // applyDeduct 返回成功只表示“微信已受理扣款请求”，不等于扣款成功，更不能在这里直接续 Pro。
+        // applyDeduct 返回成功只表示“微信已受理扣款请求”，不等于扣款成功，更不能在这里直接续会员。
         await this.weChatAutoRenewProvider.applyDeduct({
           contractId: subscription.latestTransactionId,
           outTradeNo,
-          description: runtime.payment.wechatAutoRenew.chargeDescription,
-          amount: runtime.payment.proMonthlyPriceCents,
+          description: product.description,
+          amount: product.amount,
           currency: "CNY",
         });
         await this.autoRenewRepository.upsertCharge({
           autoRenewSubscriptionId: subscription.id,
           userId: subscription.userId,
           provider: "wechat",
-          productCode: "pro_monthly",
+          productCode: subscription.productCode,
           providerChargeId: outTradeNo,
           periodKey,
           status: "pending",
-          amount: runtime.payment.proMonthlyPriceCents,
+          amount: product.amount,
           currency: "CNY",
           periodStart,
           periodEnd,
@@ -880,7 +893,7 @@ export class AutoRenewService {
           autoRenewSubscriptionId: charge.autoRenewSubscriptionId,
           userId: charge.userId,
           provider: "wechat",
-          productCode: "pro_monthly",
+          productCode: charge.productCode,
           providerChargeId: charge.providerChargeId,
           periodKey: charge.periodKey,
           status: "failed",
@@ -923,11 +936,12 @@ export class AutoRenewService {
     if (subscription.userId !== input.userId) throw new AutoRenewAccessDeniedError();
 
     const paidAt = input.paidAt ?? new Date();
+    const productCode = input.productCode ?? subscription.productCode;
     const charge = await this.autoRenewRepository.upsertCharge({
       autoRenewSubscriptionId: subscription.id,
       userId: input.userId,
       provider: input.provider,
-      productCode: "pro_monthly",
+      productCode,
       providerChargeId: input.providerChargeId,
       periodKey: input.periodKey ?? input.providerChargeId,
       status: "paid",
@@ -942,7 +956,7 @@ export class AutoRenewService {
     const result = await this.paymentEntitlementService.grantAfterPayment({
       userId: input.userId,
       sourceOrderId: createAutoRenewEntitlementSourceOrderId(input.provider, input.providerChargeId),
-      productCode: "pro_monthly",
+      productCode,
       channel: input.provider === "apple" ? "ios_iap" : "wechat",
       grantMode: "subscription_period",
       periodStart: input.periodStart ?? null,
@@ -966,9 +980,9 @@ export class AutoRenewService {
       throw new Error("WECHAT_AUTORENEW_INITIAL_CHARGE_MISSING_CONTRACT_ID");
     }
 
-    const runtime = getRuntimeConfig();
     const now = new Date();
     const periodKey = "initial";
+    const product = resolveAutoRenewProduct(subscription.productCode);
     const existingCharge = await this.autoRenewRepository.findChargeByPeriod({
       autoRenewSubscriptionId: subscription.id,
       periodKey,
@@ -986,11 +1000,11 @@ export class AutoRenewService {
       autoRenewSubscriptionId: subscription.id,
       userId: subscription.userId,
       provider: "wechat",
-      productCode: "pro_monthly",
+      productCode: subscription.productCode,
       providerChargeId: outTradeNo,
       periodKey,
       status: "pending",
-      amount: runtime.payment.proMonthlyPriceCents,
+      amount: product.amount,
       currency: "CNY",
       periodStart,
       periodEnd,
@@ -998,24 +1012,24 @@ export class AutoRenewService {
     });
 
     try {
-      // 首期扣款跟签约强相关：签约成功后立即受理扣款，让用户尽快拿到 Pro。
+      // 首期扣款跟签约强相关：签约成功后立即受理扣款，让用户尽快拿到会员权益。
       // 这里仍然只记 pending，真正发权益等微信扣款回调或主动查单确认 SUCCESS。
       await this.weChatAutoRenewProvider.applyDeduct({
         contractId: subscription.latestTransactionId,
         outTradeNo,
-        description: runtime.payment.wechatAutoRenew.chargeDescription,
-        amount: runtime.payment.proMonthlyPriceCents,
+        description: product.description,
+        amount: product.amount,
         currency: "CNY",
       });
       await this.autoRenewRepository.upsertCharge({
         autoRenewSubscriptionId: subscription.id,
         userId: subscription.userId,
         provider: "wechat",
-        productCode: "pro_monthly",
+        productCode: subscription.productCode,
         providerChargeId: outTradeNo,
         periodKey,
         status: "pending",
-        amount: runtime.payment.proMonthlyPriceCents,
+        amount: product.amount,
         currency: "CNY",
         periodStart,
         periodEnd,
@@ -1042,11 +1056,11 @@ export class AutoRenewService {
         autoRenewSubscriptionId: subscription.id,
         userId: subscription.userId,
         provider: "wechat",
-        productCode: "pro_monthly",
+        productCode: subscription.productCode,
         providerChargeId: outTradeNo,
         periodKey,
         status: "failed",
-        amount: runtime.payment.proMonthlyPriceCents,
+        amount: product.amount,
         currency: "CNY",
         periodStart,
         periodEnd,
@@ -1123,14 +1137,14 @@ export class AutoRenewService {
     }
 
     const now = new Date();
-    const currentPro = await this.subscriptionService.getCurrentSubscription(input.userId, now);
-    if (!currentPro.isPro || !currentPro.expiresAt || currentPro.expiresAt <= now) return;
+    const currentMembership = await this.subscriptionService.getCurrentSubscription(input.userId, now);
+    if (!currentMembership.isMember || !currentMembership.expiresAt || currentMembership.expiresAt <= now) return;
 
-    // 取消自动续费只是不再续扣，不代表当前已付费 Pro 立即失效。
+    // 取消自动续费只是不再续扣，不代表当前已付费会员立即失效。
     // 在这段权益还没结束前，不允许马上换到另一个渠道重新签约，避免微信/Apple 同时留下两套平台协议。
     throw new AutoRenewSwitchBlockedError({
       provider: latest.provider,
-      currentPeriodEnd: currentPro.expiresAt,
+      currentPeriodEnd: currentMembership.expiresAt,
     });
   }
 }
@@ -1191,6 +1205,33 @@ function createAutoRenewEntitlementSourceOrderId(
     return `apple_iap:${providerChargeId}`;
   }
   return `${provider}_autorenew:${providerChargeId}`;
+}
+
+function resolveAutoRenewProduct(productCode: AutoRenewProductCode): {
+  amount: number;
+  description: string;
+  wechatPlanId: string;
+} {
+  const runtime = getRuntimeConfig();
+  const fallbackPlanId = runtime.payment.wechatAutoRenew.planId;
+  const plusPlanId = runtime.payment.wechatAutoRenew.plusPlanId ?? fallbackPlanId;
+  const proPlanId = runtime.payment.wechatAutoRenew.proPlanId ?? fallbackPlanId;
+  return productCode === "plus_monthly"
+    ? {
+        amount: runtime.payment.plusMonthlyPriceCents,
+        description: runtime.payment.descriptionPlusMonthly,
+        wechatPlanId: requireAutoRenewPlanId(plusPlanId, "plus_monthly"),
+      }
+    : {
+        amount: runtime.payment.proMonthlyPriceCents,
+        description: runtime.payment.descriptionProMonthly,
+        wechatPlanId: requireAutoRenewPlanId(proPlanId, "pro_monthly"),
+      };
+}
+
+function requireAutoRenewPlanId(value: string | null, productCode: AutoRenewProductCode): string {
+  if (!value) throw new Error(`WECHAT_AUTORENEW_PLAN_ID_MISSING:${productCode}`);
+  return value;
 }
 
 function assertWeChatDebitAmountMatches(input: {

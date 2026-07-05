@@ -81,7 +81,7 @@ export class PaymentReconcileWorker {
               await this.paymentEntitlementService.grantAfterPayment({
                 userId: order.userId,
                 sourceOrderId: order.id,
-                productCode: "pro_monthly",
+                productCode: order.productCode,
                 channel,
                 grantMode: "fixed_duration",
               });
@@ -89,7 +89,7 @@ export class PaymentReconcileWorker {
               await this.benefitGrantService.enqueueGrant({
                 userId: order.userId,
                 sourceOrderId: order.id,
-                productCode: "pro_monthly",
+                productCode: order.productCode,
                 channel,
                 payload: createEntitlementGrantPayload({
                   fallbackReason: "sync_grant_failed",

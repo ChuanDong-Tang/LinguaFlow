@@ -121,7 +121,12 @@ export interface ChatRouteDeps {
   entitlementService :{
     assertCanUse: (userId: string, requestedChars: number) => Promise<void>;
     assertCanStartGeneration: (userId: string) => Promise<void>;
-    getCurrentEntitlement: (userId: string) => Promise<{ isPro: boolean }>;
+    getCurrentEntitlement: (userId: string) => Promise<{
+      isPro: boolean;
+      features?: {
+        cloudSync?: boolean;
+      };
+    }>;
   };
   rateLimiter: {
     consume: (key: string, limit: number, windowMs: number) => Promise<boolean>;
@@ -1309,7 +1314,16 @@ function countInputCharsWithoutWhitespace(value: string): number {
 
 async function assertProCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {
   const entitlement = await deps.entitlementService.getCurrentEntitlement(userId);
-  if (entitlement.isPro) return;
+  if (entitlement.features?.cloudSync ?? entitlement.isPro) return;
+  const error = new Error("Pro access required") as Error & { code: string; statusCode: number };
+  error.code = "PRO_REQUIRED";
+  error.statusCode = 403;
+  throw error;
+}
+
+async function assertClozeCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {
+  const entitlement = await deps.entitlementService.getCurrentEntitlement(userId);
+  if (entitlement.features?.cloudSync ?? entitlement.isPro) return;
   const error = new Error("Pro access required") as Error & { code: string; statusCode: number };
   error.code = "PRO_REQUIRED";
   error.statusCode = 403;

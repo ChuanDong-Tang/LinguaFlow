@@ -1,10 +1,11 @@
 import type { SubscriptionService } from "../subscription/SubscriptionService.js";
 import type { AutoRenewRepository } from "@lf/core/ports/repository/AutoRenewRepository.js";
+import type { SubscriptionPlan } from "@lf/core/ports/repository/SubscriptionRepository.js";
+import type { PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import { assertCanGrantSingleProMonthly } from "./ProPrepaidLimit.js";
 
 export type PaymentChannel = "wechat" | "ios_iap";
-export type PaymentProductCode = "pro_monthly";
 export type EntitlementGrantMode = "fixed_duration" | "subscription_period";
 export type PrepaidLimitMode = "enforce" | "skip";
 
@@ -58,8 +59,9 @@ export class PaymentEntitlementService {
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
     });
-    const result = await this.subscriptionService.openOrRenewPro({
+    const result = await this.subscriptionService.openOrRenewMembership({
       userId: input.userId,
+      plan: planForProductCode(input.productCode),
       sourceOrderId: input.sourceOrderId,
       months,
       periodStart: period.periodStart,
@@ -101,8 +103,12 @@ export class PaymentEntitlementService {
 }
 
 function resolveMonthsByProductCode(productCode: PaymentProductCode): number {
-  if (productCode === "pro_monthly") return 1;
+  if (productCode === "plus_monthly" || productCode === "pro_monthly") return 1;
   return 1;
+}
+
+function planForProductCode(productCode: PaymentProductCode): SubscriptionPlan {
+  return productCode;
 }
 
 function defaultPrepaidLimit(grantMode: EntitlementGrantMode): PrepaidLimitMode {

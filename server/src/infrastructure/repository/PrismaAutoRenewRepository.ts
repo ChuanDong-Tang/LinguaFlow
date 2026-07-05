@@ -344,7 +344,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     id: string;
     userId: string;
     provider: "wechat" | "apple";
-    productCode: "pro_monthly";
+    productCode: "plus_monthly" | "pro_monthly";
     status: "pending" | "active" | "cancelled" | "expired" | "billing_retry" | "paused";
     providerAgreementId: string;
     latestTransactionId: string | null;
@@ -379,7 +379,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     autoRenewSubscriptionId: string;
     userId: string;
     provider: "wechat" | "apple";
-    productCode: "pro_monthly";
+    productCode: "plus_monthly" | "pro_monthly";
     providerChargeId: string;
     periodKey: string | null;
     status: "scheduled" | "pending" | "paid" | "failed" | "refunded";

@@ -812,8 +812,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     }
 
     const sourceOrderId = `admin_grant:${userId}:${Date.now()}:${randomUUID()}`;
-    const result = await deps.subscriptionService.openOrRenewPro({
+    const result = await deps.subscriptionService.openOrRenewMembership({
       userId,
+      plan: "pro_monthly",
       sourceOrderId,
       months,
     });

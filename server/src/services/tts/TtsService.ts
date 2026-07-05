@@ -119,7 +119,7 @@ export class TtsService {
   }): Promise<TtsMessageAssetView> {
     const startedAt = Date.now();
     const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
-    if (!entitlement.isPro) throw new TtsProRequiredError();
+    if (!entitlement.features.highQualityTts) throw new TtsProRequiredError();
 
     const message = await this.messageRepository.findById(input.messageId);
     if (!message || message.userId !== input.userId || message.status !== "success") {

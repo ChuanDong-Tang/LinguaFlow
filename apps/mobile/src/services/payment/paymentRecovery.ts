@@ -6,6 +6,7 @@ import {
   queryPaymentOrder,
   type MobileAutoRenewSubscription,
   type MobilePaymentOrderResult,
+  type MobilePaymentProductCode,
   type MobilePaymentOrderStatus,
 } from "../api/paymentApi";
 import { environmentStorageKey } from "../storage/environmentStorageKey";
@@ -17,6 +18,7 @@ type PendingPaymentOrder = {
   userId: string;
   orderId: string;
   providerOrderId: string;
+  productCode?: MobilePaymentProductCode;
   createdAt: string;
 };
 
@@ -24,6 +26,7 @@ type PollOptions = {
   timeoutMs?: number;
   intervalMs?: number;
   maxConsecutiveErrors?: number;
+  fallbackProductCode?: MobilePaymentProductCode;
 };
 
 type PendingAutoRenewFlow = {
@@ -37,6 +40,7 @@ type PendingAutoRenewFlow = {
 export async function savePendingPaymentOrder(input: {
   orderId: string;
   providerOrderId: string;
+  productCode?: MobilePaymentProductCode;
 }): Promise<void> {
   const session = await getSession();
   if (!session?.user.id) return;
@@ -44,6 +48,7 @@ export async function savePendingPaymentOrder(input: {
     userId: session.user.id,
     orderId: input.orderId,
     providerOrderId: input.providerOrderId,
+    productCode: input.productCode,
     createdAt: new Date().toISOString(),
   };
   await AsyncStorage.setItem(PENDING_PAYMENT_ORDER_KEY, JSON.stringify(data));
@@ -136,7 +141,7 @@ export async function pollPaymentOrderUntilSettled(
     id: orderId,
     provider: "unknown",
     providerOrderId: "unknown",
-    productCode: "pro_monthly",
+    productCode: options.fallbackProductCode ?? "pro_monthly",
     amount: 0,
     currency: "CNY",
     status: "pending",
@@ -157,6 +162,7 @@ export async function recoverPendingPaymentIfAny(): Promise<{
       timeoutMs: 30_000,
       intervalMs: 3_000,
       maxConsecutiveErrors: 2,
+      fallbackProductCode: pending.productCode,
     });
 
     if (result.status !== "pending") {
@@ -187,7 +193,8 @@ export async function recoverPendingAutoRenewIfAny(): Promise<{
     const matched =
       subscription?.id === pending.autoRenewSubscriptionId ||
       Boolean(subscription && subscription.provider === pending.provider);
-    const entitlementIsPro = entitlementResult?.entitlement.isPro ?? null;
+    const entitlementIsPro =
+      entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? null;
 
     if (matched || entitlementIsPro === true) {
       await clearPendingAutoRenewFlow();

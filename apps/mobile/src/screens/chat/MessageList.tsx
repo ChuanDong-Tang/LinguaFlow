@@ -6,6 +6,7 @@ import { getChatContact, type ChatContact } from "../../domain/chat/contacts";
 import type { AutoCopyMode } from "../../services/preferences/assistantPreferences";
 import { getClozeBlankRanges, getClozeCorrectRanges, getClozeHighlightRanges, normalizeClozeState } from "../../domain/cloze/clozeUtils";
 import { getAssistantClozeText } from "../../domain/cloze/clozeText";
+import { parseTaggedRewrite } from "../../domain/rewrite/taggedRewrite";
 import {
   SelectableMessageText,
   type NativeTextSelectionPayload,
@@ -104,20 +105,19 @@ type RowItem =
 
 const MESSAGE_LIST_PERF_LOGS = false;
 const SLOW_MESSAGE_RENDER_MS = 12;
-function getCopyOptions(contact: ChatContact): { label: string; mode: AutoCopyMode }[] {
-  if (contact.id === "english_friend") {
-    return [
-      { label: t("chat.copy.question"), mode: "en" },
-      { label: t("chat.copy.reply"), mode: "zh" },
-      { label: t("chat.copy.all"), mode: "both" },
-    ];
+function getCopyOptions(text: string): { label: string; mode: AutoCopyMode }[] {
+  const tagged = parseTaggedRewrite(text);
+  const options: { label: string; mode: AutoCopyMode }[] = [];
+  if ((tagged.rewrite || tagged.en || tagged.ja).trim()) {
+    options.push({ label: t("chat.copy.rewrite"), mode: "rewrite" });
   }
-
-  return [
-    { label: t("chat.copy.expression"), mode: "en" },
-    { label: t("chat.copy.note"), mode: "zh" },
-    { label: t("chat.copy.all"), mode: "both" },
-  ];
+  if ((tagged.note || tagged.zh).trim()) {
+    options.push({ label: t("chat.copy.restatement"), mode: "note" });
+  }
+  if (tagged.reply.trim()) {
+    options.push({ label: t("chat.copy.reply"), mode: "reply" });
+  }
+  return options;
 }
 
 function perfNow(): number {
@@ -238,7 +238,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   const renderStart = perfNow();
   const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
   const [answersVisible, setAnswersVisible] = React.useState(false);
-  const copyOptions = React.useMemo(() => getCopyOptions(contact), [contact]);
+  const copyOptions = React.useMemo(() => getCopyOptions(message.text), [message.text]);
   const messageContact = React.useMemo(() => getChatContact(message.contactId, [contact]), [contact, message.contactId]);
   const clozeText = React.useMemo(() => {
     const startedAt = perfNow();

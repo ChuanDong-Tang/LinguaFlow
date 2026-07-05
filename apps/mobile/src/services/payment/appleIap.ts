@@ -2,6 +2,10 @@ import { Platform } from "react-native";
 import type { Purchase } from "expo-iap";
 import * as Crypto from "expo-crypto";
 import { t } from "../../i18n";
+import type { MobilePaymentProductCode } from "../api/paymentApi";
+
+export const APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID =
+  process.env.EXPO_PUBLIC_APPLE_PLUS_MONTHLY_PRODUCT_ID || "plus_monthly";
 
 export const APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID =
   process.env.EXPO_PUBLIC_APPLE_PRO_MONTHLY_PRODUCT_ID || "pro_monthly";
@@ -11,17 +15,26 @@ export const APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID =
 
 export type ApplePurchaseSource = "single_purchase" | "auto_renew";
 
-export function getAppleProductIdForSource(source: ApplePurchaseSource): string {
+export function getAppleProductIdForSource(
+  source: ApplePurchaseSource,
+  productCode: MobilePaymentProductCode = "pro_monthly"
+): string {
+  if (source === "auto_renew" && productCode === "plus_monthly") {
+    return APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
+  }
   return source === "single_purchase"
     ? APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID
     : APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
 }
 
-export function assertAppleIapAvailable(source?: ApplePurchaseSource): void {
+export function assertAppleIapAvailable(
+  source?: ApplePurchaseSource,
+  productCode: MobilePaymentProductCode = "pro_monthly"
+): void {
   if (Platform.OS !== "ios") {
     throw new Error(t("payment.apple.unsupported"));
   }
-  const productId = source ? getAppleProductIdForSource(source) : APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
+  const productId = source ? getAppleProductIdForSource(source, productCode) : APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
   if (!productId) {
     throw new Error(t("payment.apple.product_missing"));
   }

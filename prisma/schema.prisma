@@ -519,6 +519,7 @@ enum BenefitGrantStatus {
 }
 
 enum SubscriptionPlan {
+  plus_monthly
   pro_monthly
 }
 

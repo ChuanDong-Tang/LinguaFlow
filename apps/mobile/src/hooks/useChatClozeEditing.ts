@@ -12,7 +12,7 @@ import {
 } from "../domain/cloze/clozeUtils";
 import { getAssistantClozeText } from "../domain/cloze/clozeText";
 import { getMessageDateKey } from "../domain/chat/messageState";
-import { hasLocalProAccess } from "../services/entitlement/proAccess";
+import { hasLocalFeatureAccess } from "../services/entitlement/proAccess";
 import { updateMessageClozeState } from "../services/api/chatHistoryApi";
 import {
   loadChatMessagesByDate,
@@ -123,9 +123,9 @@ export function useChatClozeEditing({
       await applyMessageUpdate(optimistic);
 
       if (currentMessage.id) {
-        const isPro = await hasLocalProAccess();
-        isProEntitledRef.current = isPro;
-        setIsProEntitled(isPro);
+        const canSyncCloze = await hasLocalFeatureAccess("cloudSync");
+        isProEntitledRef.current = canSyncCloze;
+        setIsProEntitled(canSyncCloze);
       }
 
       if (!isProEntitledRef.current || !currentMessage.id) {

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
 import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
 import type { AppleIapAccountLinkRepository } from "@lf/core/ports/repository/AppleIapAccountLinkRepository.js";
-import type { PaymentOrderStatus } from "@lf/core/ports/payment/PaymentTypes.js";
+import type { PaymentOrderStatus, PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
 import type { AutoRenewService } from "../../../services/payment/AutoRenewService.js";
@@ -34,6 +34,7 @@ export interface VerifyAppleIapTransactionResult {
   transactionId: string;
   originalTransactionId: string;
   productId: string;
+  productCode: PaymentProductCode;
   purchaseKind: "single_purchase" | "auto_renew";
   sourceOrderId: string;
   alreadyApplied: boolean;
@@ -96,9 +97,11 @@ export class AppleIapService {
       token,
       config.rootCaPem
     );
+    const subscriptionProductId = getAppleSubscriptionProductId(config, subscription.productCode);
+    if (!subscriptionProductId) return { status: "skipped", reason: "apple_product_id_missing" };
     const matching = findAppleSubscriptionStatus(appleStatus.statuses, {
       originalTransactionId: subscription.providerAgreementId,
-      productId: config.proProductId,
+      productId: subscriptionProductId,
     });
     const shouldCancel = matching ? shouldCancelAppleAutoRenewFromStatus(matching) : false;
     const result: AppleAutoRenewReconcileResult = {
@@ -260,6 +263,13 @@ export class AppleIapService {
     userId: string;
     transactionId: string;
   }): Promise<VerifyAppleIapTransactionResult> {
+    return this.verifyMembershipTransaction(input);
+  }
+
+  async verifyMembershipTransaction(input: {
+    userId: string;
+    transactionId: string;
+  }): Promise<VerifyAppleIapTransactionResult> {
     const config = loadAppleIapConfig();
 
     const { token, diagnostics: serverTokenDiagnostics } = createAppleServerTokenWithDiagnostics({
@@ -290,10 +300,11 @@ export class AppleIapService {
       });
     }
 
-    const purchaseKind = resolveApplePurchaseKind(transaction.productId, config);
-    if (!purchaseKind) {
+    const purchase = resolveApplePurchase(transaction.productId, config);
+    if (!purchase) {
       throw new AppleIapVerifyError("Product id mismatch", "APPLE_PRODUCT_ID_MISMATCH", {
         expectedProductIds: [
+          config.plusProductId,
           config.proProductId,
           config.proMonthlyOneTimeProductId,
         ].filter(Boolean),
@@ -301,6 +312,7 @@ export class AppleIapService {
         environment: transaction.environment,
       });
     }
+    const { purchaseKind, productCode } = purchase;
 
     const originalTransactionId = transaction.originalTransactionId || transaction.transactionId;
     if (!originalTransactionId) {
@@ -422,6 +434,7 @@ export class AppleIapService {
             latestTransactionId: transaction.transactionId,
             periodStart: grantPeriodStart,
             periodEnd: grantPeriodEnd,
+            productCode,
             metadata: autoRenewMetadata,
           });
         }
@@ -434,6 +447,7 @@ export class AppleIapService {
           currentPeriodStart: grantPeriodStart,
           currentPeriodEnd: grantPeriodEnd,
           nextPeriodEnd: grantPeriodEnd,
+          productCode,
           metadata: autoRenewMetadata,
         });
       }
@@ -446,10 +460,10 @@ export class AppleIapService {
 
     // Apple 已经支付成功，但 OIO 仍要先确认订阅链可归当前账号，再创建内部 paid order。
     // 否则 originalTransactionId 认领失败时，会留下“订单已 paid、权益没发”的半状态。
-    const appleAmount = resolveApplePaymentOrderAmount(transaction);
+    const appleAmount = resolveApplePaymentOrderAmount(transaction, productCode);
     const order = await this.paymentOrderRepository.findOrCreatePaidExternalOrder({
       userId: input.userId,
-      productCode: "pro_monthly",
+      productCode,
       provider: "apple_iap",
       providerOrderId: transaction.transactionId,
       amount: appleAmount.amount,
@@ -475,7 +489,7 @@ export class AppleIapService {
       const result = await this.paymentEntitlementService.grantAfterPayment({
         userId: input.userId,
         sourceOrderId,
-        productCode: "pro_monthly",
+        productCode,
         channel: "ios_iap",
         grantMode,
         periodStart: grantPeriodStart,
@@ -490,7 +504,7 @@ export class AppleIapService {
       const queued = await this.benefitGrantService.enqueueGrant({
         userId: input.userId,
         sourceOrderId,
-        productCode: "pro_monthly",
+        productCode,
         channel: "ios_iap",
         payload: createEntitlementGrantPayload({
           fallbackReason: "sync_grant_failed",
@@ -511,6 +525,7 @@ export class AppleIapService {
       transactionId: transaction.transactionId,
       originalTransactionId,
       productId: transaction.productId,
+      productCode,
       purchaseKind,
       sourceOrderId,
       alreadyApplied,
@@ -577,7 +592,8 @@ export class AppleIapService {
           return { status: "ignored", eventId, eventType };
         }
 
-        if (this.autoRenewService && tx.productId === config.proProductId && tx.originalTransactionId) {
+        const purchase = resolveApplePurchase(tx.productId, config);
+        if (this.autoRenewService && purchase?.purchaseKind === "auto_renew" && tx.originalTransactionId) {
           const periodStart = tx.purchaseDate ? new Date(tx.purchaseDate) : null;
           const periodEnd = tx.expiresDate ? new Date(tx.expiresDate) : null;
           if (isApplePaidRenewal(notification.notificationType)) {
@@ -585,6 +601,7 @@ export class AppleIapService {
             const result = await this.autoRenewService.handleApplePaidTransaction({
               originalTransactionId: tx.originalTransactionId,
               transactionId: tx.transactionId,
+              productCode: purchase.productCode,
               periodStart,
               periodEnd,
               rawPayload: {
@@ -597,6 +614,7 @@ export class AppleIapService {
                 appAccountToken: tx.appAccountToken,
                 originalTransactionId: tx.originalTransactionId,
                 transactionId: tx.transactionId,
+                productCode: purchase.productCode,
                 periodStart,
                 periodEnd,
                 rawPayload: {
@@ -613,10 +631,7 @@ export class AppleIapService {
           }
         }
 
-        const nextStatus =
-          tx.productId === config.proProductId
-            ? mapAppleEventToOrderStatus(notification.notificationType)
-            : null;
+        const nextStatus = purchase ? mapAppleEventToOrderStatus(notification.notificationType) : null;
         if (nextStatus) {
           const candidateProviderOrderIds = [
             tx.originalTransactionId,
@@ -667,6 +682,7 @@ export class AppleIapService {
     appAccountToken: string;
     originalTransactionId: string;
     transactionId: string;
+    productCode: PaymentProductCode;
     periodStart: Date | null;
     periodEnd: Date | null;
     rawPayload: unknown;
@@ -689,6 +705,7 @@ export class AppleIapService {
       currentPeriodStart: input.periodStart,
       currentPeriodEnd: input.periodEnd,
       nextPeriodEnd: input.periodEnd,
+      productCode: input.productCode,
       metadata: {
         source: "apple_server_notification_app_account_token",
         appAccountToken: input.appAccountToken,
@@ -697,6 +714,7 @@ export class AppleIapService {
     await this.autoRenewService.handleApplePaidTransaction({
       originalTransactionId: input.originalTransactionId,
       transactionId: input.transactionId,
+      productCode: input.productCode,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
       rawPayload: input.rawPayload,
@@ -715,7 +733,7 @@ export class AppleIapService {
       return false;
     }
     const current = await this.subscriptionService?.getCurrentSubscription(input.boundUserId, input.now);
-    return current?.isPro !== true || !current.expiresAt || current.expiresAt <= input.now;
+    return current?.isMember !== true || !current.expiresAt || current.expiresAt <= input.now;
   }
 
 }
@@ -783,15 +801,27 @@ function isAppleSubscriptionBoundRepositoryError(error: unknown): boolean {
   );
 }
 
-function resolveApplePurchaseKind(
+function resolveApplePurchase(
   productId: string,
-  config: { proProductId: string; proMonthlyOneTimeProductId: string | null }
-): VerifyAppleIapTransactionResult["purchaseKind"] | null {
-  if (productId === config.proProductId) return "auto_renew";
+  config: { plusProductId: string | null; proProductId: string; proMonthlyOneTimeProductId: string | null }
+): { productCode: PaymentProductCode; purchaseKind: VerifyAppleIapTransactionResult["purchaseKind"] } | null {
+  if (config.plusProductId && productId === config.plusProductId) {
+    return { productCode: "plus_monthly", purchaseKind: "auto_renew" };
+  }
+  if (productId === config.proProductId) {
+    return { productCode: "pro_monthly", purchaseKind: "auto_renew" };
+  }
   if (config.proMonthlyOneTimeProductId && productId === config.proMonthlyOneTimeProductId) {
-    return "single_purchase";
+    return { productCode: "pro_monthly", purchaseKind: "single_purchase" };
   }
   return null;
+}
+
+function getAppleSubscriptionProductId(
+  config: { plusProductId: string | null; proProductId: string },
+  productCode: PaymentProductCode
+): string | null {
+  return productCode === "plus_monthly" ? config.plusProductId : config.proProductId;
 }
 
 function createAppleAppAccountToken(userId: string): string {
@@ -811,7 +841,10 @@ function sameAppleAppAccountToken(left: string | null, right: string | null): bo
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
-function resolveApplePaymentOrderAmount(transaction: { price: number | null; currency: string | null }): {
+function resolveApplePaymentOrderAmount(
+  transaction: { price: number | null; currency: string | null },
+  productCode: PaymentProductCode
+): {
   amount: number;
   source: "apple_transaction" | "runtime_config";
 } {
@@ -825,7 +858,10 @@ function resolveApplePaymentOrderAmount(transaction: { price: number | null; cur
   }
 
   return {
-    amount: getRuntimeConfig().payment.proMonthlyPriceCents,
+    amount:
+      productCode === "plus_monthly"
+        ? getRuntimeConfig().payment.plusMonthlyPriceCents
+        : getRuntimeConfig().payment.proMonthlyPriceCents,
     source: "runtime_config",
   };
 }

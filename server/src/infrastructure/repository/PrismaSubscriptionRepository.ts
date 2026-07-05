@@ -2,6 +2,7 @@
 
 import type {
   CreateSubscriptionInput,
+  SubscriptionPlan,
   SubscriptionEntity,
   SubscriptionRepository,
 } from "@lf/core/ports/repository/SubscriptionRepository.js";
@@ -65,7 +66,7 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
   private toEntity(row: {
     id: string;
     userId: string;
-    plan: "pro_monthly";
+    plan: SubscriptionPlan;
     status: "active" | "expired" | "cancelled";
     startedAt: Date;
     expiresAt: Date;

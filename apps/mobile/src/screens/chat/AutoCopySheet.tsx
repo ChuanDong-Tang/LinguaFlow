@@ -10,10 +10,11 @@ type AutoCopySheetProps = {
   contact: ChatContact;
   autoCopyEnabled: boolean;
   selectedMode: AutoCopyMode;
+  autoClozeEnabled: boolean;
   companionMode: CompanionMode;
   onClose: () => void;
-  onSetAutoCopyEnabled: (enabled: boolean) => void;
   onSelectMode: (mode: AutoCopyMode) => void;
+  onSetAutoClozeEnabled: (enabled: boolean) => void;
   onSelectCompanionMode: (mode: CompanionMode) => void;
 };
 
@@ -23,19 +24,38 @@ type AutoCopyOption = {
   description: string;
 };
 
-function getAutoCopyOptions(contact: ChatContact): AutoCopyOption[] {
+function getAutoCopyOptions(companionMode: CompanionMode): AutoCopyOption[] {
+  const options: AutoCopyOption[] = [
+    { mode: "none", label: t("chat.autocopy.copy_none"), description: t("chat.autocopy.copy_none_desc") },
+    { mode: "rewrite", label: t("chat.autocopy.copy_rewrite"), description: t("chat.autocopy.copy_rewrite_desc") },
+  ];
+  if (companionMode === "native_note") {
+    options.push({ mode: "note", label: t("chat.autocopy.copy_restatement"), description: t("chat.autocopy.copy_restatement_desc") });
+  }
+  if (companionMode === "simple_reply") {
+    options.push({ mode: "reply", label: t("chat.autocopy.copy_reply"), description: t("chat.autocopy.copy_reply_desc") });
+  }
+  return options;
+}
+
+function normalizeSelectedMode(mode: AutoCopyMode, companionMode: CompanionMode): AutoCopyMode {
+  if (mode === "all") return "rewrite";
+  if (mode === "note" && companionMode !== "native_note") return "none";
+  if (mode === "reply" && companionMode !== "simple_reply") return "none";
+  return mode;
+}
+
+function getLegacyAutoCopyOptions(contact: ChatContact): AutoCopyOption[] {
   if (contact.id === "english_friend") {
     return [
-      { mode: "en", label: t("chat.autocopy.copy_question"), description: t("chat.autocopy.copy_question_desc") },
-      { mode: "zh", label: t("chat.autocopy.copy_reply"), description: t("chat.autocopy.copy_reply_desc") },
-      { mode: "both", label: t("chat.autocopy.copy_both"), description: t("chat.autocopy.copy_both_question_desc") },
+      { mode: "rewrite", label: t("chat.autocopy.copy_rewrite"), description: t("chat.autocopy.copy_rewrite_desc") },
+      { mode: "reply", label: t("chat.autocopy.copy_reply"), description: t("chat.autocopy.copy_reply_desc") },
     ];
   }
 
   return [
-    { mode: "en", label: t("chat.autocopy.copy_expression"), description: t("chat.autocopy.copy_expression_desc") },
-    { mode: "zh", label: t("chat.autocopy.copy_note"), description: t("chat.autocopy.copy_note_desc") },
-    { mode: "both", label: t("chat.autocopy.copy_both"), description: t("chat.autocopy.copy_both_expression_desc") },
+    { mode: "rewrite", label: t("chat.autocopy.copy_rewrite"), description: t("chat.autocopy.copy_rewrite_desc") },
+    { mode: "note", label: t("chat.autocopy.copy_restatement"), description: t("chat.autocopy.copy_restatement_desc") },
   ];
 }
 
@@ -44,14 +64,16 @@ export function AutoCopySheet({
   contact,
   autoCopyEnabled,
   selectedMode,
+  autoClozeEnabled,
   companionMode,
   onClose,
-  onSetAutoCopyEnabled,
   onSelectMode,
+  onSetAutoClozeEnabled,
   onSelectCompanionMode,
 }: AutoCopySheetProps) {
-  const options = getAutoCopyOptions(contact);
   const showCompanionMode = contact.capabilities?.companionMode === true;
+  const options = showCompanionMode ? getAutoCopyOptions(companionMode) : getLegacyAutoCopyOptions(contact);
+  const normalizedSelectedMode = autoCopyEnabled ? normalizeSelectedMode(selectedMode, companionMode) : "none";
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -95,61 +117,53 @@ export function AutoCopySheet({
 
           <View style={styles.toggleRow}>
             <View style={styles.toggleTextWrap}>
-              <Text style={styles.toggleLabel}>{t("chat.autocopy.toggle")}</Text>
+              <Text style={styles.toggleLabel}>{t("chat.autocloze.toggle")}</Text>
               <Text style={styles.toggleDescription}>
-                {t("chat.autocopy.desc")}
+                {t("chat.autocloze.desc")}
               </Text>
             </View>
             <Switch
-              value={autoCopyEnabled}
-              onValueChange={onSetAutoCopyEnabled}
+              value={autoClozeEnabled}
+              onValueChange={onSetAutoClozeEnabled}
               trackColor={{ false: "#D5DAE4", true: "#C8C0FF" }}
-              thumbColor={autoCopyEnabled ? "#8E7BFF" : "#FFFFFF"}
+              thumbColor={autoClozeEnabled ? "#8E7BFF" : "#FFFFFF"}
             />
           </View>
 
+          <Text style={styles.sectionLabel}>{t("chat.autocopy.title")}</Text>
           <View style={styles.options}>
             {options.map((option) => {
-              const selected = selectedMode === option.mode;
+              const selected = normalizedSelectedMode === option.mode;
 
               return (
                 <Pressable
                   key={option.mode}
                   style={[
                     styles.option,
-                    selected && autoCopyEnabled && styles.optionSelected,
-                    !autoCopyEnabled && styles.optionDisabled,
+                    selected && styles.optionSelected,
                   ]}
                   onPress={() => onSelectMode(option.mode)}
-                  disabled={!autoCopyEnabled}
                 >
                   <View style={styles.optionTextWrap}>
                     <Text
                       style={[
                         styles.optionLabel,
-                        selected && autoCopyEnabled && styles.optionLabelSelected,
-                        !autoCopyEnabled && styles.optionTextDisabled,
+                        selected && styles.optionLabelSelected,
                       ]}
                     >
                       {option.label}
                     </Text>
-                    <Text
-                      style={[
-                        styles.optionDescription,
-                        !autoCopyEnabled && styles.optionTextDisabled,
-                      ]}
-                    >
+                    <Text style={styles.optionDescription}>
                       {option.description}
                     </Text>
                   </View>
                   <View
                     style={[
                       styles.radio,
-                      selected && autoCopyEnabled && styles.radioSelected,
-                      !autoCopyEnabled && styles.radioDisabled,
+                      selected && styles.radioSelected,
                     ]}
                   >
-                    {selected && autoCopyEnabled ? (
+                    {selected ? (
                       <Ionicons name="checkmark" size={14} color="#FFFFFF" />
                     ) : null}
                   </View>

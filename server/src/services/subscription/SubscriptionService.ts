@@ -6,16 +6,21 @@ import type {
 import { addCalendarMonthsClamped } from "../time/calendarMath.js";
 
 export type CurrentSubscriptionPlan = SubscriptionPlan | "free";
+export type MembershipTier = "free" | "plus" | "pro";
 
 export interface CurrentSubscriptionView {
   plan: CurrentSubscriptionPlan;
+  tier: MembershipTier;
   isPro: boolean;
+  isPlus: boolean;
+  isMember: boolean;
   expiresAt: Date | null;
   subscription: SubscriptionEntity | null;
 }
 
-export interface OpenOrRenewProInput {
+export interface OpenOrRenewMembershipInput {
   userId: string;
+  plan: SubscriptionPlan;
   sourceOrderId: string;
   months?: number;
   now?: Date;
@@ -23,7 +28,7 @@ export interface OpenOrRenewProInput {
   periodEnd?: Date | null;
 }
 
-export interface OpenOrRenewProResult {
+export interface OpenOrRenewMembershipResult {
   subscription: SubscriptionEntity;
   alreadyApplied: boolean;
 }
@@ -41,15 +46,23 @@ export class SubscriptionService {
     if (!subscription) {
       return {
         plan: "free",
+        tier: "free",
         isPro: false,
+        isPlus: false,
+        isMember: false,
         expiresAt: null,
         subscription: null,
       };
     }
+    const tier = tierForPlan(subscription.plan);
 
     return {
       plan: subscription.plan,
-      isPro: subscription.plan === "pro_monthly",
+      tier,
+      // Legacy compatibility: old clients use isPro as "has paid membership".
+      isPro: tier !== "free",
+      isPlus: tier === "plus",
+      isMember: tier !== "free",
       expiresAt: subscription.expiresAt,
       subscription,
     };
@@ -60,7 +73,7 @@ export class SubscriptionService {
   }
 
   /** 支付成功后开通或续期 Pro；sourceOrderId 保证同一订单不会重复发权益。 */
-  async openOrRenewPro(input: OpenOrRenewProInput): Promise<OpenOrRenewProResult> {
+  async openOrRenewMembership(input: OpenOrRenewMembershipInput): Promise<OpenOrRenewMembershipResult> {
     const months = input.months ?? 1;
     const now = input.now ?? new Date();
 
@@ -91,7 +104,7 @@ export class SubscriptionService {
 
     const subscription = await this.subscriptionRepository.create({
       userId: input.userId,
-      plan: "pro_monthly",
+      plan: input.plan,
       status: "active",
       startedAt,
       expiresAt,
@@ -103,6 +116,10 @@ export class SubscriptionService {
       alreadyApplied: false,
     };
   }
+}
+
+function tierForPlan(plan: SubscriptionPlan): MembershipTier {
+  return plan === "plus_monthly" ? "plus" : "pro";
 }
 
 function resolveGrantStart(input: {

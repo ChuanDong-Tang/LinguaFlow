@@ -4,8 +4,10 @@ import { getCurrentEntitlement } from "../api/meApi";
 import { startChatGenerationStream } from "./chatGenerationStream";
 import type { ChatGenerationStreamEvent } from "./streamClient";
 import { hasLocalProAccess } from "../entitlement/proAccess";
-import type { ChatMessage } from "../../domain/chat/types";
+import type { ChatMessage, ClozeState } from "../../domain/chat/types";
 import { toDateKey } from "../../domain/chat/messageState";
+import { getChatContact } from "../../domain/chat/contacts";
+import { createAutoClozeState } from "../../domain/cloze/autoCloze";
 import { t, tf } from "../../i18n";
 
 const ENABLE_DEBUG_PROMPT_PANEL = process.env.EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL === "true";
@@ -29,11 +31,15 @@ export type RunChatGenerationInput = {
   isStopRequested?: () => boolean;
   onConversationReady?: (conversationId: string) => void;
   onUpdateMessage: (clientId: string, updater: (message: ChatMessage) => ChatMessage) => void;
+  autoClozeAfterGeneration?: boolean;
 };
 
 export type RunChatGenerationResult = {
   status: ChatGenerationStatus;
   assistantText: string;
+  assistantMessageId?: string;
+  autoClozeState?: ClozeState | null;
+  autoClozeBaseVersion?: number;
   errorMessage?: string;
 };
 
@@ -84,11 +90,30 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   let pendingDelta = "";
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let streamDoneEvent: Extract<ChatGenerationStreamEvent, { type: "done" }> | null = null;
+  let completedAssistantMessageId: string | undefined;
+  let completedAutoClozeState: ClozeState | null | undefined;
+  let completedAutoClozeBaseVersion: number | undefined;
   let resolveTypingDrain: (() => void) | null = null;
   const FLUSH_INTERVAL_MS = 35;
   const MAX_CHARS_PER_FLUSH = 4;
 
   const markSucceeded = (event: Extract<ChatGenerationStreamEvent, { type: "done" }>) => {
+    const finalText = event.assistantMessage?.content || assistantText;
+    const baseClozeState = event.assistantMessage?.clozeState ?? null;
+    const baseClozeVersion = event.assistantMessage?.clozeVersion ?? 0;
+    const autoClozeState = input.autoClozeAfterGeneration && !baseClozeState
+      ? createAutoClozeState(
+          {
+            text: finalText,
+            languageCode: event.assistantMessage?.languageCode ?? null,
+            clozeState: baseClozeState,
+          },
+          getChatContact(input.contactId),
+        )
+      : null;
+    completedAssistantMessageId = event.assistantMessage?.id;
+    completedAutoClozeState = autoClozeState;
+    completedAutoClozeBaseVersion = baseClozeVersion;
     if (userMessageClientId) {
       input.onUpdateMessage(userMessageClientId, (row) => ({ ...row, status: "success" }));
     }
@@ -97,8 +122,8 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       id: event.assistantMessage?.id ?? row.id,
       serverId: event.assistantMessage?.id ?? row.serverId ?? null,
       status: "success",
-      clozeState: event.assistantMessage?.clozeState ?? row.clozeState ?? null,
-      clozeVersion: event.assistantMessage?.clozeVersion ?? row.clozeVersion ?? 0,
+      clozeState: baseClozeState ?? row.clozeState ?? autoClozeState ?? null,
+      clozeVersion: autoClozeState ? baseClozeVersion + 1 : baseClozeVersion,
       retryText: input.text,
       retryCount: input.retryCount,
       retrySystemPrompt: requestSystemPrompt,
@@ -162,7 +187,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
 
     const localPro = await hasLocalProAccess();
     const entitlement = localPro ? await getCurrentEntitlement().catch(() => null) : null;
-    const cloud = entitlement?.isPro === true
+    const cloud = (entitlement?.features?.cloudSync ?? entitlement?.isMember ?? entitlement?.isPro) === true
       ? await sendMessageToCloud({
           text: input.text,
           contactId: input.contactId,
@@ -237,7 +262,13 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       };
     }
 
-    return { status: "success", assistantText };
+    return {
+      status: "success",
+      assistantText,
+      assistantMessageId: completedAssistantMessageId,
+      autoClozeState: completedAutoClozeState ?? null,
+      autoClozeBaseVersion: completedAutoClozeBaseVersion,
+    };
   } catch (error) {
     if (flushTimer) {
       clearTimeout(flushTimer);

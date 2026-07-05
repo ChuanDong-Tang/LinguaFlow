@@ -55,7 +55,7 @@ export class PaymentEntitlementRefreshService {
               await this.paymentEntitlementService.grantAfterPayment({
                 userId: order.userId,
                 sourceOrderId: order.id,
-                productCode: "pro_monthly",
+                productCode: order.productCode,
                 channel: "wechat",
                 grantMode: "fixed_duration",
               });
@@ -65,7 +65,7 @@ export class PaymentEntitlementRefreshService {
               await this.benefitGrantService.enqueueGrant({
                 userId: order.userId,
                 sourceOrderId: order.id,
-                productCode: "pro_monthly",
+                productCode: order.productCode,
                 channel: "wechat",
                 payload: createEntitlementGrantPayload({
                   fallbackReason: "sync_grant_failed",

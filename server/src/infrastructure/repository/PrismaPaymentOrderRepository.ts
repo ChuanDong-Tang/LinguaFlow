@@ -4,7 +4,7 @@ import type {
   PaymentOrderEntity,
   PaymentOrderRepository,
 } from "@lf/core/ports/repository/PaymentOrderRepository.js";
-import type { PaymentProviderName } from "@lf/core/ports/payment/PaymentTypes.js";
+import type { PaymentProductCode, PaymentProviderName } from "@lf/core/ports/payment/PaymentTypes.js";
 
 type PrismaPaymentOrderClient = {
   paymentOrder: {
@@ -22,7 +22,7 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
 
   async findRecentPending(input: {
     userId: string;
-    productCode: "pro_monthly";
+    productCode: PaymentProductCode;
     provider: "wechat";
     since: Date;
   }): Promise<PaymentOrderEntity | null> {
@@ -98,7 +98,7 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
 
   async findPendingByUserProductProvider(input: {
     userId: string;
-    productCode: "pro_monthly";
+    productCode: PaymentProductCode;
     provider: "wechat";
   }): Promise<PaymentOrderEntity | null> {
     // 配合 payment_orders 的 pending 部分唯一索引使用：
@@ -205,7 +205,7 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
   private toEntity(row: {
     id: string;
     userId: string;
-    productCode: "pro_monthly";
+    productCode: PaymentProductCode;
     provider: PaymentProviderName;
     providerOrderId: string;
     amount: number;

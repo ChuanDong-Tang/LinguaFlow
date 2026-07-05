@@ -78,7 +78,7 @@ export function DictionaryPopover({
                 textStart={textStart}
                 textEnd={textEnd}
                 size={18}
-                color="#6A5CFF"
+                color="#4D5361"
                 style={styles.ttsButton}
               />
             ) : null}
@@ -96,7 +96,7 @@ export function DictionaryPopover({
         >
           {loading ? (
             <View style={styles.loadingRow}>
-              <ActivityIndicator size="small" color="#6A5CFF" />
+              <ActivityIndicator size="small" color="#6F7684" />
               <Text style={styles.loadingText}>{t("dictionary.loading")}</Text>
             </View>
           ) : error ? (
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(17, 17, 17, 0.08)",
+    backgroundColor: "rgba(17, 17, 17, 0.05)",
   },
   card: {
     position: "absolute",
@@ -158,10 +158,10 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 12,
     shadowColor: "#111111",
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
   },
   headerRow: {
     flexDirection: "row",
@@ -171,10 +171,10 @@ const styles = StyleSheet.create({
   },
   term: {
     flex: 1,
-    color: "#4E3EFF",
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: "700",
+    color: "#111111",
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: "600",
     letterSpacing: 0,
   },
   headerActions: {
@@ -221,8 +221,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
-    backgroundColor: "#EFECFF",
-    color: "#5A49F6",
+    backgroundColor: "#F1F3F7",
+    color: "#5E6573",
     fontSize: 11,
     fontWeight: "600",
     letterSpacing: 0,
@@ -253,8 +253,10 @@ const styles = StyleSheet.create({
   uiToggle: {
     marginTop: 14,
     minHeight: 40,
-    borderRadius: 12,
-    backgroundColor: "#F4F2FF",
+    borderRadius: 10,
+    backgroundColor: "#F7F8FB",
+    borderWidth: 1,
+    borderColor: "#E6E9F0",
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",

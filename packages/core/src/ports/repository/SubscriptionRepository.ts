@@ -1,6 +1,6 @@
 /** SubscriptionRepository：定义订阅数据读写接口（会员订阅状态流转）。 */
 
-export type SubscriptionPlan = "pro_monthly";
+export type SubscriptionPlan = "plus_monthly" | "pro_monthly";
 
 export type SubscriptionStatus = "active" | "expired" | "cancelled";
 

@@ -12,7 +12,7 @@ export type AutoRenewStatus =
 
 export type AutoRenewChargeStatus = "scheduled" | "pending" | "paid" | "failed" | "refunded";
 
-export type AutoRenewProductCode = "pro_monthly";
+export type AutoRenewProductCode = "plus_monthly" | "pro_monthly";
 
 export interface AutoRenewSubscriptionEntity {
   id: string;

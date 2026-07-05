@@ -85,7 +85,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onLogou
   }, [isActive, isMounted]);
 
   const quota = useMemo(() => {
-    const dailyTotalLimit = entitlement?.dailyTotalLimit ?? (session?.sessionFlags?.isPro ? 100000 : 10000);
+    const dailyTotalLimit = entitlement?.dailyTotalLimit ?? (session?.sessionFlags?.isPro ? 10000 : 10000);
     const remainingChars = entitlement?.remainingChars ?? null;
     const ratio = remainingChars === null || dailyTotalLimit <= 0 ? 0 : remainingChars / dailyTotalLimit;
 
@@ -95,10 +95,11 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onLogou
 
   const userName = resolveUserName(session);
   const isAdmin = session?.user.role === "admin";
-  const planLabel = (entitlement?.isPro ?? session?.sessionFlags?.isPro === true) ? t("me.plan.pro") : t("me.plan.free");
-  const quotaTitle = entitlement?.isPro ? t("me.quota.pro_title") : t("me.quota.free_title");
-  const quotaLabel = entitlement?.isPro ? t("me.quota.pro_label") : t("me.quota.free_label");
-  const quotaResetText = entitlement?.isPro
+  const isMember = entitlement ? (entitlement.isMember ?? entitlement.isPro) : session?.sessionFlags?.isPro === true;
+  const planLabel = resolvePlanLabel(entitlement, session);
+  const quotaTitle = isMember ? t("me.quota.pro_title") : t("me.quota.free_title");
+  const quotaLabel = isMember ? t("me.quota.pro_label") : t("me.quota.free_label");
+  const quotaResetText = isMember
     ? t("me.quota.reset_daily")
     : entitlement?.validUntil
       ? tf("me.quota.valid_until", { time: formatDateTime(entitlement.validUntil) })
@@ -751,6 +752,14 @@ function promptStyleLabel(value: PromptStyle, learningLanguage: LearningLanguage
     return t(learningLanguage === "ja-JP" ? "prompt_style.native_casual.ja" : "prompt_style.native_casual.en");
   }
   return t("prompt_style.standard");
+}
+
+function resolvePlanLabel(entitlement: CurrentEntitlement | null, session: AuthSession | null): string {
+  if (entitlement?.tier === "plus") return t("me.plan.plus");
+  if (entitlement?.tier === "pro") return t("me.plan.pro");
+  if (entitlement?.isMember ?? entitlement?.isPro) return t("me.plan.member");
+  if (session?.sessionFlags?.isPro === true) return t("me.plan.member");
+  return t("me.plan.free");
 }
 
 function formatNumber(value: number): string {

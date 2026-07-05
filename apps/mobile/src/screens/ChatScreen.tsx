@@ -105,12 +105,13 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const {
     autoCopyAfterGeneration,
     autoCopyMode,
+    autoClozeAfterGeneration,
     companionModeByContactId,
     isAutoCopyMenuOpen,
     openAutoCopyMenu,
     closeAutoCopyMenu,
-    setAutoCopyAfterGeneration,
     setAutoCopyMode,
+    setAutoClozeAfterGeneration,
     setCompanionMode,
   } = useAssistantAutoCopyPreferences();
   const companionMode = companionModeByContactId[contactId] ?? contact.defaultCompanionMode ?? "rewrite_only";
@@ -291,7 +292,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const entitlement = await getCurrentEntitlement().catch(() => null);
     if (!isMountedRef.current) return;
     setRemainingChars(entitlement?.remainingChars ?? null);
-    setIsProEntitled(entitlement?.isPro === true);
+    setIsProEntitled((entitlement?.features?.highQualityTts ?? entitlement?.isMember ?? entitlement?.isPro) === true);
   }, []);
 
   // 启动初始化：加载本地权益快照，用于额度和 Pro 历史同步开关。
@@ -364,7 +365,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   const handleCopyMessage = React.useCallback(
     (message: ChatMessage, mode: AutoCopyMode) => {
-      void copyAssistantTaggedText(message.text, mode, false, contact.id);
+      void copyAssistantTaggedText(message.text, mode, false);
     },
     [contact.id]
   );
@@ -726,7 +727,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       conversationId,
       autoCopyAfterGeneration,
       autoCopyMode,
-      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true, contact.id),
+      autoClozeAfterGeneration,
+      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(businessTodayDate, { force: true });
@@ -781,7 +783,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       conversationId,
       autoCopyAfterGeneration,
       autoCopyMode,
-      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true, contact.id),
+      autoClozeAfterGeneration,
+      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(retryDate, { force: true });
@@ -958,9 +961,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       localPro ? getCurrentEntitlement().catch(() => null) : Promise.resolve(null),
     ]);
     const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
-    const isPro = entitlement?.isPro === true;
+    const canCloudSync = (entitlement?.features?.cloudSync ?? entitlement?.isMember ?? entitlement?.isPro) === true;
     if (!isMountedRef.current) return { synced: false, changed: false };
-    setIsProEntitled(isPro);
+    setIsProEntitled((entitlement?.features?.highQualityTts ?? entitlement?.isMember ?? entitlement?.isPro) === true);
     const dateKey = toDateKey(d);
     const reqId = ++syncSeqRef.current;
     latestSyncReqByDateRef.current[dateKey] = reqId;
@@ -971,7 +974,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return { synced: true, changed: false };
     }
 
-    if (!isPro) return { synced: false, changed: false };
+    if (!canCloudSync) return { synced: false, changed: false };
 
     // 这里只推进 day 业务状态，不负责弹什么提示；提示逻辑在 syncDateQuietly 里统一做。
     if (options?.syncToken) {
@@ -1317,11 +1320,21 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         contact={contact}
         autoCopyEnabled={autoCopyAfterGeneration}
         selectedMode={autoCopyMode}
+        autoClozeEnabled={autoClozeAfterGeneration}
         companionMode={companionMode}
         onClose={closeAutoCopyMenu}
-        onSetAutoCopyEnabled={setAutoCopyAfterGeneration}
         onSelectMode={setAutoCopyMode}
-        onSelectCompanionMode={(mode) => setCompanionMode(contactId, mode)}
+        onSetAutoClozeEnabled={setAutoClozeAfterGeneration}
+        onSelectCompanionMode={(mode) => {
+          setCompanionMode(contactId, mode);
+          if (
+            autoCopyMode === "all" ||
+            (autoCopyMode === "note" && mode !== "native_note") ||
+            (autoCopyMode === "reply" && mode !== "simple_reply")
+          ) {
+            setAutoCopyMode("none");
+          }
+        }}
       />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
       <DictionaryPopover
