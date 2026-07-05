@@ -15,6 +15,7 @@ export type PracticeCard = {
   dateKey: string;
   text: string;
   translation: string;
+  userOriginalText: string;
   sourceText: string;
   languageCode: string;
   textStart: number;
@@ -56,7 +57,8 @@ export function buildPracticeCards(
     });
     if (!sourceText) continue;
     const tokens = tokenizeForCloze(sourceText);
-    const translation = clozeText.translation || findPreviousUserText(messages, i);
+    const userOriginalText = findPreviousUserText(messages, i);
+    const translation = clozeText.translation;
     const dateKey = getMessageDateKey(message);
     const phraseTokenIndexes = new Set<number>();
     const blankTokenIndexes = new Set<number>();
@@ -79,6 +81,7 @@ export function buildPracticeCards(
       dateKey,
       text: sourceText,
       translation,
+      userOriginalText,
       sourceText,
       languageCode: sourceLanguageCode,
       textStart: 0,
