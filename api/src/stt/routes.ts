@@ -11,6 +11,9 @@ import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 
+const STT_START_TIMEOUT_MS = 10_000;
+const STT_MAX_AUDIO_FRAME_BYTES = 64 * 1024;
+
 type RealtimeStartMessage = {
   type: "start";
   sessionId: string;
@@ -56,6 +59,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
     let settled = false;
     let authenticated = false;
     let maxSessionTimer: ReturnType<typeof setTimeout> | null = null;
+    let startTimer: ReturnType<typeof setTimeout> | null = null;
 
     const sendJson = (message: Record<string, unknown>) => {
       if (socket.readyState !== socket.OPEN) return;
@@ -79,8 +83,16 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
         clearTimeout(maxSessionTimer);
         maxSessionTimer = null;
       }
+      if (startTimer) {
+        clearTimeout(startTimer);
+        startTimer = null;
+      }
       try {
-        await sttSession?.stop();
+        const stopped = await sttSession?.stop();
+        if (stopped?.finalText) {
+          finalText = stopped.finalText;
+          transcriptChars = finalText.length;
+        }
       } catch {
         sttSession?.close();
       }
@@ -134,6 +146,9 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
         }
         authenticated = true;
         sendJson({ type: "hello", requestId });
+        startTimer = setTimeout(() => {
+          void closeWithError("STT_START_TIMEOUT", "STT session did not start in time.");
+        }, STT_START_TIMEOUT_MS);
       } catch (error) {
         if (error instanceof UnauthorizedError) {
           await closeWithError(error.code, error.message);
@@ -182,6 +197,10 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
           return;
         }
         if (sttSession) return;
+        if (startTimer) {
+          clearTimeout(startTimer);
+          startTimer = null;
+        }
         sessionId = message.sessionId;
         sttSession = await deps.sttService.startRealtimeSession({
           sampleRate: message.sampleRate,
@@ -225,6 +244,10 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
 
     function handleAudioBuffer(buffer: Buffer): void {
       if (!sttSession) return;
+      if (buffer.byteLength > STT_MAX_AUDIO_FRAME_BYTES) {
+        void closeWithError("STT_AUDIO_FRAME_TOO_LARGE", "STT audio frame is too large.");
+        return;
+      }
       audioBytes += buffer.byteLength;
       sttSession.write(toArrayBuffer(buffer));
       const audioDurationMs = estimatePcmDurationMs(audioBytes, 16000, 1, 16);

@@ -3,6 +3,7 @@ import type {
   RealtimeSttSession,
   StartRealtimeSttInput,
   SttProvider,
+  StopRealtimeSttSessionResult,
 } from "../../services/stt/SttProvider.js";
 
 type SpeechSdkModule = typeof SpeechSDKTypes;
@@ -40,6 +41,7 @@ export class AzureGlobalSttProvider implements SttProvider {
       ? SpeechSDK.LanguageIdMode.Continuous
       : SpeechSDK.LanguageIdMode.AtStart;
     const recognizer = SpeechSDK.SpeechRecognizer.FromConfig(speechConfig, languageConfig, audioConfig);
+    let finalText = "";
 
     recognizer.recognizing = (_sender, event) => {
       const text = String(event.result.text ?? "").trim();
@@ -53,6 +55,7 @@ export class AzureGlobalSttProvider implements SttProvider {
     recognizer.recognized = (_sender, event) => {
       const text = String(event.result.text ?? "").trim();
       if (!text) return;
+      finalText = joinTranscript(finalText, text);
       input.onEvent({
         type: "final",
         text,
@@ -76,12 +79,13 @@ export class AzureGlobalSttProvider implements SttProvider {
         if (closed) return;
         pushStream.write(chunk);
       },
-      async stop() {
-        if (closed) return;
+      async stop(): Promise<StopRealtimeSttSessionResult> {
+        if (closed) return { finalText };
         closed = true;
         pushStream.close();
         await stopContinuousRecognition(recognizer);
         recognizer.close();
+        return { finalText };
       },
       close() {
         if (closed) return;
@@ -91,6 +95,13 @@ export class AzureGlobalSttProvider implements SttProvider {
       },
     };
   }
+}
+
+function joinTranscript(current: string, next: string): string {
+  const text = next.trim();
+  if (!text) return current;
+  if (!current) return text;
+  return `${current} ${text}`;
 }
 
 async function loadSpeechSdk(): Promise<SpeechSdkModule> {

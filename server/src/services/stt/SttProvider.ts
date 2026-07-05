@@ -27,9 +27,13 @@ export type StartRealtimeSttInput = {
   onEvent: (event: SttRecognitionEvent) => void;
 };
 
+export type StopRealtimeSttSessionResult = {
+  finalText: string;
+};
+
 export type RealtimeSttSession = {
   write: (chunk: ArrayBuffer) => void;
-  stop: () => Promise<void>;
+  stop: () => Promise<StopRealtimeSttSessionResult>;
   close: () => void;
 };
 

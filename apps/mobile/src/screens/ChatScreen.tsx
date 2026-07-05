@@ -520,6 +520,13 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           }
           if (event.type === "error" || event.type === "canceled") {
             console.warn("stt event", event);
+            void stopRealtimeStt();
+            showNotice({
+              message: t("stt.error.session_failed"),
+              type: "warning",
+              position: "top-right",
+              durationMs: 1800,
+            });
           }
         },
         onError: (error) => {
@@ -562,7 +569,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       sttStatusRef.current = "idle";
       setSttStatus("idle");
       showNotice({
-        message: t("stt.error.start_failed"),
+        message: t("stt.error.session_failed"),
         type: "warning",
         position: "top-right",
         durationMs: 1800,
