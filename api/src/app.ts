@@ -50,6 +50,7 @@ import { registerPaymentRoutes } from "./payment/routes.js";
 import { registerAdminRoutes } from "./admin/routes.js";
 import { registerTtsRoutes } from "./tts/routes.js";
 import { registerDictionaryRoutes } from "./dictionary/routes.js";
+import { registerSttRoutes } from "./stt/routes.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { PaymentCertSyncService } from "@lf/server/services/payment/PaymentCertSyncService.js";
 import { AutoRenewService } from "@lf/server/services/payment/AutoRenewService.js";
@@ -57,9 +58,12 @@ import { PaymentEntitlementRefreshService } from "@lf/server/services/payment/Pa
 import { getBusinessClockSnapshot } from "@lf/server/services/time/businessClock.js";
 import { TtsService } from "@lf/server/services/tts/TtsService.js";
 import { AzureGlobalTtsProvider } from "@lf/server/providers/tts/AzureGlobalTtsProvider.js";
+import { SttService } from "@lf/server/services/stt/SttService.js";
+import { AzureGlobalSttProvider } from "@lf/server/providers/stt/AzureGlobalSttProvider.js";
 import { CosStorageProvider } from "@lf/server/providers/storage/CosStorageProvider.js";
 import { ContentSafetyService } from "@lf/server/services/contentSafety/ContentSafetyService.js";
 import { TencentTmsClient } from "@lf/server/services/contentSafety/TencentTmsClient.js";
+import websocket from "@fastify/websocket";
 import type {
   CreateProviderOrderInput,
   CreateProviderOrderResult,
@@ -72,6 +76,7 @@ const prisma = new PrismaClient();
 
 export function createApp() {
   const app = Fastify({ logger: true, trustProxy: true });
+  void app.register(websocket);
   app.addHook("onReady", async () => {
     await seedSystemContacts(prisma);
   });
@@ -227,6 +232,7 @@ export function createApp() {
     ttsRequestLogRepository,
     redisClient
   );
+  const sttService = new SttService(new AzureGlobalSttProvider());
 
   registerChatStreamRoutes(app, {
     chatGenerationService,
@@ -276,6 +282,12 @@ export function createApp() {
     rateLimiter: chatGenerationRateLimiter,
     userRepository,
     userPreferenceRepository,
+    systemEventLogRepository,
+  });
+  registerSttRoutes(app, {
+    sttService,
+    rateLimiter: chatGenerationRateLimiter,
+    userRepository,
     systemEventLogRepository,
   });
   registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository });

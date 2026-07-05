@@ -19,11 +19,14 @@ type ChatComposerProps = {
   onChangeText: (text: string) => void;
   onSend: () => void;
   onStop: () => void;
+  onSttPress?: () => void;
   onFocus: () => void;
   onBlur?: () => void;
   onDisabledPress?: () => void;
   disabled: boolean;
   isSending: boolean;
+  sttStatus?: "idle" | "connecting" | "recording" | "stopping";
+  inputEditable?: boolean;
 };
 
 const COLLAPSED_MIN_HEIGHT = 50;
@@ -41,11 +44,14 @@ export function ChatComposer({
   onChangeText,
   onSend,
   onStop,
+  onSttPress,
   onFocus,
   onBlur,
   onDisabledPress,
   disabled,
   isSending,
+  sttStatus = "idle",
+  inputEditable = true,
 }: ChatComposerProps) {
   const { height: windowHeight } = useWindowDimensions();
   const [contentTextHeight, setContentTextHeight] = useState(INPUT_LINE_HEIGHT);
@@ -117,6 +123,24 @@ export function ChatComposer({
 
   return (
     <View style={styles.inputWrap}>
+      {onSttPress ? (
+        <Pressable
+          style={[
+            styles.micButton,
+            sttStatus !== "idle" && styles.micButtonActive,
+            isSending && styles.micButtonDisabled,
+          ]}
+          onPress={onSttPress}
+          disabled={isSending}
+          hitSlop={6}
+        >
+          <Ionicons
+            name={sttStatus === "recording" || sttStatus === "connecting" ? "stop" : "mic"}
+            size={24}
+            color={sttStatus === "idle" ? "#7F77F9" : "#FFFFFF"}
+          />
+        </Pressable>
+      ) : null}
       <Pressable style={[styles.inputShell, { height: shellHeight }]} onLongPress={() => void handleShowPaste()}>
         <TextInput
           style={[
@@ -128,6 +152,7 @@ export function ChatComposer({
           placeholderTextColor="#A0A4AF"
           value={value}
           onChangeText={onChangeText}
+          editable={inputEditable}
           onFocus={handleFocus}
           onBlur={handleBlur}
           onSelectionChange={handleSelectionChange}
@@ -177,8 +202,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
   },
   inputShell: {
+    flex: 1,
     minHeight: COLLAPSED_MIN_HEIGHT,
     borderRadius: 30,
     borderWidth: 1,
@@ -259,5 +288,20 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.6,
+  },
+  micButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#F0ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 0,
+  },
+  micButtonActive: {
+    backgroundColor: "#8E84FF",
+  },
+  micButtonDisabled: {
+    opacity: 0.5,
   },
 });

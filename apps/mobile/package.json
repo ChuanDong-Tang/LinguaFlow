@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
+    "@picovoice/react-native-voice-processor": "^1.2.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "11.4.1",
     "expo": "~54.0.35",

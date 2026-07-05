@@ -139,6 +139,11 @@ export interface RuntimeConfig {
   dictionaryLookupUserRateLimit: number;
   dictionaryLookupRateWindowMs: number;
   dictionaryLookupMaxOutputTokens: number;
+  sttRealtimeGlobalRateLimit: number;
+  sttRealtimeUserRateLimit: number;
+  sttRealtimeRateWindowMs: number;
+  sttRealtimeMaxSessionMs: number;
+  sttRealtimeCandidateLanguages: string[];
   ttsMessagesGlobalRateLimit: number;
   ttsMessagesGlobalRateWindowMs: number;
   ttsCostPerMillionCharsCents: number;
@@ -263,6 +268,17 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     dictionaryLookupUserRateLimit: readPositiveInt(env.DICTIONARY_LOOKUP_USER_RATE_LIMIT, 80),
     dictionaryLookupRateWindowMs: readPositiveInt(env.DICTIONARY_LOOKUP_RATE_WINDOW_MS, 60_000),
     dictionaryLookupMaxOutputTokens: readPositiveInt(env.DICTIONARY_LOOKUP_MAX_OUTPUT_TOKENS, 420),
+    sttRealtimeGlobalRateLimit: readPositiveInt(env.STT_REALTIME_GLOBAL_RATE_LIMIT, 80),
+    sttRealtimeUserRateLimit: readPositiveInt(env.STT_REALTIME_USER_RATE_LIMIT, 20),
+    sttRealtimeRateWindowMs: readPositiveInt(env.STT_REALTIME_RATE_WINDOW_MS, 60_000),
+    sttRealtimeMaxSessionMs: readPositiveInt(env.STT_REALTIME_MAX_SESSION_MS, 60_000),
+    sttRealtimeCandidateLanguages: readCsv(env.STT_REALTIME_CANDIDATE_LANGUAGES, [
+      "zh-CN",
+      "en-US",
+      "ja-JP",
+      "ko-KR",
+      "zh-TW",
+    ]),
     ttsMessagesGlobalRateLimit: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_LIMIT, 100),
     ttsMessagesGlobalRateWindowMs: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_WINDOW_MS, 60_000),
     ttsCostPerMillionCharsCents: readNonNegativeInt(env.TTS_COST_PER_1M_CHARS_CENTS, 0),

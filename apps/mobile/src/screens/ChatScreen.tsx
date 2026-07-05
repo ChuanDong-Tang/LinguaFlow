@@ -66,6 +66,9 @@ import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock"
 import { getLanguage, t, tf } from "../i18n";
 import { stopTtsAudio } from "../services/tts/ttsPlayback";
 import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
+import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api/sttRealtimeApi";
+import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
+import type { RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
 
 type ChatScreenProps = {
   contact: ChatContact;
@@ -87,6 +90,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
   const contactId = contact.id;
   const [inputText, setInputText] = useState("");
+  const [sttStatus, setSttStatus] = useState<"idle" | "connecting" | "recording" | "stopping">("idle");
   const [isSending, setIsSending] = useState(false);
   const [activeGenerationContactId, setActiveGenerationContactId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -134,6 +138,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const loadedCloudMonthKeysRef = useRef<Set<string>>(new Set());
   const isMountedRef = useRef(true);
   const dictionaryAbortRef = useRef<AbortController | null>(null);
+  const sttAudioSourceRef = useRef<RealtimeAudioSource | null>(null);
+  const sttSessionRef = useRef<RealtimeSttSession | null>(null);
+  const sttDraftBaseRef = useRef("");
+  const sttFinalTextRef = useRef("");
+  const sttPartialTextRef = useRef("");
+  const sttStatusRef = useRef<"idle" | "connecting" | "recording" | "stopping">("idle");
   const dictionaryRequestSeqRef = useRef(0);
   const isProEntitledRef = useRef(false);
   const isTodaySyncingRef = useRef(false);
@@ -193,11 +203,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     return (
       !activeGenerationContactId &&
       !isTodaySyncing &&
+      sttStatus === "idle" &&
       hasQuota &&
       inputLength >= minInputChars &&
       inputLength <= maxInputChars
     );
-  }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars]);
+  }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars, sttStatus]);
   const selectedDateKey = toDateKey(selectedDate);
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
@@ -220,6 +231,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       clozeSaveMachine.cancel();
       dictionaryAbortRef.current?.abort();
       dictionaryAbortRef.current = null;
+      void sttAudioSourceRef.current?.stop();
+      sttAudioSourceRef.current = null;
+      sttSessionRef.current?.close();
+      sttSessionRef.current = null;
       stopTtsAudio({ resetControls: true });
     };
   }, []);
@@ -238,6 +253,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   useEffect(() => {
     isTodaySyncingRef.current = isTodaySyncing;
   }, [isTodaySyncing]);
+
+  useEffect(() => {
+    sttStatusRef.current = sttStatus;
+  }, [sttStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -407,6 +426,148 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     dictionaryAbortRef.current = null;
     setDictionaryLookup(null);
   }, []);
+  const stopRealtimeStt = React.useCallback(async (options?: { discardPartial?: boolean }) => {
+    if (sttStatusRef.current === "idle") return;
+    sttStatusRef.current = "stopping";
+    setSttStatus("stopping");
+    const source = sttAudioSourceRef.current;
+    sttAudioSourceRef.current = null;
+    await source?.stop().catch((error) => {
+      console.warn("stt audio source stop failed", error);
+    });
+    const session = sttSessionRef.current;
+    sttSessionRef.current = null;
+    if (options?.discardPartial) {
+      setInputText(sttDraftBaseRef.current);
+    }
+    session?.stop();
+    setTimeout(() => {
+      if (!sttSessionRef.current && isMountedRef.current) {
+        sttStatusRef.current = "idle";
+        setSttStatus("idle");
+      }
+    }, 600);
+  }, []);
+  const handleSttPress = React.useCallback(async () => {
+    if (sttStatusRef.current !== "idle") {
+      await stopRealtimeStt();
+      return;
+    }
+    if (netInfo.isConnected !== true) {
+      Alert.alert(t("chat.error.network_send"));
+      return;
+    }
+    if (activeGenerationContactId) {
+      Alert.alert(t("chat.error.other_generating"));
+      return;
+    }
+
+    sttStatusRef.current = "connecting";
+    setSttStatus("connecting");
+    closeCopyMenuRef.current?.();
+    clearActiveSelection();
+    Keyboard.dismiss();
+    stopTtsAudio({ resetControls: true });
+
+    const source = createPicovoiceRealtimeAudioSource();
+    const hasPermission = await source.requestPermission().catch(() => false);
+    if (!hasPermission) {
+      sttStatusRef.current = "idle";
+      setSttStatus("idle");
+      Alert.alert(t("stt.permission.title"), t("stt.permission.message"));
+      return;
+    }
+
+    sttDraftBaseRef.current = inputText.trimEnd();
+    sttFinalTextRef.current = "";
+    sttPartialTextRef.current = "";
+
+    try {
+      const frameLength = 512;
+      const session = await openRealtimeSttSession({
+        frameLength,
+        onEvent: (event) => {
+          if (!isMountedRef.current) return;
+          if (event.type === "ready") {
+            sttStatusRef.current = "recording";
+            setSttStatus("recording");
+            return;
+          }
+          if (event.type === "partial") {
+            const finalText = event.finalText ?? sttFinalTextRef.current;
+            sttPartialTextRef.current = event.text;
+            setInputText(mergeSttDraft(sttDraftBaseRef.current, finalText, event.text));
+            return;
+          }
+          if (event.type === "final") {
+            sttFinalTextRef.current = event.finalText ?? mergeSttDraft("", sttFinalTextRef.current, event.text);
+            sttPartialTextRef.current = "";
+            setInputText(mergeSttDraft(sttDraftBaseRef.current, sttFinalTextRef.current, ""));
+            return;
+          }
+          if (event.type === "done") {
+            sttFinalTextRef.current = event.text || sttFinalTextRef.current;
+            setInputText(mergeSttDraft(
+              sttDraftBaseRef.current,
+              sttFinalTextRef.current || sttPartialTextRef.current,
+              ""
+            ));
+            sttPartialTextRef.current = "";
+            sttStatusRef.current = "idle";
+            setSttStatus("idle");
+            return;
+          }
+          if (event.type === "error" || event.type === "canceled") {
+            console.warn("stt event", event);
+          }
+        },
+        onError: (error) => {
+          console.warn("stt session failed", error);
+          if (!isMountedRef.current) return;
+          void stopRealtimeStt();
+          showNotice({
+            message: t("stt.error.session_failed"),
+            type: "warning",
+            position: "top-right",
+            durationMs: 1800,
+          });
+        },
+        onClose: () => {
+          if (!isMountedRef.current) return;
+          sttSessionRef.current = null;
+          sttStatusRef.current = "idle";
+          setSttStatus("idle");
+        },
+      });
+      sttSessionRef.current = session;
+      sttAudioSourceRef.current = source;
+      await source.start({
+        sampleRate: 16000,
+        frameLength,
+        onFrame: (frame) => {
+          sttSessionRef.current?.sendFrame(frame);
+        },
+        onError: (error) => {
+          console.warn("stt audio source failed", error);
+          void stopRealtimeStt();
+        },
+      });
+    } catch (error) {
+      console.warn("stt start failed", error);
+      await source.stop().catch(() => {});
+      sttAudioSourceRef.current = null;
+      sttSessionRef.current?.close();
+      sttSessionRef.current = null;
+      sttStatusRef.current = "idle";
+      setSttStatus("idle");
+      showNotice({
+        message: t("stt.error.start_failed"),
+        type: "warning",
+        position: "top-right",
+        durationMs: 1800,
+      });
+    }
+  }, [activeGenerationContactId, clearActiveSelection, inputText, netInfo.isConnected, showNotice, stopRealtimeStt]);
   const handleDictionarySelection = React.useCallback(
     (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
       const term = payload.selectedText.trim();
@@ -1090,6 +1251,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onChangeText={setInputText}
           onSend={handleSend}
           onStop={() => {}}
+          onSttPress={handleSttPress}
           onFocus={handleComposerFocus}
           onBlur={handleComposerBlur}
           onDisabledPress={() => {
@@ -1117,6 +1279,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           }}
           disabled={!canSend}
           isSending={isSending}
+          sttStatus={sttStatus}
+          inputEditable={sttStatus === "idle"}
         />
       </ChatContentFrame>
 
@@ -1175,6 +1339,13 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       />
     </SafeAreaView>
   );
+}
+
+function mergeSttDraft(base: string, finalText: string, partialText: string): string {
+  const speech = [finalText.trim(), partialText.trim()].filter(Boolean).join(" ");
+  if (!base) return speech;
+  if (!speech) return base;
+  return `${base}\n${speech}`;
 }
 
 function ChatContentFrame({
