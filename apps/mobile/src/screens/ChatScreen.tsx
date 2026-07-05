@@ -70,6 +70,8 @@ import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api
 import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
 import type { RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
 
+const STT_STOP_TIMEOUT_MS = 3_500;
+
 type ChatScreenProps = {
   contact: ChatContact;
   onBack: () => void;
@@ -145,6 +147,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const sttFinalTextRef = useRef("");
   const sttPartialTextRef = useRef("");
   const sttStatusRef = useRef<"idle" | "connecting" | "recording" | "stopping">("idle");
+  const sttStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dictionaryRequestSeqRef = useRef(0);
   const isProEntitledRef = useRef(false);
   const isTodaySyncingRef = useRef(false);
@@ -218,6 +221,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     () => Array.from(new Set((contact.historyContactIds?.length ? contact.historyContactIds : [contactId]).filter(Boolean))),
     [contact.historyContactIds, contactId],
   );
+  const clearSttStopTimeout = React.useCallback(() => {
+    if (!sttStopTimeoutRef.current) return;
+    clearTimeout(sttStopTimeoutRef.current);
+    sttStopTimeoutRef.current = null;
+  }, []);
 
   
   // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示
@@ -232,6 +240,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       clozeSaveMachine.cancel();
       dictionaryAbortRef.current?.abort();
       dictionaryAbortRef.current = null;
+      clearSttStopTimeout();
       void sttAudioSourceRef.current?.stop();
       sttAudioSourceRef.current = null;
       sttSessionRef.current?.close();
@@ -428,7 +437,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     setDictionaryLookup(null);
   }, []);
   const stopRealtimeStt = React.useCallback(async (options?: { discardPartial?: boolean }) => {
-    if (sttStatusRef.current === "idle") return;
+    if (sttStatusRef.current === "idle" || sttStatusRef.current === "stopping") return;
     sttStatusRef.current = "stopping";
     setSttStatus("stopping");
     const source = sttAudioSourceRef.current;
@@ -437,19 +446,24 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       console.warn("stt audio source stop failed", error);
     });
     const session = sttSessionRef.current;
-    sttSessionRef.current = null;
     if (options?.discardPartial) {
       setInputText(sttDraftBaseRef.current);
     }
     session?.stop();
-    setTimeout(() => {
-      if (!sttSessionRef.current && isMountedRef.current) {
-        sttStatusRef.current = "idle";
-        setSttStatus("idle");
-      }
-    }, 600);
-  }, []);
+    clearSttStopTimeout();
+    sttStopTimeoutRef.current = setTimeout(() => {
+      if (!isMountedRef.current || sttStatusRef.current !== "stopping") return;
+      sttSessionRef.current?.close();
+      sttSessionRef.current = null;
+      sttStatusRef.current = "idle";
+      setSttStatus("idle");
+      sttStopTimeoutRef.current = null;
+    }, STT_STOP_TIMEOUT_MS);
+  }, [clearSttStopTimeout]);
   const handleSttPress = React.useCallback(async () => {
+    if (sttStatusRef.current === "stopping") {
+      return;
+    }
     if (sttStatusRef.current !== "idle") {
       await stopRealtimeStt();
       return;
@@ -507,6 +521,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             return;
           }
           if (event.type === "done") {
+            clearSttStopTimeout();
             sttFinalTextRef.current = event.text || sttFinalTextRef.current;
             setInputText(mergeSttDraft(
               sttDraftBaseRef.current,
@@ -514,6 +529,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
               ""
             ));
             sttPartialTextRef.current = "";
+            sttSessionRef.current = null;
             sttStatusRef.current = "idle";
             setSttStatus("idle");
             return;
@@ -542,6 +558,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         },
         onClose: () => {
           if (!isMountedRef.current) return;
+          clearSttStopTimeout();
           sttSessionRef.current = null;
           sttStatusRef.current = "idle";
           setSttStatus("idle");
@@ -566,6 +583,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       sttAudioSourceRef.current = null;
       sttSessionRef.current?.close();
       sttSessionRef.current = null;
+      clearSttStopTimeout();
       sttStatusRef.current = "idle";
       setSttStatus("idle");
       showNotice({
@@ -575,7 +593,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         durationMs: 1800,
       });
     }
-  }, [activeGenerationContactId, clearActiveSelection, inputText, netInfo.isConnected, showNotice, stopRealtimeStt]);
+  }, [activeGenerationContactId, clearActiveSelection, clearSttStopTimeout, inputText, netInfo.isConnected, showNotice, stopRealtimeStt]);
   const handleDictionarySelection = React.useCallback(
     (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
       const term = payload.selectedText.trim();
