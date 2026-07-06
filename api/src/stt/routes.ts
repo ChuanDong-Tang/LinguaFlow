@@ -128,7 +128,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
       });
     };
 
-    void (async () => {
+    const authReady = (async () => {
       try {
         const userContext = await resolveActiveUserContext({
           authorization,
@@ -149,16 +149,18 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
         startTimer = setTimeout(() => {
           void closeWithError("STT_START_TIMEOUT", "STT session did not start in time.");
         }, STT_START_TIMEOUT_MS);
+        return true;
       } catch (error) {
         if (error instanceof UnauthorizedError) {
           await closeWithError(error.code, error.message);
-          return;
+          return false;
         }
         if (error instanceof AccountDisabledError || error instanceof AccountPendingDeleteError) {
           await closeWithError(error.code, error.message);
-          return;
+          return false;
         }
         await closeWithError("STT_AUTH_FAILED", error instanceof Error ? error.message : "STT auth failed");
+        return false;
       }
     })();
 
@@ -183,7 +185,10 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
     });
 
     socket.on("close", () => {
-      void closeSession({ status: "success" });
+      void closeSession(sessionId
+        ? { status: "success" }
+        : { status: "failed", errorCode: "STT_CLIENT_CLOSED_BEFORE_START", errorMessage: "STT client closed before start." }
+      );
     });
     socket.on("error", (error: Error) => {
       void closeSession({ status: "failed", errorCode: "STT_SOCKET_ERROR", errorMessage: error.message });
@@ -192,6 +197,8 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
     async function handleTextMessage(raw: string): Promise<void> {
       const message = JSON.parse(raw) as unknown;
       if (isRealtimeStartMessage(message)) {
+        const authenticatedReady = await authReady;
+        if (!authenticatedReady || settled) return;
         if (!authenticated || !userId) {
           await closeWithError("STT_NOT_AUTHENTICATED", "STT session is not authenticated.");
           return;
