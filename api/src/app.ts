@@ -234,97 +234,101 @@ export function createApp() {
   );
   const sttService = new SttService(new AzureGlobalSttProvider());
 
-  registerChatStreamRoutes(app, {
-    chatGenerationService,
-    userRepository,
-    chatMessageService,
-    systemEventLogRepository,
-  });
-  registerAuthRoutes(app, {
-    authProvider,
-    authLoginService,
-    accountDeletionService,
-    userRepository,
-    systemEventLogRepository,
-  });
-  registerChatRoutes(app, {
-    chatMessageService,
-    userRepository,
-    systemEventLogRepository,
-    contentSafetyService,
-    entitlementService,
-    rateLimiter: chatGenerationRateLimiter,
-  });
-  registerMeRoutes(app, {
-    subscriptionService,
-    entitlementService,
-    paymentEntitlementRefreshService,
-    userPreferenceRepository,
-    userRepository,
-    systemEventLogRepository,
-  });
-  registerPaymentRoutes(app, {
-    paymentOrderService,
-    paymentNotifyService,
-    autoRenewService,
-    appleIapService,
-    userRepository,
-    systemEventLogRepository,
-  });
-  registerTtsRoutes(app, {
-    ttsService,
-    rateLimiter: chatGenerationRateLimiter,
-    userRepository,
-    systemEventLogRepository,
-  });
-  registerDictionaryRoutes(app, {
-    aiProvider,
-    rateLimiter: chatGenerationRateLimiter,
-    userRepository,
-    userPreferenceRepository,
-    systemEventLogRepository,
-  });
-  registerSttRoutes(app, {
-    sttService,
-    rateLimiter: chatGenerationRateLimiter,
-    userRepository,
-    systemEventLogRepository,
-  });
-  registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository });
+  app.after((error) => {
+    if (error) throw error;
 
-  app.get("/health", async (_req, reply) => {
-    const db = await prisma
-      .$queryRaw`SELECT 1`
-      .then(() => ({ ok: true }))
-      .catch((error: unknown) => ({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      }));
-    const redis = redisClient
-      ? await redisClient
-          .ping()
-          .then(() => ({ ok: true }))
-          .catch((error) => ({
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          }))
-      : { ok: true, skipped: true };
-    const ok = db.ok && redis.ok;
-
-    return reply.status(ok ? 200 : 503).send({
-      ok,
-      data: {
-        api: { ok: true },
-        db,
-        redis,
-      },
+    registerChatStreamRoutes(app, {
+      chatGenerationService,
+      userRepository,
+      chatMessageService,
+      systemEventLogRepository,
     });
-  });
+    registerAuthRoutes(app, {
+      authProvider,
+      authLoginService,
+      accountDeletionService,
+      userRepository,
+      systemEventLogRepository,
+    });
+    registerChatRoutes(app, {
+      chatMessageService,
+      userRepository,
+      systemEventLogRepository,
+      contentSafetyService,
+      entitlementService,
+      rateLimiter: chatGenerationRateLimiter,
+    });
+    registerMeRoutes(app, {
+      subscriptionService,
+      entitlementService,
+      paymentEntitlementRefreshService,
+      userPreferenceRepository,
+      userRepository,
+      systemEventLogRepository,
+    });
+    registerPaymentRoutes(app, {
+      paymentOrderService,
+      paymentNotifyService,
+      autoRenewService,
+      appleIapService,
+      userRepository,
+      systemEventLogRepository,
+    });
+    registerTtsRoutes(app, {
+      ttsService,
+      rateLimiter: chatGenerationRateLimiter,
+      userRepository,
+      systemEventLogRepository,
+    });
+    registerDictionaryRoutes(app, {
+      aiProvider,
+      rateLimiter: chatGenerationRateLimiter,
+      userRepository,
+      userPreferenceRepository,
+      systemEventLogRepository,
+    });
+    registerSttRoutes(app, {
+      sttService,
+      rateLimiter: chatGenerationRateLimiter,
+      userRepository,
+      systemEventLogRepository,
+    });
+    registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository });
 
-  app.get("/clock", async (_req, reply) => {
-    return reply.status(200).send({
-      ok: true,
-      data: getBusinessClockSnapshot(),
+    app.get("/health", async (_req, reply) => {
+      const db = await prisma
+        .$queryRaw`SELECT 1`
+        .then(() => ({ ok: true }))
+        .catch((error: unknown) => ({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      const redis = redisClient
+        ? await redisClient
+            .ping()
+            .then(() => ({ ok: true }))
+            .catch((error) => ({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }))
+        : { ok: true, skipped: true };
+      const ok = db.ok && redis.ok;
+
+      return reply.status(ok ? 200 : 503).send({
+        ok,
+        data: {
+          api: { ok: true },
+          db,
+          redis,
+        },
+      });
+    });
+
+    app.get("/clock", async (_req, reply) => {
+      return reply.status(200).send({
+        ok: true,
+        data: getBusinessClockSnapshot(),
+      });
     });
   });
 
