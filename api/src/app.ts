@@ -6,6 +6,7 @@ import { PrismaUserPreferenceRepository } from "@lf/server/infrastructure/reposi
 import { PrismaUserSessionRepository } from "@lf/server/infrastructure/repository/PrismaUserSessionRepository.js";
 import { PrismaTtsAssetRepository } from "@lf/server/infrastructure/repository/PrismaTtsAssetRepository.js";
 import { PrismaTtsRequestLogRepository } from "@lf/server/infrastructure/repository/PrismaTtsRequestLogRepository.js";
+import { PrismaSttRequestLogRepository } from "@lf/server/infrastructure/repository/PrismaSttRequestLogRepository.js";
 import { AuthLoginService } from "@lf/server/services/auth/AuthLoginService.js";
 import { AccountDeletionService } from "@lf/server/services/auth/AccountDeletionService.js";
 import { registerAuthRoutes } from "./auth/routes.js";
@@ -118,6 +119,7 @@ export function createApp() {
   const userSessionRepository = new PrismaUserSessionRepository(prisma);
   const ttsAssetRepository = new PrismaTtsAssetRepository(prisma);
   const ttsRequestLogRepository = new PrismaTtsRequestLogRepository(prisma);
+  const sttRequestLogRepository = new PrismaSttRequestLogRepository(prisma);
   const authLoginService = new AuthLoginService(userRepository, userSessionRepository);
   const accountDeletionService = new AccountDeletionService(userRepository, userSessionRepository);
   const runtimeConfig = getRuntimeConfig();
@@ -291,6 +293,7 @@ export function createApp() {
       sttService,
       rateLimiter: chatGenerationRateLimiter,
       userRepository,
+      sttRequestLogRepository,
       systemEventLogRepository,
     });
     registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository });

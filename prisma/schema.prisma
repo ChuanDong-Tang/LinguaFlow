@@ -23,6 +23,7 @@ model User {
   messages       Message[]
   ttsAssets      TtsAsset[]
   ttsRequestLogs TtsRequestLog[]
+  sttRequestLogs SttRequestLog[]
   entitlements   Entitlement[]
   subscriptions  Subscription[]
   autoRenewSubscriptions AutoRenewSubscription[]
@@ -43,6 +44,7 @@ model UserPreference {
   guideState       Json     @default("{}")
   ttsProvider      String   @default("azure_global")
   ttsVoiceCode     String?
+  sttMultilingualRecognitionEnabled Boolean @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -209,6 +211,40 @@ model TtsRequestLog {
   @@index([status, createdAt])
   @@index([provider, languageCode, createdAt])
   @@map("tts_request_logs")
+}
+
+model SttRequestLog {
+  id                           String   @id @default(cuid())
+  requestId                    String?
+  userId                       String
+  provider                     String
+  mode                         String   @default("realtime")
+  languageIdMode               String
+  candidateLanguages           Json
+  detectedLanguage             String?
+  languageDetectionConfidence  String?
+  audioFormat                  String   @default("pcm_s16le")
+  sampleRate                   Int
+  channels                     Int
+  bitsPerSample                Int
+  audioBytes                   Int      @default(0)
+  audioDurationMs              Int      @default(0)
+  billableSeconds              Int      @default(0)
+  transcriptChars              Int      @default(0)
+  recognizedTextPresent        Boolean  @default(false)
+  status                       String
+  durationMs                   Int?
+  errorCode                    String?
+  errorMessage                 String?
+  createdAt                    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([provider, languageIdMode, createdAt])
+  @@map("stt_request_logs")
 }
 
 model Entitlement {

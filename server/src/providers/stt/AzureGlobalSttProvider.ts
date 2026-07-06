@@ -25,7 +25,7 @@ export class AzureGlobalSttProvider implements SttProvider {
     }
 
     const SpeechSDK = await loadSpeechSdk();
-    const languages = input.candidateLanguages.length ? input.candidateLanguages : ["zh-CN", "en-US", "ja-JP"];
+    const languages = input.candidateLanguages.length ? input.candidateLanguages : ["zh-CN", "en-US", "ja-JP", "ko-KR"];
     const speechConfig = createSpeechConfig(SpeechSDK, this.subscriptionKey, this.region, input.languageIdMode, languages);
     speechConfig.outputFormat = SpeechSDK.OutputFormat.Detailed;
 

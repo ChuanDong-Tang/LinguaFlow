@@ -12,7 +12,14 @@ import type {
 
 const DEFAULT_PREFERENCE: Pick<
   UserPreferenceEntity,
-  "appLocale" | "learningLanguage" | "promptDifficulty" | "promptStyle" | "guideState" | "ttsProvider" | "ttsVoiceCode"
+  | "appLocale"
+  | "learningLanguage"
+  | "promptDifficulty"
+  | "promptStyle"
+  | "guideState"
+  | "ttsProvider"
+  | "ttsVoiceCode"
+  | "sttMultilingualRecognitionEnabled"
 > = {
   appLocale: "zh-CN",
   learningLanguage: "en-US",
@@ -21,6 +28,7 @@ const DEFAULT_PREFERENCE: Pick<
   guideState: {},
   ttsProvider: "azure_global",
   ttsVoiceCode: null,
+  sttMultilingualRecognitionEnabled: false,
 };
 
 type PrismaUserPreferenceClient = {
@@ -60,6 +68,8 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
         guideState: input.guideState ?? DEFAULT_PREFERENCE.guideState,
         ttsProvider: input.ttsProvider ?? DEFAULT_PREFERENCE.ttsProvider,
         ttsVoiceCode: input.ttsVoiceCode ?? DEFAULT_PREFERENCE.ttsVoiceCode,
+        sttMultilingualRecognitionEnabled:
+          input.sttMultilingualRecognitionEnabled ?? DEFAULT_PREFERENCE.sttMultilingualRecognitionEnabled,
       },
       update: {
         ...(input.appLocale !== undefined ? { appLocale: input.appLocale } : {}),
@@ -69,6 +79,9 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
         ...(input.guideState !== undefined ? { guideState: input.guideState } : {}),
         ...(input.ttsProvider !== undefined ? { ttsProvider: input.ttsProvider } : {}),
         ...(input.ttsVoiceCode !== undefined ? { ttsVoiceCode: input.ttsVoiceCode } : {}),
+        ...(input.sttMultilingualRecognitionEnabled !== undefined
+          ? { sttMultilingualRecognitionEnabled: input.sttMultilingualRecognitionEnabled }
+          : {}),
       },
     });
 
@@ -84,6 +97,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
     guideState?: unknown;
     ttsProvider: string;
     ttsVoiceCode: string | null;
+    sttMultilingualRecognitionEnabled?: boolean | null;
     createdAt: Date;
     updatedAt: Date;
   }): UserPreferenceEntity {
@@ -96,6 +110,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
       guideState: normalizeGuideState(row.guideState),
       ttsProvider: normalizeTtsProvider(row.ttsProvider),
       ttsVoiceCode: row.ttsVoiceCode ?? null,
+      sttMultilingualRecognitionEnabled: row.sttMultilingualRecognitionEnabled === true,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

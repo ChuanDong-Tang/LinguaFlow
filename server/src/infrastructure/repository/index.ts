@@ -7,6 +7,7 @@ export * from "./PrismaConversationRepository.js";
 export * from "./PrismaMessageRepository.js";
 export * from "./PrismaTtsAssetRepository.js";
 export * from "./PrismaTtsRequestLogRepository.js";
+export * from "./PrismaSttRequestLogRepository.js";
 export * from "./PrismaSubscriptionRepository.js";
 export * from "./PrismaPaymentOrderRepository.js";
 export * from "./PrismaPaymentEventRepository.js";

@@ -60,6 +60,7 @@ export type UserPreference = {
   guideState: GuideState;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
+  sttMultilingualRecognitionEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -72,6 +73,7 @@ export type UpdateUserPreferenceInput = Partial<{
   guideState: GuideState;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
+  sttMultilingualRecognitionEnabled: boolean;
 }>;
 
 export async function getCurrentEntitlement(): Promise<CurrentEntitlement> {

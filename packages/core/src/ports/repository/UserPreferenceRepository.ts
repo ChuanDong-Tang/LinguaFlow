@@ -14,6 +14,7 @@ export interface UserPreferenceEntity {
   guideState: GuideState;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
+  sttMultilingualRecognitionEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,6 +28,7 @@ export interface UpdateUserPreferenceInput {
   guideState?: GuideState;
   ttsProvider?: TtsProviderCode;
   ttsVoiceCode?: string | null;
+  sttMultilingualRecognitionEnabled?: boolean;
 }
 
 export interface UserPreferenceRepository {

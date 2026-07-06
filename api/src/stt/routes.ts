@@ -10,6 +10,7 @@ import {
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
+import type { SttRequestLogRepository } from "@lf/core/ports/repository/SttRequestLogRepository.js";
 
 const STT_START_TIMEOUT_MS = 10_000;
 const STT_MAX_AUDIO_FRAME_BYTES = 64 * 1024;
@@ -34,6 +35,7 @@ export interface SttRouteDeps {
     } | null>;
   };
   systemEventLogRepository?: SystemEventLogWriter;
+  sttRequestLogRepository?: SttRequestLogRepository;
   rateLimiter: {
     consume: (key: string, limit: number, windowMs: number) => Promise<boolean>;
   };
@@ -58,6 +60,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
     let detectedLanguage: string | null = null;
     let languageDetectionConfidence: string | null = null;
     let candidateLanguages = runtimeConfig.sttRealtimeCandidateLanguages;
+    let languageIdMode: "at_start" | "continuous" = "at_start";
     let settled = false;
     let authenticated = false;
     let maxSessionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,20 +102,17 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
         sttSession?.close();
       }
       const audioDurationMs = estimatePcmDurationMs(audioBytes, 16000, 1, 16);
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        userId,
-        module: "stt",
-        event: "stt.realtime",
-        level: input.status === "success" ? "info" : "warn",
-        status: input.status,
-        errorCode: input.errorCode ?? null,
-        errorMessage: input.errorMessage ?? null,
-        metadata: {
-          path: "/stt/realtime",
+      const durationMs = Date.now() - startedAt;
+      if (userId) {
+        await deps.sttRequestLogRepository?.create({
+          requestId,
+          userId,
           provider: deps.sttService.providerName,
           mode: "realtime",
-          sessionId,
+          languageIdMode,
+          candidateLanguages,
+          detectedLanguage,
+          languageDetectionConfidence,
           audioFormat: "pcm_s16le",
           sampleRate: 16000,
           channels: 1,
@@ -120,15 +120,46 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
           audioBytes,
           audioDurationMs,
           billableSeconds: Math.ceil(audioDurationMs / 1000),
-          durationMs: Date.now() - startedAt,
           transcriptChars,
           recognizedTextPresent: transcriptChars > 0,
-          detectedLanguage,
-          languageDetectionConfidence,
-          languageIdMode: "at_start",
-          candidateLanguages,
-        },
-      });
+          status: input.status,
+          durationMs,
+          errorCode: input.errorCode ?? null,
+          errorMessage: input.errorMessage ?? null,
+        }).catch(() => undefined);
+      }
+      if (input.status !== "success") {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId,
+          module: "stt",
+          event: "stt.realtime",
+          level: "warn",
+          status: input.status,
+          errorCode: input.errorCode ?? null,
+          errorMessage: input.errorMessage ?? null,
+          metadata: {
+            path: "/stt/realtime",
+            provider: deps.sttService.providerName,
+            mode: "realtime",
+            sessionId,
+            audioFormat: "pcm_s16le",
+            sampleRate: 16000,
+            channels: 1,
+            bitsPerSample: 16,
+            audioBytes,
+            audioDurationMs,
+            billableSeconds: Math.ceil(audioDurationMs / 1000),
+            durationMs,
+            transcriptChars,
+            recognizedTextPresent: transcriptChars > 0,
+            detectedLanguage,
+            languageDetectionConfidence,
+            languageIdMode,
+            candidateLanguages,
+          },
+        });
+      }
     };
 
     const authReady = (async () => {
@@ -206,7 +237,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
           startTimer = null;
         }
         sessionId = message.sessionId;
-        const languageIdMode = message.languageIdMode ?? "at_start";
+        languageIdMode = message.languageIdMode ?? "at_start";
         candidateLanguages = normalizeCandidateLanguages(
           message.candidateLanguages,
           runtimeConfig.sttRealtimeCandidateLanguages,

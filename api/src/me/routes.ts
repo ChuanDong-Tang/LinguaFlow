@@ -47,6 +47,7 @@ type UpdatePreferencesBody = {
   guideState?: GuideState;
   ttsProvider?: TtsProviderCode;
   ttsVoiceCode?: string | null;
+  sttMultilingualRecognitionEnabled?: boolean;
 };
 
 const GUIDE_STATE_MAX_KEYS = 80;
@@ -129,6 +130,7 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       ttsVoiceCode: body.ttsVoiceCode !== undefined || nextTtsVoiceCode !== currentPreference.ttsVoiceCode
         ? nextTtsVoiceCode
         : undefined,
+      sttMultilingualRecognitionEnabled: body.sttMultilingualRecognitionEnabled,
     });
 
     return reply.status(200).send({
@@ -404,7 +406,16 @@ async function resolveMeUserContext(
 function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody {
   if (!value || typeof value !== "object") return false;
   const body = value as Record<string, unknown>;
-  const keys = ["appLocale", "learningLanguage", "promptDifficulty", "promptStyle", "guideState", "ttsProvider", "ttsVoiceCode"];
+  const keys = [
+    "appLocale",
+    "learningLanguage",
+    "promptDifficulty",
+    "promptStyle",
+    "guideState",
+    "ttsProvider",
+    "ttsVoiceCode",
+    "sttMultilingualRecognitionEnabled",
+  ];
   if (!Object.keys(body).some((key) => keys.includes(key))) return false;
 
   return (
@@ -414,6 +425,8 @@ function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody
     (body.promptStyle === undefined || isPromptStyle(body.promptStyle)) &&
     (body.guideState === undefined || isGuideState(body.guideState)) &&
     (body.ttsProvider === undefined || body.ttsProvider === "azure_global") &&
+    (body.sttMultilingualRecognitionEnabled === undefined ||
+      typeof body.sttMultilingualRecognitionEnabled === "boolean") &&
     (body.ttsVoiceCode === undefined ||
       body.ttsVoiceCode === null ||
       (typeof body.ttsVoiceCode === "string" &&
@@ -487,6 +500,7 @@ function toPreferenceResponse(preference: UserPreferenceEntity) {
     guideState: preference.guideState,
     ttsProvider: preference.ttsProvider,
     ttsVoiceCode: preference.ttsVoiceCode,
+    sttMultilingualRecognitionEnabled: preference.sttMultilingualRecognitionEnabled,
     createdAt: preference.createdAt.toISOString(),
     updatedAt: preference.updatedAt.toISOString(),
   };

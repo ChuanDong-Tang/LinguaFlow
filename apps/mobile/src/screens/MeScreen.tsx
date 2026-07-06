@@ -251,6 +251,7 @@ function LanguageSettingsModal({
     promptDifficulty: PromptDifficulty;
     promptStyle: PromptStyle;
     ttsVoiceCode: string;
+    sttMultilingualRecognitionEnabled: boolean;
   }) => Promise<void>;
 }) {
   const [appLocale, setAppLocale] = useState<AppLocale>("zh-CN");
@@ -262,6 +263,7 @@ function LanguageSettingsModal({
   const [voiceLoading, setVoiceLoading] = useState(false);
   const [voiceError, setVoiceError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [multilingualRecognitionEnabled, setMultilingualRecognitionEnabled] = useState(false);
   const currentLanguageVoiceOptions = ttsVoiceOptions.filter((option) => option.languageCode === learningLanguage);
   const canSave = !saving && currentLanguageVoiceOptions.some((option) => option.voiceCode === ttsVoiceCode);
 
@@ -272,6 +274,7 @@ function LanguageSettingsModal({
     setLearningLanguage(nextLearningLanguage);
     setPromptDifficulty(preference?.promptDifficulty ?? "natural");
     setPromptStyle(preference?.promptStyle ?? "native_casual");
+    setMultilingualRecognitionEnabled(preference?.sttMultilingualRecognitionEnabled === true);
   }, [preference, visible]);
 
   useEffect(() => {
@@ -303,7 +306,14 @@ function LanguageSettingsModal({
     if (!canSave) return;
     setSaving(true);
     try {
-      await onSave({ appLocale, learningLanguage, promptDifficulty, promptStyle, ttsVoiceCode });
+      await onSave({
+        appLocale,
+        learningLanguage,
+        promptDifficulty,
+        promptStyle,
+        ttsVoiceCode,
+        sttMultilingualRecognitionEnabled: multilingualRecognitionEnabled,
+      });
     } finally {
       setSaving(false);
     }
@@ -385,6 +395,21 @@ function LanguageSettingsModal({
                 onPress={() => setTtsVoiceCode(option.voiceCode)}
               />
             ))}
+          </View>
+          <View style={styles.languageAdvancedBlock}>
+            <Text style={styles.languageFieldTitle}>{t("me.language.stt_advanced")}</Text>
+            <Pressable
+              style={styles.languageToggleRow}
+              onPress={() => setMultilingualRecognitionEnabled((value) => !value)}
+            >
+              <View style={[styles.languageToggleBox, multilingualRecognitionEnabled && styles.languageToggleBoxActive]}>
+                {multilingualRecognitionEnabled ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+              </View>
+              <View style={styles.languageToggleTextWrap}>
+                <Text style={styles.languageToggleTitle}>{t("me.language.stt_multilingual")}</Text>
+                <Text style={styles.languageHint}>{t("me.language.stt_multilingual_hint")}</Text>
+              </View>
+            </Pressable>
           </View>
           <View style={styles.languageActions}>
             <Pressable style={styles.languageCancelButton} onPress={onClose} disabled={saving}>
@@ -1121,6 +1146,42 @@ const styles = StyleSheet.create({
   },
   voiceOptionText: {
     marginTop: 2,
+    color: "#343A45",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  languageAdvancedBlock: {
+    marginTop: 4,
+  },
+  languageToggleRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DFE3EA",
+    backgroundColor: "#FAFBFC",
+  },
+  languageToggleBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#B8C0CC",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  languageToggleBoxActive: {
+    borderColor: "#111111",
+    backgroundColor: "#111111",
+  },
+  languageToggleTextWrap: {
+    flex: 1,
+  },
+  languageToggleTitle: {
     color: "#343A45",
     fontSize: 13,
     fontWeight: "700",
