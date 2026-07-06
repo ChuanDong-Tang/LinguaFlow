@@ -44,7 +44,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
   app.get("/stt/realtime", { websocket: true }, (socket, req) => {
     const startedAt = Date.now();
     const requestId = firstHeaderValue(req.headers["x-request-id"]) || randomUUID();
-    const query = req.query as Partial<{ access_token: string }>;
+    const query = (req.query ?? {}) as Partial<{ access_token: string }>;
     const authorization = firstHeaderValue(req.headers.authorization) || (
       query.access_token ? `Bearer ${query.access_token}` : undefined
     );

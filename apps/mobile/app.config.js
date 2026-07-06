@@ -57,6 +57,7 @@ module.exports = {
       "expo-audio",
       "expo-secure-store",
       "./plugins/with-chat-selectable-text",
+      "./plugins/with-picovoice-voice-processor",
       "./plugins/with-wechat-pay",
     ],
     owner: "reedtang",
