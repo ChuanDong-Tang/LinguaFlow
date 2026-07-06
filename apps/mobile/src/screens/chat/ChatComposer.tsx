@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   NativeSyntheticEvent,
   Platform,
@@ -19,7 +19,7 @@ type ChatComposerProps = {
   onChangeText: (text: string) => void;
   onSend: () => void;
   onStop: () => void;
-  onSttPress?: () => void;
+  onSttPress?: (context: ChatComposerSttPressContext) => void;
   onFocus: () => void;
   onBlur?: () => void;
   onDisabledPress?: () => void;
@@ -27,6 +27,12 @@ type ChatComposerProps = {
   isSending: boolean;
   sttStatus?: "idle" | "connecting" | "recording" | "stopping";
   inputEditable?: boolean;
+  selectionOverride?: { start: number; end: number } | null;
+};
+
+export type ChatComposerSttPressContext = {
+  selection: { start: number; end: number };
+  wasInputFocused: boolean;
 };
 
 const COLLAPSED_MIN_HEIGHT = 50;
@@ -52,12 +58,15 @@ export function ChatComposer({
   isSending,
   sttStatus = "idle",
   inputEditable = true,
+  selectionOverride = null,
 }: ChatComposerProps) {
   const { height: windowHeight } = useWindowDimensions();
   const [contentTextHeight, setContentTextHeight] = useState(INPUT_LINE_HEIGHT);
   const [expanded, setExpanded] = useState(false);
   const [selection, setSelection] = useState({ start: value.length, end: value.length });
+  const [inputFocused, setInputFocused] = useState(false);
   const [pasteText, setPasteText] = useState<string | null>(null);
+  const inputRef = useRef<TextInput | null>(null);
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
   const measuredInputHeight = contentTextHeight + INPUT_VERTICAL_PADDING;
   const measuredLineCount = Math.max(1, Math.ceil(contentTextHeight / INPUT_LINE_HEIGHT));
@@ -80,6 +89,11 @@ export function ChatComposer({
     setExpanded(false);
   }, [value.length]);
 
+  useEffect(() => {
+    if (!selectionOverride) return;
+    setSelection(selectionOverride);
+  }, [selectionOverride]);
+
   function handleToggleExpand(): void {
     setExpanded((current) => !current);
     setPasteText(null);
@@ -97,13 +111,25 @@ export function ChatComposer({
   }
 
   function handleFocus(): void {
+    setInputFocused(true);
     setPasteText(null);
     onFocus();
   }
 
   function handleBlur(): void {
+    setInputFocused(false);
     setPasteText(null);
     onBlur?.();
+  }
+
+  function handleMicPress(): void {
+    if (!onSttPress) return;
+    const nextSelection = inputFocused ? selection : { start: value.length, end: value.length };
+    if (!inputFocused) {
+      setSelection(nextSelection);
+      inputRef.current?.focus();
+    }
+    onSttPress({ selection: nextSelection, wasInputFocused: inputFocused });
   }
 
   async function handleShowPaste(): Promise<void> {
@@ -130,7 +156,7 @@ export function ChatComposer({
             sttStatus !== "idle" && styles.micButtonActive,
             isSending && styles.micButtonDisabled,
           ]}
-          onPress={onSttPress}
+          onPress={handleMicPress}
           disabled={isSending}
           hitSlop={6}
         >
@@ -143,6 +169,7 @@ export function ChatComposer({
       ) : null}
       <Pressable style={[styles.inputShell, { height: shellHeight }]} onLongPress={() => void handleShowPaste()}>
         <TextInput
+          ref={inputRef}
           style={[
             styles.input,
             expanded ? styles.inputExpanded : styles.inputCollapsed,

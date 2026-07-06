@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -44,7 +45,7 @@ import { areMessageRowsEquivalent, toDisplayRows } from "../services/chat/chatMe
 import { useAssistantAutoCopyPreferences } from "../hooks/useAssistantAutoCopyPreferences";
 import { useExclusiveSyncMachine } from "../hooks/useExclusiveSyncMachine";
 import { ChatHeader } from "./chat/ChatHeader";
-import { ChatComposer } from "./chat/ChatComposer";
+import { ChatComposer, type ChatComposerSttPressContext } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
 import { AutoCopySheet } from "./chat/AutoCopySheet";
 import type { NativeTextSelectionPayload, SelectableMessageTextRef } from "./chat/SelectableMessageText";
@@ -68,9 +69,9 @@ import { stopTtsAudio } from "../services/tts/ttsPlayback";
 import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api/sttRealtimeApi";
 import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
-import type { RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
+import type { PcmAudioFrame, RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
 
-const STT_STOP_TIMEOUT_MS = 3_500;
+const STT_PREBUFFER_MAX_FRAMES = 180;
 
 type ChatScreenProps = {
   contact: ChatContact;
@@ -88,11 +89,57 @@ type DictionaryLookupState = {
   result: DictionaryLookupResult | null;
 };
 
+type SttDebugSnapshot = {
+  status: "idle" | "connecting" | "recording" | "stopping";
+  sessionId: string | null;
+  experimentId: SttExperimentId;
+  experimentLabel: string;
+  languageIdMode: "at_start" | "continuous";
+  candidateLanguages: string[];
+  detectedLanguage: string | null;
+  languageDetectionConfidence: string | null;
+  frames: number;
+  audioBytes: number;
+  partialEvents: number;
+  finalEvents: number;
+  firstPartialMs: number | null;
+  firstFinalMs: number | null;
+  preferenceMs: number | null;
+  wsReadyMs: number | null;
+  micStartMs: number | null;
+  firstAudioCapturedMs: number | null;
+  firstAudioSentMs: number | null;
+  firstPartialAfterAudioMs: number | null;
+  lastEvent: string;
+  lastText: string;
+};
+
+type SttExperimentId = "direct_zh" | "direct_en" | "lid_at_zh_en" | "lid_cont_zh_en";
+
+type SttExperimentOption = {
+  id: SttExperimentId;
+  label: string;
+  languageIdMode: "at_start" | "continuous";
+  candidateLanguages: string[];
+};
+
+const STT_EXPERIMENT_OPTIONS: SttExperimentOption[] = [
+  { id: "direct_zh", label: "zh", languageIdMode: "at_start", candidateLanguages: ["zh-CN"] },
+  { id: "direct_en", label: "en", languageIdMode: "at_start", candidateLanguages: ["en-US"] },
+  { id: "lid_at_zh_en", label: "at zh/en/jp", languageIdMode: "at_start", candidateLanguages: ["zh-CN", "en-US", "ja-JP"] },
+  { id: "lid_cont_zh_en", label: "cont zh/en/jp", languageIdMode: "continuous", candidateLanguages: ["zh-CN", "en-US", "ja-JP"] },
+];
+
+const DEFAULT_STT_EXPERIMENT = STT_EXPERIMENT_OPTIONS[0];
+
 export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
   const contactId = contact.id;
   const [inputText, setInputText] = useState("");
   const [sttStatus, setSttStatus] = useState<"idle" | "connecting" | "recording" | "stopping">("idle");
+  const [sttDebug, setSttDebug] = useState<SttDebugSnapshot>(createInitialSttDebugSnapshot);
+  const [sttExperimentId, setSttExperimentId] = useState<SttExperimentId>(DEFAULT_STT_EXPERIMENT.id);
+  const [composerSelectionOverride, setComposerSelectionOverride] = useState<{ start: number; end: number } | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [activeGenerationContactId, setActiveGenerationContactId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -126,6 +173,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
   const [dictionaryLookup, setDictionaryLookup] = useState<DictionaryLookupState | null>(null);
   const messageListRef = useRef<FlatList<any> | null>(null);
+  const contactIdRef = useRef(contactId);
+  const inputTextRef = useRef("");
   const scrollMetricsRef = useRef({ y: 0, contentHeight: 0, layoutHeight: 0 });
   const pendingScrollToBottomRef = useRef<{ animated: boolean } | null>(null);
   const activeSelectionRef = useRef<SelectableMessageTextRef | null>(null);
@@ -143,11 +192,18 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const dictionaryAbortRef = useRef<AbortController | null>(null);
   const sttAudioSourceRef = useRef<RealtimeAudioSource | null>(null);
   const sttSessionRef = useRef<RealtimeSttSession | null>(null);
+  const sttGenerationRef = useRef(0);
   const sttDraftBaseRef = useRef("");
+  const sttInsertRangeRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
   const sttFinalTextRef = useRef("");
   const sttPartialTextRef = useRef("");
   const sttStatusRef = useRef<"idle" | "connecting" | "recording" | "stopping">("idle");
-  const sttStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sttDebugStartedAtRef = useRef<number | null>(null);
+  const sttDebugLastAudioUpdateAtRef = useRef(0);
+  const sttDebugFramesRef = useRef(0);
+  const sttDebugAudioBytesRef = useRef(0);
+  const sttDebugFirstAudioCapturedMsRef = useRef<number | null>(null);
+  const sttDebugFirstAudioSentMsRef = useRef<number | null>(null);
   const dictionaryRequestSeqRef = useRef(0);
   const isProEntitledRef = useRef(false);
   const isTodaySyncingRef = useRef(false);
@@ -213,6 +269,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       inputLength <= maxInputChars
     );
   }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars, sttStatus]);
+  const sttExperiment = useMemo(
+    () => STT_EXPERIMENT_OPTIONS.find((option) => option.id === sttExperimentId) ?? DEFAULT_STT_EXPERIMENT,
+    [sttExperimentId],
+  );
   const selectedDateKey = toDateKey(selectedDate);
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
@@ -221,11 +281,41 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     () => Array.from(new Set((contact.historyContactIds?.length ? contact.historyContactIds : [contactId]).filter(Boolean))),
     [contact.historyContactIds, contactId],
   );
-  const clearSttStopTimeout = React.useCallback(() => {
-    if (!sttStopTimeoutRef.current) return;
-    clearTimeout(sttStopTimeoutRef.current);
-    sttStopTimeoutRef.current = null;
+  const cancelActiveStt = React.useCallback((lastEvent: string): boolean => {
+    if (sttStatusRef.current === "idle" && !sttSessionRef.current && !sttAudioSourceRef.current) {
+      return false;
+    }
+    sttGenerationRef.current += 1;
+    void sttAudioSourceRef.current?.stop();
+    sttAudioSourceRef.current = null;
+    sttSessionRef.current?.close();
+    sttSessionRef.current = null;
+    sttStatusRef.current = "idle";
+    setSttStatus("idle");
+    setSttDebug((prev) => ({ ...prev, status: "idle", lastEvent }));
+    return true;
   }, []);
+  const applyInputText = React.useCallback((
+    text: string,
+    options?: { source?: "user" | "stt" | "load" | "system"; preserveSelectionOverride?: boolean },
+  ) => {
+    inputTextRef.current = text;
+    if (options?.source === "user") {
+      cancelActiveStt("input edited");
+    }
+    if (!options?.preserveSelectionOverride) {
+      setComposerSelectionOverride(null);
+    }
+    setInputText(text);
+  }, [cancelActiveStt]);
+
+  useEffect(() => {
+    contactIdRef.current = contactId;
+  }, [contactId]);
+
+  useEffect(() => {
+    inputTextRef.current = inputText;
+  }, [inputText]);
 
   
   // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示
@@ -238,9 +328,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       daySyncMachine.cancel();
       calendarSyncMachine.cancel();
       clozeSaveMachine.cancel();
+      if (draftLoadedContactRef.current === contactIdRef.current) {
+        void saveChatInputDraft(contactIdRef.current, inputTextRef.current).catch(() => {});
+      }
       dictionaryAbortRef.current?.abort();
       dictionaryAbortRef.current = null;
-      clearSttStopTimeout();
+      sttGenerationRef.current += 1;
       void sttAudioSourceRef.current?.stop();
       sttAudioSourceRef.current = null;
       sttSessionRef.current?.close();
@@ -271,11 +364,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   useEffect(() => {
     let cancelled = false;
     draftLoadedContactRef.current = null;
-    setInputText("");
+    applyInputText("", { source: "load" });
     void loadChatInputDraft(contactId).then((draft) => {
       if (cancelled || !isMountedRef.current) return;
       draftLoadedContactRef.current = contactId;
-      setInputText(draft);
+      applyInputText(draft, { source: "load" });
     });
     return () => {
       cancelled = true;
@@ -285,7 +378,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   useEffect(() => {
     if (draftLoadedContactRef.current !== contactId) return;
     const timer = setTimeout(() => {
-      void saveChatInputDraft(contactId, inputText);
+      void saveChatInputDraft(contactId, inputText).catch(() => {});
     }, 250);
     return () => clearTimeout(timer);
   }, [contactId, inputText]);
@@ -438,8 +531,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }, []);
   const stopRealtimeStt = React.useCallback(async (options?: { discardPartial?: boolean }) => {
     if (sttStatusRef.current === "idle" || sttStatusRef.current === "stopping") return;
+    const generation = sttGenerationRef.current + 1;
+    sttGenerationRef.current = generation;
     sttStatusRef.current = "stopping";
     setSttStatus("stopping");
+    setSttDebug((prev) => ({ ...prev, status: "stopping", lastEvent: "stop requested" }));
     const source = sttAudioSourceRef.current;
     sttAudioSourceRef.current = null;
     await source?.stop().catch((error) => {
@@ -447,20 +543,16 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     });
     const session = sttSessionRef.current;
     if (options?.discardPartial) {
-      setInputText(sttDraftBaseRef.current);
+      applyInputText(sttDraftBaseRef.current, { source: "system" });
     }
-    session?.stop();
-    clearSttStopTimeout();
-    sttStopTimeoutRef.current = setTimeout(() => {
-      if (!isMountedRef.current || sttStatusRef.current !== "stopping") return;
-      sttSessionRef.current?.close();
-      sttSessionRef.current = null;
-      sttStatusRef.current = "idle";
-      setSttStatus("idle");
-      sttStopTimeoutRef.current = null;
-    }, STT_STOP_TIMEOUT_MS);
-  }, [clearSttStopTimeout]);
-  const handleSttPress = React.useCallback(async () => {
+    sttSessionRef.current = null;
+    session?.close();
+    if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
+    sttStatusRef.current = "idle";
+    setSttStatus("idle");
+    setSttDebug((prev) => ({ ...prev, status: "idle", lastEvent: "stopped" }));
+  }, [applyInputText]);
+  const handleSttPress = React.useCallback(async (context: ChatComposerSttPressContext) => {
     if (sttStatusRef.current === "stopping") {
       return;
     }
@@ -479,13 +571,33 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
     sttStatusRef.current = "connecting";
     setSttStatus("connecting");
+    const generation = sttGenerationRef.current + 1;
+    sttGenerationRef.current = generation;
+    sttDebugStartedAtRef.current = Date.now();
+    sttDebugLastAudioUpdateAtRef.current = 0;
+    sttDebugFramesRef.current = 0;
+    sttDebugAudioBytesRef.current = 0;
+    sttDebugFirstAudioCapturedMsRef.current = null;
+    sttDebugFirstAudioSentMsRef.current = null;
+    setSttDebug({
+      ...createInitialSttDebugSnapshot(),
+      status: "connecting",
+      experimentId: sttExperiment.id,
+      experimentLabel: sttExperiment.label,
+      languageIdMode: sttExperiment.languageIdMode,
+      candidateLanguages: sttExperiment.candidateLanguages,
+      lastEvent: "opening ws",
+    });
     closeCopyMenuRef.current?.();
     clearActiveSelection();
-    Keyboard.dismiss();
     stopTtsAudio({ resetControls: true });
 
     const source = createPicovoiceRealtimeAudioSource();
     const hasPermission = await source.requestPermission().catch(() => false);
+    if (sttGenerationRef.current !== generation) {
+      await source.stop().catch(() => {});
+      return;
+    }
     if (!hasPermission) {
       sttStatusRef.current = "idle";
       setSttStatus("idle");
@@ -493,49 +605,187 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return;
     }
 
-    sttDraftBaseRef.current = inputText.trimEnd();
+    const currentInputText = inputTextRef.current;
+    const selectionStart = Math.max(0, Math.min(context.selection.start, context.selection.end, currentInputText.length));
+    const selectionEnd = Math.max(0, Math.min(Math.max(context.selection.start, context.selection.end), currentInputText.length));
+    sttDraftBaseRef.current = currentInputText;
+    sttInsertRangeRef.current = { start: selectionStart, end: selectionEnd };
     sttFinalTextRef.current = "";
     sttPartialTextRef.current = "";
+    await getUserPreference().catch(() => null);
+    if (sttGenerationRef.current !== generation) {
+      await source.stop().catch(() => {});
+      return;
+    }
+    const preferenceMs = elapsedSince(sttDebugStartedAtRef.current);
+    const languageIdMode = sttExperiment.languageIdMode;
+    const candidateLanguages = sttExperiment.candidateLanguages;
+    setSttDebug((prev) => ({
+      ...prev,
+      preferenceMs,
+      experimentId: sttExperiment.id,
+      experimentLabel: sttExperiment.label,
+      languageIdMode,
+      candidateLanguages,
+      lastEvent: `${sttExperiment.label} ${candidateLanguages.join(",")}`,
+    }));
+
+    const frameLength = 512;
+    const bufferedFrames: PcmAudioFrame[] = [];
+    const sendOrBufferFrame = (frame: PcmAudioFrame) => {
+      if (sttGenerationRef.current !== generation) return;
+      const now = Date.now();
+      const elapsedMs = elapsedSince(sttDebugStartedAtRef.current);
+      if (sttDebugFirstAudioCapturedMsRef.current === null) {
+        sttDebugFirstAudioCapturedMsRef.current = elapsedMs;
+      }
+      sttDebugFramesRef.current += 1;
+      sttDebugAudioBytesRef.current += frame.pcm.byteLength;
+
+      const session = sttSessionRef.current;
+      if (session) {
+        if (sttDebugFirstAudioSentMsRef.current === null) {
+          sttDebugFirstAudioSentMsRef.current = elapsedMs;
+        }
+        session.sendFrame(frame);
+      } else {
+        bufferedFrames.push({
+          ...frame,
+          pcm: Int16Array.from(frame.pcm),
+        });
+        if (bufferedFrames.length > STT_PREBUFFER_MAX_FRAMES) {
+          bufferedFrames.shift();
+        }
+      }
+
+      if (now - sttDebugLastAudioUpdateAtRef.current < 200) return;
+      sttDebugLastAudioUpdateAtRef.current = now;
+      setSttDebug((prev) => ({
+        ...prev,
+        frames: sttDebugFramesRef.current,
+        audioBytes: sttDebugAudioBytesRef.current,
+        firstAudioCapturedMs: sttDebugFirstAudioCapturedMsRef.current,
+        firstAudioSentMs: sttDebugFirstAudioSentMsRef.current,
+        lastEvent: session ? `audio ${elapsedMs}ms` : `buffer ${elapsedMs}ms`,
+      }));
+    };
 
     try {
-      const frameLength = 512;
+      sttAudioSourceRef.current = source;
+      await source.start({
+        sampleRate: 16000,
+        frameLength,
+        onFrame: sendOrBufferFrame,
+        onError: (error) => {
+          if (sttGenerationRef.current !== generation) return;
+          console.warn("stt audio source failed", error);
+          setSttDebug((prev) => ({
+            ...prev,
+            lastEvent: "audio error",
+            lastText: error instanceof Error ? error.message : String(error),
+          }));
+          void stopRealtimeStt();
+        },
+      });
+      if (sttGenerationRef.current !== generation) {
+        await source.stop().catch(() => {});
+        return;
+      }
+      setSttDebug((prev) => ({
+        ...prev,
+        micStartMs: prev.micStartMs ?? elapsedSince(sttDebugStartedAtRef.current),
+        lastEvent: `mic ${elapsedSince(sttDebugStartedAtRef.current)}ms`,
+      }));
+
       const session = await openRealtimeSttSession({
         frameLength,
+        languageIdMode,
+        candidateLanguages,
         onEvent: (event) => {
-          if (!isMountedRef.current) return;
+          if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
           if (event.type === "ready") {
             sttStatusRef.current = "recording";
             setSttStatus("recording");
+            const wsReadyMs = elapsedSince(sttDebugStartedAtRef.current);
+            setSttDebug((prev) => ({
+              ...prev,
+              status: "recording",
+              sessionId: event.sessionId,
+              wsReadyMs,
+              lastEvent: `ready ${wsReadyMs}ms`,
+            }));
             return;
           }
           if (event.type === "partial") {
             const finalText = event.finalText ?? sttFinalTextRef.current;
             sttPartialTextRef.current = event.text;
-            setInputText(mergeSttDraft(sttDraftBaseRef.current, finalText, event.text));
+            const elapsedMs = elapsedSince(sttDebugStartedAtRef.current);
+            setSttDebug((prev) => ({
+              ...prev,
+              detectedLanguage: event.detectedLanguage ?? prev.detectedLanguage,
+              languageDetectionConfidence: event.languageDetectionConfidence ?? prev.languageDetectionConfidence,
+              partialEvents: prev.partialEvents + 1,
+              firstPartialMs: prev.firstPartialMs ?? elapsedMs,
+              firstPartialAfterAudioMs: prev.firstPartialAfterAudioMs ?? (
+                sttDebugFirstAudioSentMsRef.current === null ? null : elapsedMs - sttDebugFirstAudioSentMsRef.current
+              ),
+              lastEvent: `partial ${elapsedMs}ms`,
+              lastText: event.text.slice(0, 80),
+            }));
+            const merged = mergeSttDraftResult(sttDraftBaseRef.current, finalText, event.text, sttInsertRangeRef.current);
+            applyInputText(merged.text, { source: "stt", preserveSelectionOverride: true });
+            setComposerSelectionOverride(merged.selection);
             return;
           }
           if (event.type === "final") {
             sttFinalTextRef.current = event.finalText ?? mergeSttDraft("", sttFinalTextRef.current, event.text);
             sttPartialTextRef.current = "";
-            setInputText(mergeSttDraft(sttDraftBaseRef.current, sttFinalTextRef.current, ""));
+            const elapsedMs = elapsedSince(sttDebugStartedAtRef.current);
+            setSttDebug((prev) => ({
+              ...prev,
+              detectedLanguage: event.detectedLanguage ?? prev.detectedLanguage,
+              languageDetectionConfidence: event.languageDetectionConfidence ?? prev.languageDetectionConfidence,
+              finalEvents: prev.finalEvents + 1,
+              firstFinalMs: prev.firstFinalMs ?? elapsedMs,
+              lastEvent: `final ${elapsedMs}ms`,
+              lastText: event.text.slice(0, 80),
+            }));
+            const merged = mergeSttDraftResult(sttDraftBaseRef.current, sttFinalTextRef.current, "", sttInsertRangeRef.current);
+            applyInputText(merged.text, { source: "stt", preserveSelectionOverride: true });
+            setComposerSelectionOverride(merged.selection);
             return;
           }
           if (event.type === "done") {
-            clearSttStopTimeout();
             sttFinalTextRef.current = event.text || sttFinalTextRef.current;
-            setInputText(mergeSttDraft(
+            const merged = mergeSttDraftResult(
               sttDraftBaseRef.current,
               sttFinalTextRef.current || sttPartialTextRef.current,
-              ""
-            ));
+              "",
+              sttInsertRangeRef.current
+            );
+            applyInputText(merged.text, { source: "stt", preserveSelectionOverride: true });
+            setComposerSelectionOverride(merged.selection);
             sttPartialTextRef.current = "";
             sttSessionRef.current = null;
             sttStatusRef.current = "idle";
             setSttStatus("idle");
+            setSttDebug((prev) => ({
+              ...prev,
+              status: "idle",
+              detectedLanguage: event.detectedLanguage ?? prev.detectedLanguage,
+              languageDetectionConfidence: event.languageDetectionConfidence ?? prev.languageDetectionConfidence,
+              lastEvent: `done ${elapsedSince(sttDebugStartedAtRef.current)}ms`,
+              lastText: event.text.slice(0, 80),
+            }));
             return;
           }
           if (event.type === "error" || event.type === "canceled") {
             console.warn("stt event", event);
+            setSttDebug((prev) => ({
+              ...prev,
+              lastEvent: `${event.type}: ${event.type === "error" ? event.code : event.errorCode ?? event.reason}`,
+              lastText: event.type === "error" ? event.message : event.errorDetails ?? event.reason,
+            }));
             void stopRealtimeStt();
             showNotice({
               message: t("stt.error.session_failed"),
@@ -547,7 +797,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         },
         onError: (error) => {
           console.warn("stt session failed", error);
-          if (!isMountedRef.current) return;
+          if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
+          setSttDebug((prev) => ({
+            ...prev,
+            lastEvent: "session error",
+            lastText: error instanceof Error ? error.message : String(error),
+          }));
           void stopRealtimeStt();
           showNotice({
             message: t("stt.error.session_failed"),
@@ -557,35 +812,48 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           });
         },
         onClose: () => {
-          if (!isMountedRef.current) return;
-          clearSttStopTimeout();
+          if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
           sttSessionRef.current = null;
           sttStatusRef.current = "idle";
           setSttStatus("idle");
+          setSttDebug((prev) => ({ ...prev, status: "idle", lastEvent: "ws close" }));
         },
       });
+      if (sttGenerationRef.current !== generation || isSttInactive(sttStatusRef.current)) {
+        session.close();
+        return;
+      }
       sttSessionRef.current = session;
-      sttAudioSourceRef.current = source;
-      await source.start({
-        sampleRate: 16000,
-        frameLength,
-        onFrame: (frame) => {
-          sttSessionRef.current?.sendFrame(frame);
-        },
-        onError: (error) => {
-          console.warn("stt audio source failed", error);
-          void stopRealtimeStt();
-        },
-      });
+      const flushStartedMs = elapsedSince(sttDebugStartedAtRef.current);
+      if (bufferedFrames.length > 0 && sttDebugFirstAudioSentMsRef.current === null) {
+        sttDebugFirstAudioSentMsRef.current = flushStartedMs;
+      }
+      for (const frame of bufferedFrames) {
+        session.sendFrame(frame);
+      }
+      const flushedFrames = bufferedFrames.length;
+      bufferedFrames.length = 0;
+      setSttDebug((prev) => ({
+        ...prev,
+        firstAudioCapturedMs: sttDebugFirstAudioCapturedMsRef.current,
+        firstAudioSentMs: sttDebugFirstAudioSentMsRef.current,
+        lastEvent: `flush ${flushedFrames} ${flushStartedMs}ms`,
+      }));
     } catch (error) {
       console.warn("stt start failed", error);
       await source.stop().catch(() => {});
+      if (sttGenerationRef.current !== generation) return;
       sttAudioSourceRef.current = null;
       sttSessionRef.current?.close();
       sttSessionRef.current = null;
-      clearSttStopTimeout();
       sttStatusRef.current = "idle";
       setSttStatus("idle");
+      setSttDebug((prev) => ({
+        ...prev,
+        status: "idle",
+        lastEvent: "start failed",
+        lastText: error instanceof Error ? error.message : String(error),
+      }));
       showNotice({
         message: t("stt.error.session_failed"),
         type: "warning",
@@ -593,7 +861,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         durationMs: 1800,
       });
     }
-  }, [activeGenerationContactId, clearActiveSelection, clearSttStopTimeout, inputText, netInfo.isConnected, showNotice, stopRealtimeStt]);
+  }, [activeGenerationContactId, applyInputText, clearActiveSelection, netInfo.isConnected, showNotice, stopRealtimeStt, sttExperiment]);
+  const handleComposerTextChange = React.useCallback((text: string) => {
+    applyInputText(text, { source: "user" });
+  }, [applyInputText]);
   const handleDictionarySelection = React.useCallback(
     (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
       const term = payload.selectedText.trim();
@@ -719,7 +990,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       void syncDateQuietly(businessTodayDate, { force: true });
     }
 
-    setInputText("");
+    applyInputText("", { source: "system" });
     await clearChatInputDraft(contactId).catch(() => {});
     Keyboard.dismiss();
     setIsSending(true);
@@ -1274,9 +1545,16 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           </Pressable>
         ) : null}
 
+        <SttDebugOverlay
+          snapshot={sttDebug}
+          selectedExperimentId={sttExperimentId}
+          sttStatus={sttStatus}
+          onSelectExperiment={setSttExperimentId}
+        />
+
         <ChatComposer
           value={inputText}
-          onChangeText={setInputText}
+          onChangeText={handleComposerTextChange}
           onSend={handleSend}
           onStop={() => {}}
           onSttPress={handleSttPress}
@@ -1308,7 +1586,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           disabled={!canSend}
           isSending={isSending}
           sttStatus={sttStatus}
-          inputEditable={sttStatus === "idle"}
+          inputEditable
+          selectionOverride={composerSelectionOverride}
         />
       </ChatContentFrame>
 
@@ -1379,11 +1658,33 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   );
 }
 
-function mergeSttDraft(base: string, finalText: string, partialText: string): string {
+function mergeSttDraft(
+  base: string,
+  finalText: string,
+  partialText: string,
+  range: { start: number; end: number } = { start: base.length, end: base.length },
+): string {
+  return mergeSttDraftResult(base, finalText, partialText, range).text;
+}
+
+function mergeSttDraftResult(
+  base: string,
+  finalText: string,
+  partialText: string,
+  range: { start: number; end: number } = { start: base.length, end: base.length },
+): { text: string; selection: { start: number; end: number } } {
   const speech = [finalText.trim(), partialText.trim()].filter(Boolean).join(" ");
-  if (!base) return speech;
-  if (!speech) return base;
-  return `${base}\n${speech}`;
+  if (!base) return { text: speech, selection: { start: speech.length, end: speech.length } };
+  if (!speech) return { text: base, selection: { start: range.start, end: range.start } };
+  const start = Math.max(0, Math.min(range.start, range.end, base.length));
+  const end = Math.max(0, Math.min(Math.max(range.start, range.end), base.length));
+  const before = base.slice(0, start);
+  const after = base.slice(end);
+  const prefix = before ? (/\s$/.test(before) ? "" : " ") : "";
+  const suffix = after && !/^\s/.test(after) ? " " : "";
+  const text = `${before}${prefix}${speech}${suffix}${after}`;
+  const cursor = before.length + prefix.length + speech.length;
+  return { text, selection: { start: cursor, end: cursor } };
 }
 
 function ChatContentFrame({
@@ -1402,6 +1703,109 @@ function ChatContentFrame({
       {children}
     </KeyboardAvoidingView>
   );
+}
+
+function SttDebugOverlay({
+  snapshot,
+  selectedExperimentId,
+  sttStatus,
+  onSelectExperiment,
+}: {
+  snapshot: SttDebugSnapshot;
+  selectedExperimentId: SttExperimentId;
+  sttStatus: "idle" | "connecting" | "recording" | "stopping";
+  onSelectExperiment: (id: SttExperimentId) => void;
+}) {
+  const canSelect = sttStatus === "idle";
+  return (
+    <View style={styles.sttDebugPanel}>
+      <Text style={styles.sttDebugTitle}>STT debug</Text>
+      <View style={styles.sttDebugModeRow}>
+        {STT_EXPERIMENT_OPTIONS.map((option) => {
+          const active = selectedExperimentId === option.id;
+          return (
+            <Pressable
+              key={option.id}
+              style={[
+                styles.sttDebugModeButton,
+                active && styles.sttDebugModeButtonActive,
+                !canSelect && styles.sttDebugModeButtonDisabled,
+              ]}
+              disabled={!canSelect}
+              onPress={() => onSelectExperiment(option.id)}
+              hitSlop={4}
+            >
+              <Text style={[styles.sttDebugModeButtonText, active && styles.sttDebugModeButtonTextActive]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.sttDebugText}>
+        {`mode=${snapshot.experimentLabel} lid=${snapshot.languageIdMode} langs=${snapshot.candidateLanguages.join(",")}`}
+      </Text>
+      <Text style={styles.sttDebugText}>
+        {`detected=${snapshot.detectedLanguage ?? "-"} conf=${snapshot.languageDetectionConfidence ?? "-"}`}
+      </Text>
+      <Text style={styles.sttDebugText}>
+        {`status=${snapshot.status} session=${snapshot.sessionId ? snapshot.sessionId.slice(-8) : "-"}`}
+      </Text>
+      <Text style={styles.sttDebugText}>
+        {`frames=${snapshot.frames} bytes=${snapshot.audioBytes} partial=${snapshot.partialEvents} final=${snapshot.finalEvents}`}
+      </Text>
+      <Text style={styles.sttDebugText}>
+        {`firstPartial=${snapshot.firstPartialMs ?? "-"}ms firstFinal=${snapshot.firstFinalMs ?? "-"}ms`}
+      </Text>
+      <Text style={styles.sttDebugText}>
+        {`pref=${snapshot.preferenceMs ?? "-"}ms ready=${snapshot.wsReadyMs ?? "-"}ms mic=${snapshot.micStartMs ?? "-"}ms`}
+      </Text>
+      <Text style={styles.sttDebugText}>
+        {`cap=${snapshot.firstAudioCapturedMs ?? "-"}ms audio=${snapshot.firstAudioSentMs ?? "-"}ms p-audio=${snapshot.firstPartialAfterAudioMs ?? "-"}ms`}
+      </Text>
+      <Text style={styles.sttDebugText} numberOfLines={1}>
+        {`event=${snapshot.lastEvent || "-"}`}
+      </Text>
+      <Text style={styles.sttDebugText} numberOfLines={2}>
+        {`text=${snapshot.lastText || "-"}`}
+      </Text>
+    </View>
+  );
+}
+
+function createInitialSttDebugSnapshot(): SttDebugSnapshot {
+  return {
+    status: "idle",
+    sessionId: null,
+    experimentId: DEFAULT_STT_EXPERIMENT.id,
+    experimentLabel: DEFAULT_STT_EXPERIMENT.label,
+    languageIdMode: DEFAULT_STT_EXPERIMENT.languageIdMode,
+    candidateLanguages: DEFAULT_STT_EXPERIMENT.candidateLanguages,
+    detectedLanguage: null,
+    languageDetectionConfidence: null,
+    frames: 0,
+    audioBytes: 0,
+    partialEvents: 0,
+    finalEvents: 0,
+    firstPartialMs: null,
+    firstFinalMs: null,
+    preferenceMs: null,
+    wsReadyMs: null,
+    micStartMs: null,
+    firstAudioCapturedMs: null,
+    firstAudioSentMs: null,
+    firstPartialAfterAudioMs: null,
+    lastEvent: "-",
+    lastText: "",
+  };
+}
+
+function elapsedSince(startedAt: number | null): number {
+  return startedAt ? Date.now() - startedAt : 0;
+}
+
+function isSttInactive(status: "idle" | "connecting" | "recording" | "stopping"): boolean {
+  return status === "idle" || status === "stopping";
 }
 
 const styles = StyleSheet.create({
@@ -1429,5 +1833,56 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
+  },
+  sttDebugPanel: {
+    position: "absolute",
+    left: 10,
+    right: 10,
+    bottom: 88,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "rgba(17, 17, 17, 0.82)",
+  },
+  sttDebugTitle: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: 3,
+  },
+  sttDebugModeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 5,
+  },
+  sttDebugModeButton: {
+    minHeight: 24,
+    paddingHorizontal: 8,
+    justifyContent: "center",
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.24)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  sttDebugModeButtonActive: {
+    borderColor: "#FFFFFF",
+    backgroundColor: "#FFFFFF",
+  },
+  sttDebugModeButtonDisabled: {
+    opacity: 0.58,
+  },
+  sttDebugModeButtonText: {
+    color: "#E8EAEE",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  sttDebugModeButtonTextActive: {
+    color: "#111111",
+  },
+  sttDebugText: {
+    color: "#E8EAEE",
+    fontSize: 11,
+    lineHeight: 15,
   },
 });
