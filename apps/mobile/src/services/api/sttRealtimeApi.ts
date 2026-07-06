@@ -1,4 +1,4 @@
-import { getAuthHeaders } from "../auth/authHeaders";
+import { getAuthAccessToken } from "../auth/authHeaders";
 import type { PcmAudioFrame } from "../stt/realtimeAudioSource";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -29,8 +29,8 @@ export async function openRealtimeSttSession(input: {
   onClose?: () => void;
 }): Promise<RealtimeSttSession> {
   const sessionId = createSessionId();
-  const authHeaders = await getAuthHeaders();
-  const ws = createWebSocket(buildSttWsUrl(), { headers: authHeaders });
+  const accessToken = await getAuthAccessToken();
+  const ws = new WebSocket(buildSttWsUrl(accessToken));
   ws.binaryType = "arraybuffer";
 
   await new Promise<void>((resolve, reject) => {
@@ -120,22 +120,11 @@ export async function openRealtimeSttSession(input: {
   };
 }
 
-type WebSocketOptions = {
-  headers?: Record<string, string>;
-};
-
-function createWebSocket(url: string, options: WebSocketOptions): WebSocket {
-  const WebSocketCtor = WebSocket as unknown as new (
-    url: string,
-    protocols?: string | string[],
-    options?: WebSocketOptions
-  ) => WebSocket;
-  return new WebSocketCtor(url, undefined, options);
-}
-
-function buildSttWsUrl(): string {
+function buildSttWsUrl(accessToken: string | null): string {
   if (!BASE_URL) throw new Error("EXPO_PUBLIC_API_BASE_URL is not configured");
-  return `${BASE_URL.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}/stt/realtime`;
+  const url = `${BASE_URL.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}/stt/realtime`;
+  if (!accessToken) return url;
+  return `${url}?access_token=${encodeURIComponent(accessToken)}`;
 }
 
 function createSessionId(): string {

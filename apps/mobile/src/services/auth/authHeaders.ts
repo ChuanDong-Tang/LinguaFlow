@@ -7,16 +7,21 @@ const REFRESH_AHEAD_SECONDS = 60;
 let refreshingPromise: Promise<void> | null = null;
 
 export async function getAuthHeaders(): Promise<Record<string, string>> {
-  await ensureFreshSession();
-  const session = await getSession();
+  const accessToken = await getAuthAccessToken();
 
-  if (session?.accessToken) {
+  if (accessToken) {
     return {
-      Authorization: `Bearer ${session.accessToken}`,
+      Authorization: `Bearer ${accessToken}`,
     };
   }
 
   return {};
+}
+
+export async function getAuthAccessToken(): Promise<string | null> {
+  await ensureFreshSession();
+  const session = await getSession();
+  return session?.accessToken ?? null;
 }
 
 async function ensureFreshSession(): Promise<void> {
