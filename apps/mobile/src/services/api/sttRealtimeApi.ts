@@ -35,13 +35,27 @@ export async function openRealtimeSttSession(input: {
 
   await new Promise<void>((resolve, reject) => {
     let ready = false;
+    let startSent = false;
+    const sendStart = () => {
+      if (startSent || ws.readyState !== WebSocket.OPEN) return;
+      startSent = true;
+      ws.send(JSON.stringify({
+        type: "start",
+        sessionId,
+        sampleRate: SAMPLE_RATE,
+        channels: CHANNELS,
+        bitsPerSample: BITS_PER_SAMPLE,
+        frameLength: input.frameLength,
+        languageIdMode: "at_start",
+      }));
+    };
     const timeout = setTimeout(() => {
       if (ready) return;
       ws.close();
       reject(new Error("STT connection timeout"));
     }, 10000);
     ws.onopen = () => {
-      // Wait for the server auth/rate-limit handshake before starting Azure STT.
+      sendStart();
     };
     ws.onmessage = (event) => {
       if (typeof event.data !== "string") return;
@@ -55,15 +69,7 @@ export async function openRealtimeSttSession(input: {
       }
       if (message.type === "hello") {
         input.onEvent(message);
-        ws.send(JSON.stringify({
-          type: "start",
-          sessionId,
-          sampleRate: SAMPLE_RATE,
-          channels: CHANNELS,
-          bitsPerSample: BITS_PER_SAMPLE,
-          frameLength: input.frameLength,
-          languageIdMode: "at_start",
-        }));
+        sendStart();
         return;
       }
       if (message.type === "ready") {
