@@ -344,22 +344,6 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
 
     const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
     if (!userContext) return;
-    if (!config.payment.appleIap.enabled) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        userId: userContext.userId,
-        module: "payment",
-        event: "payment.ios.app_account_token.disabled",
-        level: "warn",
-        status: "failed",
-        errorCode: "APPLE_IAP_DISABLED",
-      });
-      return reply.status(503).send({
-        ok: false,
-        request_id: requestId,
-        error: { code: "APPLE_IAP_DISABLED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
-      });
-    }
 
     try {
       const subscription = await deps.autoRenewService.cancelWithProvider({
@@ -794,6 +778,22 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
 
     const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
     if (!userContext) return;
+    if (!config.payment.appleIap.enabled) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.ios.verify.disabled",
+        level: "warn",
+        status: "failed",
+        errorCode: "APPLE_IAP_DISABLED",
+      });
+      return reply.status(503).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "APPLE_IAP_DISABLED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
+      });
+    }
 
     try {
       const data = await deps.appleIapService.verifyProMonthlyTransaction({

@@ -49,6 +49,9 @@ type UpdatePreferencesBody = {
   ttsVoiceCode?: string | null;
 };
 
+const GUIDE_STATE_MAX_KEYS = 80;
+const GUIDE_STATE_COMPLETED_AT_MAX_LENGTH = 64;
+
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -437,16 +440,15 @@ function isPromptStyle(value: unknown): value is PromptStyle {
 
 function isGuideState(value: unknown): value is GuideState {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  return Object.entries(value as Record<string, unknown>).every(([key, entry]) => (
-    key.length > 0 &&
-    key.length <= 80 &&
-    /^[a-z0-9_]+$/.test(key) &&
-    !!entry &&
-    typeof entry === "object" &&
-    !Array.isArray(entry) &&
-    (((entry as Record<string, unknown>).completedAt === undefined) ||
-      typeof (entry as Record<string, unknown>).completedAt === "string")
-  ));
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > GUIDE_STATE_MAX_KEYS) return false;
+  return entries.every(([key, entry]) => {
+    if (key.length <= 0 || key.length > 80 || !/^[a-z0-9_]+$/.test(key)) return false;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const completedAt = (entry as Record<string, unknown>).completedAt;
+    return completedAt === undefined ||
+      (typeof completedAt === "string" && completedAt.length <= GUIDE_STATE_COMPLETED_AT_MAX_LENGTH);
+  });
 }
 
 function mergeGuideState(current: GuideState, next: GuideState): GuideState {
