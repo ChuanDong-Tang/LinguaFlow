@@ -164,20 +164,14 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
       }
     })();
 
-    socket.on("message", (raw: Buffer | string | Buffer[]) => {
+    socket.on("message", (raw: Buffer | string | Buffer[], isBinary: boolean) => {
       void (async () => {
         try {
-          if (typeof raw === "string") {
-            await handleTextMessage(raw);
+          if (!isBinary) {
+            await handleTextMessage(rawToUtf8(raw));
             return;
           }
-          if (raw instanceof Buffer) {
-            handleAudioBuffer(raw);
-            return;
-          }
-          if (Array.isArray(raw)) {
-            handleAudioBuffer(Buffer.concat(raw));
-          }
+          handleAudioBuffer(rawToBuffer(raw));
         } catch (error) {
           await closeWithError("STT_SESSION_FAILED", error instanceof Error ? error.message : "STT session failed", 1011);
         }
@@ -299,6 +293,17 @@ function joinTranscript(current: string, next: string): string {
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function rawToUtf8(raw: Buffer | string | Buffer[]): string {
+  if (typeof raw === "string") return raw;
+  return rawToBuffer(raw).toString("utf8");
+}
+
+function rawToBuffer(raw: Buffer | string | Buffer[]): Buffer {
+  if (typeof raw === "string") return Buffer.from(raw);
+  if (Array.isArray(raw)) return Buffer.concat(raw);
+  return raw;
 }
 
 function toArrayBuffer(buffer: Buffer): ArrayBuffer {
