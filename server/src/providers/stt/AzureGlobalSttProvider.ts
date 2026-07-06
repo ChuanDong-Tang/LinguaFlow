@@ -36,11 +36,9 @@ export class AzureGlobalSttProvider implements SttProvider {
     const pushStream = SpeechSDK.AudioInputStream.createPushStream(format);
     const audioConfig = SpeechSDK.AudioConfig.fromStreamInput(pushStream);
     const languages = input.candidateLanguages.length ? input.candidateLanguages : ["zh-CN", "en-US", "ja-JP"];
-    const languageConfig = SpeechSDK.AutoDetectSourceLanguageConfig.fromLanguages(languages);
-    languageConfig.mode = input.languageIdMode === "continuous"
-      ? SpeechSDK.LanguageIdMode.Continuous
-      : SpeechSDK.LanguageIdMode.AtStart;
-    const recognizer = SpeechSDK.SpeechRecognizer.FromConfig(speechConfig, languageConfig, audioConfig);
+    const recognizer = languages.length === 1
+      ? createSingleLanguageRecognizer(SpeechSDK, speechConfig, audioConfig, languages[0])
+      : createAutoDetectRecognizer(SpeechSDK, speechConfig, audioConfig, languages, input.languageIdMode);
     let finalText = "";
 
     recognizer.recognizing = (_sender, event) => {
@@ -102,6 +100,30 @@ function joinTranscript(current: string, next: string): string {
   if (!text) return current;
   if (!current) return text;
   return `${current} ${text}`;
+}
+
+function createSingleLanguageRecognizer(
+  SpeechSDK: SpeechSdkModule,
+  speechConfig: SpeechSDKTypes.SpeechConfig,
+  audioConfig: SpeechSDKTypes.AudioConfig,
+  language: string
+): SpeechSDKTypes.SpeechRecognizer {
+  speechConfig.speechRecognitionLanguage = language;
+  return new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
+}
+
+function createAutoDetectRecognizer(
+  SpeechSDK: SpeechSdkModule,
+  speechConfig: SpeechSDKTypes.SpeechConfig,
+  audioConfig: SpeechSDKTypes.AudioConfig,
+  languages: string[],
+  languageIdMode: "at_start" | "continuous"
+): SpeechSDKTypes.SpeechRecognizer {
+  const languageConfig = SpeechSDK.AutoDetectSourceLanguageConfig.fromLanguages(languages);
+  languageConfig.mode = languageIdMode === "continuous"
+    ? SpeechSDK.LanguageIdMode.Continuous
+    : SpeechSDK.LanguageIdMode.AtStart;
+  return SpeechSDK.SpeechRecognizer.FromConfig(speechConfig, languageConfig, audioConfig);
 }
 
 async function loadSpeechSdk(): Promise<SpeechSdkModule> {

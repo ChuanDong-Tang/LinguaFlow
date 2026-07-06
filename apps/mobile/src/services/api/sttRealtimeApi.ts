@@ -24,6 +24,7 @@ export type RealtimeSttSession = {
 
 export async function openRealtimeSttSession(input: {
   frameLength: number;
+  candidateLanguages?: string[];
   onEvent: (event: RealtimeSttEvent) => void;
   onError: (error: Error) => void;
   onClose?: () => void;
@@ -47,6 +48,7 @@ export async function openRealtimeSttSession(input: {
         bitsPerSample: BITS_PER_SAMPLE,
         frameLength: input.frameLength,
         languageIdMode: "at_start",
+        candidateLanguages: input.candidateLanguages?.slice(0, 4),
       }));
     };
     const timeout = setTimeout(() => {

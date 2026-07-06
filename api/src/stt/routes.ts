@@ -22,6 +22,7 @@ type RealtimeStartMessage = {
   bitsPerSample: number;
   frameLength?: number;
   languageIdMode?: "at_start";
+  candidateLanguages?: string[];
 };
 
 export interface SttRouteDeps {
@@ -56,6 +57,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
     let finalText = "";
     let detectedLanguage: string | null = null;
     let languageDetectionConfidence: string | null = null;
+    let candidateLanguages = runtimeConfig.sttRealtimeCandidateLanguages;
     let settled = false;
     let authenticated = false;
     let maxSessionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -124,6 +126,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
           detectedLanguage,
           languageDetectionConfidence,
           languageIdMode: "at_start",
+          candidateLanguages,
         },
       });
     };
@@ -203,11 +206,12 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
           startTimer = null;
         }
         sessionId = message.sessionId;
+        candidateLanguages = normalizeCandidateLanguages(message.candidateLanguages, runtimeConfig.sttRealtimeCandidateLanguages);
         sttSession = await deps.sttService.startRealtimeSession({
           sampleRate: message.sampleRate,
           channels: message.channels,
           bitsPerSample: message.bitsPerSample,
-          candidateLanguages: runtimeConfig.sttRealtimeCandidateLanguages,
+          candidateLanguages,
           languageIdMode: message.languageIdMode ?? "at_start",
           onEvent: (event) => {
             if (event.type === "partial" || event.type === "final") {
@@ -270,8 +274,23 @@ function isRealtimeStartMessage(value: unknown): value is RealtimeStartMessage {
     v.sampleRate === 16000 &&
     v.channels === 1 &&
     v.bitsPerSample === 16 &&
+    (v.candidateLanguages === undefined || isCandidateLanguageList(v.candidateLanguages)) &&
     (v.languageIdMode === undefined || v.languageIdMode === "at_start")
   );
+}
+
+function isCandidateLanguageList(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= 4 &&
+    value.every((item) => typeof item === "string" && /^[a-z]{2,3}-[A-Z]{2}$/.test(item))
+  );
+}
+
+function normalizeCandidateLanguages(input: string[] | undefined, fallback: string[]): string[] {
+  const source = input?.length ? input : fallback;
+  return Array.from(new Set(source.map((item) => item.trim()).filter(Boolean))).slice(0, 4);
 }
 
 function isStopMessage(value: unknown): value is { type: "stop" } {
