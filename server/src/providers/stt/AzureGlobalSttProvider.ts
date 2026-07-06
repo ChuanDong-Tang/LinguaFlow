@@ -25,7 +25,8 @@ export class AzureGlobalSttProvider implements SttProvider {
     }
 
     const SpeechSDK = await loadSpeechSdk();
-    const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(this.subscriptionKey, this.region);
+    const languages = input.candidateLanguages.length ? input.candidateLanguages : ["zh-CN", "en-US", "ja-JP"];
+    const speechConfig = createSpeechConfig(SpeechSDK, this.subscriptionKey, this.region, input.languageIdMode, languages);
     speechConfig.outputFormat = SpeechSDK.OutputFormat.Detailed;
 
     const format = SpeechSDK.AudioStreamFormat.getWaveFormatPCM(
@@ -35,7 +36,6 @@ export class AzureGlobalSttProvider implements SttProvider {
     );
     const pushStream = SpeechSDK.AudioInputStream.createPushStream(format);
     const audioConfig = SpeechSDK.AudioConfig.fromStreamInput(pushStream);
-    const languages = input.candidateLanguages.length ? input.candidateLanguages : ["zh-CN", "en-US", "ja-JP"];
     const recognizer = languages.length === 1
       ? createSingleLanguageRecognizer(SpeechSDK, speechConfig, audioConfig, languages[0])
       : createAutoDetectRecognizer(SpeechSDK, speechConfig, audioConfig, languages, input.languageIdMode);
@@ -93,6 +93,26 @@ export class AzureGlobalSttProvider implements SttProvider {
       },
     };
   }
+}
+
+function createSpeechConfig(
+  SpeechSDK: SpeechSdkModule,
+  subscriptionKey: string,
+  region: string,
+  languageIdMode: "at_start" | "continuous",
+  languages: string[]
+): SpeechSDKTypes.SpeechConfig {
+  if (languageIdMode === "continuous" && languages.length > 1) {
+    const endpoint = new URL(`wss://${region}.stt.speech.microsoft.com/speech/universal/v2`);
+    const speechConfig = SpeechSDK.SpeechConfig.fromEndpoint(endpoint, subscriptionKey);
+    speechConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceConnection_LanguageIdMode, "Continuous");
+    return speechConfig;
+  }
+  const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(subscriptionKey, region);
+  if (languageIdMode === "at_start" && languages.length > 1) {
+    speechConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceConnection_LanguageIdMode, "AtStart");
+  }
+  return speechConfig;
 }
 
 function joinTranscript(current: string, next: string): string {

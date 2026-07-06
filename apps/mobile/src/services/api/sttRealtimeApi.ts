@@ -9,9 +9,9 @@ const BITS_PER_SAMPLE = 16;
 export type RealtimeSttEvent =
   | { type: "hello"; requestId: string }
   | { type: "ready"; sessionId: string }
-  | { type: "partial"; text: string; detectedLanguage?: string | null; finalText?: string }
-  | { type: "final"; text: string; detectedLanguage?: string | null; finalText?: string }
-  | { type: "done"; text: string; detectedLanguage?: string | null }
+  | { type: "partial"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; finalText?: string }
+  | { type: "final"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; finalText?: string }
+  | { type: "done"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null }
   | { type: "error"; code: string; message: string }
   | { type: "canceled"; reason: string; errorCode?: string | null; errorDetails?: string | null };
 
@@ -24,6 +24,7 @@ export type RealtimeSttSession = {
 
 export async function openRealtimeSttSession(input: {
   frameLength: number;
+  languageIdMode?: "at_start" | "continuous";
   candidateLanguages?: string[];
   onEvent: (event: RealtimeSttEvent) => void;
   onError: (error: Error) => void;
@@ -47,8 +48,8 @@ export async function openRealtimeSttSession(input: {
         channels: CHANNELS,
         bitsPerSample: BITS_PER_SAMPLE,
         frameLength: input.frameLength,
-        languageIdMode: "at_start",
-        candidateLanguages: input.candidateLanguages?.slice(0, 4),
+        languageIdMode: input.languageIdMode ?? "at_start",
+        candidateLanguages: input.candidateLanguages?.slice(0, input.languageIdMode === "continuous" ? 10 : 4),
       }));
     };
     const timeout = setTimeout(() => {
