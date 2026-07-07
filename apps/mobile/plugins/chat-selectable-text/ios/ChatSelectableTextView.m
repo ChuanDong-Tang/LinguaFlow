@@ -29,7 +29,6 @@
 - (void)handleFillBlankAction;
 - (void)handleMenuActionAtIndex:(NSUInteger)index;
 - (void)handleCopyAction;
-- (void)drawHighlightBackgroundsInTextView:(UITextView *)textView;
 @end
 
 @interface ChatSelectableTextInnerTextView : UITextView
@@ -89,7 +88,6 @@
 
 - (void)drawRect:(CGRect)rect
 {
-  [self.owner drawHighlightBackgroundsInTextView:self];
   [super drawRect:rect];
 }
 
@@ -320,6 +318,7 @@
   for (NSDictionary *range in [self parseRanges:self.highlightRangesJson]) {
     NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
     if (safe.length == 0) continue;
+    [attributed addAttribute:NSBackgroundColorAttributeName value:[self colorFromString:@"#FFF0B8" fallback:UIColor.yellowColor] range:safe];
     [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#3D3420" fallback:self.currentTextColor] range:safe];
   }
 
@@ -611,32 +610,6 @@
   }];
   if (CGRectIsNull(unionRect)) return CGRectZero;
   return [self.textView convertRect:unionRect toView:nil];
-}
-
-- (void)drawHighlightBackgroundsInTextView:(UITextView *)textView
-{
-  if (self.highlightRangesJson.length == 0 || textView.textStorage.length == 0) return;
-  UIColor *color = [self colorFromString:@"#FFF0B8" fallback:UIColor.yellowColor];
-  NSLayoutManager *layoutManager = textView.layoutManager;
-  NSTextContainer *container = textView.textContainer;
-  CGContextRef context = UIGraphicsGetCurrentContext();
-  if (!context) return;
-  CGContextSaveGState(context);
-  [color setFill];
-  for (NSDictionary *range in [self parseRanges:self.highlightRangesJson]) {
-    NSRange safe = [self safeRangeFromDictionary:range length:textView.textStorage.length];
-    if (safe.length == 0) continue;
-    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:safe actualCharacterRange:nil];
-    [layoutManager enumerateEnclosingRectsForGlyphRange:glyphRange
-                              withinSelectedGlyphRange:NSMakeRange(NSNotFound, 0)
-                                       inTextContainer:container
-                                            usingBlock:^(CGRect rect, BOOL *stop) {
-      CGRect adjusted = CGRectOffset(rect, textView.textContainerInset.left, textView.textContainerInset.top);
-      UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(adjusted, 0, 1) cornerRadius:2];
-      [path fill];
-    }];
-  }
-  CGContextRestoreGState(context);
 }
 
 - (NSArray<NSDictionary *> *)parseRanges:(NSString *)json

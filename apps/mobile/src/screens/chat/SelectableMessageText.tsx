@@ -186,7 +186,7 @@ function renderLayoutTextSegments(
     }
     if (start < end) {
       segments.push(
-        <Text key={`highlight-${index}-${start}`} style={[textStyle, styles.layoutHighlightText]}>
+        <Text key={`highlight-${index}-${start}`} style={textStyle}>
           {text.slice(start, end)}
         </Text>,
       );
@@ -401,8 +401,5 @@ const styles = StyleSheet.create({
   },
   layoutText: {
     color: "transparent",
-  },
-  layoutHighlightText: {
-    backgroundColor: "#FFF0B8",
   },
 });

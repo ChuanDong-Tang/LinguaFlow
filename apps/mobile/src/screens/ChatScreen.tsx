@@ -59,6 +59,7 @@ import type { ChatMessage } from "../domain/chat/types";
 import { useChatClozeEditing } from "../hooks/useChatClozeEditing";
 import { consumeChatDateDirty } from "../services/chat/chatPracticeSyncState";
 import {
+  compareChatMessagesByCreatedAt,
   toDateKey,
 } from "../domain/chat/messageState";
 import type { ChatContact } from "../domain/chat/contacts";
@@ -789,7 +790,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       const key = `${row.contactId ?? contactId}:${row.serverId ?? row.clientId ?? row.id ?? row.localId}`;
       map.set(key, row);
     }
-    return Array.from(map.values()).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+    return Array.from(map.values()).sort(compareChatMessagesByCreatedAt);
   }
 
   async function handleSend(): Promise<void> {
@@ -1092,7 +1093,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       if (pendingAssistants.length) {
         merged.push(...pendingAssistants);
       }
-      return toDisplayRows(merged).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+      return toDisplayRows(merged).sort(compareChatMessagesByCreatedAt);
     };
     const localPro = await hasLocalProAccess();
     const [session, entitlement] = await Promise.all([
@@ -1119,9 +1120,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "checking");
     }
-    const cachedLoaded = toDisplayRows(await loadChatMessagesByDateForHistory(dateKey)).sort((a, b) =>
-      a.createdAt < b.createdAt ? -1 : 1
-    );
+    const cachedLoaded = toDisplayRows(await loadChatMessagesByDateForHistory(dateKey)).sort(compareChatMessagesByCreatedAt);
     let resolvedConversationId = await resolveConversationIdForDate(dateKey, options?.signal);
     if (!isMountedRef.current) return { synced: false, changed: false };
 
@@ -1201,9 +1200,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "merging");
     }
-    const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort((a, b) =>
-      a.createdAt < b.createdAt ? -1 : 1
-    );
+    const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort(compareChatMessagesByCreatedAt);
     setCloudDateKeys((prev) => {
       const next = new Set(prev);
       next.add(dateKey);
@@ -1216,9 +1213,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (!options?.force && nextVisibleDay.length < cachedLoaded.length) {
       nextVisibleDay = cachedLoaded;
     }
-    const previousVisibleDay = toDisplayRows(await loadChatMessagesByDateForHistory(dayKey)).sort((a, b) =>
-      a.createdAt < b.createdAt ? -1 : 1
-    );
+    const previousVisibleDay = toDisplayRows(await loadChatMessagesByDateForHistory(dayKey)).sort(compareChatMessagesByCreatedAt);
     const changed = !areMessageRowsEquivalent(previousVisibleDay, nextVisibleDay);
     dayLoadedRowsRef.current[dayKey] = nextVisibleDay;
 

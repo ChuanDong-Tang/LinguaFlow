@@ -51,6 +51,7 @@ export function createLocalChatPair(
   const stamp = now.getTime();
   const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const createdAt = now.toISOString();
+  const assistantCreatedAt = new Date(stamp + 1).toISOString();
 
   return {
     userMessage: {
@@ -72,7 +73,7 @@ export function createLocalChatPair(
       role: "assistant",
       text: "",
       time,
-      createdAt,
+      createdAt: assistantCreatedAt,
       conversationDateKey,
       status: "pending",
       contactId: null,
@@ -129,7 +130,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       retrySystemPrompt: requestSystemPrompt,
       conversationDateKey: event.assistantMessage?.conversationDateKey ?? row.conversationDateKey,
       languageCode: event.assistantMessage?.languageCode ?? row.languageCode ?? null,
-      createdAt: event.assistantMessage?.createdAt ?? new Date().toISOString(),
+      createdAt: event.assistantMessage?.createdAt ?? row.createdAt,
     }));
   };
 
@@ -143,7 +144,6 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     input.onUpdateMessage(input.assistantClientId, (row) => ({
       ...row,
       text: row.text + chunk,
-      createdAt: new Date().toISOString(),
     }));
   };
   // 网络层可以很快收到 delta；UI 层固定节奏吐字，避免一大段瞬间刷出来。
@@ -202,7 +202,6 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         status: cloud.userMessage.status ?? row.status,
         conversationDateKey: cloud.userMessage.conversationDateKey ?? row.conversationDateKey,
         languageCode: cloud.userMessage.languageCode ?? row.languageCode ?? null,
-        createdAt: cloud.userMessage.createdAt ?? row.createdAt,
       }));
     }
 
@@ -302,6 +301,5 @@ function markFailed(
     retryText: input.text,
     retryCount: input.retryCount,
     retrySystemPrompt: systemPrompt,
-    createdAt: new Date().toISOString(),
   }));
 }

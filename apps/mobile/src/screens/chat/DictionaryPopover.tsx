@@ -103,13 +103,7 @@ export function DictionaryPopover({
             <Text style={styles.errorText}>{error}</Text>
           ) : result ? (
             <>
-              <Text style={styles.label}>{t("dictionary.meaning_here")}</Text>
-              <Text style={styles.bodyText}>{result.target.meaning}</Text>
-              <Text style={styles.exampleText}>{result.target.example}</Text>
-              {result.target.sourceNote ? (
-                <Text style={styles.sourceText}>{result.target.sourceNote}</Text>
-              ) : null}
-              <Text style={styles.scenarioText}>{result.target.scenario}</Text>
+              <DictionarySections content={result.target} />
 
               <Pressable style={styles.uiToggle} onPress={() => setUiVisible((value) => !value)}>
                 <Text style={styles.uiToggleText}>{t("dictionary.view_ui_language")}</Text>
@@ -117,12 +111,7 @@ export function DictionaryPopover({
               </Pressable>
               {uiVisible ? (
                 <View style={styles.uiContent}>
-                  <Text style={styles.bodyText}>{result.ui.meaning}</Text>
-                  <Text style={styles.exampleText}>{result.ui.example}</Text>
-                  {result.ui.sourceNote ? (
-                    <Text style={styles.sourceText}>{result.ui.sourceNote}</Text>
-                  ) : null}
-                  <Text style={styles.scenarioText}>{result.ui.scenario}</Text>
+                  <DictionarySections content={result.ui} />
                 </View>
               ) : null}
             </>
@@ -130,6 +119,28 @@ export function DictionaryPopover({
         </ScrollView>
       </View>
     </View>
+  );
+}
+
+function DictionarySections({ content }: { content: DictionaryLookupResult["target"] }) {
+  return (
+    <>
+      <Text style={styles.label}>{t("dictionary.section.meaning")}</Text>
+      <Text style={styles.bodyText}>{content.meaning}</Text>
+
+      <Text style={styles.label}>{t("dictionary.section.example")}</Text>
+      <Text style={styles.exampleText}>{content.example}</Text>
+
+      <Text style={styles.label}>{t("dictionary.section.scenario")}</Text>
+      <Text style={styles.scenarioText}>{content.scenario}</Text>
+
+      {content.sourceNote ? (
+        <>
+          <Text style={styles.label}>{t("dictionary.section.source")}</Text>
+          <Text style={styles.sourceText}>{content.sourceNote}</Text>
+        </>
+      ) : null}
+    </>
   );
 }
 
@@ -233,19 +244,16 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   exampleText: {
-    marginTop: 7,
     color: "#4D5361",
     fontSize: 13,
     lineHeight: 20,
   },
   scenarioText: {
-    marginTop: 7,
     color: "#727988",
     fontSize: 13,
     lineHeight: 20,
   },
   sourceText: {
-    marginTop: 6,
     color: "#8F95A1",
     fontSize: 12,
     lineHeight: 18,

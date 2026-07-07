@@ -1,5 +1,5 @@
 import type { ChatMessage } from "../../domain/chat/types";
-import { getMessageDateKey, updateMessageByClientId } from "../../domain/chat/messageState";
+import { compareChatMessagesByCreatedAt, getMessageDateKey, updateMessageByClientId } from "../../domain/chat/messageState";
 import {
   listLocalMessageDateKeysScoped,
   loadLocalMessagesByDateScoped,
@@ -149,7 +149,7 @@ export async function loadPracticeLocalMessages(contactId: string): Promise<Chat
     }
   }
 
-  return Array.from(rowsByKey.values()).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  return Array.from(rowsByKey.values()).sort(compareChatMessagesByCreatedAt);
 }
 
 export async function replaceChatMessagesByDate(
@@ -176,7 +176,7 @@ export async function appendChatMessages(contactId: string, rows: ChatMessage[])
   for (const [dateKey, newDayRows] of grouped.entries()) {
     const existing = await loadLocalMessagesByDateScoped(uid, cid, dateKey);
     const nextDay = [...existing, ...newDayRows]
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+      .sort(compareChatMessagesByCreatedAt)
       .slice(-MAX_MESSAGES_PER_DAY);
     await saveLocalMessagesByDateScoped(uid, cid, dateKey, nextDay);
     state.dayCache.set(dateKey, nextDay);

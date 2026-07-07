@@ -824,7 +824,6 @@ function PracticeBack({
       </View>
       <View style={styles.userOriginalBlock}>
         <Pressable style={styles.userOriginalHeader} onPress={onToggleUserOriginal}>
-          <Text style={styles.userOriginalLabel}>{t("practice.session.user_original")}</Text>
           <Ionicons name={userOriginalVisible ? "eye-off-outline" : "eye-outline"} size={20} color="#111111" />
         </Pressable>
         {userOriginalVisible ? (
@@ -842,34 +841,58 @@ function PracticeBack({
 
 function PracticeClozePreview({ card, segments }: { card: PracticeCard; segments: PracticeEnglishSegment[] }) {
   const blankSet = new Set(card.blankTokenIndexes);
-  const phraseSegments = segments.filter((segment) =>
-    segment.type === "blank" || blankSet.has(segment.tokenIndex) || segment.highlighted || segment.correct
-  );
-  const visibleSegments = phraseSegments.length ? phraseSegments : segments;
+  const phraseRows = buildPracticePhraseRows(card, segments);
 
-  function renderSegment(segment: PracticeEnglishSegment): React.ReactNode {
+  function renderSegment(segment: PracticeEnglishSegment, showSpacer: boolean): React.ReactNode {
     if (segment.type === "blank" || blankSet.has(segment.tokenIndex)) {
       const width = segment.type === "blank" ? segment.width : Math.max(36, segment.text.length * 10);
       return (
         <React.Fragment key={segment.key}>
-          {segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
+          {showSpacer && segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
           <View style={[styles.previewBlank, { width }]} />
         </React.Fragment>
       );
     }
     return (
       <React.Fragment key={segment.key}>
-        {segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
+        {showSpacer && segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
         <Text style={[styles.tokenText, segment.highlighted && styles.phraseText]}>{segment.text}</Text>
       </React.Fragment>
     );
   }
 
   return (
-    <View style={styles.backPreviewFlow}>
-      {visibleSegments.map((segment) => renderSegment(segment))}
+    <View style={styles.backPreviewRows}>
+      {phraseRows.map((row) => (
+        <View key={row.key} style={styles.backPreviewRow}>
+          {row.segments.map((segment, index) => renderSegment(segment, index > 0))}
+        </View>
+      ))}
     </View>
   );
+}
+
+function buildPracticePhraseRows(card: PracticeCard, segments: PracticeEnglishSegment[]): Array<{ key: string; segments: PracticeEnglishSegment[] }> {
+  const phraseIndexes = new Set(card.phraseTokenIndexes);
+  const rows: Array<{ key: string; segments: PracticeEnglishSegment[] }> = [];
+  let current: PracticeEnglishSegment[] = [];
+
+  for (const segment of segments) {
+    if (!phraseIndexes.has(segment.tokenIndex)) {
+      if (current.length) {
+        rows.push({ key: `phrase-${rows.length}-${current[0].tokenIndex}`, segments: current });
+        current = [];
+      }
+      continue;
+    }
+    current.push(segment);
+  }
+
+  if (current.length) {
+    rows.push({ key: `phrase-${rows.length}-${current[0].tokenIndex}`, segments: current });
+  }
+
+  return rows.length ? rows : [{ key: "phrase-fallback", segments }];
 }
 
 function PracticeEnglish({
@@ -1208,10 +1231,14 @@ const styles = StyleSheet.create({
     borderColor: "#ECE2BD",
     backgroundColor: "#FFF9E8",
   },
-  backPreviewFlow: {
+  backPreviewRows: {
+    gap: 10,
+  },
+  backPreviewRow: {
+    minHeight: 28,
     flexDirection: "row",
-    flexWrap: "wrap",
     alignItems: "center",
+    flexWrap: "wrap",
   },
   previewBlank: {
     height: 24,
@@ -1231,13 +1258,8 @@ const styles = StyleSheet.create({
     minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     gap: 12,
-  },
-  userOriginalLabel: {
-    color: "#5E6573",
-    fontSize: 13,
-    fontWeight: "600",
   },
   userOriginalText: {
     marginTop: 10,

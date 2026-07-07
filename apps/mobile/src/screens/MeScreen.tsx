@@ -264,6 +264,7 @@ function LanguageSettingsModal({
   const [voiceError, setVoiceError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [multilingualRecognitionEnabled, setMultilingualRecognitionEnabled] = useState(false);
+  const [openSelect, setOpenSelect] = useState<string | null>(null);
   const currentLanguageVoiceOptions = ttsVoiceOptions.filter((option) => option.languageCode === learningLanguage);
   const canSave = !saving && currentLanguageVoiceOptions.some((option) => option.voiceCode === ttsVoiceCode);
 
@@ -275,6 +276,7 @@ function LanguageSettingsModal({
     setPromptDifficulty(preference?.promptDifficulty ?? "natural");
     setPromptStyle(preference?.promptStyle ?? "native_casual");
     setMultilingualRecognitionEnabled(preference?.sttMultilingualRecognitionEnabled === true);
+    setOpenSelect(null);
   }, [preference, visible]);
 
   useEffect(() => {
@@ -329,88 +331,104 @@ function LanguageSettingsModal({
               <Ionicons name="close" size={22} color="#111111" />
             </Pressable>
           </View>
-          <Text style={styles.languageFieldTitle}>{t("me.language.app_locale")}</Text>
-          <View style={styles.languageOptionGrid}>
-            {APP_LOCALE_OPTIONS.map((option) => (
-              <OptionChip
-                key={option.value}
-                label={t(option.labelKey)}
-                active={appLocale === option.value}
-                onPress={() => setAppLocale(option.value)}
-              />
-            ))}
-          </View>
-          <Text style={styles.languageFieldTitle}>{t("me.language.learning")}</Text>
-          <Text style={styles.languageHint}>{t("me.language.hint")}</Text>
-          <View style={styles.languageOptionGrid}>
-            {LEARNING_LANGUAGE_OPTIONS.map((option) => (
-              <OptionChip
-                key={option.value}
-                label={t(option.labelKey)}
-                active={learningLanguage === option.value}
-                onPress={() => {
+          <ScrollView style={styles.languageForm} contentContainerStyle={styles.languageFormContent} showsVerticalScrollIndicator={false}>
+            <SelectField
+              id="appLocale"
+              title={t("me.language.app_locale")}
+              valueLabel={appLocaleLabel(appLocale)}
+              open={openSelect === "appLocale"}
+              options={APP_LOCALE_OPTIONS.map((option) => ({
+                key: option.value,
+                label: t(option.labelKey),
+                active: appLocale === option.value,
+                onPress: () => setAppLocale(option.value),
+              }))}
+              onToggle={() => setOpenSelect((current) => current === "appLocale" ? null : "appLocale")}
+              onClose={() => setOpenSelect(null)}
+            />
+            <SelectField
+              id="learningLanguage"
+              title={t("me.language.learning")}
+              hint={t("me.language.hint")}
+              valueLabel={learningLanguageLabel(learningLanguage)}
+              open={openSelect === "learningLanguage"}
+              options={LEARNING_LANGUAGE_OPTIONS.map((option) => ({
+                key: option.value,
+                label: t(option.labelKey),
+                active: learningLanguage === option.value,
+                onPress: () => {
                   setLearningLanguage(option.value);
                   setTtsVoiceCode(resolveTtsVoiceCodeForLanguage(ttsVoiceOptions, option.value, null));
-                }}
-              />
-            ))}
-          </View>
-          <Text style={styles.languageFieldTitle}>{t("me.language.difficulty")}</Text>
-          <Text style={styles.languageHint}>{t("me.language.difficulty_hint")}</Text>
-          <View style={styles.languageOptionGrid}>
-            {PROMPT_DIFFICULTY_OPTIONS.map((option) => (
-              <OptionChip
-                key={option.value}
-                label={t(option.labelKey)}
-                active={promptDifficulty === option.value}
-                onPress={() => setPromptDifficulty(option.value)}
-              />
-            ))}
-          </View>
-          <Text style={styles.languageFieldTitle}>{t("me.language.style")}</Text>
-          <Text style={styles.languageHint}>{t("me.language.style_hint")}</Text>
-          <View style={styles.languageOptionGrid}>
-            {PROMPT_STYLE_OPTIONS.map((option) => (
-              <OptionChip
-                key={option.value}
-                label={option.value === "native_casual"
-                  ? t(learningLanguage === "ja-JP" ? "prompt_style.native_casual.ja" : "prompt_style.native_casual.en")
-                  : t(option.labelKey)}
-                active={promptStyle === option.value}
-                onPress={() => setPromptStyle(option.value)}
-              />
-            ))}
-          </View>
-          <Text style={styles.languageFieldTitle}>{t("me.language.tts_voice")}</Text>
-          <Text style={styles.languageHint}>{t("me.language.tts_voice_hint")}</Text>
-          <View style={styles.languageOptionGrid}>
-            {voiceLoading ? <ActivityIndicator size="small" color="#1F6FEB" /> : null}
+                },
+              }))}
+              onToggle={() => setOpenSelect((current) => current === "learningLanguage" ? null : "learningLanguage")}
+              onClose={() => setOpenSelect(null)}
+            />
+            <SelectField
+              id="promptDifficulty"
+              title={t("me.language.difficulty")}
+              hint={t("me.language.difficulty_hint")}
+              valueLabel={promptDifficultyLabel(promptDifficulty)}
+              open={openSelect === "promptDifficulty"}
+              options={PROMPT_DIFFICULTY_OPTIONS.map((option) => ({
+                key: option.value,
+                label: t(option.labelKey),
+                active: promptDifficulty === option.value,
+                onPress: () => setPromptDifficulty(option.value),
+              }))}
+              onToggle={() => setOpenSelect((current) => current === "promptDifficulty" ? null : "promptDifficulty")}
+              onClose={() => setOpenSelect(null)}
+            />
+            <SelectField
+              id="promptStyle"
+              title={t("me.language.style")}
+              hint={t("me.language.style_hint")}
+              valueLabel={promptStyleLabel(promptStyle, learningLanguage)}
+              open={openSelect === "promptStyle"}
+              options={PROMPT_STYLE_OPTIONS.map((option) => ({
+                key: option.value,
+                label: promptStyleLabel(option.value, learningLanguage),
+                active: promptStyle === option.value,
+                onPress: () => setPromptStyle(option.value),
+              }))}
+              onToggle={() => setOpenSelect((current) => current === "promptStyle" ? null : "promptStyle")}
+              onClose={() => setOpenSelect(null)}
+            />
+            <SelectField
+              id="ttsVoice"
+              title={t("me.language.tts_voice")}
+              hint={t("me.language.tts_voice_hint")}
+              valueLabel={voiceLoading ? "" : currentLanguageVoiceOptions.find((option) => option.voiceCode === ttsVoiceCode)?.label ?? ""}
+              open={openSelect === "ttsVoice"}
+              disabled={voiceLoading || voiceError || currentLanguageVoiceOptions.length === 0}
+              options={currentLanguageVoiceOptions.map((option) => ({
+                key: option.voiceCode,
+                label: option.label,
+                detail: learningLanguageLabel(option.languageCode as LearningLanguage),
+                active: ttsVoiceCode === option.voiceCode,
+                onPress: () => setTtsVoiceCode(option.voiceCode),
+              }))}
+              onToggle={() => setOpenSelect((current) => current === "ttsVoice" ? null : "ttsVoice")}
+              onClose={() => setOpenSelect(null)}
+            />
+            {voiceLoading ? <ActivityIndicator style={styles.languageInlineStatus} size="small" color="#1F6FEB" /> : null}
             {voiceError ? <Text style={styles.languageHint}>{t("tts.error.failed")}</Text> : null}
-            {!voiceLoading && !voiceError && currentLanguageVoiceOptions.map((option) => (
-              <VoiceOptionChip
-                key={option.voiceCode}
-                languageLabel={learningLanguageLabel(option.languageCode as LearningLanguage)}
-                label={option.label}
-                active={ttsVoiceCode === option.voiceCode}
-                onPress={() => setTtsVoiceCode(option.voiceCode)}
-              />
-            ))}
-          </View>
-          <View style={styles.languageAdvancedBlock}>
-            <Text style={styles.languageFieldTitle}>{t("me.language.stt_advanced")}</Text>
-            <Pressable
-              style={styles.languageToggleRow}
-              onPress={() => setMultilingualRecognitionEnabled((value) => !value)}
-            >
-              <View style={[styles.languageToggleBox, multilingualRecognitionEnabled && styles.languageToggleBoxActive]}>
-                {multilingualRecognitionEnabled ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
-              </View>
-              <View style={styles.languageToggleTextWrap}>
-                <Text style={styles.languageToggleTitle}>{t("me.language.stt_multilingual")}</Text>
-                <Text style={styles.languageHint}>{t("me.language.stt_multilingual_hint")}</Text>
-              </View>
-            </Pressable>
-          </View>
+            <View style={styles.languageAdvancedBlock}>
+              <Text style={styles.languageFieldTitle}>{t("me.language.stt_advanced")}</Text>
+              <Pressable
+                style={styles.languageToggleRow}
+                onPress={() => setMultilingualRecognitionEnabled((value) => !value)}
+              >
+                <View style={[styles.languageToggleBox, multilingualRecognitionEnabled && styles.languageToggleBoxActive]}>
+                  {multilingualRecognitionEnabled ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+                </View>
+                <View style={styles.languageToggleTextWrap}>
+                  <Text style={styles.languageToggleTitle}>{t("me.language.stt_multilingual")}</Text>
+                  <Text style={styles.languageHint}>{t("me.language.stt_multilingual_hint")}</Text>
+                </View>
+              </Pressable>
+            </View>
+          </ScrollView>
           <View style={styles.languageActions}>
             <Pressable style={styles.languageCancelButton} onPress={onClose} disabled={saving}>
               <Text style={styles.languageCancelText}>{t("common.cancel")}</Text>
@@ -425,22 +443,69 @@ function LanguageSettingsModal({
   );
 }
 
-function VoiceOptionChip({
-  languageLabel,
-  label,
-  active,
-  onPress,
+function SelectField({
+  title,
+  hint,
+  valueLabel,
+  open,
+  disabled,
+  options,
+  onToggle,
+  onClose,
 }: {
-  languageLabel: string;
-  label: string;
-  active: boolean;
-  onPress: () => void;
+  id: string;
+  title: string;
+  hint?: string;
+  valueLabel: string;
+  open: boolean;
+  disabled?: boolean;
+  options: Array<{
+    key: string;
+    label: string;
+    detail?: string;
+    active: boolean;
+    onPress: () => void;
+  }>;
+  onToggle: () => void;
+  onClose: () => void;
 }) {
   return (
-    <Pressable style={[styles.voiceOptionChip, active && styles.languageOptionChipActive]} onPress={onPress}>
-      <Text style={[styles.voiceOptionTag, active && styles.voiceOptionTagActive]}>{languageLabel}</Text>
-      <Text style={[styles.voiceOptionText, active && styles.languageOptionTextActive]}>{label}</Text>
-    </Pressable>
+    <View style={styles.selectField}>
+      <Text style={styles.languageFieldTitle}>{title}</Text>
+      {hint ? <Text style={styles.languageHint}>{hint}</Text> : null}
+      <Pressable
+        style={[styles.selectButton, disabled && styles.selectButtonDisabled]}
+        onPress={disabled ? undefined : onToggle}
+        disabled={disabled}
+      >
+        <Text style={[styles.selectButtonText, !valueLabel && styles.selectButtonTextMuted]} numberOfLines={1}>
+          {valueLabel || "-"}
+        </Text>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={disabled ? "#B4BBC7" : "#343A45"} />
+      </Pressable>
+      {open && !disabled ? (
+        <View style={styles.selectMenu}>
+          {options.map((option) => (
+            <Pressable
+              key={option.key}
+              style={[styles.selectOption, option.active && styles.selectOptionActive]}
+              onPress={() => {
+                option.onPress();
+                onClose();
+              }}
+            >
+              <View style={styles.selectOptionTextWrap}>
+                {option.detail ? <Text style={[styles.selectOptionDetail, option.active && styles.selectOptionTextActive]}>{option.detail}</Text> : null}
+                <Text style={[styles.selectOptionText, option.active && styles.selectOptionTextActive]} numberOfLines={1}>
+                  {option.label}
+                </Text>
+              </View>
+              {option.active ? <Ionicons name="checkmark" size={18} color="#FFFFFF" /> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -472,22 +537,6 @@ function DeveloperDebugModal({
         </View>
       </View>
     </Modal>
-  );
-}
-
-function OptionChip({
-  label,
-  active,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable style={[styles.languageOptionChip, active && styles.languageOptionChipActive]} onPress={onPress}>
-      <Text style={[styles.languageOptionText, active && styles.languageOptionTextActive]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -1064,6 +1113,7 @@ const styles = StyleSheet.create({
   },
   languagePanel: {
     padding: 16,
+    maxHeight: "88%",
     borderRadius: 16,
     backgroundColor: "#FFFFFF",
   },
@@ -1084,7 +1134,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   languageFieldTitle: {
-    marginTop: 16,
     color: "#343A45",
     fontSize: 13,
     fontWeight: "700",
@@ -1095,63 +1144,84 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
-  languageOptionGrid: {
-    marginTop: 10,
+  languageForm: {
+    flexShrink: 1,
+    marginTop: 2,
+  },
+  languageFormContent: {
+    paddingBottom: 2,
+  },
+  selectField: {
+    marginTop: 14,
+  },
+  selectButton: {
+    marginTop: 8,
+    minHeight: 42,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DFE3EA",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: 8,
   },
-  languageOptionChip: {
-    minHeight: 38,
-    minWidth: 90,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#DFE3EA",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
+  selectButtonDisabled: {
+    backgroundColor: "#F5F6F8",
   },
-  languageOptionChipActive: {
-    borderColor: "#111111",
-    backgroundColor: "#111111",
-  },
-  languageOptionText: {
-    color: "#5D6470",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  languageOptionTextActive: {
-    color: "#FFFFFF",
-  },
-  voiceOptionChip: {
-    minHeight: 48,
-    minWidth: 124,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#DFE3EA",
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
-  },
-  voiceOptionTag: {
-    color: "#7E8491",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  voiceOptionTagActive: {
-    color: "rgba(255,255,255,0.72)",
-  },
-  voiceOptionText: {
-    marginTop: 2,
+  selectButtonText: {
+    flex: 1,
     color: "#343A45",
     fontSize: 13,
     fontWeight: "700",
   },
+  selectButtonTextMuted: {
+    color: "#A3A9B4",
+  },
+  selectMenu: {
+    marginTop: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DFE3EA",
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+  },
+  selectOption: {
+    minHeight: 42,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF0F4",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  selectOptionActive: {
+    backgroundColor: "#111111",
+  },
+  selectOptionTextWrap: {
+    flex: 1,
+  },
+  selectOptionText: {
+    color: "#343A45",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  selectOptionDetail: {
+    marginBottom: 2,
+    color: "#7E8491",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  selectOptionTextActive: {
+    color: "#FFFFFF",
+  },
+  languageInlineStatus: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+  },
   languageAdvancedBlock: {
-    marginTop: 4,
+    marginTop: 14,
   },
   languageToggleRow: {
     marginTop: 10,

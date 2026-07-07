@@ -1,9 +1,7 @@
 package com.yueyantech.oio.chatselectabletext
 
 import android.content.Context
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.SpannableString
@@ -12,6 +10,7 @@ import android.text.Spannable
 import android.text.Spanned
 import android.widget.TextView
 import android.text.style.ForegroundColorSpan
+import android.text.style.BackgroundColorSpan
 import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.util.Log
@@ -46,10 +45,6 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   private var pendingSelectionRelease: Boolean = false
   private var textApplyRequested: Boolean = false
   private var rangeLongPressed: Boolean = false
-  private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-    color = Color.parseColor("#FFF0B8")
-    style = Paint.Style.FILL
-  }
   private val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
   private val rangeLongPressRunnable = Runnable {
     val range = pendingRange ?: return@Runnable
@@ -178,11 +173,6 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     return super.onTouchEvent(event)
   }
 
-  override fun onDraw(canvas: Canvas) {
-    drawHighlightUnderlay(canvas)
-    super.onDraw(canvas)
-  }
-
   override fun performLongClick(): Boolean {
     ensureSpannableTextBuffer()
     return try {
@@ -227,6 +217,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     }
 
     parseRanges(highlightRangesJson).forEach { range ->
+      applyRangeSpan(spannable, range.start, range.end, visibleText.length, BackgroundColorSpan(Color.parseColor("#FFF0B8")))
       applyRangeSpan(spannable, range.start, range.end, visibleText.length, ForegroundColorSpan(Color.parseColor("#3D3420")))
     }
 
@@ -410,31 +401,6 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       })
     }
     reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(id, "topSelection", event)
-  }
-
-  private fun drawHighlightUnderlay(canvas: Canvas) {
-    val currentText = text
-    if (currentText.isNullOrEmpty() || layout == null) return
-    parseRanges(highlightRangesJson).forEach { range ->
-      val start = range.start.coerceIn(0, currentText.length)
-      val end = range.end.coerceIn(start, currentText.length)
-      if (start >= end) return@forEach
-      val startLine = layout.getLineForOffset(start)
-      val endLine = layout.getLineForOffset((end - 1).coerceAtLeast(start))
-      for (line in startLine..endLine) {
-        val lineStart = layout.getLineStart(line)
-        val lineEnd = layout.getLineVisibleEnd(line).coerceAtLeast(lineStart)
-        val segmentStart = maxOf(start, lineStart)
-        val segmentEnd = minOf(end, lineEnd)
-        if (segmentStart >= segmentEnd) continue
-        val left = layout.getPrimaryHorizontal(segmentStart) + totalPaddingLeft - scrollX
-        val right = layout.getPrimaryHorizontal(segmentEnd) + totalPaddingLeft - scrollX
-        val top = layout.getLineTop(line).toFloat() + totalPaddingTop - scrollY + 1f
-        val bottom = layout.getLineBottom(line).toFloat() + totalPaddingTop - scrollY - 1f
-        val rect = RectF(minOf(left, right), top, maxOf(left, right), bottom)
-        canvas.drawRoundRect(rect, 3f, 3f, highlightPaint)
-      }
-    }
   }
 
   private fun selectionRectForRange(start: Int, end: Int): RectF {

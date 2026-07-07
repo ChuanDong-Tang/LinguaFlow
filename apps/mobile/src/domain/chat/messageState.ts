@@ -58,16 +58,21 @@ export function getMessageDateKey(row: ChatMessage): string {
   return row.conversationDateKey || toDateKey(new Date(row.createdAt));
 }
 
+export function compareChatMessagesByCreatedAt(a: ChatMessage, b: ChatMessage): number {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  if (a.role !== b.role) return a.role === "user" ? -1 : 1;
+  return (a.clientId || a.localId).localeCompare(b.clientId || b.localId);
+}
+
 export function mergeByLocalId(allRows: ChatMessage[], incomingRows: ChatMessage[]): ChatMessage[] {
   const map = new Map<string, ChatMessage>();
   const getKey = (row: ChatMessage): string => row.serverId ?? row.clientId ?? row.id ?? row.localId;
   for (const row of allRows) map.set(getKey(row), row);
   for (const row of incomingRows) map.set(getKey(row), row);
-  return Array.from(map.values()).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  return Array.from(map.values()).sort(compareChatMessagesByCreatedAt);
 }
 
 export function nowHHMM(): string {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
-
