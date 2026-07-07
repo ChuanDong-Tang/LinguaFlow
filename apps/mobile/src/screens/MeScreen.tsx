@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Updates from "expo-updates";
@@ -18,7 +18,7 @@ import { getCachedEntitlementForUser, isSameEntitlement } from "../services/enti
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
 import { recoverPendingPaymentIfAny } from "../services/payment/paymentRecovery";
 import { useMountedGuard } from "../hooks/useMountedGuard";
-import { setLanguage, t, tf } from "../i18n";
+import { t, tf } from "../i18n";
 import { DebugPromptModal } from "./shared/DebugPromptModal";
 import { listTtsVoices, type TtsVoiceOption } from "../services/api/ttsApi";
 import { getLogs, type AppLog } from "../services/logger";
@@ -28,6 +28,7 @@ type MeScreenProps = {
   onOpenPro: () => void;
   onOpenAbout: () => void;
   onOpenHelp: () => void;
+  onApplyAppLocale: (value: AppLocale) => void;
   onLogout: () => Promise<void> | void;
   onDeleteAccount: () => Promise<void> | void;
 };
@@ -36,8 +37,9 @@ const OTA_DEBUG_JS_LABEL = "Dictionary overlay close fix";
 const UPDATE_LOG_KEYWORDS = ["error", "fail", "exception", "crash", "rollback", "emergency", "launch", "reset", "delete"];
 const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
-export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onLogout, onDeleteAccount }: MeScreenProps) {
+export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApplyAppLocale, onLogout, onDeleteAccount }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
+  const appLocaleSyncSeqRef = useRef(0);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
   const [preference, setPreference] = useState<UserPreference | null>(null);
@@ -150,7 +152,6 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onLogou
 
         <View style={styles.proCard}>
           <Text style={styles.proTitle}>{t("me.pro.title")}</Text>
-          <Text style={styles.proSubtitle}>{t("me.pro.subtitle")}</Text>
           {([t("me.pro.benefit.quota"), t("me.pro.benefit.cloud"), t("me.pro.benefit.tts")]).map((item) => (
             <View key={item} style={styles.benefitRow}>
               <Ionicons name="checkmark-circle-outline" size={18} color="#746BFF" />
@@ -186,10 +187,25 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onLogou
         visible={languageSettingsVisible}
         preference={preference}
         onClose={() => setLanguageSettingsVisible(false)}
+        onApplyAppLocale={(value) => {
+          appLocaleSyncSeqRef.current += 1;
+          const syncSeq = appLocaleSyncSeqRef.current;
+          onApplyAppLocale(value);
+          setPreference((current) => current ? { ...current, appLocale: value } : current);
+          void updateUserPreference({ appLocale: value })
+            .then((saved) => {
+              if (!isMounted() || appLocaleSyncSeqRef.current !== syncSeq) return;
+              setPreference(saved);
+            })
+            .catch(() => {
+              if (!isMounted() || appLocaleSyncSeqRef.current !== syncSeq) return;
+              Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
+            });
+        }}
         onSave={async (next) => {
           try {
             const saved = await updateUserPreference(next);
-            await setLanguage(saved.appLocale);
+            onApplyAppLocale(saved.appLocale);
             setPreference(saved);
             setLanguageSettingsVisible(false);
           } catch {
@@ -240,11 +256,13 @@ function LanguageSettingsModal({
   visible,
   preference,
   onClose,
+  onApplyAppLocale,
   onSave,
 }: {
   visible: boolean;
   preference: UserPreference | null;
   onClose: () => void;
+  onApplyAppLocale: (value: AppLocale) => void;
   onSave: (next: {
     appLocale: AppLocale;
     learningLanguage: LearningLanguage;
@@ -265,11 +283,17 @@ function LanguageSettingsModal({
   const [saving, setSaving] = useState(false);
   const [multilingualRecognitionEnabled, setMultilingualRecognitionEnabled] = useState(false);
   const [openSelect, setOpenSelect] = useState<string | null>(null);
+  const initializedVisibleRef = useRef(false);
   const currentLanguageVoiceOptions = ttsVoiceOptions.filter((option) => option.languageCode === learningLanguage);
   const canSave = !saving && currentLanguageVoiceOptions.some((option) => option.voiceCode === ttsVoiceCode);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      initializedVisibleRef.current = false;
+      return;
+    }
+    if (initializedVisibleRef.current) return;
+    initializedVisibleRef.current = true;
     const nextLearningLanguage = preference?.learningLanguage ?? "en-US";
     setAppLocale(preference?.appLocale ?? "zh-CN");
     setLearningLanguage(nextLearningLanguage);
@@ -341,7 +365,10 @@ function LanguageSettingsModal({
                 key: option.value,
                 label: t(option.labelKey),
                 active: appLocale === option.value,
-                onPress: () => setAppLocale(option.value),
+                onPress: () => {
+                  setAppLocale(option.value);
+                  onApplyAppLocale(option.value);
+                },
               }))}
               onToggle={() => setOpenSelect((current) => current === "appLocale" ? null : "appLocale")}
               onClose={() => setOpenSelect(null)}
@@ -1033,11 +1060,6 @@ const styles = StyleSheet.create({
     color: "#111111",
     fontSize: 16,
     fontWeight: "500",
-  },
-  proSubtitle: {
-    marginTop: 6,
-    color: "#5E6573",
-    fontSize: 13,
   },
   benefitRow: {
     marginTop: 6,

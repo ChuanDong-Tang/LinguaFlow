@@ -78,6 +78,7 @@ export default function App() {
   const [chatContacts, setChatContacts] = useState<ChatContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsError, setContactsError] = useState(false);
+  const [, bumpLanguageRevision] = useState(0);
   const [uiLocaleSetupVisible, setUiLocaleSetupVisible] = useState(false);
   const [uiLocaleDraft, setUiLocaleDraft] = useState<AppLocale>("zh-CN");
   const [learningPreferenceVisible, setLearningPreferenceVisible] = useState(false);
@@ -237,6 +238,12 @@ export default function App() {
     await setLanguage(uiLocaleDraft);
     await markLocalGuideCompleted(GUIDE_INITIAL_UI_LOCALE);
     setUiLocaleSetupVisible(false);
+  }
+
+  function applyAppLocale(value: AppLocale): void {
+    setUiLocaleDraft(value);
+    void setLanguage(value);
+    bumpLanguageRevision((revision) => revision + 1);
   }
 
   async function completeLearningPreferenceSetup(): Promise<void> {
@@ -477,6 +484,7 @@ export default function App() {
             onOpenPro={() => setScreen("pro")}
             onOpenAbout={() => setScreen("about")}
             onOpenHelp={() => setManualHelpVisible(true)}
+            onApplyAppLocale={applyAppLocale}
             onLogout={handleLogout}
             onDeleteAccount={handleDeleteAccount}
           />
@@ -637,6 +645,7 @@ function TabScreens({
   onOpenPro,
   onOpenAbout,
   onOpenHelp,
+  onApplyAppLocale,
   onLogout,
   onDeleteAccount,
 }: {
@@ -650,6 +659,7 @@ function TabScreens({
   onOpenPro: () => void;
   onOpenAbout: () => void;
   onOpenHelp: () => void;
+  onApplyAppLocale: (value: AppLocale) => void;
   onLogout: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
 }) {
@@ -673,6 +683,7 @@ function TabScreens({
           onOpenPro={onOpenPro}
           onOpenAbout={onOpenAbout}
           onOpenHelp={onOpenHelp}
+          onApplyAppLocale={onApplyAppLocale}
           onLogout={onLogout}
           onDeleteAccount={onDeleteAccount}
         />
