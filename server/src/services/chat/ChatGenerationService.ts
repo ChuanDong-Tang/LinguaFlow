@@ -323,6 +323,8 @@ export class ChatGenerationService {
       const failureStatus = this.resolveFailureStatus(error);
       if (failureStatus === "cancelled") {
         await this.consumeCancelledUsage(input, assistantText, quotaDateKey);
+      } else if (error instanceof ContentSafetyBlockedError && error.stage === "output") {
+        await this.consumeBlockedOutputUsage(input, assistantText, quotaDateKey);
       }
       if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       await this.logFailedAiRequest(input, {
@@ -451,6 +453,16 @@ export class ChatGenerationService {
   ): Promise<void> {
     const chargeChars = input.text.length + assistantText.length;
     // 用户主动停止时同样按已产生内容计费，但不允许额度被扣成超额。
+    await this.entitlementService.consumeUpToLimit(input.userId, chargeChars, { dateKey });
+  }
+
+  private async consumeBlockedOutputUsage(
+    input: ChatGenerationStreamServiceInput,
+    assistantText: string,
+    dateKey?: string
+  ): Promise<void> {
+    const chargeChars = input.text.length + assistantText.length;
+    // 用户输入通过安全检查、但诱导模型生成违规内容时，按已产生内容计费。
     await this.entitlementService.consumeUpToLimit(input.userId, chargeChars, { dateKey });
   }
 

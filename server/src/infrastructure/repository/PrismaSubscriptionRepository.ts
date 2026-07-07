@@ -11,6 +11,7 @@ type PrismaSubscriptionClient = {
   subscription: {
     findFirst: (args: any) => Promise<any>;
     findUnique: (args: any) => Promise<any>;
+    updateMany: (args: any) => Promise<{ count: number }>;
     create: (args: any) => Promise<any>;
   };
 };
@@ -46,6 +47,42 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
     });
 
     return row ? this.toEntity(row) : null;
+  }
+
+  async cancelActiveBySourceOrderId(input: {
+    sourceOrderId: string;
+    cancelledAt: Date;
+    expiresAt: Date;
+  }): Promise<SubscriptionEntity | null> {
+    const row = await this.prisma.subscription.findUnique({
+      where: {
+        sourceOrderId: input.sourceOrderId,
+      },
+    });
+    if (!row || row.status !== "active" || row.expiresAt <= input.cancelledAt) return null;
+
+    const nextExpiresAt = row.expiresAt < input.expiresAt ? row.expiresAt : input.expiresAt;
+    const updated = await this.prisma.subscription.updateMany({
+      where: {
+        id: row.id,
+        status: "active",
+        expiresAt: {
+          gt: input.cancelledAt,
+        },
+      },
+      data: {
+        status: "cancelled",
+        expiresAt: nextExpiresAt,
+      },
+    });
+    if (updated.count === 0) return null;
+
+    const latest = await this.prisma.subscription.findUnique({
+      where: {
+        id: row.id,
+      },
+    });
+    return latest ? this.toEntity(latest) : null;
   }
 
   async create(input: CreateSubscriptionInput): Promise<SubscriptionEntity> {

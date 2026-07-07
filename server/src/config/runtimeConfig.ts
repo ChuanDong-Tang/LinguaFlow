@@ -155,6 +155,7 @@ export interface RuntimeConfig {
   sttRealtimeRateWindowMs: number;
   sttRealtimeMaxSessionMs: number;
   sttRealtimeCandidateLanguages: string[];
+  sttRequestLogEnabled: boolean;
   ttsMessagesGlobalRateLimit: number;
   ttsMessagesGlobalRateWindowMs: number;
   ttsCostPerMillionCharsCents: number;
@@ -294,6 +295,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
       "ja-JP",
       "ko-KR",
     ]).slice(0, 4),
+    sttRequestLogEnabled: readBoolean(env.STT_REQUEST_LOG_ENABLED, false),
     ttsMessagesGlobalRateLimit: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_LIMIT, 100),
     ttsMessagesGlobalRateWindowMs: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_WINDOW_MS, 60_000),
     ttsCostPerMillionCharsCents: readNonNegativeInt(env.TTS_COST_PER_1M_CHARS_CENTS, 0),

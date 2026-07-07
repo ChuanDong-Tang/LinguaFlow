@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
 import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import type { SubscriptionRepository } from "@lf/core/ports/repository/SubscriptionRepository.js";
 import type { AppleIapAccountLinkRepository } from "@lf/core/ports/repository/AppleIapAccountLinkRepository.js";
 import type { PaymentOrderStatus, PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
@@ -59,6 +60,27 @@ export type AppleAutoRenewReconcileResult =
       transactionProductId: string | null;
     };
 
+type AppleRefundEntitlementRevocationResult =
+  | {
+      status: "revoked";
+      subscriptionId: string;
+      userId: string;
+      plan: string;
+      revokedAt: string;
+      expiresAt: string;
+    }
+  | {
+      status: "no_active_subscription";
+      sourceOrderId: string;
+      revokedAt: string;
+    }
+  | {
+      status: "skipped";
+      reason: "subscription_repository_missing";
+      sourceOrderId: string;
+      revokedAt: string;
+    };
+
 export class AppleIapService {
   constructor(
     private readonly benefitGrantService: BenefitGrantService,
@@ -67,7 +89,8 @@ export class AppleIapService {
     private readonly paymentOrderRepository: PaymentOrderRepository,
     private readonly autoRenewService?: AutoRenewService,
     private readonly appleIapAccountLinkRepository?: AppleIapAccountLinkRepository,
-    private readonly subscriptionService?: SubscriptionService
+    private readonly subscriptionService?: SubscriptionService,
+    private readonly subscriptionRepository?: SubscriptionRepository
   ) {}
 
   isConfigured(): boolean {
@@ -591,6 +614,15 @@ export class AppleIapService {
           await this.paymentEventRepository.markIgnored(event.id, "Bundle id mismatch");
           return { status: "ignored", eventId, eventType };
         }
+        await this.paymentEventRepository.updateDetails({
+          id: event.id,
+          providerOrderId: tx.transactionId ?? tx.originalTransactionId ?? null,
+          rawPayload: {
+            notification: sanitizeAppleNotificationForStorage(notification),
+            header: decoded.header,
+            transaction: sanitizeAppleTransactionForStorage(tx),
+          },
+        });
 
         const purchase = resolveApplePurchase(tx.productId, config);
         if (this.autoRenewService && purchase?.purchaseKind === "auto_renew" && tx.originalTransactionId) {
@@ -640,20 +672,41 @@ export class AppleIapService {
           ].filter((value): value is string => Boolean(value));
           const order = await this.findOrderByProviderOrderIds(candidateProviderOrderIds);
           if (order) {
-            await this.paymentOrderRepository.updateStatus({
+            const orderMetadata = buildAppleNotificationOrderMetadata(order.metadata, {
+              eventId,
+              eventType,
+              notificationType: notification.notificationType ?? null,
+              subtype: notification.subtype ?? null,
+              transactionId: tx.transactionId ?? null,
+              originalTransactionId: tx.originalTransactionId ?? null,
+            });
+            const updatedOrder = await this.paymentOrderRepository.updateStatus({
               id: order.id,
               status: nextStatus,
               expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus(nextStatus),
-              metadata: {
-                ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
-                appleIap: {
-                  eventType: notification.notificationType ?? null,
+              metadata: orderMetadata,
+            });
+            const effectiveOrder = updatedOrder ?? (order.status === "refunded" ? order : null);
+            if (effectiveOrder && isAppleRefundOrRevoke(notification.notificationType)) {
+              const revocation = await this.revokeEntitlementForRefundedOrder({
+                sourceOrderId: effectiveOrder.id,
+                revokedAt: resolveAppleRevocationDate(tx) ?? new Date(),
+              });
+              await this.paymentOrderRepository.updateStatus({
+                id: effectiveOrder.id,
+                status: "refunded",
+                expectedCurrentStatuses: ["refunded"],
+                metadata: buildAppleNotificationOrderMetadata(effectiveOrder.metadata, {
+                  eventId,
+                  eventType,
+                  notificationType: notification.notificationType ?? null,
                   subtype: notification.subtype ?? null,
                   transactionId: tx.transactionId ?? null,
                   originalTransactionId: tx.originalTransactionId ?? null,
-                },
-              },
-            });
+                  entitlementRevocation: revocation,
+                }),
+              });
+            }
           }
         }
       }
@@ -676,6 +729,43 @@ export class AppleIapService {
       if (order) return order;
     }
     return null;
+  }
+
+  private async revokeEntitlementForRefundedOrder(input: {
+    sourceOrderId: string;
+    revokedAt: Date;
+  }): Promise<AppleRefundEntitlementRevocationResult> {
+    const revokedAt = input.revokedAt.toISOString();
+    if (!this.subscriptionRepository) {
+      return {
+        status: "skipped",
+        reason: "subscription_repository_missing",
+        sourceOrderId: input.sourceOrderId,
+        revokedAt,
+      };
+    }
+
+    const subscription = await this.subscriptionRepository.cancelActiveBySourceOrderId({
+      sourceOrderId: input.sourceOrderId,
+      cancelledAt: input.revokedAt,
+      expiresAt: input.revokedAt,
+    });
+    if (!subscription) {
+      return {
+        status: "no_active_subscription",
+        sourceOrderId: input.sourceOrderId,
+        revokedAt,
+      };
+    }
+
+    return {
+      status: "revoked",
+      subscriptionId: subscription.id,
+      userId: subscription.userId,
+      plan: subscription.plan,
+      revokedAt,
+      expiresAt: subscription.expiresAt.toISOString(),
+    };
   }
 
   private async handleApplePaidTransactionByAppAccountToken(input: {
@@ -776,6 +866,54 @@ function isAppleCancellationNotice(
   );
 }
 
+function isAppleRefundOrRevoke(notificationType: string | undefined): boolean {
+  const type = String(notificationType ?? "").toUpperCase();
+  return type === "REFUND" || type === "REVOKE";
+}
+
+function resolveAppleRevocationDate(transaction: { revocationDate?: number | null }): Date | null {
+  if (typeof transaction.revocationDate !== "number" || !Number.isFinite(transaction.revocationDate)) return null;
+  const date = new Date(transaction.revocationDate);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function buildAppleNotificationOrderMetadata(
+  metadata: unknown,
+  event: {
+    eventId: string;
+    eventType: string;
+    notificationType: string | null;
+    subtype: string | null;
+    transactionId: string | null;
+    originalTransactionId: string | null;
+    entitlementRevocation?: AppleRefundEntitlementRevocationResult;
+  }
+): Record<string, unknown> {
+  const base = asRecord(metadata);
+  const appleIap = asRecord(base.appleIap);
+  return {
+    ...base,
+    appleIap: {
+      ...appleIap,
+      eventId: event.eventId,
+      eventType: event.eventType,
+      notificationType: event.notificationType,
+      subtype: event.subtype,
+      transactionId: event.transactionId,
+      originalTransactionId: event.originalTransactionId,
+      ...(event.entitlementRevocation === undefined
+        ? {}
+        : { entitlementRevocation: event.entitlementRevocation }),
+    },
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function sanitizeAppleNotificationForStorage(notification: AppleServerNotificationPayload): unknown {
   return {
     notificationUUID: notification.notificationUUID ?? null,
@@ -790,6 +928,20 @@ function sanitizeAppleNotificationForStorage(notification: AppleServerNotificati
         (notification.data as { signedRenewalInfo?: unknown } | undefined)?.signedRenewalInfo
       ),
     },
+  };
+}
+
+function sanitizeAppleTransactionForStorage(transaction: ReturnType<typeof decodeTransactionPayload>): unknown {
+  return {
+    transactionId: transaction.transactionId ?? null,
+    originalTransactionId: transaction.originalTransactionId ?? null,
+    productId: transaction.productId ?? null,
+    bundleId: transaction.bundleId ?? null,
+    signedEnvironment: transaction.signedEnvironment ?? null,
+    purchaseDate: transaction.purchaseDate ?? null,
+    expiresDate: transaction.expiresDate ?? null,
+    revocationDate: transaction.revocationDate ?? null,
+    appAccountToken: transaction.appAccountToken ?? null,
   };
 }
 

@@ -224,11 +224,11 @@ export default function App() {
     const userId = preference?.userId ?? session?.user.id ?? null;
     setGuideStateUserId(userId);
     const localGuideState = await loadLocalGuideState(userId);
-    const mergedGuideState = mergeGuideState(localGuideState, preference?.guideState);
+    const mergedGuideState = preference ? preference.guideState : localGuideState;
     setGuideState(mergedGuideState);
     await saveLocalGuideState(mergedGuideState, userId);
     const appLocale = getLanguage() as AppLocale;
-    await updateUserPreference({ appLocale, guideState: mergedGuideState }).catch(() => null);
+    await updateUserPreference({ appLocale }).catch(() => null);
 
     if (preference) {
       setLearningLanguageDraft(preference.learningLanguage);

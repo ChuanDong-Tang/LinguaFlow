@@ -28,5 +28,10 @@ export interface CreateSubscriptionInput {
 export interface SubscriptionRepository {
   findCurrentActiveByUserId(userId: string, now: Date): Promise<SubscriptionEntity | null>;
   findBySourceOrderId(sourceOrderId: string): Promise<SubscriptionEntity | null>;
+  cancelActiveBySourceOrderId(input: {
+    sourceOrderId: string;
+    cancelledAt: Date;
+    expiresAt: Date;
+  }): Promise<SubscriptionEntity | null>;
   create(input: CreateSubscriptionInput): Promise<SubscriptionEntity>;
 }

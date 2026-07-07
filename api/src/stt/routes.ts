@@ -103,7 +103,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
       }
       const audioDurationMs = estimatePcmDurationMs(audioBytes, 16000, 1, 16);
       const durationMs = Date.now() - startedAt;
-      if (userId) {
+      if (userId && runtimeConfig.sttRequestLogEnabled) {
         await deps.sttRequestLogRepository?.create({
           requestId,
           userId,
