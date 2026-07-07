@@ -4,12 +4,19 @@ export const GUIDE_INITIAL_UI_LOCALE = "initial_ui_locale_v1";
 export const GUIDE_FIRST_LEARNING_SETUP = "first_learning_setup_v1";
 export const GUIDE_LEARNING_FLOW_HELP = "learning_flow_help_v1";
 
-const GUIDE_STATE_KEY = "linguaflow.guide.flags.v1";
+const DEVICE_GUIDE_STATE_KEY = "linguaflow.guide.flags.v1";
+
+function guideStateKey(userId?: string | null): string {
+  const normalizedUserId = userId?.trim();
+  return normalizedUserId
+    ? `linguaflow.guide.flags.v1.user.${normalizedUserId}`
+    : DEVICE_GUIDE_STATE_KEY;
+}
 
 export type GuideState = Record<string, { completedAt?: string }>;
 
-export async function loadLocalGuideState(): Promise<GuideState> {
-  const raw = await AsyncStorage.getItem(GUIDE_STATE_KEY);
+export async function loadLocalGuideState(userId?: string | null): Promise<GuideState> {
+  const raw = await AsyncStorage.getItem(guideStateKey(userId));
   if (!raw) return {};
   try {
     return normalizeGuideState(JSON.parse(raw));
@@ -18,16 +25,16 @@ export async function loadLocalGuideState(): Promise<GuideState> {
   }
 }
 
-export async function saveLocalGuideState(state: GuideState): Promise<void> {
-  await AsyncStorage.setItem(GUIDE_STATE_KEY, JSON.stringify(normalizeGuideState(state)));
+export async function saveLocalGuideState(state: GuideState, userId?: string | null): Promise<void> {
+  await AsyncStorage.setItem(guideStateKey(userId), JSON.stringify(normalizeGuideState(state)));
 }
 
-export async function markLocalGuideCompleted(key: string): Promise<GuideState> {
+export async function markLocalGuideCompleted(key: string, userId?: string | null): Promise<GuideState> {
   const next = {
-    ...(await loadLocalGuideState()),
+    ...(await loadLocalGuideState(userId)),
     [key]: { completedAt: new Date().toISOString() },
   };
-  await saveLocalGuideState(next);
+  await saveLocalGuideState(next, userId);
   return next;
 }
 

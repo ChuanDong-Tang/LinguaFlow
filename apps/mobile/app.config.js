@@ -33,6 +33,7 @@ module.exports = {
     android: {
       package: "com.yueyantech.oio",
       versionCode: 55,
+      allowBackup: false,
       permissions: ["RECORD_AUDIO"],
       adaptiveIcon: {
         foregroundImage: "./assets/app/logo_main.png",

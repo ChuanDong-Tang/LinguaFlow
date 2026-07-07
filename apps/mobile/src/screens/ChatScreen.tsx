@@ -227,6 +227,17 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       inputLength <= maxInputChars
     );
   }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars, sttStatus]);
+  const showChatSendFailureAlert = React.useCallback((error?: { code?: string; stage?: "input" | "output" }) => {
+    if (error?.code === "DAILY_QUOTA_EXCEEDED") {
+      Alert.alert(isProEntitledRef.current ? t("chat.error.quota_member_empty") : t("chat.error.quota_free_empty"));
+      return;
+    }
+    if (error?.code === "CONTENT_BLOCKED") {
+      Alert.alert(error.stage === "output" ? t("chat.error.sensitive_output") : t("chat.error.sensitive_input"));
+      return;
+    }
+    Alert.alert(t("chat.error.send_failed_retry"));
+  }, []);
   const selectedDateKey = toDateKey(selectedDate);
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
@@ -815,7 +826,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return;
     }
     if (remainingChars !== null && remainingChars <= 0) {
-      Alert.alert(t("chat.error.quota_empty"));
+      showChatSendFailureAlert({ code: "DAILY_QUOTA_EXCEEDED" });
       return;
     }
 
@@ -874,6 +885,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         void syncDateQuietly(businessTodayDate, { force: true });
         void refreshEntitlementSnapshot();
       },
+      onFailure: showChatSendFailureAlert,
     });
   }
 
@@ -881,7 +893,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const text = message.retryText?.trim();
     if (!text || activeGenerationContactId || (message.retryCount ?? 0) >= 1) return;
     if (remainingChars !== null && remainingChars <= 0) {
-      Alert.alert(t("chat.error.quota_empty"));
+      showChatSendFailureAlert({ code: "DAILY_QUOTA_EXCEEDED" });
       return;
     }
 
@@ -930,6 +942,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         void syncDateQuietly(retryDate, { force: true });
         void refreshEntitlementSnapshot();
       },
+      onFailure: showChatSendFailureAlert,
     });
   }
 
@@ -1401,7 +1414,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
               return;
             }
             if (remainingChars !== null && remainingChars <= 0) {
-              Alert.alert(t("chat.error.quota_empty"));
+              showChatSendFailureAlert({ code: "DAILY_QUOTA_EXCEEDED" });
               return;
             }
             const inputLength = countChatGenerationInputChars(inputText);

@@ -7,6 +7,7 @@ import { LoginScreen } from "./screens/LoginScreen";
 import { getLanguage, getSavedLanguage, initI18n, setLanguage, t, tf } from "./i18n";
 import { clearSession, getSession, markForceAuthingLogin } from "./services/auth/authStorage";
 import { clearAccountScopedStorage } from "./services/auth/accountScopedStorage";
+import { reconcileLocalInstallState } from "./services/storage/installState";
 import { confirmDeleteAccount, logout, prepareDeleteAccount } from "./services/api/authApi";
 import {
   getUserPreference,
@@ -87,6 +88,7 @@ export default function App() {
   const [promptDifficultyDraft, setPromptDifficultyDraft] = useState<PromptDifficulty>("natural");
   const [promptStyleDraft, setPromptStyleDraft] = useState<PromptStyle>("native_casual");
   const [guideState, setGuideState] = useState<GuideState>({});
+  const [guideStateUserId, setGuideStateUserId] = useState<string | null>(null);
   const [onboardingHelpVisible, setOnboardingHelpVisible] = useState(false);
   const [manualHelpVisible, setManualHelpVisible] = useState(false);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
@@ -121,12 +123,18 @@ export default function App() {
     async function bootstrap() {
       try {
         await Promise.all([initI18n(), preloadImages(PRELOAD_IMAGES)]);
+        const installState = await reconcileLocalInstallState();
         const savedLanguage = await getSavedLanguage();
         if (savedLanguage) {
           setUiLocaleDraft(savedLanguage);
           await markLocalGuideCompleted(GUIDE_INITIAL_UI_LOCALE);
         }
-        const session = await getSession();
+        let session = await getSession();
+        if (installState.isFreshInstall && session) {
+          await clearSession();
+          await clearAccountScopedStorage();
+          session = null;
+        }
         let preference: UserPreference | null = null;
         if (session) {
           preference = await getUserPreference().catch(() => null);
@@ -211,11 +219,14 @@ export default function App() {
   }
 
   async function runPostLoginGuideFlow(preloadedPreference?: UserPreference | null): Promise<void> {
-    const localGuideState = await loadLocalGuideState();
     const preference = preloadedPreference ?? await getUserPreference().catch(() => null);
+    const session = await getSession();
+    const userId = preference?.userId ?? session?.user.id ?? null;
+    setGuideStateUserId(userId);
+    const localGuideState = await loadLocalGuideState(userId);
     const mergedGuideState = mergeGuideState(localGuideState, preference?.guideState);
     setGuideState(mergedGuideState);
-    await saveLocalGuideState(mergedGuideState);
+    await saveLocalGuideState(mergedGuideState, userId);
     const appLocale = getLanguage() as AppLocale;
     await updateUserPreference({ appLocale, guideState: mergedGuideState }).catch(() => null);
 
@@ -262,7 +273,7 @@ export default function App() {
       setPromptDifficultyDraft(saved.promptDifficulty);
       setPromptStyleDraft(saved.promptStyle);
       setGuideState(saved.guideState);
-      await saveLocalGuideState(saved.guideState);
+      await saveLocalGuideState(saved.guideState, await resolveCurrentGuideUserId());
       setLearningPreferenceVisible(false);
       if (!isGuideCompleted(saved.guideState, GUIDE_LEARNING_FLOW_HELP)) {
         setOnboardingHelpVisible(true);
@@ -277,9 +288,15 @@ export default function App() {
   async function completeOnboardingHelp(): Promise<void> {
     const nextGuideState = completeGuide(guideState, GUIDE_LEARNING_FLOW_HELP);
     setGuideState(nextGuideState);
-    await saveLocalGuideState(nextGuideState);
+    await saveLocalGuideState(nextGuideState, await resolveCurrentGuideUserId());
     await updateUserPreference({ guideState: nextGuideState }).catch(() => null);
     setOnboardingHelpVisible(false);
+  }
+
+  async function resolveCurrentGuideUserId(): Promise<string | null> {
+    if (guideStateUserId) return guideStateUserId;
+    const session = await getSession();
+    return session?.user.id ?? null;
   }
 
   async function handleDeleteAccount(): Promise<void> {

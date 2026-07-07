@@ -28,7 +28,7 @@ export type ChatGenerationStreamEvent =
         clozeVersion: number;
       };
     }
-  | { type: "error"; message: string; code?: string };
+  | { type: "error"; message: string; code?: string; stage?: "input" | "output" };
 
 // 发起流式 AI 回复时需要的参数。
 export interface StartChatGenerationStreamInput {

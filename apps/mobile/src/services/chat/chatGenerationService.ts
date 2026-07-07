@@ -1,5 +1,5 @@
 import { loadDebugSettings } from "../preferences/debugSettingsStorage";
-import { sendMessageToCloud } from "../api/chatHistoryApi";
+import { ApiError, sendMessageToCloud } from "../api/chatHistoryApi";
 import { getCurrentEntitlement } from "../api/meApi";
 import { startChatGenerationStream } from "./chatGenerationStream";
 import type { ChatGenerationStreamEvent } from "./streamClient";
@@ -41,6 +41,8 @@ export type RunChatGenerationResult = {
   autoClozeState?: ClozeState | null;
   autoClozeBaseVersion?: number;
   errorMessage?: string;
+  errorCode?: string;
+  errorStage?: "input" | "output";
 };
 
 export function createLocalChatPair(
@@ -87,6 +89,8 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   let requestSystemPrompt = input.systemPrompt?.trim() || undefined;
   let assistantText = "";
   let streamErrorMessage: string | null = null;
+  let streamErrorCode: string | undefined;
+  let streamErrorStage: "input" | "output" | undefined;
   let userMessageClientId = input.userClientId;
   let pendingDelta = "";
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -230,6 +234,8 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
           }
           flushDelta({ all: true });
           streamErrorMessage = event.message;
+          streamErrorCode = event.code;
+          streamErrorStage = event.stage;
           markFailed(input, tf("chat.error.prefix", { message: event.message }), requestSystemPrompt, userMessageClientId);
         }
 
@@ -258,6 +264,8 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         status: "failed",
         assistantText,
         errorMessage: streamErrorMessage,
+        errorCode: streamErrorCode,
+        errorStage: streamErrorStage,
       };
     }
 
@@ -276,11 +284,15 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     flushDelta({ all: true });
     const wasStopped = input.isStopRequested?.() === true;
     const message = wasStopped ? t("chat.error.stopped") : error instanceof Error ? error.message : "stream failed";
+    const code = error instanceof ApiError ? error.code : undefined;
+    const stage = error instanceof ApiError ? error.stage : undefined;
     markFailed(input, tf("chat.error.prefix", { message }), requestSystemPrompt, userMessageClientId);
     return {
       status: wasStopped ? "stopped" : "failed",
       assistantText,
       errorMessage: message,
+      errorCode: code,
+      errorStage: stage,
     };
   }
 }

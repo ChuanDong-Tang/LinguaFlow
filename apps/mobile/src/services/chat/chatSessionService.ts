@@ -38,6 +38,7 @@ type StartChatSessionInput = {
   autoClozeAfterGeneration: boolean;
   onSuccessText?: (text: string, mode: AutoCopyMode) => Promise<void>;
   onStreamDone?: () => void;
+  onFailure?: (error: { code?: string; message?: string; stage?: "input" | "output" }) => void;
 };
 
 type ChatSessionState = {
@@ -289,6 +290,13 @@ export function startChatSession(input: StartChatSessionInput): void {
     }
     if (result.status === "success") {
       input.onStreamDone?.();
+    }
+    if (result.status === "failed") {
+      input.onFailure?.({
+        code: result.errorCode,
+        message: result.errorMessage,
+        stage: result.errorStage,
+      });
     }
 
     if (state.activeRunId !== runId) return;

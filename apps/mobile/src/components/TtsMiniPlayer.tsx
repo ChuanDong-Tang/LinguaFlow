@@ -47,11 +47,11 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
   );
   const active = playback.hasActiveAudio;
   const isPlaying = playback.status === "playing";
-  const playerWidth = expanded ? EXPANDED_WIDTH : COLLAPSED_SIZE;
-  const dragMinX = expanded ? PLAYER_MARGIN : -(COLLAPSED_SIZE - COLLAPSED_PEEK_WIDTH);
+  const playerWidth = expanded ? EXPANDED_WIDTH : COLLAPSED_TOUCH_WIDTH;
+  const dragMinX = expanded ? PLAYER_MARGIN : 0;
   const dragMaxX = expanded
     ? Math.max(PLAYER_MARGIN, window.width - EXPANDED_WIDTH - PLAYER_MARGIN)
-    : window.width - COLLAPSED_PEEK_WIDTH;
+    : Math.max(0, window.width - COLLAPSED_TOUCH_WIDTH);
   const dockedX = getDockedX(dockSide, expanded, window.width);
   const maxY = Math.max(PLAYER_MARGIN, window.height - COLLAPSED_SIZE - PLAYER_MARGIN);
   const clampedPosition = React.useMemo(
@@ -112,7 +112,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
         },
         onPanResponderMove: (_event, gesture) => {
           const { maxX: currentMaxX, maxY: currentMaxY } = boundsRef.current;
-          const currentMinX = expanded ? PLAYER_MARGIN : -(COLLAPSED_SIZE - COLLAPSED_PEEK_WIDTH);
+          const currentMinX = expanded ? PLAYER_MARGIN : 0;
           setPosition({
             x: clamp(
               dragStartRef.current.x + gesture.dx,
@@ -130,7 +130,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           const { maxX: currentMaxX, maxY: currentMaxY } = boundsRef.current;
           const { width, height } = windowSizeRef.current;
           setPosition((current) => {
-            const currentMinX = expanded ? PLAYER_MARGIN : -(COLLAPSED_SIZE - COLLAPSED_PEEK_WIDTH);
+            const currentMinX = expanded ? PLAYER_MARGIN : 0;
             const clamped = {
               x: clamp(current.x, currentMinX, currentMaxX),
               y: clamp(current.y, PLAYER_MARGIN, currentMaxY),
@@ -167,14 +167,24 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
     >
       <Pressable
         accessibilityRole="button"
-        hitSlop={8}
-        style={[styles.collapseButton, !expanded && styles.collapsedHandleButton]}
+        hitSlop={expanded ? 8 : {
+          top: 12,
+          bottom: 12,
+          left: visualDockSide === "right" ? 16 : 4,
+          right: visualDockSide === "left" ? 16 : 4,
+        }}
+        style={[
+          styles.collapseButton,
+          !expanded && styles.collapsedHandleButton,
+          !expanded && visualDockSide === "left" && styles.collapsedHandleLeft,
+          !expanded && visualDockSide === "right" && styles.collapsedHandleRight,
+        ]}
         onPress={() => setExpanded((value) => !value)}
       >
         <Ionicons
           name={expanded ? (opensLeft ? "chevron-forward" : "chevron-back") : visualDockSide === "right" ? "chevron-back" : "chevron-forward"}
-          size={expanded ? 18 : 14}
-          color="#4D5361"
+          size={expanded ? 18 : 16}
+          color={expanded ? "#4D5361" : "#FFFFFF"}
         />
       </Pressable>
 
@@ -227,7 +237,8 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
 }
 
 const COLLAPSED_SIZE = 46;
-const COLLAPSED_PEEK_WIDTH = 18;
+const COLLAPSED_TOUCH_WIDTH = 52;
+const COLLAPSED_HANDLE_WIDTH = 30;
 const EXPANDED_WIDTH = 244;
 const PLAYER_MARGIN = 14;
 const DEFAULT_Y_RATIO = 0.28;
@@ -252,18 +263,22 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   shellCollapsed: {
-    justifyContent: "center",
+    justifyContent: "flex-start",
     paddingHorizontal: 0,
-    borderColor: "rgba(210, 215, 226, 0.95)",
+    paddingVertical: 0,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   shellReverse: {
     flexDirection: "row-reverse",
   },
   shellCollapsedLeft: {
-    flexDirection: "row-reverse",
+    flexDirection: "row",
   },
   shellCollapsedRight: {
-    flexDirection: "row",
+    flexDirection: "row-reverse",
   },
   collapseButton: {
     width: 32,
@@ -272,8 +287,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   collapsedHandleButton: {
-    width: COLLAPSED_PEEK_WIDTH,
-    height: COLLAPSED_SIZE,
+    width: COLLAPSED_HANDLE_WIDTH,
+    height: 42,
+    backgroundColor: "#2477E8",
+    shadowColor: "#0E54B6",
+    shadowOpacity: 0.24,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+  },
+  collapsedHandleLeft: {
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderTopRightRadius: 18,
+    borderBottomRightRadius: 18,
+  },
+  collapsedHandleRight: {
+    borderTopLeftRadius: 18,
+    borderBottomLeftRadius: 18,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
   },
   controls: {
     flexDirection: "row",
@@ -339,8 +372,8 @@ function getDockedX(dockSide: DockSide, expanded: boolean, width: number): numbe
       : PLAYER_MARGIN;
   }
   return dockSide === "right"
-    ? width - COLLAPSED_PEEK_WIDTH
-    : -(COLLAPSED_SIZE - COLLAPSED_PEEK_WIDTH);
+    ? Math.max(0, width - COLLAPSED_TOUCH_WIDTH)
+    : 0;
 }
 
 async function loadStoredPosition(storageKey: string): Promise<StoredTtsMiniPlayerPosition | null> {

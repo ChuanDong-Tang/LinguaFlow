@@ -4,8 +4,19 @@ import { getAuthHeaders } from "../auth/authHeaders";
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 type ApiOk<T> = { ok: true; data: T };
-type ApiFail = { ok: false; error: { code: string; message: string } };
+type ApiFail = { ok: false; error: { code: string; message: string; stage?: "input" | "output" } };
 type ApiResult<T> = ApiOk<T> | ApiFail;
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly stage?: "input" | "output"
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 export type MessageView = {
   id: string;
@@ -66,7 +77,7 @@ export async function sendMessageToCloud(input: {
 
   const json = (await res.json()) as ApiResult<SendMessageResult>;
   if (!json.ok) {
-    throw new Error(json.error.message);
+    throw new ApiError(json.error.message, json.error.code, json.error.stage);
   }
   return json.data;
 }

@@ -410,7 +410,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
         return reply.status(400).send({
           ok: false,
           request_id: requestId,
-          error: { code: "CONTENT_BLOCKED", message: "This message cannot be sent." },
+          error: { code: "CONTENT_BLOCKED", message: "This message cannot be sent.", stage: "input" },
         });
       }
       throw error;
