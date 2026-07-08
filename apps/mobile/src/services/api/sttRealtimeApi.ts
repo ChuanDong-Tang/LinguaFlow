@@ -9,19 +9,11 @@ const BITS_PER_SAMPLE = 16;
 export type RealtimeSttEvent =
   | { type: "hello"; requestId: string }
   | { type: "ready"; sessionId: string }
-  | { type: "partial"; text: string; alternatives?: RealtimeSttAlternatives; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; finalText?: string }
-  | { type: "final"; text: string; alternatives?: RealtimeSttAlternatives; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; finalText?: string }
+  | { type: "partial"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; finalText?: string }
+  | { type: "final"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; finalText?: string }
   | { type: "done"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null }
   | { type: "error"; code: string; message: string }
   | { type: "canceled"; reason: string; errorCode?: string | null; errorDetails?: string | null };
-
-export type RealtimeSttAlternatives = {
-  displayText: string | null;
-  nbestDisplay: string | null;
-  lexical: string | null;
-  itn: string | null;
-  confidence: number | null;
-};
 
 export type RealtimeSttSession = {
   sessionId: string;

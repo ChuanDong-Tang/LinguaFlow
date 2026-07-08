@@ -9,19 +9,16 @@ import {
 export function useAssistantAutoCopyPreferences(): {
   autoCopyAfterGeneration: boolean;
   autoCopyMode: AutoCopyMode;
-  autoClozeAfterGeneration: boolean;
   companionModeByContactId: Record<string, CompanionMode>;
   isAutoCopyMenuOpen: boolean;
   openAutoCopyMenu: () => void;
   closeAutoCopyMenu: () => void;
   setAutoCopyAfterGeneration: (enabled: boolean) => void;
   setAutoCopyMode: (mode: AutoCopyMode) => void;
-  setAutoClozeAfterGeneration: (enabled: boolean) => void;
   setCompanionMode: (contactId: string, mode: CompanionMode) => void;
 } {
   const [autoCopyAfterGeneration, setAutoCopyAfterGeneration] = useState(false);
   const [autoCopyMode, setAutoCopyMode] = useState<AutoCopyMode>("none");
-  const [autoClozeAfterGeneration, setAutoClozeAfterGeneration] = useState(true);
   const [companionModeByContactId, setCompanionModeByContactId] = useState<Record<string, CompanionMode>>({});
   const [isAutoCopyMenuOpen, setIsAutoCopyMenuOpen] = useState(false);
 
@@ -32,7 +29,6 @@ export function useAssistantAutoCopyPreferences(): {
       if (!cancelled) {
         setAutoCopyAfterGeneration(preferences.autoCopyAfterGeneration);
         setAutoCopyMode(preferences.autoCopyMode);
-        setAutoClozeAfterGeneration(preferences.autoClozeAfterGeneration);
         setCompanionModeByContactId(preferences.companionModeByContactId);
       }
     }
@@ -49,7 +45,6 @@ export function useAssistantAutoCopyPreferences(): {
     void saveAssistantPreferences({
       autoCopyAfterGeneration: nextAutoCopy,
       autoCopyMode: mode,
-      autoClozeAfterGeneration,
       companionModeByContactId,
     });
   }
@@ -61,17 +56,6 @@ export function useAssistantAutoCopyPreferences(): {
     void saveAssistantPreferences({
       autoCopyAfterGeneration: enabled,
       autoCopyMode: nextMode,
-      autoClozeAfterGeneration,
-      companionModeByContactId,
-    });
-  }
-
-  function handleSetAutoClozeAfterGeneration(enabled: boolean): void {
-    setAutoClozeAfterGeneration(enabled);
-    void saveAssistantPreferences({
-      autoCopyAfterGeneration,
-      autoCopyMode,
-      autoClozeAfterGeneration: enabled,
       companionModeByContactId,
     });
   }
@@ -79,7 +63,7 @@ export function useAssistantAutoCopyPreferences(): {
   function handleSetCompanionMode(contactId: string, mode: CompanionMode): void {
     const next = { ...companionModeByContactId, [contactId]: mode };
     setCompanionModeByContactId(next);
-    void saveAssistantPreferences({ autoCopyAfterGeneration, autoCopyMode, autoClozeAfterGeneration, companionModeByContactId: next });
+    void saveAssistantPreferences({ autoCopyAfterGeneration, autoCopyMode, companionModeByContactId: next });
   }
 
   function openAutoCopyMenu(): void {
@@ -93,14 +77,12 @@ export function useAssistantAutoCopyPreferences(): {
   return {
     autoCopyAfterGeneration,
     autoCopyMode,
-    autoClozeAfterGeneration,
     companionModeByContactId,
     isAutoCopyMenuOpen,
     openAutoCopyMenu,
     closeAutoCopyMenu,
     setAutoCopyAfterGeneration: handleSetAutoCopyAfterGeneration,
     setAutoCopyMode: handleSetAutoCopyMode,
-    setAutoClozeAfterGeneration: handleSetAutoClozeAfterGeneration,
     setCompanionMode: handleSetCompanionMode,
   };
 }

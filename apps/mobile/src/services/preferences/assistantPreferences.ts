@@ -8,14 +8,12 @@ export type CompanionMode = "rewrite_only" | "native_note" | "simple_reply";
 export type AssistantPreferences = {
   autoCopyAfterGeneration: boolean;
   autoCopyMode: AutoCopyMode;
-  autoClozeAfterGeneration: boolean;
   companionModeByContactId: Record<string, CompanionMode>;
 };
 
 const DEFAULT_PREFERENCES: AssistantPreferences = {
   autoCopyAfterGeneration: false,
   autoCopyMode: "none",
-  autoClozeAfterGeneration: true,
   companionModeByContactId: {},
 };
 
@@ -33,9 +31,6 @@ export async function loadAssistantPreferences(): Promise<AssistantPreferences> 
     return {
       autoCopyAfterGeneration: autoCopy,
       autoCopyMode,
-      autoClozeAfterGeneration: typeof parsed.autoClozeAfterGeneration === "boolean"
-        ? parsed.autoClozeAfterGeneration
-        : DEFAULT_PREFERENCES.autoClozeAfterGeneration,
       companionModeByContactId: normalizeCompanionModeMap(parsed.companionModeByContactId),
     };
   } catch {

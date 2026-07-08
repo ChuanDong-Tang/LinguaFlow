@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatContact } from "../../domain/chat/contacts";
 import type { CompanionMode } from "../../services/preferences/assistantPreferences";
@@ -8,20 +8,16 @@ import { t } from "../../i18n";
 type AutoCopySheetProps = {
   visible: boolean;
   contact: ChatContact;
-  autoClozeEnabled: boolean;
   companionMode: CompanionMode;
   onClose: () => void;
-  onSetAutoClozeEnabled: (enabled: boolean) => void;
   onSelectCompanionMode: (mode: CompanionMode) => void;
 };
 
 export function AutoCopySheet({
   visible,
   contact,
-  autoClozeEnabled,
   companionMode,
   onClose,
-  onSetAutoClozeEnabled,
   onSelectCompanionMode,
 }: AutoCopySheetProps) {
   const showCompanionMode = contact.capabilities?.companionMode === true;
@@ -66,20 +62,6 @@ export function AutoCopySheet({
             </View>
           ) : null}
 
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleTextWrap}>
-              <Text style={styles.toggleLabel}>{t("chat.autocloze.toggle")}</Text>
-              <Text style={styles.toggleDescription}>
-                {t("chat.autocloze.desc")}
-              </Text>
-            </View>
-            <Switch
-              value={autoClozeEnabled}
-              onValueChange={onSetAutoClozeEnabled}
-              trackColor={{ false: "#D5DAE4", true: "#C8C0FF" }}
-              thumbColor={autoClozeEnabled ? "#8E7BFF" : "#FFFFFF"}
-            />
-          </View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -117,16 +99,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 12,
   },
-  toggleRow: {
-    minHeight: 62,
-    borderRadius: 12,
-    backgroundColor: "#F7F8FB",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
   modeSection: {
     marginBottom: 12,
   },
@@ -135,21 +107,6 @@ const styles = StyleSheet.create({
     color: "#606775",
     fontSize: 12,
     fontWeight: "700",
-  },
-  toggleTextWrap: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  toggleLabel: {
-    color: "#111111",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  toggleDescription: {
-    marginTop: 3,
-    color: "#838AA0",
-    fontSize: 12,
-    lineHeight: 16,
   },
   title: {
     color: "#111111",

@@ -2,14 +2,12 @@ export type SttRecognitionEvent =
   | {
       type: "partial";
       text: string;
-      alternatives?: SttRecognitionAlternatives;
       detectedLanguage: string | null;
       languageDetectionConfidence: string | null;
     }
   | {
       type: "final";
       text: string;
-      alternatives?: SttRecognitionAlternatives;
       detectedLanguage: string | null;
       languageDetectionConfidence: string | null;
     }
@@ -27,14 +25,6 @@ export type StartRealtimeSttInput = {
   candidateLanguages: string[];
   languageIdMode: "at_start" | "continuous";
   onEvent: (event: SttRecognitionEvent) => void;
-};
-
-export type SttRecognitionAlternatives = {
-  displayText: string | null;
-  nbestDisplay: string | null;
-  lexical: string | null;
-  itn: string | null;
-  confidence: number | null;
 };
 
 export type StopRealtimeSttSessionResult = {

@@ -7,7 +7,6 @@ import {
   saveLocalMessagesByDateScoped,
 } from "./chatLocalStorage";
 import { runChatGeneration } from "./chatGenerationService";
-import { updateMessageClozeState } from "../api/chatHistoryApi";
 import { getSession } from "../auth/authStorage";
 
 type ChatSessionSnapshot = {
@@ -32,7 +31,6 @@ type StartChatSessionInput = {
   companionMode?: "rewrite_only" | "native_note" | "simple_reply";
   systemPrompt?: string;
   conversationId?: string | null;
-  autoClozeAfterGeneration: boolean;
   onStreamDone?: () => void;
   onFailure?: (error: { code?: string; message?: string; stage?: "input" | "output" }) => void;
 };
@@ -260,26 +258,7 @@ export function startChatSession(input: StartChatSessionInput): void {
       onUpdateMessage: (clientId, updater) => {
         void updateChatMessage(input.contactId, clientId, updater, input.conversationDateKey);
       },
-      autoClozeAfterGeneration: input.autoClozeAfterGeneration,
     });
-
-    if (result.status === "success" && result.assistantMessageId && result.autoClozeState && result.autoClozeBaseVersion !== undefined) {
-      try {
-        const saved = await updateMessageClozeState({
-          messageId: result.assistantMessageId,
-          baseVersion: result.autoClozeBaseVersion,
-          clozeState: result.autoClozeState,
-        });
-        await updateChatMessage(
-          input.contactId,
-          input.assistantClientId,
-          (row) => ({ ...row, clozeState: saved.clozeState ?? null, clozeVersion: saved.clozeVersion }),
-          input.conversationDateKey,
-        );
-      } catch {
-        // 自动挖空失败不阻断回复展示；下一次云端同步会以服务端状态为准。
-      }
-    }
 
     if (result.status === "success") {
       input.onStreamDone?.();
