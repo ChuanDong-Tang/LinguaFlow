@@ -8,9 +8,10 @@ type ChatHeaderProps = {
   onBack: () => void;
   onOpenCalendar: () => void;
   onOpenMenu: () => void;
+  onOpenSttDebug?: () => void;
 };
 
-export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: ChatHeaderProps) {
+export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu, onOpenSttDebug }: ChatHeaderProps) {
   return (
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
@@ -29,6 +30,12 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
       <Pressable style={styles.calendarButton} hitSlop={8} onPress={onOpenCalendar}>
         <Ionicons name="calendar-outline" size={22} color="#111111" />
       </Pressable>
+
+      {onOpenSttDebug ? (
+        <Pressable style={styles.debugButton} hitSlop={8} onPress={onOpenSttDebug}>
+          <Ionicons name="bug-outline" size={20} color="#8A90A0" />
+        </Pressable>
+      ) : null}
 
       <Pressable style={styles.menuButton} hitSlop={8} onPress={onOpenMenu}>
         <Ionicons name="ellipsis-horizontal" size={22} color="#111111" />
@@ -84,6 +91,12 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   calendarButton: {
+    width: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  debugButton: {
+    marginLeft: 4,
     width: 34,
     alignItems: "center",
     justifyContent: "center",

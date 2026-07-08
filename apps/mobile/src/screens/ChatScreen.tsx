@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Keyboard,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -68,7 +69,7 @@ import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock"
 import { getLanguage, t, tf } from "../i18n";
 import { stopTtsAudio } from "../services/tts/ttsPlayback";
 import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
-import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api/sttRealtimeApi";
+import { openRealtimeSttSession, type RealtimeSttAlternatives, type RealtimeSttSession } from "../services/api/sttRealtimeApi";
 import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
 import type { PcmAudioFrame, RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
 
@@ -93,6 +94,17 @@ type DictionaryLookupState = {
 type SttRecognitionPlan = {
   languageIdMode: "at_start" | "continuous";
   candidateLanguages: string[];
+};
+
+type SttDebugSnapshot = {
+  resultText: string;
+  displayText: string | null;
+  nbestDisplay: string | null;
+  lexical: string | null;
+  itn: string | null;
+  confidence: number | null;
+  eventType: "partial" | "final";
+  updatedAt: string;
 };
 
 const MULTILINGUAL_STT_LANGUAGES = ["zh-CN", "ja-JP", "ko-KR", "en-US"];
@@ -132,6 +144,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
   const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
   const [dictionaryLookup, setDictionaryLookup] = useState<DictionaryLookupState | null>(null);
+  const [sttDebugVisible, setSttDebugVisible] = useState(false);
+  const [sttDebugSnapshot, setSttDebugSnapshot] = useState<SttDebugSnapshot | null>(null);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const contactIdRef = useRef(contactId);
   const inputTextRef = useRef("");
@@ -157,6 +171,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const sttInsertRangeRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
   const sttFinalTextRef = useRef("");
   const sttPartialTextRef = useRef("");
+  const sttDebugSnapshotRef = useRef<SttDebugSnapshot | null>(null);
   const sttStatusRef = useRef<"idle" | "connecting" | "recording" | "stopping">("idle");
   const sttMultilingualRecognitionEnabledRef = useRef(false);
   const dictionaryRequestSeqRef = useRef(0);
@@ -508,6 +523,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     dictionaryAbortRef.current = null;
     setDictionaryLookup(null);
   }, []);
+  const openSttDebugPanel = React.useCallback(() => {
+    setSttDebugSnapshot(sttDebugSnapshotRef.current);
+    setSttDebugVisible(true);
+  }, []);
   const stopRealtimeStt = React.useCallback(async (options?: { discardPartial?: boolean }) => {
     if (sttStatusRef.current === "idle" || sttStatusRef.current === "stopping") return;
     const generation = sttGenerationRef.current + 1;
@@ -628,6 +647,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             return;
           }
           if (event.type === "partial") {
+            sttDebugSnapshotRef.current = buildSttDebugSnapshot("partial", event.text, event.alternatives);
             const finalText = event.finalText ?? sttFinalTextRef.current;
             sttPartialTextRef.current = event.text;
             const merged = mergeSttDraftResult(sttDraftBaseRef.current, finalText, event.text, sttInsertRangeRef.current);
@@ -636,6 +656,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             return;
           }
           if (event.type === "final") {
+            sttDebugSnapshotRef.current = buildSttDebugSnapshot("final", event.text, event.alternatives);
             sttFinalTextRef.current = event.finalText ?? mergeSttDraft("", sttFinalTextRef.current, event.text);
             sttPartialTextRef.current = "";
             const merged = mergeSttDraftResult(sttDraftBaseRef.current, sttFinalTextRef.current, "", sttInsertRangeRef.current);
@@ -1341,6 +1362,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         <ChatHeader
           contact={contact}
           onBack={onBack}
+          onOpenSttDebug={openSttDebugPanel}
           onOpenCalendar={() => {
             prepareForCommand();
             setIsDateSheetOpen(true);
@@ -1466,6 +1488,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         }}
       />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
+      <SttDebugPanel
+        visible={sttDebugVisible}
+        snapshot={sttDebugSnapshot}
+        onClose={() => setSttDebugVisible(false)}
+      />
       <DictionaryPopover
         visible={!!dictionaryLookup}
         anchor={dictionaryLookup?.anchor}
@@ -1531,6 +1558,73 @@ function resolveDirectSttLanguage(appLocale: string): string {
   return "zh-CN";
 }
 
+function buildSttDebugSnapshot(
+  eventType: "partial" | "final",
+  resultText: string,
+  alternatives?: RealtimeSttAlternatives,
+): SttDebugSnapshot {
+  return {
+    resultText,
+    displayText: alternatives?.displayText ?? null,
+    nbestDisplay: alternatives?.nbestDisplay ?? null,
+    lexical: alternatives?.lexical ?? null,
+    itn: alternatives?.itn ?? null,
+    confidence: alternatives?.confidence ?? null,
+    eventType,
+    updatedAt: new Date().toLocaleTimeString(),
+  };
+}
+
+function SttDebugPanel({
+  visible,
+  snapshot,
+  onClose,
+}: {
+  visible: boolean;
+  snapshot: SttDebugSnapshot | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.sttDebugScrim} onPress={onClose}>
+        <Pressable style={styles.sttDebugPanel} onPress={(event) => event.stopPropagation()}>
+          <View style={styles.sttDebugHeader}>
+            <View>
+              <Text style={styles.sttDebugTitle}>STT 结果查看</Text>
+              <Text style={styles.sttDebugSubtitle}>
+                {snapshot ? `${snapshot.eventType} · ${snapshot.updatedAt}` : "还没有识别结果"}
+              </Text>
+            </View>
+            <Pressable style={styles.sttDebugCloseButton} hitSlop={8} onPress={onClose}>
+              <Ionicons name="close" size={20} color="#111111" />
+            </Pressable>
+          </View>
+          <SttDebugRow label="result.text" value={snapshot?.resultText} />
+          <SttDebugRow label="DisplayText" value={snapshot?.displayText} />
+          <SttDebugRow label="NBest Display" value={snapshot?.nbestDisplay} />
+          <SttDebugRow label="Lexical" value={snapshot?.lexical} />
+          <SttDebugRow label="ITN" value={snapshot?.itn} />
+          <SttDebugRow
+            label="Confidence"
+            value={typeof snapshot?.confidence === "number" ? snapshot.confidence.toFixed(3) : null}
+          />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function SttDebugRow({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <View style={styles.sttDebugRow}>
+      <Text style={styles.sttDebugRowLabel}>{label}</Text>
+      <Text selectable style={[styles.sttDebugRowValue, !value && styles.sttDebugRowValueEmpty]}>
+        {value || "-"}
+      </Text>
+    </View>
+  );
+}
+
 function ChatContentFrame({
   children,
   onAndroidTouchEnd,
@@ -1578,5 +1672,63 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
+  },
+  sttDebugScrim: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.24)",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  sttDebugPanel: {
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+  },
+  sttDebugHeader: {
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  sttDebugTitle: {
+    color: "#111111",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  sttDebugSubtitle: {
+    marginTop: 4,
+    color: "#838AA0",
+    fontSize: 12,
+  },
+  sttDebugCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F1F3F7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sttDebugRow: {
+    minHeight: 50,
+    borderTopWidth: 1,
+    borderTopColor: "#EEF0F5",
+    paddingVertical: 9,
+  },
+  sttDebugRowLabel: {
+    color: "#697181",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  sttDebugRowValue: {
+    marginTop: 4,
+    color: "#111111",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  sttDebugRowValueEmpty: {
+    color: "#A8AFBD",
   },
 });
