@@ -370,7 +370,6 @@ function LanguageSettingsModal({
             <SelectField
               id="learningLanguage"
               title={t("me.language.learning")}
-              hint={t("me.language.hint")}
               valueLabel={learningLanguageLabel(learningLanguage)}
               open={openSelect === "learningLanguage"}
               options={LEARNING_LANGUAGE_OPTIONS.map((option) => ({
@@ -388,7 +387,6 @@ function LanguageSettingsModal({
             <SelectField
               id="promptDifficulty"
               title={t("me.language.difficulty")}
-              hint={t("me.language.difficulty_hint")}
               valueLabel={promptDifficultyLabel(promptDifficulty)}
               open={openSelect === "promptDifficulty"}
               options={PROMPT_DIFFICULTY_OPTIONS.map((option) => ({
@@ -403,7 +401,6 @@ function LanguageSettingsModal({
             <SelectField
               id="ttsVoice"
               title={t("me.language.tts_voice")}
-              hint={t("me.language.tts_voice_hint")}
               valueLabel={voiceLoading ? "" : currentLanguageVoiceOptions.find((option) => option.voiceCode === ttsVoiceCode)?.label ?? ""}
               open={openSelect === "ttsVoice"}
               disabled={voiceLoading || voiceError || currentLanguageVoiceOptions.length === 0}
@@ -430,7 +427,6 @@ function LanguageSettingsModal({
                 </View>
                 <View style={styles.languageToggleTextWrap}>
                   <Text style={styles.languageToggleTitle}>{t("me.language.stt_multilingual")}</Text>
-                  <Text style={styles.languageHint}>{t("me.language.stt_multilingual_hint")}</Text>
                 </View>
               </Pressable>
             </View>

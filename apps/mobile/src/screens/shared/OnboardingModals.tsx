@@ -123,10 +123,9 @@ export function LearningFlowHelpModal({
           </View>
           <Text style={styles.subtitle}>{t("help.learning_flow.subtitle")}</Text>
           <ScrollView style={styles.helpBody} contentContainerStyle={styles.helpContent} showsVerticalScrollIndicator={false}>
-            <HelpStep index="1" title={t("help.learning_flow.chat.title")} body={t("help.learning_flow.chat.point_rewrite")} />
-            <HelpStep index="2" title={t("help.learning_flow.cloze.title")} body={t("help.learning_flow.cloze.point_manual")} />
-            <HelpStep index="3" title={t("help.learning_flow.review.title")} body={t("help.learning_flow.review.point_practice")} />
-            <Text style={styles.note}>{t("help.learning_flow.footer")}</Text>
+            <HelpStep index="O" title={t("help.learning_flow.input.title")} body={t("help.learning_flow.input.body")} />
+            <HelpStep index="I" title={t("help.learning_flow.mark.title")} body={t("help.learning_flow.mark.body")} />
+            <HelpStep index="O" title={t("help.learning_flow.flip.title")} body={t("help.learning_flow.flip.body")} />
           </ScrollView>
           <Pressable style={styles.primaryButton} onPress={onDone}>
             <Text style={styles.primaryButtonText}>
