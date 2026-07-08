@@ -115,14 +115,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [localDateKeys, setLocalDateKeys] = useState<Set<string>>(new Set());
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
   const {
-    autoCopyAfterGeneration,
-    autoCopyMode,
     autoClozeAfterGeneration,
     companionModeByContactId,
     isAutoCopyMenuOpen,
     openAutoCopyMenu,
     closeAutoCopyMenu,
-    setAutoCopyMode,
     setAutoClozeAfterGeneration,
     setCompanionMode,
   } = useAssistantAutoCopyPreferences();
@@ -876,10 +873,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       retryCount: 0,
       companionMode,
       conversationId,
-      autoCopyAfterGeneration,
-      autoCopyMode,
       autoClozeAfterGeneration,
-      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(businessTodayDate, { force: true });
@@ -933,10 +927,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       companionMode,
       systemPrompt: message.retrySystemPrompt,
       conversationId,
-      autoCopyAfterGeneration,
-      autoCopyMode,
       autoClozeAfterGeneration,
-      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(retryDate, { force: true });
@@ -1466,22 +1457,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       <AutoCopySheet
         visible={isAutoCopyMenuOpen}
         contact={contact}
-        autoCopyEnabled={autoCopyAfterGeneration}
-        selectedMode={autoCopyMode}
         autoClozeEnabled={autoClozeAfterGeneration}
         companionMode={companionMode}
         onClose={closeAutoCopyMenu}
-        onSelectMode={setAutoCopyMode}
         onSetAutoClozeEnabled={setAutoClozeAfterGeneration}
         onSelectCompanionMode={(mode) => {
           setCompanionMode(contactId, mode);
-          if (
-            autoCopyMode === "all" ||
-            (autoCopyMode === "note" && mode !== "native_note") ||
-            (autoCopyMode === "reply" && mode !== "simple_reply")
-          ) {
-            setAutoCopyMode("none");
-          }
         }}
       />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />

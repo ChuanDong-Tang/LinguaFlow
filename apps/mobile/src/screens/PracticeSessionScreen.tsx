@@ -36,7 +36,13 @@ import { markChatDateDirty, markPracticeStatsDirty } from "../services/chat/chat
 import { t } from "../i18n";
 import { TtsPlayButton } from "../components/TtsPlayButton";
 import { getMessageTtsAsset } from "../services/api/ttsApi";
-import { playTtsAudio, stopTtsAudio } from "../services/tts/ttsPlayback";
+import {
+  getTtsPlaybackState,
+  playTtsAudio,
+  setTtsNavigationControls,
+  stopTtsAudio,
+  subscribeTtsPlayback,
+} from "../services/tts/ttsPlayback";
 import { segmentLearningSentences } from "../domain/learning/learningText";
 
 type PracticeSessionScreenProps = {
@@ -174,6 +180,11 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const scrollStateRef = useRef({ y: 0, contentHeight: 0, layoutHeight: 0, maxY: 0 });
   const card = cards[index] ?? null;
   const canFlipCard = !!card;
+  const playback = React.useSyncExternalStore(
+    subscribeTtsPlayback,
+    getTtsPlaybackState,
+    getTtsPlaybackState,
+  );
   isFlippedRef.current = isFlipped;
 
   const stopPracticeTts = React.useCallback((options?: { resetControls?: boolean }) => {
@@ -214,6 +225,47 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     segmentCacheRef.current.set(target.id, segments);
     return segments;
   };
+  const cardSegments = card ? getCardSegments(card) : [];
+  const sentenceRows = useMemo(
+    () => (card ? groupPracticeEnglishSentences(card, cardSegments) : []),
+    [card, cardSegments],
+  );
+  const activeSentenceKey = playback.activeNavigationKey;
+
+  const playSentenceAtIndex = React.useCallback((sentenceIndex: number): void => {
+    if (!card || !canUseTts) return;
+    const row = sentenceRows[sentenceIndex];
+    if (!row) return;
+    sentenceTtsControllerRef.current?.abort();
+    const controller = new AbortController();
+    sentenceTtsControllerRef.current = controller;
+    void playPracticeSentence(card, { textStart: row.textStart, textEnd: row.textEnd }, {
+      signal: controller.signal,
+      navigationKey: row.key,
+      shouldPlay: () => practiceMountedRef.current && sentenceTtsControllerRef.current === controller,
+    }).finally(() => {
+      if (sentenceTtsControllerRef.current === controller) {
+        sentenceTtsControllerRef.current = null;
+      }
+    });
+  }, [canUseTts, card, sentenceRows]);
+  const activeSentenceIndex = activeSentenceKey
+    ? sentenceRows.findIndex((row) => row.key === activeSentenceKey)
+    : -1;
+
+  useEffect(() => {
+    if (!card || !canUseTts || activeSentenceIndex < 0) {
+      setTtsNavigationControls(null);
+      return () => setTtsNavigationControls(null);
+    }
+    setTtsNavigationControls({
+      canNavigatePrevious: activeSentenceIndex > 0,
+      canNavigateNext: activeSentenceIndex < sentenceRows.length - 1,
+      onNavigatePrevious: () => playSentenceAtIndex(activeSentenceIndex - 1),
+      onNavigateNext: () => playSentenceAtIndex(activeSentenceIndex + 1),
+    });
+    return () => setTtsNavigationControls(null);
+  }, [activeSentenceIndex, canUseTts, card, playSentenceAtIndex, sentenceRows.length]);
 
   const ensureActiveBlankVisible = React.useCallback((animated = true): void => {
     const keyboardTop = keyboardTopRef.current;
@@ -636,27 +688,14 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
                     onContentSizeChange={(_, height) => updateScrollState({ contentHeight: height })}
                   >
                     <PracticeEnglish
-                      card={card}
-                      segments={getCardSegments(card)}
+                      sentenceRows={sentenceRows}
+                      activeSentenceKey={activeSentenceKey}
                       answers={answers}
                       checkedAnswers={checkedAnswers}
                       canUseTts={canUseTts}
                       onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))}
                       onBlankFocus={handleBlankFocus}
-                      onPlaySentence={(range) => {
-                        if (!canUseTts) return;
-                        sentenceTtsControllerRef.current?.abort();
-                        const controller = new AbortController();
-                        sentenceTtsControllerRef.current = controller;
-                        void playPracticeSentence(card, range, {
-                          signal: controller.signal,
-                          shouldPlay: () => practiceMountedRef.current && sentenceTtsControllerRef.current === controller,
-                        }).finally(() => {
-                          if (sentenceTtsControllerRef.current === controller) {
-                            sentenceTtsControllerRef.current = null;
-                          }
-                        });
-                      }}
+                      onPlaySentence={(sentenceIndex) => playSentenceAtIndex(sentenceIndex)}
                     />
                   </ScrollView>
                   <View style={styles.cardTopActions} pointerEvents="box-none">
@@ -694,7 +733,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
                     >
                       <PracticeBack
                         card={card}
-                        segments={getCardSegments(card)}
+                        segments={cardSegments}
                         userOriginalVisible={userOriginalVisible}
                         onToggleUserOriginal={() => setUserOriginalVisible((value) => !value)}
                       />
@@ -746,6 +785,7 @@ async function playPracticeSentence(
   range: { textStart: number; textEnd: number },
   options?: {
     signal?: AbortSignal;
+    navigationKey?: string;
     shouldPlay?: () => boolean;
   }
 ): Promise<void> {
@@ -764,6 +804,7 @@ async function playPracticeSentence(
       url: asset.audioUrl,
       cacheKey: buildTtsCacheKey(asset),
       playbackRange: asset.playbackRange ?? undefined,
+      navigationKey: options?.navigationKey,
     });
   } catch (error) {
     if (options?.signal?.aborted || options?.shouldPlay?.() === false) return;
@@ -896,8 +937,8 @@ function buildPracticePhraseRows(card: PracticeCard, segments: PracticeEnglishSe
 }
 
 function PracticeEnglish({
-  card,
-  segments,
+  sentenceRows,
+  activeSentenceKey,
   answers,
   checkedAnswers,
   canUseTts,
@@ -905,16 +946,15 @@ function PracticeEnglish({
   onBlankFocus,
   onPlaySentence,
 }: {
-  card: PracticeCard;
-  segments: PracticeEnglishSegment[];
+  sentenceRows: PracticeSentenceRow[];
+  activeSentenceKey: string | null;
   answers: Record<number, string>;
   checkedAnswers: Record<number, "correct" | "incorrect">;
   canUseTts: boolean;
   onChangeAnswer: (tokenIndex: number, value: string) => void;
   onBlankFocus: (inputRef: TextInput | null) => void;
-  onPlaySentence: (range: { textStart: number; textEnd: number }) => void;
+  onPlaySentence: (sentenceIndex: number) => void;
 }) {
-  const sentenceRows = useMemo(() => groupPracticeEnglishSentences(card, segments), [card, segments]);
   const [flashingSentenceKey, setFlashingSentenceKey] = useState<string | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLongPressKeyRef = useRef<string | null>(null);
@@ -933,10 +973,10 @@ function PracticeEnglish({
     }, 260);
   }
 
-  function playSentence(row: PracticeSentenceRow): void {
+  function playSentence(row: PracticeSentenceRow, sentenceIndex: number): void {
     if (!canUseTts) return;
     flashSentence(row);
-    onPlaySentence({ textStart: row.textStart, textEnd: row.textEnd });
+    onPlaySentence(sentenceIndex);
   }
 
   function renderSegment(segment: PracticeEnglishSegment): React.ReactNode {
@@ -976,23 +1016,23 @@ function PracticeEnglish({
 
   return (
     <View style={styles.englishSentences}>
-      {sentenceRows.map((row) => (
+      {sentenceRows.map((row, sentenceIndex) => (
         <Pressable
           key={row.key}
           style={({ pressed }) => [
             styles.englishSentenceRow,
-            (pressed || flashingSentenceKey === row.key) && styles.englishSentenceRowActive,
+            (pressed || flashingSentenceKey === row.key || activeSentenceKey === row.key) && styles.englishSentenceRowActive,
           ]}
           onPress={() => {
             if (lastLongPressKeyRef.current === row.key) {
               lastLongPressKeyRef.current = null;
               return;
             }
-            playSentence(row);
+            playSentence(row, sentenceIndex);
           }}
           onLongPress={() => {
             lastLongPressKeyRef.current = row.key;
-            playSentence(row);
+            playSentence(row, sentenceIndex);
           }}
           delayLongPress={350}
         >

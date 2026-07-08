@@ -149,24 +149,6 @@ export function ChatComposer({
 
   return (
     <View style={styles.inputWrap}>
-      {onSttPress ? (
-        <Pressable
-          style={[
-            styles.micButton,
-            sttStatus !== "idle" && styles.micButtonActive,
-            isSending && styles.micButtonDisabled,
-          ]}
-          onPress={handleMicPress}
-          disabled={isSending}
-          hitSlop={6}
-        >
-          <Ionicons
-            name={sttStatus === "recording" || sttStatus === "connecting" ? "stop" : "mic"}
-            size={24}
-            color={sttStatus === "idle" ? "#7F77F9" : "#FFFFFF"}
-          />
-        </Pressable>
-      ) : null}
       <Pressable style={[styles.inputShell, { height: shellHeight }]} onLongPress={() => void handleShowPaste()}>
         <TextInput
           ref={inputRef}
@@ -219,6 +201,24 @@ export function ChatComposer({
           <Ionicons name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
         </Pressable>
       </Pressable>
+      {onSttPress ? (
+        <Pressable
+          style={[
+            styles.micButton,
+            sttStatus !== "idle" && styles.micButtonActive,
+            isSending && styles.micButtonDisabled,
+          ]}
+          onPress={handleMicPress}
+          disabled={isSending}
+          hitSlop={6}
+        >
+          <Ionicons
+            name={sttStatus === "recording" || sttStatus === "connecting" ? "stop" : "mic"}
+            size={24}
+            color={sttStatus === "idle" ? "#7F77F9" : "#FFFFFF"}
+          />
+        </Pressable>
+      ) : null}
     </View>
   );
 }

@@ -2,78 +2,29 @@ import React from "react";
 import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatContact } from "../../domain/chat/contacts";
-import type { AutoCopyMode, CompanionMode } from "../../services/preferences/assistantPreferences";
+import type { CompanionMode } from "../../services/preferences/assistantPreferences";
 import { t } from "../../i18n";
 
 type AutoCopySheetProps = {
   visible: boolean;
   contact: ChatContact;
-  autoCopyEnabled: boolean;
-  selectedMode: AutoCopyMode;
   autoClozeEnabled: boolean;
   companionMode: CompanionMode;
   onClose: () => void;
-  onSelectMode: (mode: AutoCopyMode) => void;
   onSetAutoClozeEnabled: (enabled: boolean) => void;
   onSelectCompanionMode: (mode: CompanionMode) => void;
 };
 
-type AutoCopyOption = {
-  mode: AutoCopyMode;
-  label: string;
-  description: string;
-};
-
-function getAutoCopyOptions(companionMode: CompanionMode): AutoCopyOption[] {
-  const options: AutoCopyOption[] = [
-    { mode: "none", label: t("chat.autocopy.copy_none"), description: t("chat.autocopy.copy_none_desc") },
-    { mode: "rewrite", label: t("chat.autocopy.copy_rewrite"), description: t("chat.autocopy.copy_rewrite_desc") },
-  ];
-  if (companionMode === "native_note") {
-    options.push({ mode: "note", label: t("chat.autocopy.copy_restatement"), description: t("chat.autocopy.copy_restatement_desc") });
-  }
-  if (companionMode === "simple_reply") {
-    options.push({ mode: "reply", label: t("chat.autocopy.copy_reply"), description: t("chat.autocopy.copy_reply_desc") });
-  }
-  return options;
-}
-
-function normalizeSelectedMode(mode: AutoCopyMode, companionMode: CompanionMode): AutoCopyMode {
-  if (mode === "all") return "rewrite";
-  if (mode === "note" && companionMode !== "native_note") return "none";
-  if (mode === "reply" && companionMode !== "simple_reply") return "none";
-  return mode;
-}
-
-function getLegacyAutoCopyOptions(contact: ChatContact): AutoCopyOption[] {
-  if (contact.id === "english_friend") {
-    return [
-      { mode: "rewrite", label: t("chat.autocopy.copy_rewrite"), description: t("chat.autocopy.copy_rewrite_desc") },
-      { mode: "reply", label: t("chat.autocopy.copy_reply"), description: t("chat.autocopy.copy_reply_desc") },
-    ];
-  }
-
-  return [
-    { mode: "rewrite", label: t("chat.autocopy.copy_rewrite"), description: t("chat.autocopy.copy_rewrite_desc") },
-    { mode: "note", label: t("chat.autocopy.copy_restatement"), description: t("chat.autocopy.copy_restatement_desc") },
-  ];
-}
-
 export function AutoCopySheet({
   visible,
   contact,
-  autoCopyEnabled,
-  selectedMode,
   autoClozeEnabled,
   companionMode,
   onClose,
-  onSelectMode,
   onSetAutoClozeEnabled,
   onSelectCompanionMode,
 }: AutoCopySheetProps) {
   const showCompanionMode = contact.capabilities?.companionMode === true;
-  const options = showCompanionMode ? getAutoCopyOptions(companionMode) : getLegacyAutoCopyOptions(contact);
-  const normalizedSelectedMode = autoCopyEnabled ? normalizeSelectedMode(selectedMode, companionMode) : "none";
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -81,8 +32,8 @@ export function AutoCopySheet({
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>{t(showCompanionMode ? "chat.settings.title" : "chat.autocopy.title")}</Text>
-              <Text style={styles.subtitle}>{t(showCompanionMode ? "chat.settings.subtitle" : "chat.autocopy.subtitle")}</Text>
+              <Text style={styles.title}>{t("chat.settings.title")}</Text>
+              <Text style={styles.subtitle}>{t("chat.settings.subtitle")}</Text>
             </View>
             <Pressable style={styles.closeButton} hitSlop={8} onPress={onClose}>
               <Ionicons name="close" size={20} color="#111111" />
@@ -128,48 +79,6 @@ export function AutoCopySheet({
               trackColor={{ false: "#D5DAE4", true: "#C8C0FF" }}
               thumbColor={autoClozeEnabled ? "#8E7BFF" : "#FFFFFF"}
             />
-          </View>
-
-          <Text style={styles.sectionLabel}>{t("chat.autocopy.title")}</Text>
-          <View style={styles.options}>
-            {options.map((option) => {
-              const selected = normalizedSelectedMode === option.mode;
-
-              return (
-                <Pressable
-                  key={option.mode}
-                  style={[
-                    styles.option,
-                    selected && styles.optionSelected,
-                  ]}
-                  onPress={() => onSelectMode(option.mode)}
-                >
-                  <View style={styles.optionTextWrap}>
-                    <Text
-                      style={[
-                        styles.optionLabel,
-                        selected && styles.optionLabelSelected,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                    <Text style={styles.optionDescription}>
-                      {option.description}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.radio,
-                      selected && styles.radioSelected,
-                    ]}
-                  >
-                    {selected ? (
-                      <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                    ) : null}
-                  </View>
-                </Pressable>
-              );
-            })}
           </View>
         </Pressable>
       </Pressable>

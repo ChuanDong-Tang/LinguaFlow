@@ -9,7 +9,6 @@ import {
 import { runChatGeneration } from "./chatGenerationService";
 import { updateMessageClozeState } from "../api/chatHistoryApi";
 import { getSession } from "../auth/authStorage";
-import type { AutoCopyMode } from "../preferences/assistantPreferences";
 
 type ChatSessionSnapshot = {
   isSending: boolean;
@@ -33,10 +32,7 @@ type StartChatSessionInput = {
   companionMode?: "rewrite_only" | "native_note" | "simple_reply";
   systemPrompt?: string;
   conversationId?: string | null;
-  autoCopyAfterGeneration: boolean;
-  autoCopyMode: AutoCopyMode;
   autoClozeAfterGeneration: boolean;
-  onSuccessText?: (text: string, mode: AutoCopyMode) => Promise<void>;
   onStreamDone?: () => void;
   onFailure?: (error: { code?: string; message?: string; stage?: "input" | "output" }) => void;
 };
@@ -285,9 +281,6 @@ export function startChatSession(input: StartChatSessionInput): void {
       }
     }
 
-    if (result.status === "success" && input.autoCopyAfterGeneration && input.autoCopyMode !== "none" && result.assistantText) {
-      await input.onSuccessText?.(result.assistantText, input.autoCopyMode);
-    }
     if (result.status === "success") {
       input.onStreamDone?.();
     }

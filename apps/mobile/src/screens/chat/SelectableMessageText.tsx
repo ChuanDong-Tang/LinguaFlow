@@ -170,6 +170,14 @@ function expandSelectionToWord(text: string, start: number, end: number): Native
   return { start: safeStart, end: safeEnd };
 }
 
+function findContainingHighlightRange(
+  ranges: Required<NativeClozeHighlightRange>[],
+  start: number,
+  end: number,
+): NativeClozeBlankRange | null {
+  return ranges.find((range) => range.start <= start && range.end >= end) ?? null;
+}
+
 function renderLayoutTextSegments(
   text: string,
   highlightRanges: NativeClozeHighlightRange[],
@@ -262,7 +270,9 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         const end = hasNativeRange ? payload.selectionEnd! : start + selectedText.length;
         const selectedRange = { start: Math.min(start, end), end: Math.max(start, end) };
         if (payload.chosenOption === dictionaryMenuOption) {
-          const expandedRange = expandSelectionToWord(text, selectedRange.start, selectedRange.end);
+          const expandedRange =
+            findContainingHighlightRange(highlights, selectedRange.start, selectedRange.end) ??
+            expandSelectionToWord(text, selectedRange.start, selectedRange.end);
           if (expandedRange.start >= expandedRange.end) return;
           onSelectionStart?.();
           onDictionarySelection?.({
@@ -329,8 +339,8 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       ios: {
         selectionMode,
         menuOptions: [
-          ...(enableClozeMenu ? [clozeMenuOption] : []),
           ...(enableDictionaryMenu ? [dictionaryMenuOption] : []),
+          ...(enableClozeMenu ? [clozeMenuOption] : []),
         ],
         onContentHeightChange: handleNativeContentHeightChange,
         onSelectionStart,
@@ -343,8 +353,8 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         selectionMode,
         menuOptions: !interactionsDisabled
           ? [
-            ...(enableClozeMenu ? [clozeMenuOption] : []),
             ...(enableDictionaryMenu ? [dictionaryMenuOption] : []),
+            ...(enableClozeMenu ? [clozeMenuOption] : []),
           ]
           : [],
         onTouchStart: interactionsDisabled || !shouldNotifyInteractionOnTouchStart ? undefined : handleTouchStart,

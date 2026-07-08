@@ -12,14 +12,18 @@ let playbackState: TtsPlaybackState = {
   status: "idle",
   playbackRate: 1,
   loopEnabled: false,
+  activeNavigationKey: null,
+  canNavigatePrevious: false,
+  canNavigateNext: false,
 };
+let navigationControls: TtsNavigationControls | null = null;
 const playbackSubscribers = new Set<() => void>();
 
 const TTS_AUDIO_CACHE_MAX_BYTES = 50 * 1024 * 1024;
 const TTS_AUDIO_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const TTS_AUDIO_CACHE_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
 const TTS_RANGE_STOP_GUARD_MS = 80;
-const TTS_PLAYBACK_RATES = [1, 1.5, 2, 0.5] as const;
+const TTS_PLAYBACK_RATES = [0.5, 0.8, 1, 1.2, 1.5] as const;
 
 export type TtsPlaybackRange = {
   startMs: number;
@@ -30,6 +34,7 @@ export type TtsAudioSource = {
   url: string;
   cacheKey?: string | null;
   playbackRange?: TtsPlaybackRange;
+  navigationKey?: string | null;
 };
 
 export type TtsPlaybackState = {
@@ -37,6 +42,16 @@ export type TtsPlaybackState = {
   status: "idle" | "playing" | "paused";
   playbackRate: number;
   loopEnabled: boolean;
+  activeNavigationKey: string | null;
+  canNavigatePrevious: boolean;
+  canNavigateNext: boolean;
+};
+
+export type TtsNavigationControls = {
+  canNavigatePrevious: boolean;
+  canNavigateNext: boolean;
+  onNavigatePrevious: () => void;
+  onNavigateNext: () => void;
 };
 
 export async function playTtsAudio(source: string | TtsAudioSource, playbackRange?: TtsPlaybackRange): Promise<void> {
@@ -67,6 +82,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
   setPlaybackState({
     hasActiveAudio: true,
     status: "playing",
+    activeNavigationKey: resolvedSource.navigationKey ?? null,
   });
   if (effectivePlaybackRange) {
     const startSeconds = Math.max(0, effectivePlaybackRange.startMs / 1000);
@@ -111,6 +127,7 @@ export function stopTtsAudio(options: { resetControls?: boolean } = {}): void {
     setPlaybackState({
       playbackRate: 1,
       loopEnabled: false,
+      activeNavigationKey: null,
     });
   }
 }
@@ -131,6 +148,24 @@ export function cycleTtsPlaybackRate(): void {
   const nextRate = TTS_PLAYBACK_RATES[(currentIndex + 1) % TTS_PLAYBACK_RATES.length] ?? 1;
   if (activePlayer) activePlayer.setPlaybackRate(nextRate, "medium");
   setPlaybackState({ playbackRate: nextRate });
+}
+
+export function navigateTtsPrevious(): void {
+  if (!navigationControls?.canNavigatePrevious) return;
+  navigationControls.onNavigatePrevious();
+}
+
+export function navigateTtsNext(): void {
+  if (!navigationControls?.canNavigateNext) return;
+  navigationControls.onNavigateNext();
+}
+
+export function setTtsNavigationControls(controls: TtsNavigationControls | null): void {
+  navigationControls = controls;
+  setPlaybackState({
+    canNavigatePrevious: controls?.canNavigatePrevious ?? false,
+    canNavigateNext: controls?.canNavigateNext ?? false,
+  });
 }
 
 export function toggleTtsLoop(): void {
@@ -161,6 +196,7 @@ function stopActivePlayer(): void {
   setPlaybackState({
     hasActiveAudio: false,
     status: "idle",
+    activeNavigationKey: null,
   });
 }
 
@@ -175,7 +211,10 @@ function setPlaybackState(next: Partial<TtsPlaybackState>): void {
     merged.hasActiveAudio === playbackState.hasActiveAudio &&
     merged.status === playbackState.status &&
     merged.playbackRate === playbackState.playbackRate &&
-    merged.loopEnabled === playbackState.loopEnabled
+    merged.loopEnabled === playbackState.loopEnabled &&
+    merged.activeNavigationKey === playbackState.activeNavigationKey &&
+    merged.canNavigatePrevious === playbackState.canNavigatePrevious &&
+    merged.canNavigateNext === playbackState.canNavigateNext
   ) {
     return;
   }

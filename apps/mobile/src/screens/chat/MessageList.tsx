@@ -117,6 +117,9 @@ function getCopyOptions(text: string): { label: string; mode: AutoCopyMode }[] {
   if (tagged.reply.trim()) {
     options.push({ label: t("chat.copy.reply"), mode: "reply" });
   }
+  if (options.length > 1) {
+    options.push({ label: t("chat.copy.all"), mode: "all" });
+  }
   return options;
 }
 

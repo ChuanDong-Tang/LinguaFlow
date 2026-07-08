@@ -5,7 +5,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   cycleTtsPlaybackRate,
   getTtsPlaybackState,
-  stopTtsAudio,
+  navigateTtsNext,
+  navigateTtsPrevious,
   subscribeTtsPlayback,
   toggleTtsLoop,
   toggleTtsPlayback,
@@ -47,6 +48,8 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
   );
   const active = playback.hasActiveAudio;
   const isPlaying = playback.status === "playing";
+  const canNavigatePrevious = playback.canNavigatePrevious;
+  const canNavigateNext = playback.canNavigateNext;
   const playerWidth = expanded ? EXPANDED_WIDTH : COLLAPSED_TOUCH_WIDTH;
   const dragMinX = expanded ? PLAYER_MARGIN : 0;
   const dragMaxX = expanded
@@ -192,6 +195,14 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
         <View style={styles.controls}>
           <Pressable
             accessibilityRole="button"
+            style={[styles.iconButton, !canNavigatePrevious && styles.disabled]}
+            disabled={!canNavigatePrevious}
+            onPress={navigateTtsPrevious}
+          >
+            <Ionicons name="play-skip-back" size={16} color={canNavigatePrevious ? "#111111" : "#AEB4C0"} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
             style={[styles.primaryButton, !active && styles.disabled]}
             disabled={!active}
             onPress={toggleTtsPlayback}
@@ -200,19 +211,11 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            style={[styles.iconButton, !active && styles.disabled]}
-            disabled={!active}
-            onPress={() => stopTtsAudio()}
+            style={[styles.iconButton, !canNavigateNext && styles.disabled]}
+            disabled={!canNavigateNext}
+            onPress={navigateTtsNext}
           >
-            <Ionicons name="stop" size={16} color={active ? "#111111" : "#AEB4C0"} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.rateButton, !active && styles.disabled]}
-            disabled={!active}
-            onPress={cycleTtsPlaybackRate}
-          >
-            <Text style={[styles.rateText, !active && styles.rateTextDisabled]}>{playback.playbackRate.toFixed(1)}x</Text>
+            <Ionicons name="play-skip-forward" size={16} color={canNavigateNext ? "#111111" : "#AEB4C0"} />
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -230,6 +233,14 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
               color={playback.loopEnabled && active ? "#FFFFFF" : active ? "#4D5361" : "#AEB4C0"}
             />
           </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            style={[styles.rateButton, !active && styles.disabled]}
+            disabled={!active}
+            onPress={cycleTtsPlaybackRate}
+          >
+            <Text style={[styles.rateText, !active && styles.rateTextDisabled]}>{playback.playbackRate.toFixed(1)}x</Text>
+          </Pressable>
         </View>
       ) : null}
     </View>
@@ -239,7 +250,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
 const COLLAPSED_SIZE = 46;
 const COLLAPSED_TOUCH_WIDTH = 52;
 const COLLAPSED_HANDLE_WIDTH = 30;
-const EXPANDED_WIDTH = 244;
+const EXPANDED_WIDTH = 286;
 const PLAYER_MARGIN = 14;
 const DEFAULT_Y_RATIO = 0.28;
 
@@ -311,7 +322,7 @@ const styles = StyleSheet.create({
   controls: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 7,
     paddingRight: 2,
   },
   primaryButton: {
