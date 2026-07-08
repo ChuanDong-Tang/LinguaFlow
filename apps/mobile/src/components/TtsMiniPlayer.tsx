@@ -157,7 +157,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
     [expanded, playerWidth],
   );
   const controlOrder: MiniPlayerControlKey[] = visualDockSide === "right"
-    ? ["rate", "loop", "next", "toggle", "previous"]
+    ? ["rate", "loop", "previous", "toggle", "next"]
     : ["previous", "toggle", "next", "loop", "rate"];
 
   function renderControl(control: MiniPlayerControlKey): React.ReactNode {

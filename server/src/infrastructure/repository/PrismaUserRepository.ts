@@ -13,6 +13,7 @@ import type {
 type PrismaUserClient = {
   user: {
     create: (args: any) => Promise<any>;
+    findFirst: (args: any) => Promise<any>;
     findUnique: (args: any) => Promise<any>;
     upsert: (args: any) => Promise<any>;
     update: (args: any) => Promise<any>;
@@ -186,6 +187,28 @@ export class PrismaUserRepository implements UserRepository {
   async findById(userId: string): Promise<UserEntity | null> {
     const row = await this.prisma.user.findUnique({ where: { id: userId } });
     return row ? this.toUserEntity(row) : null;
+  }
+
+  async findByEmail(email: string): Promise<UserEntity | null> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) return null;
+    const row = await this.prisma.user.findFirst({
+      where: {
+        email: {
+          equals: normalized,
+          mode: "insensitive",
+        },
+      },
+    });
+    return row ? this.toUserEntity(row) : null;
+  }
+
+  async updateEmailById(userId: string, email: string): Promise<UserEntity> {
+    const row = await this.prisma.user.update({
+      where: { id: userId },
+      data: { email: email.trim().toLowerCase() },
+    });
+    return this.toUserEntity(row);
   }
 
   async markPendingDeleteById(userId: string): Promise<UserEntity> {

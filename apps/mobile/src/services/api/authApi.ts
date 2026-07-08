@@ -1,11 +1,15 @@
 import type {
   AuthingLoginRequestBody,
+  BindEmailResponse,
+  ConfirmBindEmailRequestBody,
   ConfirmDeleteAccountRequestBody,
   DeleteAccountResponse,
   AuthingLoginResponse,
   LoginCredential,
   LoginResponse,
   LogoutRequestBody,
+  PrepareBindEmailRequestBody,
+  PrepareBindEmailResponse,
   PrepareDeleteAccountRequestBody,
   PrepareDeleteAccountResponse,
   RefreshTokenRequestBody,
@@ -187,6 +191,40 @@ export async function confirmDeleteAccount(input: ConfirmDeleteAccountRequestBod
   });
 
   const apiResult = await readApiResult<DeleteAccountResponse>(res);
+  if (!apiResult.ok) {
+    throw new Error(apiResult.error.message);
+  }
+  return apiResult.data;
+}
+
+export async function prepareBindEmail(input: PrepareBindEmailRequestBody): Promise<PrepareBindEmailResponse> {
+  const res = await fetch(`${BASE_URL}/auth/bind-email/prepare`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await getAuthHeaders()),
+    },
+    body: JSON.stringify(input),
+  });
+
+  const apiResult = await readApiResult<PrepareBindEmailResponse>(res);
+  if (!apiResult.ok) {
+    throw new Error(apiResult.error.message);
+  }
+  return apiResult.data;
+}
+
+export async function confirmBindEmail(input: ConfirmBindEmailRequestBody): Promise<BindEmailResponse> {
+  const res = await fetch(`${BASE_URL}/auth/bind-email/confirm`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await getAuthHeaders()),
+    },
+    body: JSON.stringify(input),
+  });
+
+  const apiResult = await readApiResult<BindEmailResponse>(res);
   if (!apiResult.ok) {
     throw new Error(apiResult.error.message);
   }

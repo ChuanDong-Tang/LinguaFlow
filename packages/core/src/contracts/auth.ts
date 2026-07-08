@@ -85,3 +85,24 @@ export interface ConfirmDeleteAccountRequestBody {
 export interface DeleteAccountResponse {
   success: true;
 }
+
+export interface PrepareBindEmailRequestBody {
+  authingToken: string;
+  email: string;
+}
+
+export interface PrepareBindEmailResponse {
+  authingToken: string;
+  email: string;
+  target: string;
+}
+
+export interface ConfirmBindEmailRequestBody {
+  authingToken: string;
+  email: string;
+  passCode: string;
+}
+
+export interface BindEmailResponse {
+  user: AuthingLoginResponse["user"];
+}

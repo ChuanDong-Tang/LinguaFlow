@@ -1,7 +1,9 @@
 import type {
   AuthingLoginRequestBody,
+  ConfirmBindEmailRequestBody,
   ConfirmDeleteAccountRequestBody,
   LoginCredential,
+  PrepareBindEmailRequestBody,
   PrepareDeleteAccountRequestBody,
   RefreshTokenRequestBody,
 } from "@lf/core/contracts/auth.js";
@@ -49,6 +51,30 @@ export function isConfirmDeleteAccountBody(value: unknown): value is ConfirmDele
     typeof v.authingToken === "string" &&
     v.authingToken.trim().length > 0 &&
     (v.method === "PHONE_PASSCODE" || v.method === "EMAIL_PASSCODE") &&
+    typeof v.passCode === "string" &&
+    v.passCode.trim().length > 0
+  );
+}
+
+export function isPrepareBindEmailBody(value: unknown): value is PrepareBindEmailRequestBody {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.authingToken === "string" &&
+    v.authingToken.trim().length > 0 &&
+    typeof v.email === "string" &&
+    v.email.trim().length > 0
+  );
+}
+
+export function isConfirmBindEmailBody(value: unknown): value is ConfirmBindEmailRequestBody {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.authingToken === "string" &&
+    v.authingToken.trim().length > 0 &&
+    typeof v.email === "string" &&
+    v.email.trim().length > 0 &&
     typeof v.passCode === "string" &&
     v.passCode.trim().length > 0
   );

@@ -872,7 +872,15 @@ function PracticeBack({
         </View>
       </View>
       <View style={styles.userOriginalBlock}>
-        <Pressable style={styles.userOriginalHeader} onPress={onToggleUserOriginal}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={userOriginalVisible ? t("practice.session.hide_user_original") : t("practice.session.user_original")}
+          style={styles.userOriginalHeader}
+          onPress={onToggleUserOriginal}
+        >
+          <Text style={styles.userOriginalHeaderText}>
+            {userOriginalVisible ? t("practice.session.hide_user_original") : t("practice.session.user_original")}
+          </Text>
           <Ionicons name={userOriginalVisible ? "eye-off-outline" : "eye-outline"} size={20} color="#111111" />
         </Pressable>
         {userOriginalVisible ? (
@@ -1299,8 +1307,15 @@ const styles = StyleSheet.create({
     minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
     gap: 12,
+  },
+  userOriginalHeaderText: {
+    flex: 1,
+    color: "#2477E8",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
   },
   userOriginalText: {
     marginTop: 10,

@@ -9,6 +9,7 @@ import { PrismaTtsRequestLogRepository } from "@lf/server/infrastructure/reposit
 import { PrismaSttRequestLogRepository } from "@lf/server/infrastructure/repository/PrismaSttRequestLogRepository.js";
 import { AuthLoginService } from "@lf/server/services/auth/AuthLoginService.js";
 import { AccountDeletionService } from "@lf/server/services/auth/AccountDeletionService.js";
+import { AccountEmailBindingService } from "@lf/server/services/auth/AccountEmailBindingService.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
 import { createAIProvider } from "@lf/server/providers/ai/createAIProvider.js";
@@ -122,6 +123,7 @@ export function createApp() {
   const sttRequestLogRepository = new PrismaSttRequestLogRepository(prisma);
   const authLoginService = new AuthLoginService(userRepository, userSessionRepository);
   const accountDeletionService = new AccountDeletionService(userRepository, userSessionRepository);
+  const accountEmailBindingService = new AccountEmailBindingService(userRepository);
   const runtimeConfig = getRuntimeConfig();
   const aiProvider = createAIProvider(runtimeConfig);
   const conversationRepository = new PrismaConversationRepository(prisma);
@@ -250,6 +252,7 @@ export function createApp() {
       authProvider,
       authLoginService,
       accountDeletionService,
+      accountEmailBindingService,
       userRepository,
       systemEventLogRepository,
     });

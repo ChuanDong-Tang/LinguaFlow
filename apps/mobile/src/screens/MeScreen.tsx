@@ -28,6 +28,8 @@ type MeScreenProps = {
   onOpenAbout: () => void;
   onOpenHelp: () => void;
   onApplyAppLocale: (value: AppLocale) => void;
+  sessionRevision: number;
+  onBindEmail: () => Promise<void> | void;
   onLogout: () => Promise<void> | void;
   onDeleteAccount: () => Promise<void> | void;
 };
@@ -36,7 +38,7 @@ const OTA_DEBUG_JS_LABEL = "Dictionary overlay close fix";
 const UPDATE_LOG_KEYWORDS = ["error", "fail", "exception", "crash", "rollback", "emergency", "launch", "reset", "delete"];
 const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
-export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApplyAppLocale, onLogout, onDeleteAccount }: MeScreenProps) {
+export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApplyAppLocale, sessionRevision, onBindEmail, onLogout, onDeleteAccount }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
   const appLocaleSyncSeqRef = useRef(0);
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -83,7 +85,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
     return () => {
       cancelled = true;
     };
-  }, [isActive, isMounted]);
+  }, [isActive, isMounted, sessionRevision]);
 
   const quota = useMemo(() => {
     const dailyTotalLimit = entitlement?.dailyTotalLimit ?? (session?.sessionFlags?.isPro ? 10000 : 10000);
@@ -105,6 +107,15 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
     : entitlement?.validUntil
       ? tf("me.quota.valid_until", { time: formatDateTime(entitlement.validUntil) })
       : t("me.quota.free_valid");
+  const boundEmail = session?.user.email?.trim() || "";
+
+  function handleBindEmailPress(): void {
+    if (boundEmail) {
+      Alert.alert(t("me.bind_email.already_title"), tf("me.bind_email.already_message", { email: boundEmail }));
+      return;
+    }
+    void onBindEmail();
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -165,6 +176,12 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
 
         <Text style={styles.sectionTitle}>{t("me.section.more")}</Text>
         <View style={styles.settingsCard}>
+          <SettingsRow
+            icon="mail-outline"
+            label={t("me.bind_email")}
+            value={boundEmail || t("me.bind_email.not_bound")}
+            onPress={handleBindEmailPress}
+          />
           <SettingsRow
             icon="language-outline"
             label={t("me.language_settings")}
