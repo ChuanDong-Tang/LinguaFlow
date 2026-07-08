@@ -47,7 +47,6 @@ export class AzureGlobalSttProvider implements SttProvider {
       input.onEvent({
         type: "partial",
         text,
-        alternatives: readDetailedAlternatives(SpeechSDK, event.result),
         ...readDetectedLanguage(SpeechSDK, event.result),
       });
     };
@@ -58,7 +57,6 @@ export class AzureGlobalSttProvider implements SttProvider {
       input.onEvent({
         type: "final",
         text,
-        alternatives: readDetailedAlternatives(SpeechSDK, event.result),
         ...readDetectedLanguage(SpeechSDK, event.result),
       });
     };
@@ -189,67 +187,4 @@ function readDetectedLanguage(
   } catch {
     return { detectedLanguage: null, languageDetectionConfidence: null };
   }
-}
-
-function readDetailedAlternatives(
-  SpeechSDK: SpeechSdkModule,
-  result: SpeechSDKTypes.SpeechRecognitionResult
-): {
-  resultText: string;
-  displayText: string | null;
-  nbestDisplay: string | null;
-  lexical: string | null;
-  itn: string | null;
-  maskedItn: string | null;
-  confidence: number | null;
-} {
-  const resultText = String(result.text ?? "").trim();
-  const rawJson = result.properties?.getProperty(SpeechSDK.PropertyId.SpeechServiceResponse_JsonResult);
-  if (!rawJson) {
-    return {
-      resultText,
-      displayText: null,
-      nbestDisplay: null,
-      lexical: null,
-      itn: null,
-      maskedItn: null,
-      confidence: null,
-    };
-  }
-  try {
-    const parsed = JSON.parse(rawJson) as {
-      DisplayText?: unknown;
-      NBest?: Array<{
-        Display?: unknown;
-        Lexical?: unknown;
-        ITN?: unknown;
-        MaskedITN?: unknown;
-        Confidence?: unknown;
-      }>;
-    };
-    const best = Array.isArray(parsed.NBest) ? parsed.NBest[0] : undefined;
-    return {
-      resultText,
-      displayText: readOptionalString(parsed.DisplayText),
-      nbestDisplay: readOptionalString(best?.Display),
-      lexical: readOptionalString(best?.Lexical),
-      itn: readOptionalString(best?.ITN),
-      maskedItn: readOptionalString(best?.MaskedITN),
-      confidence: typeof best?.Confidence === "number" ? best.Confidence : null,
-    };
-  } catch {
-    return {
-      resultText,
-      displayText: null,
-      nbestDisplay: null,
-      lexical: null,
-      itn: null,
-      maskedItn: null,
-      confidence: null,
-    };
-  }
-}
-
-function readOptionalString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
