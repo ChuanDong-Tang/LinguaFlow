@@ -11,7 +11,7 @@ import {
   getAuthingRedirectUri,
   isAuthingConfigured,
 } from "../services/auth/authingAuth";
-import { clearForceAuthingLogin, setSession, shouldForceAuthingLogin } from "../services/auth/authStorage";
+import { clearForceAuthingLogin, setAuthingAccessToken, setSession, shouldForceAuthingLogin } from "../services/auth/authStorage";
 import { clearAccountScopedStorage } from "../services/auth/accountScopedStorage";
 import { logEvent } from "../services/logger";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
@@ -137,6 +137,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           sessionFlags: { isPro: false },
         };
         await setSession(localSession);
+        await setAuthingAccessToken(tokenResult.accessToken);
         await refreshEntitlementAndSessionSafe();
         await logEvent("authing_login_ui_success", "info", undefined, { userId: backendSession.user.id });
         await clearForceAuthingLogin();

@@ -5,10 +5,18 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { LoginScreen } from "./screens/LoginScreen";
 import { getLanguage, getSavedLanguage, initI18n, setLanguage, t, tf } from "./i18n";
-import { clearSession, getSession, markForceAuthingLogin, setSession } from "./services/auth/authStorage";
+import {
+  clearAuthingAccessToken,
+  clearSession,
+  getAuthingAccessToken,
+  getSession,
+  markForceAuthingLogin,
+  setAuthingAccessToken,
+  setSession,
+} from "./services/auth/authStorage";
 import { clearAccountScopedStorage } from "./services/auth/accountScopedStorage";
 import { reconcileLocalInstallState } from "./services/storage/installState";
-import { confirmBindEmail, confirmDeleteAccount, logout, prepareBindEmail, prepareDeleteAccount } from "./services/api/authApi";
+import { ApiError, confirmBindEmail, confirmDeleteAccount, logout, prepareBindEmail, prepareDeleteAccount } from "./services/api/authApi";
 import {
   getUserPreference,
   updateUserPreference,
@@ -129,7 +137,6 @@ export default function App() {
       responseType: AuthSession.ResponseType.Code,
       scopes: ["openid", "profile", "email", "phone"],
       usePKCE: true,
-      prompt: AuthSession.Prompt.Login,
     },
     authingDiscovery
   );
@@ -151,6 +158,7 @@ export default function App() {
         let session = await getSession();
         if (installState.isFreshInstall && session) {
           await clearSession();
+          await clearAuthingAccessToken();
           await clearAccountScopedStorage();
           session = null;
         }
@@ -184,6 +192,7 @@ export default function App() {
   useEffect(() => {
     return onSessionInvalid(() => {
       cancelDeleteAccountFlow();
+      cancelBindEmailFlow();
       setScreen("login");
     });
   }, []);
@@ -196,6 +205,7 @@ export default function App() {
 
   async function handleLogout(): Promise<void> {
     cancelDeleteAccountFlow();
+    cancelBindEmailFlow();
     const session = await getSession();
     if (session?.refreshToken) {
       try {
@@ -203,6 +213,7 @@ export default function App() {
       } catch {}
     }
     await clearSession();
+    await clearAuthingAccessToken();
     await clearAccountScopedStorage();
     await markForceAuthingLogin();
     setScreen("login");
@@ -411,6 +422,7 @@ export default function App() {
       setDeleteAccountVisible(false);
       resetDeleteAccountState();
       await clearSession();
+      await clearAuthingAccessToken();
       await clearAccountScopedStorage();
       await markForceAuthingLogin();
       setScreen("login");
@@ -467,10 +479,6 @@ export default function App() {
   }
 
   async function sendBindEmailCode(): Promise<void> {
-    if (!authingConfigured || !authingDiscovery || !bindEmailAuthingRequest) {
-      Alert.alert(t("app.bind_email.unavailable_title"), t("app.bind_email.unavailable_message"));
-      return;
-    }
     if (bindEmailLoading) return;
     const email = bindEmailValue.trim();
     if (!email) {
@@ -489,23 +497,9 @@ export default function App() {
     const userId = bindEmailUserId;
     setBindEmailLoading(true);
     try {
-      const result = await promptBindEmailAuthingAsync();
+      const authingToken = await resolveBindEmailAuthingToken();
       if (!(await isCurrentBindEmailRun(runId, userId))) return;
-      if (result.type !== "success") {
-        Alert.alert(t("common.operation_cancelled"));
-        return;
-      }
-      const tokenResult = await AuthSession.exchangeCodeAsync(
-        {
-          clientId: authingClientId,
-          code: result.params.code,
-          redirectUri: authingRedirectUri,
-          extraParams: { code_verifier: bindEmailAuthingRequest.codeVerifier ?? "" },
-        },
-        authingDiscovery,
-      );
-      if (!(await isCurrentBindEmailRun(runId, userId))) return;
-      const prepared = await prepareBindEmail({ authingToken: tokenResult.accessToken, email });
+      const prepared = await prepareBindEmailWithReauthFallback(authingToken, email);
       if (!(await isCurrentBindEmailRun(runId, userId))) return;
       setBindEmailAuthingToken(prepared.authingToken);
       setBindEmailValue(prepared.email);
@@ -520,6 +514,66 @@ export default function App() {
       if (await isCurrentBindEmailRun(runId, userId)) {
         setBindEmailLoading(false);
       }
+    }
+  }
+
+  async function resolveBindEmailAuthingToken(): Promise<string> {
+    const cachedToken = await getAuthingAccessToken();
+    if (cachedToken) return cachedToken;
+    return requestFreshBindEmailAuthingToken();
+  }
+
+  async function prepareBindEmailWithReauthFallback(authingToken: string, email: string) {
+    try {
+      return await prepareBindEmail({ authingToken, email });
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "AUTHING_REAUTH_REQUIRED") {
+        throw error;
+      }
+      await clearAuthingAccessToken();
+      const freshToken = await requestFreshBindEmailAuthingToken();
+      return prepareBindEmail({ authingToken: freshToken, email });
+    }
+  }
+
+  async function requestFreshBindEmailAuthingToken(): Promise<string> {
+    if (!authingConfigured || !authingDiscovery || !bindEmailAuthingRequest) {
+      throw new Error(t("app.bind_email.unavailable_message"));
+    }
+
+    const result = await promptBindEmailAuthingAsync();
+    if (result.type !== "success") {
+      throw new Error(t("common.operation_cancelled"));
+    }
+
+    const tokenResult = await AuthSession.exchangeCodeAsync(
+      {
+        clientId: authingClientId,
+        code: result.params.code,
+        redirectUri: authingRedirectUri,
+        extraParams: { code_verifier: bindEmailAuthingRequest.codeVerifier ?? "" },
+      },
+      authingDiscovery,
+    );
+    await setAuthingAccessToken(tokenResult.accessToken);
+    return tokenResult.accessToken;
+  }
+
+  async function confirmBindEmailWithReauthFallback(input: {
+    authingToken: string;
+    email: string;
+    passCode: string;
+  }) {
+    try {
+      return await confirmBindEmail(input);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "AUTHING_REAUTH_REQUIRED") {
+        throw error;
+      }
+      await clearAuthingAccessToken();
+      const freshToken = await requestFreshBindEmailAuthingToken();
+      setBindEmailAuthingToken(freshToken);
+      return confirmBindEmail({ ...input, authingToken: freshToken });
     }
   }
 
@@ -545,7 +599,7 @@ export default function App() {
     const userId = bindEmailUserId;
     setBindEmailLoading(true);
     try {
-      const result = await confirmBindEmail({
+      const result = await confirmBindEmailWithReauthFallback({
         authingToken: bindEmailAuthingToken,
         email: bindEmailValue,
         passCode: bindEmailCode.trim(),

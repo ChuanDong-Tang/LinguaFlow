@@ -27,6 +27,15 @@ type ApiResult<T> = ApiOk<T> | ApiFail;
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const NON_JSON_RESPONSE_MESSAGE = "服务暂时不可用，请稍后再试";
 
+export class ApiError extends Error {
+  constructor(
+    readonly code: string,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
 export async function login(input: LoginCredential): Promise<LoginResponse> {
   // 记录发起登录（不记录验证码和 token）
   await logEvent("login_request", "info", undefined, { type: input.type });
@@ -46,7 +55,7 @@ export async function login(input: LoginCredential): Promise<LoginResponse> {
         code: apiResult.error.code,
         type: input.type
       });
-      throw new Error(apiResult.error.message);
+      throw new ApiError(apiResult.error.code, apiResult.error.message);
     }
 
     // 记录登录成功
@@ -83,7 +92,7 @@ export async function loginWithAuthing(input: AuthingLoginRequestBody): Promise<
       await logEvent("authing_login_failed", "warn", apiResult.error.message, {
         code: apiResult.error.code,
       });
-      throw new Error(apiResult.error.message);
+      throw new ApiError(apiResult.error.code, apiResult.error.message);
     }
 
     await logEvent("authing_login_success", "info", undefined, {
@@ -117,7 +126,7 @@ export async function loginWithTestPassword(input: TestPasswordLoginRequestBody)
         code: apiResult.error.code,
         account: input.account,
       });
-      throw new Error(apiResult.error.message);
+      throw new ApiError(apiResult.error.code, apiResult.error.message);
     }
 
     await logEvent("test_password_login_success", "info", undefined, {
@@ -145,7 +154,7 @@ export async function refreshAccessToken(input: RefreshTokenRequestBody): Promis
 
   const apiResult = await readApiResult<RefreshTokenResponse>(res);
   if (!apiResult.ok) {
-    throw new Error(apiResult.error.message);
+    throw new ApiError(apiResult.error.code, apiResult.error.message);
   }
   return apiResult.data;
 }
@@ -159,7 +168,7 @@ export async function logout(input: LogoutRequestBody): Promise<void> {
 
   const apiResult = await readApiResult<{ ok: true }>(res);
   if (!apiResult.ok) {
-    throw new Error(apiResult.error.message);
+    throw new ApiError(apiResult.error.code, apiResult.error.message);
   }
 }
 
@@ -175,7 +184,7 @@ export async function prepareDeleteAccount(input: PrepareDeleteAccountRequestBod
 
   const apiResult = await readApiResult<PrepareDeleteAccountResponse>(res);
   if (!apiResult.ok) {
-    throw new Error(apiResult.error.message);
+    throw new ApiError(apiResult.error.code, apiResult.error.message);
   }
   return apiResult.data;
 }
@@ -192,7 +201,7 @@ export async function confirmDeleteAccount(input: ConfirmDeleteAccountRequestBod
 
   const apiResult = await readApiResult<DeleteAccountResponse>(res);
   if (!apiResult.ok) {
-    throw new Error(apiResult.error.message);
+    throw new ApiError(apiResult.error.code, apiResult.error.message);
   }
   return apiResult.data;
 }
@@ -209,7 +218,7 @@ export async function prepareBindEmail(input: PrepareBindEmailRequestBody): Prom
 
   const apiResult = await readApiResult<PrepareBindEmailResponse>(res);
   if (!apiResult.ok) {
-    throw new Error(apiResult.error.message);
+    throw new ApiError(apiResult.error.code, apiResult.error.message);
   }
   return apiResult.data;
 }
@@ -226,7 +235,7 @@ export async function confirmBindEmail(input: ConfirmBindEmailRequestBody): Prom
 
   const apiResult = await readApiResult<BindEmailResponse>(res);
   if (!apiResult.ok) {
-    throw new Error(apiResult.error.message);
+    throw new ApiError(apiResult.error.code, apiResult.error.message);
   }
   return apiResult.data;
 }

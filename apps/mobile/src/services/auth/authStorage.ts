@@ -14,6 +14,7 @@ export type AuthSession = {
 
 const SESSION_KEY = environmentStorageKey("lf_auth_session");
 const FORCE_AUTHING_LOGIN_KEY = environmentStorageKey("lf_force_authing_login");
+const AUTHING_ACCESS_TOKEN_KEY = environmentStorageKey("lf_authing_access_token");
 
 /** 保存登录会话：后续真登录也直接复用 */
 export async function setSession(session: AuthSession): Promise<void> {
@@ -35,6 +36,18 @@ export async function getSession(): Promise<AuthSession | null> {
 /** 清理登录会话：退出登录时调用 */
 export async function clearSession(): Promise<void> {
   await SecureStore.deleteItemAsync(SESSION_KEY);
+}
+
+export async function setAuthingAccessToken(accessToken: string): Promise<void> {
+  await SecureStore.setItemAsync(AUTHING_ACCESS_TOKEN_KEY, accessToken);
+}
+
+export async function getAuthingAccessToken(): Promise<string | null> {
+  return SecureStore.getItemAsync(AUTHING_ACCESS_TOKEN_KEY);
+}
+
+export async function clearAuthingAccessToken(): Promise<void> {
+  await SecureStore.deleteItemAsync(AUTHING_ACCESS_TOKEN_KEY);
 }
 
 export async function markForceAuthingLogin(): Promise<void> {

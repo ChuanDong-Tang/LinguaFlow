@@ -942,5 +942,12 @@ function mapBindEmailError(error: unknown): { status: number; code: string; mess
   if (error instanceof Error && error.message === "Invalid email") {
     return { status: 400, code: "INVALID_EMAIL", message: "邮箱格式不正确" };
   }
+  if (
+    error instanceof Error &&
+    (error.message.startsWith("Authing token validation failed") ||
+      error.message === "Authing account does not match current user")
+  ) {
+    return { status: 401, code: "AUTHING_REAUTH_REQUIRED", message: "请重新验证身份后绑定邮箱" };
+  }
   return { status: 400, code: "BIND_EMAIL_FAILED", message: "绑定邮箱失败，请稍后重试" };
 }
