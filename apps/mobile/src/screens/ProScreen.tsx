@@ -135,6 +135,16 @@ export function ProScreen({ onBack }: ProScreenProps) {
     void saveCachedAutoRenewSubscriptionForCurrentUser(subscription);
   }
 
+  function alertOpenSuccess(input?: MembershipTierInput): void {
+    const tier = resolveMembershipTier(input);
+    safeAlert(t("pro.alert.open_success_title"), t(tier === "plus" ? "pro.alert.open_success_message_plus" : "pro.alert.open_success_message_pro"));
+  }
+
+  function alertRestoreSuccess(input?: MembershipTierInput): void {
+    const tier = resolveMembershipTier(input);
+    safeAlert(t("pro.alert.restore_success_title"), t(tier === "plus" ? "pro.alert.restore_success_message_plus" : "pro.alert.restore_success_message_pro"));
+  }
+
   async function syncSessionProFlag(entitlement: CurrentEntitlement): Promise<void> {
     const session = await getSession();
     if (!session) return;
@@ -247,10 +257,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!isScreenAlive()) return;
       if (recovered.status === "paid") {
         setIsRenew(true);
-        await refreshProEntitlementState();
+        const entitlementResult = await refreshProEntitlementState();
         didRefreshEntitlement = true;
         if (!isScreenAlive()) return;
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement });
       }
       const recoveredAutoRenew = await recoverPendingAutoRenewIfAny();
       if (!isScreenAlive()) return;
@@ -259,10 +269,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
       }
       if (recoveredAutoRenew.entitlementIsPro === true) {
         setIsRenew(true);
-        await refreshProEntitlementState();
+        const entitlementResult = await refreshProEntitlementState();
         didRefreshEntitlement = true;
         if (!isScreenAlive()) return;
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement });
       }
       try {
         const currentAutoRenew = await getCurrentAutoRenewSubscription();
@@ -367,7 +377,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         const entitlementResult = await refreshProEntitlementState();
         if (!isScreenAlive()) return;
         setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productCode: order.productCode });
         return;
       }
       if (settled.status === "pending") {
@@ -447,7 +457,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro) {
         setIsRenew(true);
         await clearPendingAutoRenewFlow();
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        alertOpenSuccess({ entitlement: entitlementResult.entitlement, productCode });
       } else if (currentAutoRenew?.status === "active" || currentAutoRenew?.status === "pending") {
         safeAlert(t("pro.alert.contract_processing_title"), t("pro.alert.contract_processing_message"));
       }
@@ -591,7 +601,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         if (!isScreenAlive()) return true;
         applyAutoRenewToState(currentAutoRenew);
       }
-      safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+      alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId });
       return true;
     } catch (error) {
       if (!isScreenAlive()) return true;
@@ -629,7 +639,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         applyAutoRenewToState(currentAutoRenew);
       }
       if (isUserInitiatedPurchase) {
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
       }
     } catch (error) {
       if (!isScreenAlive()) return;
@@ -706,7 +716,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
             applyAutoRenewToState(currentAutoRenew);
           }
           if (!silentFailure) {
-            safeAlert(t("pro.alert.restore_success_title"), t("pro.alert.restore_success_message"));
+            alertRestoreSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
           }
           return;
         } catch (error) {
@@ -977,6 +987,26 @@ async function payWithWechatParams(clientPayParams: Record<string, unknown>): Pr
   assertWechatPayAvailable();
   const { payWithWechat, toWeChatClientPayParams } = await import("../services/payment/wechatPay");
   await payWithWechat(toWeChatClientPayParams(clientPayParams));
+}
+
+type MembershipTierInput = {
+  entitlement?: CurrentEntitlement | null;
+  productCode?: MobilePaymentProductCode;
+  productId?: string | null;
+};
+
+function resolveMembershipTier(input?: MembershipTierInput): "plus" | "pro" {
+  if (input?.productCode === "plus_monthly" || input?.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID) {
+    return "plus";
+  }
+  if (
+    input?.productCode === "pro_monthly" ||
+    input?.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+    input?.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID
+  ) {
+    return "pro";
+  }
+  return input?.entitlement?.tier === "plus" ? "plus" : "pro";
 }
 
 function resolveAutoRenewDescription(input: {
