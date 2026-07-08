@@ -15,7 +15,6 @@ import {
   type AppLocale,
   type LearningLanguage,
   type PromptDifficulty,
-  type PromptStyle,
   type UserPreference,
 } from "./services/api/meApi";
 import { MainScreen } from "./screens/MainScreen";
@@ -85,8 +84,7 @@ export default function App() {
   const [learningPreferenceVisible, setLearningPreferenceVisible] = useState(false);
   const [learningPreferenceSaving, setLearningPreferenceSaving] = useState(false);
   const [learningLanguageDraft, setLearningLanguageDraft] = useState<LearningLanguage>("en-US");
-  const [promptDifficultyDraft, setPromptDifficultyDraft] = useState<PromptDifficulty>("natural");
-  const [promptStyleDraft, setPromptStyleDraft] = useState<PromptStyle>("native_casual");
+  const [promptDifficultyDraft, setPromptDifficultyDraft] = useState<PromptDifficulty>("native");
   const [guideState, setGuideState] = useState<GuideState>({});
   const [guideStateUserId, setGuideStateUserId] = useState<string | null>(null);
   const [onboardingHelpVisible, setOnboardingHelpVisible] = useState(false);
@@ -233,7 +231,6 @@ export default function App() {
     if (preference) {
       setLearningLanguageDraft(preference.learningLanguage);
       setPromptDifficultyDraft(preference.promptDifficulty);
-      setPromptStyleDraft(preference.promptStyle);
     }
 
     if (!isGuideCompleted(mergedGuideState, GUIDE_FIRST_LEARNING_SETUP)) {
@@ -266,12 +263,10 @@ export default function App() {
         appLocale: getLanguage() as AppLocale,
         learningLanguage: learningLanguageDraft,
         promptDifficulty: promptDifficultyDraft,
-        promptStyle: promptStyleDraft,
         guideState: nextGuideState,
       });
       setLearningLanguageDraft(saved.learningLanguage);
       setPromptDifficultyDraft(saved.promptDifficulty);
-      setPromptStyleDraft(saved.promptStyle);
       setGuideState(saved.guideState);
       await saveLocalGuideState(saved.guideState, await resolveCurrentGuideUserId());
       setLearningPreferenceVisible(false);
@@ -544,14 +539,9 @@ export default function App() {
               visible={learningPreferenceVisible}
               learningLanguage={learningLanguageDraft}
               promptDifficulty={promptDifficultyDraft}
-              promptStyle={promptStyleDraft}
               saving={learningPreferenceSaving}
-              onChangeLearningLanguage={(value) => {
-                setLearningLanguageDraft(value);
-                setPromptStyleDraft("native_casual");
-              }}
+              onChangeLearningLanguage={setLearningLanguageDraft}
               onChangePromptDifficulty={setPromptDifficultyDraft}
-              onChangePromptStyle={setPromptStyleDraft}
               onContinue={() => void completeLearningPreferenceSetup()}
             />
             <LearningFlowHelpModal

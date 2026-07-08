@@ -4,7 +4,6 @@ import type {
   GuideState,
   LearningLanguage,
   PromptDifficulty,
-  PromptStyle,
   TtsProviderCode,
   UserPreferenceEntity,
   UserPreferenceRepository,
@@ -43,7 +42,6 @@ type UpdatePreferencesBody = {
   appLocale?: AppLocale;
   learningLanguage?: LearningLanguage;
   promptDifficulty?: PromptDifficulty;
-  promptStyle?: PromptStyle;
   guideState?: GuideState;
   ttsProvider?: TtsProviderCode;
   ttsVoiceCode?: string | null;
@@ -124,7 +122,6 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       appLocale: body.appLocale,
       learningLanguage: body.learningLanguage,
       promptDifficulty: body.promptDifficulty,
-      promptStyle: body.promptStyle,
       guideState: body.guideState ? mergeGuideState(currentPreference.guideState, body.guideState) : undefined,
       ttsProvider: body.ttsProvider,
       ttsVoiceCode: body.ttsVoiceCode !== undefined || nextTtsVoiceCode !== currentPreference.ttsVoiceCode
@@ -410,7 +407,6 @@ function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody
     "appLocale",
     "learningLanguage",
     "promptDifficulty",
-    "promptStyle",
     "guideState",
     "ttsProvider",
     "ttsVoiceCode",
@@ -422,7 +418,6 @@ function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody
     (body.appLocale === undefined || isAppLocale(body.appLocale)) &&
     (body.learningLanguage === undefined || isLearningLanguage(body.learningLanguage)) &&
     (body.promptDifficulty === undefined || isPromptDifficulty(body.promptDifficulty)) &&
-    (body.promptStyle === undefined || isPromptStyle(body.promptStyle)) &&
     (body.guideState === undefined || isGuideState(body.guideState)) &&
     (body.ttsProvider === undefined || body.ttsProvider === "azure_global") &&
     (body.sttMultilingualRecognitionEnabled === undefined ||
@@ -444,11 +439,7 @@ function isLearningLanguage(value: unknown): value is LearningLanguage {
 }
 
 function isPromptDifficulty(value: unknown): value is PromptDifficulty {
-  return value === "simple" || value === "natural" || value === "native";
-}
-
-function isPromptStyle(value: unknown): value is PromptStyle {
-  return value === "native_casual" || value === "standard";
+  return value === "simple" || value === "native";
 }
 
 function isGuideState(value: unknown): value is GuideState {
@@ -496,7 +487,6 @@ function toPreferenceResponse(preference: UserPreferenceEntity) {
     appLocale: preference.appLocale,
     learningLanguage: preference.learningLanguage,
     promptDifficulty: preference.promptDifficulty,
-    promptStyle: preference.promptStyle,
     guideState: preference.guideState,
     ttsProvider: preference.ttsProvider,
     ttsVoiceCode: preference.ttsVoiceCode,

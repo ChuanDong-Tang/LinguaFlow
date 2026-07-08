@@ -63,7 +63,6 @@ export class DeepSeekAIProvider implements AIProvider {
       language: input.languageCode,
       appLocale: input.appLocale,
       difficulty: input.promptDifficulty,
-      style: input.promptStyle,
       companionMode: input.companionMode,
       systemPromptOverride: input.systemPrompt,
     });

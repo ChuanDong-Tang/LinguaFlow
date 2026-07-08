@@ -1,9 +1,4 @@
 import type { PromptAppLocale, PromptLanguage } from "./rewriteAssistantPrompt.js";
-import {
-  buildPromptPreferenceInstructions,
-  type PromptDifficulty,
-  type PromptStyle,
-} from "./promptPreferences.js";
 
 export type DictionaryLookupPromptInput = {
   term: string;
@@ -17,18 +12,9 @@ export type DictionaryLookupPromptInput = {
 export function buildDictionarySystemPrompt(input: {
   targetLanguage: PromptLanguage;
   uiLanguage: PromptAppLocale;
-  difficulty?: PromptDifficulty | string | null;
-  style?: PromptStyle | string | null;
 }): string {
   const targetLanguage = languageName(input.targetLanguage);
   const uiLanguage = languageName(input.uiLanguage);
-  const preferenceInstructions = buildPromptPreferenceInstructions({
-    language: input.targetLanguage,
-    appLocale: input.uiLanguage,
-    difficulty: "simple",
-    style: input.style,
-    purpose: "dictionary",
-  });
   return `You are a contextual learner dictionary inside a language-learning chat app.
 
 Explain the selected word or phrase by its real meaning in this exact context, not as a bare translation.
@@ -37,8 +23,8 @@ Return only minified JSON with this shape:
 {"term":"...","source":{"type":"movie|book|quote|speech|song|other","title":"..."},"target":{"meaning":"...","example":"...","sourceNote":"...","scenario":"..."},"ui":{"meaning":"...","example":"...","sourceNote":"...","scenario":"..."}}
 
 Rules:
-* target.meaning, target.example, and target.scenario must be in ${targetLanguage} and use simple learner-friendly wording.
-* ui.meaning, ui.example, and ui.scenario must be the same explanation translated naturally into ${uiLanguage}, also using simple learner-friendly wording.
+* target.meaning, target.example, and target.scenario must be in ${targetLanguage}. Use simple, learner-friendly wording whenever possible.
+* ui.meaning, ui.example, and ui.scenario must be the same explanation translated naturally into ${uiLanguage}. Keep it simple, clear, and learner-friendly.
 * If the selected text is confidently recognizable from a movie, book, famous quote, speech, song title, or another public source, set source and use that source as the example. target.sourceNote must briefly say where the example is from in ${targetLanguage}; ui.sourceNote must say the same thing in ${uiLanguage}.
 * Do not use a public-source example for very common function words, prepositions, particles, everyday verbs, everyday phrases, or generic expressions, even if they appear in famous works. For those, set source to null and explain the meaning in this context.
 * If you are not confident about a public source, set source to null and use a natural contextual example instead. Never invent a source.
@@ -49,9 +35,7 @@ Rules:
 * The example must sound like a real use of the term.
 * The scenario should explain when someone might use it, without being rigid.
 * Do not quote long copyrighted text. Keep any quoted source fragment very short.
-* Do not include markdown, labels, comments, or extra keys.
-
-${preferenceInstructions}`;
+* Do not include markdown, labels, comments, or extra keys.`;
 }
 
 export function buildDictionaryUserPrompt(input: DictionaryLookupPromptInput): string {

@@ -231,7 +231,6 @@ export class ChatGenerationService {
           languageCode: userPreference.learningLanguage,
           appLocale: userPreference.appLocale,
           promptDifficulty: userPreference.promptDifficulty,
-          promptStyle: userPreference.promptStyle,
           companionMode: input.companionMode,
           systemPrompt: input.systemPrompt,
           signal: input.signal,
@@ -372,14 +371,12 @@ export class ChatGenerationService {
     learningLanguage: string;
     appLocale: string;
     promptDifficulty: string;
-    promptStyle: string;
   }> {
     const preference = await this.userPreferenceRepository.getByUserId(userId);
     return {
       learningLanguage: preference.learningLanguage,
       appLocale: preference.appLocale,
       promptDifficulty: preference.promptDifficulty,
-      promptStyle: preference.promptStyle,
     };
   }
 

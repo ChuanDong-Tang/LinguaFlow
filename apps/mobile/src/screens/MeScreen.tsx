@@ -11,7 +11,6 @@ import {
   type CurrentEntitlement,
   type LearningLanguage,
   type PromptDifficulty,
-  type PromptStyle,
   type UserPreference,
 } from "../services/api/meApi";
 import { getCachedEntitlementForUser, isSameEntitlement } from "../services/entitlement/entitlementCache";
@@ -173,7 +172,6 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
               appLocaleLabel(preference.appLocale),
               learningLanguageLabel(preference.learningLanguage),
               promptDifficultyLabel(preference.promptDifficulty),
-              promptStyleLabel(preference.promptStyle, preference.learningLanguage),
             ].join(" · ") : undefined}
             onPress={() => setLanguageSettingsVisible(true)}
           />
@@ -267,15 +265,13 @@ function LanguageSettingsModal({
     appLocale: AppLocale;
     learningLanguage: LearningLanguage;
     promptDifficulty: PromptDifficulty;
-    promptStyle: PromptStyle;
     ttsVoiceCode: string;
     sttMultilingualRecognitionEnabled: boolean;
   }) => Promise<void>;
 }) {
   const [appLocale, setAppLocale] = useState<AppLocale>("zh-CN");
   const [learningLanguage, setLearningLanguage] = useState<LearningLanguage>("en-US");
-  const [promptDifficulty, setPromptDifficulty] = useState<PromptDifficulty>("natural");
-  const [promptStyle, setPromptStyle] = useState<PromptStyle>("native_casual");
+  const [promptDifficulty, setPromptDifficulty] = useState<PromptDifficulty>("native");
   const [ttsVoiceCode, setTtsVoiceCode] = useState("");
   const [ttsVoiceOptions, setTtsVoiceOptions] = useState<TtsVoiceOption[]>([]);
   const [voiceLoading, setVoiceLoading] = useState(false);
@@ -297,8 +293,7 @@ function LanguageSettingsModal({
     const nextLearningLanguage = preference?.learningLanguage ?? "en-US";
     setAppLocale(preference?.appLocale ?? "zh-CN");
     setLearningLanguage(nextLearningLanguage);
-    setPromptDifficulty(preference?.promptDifficulty ?? "natural");
-    setPromptStyle(preference?.promptStyle ?? "native_casual");
+    setPromptDifficulty(preference?.promptDifficulty ?? "native");
     setMultilingualRecognitionEnabled(preference?.sttMultilingualRecognitionEnabled === true);
     setOpenSelect(null);
   }, [preference, visible]);
@@ -336,7 +331,6 @@ function LanguageSettingsModal({
         appLocale,
         learningLanguage,
         promptDifficulty,
-        promptStyle,
         ttsVoiceCode,
         sttMultilingualRecognitionEnabled: multilingualRecognitionEnabled,
       });
@@ -404,21 +398,6 @@ function LanguageSettingsModal({
                 onPress: () => setPromptDifficulty(option.value),
               }))}
               onToggle={() => setOpenSelect((current) => current === "promptDifficulty" ? null : "promptDifficulty")}
-              onClose={() => setOpenSelect(null)}
-            />
-            <SelectField
-              id="promptStyle"
-              title={t("me.language.style")}
-              hint={t("me.language.style_hint")}
-              valueLabel={promptStyleLabel(promptStyle, learningLanguage)}
-              open={openSelect === "promptStyle"}
-              options={PROMPT_STYLE_OPTIONS.map((option) => ({
-                key: option.value,
-                label: promptStyleLabel(option.value, learningLanguage),
-                active: promptStyle === option.value,
-                onPress: () => setPromptStyle(option.value),
-              }))}
-              onToggle={() => setOpenSelect((current) => current === "promptStyle" ? null : "promptStyle")}
               onClose={() => setOpenSelect(null)}
             />
             <SelectField
@@ -812,13 +791,7 @@ const LEARNING_LANGUAGE_OPTIONS: Array<{ value: LearningLanguage; labelKey: Para
 
 const PROMPT_DIFFICULTY_OPTIONS: Array<{ value: PromptDifficulty; labelKey: Parameters<typeof t>[0] }> = [
   { value: "simple", labelKey: "prompt_difficulty.simple" },
-  { value: "natural", labelKey: "prompt_difficulty.natural" },
   { value: "native", labelKey: "prompt_difficulty.native" },
-];
-
-const PROMPT_STYLE_OPTIONS: Array<{ value: PromptStyle; labelKey: Parameters<typeof t>[0] }> = [
-  { value: "native_casual", labelKey: "prompt_style.native_casual.en" },
-  { value: "standard", labelKey: "prompt_style.standard" },
 ];
 
 function resolveTtsVoiceCodeForLanguage(
@@ -846,13 +819,6 @@ function learningLanguageLabel(value: LearningLanguage): string {
 function promptDifficultyLabel(value: PromptDifficulty): string {
   const option = PROMPT_DIFFICULTY_OPTIONS.find((item) => item.value === value) ?? PROMPT_DIFFICULTY_OPTIONS[1];
   return t(option.labelKey);
-}
-
-function promptStyleLabel(value: PromptStyle, learningLanguage: LearningLanguage): string {
-  if (value === "native_casual") {
-    return t(learningLanguage === "ja-JP" ? "prompt_style.native_casual.ja" : "prompt_style.native_casual.en");
-  }
-  return t("prompt_style.standard");
 }
 
 function resolvePlanLabel(entitlement: CurrentEntitlement | null, session: AuthSession | null): string {

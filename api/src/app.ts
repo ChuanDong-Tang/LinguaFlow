@@ -287,7 +287,6 @@ export function createApp() {
       aiProvider,
       rateLimiter: chatGenerationRateLimiter,
       userRepository,
-      userPreferenceRepository,
       systemEventLogRepository,
     });
     registerSttRoutes(app, {

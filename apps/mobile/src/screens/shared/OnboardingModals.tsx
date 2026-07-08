@@ -1,7 +1,7 @@
 import React from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { AppLocale, LearningLanguage, PromptDifficulty, PromptStyle } from "../../services/api/meApi";
+import type { AppLocale, LearningLanguage, PromptDifficulty } from "../../services/api/meApi";
 import { t } from "../../i18n";
 
 export function UiLocaleSetupModal({
@@ -44,21 +44,17 @@ export function LearningPreferenceModal({
   visible,
   learningLanguage,
   promptDifficulty,
-  promptStyle,
   saving,
   onChangeLearningLanguage,
   onChangePromptDifficulty,
-  onChangePromptStyle,
   onContinue,
 }: {
   visible: boolean;
   learningLanguage: LearningLanguage;
   promptDifficulty: PromptDifficulty;
-  promptStyle: PromptStyle;
   saving: boolean;
   onChangeLearningLanguage: (value: LearningLanguage) => void;
   onChangePromptDifficulty: (value: PromptDifficulty) => void;
-  onChangePromptStyle: (value: PromptStyle) => void;
   onContinue: () => void;
 }) {
   return (
@@ -88,18 +84,6 @@ export function LearningPreferenceModal({
                 label={t(option.labelKey)}
                 active={promptDifficulty === option.value}
                 onPress={() => onChangePromptDifficulty(option.value)}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.fieldTitle}>{t("me.language.style")}</Text>
-          <View style={styles.optionGrid}>
-            {PROMPT_STYLE_OPTIONS.map((option) => (
-              <OptionChip
-                key={option.value}
-                label={promptStyleLabel(option.value, learningLanguage)}
-                active={promptStyle === option.value}
-                onPress={() => onChangePromptStyle(option.value)}
               />
             ))}
           </View>
@@ -191,21 +175,8 @@ const LEARNING_LANGUAGE_OPTIONS: Array<{ value: LearningLanguage; labelKey: Para
 
 const PROMPT_DIFFICULTY_OPTIONS: Array<{ value: PromptDifficulty; labelKey: Parameters<typeof t>[0] }> = [
   { value: "simple", labelKey: "prompt_difficulty.simple" },
-  { value: "natural", labelKey: "prompt_difficulty.natural" },
   { value: "native", labelKey: "prompt_difficulty.native" },
 ];
-
-const PROMPT_STYLE_OPTIONS: Array<{ value: PromptStyle }> = [
-  { value: "native_casual" },
-  { value: "standard" },
-];
-
-function promptStyleLabel(value: PromptStyle, learningLanguage: LearningLanguage): string {
-  if (value === "native_casual") {
-    return t(learningLanguage === "ja-JP" ? "prompt_style.native_casual.ja" : "prompt_style.native_casual.en");
-  }
-  return t("prompt_style.standard");
-}
 
 const styles = StyleSheet.create({
   backdrop: {

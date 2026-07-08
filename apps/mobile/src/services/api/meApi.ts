@@ -47,8 +47,7 @@ export type RefreshEntitlementResult = {
 export type AppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
 export type LearningLanguage = "en-US" | "ja-JP";
 export type TtsProviderCode = "azure_global";
-export type PromptDifficulty = "simple" | "natural" | "native";
-export type PromptStyle = "native_casual" | "standard";
+export type PromptDifficulty = "simple" | "native";
 export type GuideState = Record<string, { completedAt?: string }>;
 
 export type UserPreference = {
@@ -56,7 +55,6 @@ export type UserPreference = {
   appLocale: AppLocale;
   learningLanguage: LearningLanguage;
   promptDifficulty: PromptDifficulty;
-  promptStyle: PromptStyle;
   guideState: GuideState;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
@@ -69,7 +67,6 @@ export type UpdateUserPreferenceInput = Partial<{
   appLocale: AppLocale;
   learningLanguage: LearningLanguage;
   promptDifficulty: PromptDifficulty;
-  promptStyle: PromptStyle;
   guideState: GuideState;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
