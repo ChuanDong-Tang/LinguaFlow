@@ -209,7 +209,7 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
     provider: PaymentProviderName;
     providerOrderId: string;
     amount: number;
-    currency: "CNY";
+    currency: string;
     status: "pending" | "paid" | "closed" | "failed" | "refunded";
     metadata: unknown | null;
     createdAt: Date;

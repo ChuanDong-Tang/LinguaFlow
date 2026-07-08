@@ -923,7 +923,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 16,
-    paddingBottom: 128,
+    paddingBottom: 92,
   },
 
   profileRow: {

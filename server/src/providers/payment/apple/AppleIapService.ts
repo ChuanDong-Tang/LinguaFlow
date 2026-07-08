@@ -490,7 +490,7 @@ export class AppleIapService {
       provider: "apple_iap",
       providerOrderId: transaction.transactionId,
       amount: appleAmount.amount,
-      currency: "CNY",
+      currency: appleAmount.currency,
       metadata: {
         appleIap: {
           environment: transaction.environment,
@@ -501,7 +501,8 @@ export class AppleIapService {
           price: transaction.price,
           currency: transaction.currency,
           amountSource: appleAmount.source,
-          amountCents: appleAmount.amount,
+          amountMinorUnits: appleAmount.amount,
+          recordedCurrency: appleAmount.currency,
         },
       },
     });
@@ -998,14 +999,14 @@ function resolveApplePaymentOrderAmount(
   productCode: PaymentProductCode
 ): {
   amount: number;
+  currency: string;
   source: "apple_transaction" | "runtime_config";
 } {
   const currency = transaction.currency?.trim().toUpperCase();
-  if (currency === "CNY" && typeof transaction.price === "number" && Number.isFinite(transaction.price)) {
-    // App Store Server API 的 price 是货币单位的千分之一；库里的 amount 用分。
-    const amount = Math.round(transaction.price / 10);
+  if (currency && typeof transaction.price === "number" && Number.isFinite(transaction.price)) {
+    const amount = convertAppleMilliUnitsToMinorUnits(transaction.price, currency);
     if (amount > 0) {
-      return { amount, source: "apple_transaction" };
+      return { amount, currency, source: "apple_transaction" };
     }
   }
 
@@ -1014,8 +1015,30 @@ function resolveApplePaymentOrderAmount(
       productCode === "plus_monthly"
         ? getRuntimeConfig().payment.plusMonthlyPriceCents
         : getRuntimeConfig().payment.proMonthlyPriceCents,
+    currency: "CNY",
     source: "runtime_config",
   };
+}
+
+function convertAppleMilliUnitsToMinorUnits(priceInMilliUnits: number, currency: string): number {
+  // App Store Server API 的 price 是货币单位的千分之一；订单 amount 统一记录该币种最小货币单位。
+  const minorUnitDigits = getCurrencyMinorUnitDigits(currency);
+  const divisor = 10 ** (3 - minorUnitDigits);
+  return Math.round(priceInMilliUnits / divisor);
+}
+
+function getCurrencyMinorUnitDigits(currency: string): number {
+  try {
+    const parts = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+    }).formatToParts(1);
+    const fraction = parts.find((part) => part.type === "fraction");
+    return fraction?.value.length ?? 0;
+  } catch {
+    // 大多数币种是 2 位小数；未知币种按 2 位处理，比强行 CNY 回退更符合实际支付记录。
+    return 2;
+  }
 }
 
 function assertAppleNotificationEnvironmentMatchesTransaction(input: {
