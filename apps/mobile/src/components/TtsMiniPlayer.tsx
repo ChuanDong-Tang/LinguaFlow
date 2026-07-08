@@ -23,6 +23,7 @@ type StoredTtsMiniPlayerPosition = {
 };
 
 type DockSide = "left" | "right";
+type MiniPlayerControlKey = "previous" | "toggle" | "next" | "loop" | "rate";
 
 export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
   const window = useWindowDimensions();
@@ -155,6 +156,83 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
       }),
     [expanded, playerWidth],
   );
+  const controlOrder: MiniPlayerControlKey[] = visualDockSide === "right"
+    ? ["rate", "loop", "next", "toggle", "previous"]
+    : ["previous", "toggle", "next", "loop", "rate"];
+
+  function renderControl(control: MiniPlayerControlKey): React.ReactNode {
+    if (control === "previous") {
+      return (
+        <Pressable
+          key="previous"
+          accessibilityRole="button"
+          style={[styles.iconButton, !canNavigatePrevious && styles.disabled]}
+          disabled={!canNavigatePrevious}
+          onPress={navigateTtsPrevious}
+        >
+          <Ionicons name="play-skip-back" size={16} color={canNavigatePrevious ? "#111111" : "#AEB4C0"} />
+        </Pressable>
+      );
+    }
+    if (control === "toggle") {
+      return (
+        <Pressable
+          key="toggle"
+          accessibilityRole="button"
+          style={[styles.primaryButton, !active && styles.disabled]}
+          disabled={!active}
+          onPress={toggleTtsPlayback}
+        >
+          <Ionicons name={isPlaying ? "pause" : "play"} size={18} color="#FFFFFF" />
+        </Pressable>
+      );
+    }
+    if (control === "next") {
+      return (
+        <Pressable
+          key="next"
+          accessibilityRole="button"
+          style={[styles.iconButton, !canNavigateNext && styles.disabled]}
+          disabled={!canNavigateNext}
+          onPress={navigateTtsNext}
+        >
+          <Ionicons name="play-skip-forward" size={16} color={canNavigateNext ? "#111111" : "#AEB4C0"} />
+        </Pressable>
+      );
+    }
+    if (control === "loop") {
+      return (
+        <Pressable
+          key="loop"
+          accessibilityRole="button"
+          style={[
+            styles.iconButton,
+            playback.loopEnabled && styles.loopButtonActive,
+            !active && styles.disabled,
+          ]}
+          disabled={!active}
+          onPress={toggleTtsLoop}
+        >
+          <Ionicons
+            name="repeat-outline"
+            size={18}
+            color={playback.loopEnabled && active ? "#FFFFFF" : active ? "#4D5361" : "#AEB4C0"}
+          />
+        </Pressable>
+      );
+    }
+    return (
+      <Pressable
+        key="rate"
+        accessibilityRole="button"
+        style={[styles.rateButton, !active && styles.disabled]}
+        disabled={!active}
+        onPress={cycleTtsPlaybackRate}
+      >
+        <Text style={[styles.rateText, !active && styles.rateTextDisabled]}>{playback.playbackRate.toFixed(1)}x</Text>
+      </Pressable>
+    );
+  }
 
   return (
     <View
@@ -193,54 +271,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
 
       {expanded ? (
         <View style={styles.controls}>
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.iconButton, !canNavigatePrevious && styles.disabled]}
-            disabled={!canNavigatePrevious}
-            onPress={navigateTtsPrevious}
-          >
-            <Ionicons name="play-skip-back" size={16} color={canNavigatePrevious ? "#111111" : "#AEB4C0"} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.primaryButton, !active && styles.disabled]}
-            disabled={!active}
-            onPress={toggleTtsPlayback}
-          >
-            <Ionicons name={isPlaying ? "pause" : "play"} size={18} color="#FFFFFF" />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.iconButton, !canNavigateNext && styles.disabled]}
-            disabled={!canNavigateNext}
-            onPress={navigateTtsNext}
-          >
-            <Ionicons name="play-skip-forward" size={16} color={canNavigateNext ? "#111111" : "#AEB4C0"} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            style={[
-              styles.iconButton,
-              playback.loopEnabled && styles.loopButtonActive,
-              !active && styles.disabled,
-            ]}
-            disabled={!active}
-            onPress={toggleTtsLoop}
-          >
-            <Ionicons
-              name="repeat-outline"
-              size={18}
-              color={playback.loopEnabled && active ? "#FFFFFF" : active ? "#4D5361" : "#AEB4C0"}
-            />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.rateButton, !active && styles.disabled]}
-            disabled={!active}
-            onPress={cycleTtsPlaybackRate}
-          >
-            <Text style={[styles.rateText, !active && styles.rateTextDisabled]}>{playback.playbackRate.toFixed(1)}x</Text>
-          </Pressable>
+          {controlOrder.map(renderControl)}
         </View>
       ) : null}
     </View>

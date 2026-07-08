@@ -33,7 +33,7 @@ import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import { getMessageDateKey } from "../domain/chat/messageState";
 import { getChatContact } from "../domain/chat/contacts";
 import { markChatDateDirty, markPracticeStatsDirty } from "../services/chat/chatPracticeSyncState";
-import { t } from "../i18n";
+import { t, tf } from "../i18n";
 import { TtsPlayButton } from "../components/TtsPlayButton";
 import { getMessageTtsAsset } from "../services/api/ttsApi";
 import {
@@ -733,7 +733,6 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
                     >
                       <PracticeBack
                         card={card}
-                        segments={cardSegments}
                         userOriginalVisible={userOriginalVisible}
                         onToggleUserOriginal={() => setUserOriginalVisible((value) => !value)}
                       />
@@ -847,21 +846,30 @@ async function persistPracticeMessageUpdate(contactId: string, message: ChatMess
 
 function PracticeBack({
   card,
-  segments,
   userOriginalVisible,
   onToggleUserOriginal,
 }: {
   card: PracticeCard;
-  segments: PracticeEnglishSegment[];
   userOriginalVisible: boolean;
   onToggleUserOriginal: () => void;
 }) {
   const userOriginalText = (card.userOriginalText ?? "").trim();
+  const languageLabel = getPracticeLanguageLabel(card.languageCode);
+  const blankRows = buildPracticeBlankAnswerRows(card);
 
   return (
     <View style={styles.backContent}>
       <View style={styles.backSection}>
-        <PracticeClozePreview card={card} segments={segments} />
+        <Text style={styles.backPromptText}>
+          {tf("practice.session.back_prompt", { language: languageLabel })}
+        </Text>
+        <View style={styles.backAnswerRows}>
+          {blankRows.map((row) => (
+            <View key={row.key} style={styles.backAnswerPill}>
+              <Text style={styles.backAnswerText}>{row.text}</Text>
+            </View>
+          ))}
+        </View>
       </View>
       <View style={styles.userOriginalBlock}>
         <Pressable style={styles.userOriginalHeader} onPress={onToggleUserOriginal}>
@@ -880,60 +888,45 @@ function PracticeBack({
   );
 }
 
-function PracticeClozePreview({ card, segments }: { card: PracticeCard; segments: PracticeEnglishSegment[] }) {
-  const blankSet = new Set(card.blankTokenIndexes);
-  const phraseRows = buildPracticePhraseRows(card, segments);
+function buildPracticeBlankAnswerRows(card: PracticeCard): Array<{ key: string; text: string }> {
+  const tokenByIndex = new Map(card.tokens.map((token) => [token.index, token]));
+  const blankIndexes = [...card.blankTokenIndexes].sort((a, b) => a - b);
+  const rows: Array<{ key: string; text: string }> = [];
+  let current: number[] = [];
 
-  function renderSegment(segment: PracticeEnglishSegment, showSpacer: boolean): React.ReactNode {
-    if (segment.type === "blank" || blankSet.has(segment.tokenIndex)) {
-      const width = segment.type === "blank" ? segment.width : Math.max(36, segment.text.length * 10);
-      return (
-        <React.Fragment key={segment.key}>
-          {showSpacer && segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
-          <View style={[styles.previewBlank, { width }]} />
-        </React.Fragment>
-      );
+  function flush(): void {
+    const tokens = current
+      .map((index) => tokenByIndex.get(index))
+      .filter((token): token is PracticeCard["tokens"][number] => !!token);
+    if (!tokens.length) {
+      current = [];
+      return;
     }
-    return (
-      <React.Fragment key={segment.key}>
-        {showSpacer && segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
-        <Text style={[styles.tokenText, segment.highlighted && styles.phraseText]}>{segment.text}</Text>
-      </React.Fragment>
-    );
+    const start = tokens[0].start;
+    const end = tokens[tokens.length - 1].end;
+    const text = card.sourceText.slice(start, end).trim();
+    if (text) {
+      rows.push({ key: `blank-answer-${rows.length}-${tokens[0].index}`, text });
+    }
+    current = [];
   }
 
-  return (
-    <View style={styles.backPreviewRows}>
-      {phraseRows.map((row) => (
-        <View key={row.key} style={styles.backPreviewRow}>
-          {row.segments.map((segment, index) => renderSegment(segment, index > 0))}
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function buildPracticePhraseRows(card: PracticeCard, segments: PracticeEnglishSegment[]): Array<{ key: string; segments: PracticeEnglishSegment[] }> {
-  const phraseIndexes = new Set(card.phraseTokenIndexes);
-  const rows: Array<{ key: string; segments: PracticeEnglishSegment[] }> = [];
-  let current: PracticeEnglishSegment[] = [];
-
-  for (const segment of segments) {
-    if (!phraseIndexes.has(segment.tokenIndex)) {
-      if (current.length) {
-        rows.push({ key: `phrase-${rows.length}-${current[0].tokenIndex}`, segments: current });
-        current = [];
-      }
+  for (const index of blankIndexes) {
+    if (!current.length || index === current[current.length - 1] + 1) {
+      current.push(index);
       continue;
     }
-    current.push(segment);
+    flush();
+    current.push(index);
   }
+  flush();
 
-  if (current.length) {
-    rows.push({ key: `phrase-${rows.length}-${current[0].tokenIndex}`, segments: current });
-  }
+  return rows;
+}
 
-  return rows.length ? rows : [{ key: "phrase-fallback", segments }];
+function getPracticeLanguageLabel(languageCode: string | null | undefined): string {
+  if (languageCode === "ja-JP") return t("learning.ja_jp");
+  return t("learning.en_us");
 }
 
 function PracticeEnglish({
@@ -1271,21 +1264,29 @@ const styles = StyleSheet.create({
     borderColor: "#ECE2BD",
     backgroundColor: "#FFF9E8",
   },
-  backPreviewRows: {
-    gap: 10,
+  backPromptText: {
+    color: "#5F6675",
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: "600",
   },
-  backPreviewRow: {
-    minHeight: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
+  backAnswerRows: {
+    marginTop: 14,
+    gap: 9,
   },
-  previewBlank: {
-    height: 24,
-    marginTop: 1,
+  backAnswerPill: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    borderRadius: 7,
     backgroundColor: "#FFF2B8",
-    borderBottomWidth: 1,
-    borderBottomColor: "#111111",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  backAnswerText: {
+    color: "#111111",
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: "700",
   },
   userOriginalBlock: {
     padding: 14,
