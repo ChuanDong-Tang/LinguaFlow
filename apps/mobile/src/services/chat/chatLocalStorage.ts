@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { ChatMessage } from "../../domain/chat/types";
-import { getMessageDateKey, toDateKey } from "../../domain/chat/messageState";
+import { compareChatMessagesByCreatedAt, getMessageDateKey, toDateKey } from "../../domain/chat/messageState";
 
 const CHAT_LOCAL_SCOPE_PREFIX = "lf_chat_local_messages_v3";
 const CHAT_LOCAL_DAYS_SCOPE_PREFIX = "lf_chat_local_days_v3";
@@ -14,7 +14,7 @@ function daysIndexKey(userId: string, conversationId: string): string {
 }
 
 function sortByCreatedAt(rows: ChatMessage[]): ChatMessage[] {
-  return rows.slice().sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  return rows.slice().sort(compareChatMessagesByCreatedAt);
 }
 
 function uniqueSortedDays(days: Iterable<string>): string[] {

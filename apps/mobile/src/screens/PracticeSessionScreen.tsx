@@ -20,6 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { ChatMessage } from "../domain/chat/types";
 import { BlockingLoading, type BlockingLoadingOptions, runWithDeferredBlockingLoading } from "./shared/BlockingLoading";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
+import { TtsMiniPlayer } from "../components/TtsMiniPlayer";
 import {
   applyCorrectAnswers,
   buildPracticeCards,
@@ -32,10 +33,16 @@ import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import { getMessageDateKey } from "../domain/chat/messageState";
 import { getChatContact } from "../domain/chat/contacts";
 import { markChatDateDirty, markPracticeStatsDirty } from "../services/chat/chatPracticeSyncState";
-import { t } from "../i18n";
+import { t, tf } from "../i18n";
 import { TtsPlayButton } from "../components/TtsPlayButton";
 import { getMessageTtsAsset } from "../services/api/ttsApi";
-import { playTtsAudio, stopTtsAudio } from "../services/tts/ttsPlayback";
+import {
+  getTtsPlaybackState,
+  playTtsAudio,
+  setTtsNavigationControls,
+  stopTtsAudio,
+  subscribeTtsPlayback,
+} from "../services/tts/ttsPlayback";
 import { segmentLearningSentences } from "../domain/learning/learningText";
 
 type PracticeSessionScreenProps = {
@@ -48,6 +55,7 @@ type PracticeEnglishSegment =
   | {
       type: "text";
       key: string;
+      tokenIndex: number;
       text: string;
       highlighted: boolean;
       correct: boolean;
@@ -68,9 +76,7 @@ type PracticeEnglishSegment =
       textEnd: number;
     };
 
-const EDGE_SWITCH_COMMIT_THRESHOLD = 5;
-const DISCARD_SWIPE_RATIO = 0.15;
-const TOUCH_AXIS_LOCK_THRESHOLD = 8;
+const CARD_SWITCH_SWIPE_RATIO = 0.16;
 const ACTIVE_BLANK_KEYBOARD_GAP = 88;
 
 function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegment[] {
@@ -100,6 +106,7 @@ function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegmen
     return {
       type: "text",
       key: `text-${token.index}`,
+      tokenIndex: token.index,
       text: token.text,
       highlighted: isPhrase || isAnsweredBlank,
       correct: isAnsweredBlank,
@@ -151,6 +158,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const [checkedAnswers, setCheckedAnswers] = useState<Record<number, "correct" | "incorrect">>({});
   const [isFlipped, setIsFlipped] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
+  const [userOriginalVisible, setUserOriginalVisible] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [keyboardScrollPadding, setKeyboardScrollPadding] = useState(0);
   const [loadingOptions, setLoadingOptions] = useState<BlockingLoadingOptions | null>(null);
@@ -170,28 +178,25 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   const sessionMessageIdsRef = useRef(new Set(initialCards.map((row) => row.messageId)));
   const sessionContactByMessageIdRef = useRef(new Map(initialCards.map((row) => [row.messageId, getChatContact(row.contactId)])));
   const scrollStateRef = useRef({ y: 0, contentHeight: 0, layoutHeight: 0, maxY: 0 });
-  // ScrollView 负责纵向滚动；这里仅记录触摸轨迹，用于滚到顶/底后松手切卡。
-  const scrollEdgeDragRef = useRef<{
-    startX: number;
-    startY: number;
-    axis: "x" | "y" | null;
-    direction: "prev" | "next" | null;
-    distance: number;
-  } | null>(null);
   const card = cards[index] ?? null;
-  const canFlipCard = !!card?.translation.trim();
+  const canFlipCard = !!card;
+  const playback = React.useSyncExternalStore(
+    subscribeTtsPlayback,
+    getTtsPlaybackState,
+    getTtsPlaybackState,
+  );
   isFlippedRef.current = isFlipped;
 
-  const stopPracticeTts = React.useCallback(() => {
+  const stopPracticeTts = React.useCallback((options?: { resetControls?: boolean }) => {
     sentenceTtsControllerRef.current?.abort();
     sentenceTtsControllerRef.current = null;
-    stopTtsAudio();
+    stopTtsAudio(options);
   }, []);
 
   useEffect(() => {
     return () => {
       practiceMountedRef.current = false;
-      stopPracticeTts();
+      stopPracticeTts({ resetControls: true });
     };
   }, [stopPracticeTts]);
 
@@ -220,6 +225,47 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     segmentCacheRef.current.set(target.id, segments);
     return segments;
   };
+  const cardSegments = card ? getCardSegments(card) : [];
+  const sentenceRows = useMemo(
+    () => (card ? groupPracticeEnglishSentences(card, cardSegments) : []),
+    [card, cardSegments],
+  );
+  const activeSentenceKey = playback.activeNavigationKey;
+
+  const playSentenceAtIndex = React.useCallback((sentenceIndex: number): void => {
+    if (!card || !canUseTts) return;
+    const row = sentenceRows[sentenceIndex];
+    if (!row) return;
+    sentenceTtsControllerRef.current?.abort();
+    const controller = new AbortController();
+    sentenceTtsControllerRef.current = controller;
+    void playPracticeSentence(card, { textStart: row.textStart, textEnd: row.textEnd }, {
+      signal: controller.signal,
+      navigationKey: row.key,
+      shouldPlay: () => practiceMountedRef.current && sentenceTtsControllerRef.current === controller,
+    }).finally(() => {
+      if (sentenceTtsControllerRef.current === controller) {
+        sentenceTtsControllerRef.current = null;
+      }
+    });
+  }, [canUseTts, card, sentenceRows]);
+  const activeSentenceIndex = activeSentenceKey
+    ? sentenceRows.findIndex((row) => row.key === activeSentenceKey)
+    : -1;
+
+  useEffect(() => {
+    if (!card || !canUseTts || activeSentenceIndex < 0) {
+      setTtsNavigationControls(null);
+      return () => setTtsNavigationControls(null);
+    }
+    setTtsNavigationControls({
+      canNavigatePrevious: activeSentenceIndex > 0,
+      canNavigateNext: activeSentenceIndex < sentenceRows.length - 1,
+      onNavigatePrevious: () => playSentenceAtIndex(activeSentenceIndex - 1),
+      onNavigateNext: () => playSentenceAtIndex(activeSentenceIndex + 1),
+    });
+    return () => setTtsNavigationControls(null);
+  }, [activeSentenceIndex, canUseTts, card, playSentenceAtIndex, sentenceRows.length]);
 
   const ensureActiveBlankVisible = React.useCallback((animated = true): void => {
     const keyboardTop = keyboardTopRef.current;
@@ -310,14 +356,16 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
           translate.setValue({ x: 0, y: 0 });
         },
         onPanResponderMove: (_, gesture) => {
-          translate.setValue({ x: Math.max(0, gesture.dx), y: 0 });
+          translate.setValue({ x: gesture.dx, y: 0 });
         },
         onPanResponderRelease: (_, gesture) => {
-          const discardThreshold = window.width * DISCARD_SWIPE_RATIO;
+          const switchThreshold = window.width * CARD_SWITCH_SWIPE_RATIO;
           Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
           gestureAxis.current = null;
-          if (gesture.dx > discardThreshold) {
-            askDiscardCurrentCard();
+          if (gesture.dx < -switchThreshold) {
+            goNext();
+          } else if (gesture.dx > switchThreshold) {
+            goPrev();
           }
         },
         onPanResponderTerminate: () => {
@@ -325,7 +373,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
           Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
         },
       }),
-    [isFlipping, window.width],
+    [cards, index, isFlipped, isFlipping, window.width],
   );
 
   async function runWithLoading<T>(task: (signal: AbortSignal) => Promise<T>, text?: string): Promise<T> {
@@ -366,7 +414,6 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
   function resetMotion(): void {
     const { layoutHeight } = scrollStateRef.current;
     gestureAxis.current = null;
-    scrollEdgeDragRef.current = null;
     scrollStateRef.current = { y: 0, contentHeight: 0, layoutHeight, maxY: 0 };
     translate.setValue({ x: 0, y: 0 });
   }
@@ -395,75 +442,12 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     updateScrollState({ layoutHeight: event.nativeEvent.layout.height });
   }
 
-  function getEdgeSwitchDirection(dy: number): "prev" | "next" | null {
-    const { y, maxY } = scrollStateRef.current;
-    // 短卡 maxY 为 0，等价于同时处在顶部和底部；首尾卡仍要拦住不可达方向。
-    if (maxY <= 1) {
-      if (dy < 0 && index < cards.length - 1) return "next";
-      if (dy > 0 && index > 0) return "prev";
-      return null;
-    }
-    if (dy < 0 && y >= maxY - 1 && index < cards.length - 1) return "next";
-    if (dy > 0 && y <= 1 && index > 0) return "prev";
-    return null;
-  }
-
-  function handleCardScrollTouchStart(event: NativeSyntheticEvent<any>): void {
-    scrollEdgeDragRef.current = {
-      startX: event.nativeEvent.pageX,
-      startY: event.nativeEvent.pageY,
-      axis: null,
-      direction: null,
-      distance: 0,
-    };
-  }
-
-  function handleCardScrollTouchMove(event: NativeSyntheticEvent<any>): void {
-    const drag = scrollEdgeDragRef.current;
-    if (!drag || cardMotionLocked.current || isFlipping) return;
-    const dx = event.nativeEvent.pageX - drag.startX;
-    const dy = event.nativeEvent.pageY - drag.startY;
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
-    // 右滑丢弃和上下切卡共用手指：先锁定主方向，横向手势不参与切卡，避免误触。
-    if (!drag.axis && (absX > TOUCH_AXIS_LOCK_THRESHOLD || absY > TOUCH_AXIS_LOCK_THRESHOLD)) {
-      drag.axis = absX > absY ? "x" : "y";
-    }
-    if (drag.axis === "x") {
-      drag.direction = null;
-      drag.distance = 0;
-      return;
-    }
-    const direction = getEdgeSwitchDirection(dy);
-    if (!direction) {
-      drag.direction = null;
-      drag.distance = 0;
-      return;
-    }
-    const distance = Math.abs(dy);
-    drag.direction = direction;
-    drag.distance = distance;
-  }
-
-  function handleCardScrollTouchEnd(): void {
-    const drag = scrollEdgeDragRef.current;
-    scrollEdgeDragRef.current = null;
-    // 只有从顶/底继续拖过提交阈值，松手才切卡；当前不再显示提示，靠手感触发。
-    if (!drag || !drag.direction || drag.distance < EDGE_SWITCH_COMMIT_THRESHOLD) {
-      return;
-    }
-    if (drag.direction === "next") {
-      goNext();
-    } else {
-      goPrev();
-    }
-  }
-
   function resetCardState(): void {
     setAnswers({});
     setCheckedAnswers({});
     setIsFlipped(false);
     setIsFlipping(false);
+    setUserOriginalVisible(false);
     flipAnim.setValue(0);
   }
 
@@ -471,8 +455,9 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
     setAnswers({});
     setCheckedAnswers({});
     setIsFlipping(false);
+    setUserOriginalVisible(false);
     if (nextIndex == null) return;
-    const nextCardCanFlip = !!cards[nextIndex]?.translation.trim();
+    const nextCardCanFlip = !!cards[nextIndex];
     if (isFlipped && nextCardCanFlip) {
       flipAnim.setValue(1);
       return;
@@ -600,6 +585,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
         return next;
       });
       setIsFlipped(false);
+      setUserOriginalVisible(false);
     }, t("practice.session.processing"));
   }
 
@@ -628,7 +614,9 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       setCards(nextCards);
       if (updatedMessage) await persistPracticeMessageUpdate(card.contactId, updatedMessage);
       setAnswers({});
+      setCheckedAnswers({});
       setIsFlipped(false);
+      setUserOriginalVisible(false);
       if (index >= nextCards.length) setIndex(Math.max(0, nextCards.length - 1));
     }, t("practice.session.processing")).catch(() => {
       setDialog({ message: t("practice.session.discard_failed") });
@@ -660,6 +648,7 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
           <Ionicons name="help-circle-outline" size={22} color="#111111" />
         </Pressable>
       </View>
+      <TtsMiniPlayer storageKey="linguaflow.tts_mini_player.practice.v1" />
 
       {rulesOpen ? (
         <View style={styles.rulesLayer} pointerEvents="box-none">
@@ -697,35 +686,28 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
                     scrollEventThrottle={16}
                     onScroll={handleCardScroll}
                     onContentSizeChange={(_, height) => updateScrollState({ contentHeight: height })}
-                    onTouchStart={handleCardScrollTouchStart}
-                    onTouchMove={handleCardScrollTouchMove}
-                    onTouchEnd={handleCardScrollTouchEnd}
-                    onTouchCancel={handleCardScrollTouchEnd}
                   >
                     <PracticeEnglish
-                      card={card}
-                      segments={getCardSegments(card)}
+                      sentenceRows={sentenceRows}
+                      activeSentenceKey={activeSentenceKey}
                       answers={answers}
                       checkedAnswers={checkedAnswers}
                       canUseTts={canUseTts}
                       onChangeAnswer={(tokenIndex, value) => setAnswers((prev) => ({ ...prev, [tokenIndex]: value }))}
                       onBlankFocus={handleBlankFocus}
-                      onPlaySentence={(range) => {
-                        if (!canUseTts) return;
-                        sentenceTtsControllerRef.current?.abort();
-                        const controller = new AbortController();
-                        sentenceTtsControllerRef.current = controller;
-                        void playPracticeSentence(card, range, {
-                          signal: controller.signal,
-                          shouldPlay: () => practiceMountedRef.current && sentenceTtsControllerRef.current === controller,
-                        }).finally(() => {
-                          if (sentenceTtsControllerRef.current === controller) {
-                            sentenceTtsControllerRef.current = null;
-                          }
-                        });
-                      }}
+                      onPlaySentence={(sentenceIndex) => playSentenceAtIndex(sentenceIndex)}
                     />
                   </ScrollView>
+                  <View style={styles.cardTopActions} pointerEvents="box-none">
+                    {canUseTts ? (
+                      <TtsPlayButton
+                        messageId={card.message.id ?? card.message.serverId}
+                        size={18}
+                        color="#111111"
+                        style={styles.roundActionButton}
+                      />
+                    ) : null}
+                  </View>
                 </View>
               </Animated.View>
 
@@ -748,12 +730,12 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
                       scrollEventThrottle={16}
                       onScroll={handleCardScroll}
                       onContentSizeChange={(_, height) => updateScrollState({ contentHeight: height })}
-                      onTouchStart={handleCardScrollTouchStart}
-                      onTouchMove={handleCardScrollTouchMove}
-                      onTouchEnd={handleCardScrollTouchEnd}
-                      onTouchCancel={handleCardScrollTouchEnd}
                     >
-                      <Text style={styles.translationText}>{card.translation}</Text>
+                      <PracticeBack
+                        card={card}
+                        userOriginalVisible={userOriginalVisible}
+                        onToggleUserOriginal={() => setUserOriginalVisible((value) => !value)}
+                      />
                     </ScrollView>
                   </View>
                 </Animated.View>
@@ -767,13 +749,14 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
       </View>
 
       <View style={styles.sessionActionRow}>
-        {canUseTts ? (
-          <TtsPlayButton
-            messageId={card.message.id ?? card.message.serverId}
-            size={18}
-            style={styles.roundActionButton}
-          />
-        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("practice.session.discard")}
+          style={styles.roundActionButton}
+          onPress={askDiscardCurrentCard}
+        >
+          <Ionicons name="trash-outline" size={19} color="#111111" />
+        </Pressable>
         {canFlipCard ? (
           <Pressable
             accessibilityRole="button"
@@ -785,11 +768,10 @@ export function PracticeSessionScreen({ initialCards, allMessages, onBack }: Pra
             <Ionicons name="sync-outline" size={20} color="#111111" />
           </Pressable>
         ) : null}
+        <Pressable style={styles.checkButtonCompact} onPress={() => void checkAnswers()}>
+          <Text style={styles.checkText}>{t("practice.session.check")}</Text>
+        </Pressable>
       </View>
-
-      <Pressable style={styles.checkButton} onPress={() => void checkAnswers()}>
-        <Text style={styles.checkText}>{t("practice.session.check")}</Text>
-      </Pressable>
 
       <BlockingLoading visible={!!loadingOptions} options={loadingOptions} />
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
@@ -802,6 +784,7 @@ async function playPracticeSentence(
   range: { textStart: number; textEnd: number },
   options?: {
     signal?: AbortSignal;
+    navigationKey?: string;
     shouldPlay?: () => boolean;
   }
 ): Promise<void> {
@@ -820,6 +803,7 @@ async function playPracticeSentence(
       url: asset.audioUrl,
       cacheKey: buildTtsCacheKey(asset),
       playbackRange: asset.playbackRange ?? undefined,
+      navigationKey: options?.navigationKey,
     });
   } catch (error) {
     if (options?.signal?.aborted || options?.shouldPlay?.() === false) return;
@@ -860,9 +844,102 @@ async function persistPracticeMessageUpdate(contactId: string, message: ChatMess
   markPracticeStatsDirty(dateKey);
 }
 
-function PracticeEnglish({
+function PracticeBack({
   card,
-  segments,
+  userOriginalVisible,
+  onToggleUserOriginal,
+}: {
+  card: PracticeCard;
+  userOriginalVisible: boolean;
+  onToggleUserOriginal: () => void;
+}) {
+  const userOriginalText = (card.userOriginalText ?? "").trim();
+  const languageLabel = getPracticeLanguageLabel(card.languageCode);
+  const blankRows = buildPracticeBlankAnswerRows(card);
+
+  return (
+    <View style={styles.backContent}>
+      <View style={styles.backSection}>
+        <Text style={styles.backPromptText}>
+          {tf("practice.session.back_prompt", { language: languageLabel })}
+        </Text>
+        <View style={styles.backAnswerRows}>
+          {blankRows.map((row) => (
+            <View key={row.key} style={styles.backAnswerPill}>
+              <Text style={styles.backAnswerText}>{row.text}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+      <View style={styles.userOriginalBlock}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={userOriginalVisible ? t("practice.session.hide_user_original") : t("practice.session.user_original")}
+          style={styles.userOriginalHeader}
+          onPress={onToggleUserOriginal}
+        >
+          <Text style={styles.userOriginalHeaderText}>
+            {userOriginalVisible ? t("practice.session.hide_user_original") : t("practice.session.user_original")}
+          </Text>
+          <Ionicons name={userOriginalVisible ? "eye-off-outline" : "eye-outline"} size={20} color="#111111" />
+        </Pressable>
+        {userOriginalVisible ? (
+          <Text style={styles.userOriginalText}>{userOriginalText || t("practice.session.user_original_empty")}</Text>
+        ) : (
+          <View style={styles.userOriginalHidden}>
+            <View style={styles.hiddenLineWide} />
+            <View style={styles.hiddenLineShort} />
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function buildPracticeBlankAnswerRows(card: PracticeCard): Array<{ key: string; text: string }> {
+  const tokenByIndex = new Map(card.tokens.map((token) => [token.index, token]));
+  const blankIndexes = [...card.blankTokenIndexes].sort((a, b) => a - b);
+  const rows: Array<{ key: string; text: string }> = [];
+  let current: number[] = [];
+
+  function flush(): void {
+    const tokens = current
+      .map((index) => tokenByIndex.get(index))
+      .filter((token): token is PracticeCard["tokens"][number] => !!token);
+    if (!tokens.length) {
+      current = [];
+      return;
+    }
+    const start = tokens[0].start;
+    const end = tokens[tokens.length - 1].end;
+    const text = card.sourceText.slice(start, end).trim();
+    if (text) {
+      rows.push({ key: `blank-answer-${rows.length}-${tokens[0].index}`, text });
+    }
+    current = [];
+  }
+
+  for (const index of blankIndexes) {
+    if (!current.length || index === current[current.length - 1] + 1) {
+      current.push(index);
+      continue;
+    }
+    flush();
+    current.push(index);
+  }
+  flush();
+
+  return rows;
+}
+
+function getPracticeLanguageLabel(languageCode: string | null | undefined): string {
+  if (languageCode === "ja-JP") return t("learning.ja_jp");
+  return t("learning.en_us");
+}
+
+function PracticeEnglish({
+  sentenceRows,
+  activeSentenceKey,
   answers,
   checkedAnswers,
   canUseTts,
@@ -870,16 +947,15 @@ function PracticeEnglish({
   onBlankFocus,
   onPlaySentence,
 }: {
-  card: PracticeCard;
-  segments: PracticeEnglishSegment[];
+  sentenceRows: PracticeSentenceRow[];
+  activeSentenceKey: string | null;
   answers: Record<number, string>;
   checkedAnswers: Record<number, "correct" | "incorrect">;
   canUseTts: boolean;
   onChangeAnswer: (tokenIndex: number, value: string) => void;
   onBlankFocus: (inputRef: TextInput | null) => void;
-  onPlaySentence: (range: { textStart: number; textEnd: number }) => void;
+  onPlaySentence: (sentenceIndex: number) => void;
 }) {
-  const sentenceRows = useMemo(() => groupPracticeEnglishSentences(card, segments), [card, segments]);
   const [flashingSentenceKey, setFlashingSentenceKey] = useState<string | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLongPressKeyRef = useRef<string | null>(null);
@@ -898,10 +974,10 @@ function PracticeEnglish({
     }, 260);
   }
 
-  function playSentence(row: PracticeSentenceRow): void {
+  function playSentence(row: PracticeSentenceRow, sentenceIndex: number): void {
     if (!canUseTts) return;
     flashSentence(row);
-    onPlaySentence({ textStart: row.textStart, textEnd: row.textEnd });
+    onPlaySentence(sentenceIndex);
   }
 
   function renderSegment(segment: PracticeEnglishSegment): React.ReactNode {
@@ -941,23 +1017,23 @@ function PracticeEnglish({
 
   return (
     <View style={styles.englishSentences}>
-      {sentenceRows.map((row) => (
+      {sentenceRows.map((row, sentenceIndex) => (
         <Pressable
           key={row.key}
           style={({ pressed }) => [
             styles.englishSentenceRow,
-            (pressed || flashingSentenceKey === row.key) && styles.englishSentenceRowActive,
+            (pressed || flashingSentenceKey === row.key || activeSentenceKey === row.key) && styles.englishSentenceRowActive,
           ]}
           onPress={() => {
             if (lastLongPressKeyRef.current === row.key) {
               lastLongPressKeyRef.current = null;
               return;
             }
-            playSentence(row);
+            playSentence(row, sentenceIndex);
           }}
           onLongPress={() => {
             lastLongPressKeyRef.current = row.key;
-            playSentence(row);
+            playSentence(row, sentenceIndex);
           }}
           delayLongPress={350}
         >
@@ -1089,10 +1165,17 @@ const styles = StyleSheet.create({
   englishPane: {
     flex: 1,
   },
+  cardTopActions: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    flexDirection: "row",
+    gap: 8,
+  },
   englishContent: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 56,
     paddingBottom: 20,
     justifyContent: "flex-start",
   },
@@ -1179,6 +1262,83 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     justifyContent: "flex-start",
   },
+  backContent: {
+    gap: 18,
+  },
+  backSection: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#ECE2BD",
+    backgroundColor: "#FFF9E8",
+  },
+  backPromptText: {
+    color: "#5F6675",
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: "600",
+  },
+  backAnswerRows: {
+    marginTop: 14,
+    gap: 9,
+  },
+  backAnswerPill: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    borderRadius: 7,
+    backgroundColor: "#FFF2B8",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  backAnswerText: {
+    color: "#111111",
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: "700",
+  },
+  userOriginalBlock: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E5EB",
+    backgroundColor: "#FFFFFF",
+  },
+  userOriginalHeader: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  userOriginalHeaderText: {
+    flex: 1,
+    color: "#2477E8",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
+  },
+  userOriginalText: {
+    marginTop: 10,
+    color: "#111111",
+    fontSize: 15,
+    lineHeight: 23,
+  },
+  userOriginalHidden: {
+    marginTop: 12,
+    gap: 8,
+  },
+  hiddenLineWide: {
+    height: 10,
+    width: "88%",
+    borderRadius: 5,
+    backgroundColor: "#EEF0F5",
+  },
+  hiddenLineShort: {
+    height: 10,
+    width: "56%",
+    borderRadius: 5,
+    backgroundColor: "#EEF0F5",
+  },
   translationText: {
     color: "#111111",
     fontSize: 16,
@@ -1201,12 +1361,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sessionActionRow: {
-    minHeight: 40,
-    marginTop: 4,
+    minHeight: 48,
+    marginTop: 6,
+    marginBottom: 14,
+    paddingHorizontal: 24,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 10,
   },
   roundActionButton: {
     width: 36,
@@ -1220,6 +1382,14 @@ const styles = StyleSheet.create({
   },
   flipButtonDisabled: {
     opacity: 0.7,
+  },
+  checkButtonCompact: {
+    flex: 1,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: "#EAE6FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
   checkButton: {
     height: 48,

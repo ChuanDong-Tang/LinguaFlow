@@ -7,6 +7,7 @@ export * from "./ConversationRepository.js";
 export * from "./MessageRepository.js";
 export * from "./TtsAssetRepository.js";
 export * from "./TtsRequestLogRepository.js";
+export * from "./SttRequestLogRepository.js";
 export * from "./SubscriptionRepository.js";
 export * from "./EntitlementRepository.js";
 export * from "./AiRequestLogRepository.js";

@@ -9,6 +9,7 @@
                     "cleanup:fake-conversations":  "tsx src/dev/cleanupFakeConversations.ts"
                 },
     "dependencies":  {
+                         "@fastify/websocket":  "^11.2.0",
                          "@lf/core":  "file:../packages/core",
                          "@lf/server":  "file:../server",
                          "fastify":  "^5.8.5",

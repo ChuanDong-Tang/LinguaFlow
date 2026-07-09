@@ -1,9 +1,12 @@
 export type RuntimeMode = "development" | "production" | "test";
 export type AiProviderName = "deepseek" | "openai" | "grok";
+export type MembershipFeatureTier = "free" | "plus" | "pro";
 
 export interface PaymentRuntimeConfig {
   wechatPayEnabled: boolean;
+  plusMonthlyPriceCents: number;
   proMonthlyPriceCents: number;
+  descriptionPlusMonthly: string;
   descriptionProMonthly: string;
   pendingReuseWindowMs: number;
   reconcileGraceMs: number;
@@ -25,6 +28,8 @@ export interface PaymentRuntimeConfig {
     contractNotifyUrl: string | null;
     debitNotifyUrl: string | null;
     planId: string | null;
+    plusPlanId: string | null;
+    proPlanId: string | null;
     contractReturnUrl: string | null;
     intervalMs: number;
     batchSize: number;
@@ -39,6 +44,7 @@ export interface PaymentRuntimeConfig {
     bundleId: string | null;
     privateKey: string | null;
     rootCa: string | null;
+    plusMonthlyProductId: string | null;
     proMonthlyProductId: string | null;
     proMonthlyOneTimeProductId: string | null;
     allowSandboxFallback: boolean;
@@ -76,7 +82,12 @@ export interface RuntimeConfig {
   grokAllowedModels: string[];
   grokTimeoutMs: number;
   quotaTimeZone: string;
+  plusDailyTotalLimit: number;
   proDailyTotalLimit: number;
+  membershipFeatures: {
+    cloudSync: MembershipFeatureTier[];
+    highQualityTts: MembershipFeatureTier[];
+  };
   freeTrialTotalLimit: number;
   freeTrialValidDays: number;
   benefitGrantRetryEnabled: boolean;
@@ -135,6 +146,16 @@ export interface RuntimeConfig {
   chatGenerationMinInputChars: number;
   chatMessagesUserRateLimit: number;
   chatMessagesUserRateWindowMs: number;
+  dictionaryLookupGlobalRateLimit: number;
+  dictionaryLookupUserRateLimit: number;
+  dictionaryLookupRateWindowMs: number;
+  dictionaryLookupMaxOutputTokens: number;
+  sttRealtimeGlobalRateLimit: number;
+  sttRealtimeUserRateLimit: number;
+  sttRealtimeRateWindowMs: number;
+  sttRealtimeMaxSessionMs: number;
+  sttRealtimeCandidateLanguages: string[];
+  sttRequestLogEnabled: boolean;
   ttsMessagesGlobalRateLimit: number;
   ttsMessagesGlobalRateWindowMs: number;
   ttsCostPerMillionCharsCents: number;
@@ -165,8 +186,8 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     authJwtSecret: env.AUTH_JWT_SECRET?.trim() || "dev-only-change-me",
     authAccessTokenTtlSeconds: readPositiveInt(env.AUTH_ACCESS_TOKEN_TTL_SECONDS, 60 * 30),
     authRefreshTokenTtlSeconds: readPositiveInt(env.AUTH_REFRESH_TOKEN_TTL_SECONDS, 60 * 60 * 24 * 30),
-    aiProvider: readAiProvider(env.LF_AI_DEFAULT_PROVIDER, "deepseek"),
-    aiAllowClientModel: readBoolean(env.LF_AI_ALLOW_CLIENT_MODEL, mode !== "production"),
+    aiProvider: readAiProvider(env.LF_AI_DEFAULT_PROVIDER, "grok"),
+    aiAllowClientModel: readBoolean(env.LF_AI_ALLOW_CLIENT_MODEL, false),
     deepSeekApiKey: env.DEEPSEEK_API_KEY?.trim() || "",
     deepSeekBaseUrl: env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
     deepSeekModel: env.DEEPSEEK_DEFAULT_MODEL?.trim() || "deepseek-v4-flash",
@@ -196,7 +217,12 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     ),
     grokTimeoutMs: readPositiveInt(env.GROK_TIMEOUT_MS ?? env.OPENAI_TIMEOUT_MS ?? env.ChatGPT_TIMEOUT_MS, 20_000),
     quotaTimeZone: env.LF_QUOTA_TIME_ZONE?.trim() || "Asia/Shanghai",
+    plusDailyTotalLimit: readPositiveInt(env.LF_PLUS_DAILY_TOTAL_LIMIT, 5_000),
     proDailyTotalLimit: readPositiveInt(env.LF_PRO_DAILY_TOTAL_LIMIT, 10_000),
+    membershipFeatures: {
+      cloudSync: readTierCsv(env.LF_FEATURE_CLOUD_SYNC_TIERS, ["plus", "pro"]),
+      highQualityTts: readTierCsv(env.LF_FEATURE_HIGH_QUALITY_TTS_TIERS, ["plus", "pro"]),
+    },
     freeTrialTotalLimit: readPositiveInt(env.LF_FREE_TRIAL_TOTAL_LIMIT, 5000),
     freeTrialValidDays: readPositiveInt(env.LF_FREE_TRIAL_VALID_DAYS, 7),
     payment: readPaymentRuntimeConfig(env, mode),
@@ -255,6 +281,21 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     chatGenerationMinInputChars: readPositiveInt(env.CHAT_GENERATION_MIN_INPUT_CHARS, 10),
     chatMessagesUserRateLimit: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_LIMIT, 20),
     chatMessagesUserRateWindowMs: readPositiveInt(env.CHAT_MESSAGES_USER_RATE_WINDOW_MS, 60_000),
+    dictionaryLookupGlobalRateLimit: readPositiveInt(env.DICTIONARY_LOOKUP_GLOBAL_RATE_LIMIT, 500),
+    dictionaryLookupUserRateLimit: readPositiveInt(env.DICTIONARY_LOOKUP_USER_RATE_LIMIT, 80),
+    dictionaryLookupRateWindowMs: readPositiveInt(env.DICTIONARY_LOOKUP_RATE_WINDOW_MS, 60_000),
+    dictionaryLookupMaxOutputTokens: readPositiveInt(env.DICTIONARY_LOOKUP_MAX_OUTPUT_TOKENS, 420),
+    sttRealtimeGlobalRateLimit: readPositiveInt(env.STT_REALTIME_GLOBAL_RATE_LIMIT, 80),
+    sttRealtimeUserRateLimit: readPositiveInt(env.STT_REALTIME_USER_RATE_LIMIT, 20),
+    sttRealtimeRateWindowMs: readPositiveInt(env.STT_REALTIME_RATE_WINDOW_MS, 60_000),
+    sttRealtimeMaxSessionMs: readPositiveInt(env.STT_REALTIME_MAX_SESSION_MS, 60_000),
+    sttRealtimeCandidateLanguages: readCsv(env.STT_REALTIME_CANDIDATE_LANGUAGES, [
+      "zh-CN",
+      "en-US",
+      "ja-JP",
+      "ko-KR",
+    ]).slice(0, 4),
+    sttRequestLogEnabled: readBoolean(env.STT_REQUEST_LOG_ENABLED, false),
     ttsMessagesGlobalRateLimit: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_LIMIT, 100),
     ttsMessagesGlobalRateWindowMs: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_WINDOW_MS, 60_000),
     ttsCostPerMillionCharsCents: readNonNegativeInt(env.TTS_COST_PER_1M_CHARS_CENTS, 0),
@@ -295,7 +336,9 @@ function readTencentTmsReviewMode(value: string | undefined, fallback: "suspect"
 function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): PaymentRuntimeConfig {
   return {
     wechatPayEnabled: readBoolean(env.WECHAT_PAY_ENABLED, false),
+    plusMonthlyPriceCents: readPositiveInt(env.LF_PLUS_MONTHLY_PRICE_CENTS, 1500),
     proMonthlyPriceCents: readPositiveInt(env.LF_PRO_MONTHLY_PRICE_CENTS, 3000),
+    descriptionPlusMonthly: env.LF_PAYMENT_DESC_PLUS_MONTHLY?.trim() || "OIO Plus 月卡",
     descriptionProMonthly: env.LF_PAYMENT_DESC_PRO_MONTHLY?.trim() || "OIO Pro 月卡",
     pendingReuseWindowMs: readPositiveInt(env.LF_PAYMENT_PENDING_REUSE_WINDOW_MS, 300_000),
     reconcileGraceMs: readPositiveInt(env.LF_PAYMENT_RECONCILE_GRACE_MS, 120_000),
@@ -326,6 +369,8 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       contractNotifyUrl: trimToNull(env.WECHAT_AUTORENEW_CONTRACT_NOTIFY_URL),
       debitNotifyUrl: trimToNull(env.WECHAT_AUTORENEW_DEBIT_NOTIFY_URL),
       planId: trimToNull(env.WECHAT_AUTORENEW_PLAN_ID),
+      plusPlanId: trimToNull(env.WECHAT_AUTORENEW_PLUS_PLAN_ID),
+      proPlanId: trimToNull(env.WECHAT_AUTORENEW_PRO_PLAN_ID),
       contractReturnUrl: trimToNull(env.WECHAT_AUTORENEW_CONTRACT_RETURN_URL),
       intervalMs: readPositiveInt(env.WECHAT_AUTORENEW_INTERVAL_MS, 300_000),
       batchSize: readPositiveInt(env.WECHAT_AUTORENEW_BATCH_SIZE, 20),
@@ -340,6 +385,7 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       bundleId: trimToNull(env.APPLE_IAP_BUNDLE_ID),
       privateKey: trimToNull(env.APPLE_IAP_PRIVATE_KEY),
       rootCa: trimToNull(env.APPLE_IAP_ROOT_CA),
+      plusMonthlyProductId: trimToNull(env.APPLE_IAP_PLUS_MONTHLY_PRODUCT_ID),
       proMonthlyProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_PRODUCT_ID),
       proMonthlyOneTimeProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_ONE_TIME_PRODUCT_ID),
       allowSandboxFallback: readBoolean(env.APPLE_IAP_ALLOW_SANDBOX_FALLBACK, mode !== "production"),
@@ -376,4 +422,11 @@ function readCsv(value: string | undefined, fallback: string[]): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function readTierCsv(value: string | undefined, fallback: MembershipFeatureTier[]): MembershipFeatureTier[] {
+  const tiers = readCsv(value, fallback);
+  const allowed = new Set<MembershipFeatureTier>(["free", "plus", "pro"]);
+  const parsed = tiers.filter((tier): tier is MembershipFeatureTier => allowed.has(tier as MembershipFeatureTier));
+  return parsed.length ? parsed : fallback;
 }

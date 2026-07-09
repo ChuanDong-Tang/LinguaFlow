@@ -58,7 +58,7 @@ const CLIENT_ERROR_MESSAGES = {
   ACCOUNT_DISABLED: "Account is unavailable.",
   AUTO_RENEW_NOT_FOUND: "Auto renew subscription not found.",
   AUTO_RENEW_ALREADY_ACTIVE: "Auto renew is already active.",
-  AUTO_RENEW_SWITCH_BLOCKED: "Current Pro period is still active. Switch auto renew after it expires.",
+  AUTO_RENEW_SWITCH_BLOCKED: "Current membership period is still active. Switch auto renew after it expires.",
 } as const;
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
@@ -104,7 +104,7 @@ function isAppleServerNotificationRequest(
 function isCreatePaymentOrderRequest(value: unknown): value is CreatePaymentOrderRequest {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  return v.productCode === "pro_monthly";
+  return isPaymentProductCode(v.productCode);
 }
 
 function isCancelAutoRenewRequest(value: unknown): value is { autoRenewSubscriptionId: string } {
@@ -116,10 +116,14 @@ function isCancelAutoRenewRequest(value: unknown): value is { autoRenewSubscript
   );
 }
 
-function isCreateWechatAutoRenewRequest(value: unknown): value is { productCode: "pro_monthly" } {
+function isCreateWechatAutoRenewRequest(value: unknown): value is { productCode: "plus_monthly" | "pro_monthly" } {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  return v.productCode === "pro_monthly";
+  return isPaymentProductCode(v.productCode);
+}
+
+function isPaymentProductCode(value: unknown): value is "plus_monthly" | "pro_monthly" {
+  return value === "plus_monthly" || value === "pro_monthly";
 }
 
 export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDeps): void {
@@ -157,6 +161,18 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         amount: config.payment.proMonthlyPriceCents,
         currency: "CNY",
         displayPrice: formatCnyPrice(config.payment.proMonthlyPriceCents),
+      },
+    });
+  });
+
+  app.get("/payment/products/plus-monthly", async (_req, reply) => {
+    return reply.status(200).send({
+      ok: true,
+      data: {
+        productCode: "plus_monthly",
+        amount: config.payment.plusMonthlyPriceCents,
+        currency: "CNY",
+        displayPrice: formatCnyPrice(config.payment.plusMonthlyPriceCents),
       },
     });
   });
@@ -235,26 +251,11 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     }
     const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
     if (!userContext) return;
-    if (!config.payment.appleIap.enabled) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        userId: userContext.userId,
-        module: "payment",
-        event: "payment.ios.verify.disabled",
-        level: "warn",
-        status: "failed",
-        errorCode: "APPLE_IAP_DISABLED",
-      });
-      return reply.status(503).send({
-        ok: false,
-        request_id: requestId,
-        error: { code: "APPLE_IAP_DISABLED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
-      });
-    }
 
     try {
       const data = await deps.autoRenewService.createWeChatPreSign({
         userId: userContext.userId,
+        productCode: req.body.productCode,
       });
       return reply.status(200).send({
         ok: true,
@@ -284,7 +285,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
               error instanceof AutoRenewAlreadyActiveError
                 ? `Auto renew is already active via ${error.provider}.`
                 : error instanceof AutoRenewSwitchBlockedError
-                  // 用户取消自动续费后，当前 Pro 仍未过期；这里明确返回业务冲突，不当成支付/签约失败。
+                  // 用户取消自动续费后，当前会员仍未过期；这里明确返回业务冲突，不当成支付/签约失败。
                   ? CLIENT_ERROR_MESSAGES.AUTO_RENEW_SWITCH_BLOCKED
                   : error instanceof ProRenewalTooEarlyError
                     ? CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY
@@ -343,22 +344,6 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
 
     const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
     if (!userContext) return;
-    if (!config.payment.appleIap.enabled) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        userId: userContext.userId,
-        module: "payment",
-        event: "payment.ios.app_account_token.disabled",
-        level: "warn",
-        status: "failed",
-        errorCode: "APPLE_IAP_DISABLED",
-      });
-      return reply.status(503).send({
-        ok: false,
-        request_id: requestId,
-        error: { code: "APPLE_IAP_DISABLED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
-      });
-    }
 
     try {
       const subscription = await deps.autoRenewService.cancelWithProvider({
@@ -538,8 +523,9 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     if (!userContext) return;
 
     try {
-      const data = await deps.paymentOrderService.createProMonthlyOrder({
+      const data = await deps.paymentOrderService.createMembershipOrder({
         userId: userContext.userId,
+        productCode: req.body.productCode,
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -792,6 +778,22 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
 
     const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
     if (!userContext) return;
+    if (!config.payment.appleIap.enabled) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.ios.verify.disabled",
+        level: "warn",
+        status: "failed",
+        errorCode: "APPLE_IAP_DISABLED",
+      });
+      return reply.status(503).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "APPLE_IAP_DISABLED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
+      });
+    }
 
     try {
       const data = await deps.appleIapService.verifyProMonthlyTransaction({
@@ -803,7 +805,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     } catch (error) {
       const message = error instanceof Error ? error.message : "iOS IAP verify failed";
       if (error instanceof AutoRenewSwitchBlockedError) {
-        // Apple 首次验单也要遵守同一条规则：取消旧渠道后，当前 Pro 周期内不能马上换渠道重签。
+        // Apple 首次验单也要遵守同一条规则：取消旧渠道后，当前会员周期内不能马上换渠道重签。
         return reply.status(409).send({
           ok: false,
           request_id: requestId,

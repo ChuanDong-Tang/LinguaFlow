@@ -24,7 +24,7 @@ export async function refreshEntitlementAndSession(): Promise<RefreshEntitlement
       ...session,
       sessionFlags: {
         ...(session.sessionFlags ?? {}),
-        isPro: entitlement.isPro,
+        isPro: entitlement.isMember ?? entitlement.isPro,
       },
     });
   }

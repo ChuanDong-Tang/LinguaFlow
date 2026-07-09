@@ -1,5 +1,6 @@
 import type { EntitlementRepository } from "@lf/core/ports/repository/EntitlementRepository.js";
 import type { SubscriptionService } from "../subscription/SubscriptionService.js";
+import type { CurrentSubscriptionPlan, MembershipTier } from "../subscription/SubscriptionService.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 
 export class DailyQuotaExceededError extends Error {
@@ -22,14 +23,24 @@ export class DailyQuotaExceededError extends Error {
 
 export interface CurrentEntitlementView {
   userId: string;
-  plan: "free" | "pro_monthly";
+  plan: CurrentSubscriptionPlan;
+  tier: MembershipTier;
   isPro: boolean;
+  isPlus: boolean;
+  isMember: boolean;
   expiresAt: string | null;
   dateKey: string;
   dailyTotalLimit: number;
   validUntil: string | null;
   usedTotalChars: number;
   remainingChars: number;
+  quotas: {
+    aiDailyChars: number;
+  };
+  features: {
+    cloudSync: boolean;
+    highQualityTts: boolean;
+  };
 }
 
 export class EntitlementService {
@@ -138,7 +149,7 @@ export class EntitlementService {
 
   async getCurrentEntitlement(userId: string): Promise<CurrentEntitlementView> {
     const subscription = await this.subscriptionService.getCurrentSubscription(userId);
-    const quota = this.quotaForPlan(subscription.isPro);
+    const quota = this.quotaForPlan(subscription.tier);
     const entitlement = await this.entitlementRepository.ensureDaily({
       userId,
       dateKey: quota.dateKey,
@@ -151,13 +162,20 @@ export class EntitlementService {
     return {
       userId,
       plan: subscription.plan,
+      tier: subscription.tier,
       isPro: subscription.isPro,
+      isPlus: subscription.isPlus,
+      isMember: subscription.isMember,
       expiresAt: subscription.expiresAt?.toISOString() ?? null,
       dateKey: quota.dateKey,
       dailyTotalLimit: entitlement.dailyTotalLimit,
       validUntil: validUntil?.toISOString() ?? null,
       usedTotalChars: entitlement.usedTotalChars,
       remainingChars: isExpired ? 0 : Math.max(0, remainingChars),
+      quotas: {
+        aiDailyChars: entitlement.dailyTotalLimit,
+      },
+      features: featuresForTier(subscription.tier),
     };
   }
 
@@ -175,16 +193,16 @@ export class EntitlementService {
   private async resolveQuota(userId: string, options?: { dateKey?: string }): Promise<QuotaWindow> {
     const subscription = await this.subscriptionService.getCurrentSubscription(userId);
 
-    return this.quotaForPlan(subscription.isPro, options?.dateKey);
+    return this.quotaForPlan(subscription.tier, options?.dateKey);
   }
 
-  private quotaForPlan(isPro: boolean, preferredDateKey?: string): QuotaWindow {
+  private quotaForPlan(tier: MembershipTier, preferredDateKey?: string): QuotaWindow {
     const config = getRuntimeConfig();
-    if (isPro) {
-      // Pro 额度仍然按业务时区的每日 dateKey 滚动恢复。
+    if (tier !== "free") {
+      // 会员额度按业务时区的每日 dateKey 滚动恢复。
       return {
         dateKey: preferredDateKey ?? this.currentDateKey(),
-        totalLimit: config.proDailyTotalLimit,
+        totalLimit: tier === "plus" ? config.plusDailyTotalLimit : config.proDailyTotalLimit,
         validDays: null,
       };
     }
@@ -212,6 +230,14 @@ export class EntitlementService {
     // 免费试用有效期以首次创建 free_trial entitlement 的时间为起点。
     return new Date(entitlementCreatedAt.getTime() + quota.validDays * 24 * 60 * 60 * 1000);
   }
+}
+
+function featuresForTier(tier: MembershipTier): CurrentEntitlementView["features"] {
+  const features = getRuntimeConfig().membershipFeatures;
+  return {
+    cloudSync: features.cloudSync.includes(tier),
+    highQualityTts: features.highQualityTts.includes(tier),
+  };
 }
 
 // 历史表结构仍叫 dailyTotalLimit/dateKey；这里用固定 dateKey 表示“免费试用总额度”。

@@ -12,7 +12,7 @@ export interface QueryPaymentOrderResponse {
   providerOrderId: string;
   productCode: PaymentProductCode;
   amount: number;
-  currency: "CNY";
+  currency: string;
   status: PaymentOrderStatus;
   createdAt: string;
   updatedAt: string;

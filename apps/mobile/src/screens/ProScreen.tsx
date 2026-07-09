@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   cancelAutoRenewSubscription,
   createWeChatAutoRenewPreSign,
+  getPlusMonthlyProductQuote,
   getProMonthlyProductQuote,
   createProMonthlyOrder,
   getCurrentAutoRenewSubscription,
@@ -22,6 +23,7 @@ import {
   registerAppleAppAccountToken,
   verifyAppleProMonthlyTransaction,
   type MobileAutoRenewSubscription,
+  type MobilePaymentProductCode,
   type MobileWeChatAutoRenewPreSignResult,
 } from "../services/api/paymentApi";
 import {
@@ -39,6 +41,7 @@ import { getCurrentEntitlement, type CurrentEntitlement } from "../services/api/
 import { getSession, setSession } from "../services/auth/authStorage";
 import {
   APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID,
+  APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
   APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
   type ApplePurchaseSource,
   assertAppleIapAvailable,
@@ -65,7 +68,7 @@ const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_
 const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ONE_TIME_PURCHASE === "true";
 const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
-const PRODUCT_PRICE_CACHE_KEY = environmentStorageKey("lf_pro_product_price_v1");
+const PRODUCT_PRICE_CACHE_KEY = environmentStorageKey("lf_membership_product_price_v2");
 const AUTO_RENEW_CACHE_KEY = environmentStorageKey("lf_current_auto_renew_v1");
 const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
   process.env.EXPO_PUBLIC_PRO_PRICE_CACHE_TTL_MS,
@@ -86,7 +89,8 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [isRestoringApplePurchases, setIsRestoringApplePurchases] = useState(false);
   const [isRedeemingAppleOffer, setIsRedeemingAppleOffer] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
-  const [wechatPriceLabel, setWechatPriceLabel] = useState<string | null>(null);
+  const [plusWechatPriceLabel, setPlusWechatPriceLabel] = useState<string | null>(null);
+  const [proWechatPriceLabel, setProWechatPriceLabel] = useState<string | null>(null);
   const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(null);
   const applePurchaseIntentRef = useRef(false);
@@ -95,11 +99,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const appleAppAccountTokenPromiseRef = useRef<Promise<string | null> | null>(null);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
   const manageableAutoRenew = isRenew && activeAutoRenew;
-  const liveProductPrices = resolveProMonthlyPriceLabels({ appleIap, wechatPriceLabel });
-  const productPrices = liveProductPrices.primary ? liveProductPrices : cachedProductPrices ?? liveProductPrices;
+  const liveProductPrices = resolveMembershipPriceLabels({ appleIap, plusWechatPriceLabel, proWechatPriceLabel });
+  const productPrices = hasAnyProductPrice(liveProductPrices) ? liveProductPrices : cachedProductPrices ?? liveProductPrices;
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
   const membershipStatusLabel = resolveMembershipStatusLabel({
-    isPro: isRenew,
+    isMember: isRenew,
     expiresAt: proExpiresAt,
   });
   const autoRenewDescription = resolveAutoRenewDescription({
@@ -121,7 +125,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const shouldReservePurchaseActionSpace = shouldShowPurchaseActions || (isRenew && !hasLoadedAutoRenew);
 
   function applyEntitlementToState(entitlement: CurrentEntitlement): void {
-    setIsRenew(entitlement.isPro);
+    setIsRenew(entitlement.isMember ?? entitlement.isPro);
     setProExpiresAt(entitlement.expiresAt);
     setCurrentEntitlement(entitlement);
   }
@@ -131,6 +135,16 @@ export function ProScreen({ onBack }: ProScreenProps) {
     void saveCachedAutoRenewSubscriptionForCurrentUser(subscription);
   }
 
+  function alertOpenSuccess(input?: MembershipTierInput): void {
+    const tier = resolveMembershipTier(input);
+    safeAlert(t("pro.alert.open_success_title"), t(tier === "plus" ? "pro.alert.open_success_message_plus" : "pro.alert.open_success_message_pro"));
+  }
+
+  function alertRestoreSuccess(input?: MembershipTierInput): void {
+    const tier = resolveMembershipTier(input);
+    safeAlert(t("pro.alert.restore_success_title"), t(tier === "plus" ? "pro.alert.restore_success_message_plus" : "pro.alert.restore_success_message_pro"));
+  }
+
   async function syncSessionProFlag(entitlement: CurrentEntitlement): Promise<void> {
     const session = await getSession();
     if (!session) return;
@@ -138,7 +152,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       ...session,
       sessionFlags: {
         ...(session.sessionFlags ?? {}),
-        isPro: entitlement.isPro,
+        isPro: entitlement.isMember ?? entitlement.isPro,
       },
     });
   }
@@ -243,10 +257,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!isScreenAlive()) return;
       if (recovered.status === "paid") {
         setIsRenew(true);
-        await refreshProEntitlementState();
+        const entitlementResult = await refreshProEntitlementState();
         didRefreshEntitlement = true;
         if (!isScreenAlive()) return;
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement });
       }
       const recoveredAutoRenew = await recoverPendingAutoRenewIfAny();
       if (!isScreenAlive()) return;
@@ -255,10 +269,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
       }
       if (recoveredAutoRenew.entitlementIsPro === true) {
         setIsRenew(true);
-        await refreshProEntitlementState();
+        const entitlementResult = await refreshProEntitlementState();
         didRefreshEntitlement = true;
         if (!isScreenAlive()) return;
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement });
       }
       try {
         const currentAutoRenew = await getCurrentAutoRenewSubscription();
@@ -288,19 +302,23 @@ export function ProScreen({ onBack }: ProScreenProps) {
   }, [isScreenAlive]);
 
   useEffect(() => {
-    if (!liveProductPrices.primary) return;
+    if (!hasAnyProductPrice(liveProductPrices)) return;
     setCachedProductPrices(liveProductPrices);
     void saveCachedProductPrices(liveProductPrices);
-  }, [liveProductPrices.primary, liveProductPrices.primarySuffix, liveProductPrices.oneTime, liveProductPrices.autoRenew]);
+  }, [liveProductPrices.plus, liveProductPrices.pro, liveProductPrices.monthSuffix]);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
     let cancelled = false;
     void (async () => {
       try {
-        const quote = await getProMonthlyProductQuote();
+        const [plusQuote, proQuote] = await Promise.all([
+          getPlusMonthlyProductQuote().catch(() => null),
+          getProMonthlyProductQuote().catch(() => null),
+        ]);
         if (!cancelled && isScreenAlive()) {
-          setWechatPriceLabel(quote.displayPrice);
+          setPlusWechatPriceLabel(plusQuote?.displayPrice ?? null);
+          setProWechatPriceLabel(proQuote?.displayPrice ?? null);
         }
       } catch {}
     })();
@@ -342,7 +360,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
     setIsPaying(true);
     try {
       const order = await createProMonthlyOrder();
-      await savePendingPaymentOrder({ orderId: order.id, providerOrderId: order.providerOrderId });
+      await savePendingPaymentOrder({
+        orderId: order.id,
+        providerOrderId: order.providerOrderId,
+        productCode: order.productCode,
+      });
 
       await payWithWechatParams(order.clientPayParams);
       if (!isScreenAlive()) return;
@@ -354,8 +376,8 @@ export function ProScreen({ onBack }: ProScreenProps) {
         await clearPendingPaymentOrder();
         const entitlementResult = await refreshProEntitlementState();
         if (!isScreenAlive()) return;
-        setIsRenew(entitlementResult?.entitlement.isPro ?? true);
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productCode: order.productCode });
         return;
       }
       if (settled.status === "pending") {
@@ -374,7 +396,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
-  async function handleStartAutoRenew(): Promise<void> {
+  async function handleStartAutoRenew(productCode: MobilePaymentProductCode): Promise<void> {
     if (isAutoRenewLoading) return;
     if (isRenew) {
       safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_subscribe_later"));
@@ -391,7 +413,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
         safeAlert(t("pro.not_open"), t("pro.alert.apple_auto_not_open"));
         return;
       }
-      await startAppleIapPurchase("auto_renew");
+      await startAppleIapPurchase("auto_renew", productCode);
       return;
     }
 
@@ -400,20 +422,20 @@ export function ProScreen({ onBack }: ProScreenProps) {
         safeAlert(t("pro.not_open"), t("pro.alert.wechat_auto_not_open"));
         return;
       }
-      await startWechatAutoRenew();
+      await startWechatAutoRenew(productCode);
       return;
     }
 
     safeAlert(t("pro.alert.unsupported_title"), t("pro.alert.unsupported_auto"));
   }
 
-  async function startWechatAutoRenew(): Promise<void> {
+  async function startWechatAutoRenew(productCode: MobilePaymentProductCode): Promise<void> {
     assertWechatPayAvailable();
     setIsAutoRenewLoading(true);
     let preSign: MobileWeChatAutoRenewPreSignResult | null = null;
 
     try {
-      preSign = await createWeChatAutoRenewPreSign();
+      preSign = await createWeChatAutoRenewPreSign(productCode);
       await savePendingAutoRenewFlow({
         autoRenewSubscriptionId: preSign.autoRenewSubscriptionId,
         provider: preSign.provider,
@@ -432,10 +454,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
       const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
       applyAutoRenewToState(currentAutoRenew);
-      if (entitlementResult?.entitlement.isPro) {
+      if (entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro) {
         setIsRenew(true);
         await clearPendingAutoRenewFlow();
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        alertOpenSuccess({ entitlement: entitlementResult.entitlement, productCode });
       } else if (currentAutoRenew?.status === "active" || currentAutoRenew?.status === "pending") {
         safeAlert(t("pro.alert.contract_processing_title"), t("pro.alert.contract_processing_message"));
       }
@@ -484,13 +506,16 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
-  async function startAppleIapPurchase(source: ApplePurchaseSource): Promise<void> {
-    assertAppleIapAvailable(source);
+  async function startAppleIapPurchase(
+    source: ApplePurchaseSource,
+    productCode: MobilePaymentProductCode = "pro_monthly"
+  ): Promise<void> {
+    assertAppleIapAvailable(source, productCode);
     if (!appleIap?.connected) {
       safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
       return;
     }
-    const productId = getAppleProductIdForSource(source);
+    const productId = getAppleProductIdForSource(source, productCode);
     if (!hasLoadedAppleProduct(appleIap, source, productId)) {
       safeAlert(t("pro.alert.apple_product_loading_title"), t("pro.alert.apple_product_loading_message"));
       return;
@@ -500,7 +525,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
     try {
       const latestEntitlement = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
-      if (latestEntitlement?.entitlement.isPro) {
+      if (latestEntitlement?.entitlement.isMember ?? latestEntitlement?.entitlement.isPro) {
         setIsRenew(true);
         safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_buy_later"));
         setIsPaying(false);
@@ -570,13 +595,13 @@ export function ProScreen({ onBack }: ProScreenProps) {
       const verified = await verifyAppleProMonthlyTransaction(transactionId);
       const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return true;
-      setIsRenew(entitlementResult?.entitlement.isPro ?? true);
+      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
       if (verified.purchaseKind === "auto_renew") {
         const currentAutoRenew = await getCurrentAutoRenewSubscription();
         if (!isScreenAlive()) return true;
         applyAutoRenewToState(currentAutoRenew);
       }
-      safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+      alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId });
       return true;
     } catch (error) {
       if (!isScreenAlive()) return true;
@@ -607,19 +632,22 @@ export function ProScreen({ onBack }: ProScreenProps) {
       });
       const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
-      setIsRenew(entitlementResult?.entitlement.isPro ?? true);
+      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
       if (!isOneTimePurchase) {
         const currentAutoRenew = await getCurrentAutoRenewSubscription();
         if (!isScreenAlive()) return;
         applyAutoRenewToState(currentAutoRenew);
       }
       if (isUserInitiatedPurchase) {
-        safeAlert(t("pro.alert.open_success_title"), t("pro.alert.open_success_message"));
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
       }
     } catch (error) {
       if (!isScreenAlive()) return;
       if (isAppleTransactionOwnedByDifferentAccount(error)) {
-        if (purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID) {
+        if (
+          purchase.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+          purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+        ) {
           await appleIap?.finishTransaction({
             purchase,
             isConsumable: false,
@@ -642,11 +670,14 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
-  async function handleRestoreApplePurchases(): Promise<void> {
+  async function handleRestoreApplePurchases(options?: { silentFailure?: boolean }): Promise<void> {
+    const silentFailure = options?.silentFailure ?? false;
     if (Platform.OS !== "ios") return;
     assertAppleIapAvailable();
     if (!appleIap?.connected) {
-      safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
+      if (!silentFailure) {
+        safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
+      }
       return;
     }
     if (isRestoringApplePurchases) return;
@@ -661,7 +692,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
       if (candidates.length === 0) {
         if (!isScreenAlive()) return;
-        safeAlert(t("pro.alert.restore_not_found_title"), t("pro.alert.restore_not_found_message"));
+        if (!silentFailure) {
+          safeAlert(t("pro.alert.restore_not_found_title"), t("pro.alert.restore_not_found_message"));
+        }
         return;
       }
 
@@ -676,13 +709,15 @@ export function ProScreen({ onBack }: ProScreenProps) {
           }).catch(() => { });
           const entitlementResult = await refreshProEntitlementState();
           if (!isScreenAlive()) return;
-          setIsRenew(entitlementResult?.entitlement.isPro ?? true);
+          setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
           if (verified.purchaseKind === "auto_renew") {
             const currentAutoRenew = await getCurrentAutoRenewSubscription();
             if (!isScreenAlive()) return;
             applyAutoRenewToState(currentAutoRenew);
           }
-          safeAlert(t("pro.alert.restore_success_title"), t("pro.alert.restore_success_message"));
+          if (!silentFailure) {
+            alertRestoreSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
+          }
           return;
         } catch (error) {
           lastError = error;
@@ -690,12 +725,17 @@ export function ProScreen({ onBack }: ProScreenProps) {
       }
 
       if (isAppleTransactionOwnedByDifferentAccount(lastError)) {
-        safeAlert(t("pro.alert.restore_failed_title"), t("pro.alert.restore_wrong_account"));
+        if (!silentFailure) {
+          safeAlert(t("pro.alert.restore_failed_title"), t("pro.alert.restore_wrong_account"));
+        }
         return;
       }
-      safeAlert(t("pro.alert.restore_failed_title"), formatApplePaymentErrorMessage(lastError));
+      if (!silentFailure) {
+        safeAlert(t("pro.alert.restore_failed_title"), formatApplePaymentErrorMessage(lastError));
+      }
     } catch (error) {
       if (!isScreenAlive()) return;
+      if (silentFailure) return;
       const message = error instanceof Error ? error.message : t("app.delete.retry_later");
       safeAlert(t("pro.alert.restore_failed_title"), message);
     } finally {
@@ -712,7 +752,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       await ensureAppleAppAccountTokenRegistered();
       const presented = await presentCodeRedemptionSheetIOS();
       if (!presented || !isScreenAlive()) return;
-      await handleRestoreApplePurchases();
+      await handleRestoreApplePurchases({ silentFailure: true });
     } catch (error) {
       if (!isScreenAlive()) return;
       const message = error instanceof Error ? error.message : t("app.delete.retry_later");
@@ -752,24 +792,38 @@ export function ProScreen({ onBack }: ProScreenProps) {
         <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
           <Ionicons name="arrow-back" size={24} color="#111111" />
         </Pressable>
-        <Text style={styles.headerTitle}>OIO Pro</Text>
+        <Text style={styles.headerTitle}>{t("me.pro.title")}</Text>
         <View style={styles.backButton} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.benefitCard}>
-          <BenefitItem icon="text-outline" title={quotaBenefit.title} subtitle={quotaBenefit.subtitle} />
-          <BenefitItem icon="leaf-outline" title={t("pro.cloud_sync.title")} subtitle={t("pro.cloud_sync.subtitle")} />
-          <BenefitItem icon="volume-medium-outline" title={t("pro.tts.title")} subtitle={t("pro.tts.subtitle")} />
+          <BenefitItem icon="sparkles-outline" title={t("pro.plus.title")} subtitle={t("pro.plus.subtitle")} />
+          <BenefitItem icon="flash-outline" title={t("pro.pro.title")} subtitle={t("pro.pro.subtitle")} />
+          <BenefitItem icon="leaf-outline" title={t("pro.shared.title")} subtitle={t("pro.shared.subtitle")} isLast />
         </View>
 
         <View style={styles.priceCard}>
           <View style={styles.priceHead}>
-            <Text style={styles.priceTitle}>{t("pro.monthly")}</Text>
+            <Text style={styles.priceTitle}>{t("pro.current.title")}</Text>
           </View>
-          <View style={styles.priceRow}>
-            <Text style={styles.price}>{productPrices.primary ?? "--"}</Text>
-            <Text style={styles.priceUnit}>{productPrices.primary ? productPrices.primarySuffix : ""}</Text>
+          <Text style={styles.membershipStatus}>{quotaBenefit.title}</Text>
+          <Text style={styles.autoRenewText}>{quotaBenefit.subtitle}</Text>
+          <View style={styles.planPriceRow}>
+            <View style={styles.planPriceItem}>
+              <Text style={styles.planPriceName}>Plus</Text>
+              <View style={styles.planPriceValueRow}>
+                <Text style={styles.planPriceValue}>{productPrices.plus ?? "--"}</Text>
+                <Text style={styles.planPriceUnit}>{productPrices.plus ? productPrices.monthSuffix : ""}</Text>
+              </View>
+            </View>
+            <View style={styles.planPriceItem}>
+              <Text style={styles.planPriceName}>Pro</Text>
+              <View style={styles.planPriceValueRow}>
+                <Text style={styles.planPriceValue}>{productPrices.pro ?? "--"}</Text>
+                <Text style={styles.planPriceUnit}>{productPrices.pro ? productPrices.monthSuffix : ""}</Text>
+              </View>
+            </View>
           </View>
           <View style={styles.autoRenewBox}>
             <View style={styles.autoRenewCopy}>
@@ -787,47 +841,48 @@ export function ProScreen({ onBack }: ProScreenProps) {
             <View style={[styles.actionSlot, !shouldShowPurchaseActions && styles.actionSlotReserved]}>
               {shouldShowPurchaseActions ? (
                 <View style={styles.actionRow}>
-                  <Pressable
-                    style={[
-                      styles.secondaryButton,
-                      styles.actionButton,
-                      ((!canStartAutoRenew && !manageableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew) &&
-                        styles.subscribeButtonDisabled,
-                    ]}
-                    onPress={manageableAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew()}
-                    disabled={(!canStartAutoRenew && !manageableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
-                  >
-                    {isAutoRenewLoading || !hasLoadedAutoRenew ? (
-                      <ActivityIndicator color="#111111" />
-                    ) : (
-                      <Text style={styles.secondaryButtonText}>
-                        {manageableAutoRenew
-                          ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
-                          : canStartAutoRenew
-                            ? formatAutoRenewButtonLabel()
-                            : t("pro.not_open")}
-                      </Text>
-                    )}
-                  </Pressable>
                   {!manageableAutoRenew ? (
                     <Pressable
                       style={[
-                        styles.subscribeButton,
+                        styles.secondaryButton,
                         styles.actionButton,
-                        (!canStartOneTimePurchase || isPaying) && styles.subscribeButtonDisabled,
+                        (!canStartAutoRenew || isAutoRenewLoading || !hasLoadedAutoRenew) &&
+                          styles.subscribeButtonDisabled,
                       ]}
-                      onPress={() => void handleSubscribe()}
-                      disabled={!canStartOneTimePurchase || isPaying}
+                      onPress={() => void handleStartAutoRenew("plus_monthly")}
+                      disabled={!canStartAutoRenew || isAutoRenewLoading || !hasLoadedAutoRenew}
                     >
-                      {isPaying ? (
-                        <ActivityIndicator color="#FFFFFF" />
+                      {isAutoRenewLoading || !hasLoadedAutoRenew ? (
+                        <ActivityIndicator color="#111111" />
                       ) : (
-                        <Text style={styles.subscribeText}>
-                          {canStartOneTimePurchase ? formatOneTimePurchaseButtonLabel() : t("pro.not_open")}
+                        <Text style={styles.secondaryButtonText}>
+                          {canStartAutoRenew ? t("pro.plus.subscribe") : t("pro.not_open")}
                         </Text>
                       )}
                     </Pressable>
                   ) : null}
+                  <Pressable
+                    style={[
+                      styles.subscribeButton,
+                      styles.actionButton,
+                      ((!canStartAutoRenew && !manageableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew) &&
+                        styles.subscribeButtonDisabled,
+                    ]}
+                    onPress={manageableAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew("pro_monthly")}
+                    disabled={(!canStartAutoRenew && !manageableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
+                  >
+                    {isAutoRenewLoading || !hasLoadedAutoRenew ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.subscribeText}>
+                        {manageableAutoRenew
+                          ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
+                          : canStartAutoRenew
+                            ? t("pro.pro.subscribe")
+                            : t("pro.not_open")}
+                      </Text>
+                    )}
+                  </Pressable>
                 </View>
               ) : null}
               {Platform.OS === "ios" && shouldShowPurchaseActions && !manageableAutoRenew ? (
@@ -912,7 +967,10 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError }: AppleIa
 
   useEffect(() => {
     if (!iap.connected) return;
-    void iap.fetchProducts({ skus: [APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID], type: "subs" });
+    void iap.fetchProducts({
+      skus: [APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID, APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID].filter(Boolean),
+      type: "subs",
+    });
     void iap.fetchProducts({ skus: [getAppleProductIdForSource("single_purchase")], type: "in-app" });
   }, [iap.connected, iap.fetchProducts]);
 
@@ -929,6 +987,26 @@ async function payWithWechatParams(clientPayParams: Record<string, unknown>): Pr
   assertWechatPayAvailable();
   const { payWithWechat, toWeChatClientPayParams } = await import("../services/payment/wechatPay");
   await payWithWechat(toWeChatClientPayParams(clientPayParams));
+}
+
+type MembershipTierInput = {
+  entitlement?: CurrentEntitlement | null;
+  productCode?: MobilePaymentProductCode;
+  productId?: string | null;
+};
+
+function resolveMembershipTier(input?: MembershipTierInput): "plus" | "pro" {
+  if (input?.productCode === "plus_monthly" || input?.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID) {
+    return "plus";
+  }
+  if (
+    input?.productCode === "pro_monthly" ||
+    input?.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+    input?.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID
+  ) {
+    return "pro";
+  }
+  return input?.entitlement?.tier === "plus" ? "plus" : "pro";
 }
 
 function resolveAutoRenewDescription(input: {
@@ -953,10 +1031,10 @@ function resolveAutoRenewDescription(input: {
 }
 
 function resolveMembershipStatusLabel(input: {
-  isPro: boolean;
+  isMember: boolean;
   expiresAt: string | null;
 }): string | null {
-  if (input.isPro && input.expiresAt) {
+  if (input.isMember && input.expiresAt) {
     return tf("pro.valid_until", { date: formatDate(input.expiresAt) });
   }
   return null;
@@ -989,12 +1067,13 @@ function resolveQuotaBenefit(entitlement: CurrentEntitlement | null): { title: s
     };
   }
 
-  if (entitlement.isPro) {
+  if (entitlement.isMember ?? entitlement.isPro) {
+    const planName = entitlement.tier === "plus" ? "Plus" : "Pro";
     return {
-      title: tf("pro.quota.pro_title", { count: formatNumber(entitlement.dailyTotalLimit) }),
+      title: tf("pro.quota.member_title", { plan: planName, count: formatNumber(entitlement.dailyTotalLimit) }),
       subtitle: entitlement.expiresAt
-        ? tf("pro.quota.pro_subtitle", { date: formatDate(entitlement.expiresAt) })
-        : t("pro.quota.pro_active"),
+        ? tf("pro.quota.member_subtitle", { date: formatDate(entitlement.expiresAt) })
+        : t("pro.quota.member_active"),
     };
   }
 
@@ -1006,10 +1085,9 @@ function resolveQuotaBenefit(entitlement: CurrentEntitlement | null): { title: s
 }
 
 type ProductPriceLabels = {
-  primary: string | null;
-  primarySuffix: string;
-  oneTime: string | null;
-  autoRenew: string | null;
+  plus: string | null;
+  pro: string | null;
+  monthSuffix: string;
 };
 
 type CachedProductPriceLabels = ProductPriceLabels & {
@@ -1031,14 +1109,13 @@ async function loadCachedProductPrices(): Promise<ProductPriceLabels | null> {
   try {
     const cached = JSON.parse(raw) as Partial<CachedProductPriceLabels>;
     const isFresh = typeof cached.cachedAt === "number" && Date.now() - cached.cachedAt <= PRODUCT_PRICE_CACHE_TTL_MS;
-    if (!isFresh || cached.platform !== Platform.OS || typeof cached.primary !== "string" || !cached.primary) {
+    if (!isFresh || cached.platform !== Platform.OS) {
       return null;
     }
     return {
-      primary: cached.primary,
-      primarySuffix: typeof cached.primarySuffix === "string" ? cached.primarySuffix : "",
-      oneTime: typeof cached.oneTime === "string" ? cached.oneTime : null,
-      autoRenew: typeof cached.autoRenew === "string" ? cached.autoRenew : null,
+      plus: typeof cached.plus === "string" ? cached.plus : null,
+      pro: typeof cached.pro === "string" ? cached.pro : null,
+      monthSuffix: typeof cached.monthSuffix === "string" ? cached.monthSuffix : "",
     };
   } catch {
     await AsyncStorage.removeItem(PRODUCT_PRICE_CACHE_KEY);
@@ -1047,7 +1124,7 @@ async function loadCachedProductPrices(): Promise<ProductPriceLabels | null> {
 }
 
 async function saveCachedProductPrices(prices: ProductPriceLabels): Promise<void> {
-  if (!prices.primary) return;
+  if (!hasAnyProductPrice(prices)) return;
   const cached: CachedProductPriceLabels = {
     ...prices,
     platform: Platform.OS,
@@ -1106,47 +1183,47 @@ function isValidCachedAutoRenewSubscription(value: unknown): value is MobileAuto
   return (
     typeof candidate.id === "string" &&
     (candidate.provider === "apple" || candidate.provider === "wechat") &&
-    candidate.productCode === "pro_monthly" &&
+    (candidate.productCode === "plus_monthly" || candidate.productCode === "pro_monthly") &&
     typeof candidate.status === "string"
   );
 }
 
-function resolveProMonthlyPriceLabels(input: {
+function resolveMembershipPriceLabels(input: {
   appleIap: AppleIapBridgeState | null;
-  wechatPriceLabel: string | null;
+  plusWechatPriceLabel: string | null;
+  proWechatPriceLabel: string | null;
 }): ProductPriceLabels {
   if (Platform.OS === "ios") {
-    const subscriptionPrice = input.appleIap?.subscriptions.find(
+    const plusSubscriptionPrice = input.appleIap?.subscriptions.find(
+      (product) => product.id === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+    )?.displayPrice;
+    const proSubscriptionPrice = input.appleIap?.subscriptions.find(
       (product) => product.id === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
     )?.displayPrice;
-    const oneTimePrice = input.appleIap?.products.find(
-      (product) => product.id === getAppleProductIdForSource("single_purchase")
-    )?.displayPrice;
-    const primary = subscriptionPrice || oneTimePrice || null;
     return {
-      primary,
-      primarySuffix: primary ? t("pro.price.month_suffix") : "",
-      oneTime: oneTimePrice ?? null,
-      autoRenew: subscriptionPrice ?? null,
+      plus: plusSubscriptionPrice ?? null,
+      pro: proSubscriptionPrice ?? null,
+      monthSuffix: t("pro.price.month_suffix"),
     };
   }
 
   if (Platform.OS === "android") {
-    const price = input.wechatPriceLabel;
     return {
-      primary: price,
-      primarySuffix: price ? t("pro.price.month_suffix") : "",
-      oneTime: price,
-      autoRenew: price,
+      plus: input.plusWechatPriceLabel,
+      pro: input.proWechatPriceLabel,
+      monthSuffix: t("pro.price.month_suffix"),
     };
   }
 
   return {
-    primary: null,
-    primarySuffix: "",
-    oneTime: null,
-    autoRenew: null,
+    plus: null,
+    pro: null,
+    monthSuffix: "",
   };
+}
+
+function hasAnyProductPrice(prices: ProductPriceLabels): boolean {
+  return Boolean(prices.plus || prices.pro);
 }
 
 function hasLoadedAppleProduct(appleIap: AppleIapBridgeState, source: ApplePurchaseSource, productId: string): boolean {
@@ -1165,6 +1242,7 @@ function hasActiveAutoRenew(autoRenew: MobileAutoRenewSubscription | null): auto
 function isAppleProPurchase(purchase: Purchase): boolean {
   return (
     purchase.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID ||
+    purchase.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
     purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
   );
 }
@@ -1391,19 +1469,40 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginBottom: 5,
   },
-  priceRow: {
-    marginTop: 6,
+  planPriceRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    gap: 8,
+  },
+  planPriceItem: {
+    flex: 1,
+    minHeight: 58,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#E2E5EB",
+    backgroundColor: "#FAFBFF",
+    justifyContent: "center",
+  },
+  planPriceName: {
+    color: "#111111",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  planPriceValueRow: {
+    marginTop: 4,
     flexDirection: "row",
     alignItems: "baseline",
   },
-  price: {
-    color: "#6E63FF",
-    fontSize: 26,
-    fontWeight: "500",
+  planPriceValue: {
+    color: "#111111",
+    fontSize: 20,
+    fontWeight: "600",
   },
-  priceUnit: {
-    color: "#3E4761",
-    fontSize: 13,
+  planPriceUnit: {
+    color: "#59617B",
+    fontSize: 11,
   },
   autoRenewBox: {
     marginTop: 8,
@@ -1534,7 +1633,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     marginTop: 6,
     marginRight: 6,
-    backgroundColor: "#6E63FF",
+    backgroundColor: "#9AA0AB",
   },
   ruleText: {
     flex: 1,

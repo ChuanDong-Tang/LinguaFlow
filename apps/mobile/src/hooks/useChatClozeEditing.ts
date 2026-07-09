@@ -12,7 +12,7 @@ import {
 } from "../domain/cloze/clozeUtils";
 import { getAssistantClozeText } from "../domain/cloze/clozeText";
 import { getMessageDateKey } from "../domain/chat/messageState";
-import { hasLocalProAccess } from "../services/entitlement/proAccess";
+import { hasLocalFeatureAccess } from "../services/entitlement/proAccess";
 import { updateMessageClozeState } from "../services/api/chatHistoryApi";
 import {
   loadChatMessagesByDate,
@@ -23,6 +23,7 @@ import { markPracticeStatsDirty } from "../services/chat/chatPracticeSyncState";
 import type { ClozeDeleteState, ClozeEditorState } from "../screens/chat/ClozeControls";
 import type { InfoDialogConfig } from "../screens/shared/InfoDialog";
 import { t } from "../i18n";
+import { logEvent } from "../services/logger";
 
 type ChatNotice = {
   hide: () => void;
@@ -122,9 +123,9 @@ export function useChatClozeEditing({
       await applyMessageUpdate(optimistic);
 
       if (currentMessage.id) {
-        const isPro = await hasLocalProAccess();
-        isProEntitledRef.current = isPro;
-        setIsProEntitled(isPro);
+        const canSyncCloze = await hasLocalFeatureAccess("cloudSync");
+        isProEntitledRef.current = canSyncCloze;
+        setIsProEntitled(canSyncCloze);
       }
 
       if (!isProEntitledRef.current || !currentMessage.id) {
@@ -143,6 +144,13 @@ export function useChatClozeEditing({
           clozeVersion: saved.clozeVersion,
         });
       } catch (error) {
+        await logEvent("cloze_save_failed", "error", error instanceof Error ? error.message : "Unknown cloze save failure", {
+          messageId: currentMessage.id ?? currentMessage.localId,
+          languageCode: currentMessage.languageCode ?? null,
+          baseVersion,
+          clozeState,
+          status: typeof error === "object" && error !== null ? (error as { status?: unknown }).status : undefined,
+        });
         const latest = (error as { latest?: { clozeState: ChatMessage["clozeState"]; clozeVersion: number } }).latest;
         if (latest) {
           await applyMessageUpdate({
@@ -178,6 +186,49 @@ export function useChatClozeEditing({
     [persistMessageCloze],
   );
 
+  const saveClozeChange = useCallback(
+    async (
+      message: ChatMessage,
+      clozeState: ChatMessage["clozeState"],
+      failure: { title: string; message: string },
+    ): Promise<void> => {
+      if (clozeMutatingRef.current) {
+        Alert.alert(t("cloze.processing"));
+        return;
+      }
+      const key = message.id ?? message.localId;
+      const { token } = syncMachine.begin("cloze_save", key);
+      syncNoticeRef.current?.hide();
+      const notice = {
+        kind: "cloze" as const,
+        ...showNotice({
+          message: t("cloze.saving"),
+          type: "info",
+          position: "top-right",
+          durationMs: 0,
+        }),
+      };
+      syncNoticeRef.current = notice;
+      clozeMutatingRef.current = true;
+      try {
+        syncMachine.setPhase(token, "fetching");
+        await saveMessageCloze(message, clozeState);
+        syncMachine.setPhase(token, "settling");
+        notice.hide();
+      } catch (error) {
+        notice.update({ message: failure.title, type: "warning", durationMs: 1800 });
+        setDialog({ message: failure.message });
+      } finally {
+        if (syncNoticeRef.current === notice) {
+          syncNoticeRef.current = null;
+        }
+        clozeMutatingRef.current = false;
+        syncMachine.settle(token);
+      }
+    },
+    [saveMessageCloze, setDialog, showNotice, syncMachine, syncNoticeRef],
+  );
+
   const handleTextSelection = useCallback(
     (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
       if (blockClozeWhenSelectedDateSyncing()) {
@@ -197,14 +248,18 @@ export function useChatClozeEditing({
         return;
       }
       clearSelection();
-      setClozeEditor({
-        message,
-        groupIndex: null,
-        tokenIndexes: expanded.tokenIndexes,
-        draftBlankIndexes: [],
+      const nextState = replaceClozeGroup(
+        message.clozeState,
+        null,
+        expanded.tokenIndexes,
+        expanded.tokenIndexes,
+      );
+      void saveClozeChange(message, nextState, {
+        title: t("cloze.save_failed"),
+        message: t("cloze.save_failed_message"),
       });
     },
-    [blockClozeWhenSelectedDateSyncing, contact],
+    [blockClozeWhenSelectedDateSyncing, contact, saveClozeChange],
   );
 
   const handleEditClozeGroup = useCallback(
@@ -293,35 +348,10 @@ export function useChatClozeEditing({
     );
     const target = clozeEditor.message;
     setClozeEditor(null);
-    const key = target.id ?? target.localId;
-    const { token } = syncMachine.begin("cloze_save", key);
-    syncNoticeRef.current?.hide();
-    const notice = {
-      kind: "cloze" as const,
-      ...showNotice({
-        message: t("cloze.saving"),
-        type: "info",
-        position: "top-right",
-        durationMs: 0,
-      }),
-    };
-    syncNoticeRef.current = notice;
-    clozeMutatingRef.current = true;
-    try {
-      syncMachine.setPhase(token, "fetching");
-      await saveMessageCloze(target, nextState);
-      syncMachine.setPhase(token, "settling");
-      notice.hide();
-    } catch (error) {
-      notice.update({ message: t("cloze.save_failed"), type: "warning", durationMs: 1800 });
-      setDialog({ message: t("cloze.save_failed_message") });
-    } finally {
-      if (syncNoticeRef.current === notice) {
-        syncNoticeRef.current = null;
-      }
-      clozeMutatingRef.current = false;
-      syncMachine.settle(token);
-    }
+    await saveClozeChange(target, nextState, {
+      title: t("cloze.save_failed"),
+      message: t("cloze.save_failed_message"),
+    });
   }
 
   return {

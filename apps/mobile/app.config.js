@@ -7,7 +7,7 @@ module.exports = {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.0.3",
+    version: "1.0.5",
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
@@ -23,6 +23,9 @@ module.exports = {
       buildNumber: "62",
       supportsTablet: true,
       icon: "./assets/app/logo_main_apple.png",
+      infoPlist: {
+        NSMicrophoneUsageDescription: "OIO 需要使用麦克风把你说的话转成文字。",
+      },
       config: {
         usesNonExemptEncryption: false,
       },
@@ -30,6 +33,8 @@ module.exports = {
     android: {
       package: "com.yueyantech.oio",
       versionCode: 55,
+      allowBackup: false,
+      permissions: ["RECORD_AUDIO"],
       adaptiveIcon: {
         foregroundImage: "./assets/app/logo_main.png",
         backgroundColor: "#ffffff",
@@ -53,6 +58,7 @@ module.exports = {
       "expo-audio",
       "expo-secure-store",
       "./plugins/with-chat-selectable-text",
+      "./plugins/with-picovoice-voice-processor",
       "./plugins/with-wechat-pay",
     ],
     owner: "reedtang",

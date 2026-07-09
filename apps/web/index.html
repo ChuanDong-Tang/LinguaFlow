@@ -581,18 +581,20 @@
               <div class="section-head">
                 <div>
                   <h2 class="section-title">用户最近记录</h2>
-                  <p class="section-subtitle">订单、订阅、自动续费、系统日志</p>
+                  <p class="section-subtitle">订单、订阅、自动续费、支付事件、系统日志</p>
                 </div>
               </div>
               <div class="tabs" style="margin-bottom:10px">
                 <button class="tab active" data-user-subtab="diagOrders">订单</button>
                 <button class="tab" data-user-subtab="diagSubs">订阅</button>
                 <button class="tab" data-user-subtab="diagAutoRenew">自动续费</button>
+                <button class="tab" data-user-subtab="diagPaymentEvents">支付事件</button>
                 <button class="tab" data-user-subtab="diagEvents">系统日志</button>
               </div>
               <div id="diagOrders" class="diag-subpanel table-wrap"></div>
               <div id="diagSubs" class="diag-subpanel table-wrap" style="display:none"></div>
               <div id="diagAutoRenew" class="diag-subpanel table-wrap" style="display:none"></div>
+              <div id="diagPaymentEvents" class="diag-subpanel table-wrap" style="display:none"></div>
               <div id="diagEvents" class="diag-subpanel table-wrap" style="display:none"></div>
             </div>
           </div>
@@ -794,6 +796,109 @@
                     </tr>
                   </thead>
                   <tbody id="logsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">STT 审计</h2>
+                  <p class="section-subtitle">实时语音识别请求、音频时长、计费秒数、识别结果和错误</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>User ID</label>
+                  <input id="sttLogUserId" placeholder="可空" />
+                </div>
+                <div class="field">
+                  <label>Status</label>
+                  <select id="sttLogStatus">
+                    <option value="">全部</option>
+                    <option value="success">success</option>
+                    <option value="failed">failed</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Language Mode</label>
+                  <select id="sttLanguageIdMode">
+                    <option value="">全部</option>
+                    <option value="at_start">at_start</option>
+                    <option value="continuous">continuous</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Recognized</label>
+                  <select id="sttRecognizedTextPresent">
+                    <option value="">全部</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </div>
+                <button id="btnLoadSttLogs" class="btn">查询 STT</button>
+                <button id="btnUseSttFilter" class="btn secondary">填入系统日志筛选</button>
+              </div>
+              <div id="sttMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>Provider</th>
+                      <th>模式</th>
+                      <th>候选语言</th>
+                      <th>检测语言</th>
+                      <th>音频秒</th>
+                      <th>计费秒</th>
+                      <th>转写字符</th>
+                      <th>耗时</th>
+                      <th>错误</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sttLogsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">智能词典审计</h2>
+                  <p class="section-subtitle">来自 system_event_logs / dictionary.lookup，不扣用户字符额度</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>Status</label>
+                  <select id="dictionaryLogStatus">
+                    <option value="">全部</option>
+                    <option value="success">success</option>
+                    <option value="failed">failed</option>
+                  </select>
+                </div>
+                <button id="btnLoadDictionaryLogs" class="btn">查询智能词典</button>
+                <button id="btnUseDictionaryFilter" class="btn secondary">填入系统日志筛选</button>
+                <span class="muted"></span>
+              </div>
+              <div id="dictionaryMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>词长</th>
+                      <th>输入</th>
+                      <th>输出</th>
+                      <th>耗时</th>
+                      <th>语言</th>
+                      <th>消息</th>
+                      <th>错误</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dictionaryLogsTbody"></tbody>
                 </table>
               </div>
             </div>
@@ -1195,6 +1300,9 @@
         $("diagAutoRenew").innerHTML = tableHtml(["ID", "渠道", "状态", "agreement", "latest", "周期结束"], (data.autoRenewSubscriptions || []).map((row) => [
           mono(row.id), row.provider, statusPill(row.status), mono(row.providerAgreementId), mono(row.latestTransactionId), fmtDate(row.currentPeriodEnd),
         ]));
+        $("diagPaymentEvents").innerHTML = tableHtml(["时间", "渠道", "事件", "状态", "providerOrderId", "错误"], (data.paymentEvents || []).map((row) => [
+          fmtDate(row.createdAt), row.provider, mono(row.eventType), statusPill(row.status), mono(row.providerOrderId), row.errorMessage || "",
+        ]));
         $("diagEvents").innerHTML = tableHtml(["时间", "模块", "事件", "状态", "错误"], (data.systemEventLogs || []).map((row) => [
           fmtDate(row.createdAt), row.module, mono(row.event), statusPill(row.status), row.errorMessage,
         ]));
@@ -1400,6 +1508,139 @@
         setStatus("已填入内容安全日志筛选条件");
       }
 
+      async function loadDictionaryLogs() {
+        const qs = new URLSearchParams();
+        qs.set("limit", "100");
+        qs.set("module", "dictionary");
+        qs.set("event", "dictionary.lookup");
+        if ($("dictionaryLogStatus").value.trim()) qs.set("status", $("dictionaryLogStatus").value.trim());
+        const res = await request(`/admin/system-event-logs?${qs.toString()}`);
+        const rows = Array.isArray(res.data) ? res.data : [];
+        renderDictionaryLogs(rows);
+        setStatus(`智能词典审计：${rows.length} 条`);
+      }
+
+      function renderDictionaryLogs(rows) {
+        const summary = rows.reduce((acc, row) => {
+          const meta = row.metadata || {};
+          acc.total += 1;
+          if (row.status === "success") acc.success += 1;
+          if (row.status === "failed") acc.failed += 1;
+          acc.inputChars += Number(meta.inputChars || 0);
+          acc.outputChars += Number(meta.outputChars || 0);
+          acc.durationMs += Number(meta.durationMs || 0);
+          return acc;
+        }, { total: 0, success: 0, failed: 0, inputChars: 0, outputChars: 0, durationMs: 0 });
+        const avgDuration = summary.total ? Math.round(summary.durationMs / summary.total) : 0;
+        $("dictionaryMetrics").innerHTML = [
+          ["查询数", summary.total, "latest 100"],
+          ["成功 / 失败", `${summary.success} / ${summary.failed}`, "system status"],
+          ["输入字符", summary.inputChars, "context + term"],
+          ["输出字符", summary.outputChars, "model output"],
+          ["平均耗时", `${avgDuration} ms`, "server duration"],
+        ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+        $("dictionaryLogsTbody").innerHTML = rows.map((row) => {
+          const meta = row.metadata || {};
+          const language = `${meta.targetLanguage || "-"} / ${meta.uiLanguage || "-"}`;
+          const message = meta.messageId || row.requestId || "";
+          return `
+            <tr>
+              <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+              <td class="mono">${escapeHtml(row.userId)}</td>
+              <td>${statusPill(row.status)}</td>
+              <td>${escapeHtml(meta.termLength ?? "")}</td>
+              <td>${escapeHtml(meta.inputChars ?? "")}</td>
+              <td>${escapeHtml(meta.outputChars ?? "")}</td>
+              <td>${escapeHtml(meta.durationMs ?? "")}</td>
+              <td>${escapeHtml(language)}</td>
+              <td class="mono">${escapeHtml(message)}</td>
+              <td>${escapeHtml(row.errorMessage || row.errorCode || "")}</td>
+            </tr>
+          `;
+        }).join("") || rowEmpty(10);
+      }
+
+      function useDictionaryLogFilter() {
+        $("logModule").value = "dictionary";
+        $("logEvent").value = "dictionary.lookup";
+        $("logStatus").value = "";
+        setStatus("已填入智能词典系统日志筛选");
+      }
+
+      async function loadSttLogs() {
+        const qs = new URLSearchParams();
+        qs.set("limit", "100");
+        if ($("sttLogUserId").value.trim()) qs.set("userId", $("sttLogUserId").value.trim());
+        if ($("sttLogStatus").value.trim()) qs.set("status", $("sttLogStatus").value.trim());
+        if ($("sttLanguageIdMode").value.trim()) qs.set("languageIdMode", $("sttLanguageIdMode").value.trim());
+        if ($("sttRecognizedTextPresent").value.trim()) {
+          qs.set("recognizedTextPresent", $("sttRecognizedTextPresent").value.trim());
+        }
+        const res = await request(`/admin/stt/request-logs?${qs.toString()}`);
+        const rows = Array.isArray(res.data) ? res.data : [];
+        renderSttLogs(rows);
+        setStatus(`STT 审计：${rows.length} 条`);
+      }
+
+      function renderSttLogs(rows) {
+        const summary = rows.reduce((acc, row) => {
+          acc.total += 1;
+          if (row.status === "success") acc.success += 1;
+          if (row.status === "failed") acc.failed += 1;
+          acc.audioSeconds += Math.ceil(Number(row.audioDurationMs || 0) / 1000);
+          acc.billableSeconds += Number(row.billableSeconds || 0);
+          acc.transcriptChars += Number(row.transcriptChars || 0);
+          return acc;
+        }, { total: 0, success: 0, failed: 0, audioSeconds: 0, billableSeconds: 0, transcriptChars: 0 });
+        $("sttMetrics").innerHTML = [
+          ["请求数", summary.total, "latest 100"],
+          ["成功 / 失败", `${summary.success} / ${summary.failed}`, "request status"],
+          ["音频秒", summary.audioSeconds, "estimated"],
+          ["计费秒", summary.billableSeconds, "rounded"],
+          ["转写字符", summary.transcriptChars, "final text"],
+        ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+        $("sttLogsTbody").innerHTML = rows.map((row) => {
+          const languages = Array.isArray(row.candidateLanguages)
+            ? row.candidateLanguages.join(",")
+            : String(row.candidateLanguages || "");
+          return `
+            <tr>
+              <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+              <td class="mono">${escapeHtml(row.userId)}</td>
+              <td>${statusPill(row.status)}</td>
+              <td>${escapeHtml(row.provider)}</td>
+              <td>${escapeHtml(row.languageIdMode)}</td>
+              <td>${escapeHtml(languages)}</td>
+              <td>${escapeHtml(row.detectedLanguage || "-")}</td>
+              <td>${escapeHtml(Math.ceil(Number(row.audioDurationMs || 0) / 1000))}</td>
+              <td>${escapeHtml(row.billableSeconds)}</td>
+              <td>${escapeHtml(row.transcriptChars)}</td>
+              <td>${escapeHtml(row.durationMs ?? "")}</td>
+              <td>${escapeHtml(row.errorMessage || row.errorCode || "")}</td>
+            </tr>
+          `;
+        }).join("") || rowEmpty(12);
+      }
+
+      function useSttLogFilter() {
+        $("logModule").value = "stt";
+        $("logEvent").value = "stt.realtime";
+        $("logStatus").value = "failed";
+        setStatus("已填入 STT 系统日志筛选");
+      }
+
       async function loadAuditLogs() {
         const qs = new URLSearchParams();
         qs.set("limit", "100");
@@ -1470,6 +1711,10 @@
         $("btnNextContentSafetyLogs").addEventListener("click", guard(loadNextContentSafetyLogs));
         $("contentSafetyLimit").addEventListener("change", guard(() => loadContentSafetyLogs({ reset: true })));
         $("btnFillContentSafetyFilter").addEventListener("click", fillContentSafetyFilter);
+        $("btnLoadDictionaryLogs").addEventListener("click", guard(loadDictionaryLogs));
+        $("btnUseDictionaryFilter").addEventListener("click", useDictionaryLogFilter);
+        $("btnLoadSttLogs").addEventListener("click", guard(loadSttLogs));
+        $("btnUseSttFilter").addEventListener("click", useSttLogFilter);
         $("btnLoadAuditLogs").addEventListener("click", guard(loadAuditLogs));
         $("usersTbody").addEventListener("click", guard(async (event) => {
           const target = event.target;

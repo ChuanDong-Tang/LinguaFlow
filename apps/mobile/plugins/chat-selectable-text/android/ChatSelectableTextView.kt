@@ -2,14 +2,15 @@ package com.yueyantech.oio.chatselectabletext
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.SpannableString
 import android.text.Selection
 import android.text.Spannable
 import android.text.Spanned
 import android.widget.TextView
-import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.BackgroundColorSpan
 import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.util.Log
@@ -22,6 +23,7 @@ import androidx.appcompat.widget.AppCompatTextView
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
 import com.facebook.react.uimanager.events.RCTEventEmitter
+import com.facebook.react.uimanager.PixelUtil
 import org.json.JSONArray
 
 class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
@@ -41,7 +43,6 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   private var pendingDownX: Float = 0f
   private var pendingDownY: Float = 0f
   private var pendingSelectionRelease: Boolean = false
-  private var pendingTextApply: Boolean = false
   private var textApplyRequested: Boolean = false
   private var rangeLongPressed: Boolean = false
   private val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
@@ -104,14 +105,14 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
   fun setFontSizeSp(value: Float) {
     setTextSize(TypedValue.COMPLEX_UNIT_SP, value)
+    requestApplyText()
   }
 
   fun setLineHeightSp(value: Float) {
-    post {
-      val fontHeight = paint.fontMetrics.descent - paint.fontMetrics.ascent
-      val desiredPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
-      setLineSpacing((desiredPx - fontHeight).coerceAtLeast(0f), 1f)
-    }
+    val fontHeight = paint.fontMetrics.descent - paint.fontMetrics.ascent
+    val desiredPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
+    setLineSpacing((desiredPx - fontHeight).coerceAtLeast(0f), 1f)
+    requestApplyText()
   }
 
   fun setFontWeight(value: String?) {
@@ -119,6 +120,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       "bold", "700", "800", "900" -> Typeface.DEFAULT_BOLD
       else -> Typeface.DEFAULT
     }
+    requestApplyText()
   }
 
   fun clearSelectionState() {
@@ -194,19 +196,15 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
   private fun requestApplyText() {
     textApplyRequested = true
-    if (pendingTextApply) return
-    pendingTextApply = true
-    post {
-      pendingTextApply = false
-      applyTextIfReady()
-    }
+    applyTextIfReady()
   }
 
   private fun applyTextIfReady() {
     if (!textApplyRequested) return
-    if (!isAttachedToWindow || layoutParams == null) return
     textApplyRequested = false
     applyText()
+    requestLayout()
+    invalidate()
   }
 
   private fun applyText() {
@@ -389,13 +387,52 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
   private fun emitSelection(chosenOption: String, selectedText: String, selectedStart: Int, selectedEnd: Int) {
     val reactContext = context as? ReactContext ?: return
+    val rect = selectionRectForRange(selectedStart, selectedEnd)
     val event = Arguments.createMap().apply {
       putString("chosenOption", chosenOption)
       putString("highlightedText", selectedText)
       putInt("selectionStart", selectedStart)
       putInt("selectionEnd", selectedEnd)
+      putMap("selectionRect", Arguments.createMap().apply {
+        putDouble("pageX", PixelUtil.toDIPFromPixel(rect.left).toDouble())
+        putDouble("pageY", PixelUtil.toDIPFromPixel(rect.top).toDouble())
+        putDouble("width", PixelUtil.toDIPFromPixel(rect.width()).toDouble())
+        putDouble("height", PixelUtil.toDIPFromPixel(rect.height()).toDouble())
+      })
     }
     reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(id, "topSelection", event)
+  }
+
+  private fun selectionRectForRange(start: Int, end: Int): RectF {
+    val result = RectF()
+    val currentText = text ?: return result
+    if (currentText.isEmpty() || layout == null) return result
+    val safeStart = start.coerceIn(0, currentText.length)
+    val safeEnd = end.coerceIn(safeStart, currentText.length)
+    if (safeStart >= safeEnd) return result
+    val startLine = layout.getLineForOffset(safeStart)
+    val endLine = layout.getLineForOffset((safeEnd - 1).coerceAtLeast(safeStart))
+    for (line in startLine..endLine) {
+      val lineStart = layout.getLineStart(line)
+      val lineEnd = layout.getLineVisibleEnd(line).coerceAtLeast(lineStart)
+      val segmentStart = maxOf(safeStart, lineStart)
+      val segmentEnd = minOf(safeEnd, lineEnd)
+      if (segmentStart >= segmentEnd) continue
+      val left = layout.getPrimaryHorizontal(segmentStart) + totalPaddingLeft - scrollX
+      val right = layout.getPrimaryHorizontal(segmentEnd) + totalPaddingLeft - scrollX
+      val top = layout.getLineTop(line).toFloat() + totalPaddingTop - scrollY
+      val bottom = layout.getLineBottom(line).toFloat() + totalPaddingTop - scrollY
+      val rect = RectF(minOf(left, right), top, maxOf(left, right), bottom)
+      if (result.isEmpty) {
+        result.set(rect)
+      } else {
+        result.union(rect)
+      }
+    }
+    val location = IntArray(2)
+    getLocationOnScreen(location)
+    result.offset(location[0].toFloat(), location[1].toFloat())
+    return result
   }
 
   private fun emitClozeRange(eventName: String, groupIndex: Int) {

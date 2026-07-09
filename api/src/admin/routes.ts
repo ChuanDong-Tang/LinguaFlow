@@ -28,6 +28,7 @@ export interface AdminRouteDeps {
     };
     paymentEvent: {
       count: (args: any) => Promise<number>;
+      findMany: (args: any) => Promise<any[]>;
     };
     aiRequestLog: {
       count: (args: any) => Promise<number>;
@@ -38,6 +39,9 @@ export interface AdminRouteDeps {
       findMany: (args: any) => Promise<any[]>;
     };
     ttsRequestLog: {
+      findMany: (args: any) => Promise<any[]>;
+    };
+    sttRequestLog: {
       findMany: (args: any) => Promise<any[]>;
     };
     adminAuditLog: {
@@ -214,6 +218,26 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       (autoRenewSubscriptions as any[]).find((item) =>
         ["pending", "active", "billing_retry"].includes(String(item.status))
       ) ?? null;
+    const paymentEventProviderOrderIds = uniqueNonEmptyStrings([
+      ...orders.map((item) => item.providerOrderId),
+      ...subscriptions.map((item) => item.sourceOrderId),
+      ...(autoRenewSubscriptions as any[]).flatMap((item) => [
+        item.providerAgreementId,
+        item.latestTransactionId,
+        item.sourceOrderId,
+      ]),
+      ...(appleIapAccountLinks as any[]).flatMap((item) => [
+        item.originalTransactionId,
+        item.latestTransactionId,
+      ]),
+    ]);
+    const paymentEvents = paymentEventProviderOrderIds.length
+      ? await deps.prisma.paymentEvent.findMany({
+          where: { providerOrderId: { in: paymentEventProviderOrderIds } },
+          orderBy: { createdAt: "desc" },
+          take: 100,
+        })
+      : [];
 
     const data = {
       user,
@@ -224,6 +248,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       entitlements,
       autoRenewSubscriptions,
       appleIapAccountLinks,
+      paymentEvents,
       systemEventLogs,
       adminAuditLogs,
     };
@@ -812,8 +837,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     }
 
     const sourceOrderId = `admin_grant:${userId}:${Date.now()}:${randomUUID()}`;
-    const result = await deps.subscriptionService.openOrRenewPro({
+    const result = await deps.subscriptionService.openOrRenewMembership({
       userId,
+      plan: "pro_monthly",
       sourceOrderId,
       months,
     });
@@ -1143,6 +1169,37 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
 
     return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
   });
+
+  app.get("/admin/stt/request-logs", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const query = req.query as Record<string, unknown>;
+    const userId = typeof query.userId === "string" ? query.userId.trim() : "";
+    const status = typeof query.status === "string" ? query.status.trim() : "";
+    const provider = typeof query.provider === "string" ? query.provider.trim() : "";
+    const languageIdMode = typeof query.languageIdMode === "string" ? query.languageIdMode.trim() : "";
+    const recognizedTextPresent = typeof query.recognizedTextPresent === "string"
+      ? query.recognizedTextPresent.trim()
+      : "";
+    const limit = Math.min(500, Math.max(1, Number(query.limit ?? 100)));
+
+    const rows = await deps.prisma.sttRequestLog.findMany({
+      where: {
+        ...(userId ? { userId } : {}),
+        ...(status ? { status } : {}),
+        ...(provider ? { provider } : {}),
+        ...(languageIdMode ? { languageIdMode } : {}),
+        ...(recognizedTextPresent === "true" ? { recognizedTextPresent: true } : {}),
+        ...(recognizedTextPresent === "false" ? { recognizedTextPresent: false } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+
+    return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
+  });
 }
 
 function getNextDayStartInBusinessTimeZone(base: Date): Date {
@@ -1234,6 +1291,17 @@ function formatMinorCurrency(cents: number, currency: string): string {
 function toInt(value: unknown): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
+}
+
+function uniqueNonEmptyStrings(values: unknown[]): string[] {
+  return Array.from(
+    new Set(
+      values
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  );
 }
 
 async function writeAuditLog(

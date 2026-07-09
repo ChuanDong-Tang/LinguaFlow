@@ -8,6 +8,7 @@ import type {
   PaymentOrderEntity,
   PaymentOrderRepository,
 } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import type { PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import { getExpectedCurrentStatusesForNextStatus } from "./PaymentOrderStateMachine.js";
 import type { SubscriptionService } from "../subscription/SubscriptionService.js";
@@ -43,7 +44,14 @@ export class PaymentOrderService {
   async createProMonthlyOrder(input: {
     userId: string;
   }): Promise<CreatePaymentOrderResponse> {
-    const productCode = "pro_monthly" as const;
+    return this.createMembershipOrder({ ...input, productCode: "pro_monthly" });
+  }
+
+  async createMembershipOrder(input: {
+    userId: string;
+    productCode: PaymentProductCode;
+  }): Promise<CreatePaymentOrderResponse> {
+    const productCode = input.productCode;
     const config = getRuntimeConfig();
     if (this.subscriptionService) {
       await assertCanGrantSingleProMonthly({
@@ -51,8 +59,8 @@ export class PaymentOrderService {
         subscriptionService: this.subscriptionService,
       });
     }
-    const amount = config.payment.proMonthlyPriceCents;
-    const description = config.payment.descriptionProMonthly;
+    const amount = resolveProductAmount(productCode);
+    const description = resolveProductDescription(productCode);
     const reuseWindowMs = config.payment.pendingReuseWindowMs;
     const since = new Date(Date.now() - reuseWindowMs);
     const existing = await this.paymentOrderRepository.findRecentPending({
@@ -475,6 +483,20 @@ function toWechatProvider(provider: PaymentOrderEntity["provider"]): "wechat" {
     throw new Error(`Unsupported create payment order provider: ${provider}`);
   }
   return provider;
+}
+
+function resolveProductAmount(productCode: PaymentProductCode): number {
+  const config = getRuntimeConfig();
+  return productCode === "plus_monthly"
+    ? config.payment.plusMonthlyPriceCents
+    : config.payment.proMonthlyPriceCents;
+}
+
+function resolveProductDescription(productCode: PaymentProductCode): string {
+  const config = getRuntimeConfig();
+  return productCode === "plus_monthly"
+    ? config.payment.descriptionPlusMonthly
+    : config.payment.descriptionProMonthly;
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

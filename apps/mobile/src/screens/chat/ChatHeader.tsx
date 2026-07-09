@@ -7,7 +7,7 @@ type ChatHeaderProps = {
   contact: ChatContact;
   onBack: () => void;
   onOpenCalendar: () => void;
-  onOpenMenu: () => void;
+  onOpenMenu?: () => void;
 };
 
 export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: ChatHeaderProps) {
@@ -30,9 +30,11 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
         <Ionicons name="calendar-outline" size={22} color="#111111" />
       </Pressable>
 
-      <Pressable style={styles.menuButton} hitSlop={8} onPress={onOpenMenu}>
-        <Ionicons name="ellipsis-horizontal" size={22} color="#111111" />
-      </Pressable>
+      {onOpenMenu ? (
+        <Pressable style={styles.menuButton} hitSlop={8} onPress={onOpenMenu}>
+          <Ionicons name="ellipsis-horizontal" size={22} color="#111111" />
+        </Pressable>
+      ) : null}
     </View>
   );
 }

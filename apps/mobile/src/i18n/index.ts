@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { messages, type SupportedLanguage, type TranslationKey } from "./messages";
+export type { SupportedLanguage, TranslationKey } from "./messages";
 
 const LANGUAGE_KEY = "lf_i18n_language";
 const DEFAULT_LANGUAGE: SupportedLanguage = "zh-CN";
@@ -15,6 +16,10 @@ export async function initI18n(): Promise<SupportedLanguage> {
     return currentLanguage;
   }
   return currentLanguage;
+}
+
+export async function getSavedLanguage(): Promise<SupportedLanguage | null> {
+  return normalizeLanguage(await AsyncStorage.getItem(LANGUAGE_KEY));
 }
 
 /** 获取当前语言。 */

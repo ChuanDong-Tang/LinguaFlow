@@ -1,5 +1,5 @@
 import type { ChatMessage } from "../../domain/chat/types";
-import { getMessageDateKey, updateMessageByClientId } from "../../domain/chat/messageState";
+import { compareChatMessagesByCreatedAt, getMessageDateKey, updateMessageByClientId } from "../../domain/chat/messageState";
 import {
   listLocalMessageDateKeysScoped,
   loadLocalMessagesByDateScoped,
@@ -8,7 +8,6 @@ import {
 } from "./chatLocalStorage";
 import { runChatGeneration } from "./chatGenerationService";
 import { getSession } from "../auth/authStorage";
-import type { AutoCopyMode } from "../preferences/assistantPreferences";
 
 type ChatSessionSnapshot = {
   isSending: boolean;
@@ -29,12 +28,11 @@ type StartChatSessionInput = {
   userClientId?: string
   conversationDateKey: string;
   retryCount: number;
+  companionMode?: "rewrite_only" | "native_note" | "simple_reply";
   systemPrompt?: string;
   conversationId?: string | null;
-  autoCopyAfterGeneration: boolean;
-  autoCopyMode: AutoCopyMode;
-  onSuccessText?: (text: string, mode: AutoCopyMode) => Promise<void>;
   onStreamDone?: () => void;
+  onFailure?: (error: { code?: string; message?: string; stage?: "input" | "output" }) => void;
 };
 
 type ChatSessionState = {
@@ -146,7 +144,7 @@ export async function loadPracticeLocalMessages(contactId: string): Promise<Chat
     }
   }
 
-  return Array.from(rowsByKey.values()).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  return Array.from(rowsByKey.values()).sort(compareChatMessagesByCreatedAt);
 }
 
 export async function replaceChatMessagesByDate(
@@ -173,7 +171,7 @@ export async function appendChatMessages(contactId: string, rows: ChatMessage[])
   for (const [dateKey, newDayRows] of grouped.entries()) {
     const existing = await loadLocalMessagesByDateScoped(uid, cid, dateKey);
     const nextDay = [...existing, ...newDayRows]
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+      .sort(compareChatMessagesByCreatedAt)
       .slice(-MAX_MESSAGES_PER_DAY);
     await saveLocalMessagesByDateScoped(uid, cid, dateKey, nextDay);
     state.dayCache.set(dateKey, nextDay);
@@ -247,6 +245,7 @@ export function startChatSession(input: StartChatSessionInput): void {
       text: input.text,
       assistantClientId: input.assistantClientId,
       retryCount: input.retryCount,
+      companionMode: input.companionMode,
       signal: abortController.signal,
       systemPrompt: input.systemPrompt,
       userClientId: input.userClientId,
@@ -261,11 +260,15 @@ export function startChatSession(input: StartChatSessionInput): void {
       },
     });
 
-    if (result.status === "success" && input.autoCopyAfterGeneration && result.assistantText) {
-      await input.onSuccessText?.(result.assistantText, input.autoCopyMode);
-    }
     if (result.status === "success") {
       input.onStreamDone?.();
+    }
+    if (result.status === "failed") {
+      input.onFailure?.({
+        code: result.errorCode,
+        message: result.errorMessage,
+        stage: result.errorStage,
+      });
     }
 
     if (state.activeRunId !== runId) return;

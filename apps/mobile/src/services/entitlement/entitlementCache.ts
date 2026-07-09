@@ -46,7 +46,10 @@ export function isSameEntitlement(a: CurrentEntitlement | null, b: CurrentEntitl
   return (
     a.userId === b.userId &&
     a.plan === b.plan &&
+    a.tier === b.tier &&
     a.isPro === b.isPro &&
+    a.isPlus === b.isPlus &&
+    a.isMember === b.isMember &&
     a.expiresAt === b.expiresAt &&
     a.dateKey === b.dateKey &&
     a.dailyTotalLimit === b.dailyTotalLimit &&

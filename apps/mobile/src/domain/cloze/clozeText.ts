@@ -26,6 +26,6 @@ export function getAssistantClozeText(
 
   return {
     text: tagged.rewrite,
-    translation: tagged.note,
+    translation: tagged.note || tagged.reply,
   };
 }

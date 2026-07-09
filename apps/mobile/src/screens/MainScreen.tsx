@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  CHAT_CONTACTS,
   getChatContactDescription,
   getChatContactName,
   type ChatContact,
@@ -11,10 +10,14 @@ import {
 import { t } from "../i18n";
 
 type MainScreenProps = {
+  contacts: ChatContact[];
+  loadingContacts?: boolean;
+  contactsError?: boolean;
+  onReloadContacts?: () => void;
   onOpenChat: (contact: ChatContact) => void;
 };
 
-export function MainScreen({ onOpenChat }: MainScreenProps) {
+export function MainScreen({ contacts, loadingContacts = false, contactsError = false, onReloadContacts, onOpenChat }: MainScreenProps) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
@@ -26,12 +29,32 @@ export function MainScreen({ onOpenChat }: MainScreenProps) {
         </View>
 
         <View style={styles.conversationStack}>
-          {CHAT_CONTACTS.map((contact) => (
+          {loadingContacts && !contacts.length ? (
+            <View style={styles.conversationRow}>
+              <View style={styles.avatarCircle}>
+                <Ionicons name="hourglass-outline" size={20} color="#7E8491" />
+              </View>
+              <View style={styles.conversationBody}>
+                <Text style={styles.conversationTitle}>{t("main.contacts.loading")}</Text>
+                <Text style={styles.conversationSubtitle}>{t("main.contacts.loading_hint")}</Text>
+              </View>
+            </View>
+          ) : contactsError && !contacts.length ? (
+            <Pressable style={styles.conversationRow} onPress={onReloadContacts}>
+              <View style={styles.avatarCircle}>
+                <Ionicons name="refresh-outline" size={20} color="#7E8491" />
+              </View>
+              <View style={styles.conversationBody}>
+                <Text style={styles.conversationTitle}>{t("main.contacts.failed")}</Text>
+                <Text style={styles.conversationSubtitle}>{t("common.retry")}</Text>
+              </View>
+            </Pressable>
+          ) : contacts.map((contact, index) => (
             <Pressable
               key={contact.id}
               style={[
                 styles.conversationRow,
-                contact.id === "rewrite_assistant" && styles.conversationRowPrimary,
+                index === 0 && styles.conversationRowPrimary,
               ]}
               onPress={() => onOpenChat(contact)}
             >

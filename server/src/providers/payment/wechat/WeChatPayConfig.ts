@@ -70,7 +70,7 @@ export function loadWeChatAutoRenewConfig(
     ...base,
     contractNotifyUrl: env.WECHAT_AUTORENEW_CONTRACT_NOTIFY_URL ?? "",
     debitNotifyUrl: env.WECHAT_AUTORENEW_DEBIT_NOTIFY_URL ?? "",
-    planId: env.WECHAT_AUTORENEW_PLAN_ID ?? "",
+    planId: env.WECHAT_AUTORENEW_PLAN_ID ?? env.WECHAT_AUTORENEW_PRO_PLAN_ID ?? "",
     contractReturnUrl: env.WECHAT_AUTORENEW_CONTRACT_RETURN_URL ?? "",
   };
 

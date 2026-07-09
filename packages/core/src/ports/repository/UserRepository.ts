@@ -65,6 +65,10 @@ export interface UserRepository {
 
   findById(userId: string): Promise<UserEntity | null>;
 
+  findByEmail(email: string): Promise<UserEntity | null>;
+
+  updateEmailById(userId: string, email: string): Promise<UserEntity>;
+
   markPendingDeleteById(userId: string): Promise<UserEntity>;
 
   findOrCreateByAuthIdentity(input:{

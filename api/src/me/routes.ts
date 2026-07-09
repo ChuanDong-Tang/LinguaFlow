@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   AppLocale,
+  GuideState,
   LearningLanguage,
+  PromptDifficulty,
   TtsProviderCode,
   UserPreferenceEntity,
   UserPreferenceRepository,
@@ -39,9 +41,15 @@ export interface MeRouteDeps {
 type UpdatePreferencesBody = {
   appLocale?: AppLocale;
   learningLanguage?: LearningLanguage;
+  promptDifficulty?: PromptDifficulty;
+  guideState?: GuideState;
   ttsProvider?: TtsProviderCode;
   ttsVoiceCode?: string | null;
+  sttMultilingualRecognitionEnabled?: boolean;
 };
+
+const GUIDE_STATE_MAX_KEYS = 80;
+const GUIDE_STATE_COMPLETED_AT_MAX_LENGTH = 64;
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -113,10 +121,13 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       userId: userContext.userId,
       appLocale: body.appLocale,
       learningLanguage: body.learningLanguage,
+      promptDifficulty: body.promptDifficulty,
+      guideState: body.guideState ? mergeGuideState(currentPreference.guideState, body.guideState) : undefined,
       ttsProvider: body.ttsProvider,
       ttsVoiceCode: body.ttsVoiceCode !== undefined || nextTtsVoiceCode !== currentPreference.ttsVoiceCode
         ? nextTtsVoiceCode
         : undefined,
+      sttMultilingualRecognitionEnabled: body.sttMultilingualRecognitionEnabled,
     });
 
     return reply.status(200).send({
@@ -175,7 +186,10 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
         userId: userContext.userId,
         source: userContext.source,
         plan: subscription.plan,
+        tier: subscription.tier,
         isPro: subscription.isPro,
+        isPlus: subscription.isPlus,
+        isMember: subscription.isMember,
         expiresAt: subscription.expiresAt?.toISOString() ?? null,
       },
     });
@@ -389,13 +403,25 @@ async function resolveMeUserContext(
 function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody {
   if (!value || typeof value !== "object") return false;
   const body = value as Record<string, unknown>;
-  const keys = ["appLocale", "learningLanguage", "ttsProvider", "ttsVoiceCode"];
+  const keys = [
+    "appLocale",
+    "learningLanguage",
+    "promptDifficulty",
+    "guideState",
+    "ttsProvider",
+    "ttsVoiceCode",
+    "sttMultilingualRecognitionEnabled",
+  ];
   if (!Object.keys(body).some((key) => keys.includes(key))) return false;
 
   return (
     (body.appLocale === undefined || isAppLocale(body.appLocale)) &&
     (body.learningLanguage === undefined || isLearningLanguage(body.learningLanguage)) &&
+    (body.promptDifficulty === undefined || isPromptDifficulty(body.promptDifficulty)) &&
+    (body.guideState === undefined || isGuideState(body.guideState)) &&
     (body.ttsProvider === undefined || body.ttsProvider === "azure_global") &&
+    (body.sttMultilingualRecognitionEnabled === undefined ||
+      typeof body.sttMultilingualRecognitionEnabled === "boolean") &&
     (body.ttsVoiceCode === undefined ||
       body.ttsVoiceCode === null ||
       (typeof body.ttsVoiceCode === "string" &&
@@ -410,6 +436,27 @@ function isAppLocale(value: unknown): value is AppLocale {
 
 function isLearningLanguage(value: unknown): value is LearningLanguage {
   return value === "en-US" || value === "ja-JP";
+}
+
+function isPromptDifficulty(value: unknown): value is PromptDifficulty {
+  return value === "simple" || value === "native";
+}
+
+function isGuideState(value: unknown): value is GuideState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > GUIDE_STATE_MAX_KEYS) return false;
+  return entries.every(([key, entry]) => {
+    if (key.length <= 0 || key.length > 80 || !/^[a-z0-9_]+$/.test(key)) return false;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const completedAt = (entry as Record<string, unknown>).completedAt;
+    return completedAt === undefined ||
+      (typeof completedAt === "string" && completedAt.length <= GUIDE_STATE_COMPLETED_AT_MAX_LENGTH);
+  });
+}
+
+function mergeGuideState(current: GuideState, next: GuideState): GuideState {
+  return { ...current, ...next };
 }
 
 function resolveNextTtsVoiceCode(input: {
@@ -439,8 +486,11 @@ function toPreferenceResponse(preference: UserPreferenceEntity) {
     userId: preference.userId,
     appLocale: preference.appLocale,
     learningLanguage: preference.learningLanguage,
+    promptDifficulty: preference.promptDifficulty,
+    guideState: preference.guideState,
     ttsProvider: preference.ttsProvider,
     ttsVoiceCode: preference.ttsVoiceCode,
+    sttMultilingualRecognitionEnabled: preference.sttMultilingualRecognitionEnabled,
     createdAt: preference.createdAt.toISOString(),
     updatedAt: preference.updatedAt.toISOString(),
   };

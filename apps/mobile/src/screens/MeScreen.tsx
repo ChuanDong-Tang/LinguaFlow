@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Updates from "expo-updates";
@@ -10,28 +10,37 @@ import {
   type AppLocale,
   type CurrentEntitlement,
   type LearningLanguage,
+  type PromptDifficulty,
   type UserPreference,
 } from "../services/api/meApi";
 import { getCachedEntitlementForUser, isSameEntitlement } from "../services/entitlement/entitlementCache";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
 import { recoverPendingPaymentIfAny } from "../services/payment/paymentRecovery";
 import { useMountedGuard } from "../hooks/useMountedGuard";
-import { setLanguage, t, tf } from "../i18n";
+import { t, tf } from "../i18n";
 import { DebugPromptModal } from "./shared/DebugPromptModal";
 import { listTtsVoices, type TtsVoiceOption } from "../services/api/ttsApi";
+import { getLogs, type AppLog } from "../services/logger";
 
 type MeScreenProps = {
   isActive: boolean;
   onOpenPro: () => void;
   onOpenAbout: () => void;
+  onOpenHelp: () => void;
+  onApplyAppLocale: (value: AppLocale) => void;
+  sessionRevision: number;
+  onBindEmail: () => Promise<void> | void;
   onLogout: () => Promise<void> | void;
   onDeleteAccount: () => Promise<void> | void;
 };
 
-const OTA_DEBUG_JS_LABEL = "Fix apple pay JWS";
+const OTA_DEBUG_JS_LABEL = "Dictionary overlay close fix";
+const UPDATE_LOG_KEYWORDS = ["error", "fail", "exception", "crash", "rollback", "emergency", "launch", "reset", "delete"];
+const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
-export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteAccount }: MeScreenProps) {
+export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApplyAppLocale, sessionRevision, onBindEmail, onLogout, onDeleteAccount }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
+  const appLocaleSyncSeqRef = useRef(0);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
   const [preference, setPreference] = useState<UserPreference | null>(null);
@@ -76,10 +85,10 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
     return () => {
       cancelled = true;
     };
-  }, [isActive, isMounted]);
+  }, [isActive, isMounted, sessionRevision]);
 
   const quota = useMemo(() => {
-    const dailyTotalLimit = entitlement?.dailyTotalLimit ?? (session?.sessionFlags?.isPro ? 100000 : 10000);
+    const dailyTotalLimit = entitlement?.dailyTotalLimit ?? (session?.sessionFlags?.isPro ? 10000 : 10000);
     const remainingChars = entitlement?.remainingChars ?? null;
     const ratio = remainingChars === null || dailyTotalLimit <= 0 ? 0 : remainingChars / dailyTotalLimit;
 
@@ -89,14 +98,24 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
 
   const userName = resolveUserName(session);
   const isAdmin = session?.user.role === "admin";
-  const planLabel = (entitlement?.isPro ?? session?.sessionFlags?.isPro === true) ? t("me.plan.pro") : t("me.plan.free");
-  const quotaTitle = entitlement?.isPro ? t("me.quota.pro_title") : t("me.quota.free_title");
-  const quotaLabel = entitlement?.isPro ? t("me.quota.pro_label") : t("me.quota.free_label");
-  const quotaResetText = entitlement?.isPro
+  const isMember = entitlement ? (entitlement.isMember ?? entitlement.isPro) : session?.sessionFlags?.isPro === true;
+  const planLabel = resolvePlanLabel(entitlement, session);
+  const quotaTitle = isMember ? t("me.quota.pro_title") : t("me.quota.free_title");
+  const quotaLabel = isMember ? t("me.quota.pro_label") : t("me.quota.free_label");
+  const quotaResetText = isMember
     ? t("me.quota.reset_daily")
     : entitlement?.validUntil
       ? tf("me.quota.valid_until", { time: formatDateTime(entitlement.validUntil) })
       : t("me.quota.free_valid");
+  const boundEmail = session?.user.email?.trim() || "";
+
+  function handleBindEmailPress(): void {
+    if (boundEmail) {
+      Alert.alert(t("me.bind_email.already_title"), tf("me.bind_email.already_message", { email: boundEmail }));
+      return;
+    }
+    void onBindEmail();
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -143,7 +162,6 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
 
         <View style={styles.proCard}>
           <Text style={styles.proTitle}>{t("me.pro.title")}</Text>
-          <Text style={styles.proSubtitle}>{t("me.pro.subtitle")}</Text>
           {([t("me.pro.benefit.quota"), t("me.pro.benefit.cloud"), t("me.pro.benefit.tts")]).map((item) => (
             <View key={item} style={styles.benefitRow}>
               <Ionicons name="checkmark-circle-outline" size={18} color="#746BFF" />
@@ -159,11 +177,22 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
         <Text style={styles.sectionTitle}>{t("me.section.more")}</Text>
         <View style={styles.settingsCard}>
           <SettingsRow
+            icon="mail-outline"
+            label={t("me.bind_email")}
+            value={boundEmail || t("me.bind_email.not_bound")}
+            onPress={handleBindEmailPress}
+          />
+          <SettingsRow
             icon="language-outline"
             label={t("me.language_settings")}
-            value={preference ? `${appLocaleLabel(preference.appLocale)} · ${learningLanguageLabel(preference.learningLanguage)}` : undefined}
+            value={preference ? [
+              appLocaleLabel(preference.appLocale),
+              learningLanguageLabel(preference.learningLanguage),
+              promptDifficultyLabel(preference.promptDifficulty),
+            ].join(" · ") : undefined}
             onPress={() => setLanguageSettingsVisible(true)}
           />
+          <SettingsRow icon="help-circle-outline" label={t("me.help")} onPress={onOpenHelp} />
           <SettingsRow icon="information-circle-outline" label={t("me.about")} onPress={onOpenAbout} />
           <SettingsRow icon="log-out-outline" label={t("me.logout")} onPress={onLogout} />
           <SettingsRow icon="person-remove-outline" label={t("me.delete_account")} onPress={onDeleteAccount} tone="danger" isLast />
@@ -173,10 +202,25 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
         visible={languageSettingsVisible}
         preference={preference}
         onClose={() => setLanguageSettingsVisible(false)}
+        onApplyAppLocale={(value) => {
+          appLocaleSyncSeqRef.current += 1;
+          const syncSeq = appLocaleSyncSeqRef.current;
+          onApplyAppLocale(value);
+          setPreference((current) => current ? { ...current, appLocale: value } : current);
+          void updateUserPreference({ appLocale: value })
+            .then((saved) => {
+              if (!isMounted() || appLocaleSyncSeqRef.current !== syncSeq) return;
+              setPreference(saved);
+            })
+            .catch(() => {
+              if (!isMounted() || appLocaleSyncSeqRef.current !== syncSeq) return;
+              Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
+            });
+        }}
         onSave={async (next) => {
           try {
             const saved = await updateUserPreference(next);
-            await setLanguage(saved.appLocale);
+            onApplyAppLocale(saved.appLocale);
             setPreference(saved);
             setLanguageSettingsVisible(false);
           } catch {
@@ -207,7 +251,11 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onLogout, onDeleteA
           setUpdatesResult(`${label}...`);
           try {
             const result = await action();
-            setUpdatesResult(formatDebugValue(result));
+            setUpdatesResult(
+              label === "logs"
+                ? formatCombinedDiagnostics(result)
+                : formatUpdateActionResult(label, result),
+            );
           } catch (error) {
             setUpdatesResult(formatError(error));
           } finally {
@@ -223,28 +271,48 @@ function LanguageSettingsModal({
   visible,
   preference,
   onClose,
+  onApplyAppLocale,
   onSave,
 }: {
   visible: boolean;
   preference: UserPreference | null;
   onClose: () => void;
-  onSave: (next: { appLocale: AppLocale; learningLanguage: LearningLanguage; ttsVoiceCode: string }) => Promise<void>;
+  onApplyAppLocale: (value: AppLocale) => void;
+  onSave: (next: {
+    appLocale: AppLocale;
+    learningLanguage: LearningLanguage;
+    promptDifficulty: PromptDifficulty;
+    ttsVoiceCode: string;
+    sttMultilingualRecognitionEnabled: boolean;
+  }) => Promise<void>;
 }) {
   const [appLocale, setAppLocale] = useState<AppLocale>("zh-CN");
   const [learningLanguage, setLearningLanguage] = useState<LearningLanguage>("en-US");
+  const [promptDifficulty, setPromptDifficulty] = useState<PromptDifficulty>("native");
   const [ttsVoiceCode, setTtsVoiceCode] = useState("");
   const [ttsVoiceOptions, setTtsVoiceOptions] = useState<TtsVoiceOption[]>([]);
   const [voiceLoading, setVoiceLoading] = useState(false);
   const [voiceError, setVoiceError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [multilingualRecognitionEnabled, setMultilingualRecognitionEnabled] = useState(false);
+  const [openSelect, setOpenSelect] = useState<string | null>(null);
+  const initializedVisibleRef = useRef(false);
   const currentLanguageVoiceOptions = ttsVoiceOptions.filter((option) => option.languageCode === learningLanguage);
   const canSave = !saving && currentLanguageVoiceOptions.some((option) => option.voiceCode === ttsVoiceCode);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      initializedVisibleRef.current = false;
+      return;
+    }
+    if (initializedVisibleRef.current) return;
+    initializedVisibleRef.current = true;
     const nextLearningLanguage = preference?.learningLanguage ?? "en-US";
     setAppLocale(preference?.appLocale ?? "zh-CN");
     setLearningLanguage(nextLearningLanguage);
+    setPromptDifficulty(preference?.promptDifficulty ?? "native");
+    setMultilingualRecognitionEnabled(preference?.sttMultilingualRecognitionEnabled === true);
+    setOpenSelect(null);
   }, [preference, visible]);
 
   useEffect(() => {
@@ -276,7 +344,13 @@ function LanguageSettingsModal({
     if (!canSave) return;
     setSaving(true);
     try {
-      await onSave({ appLocale, learningLanguage, ttsVoiceCode });
+      await onSave({
+        appLocale,
+        learningLanguage,
+        promptDifficulty,
+        ttsVoiceCode,
+        sttMultilingualRecognitionEnabled: multilingualRecognitionEnabled,
+      });
     } finally {
       setSaving(false);
     }
@@ -292,47 +366,88 @@ function LanguageSettingsModal({
               <Ionicons name="close" size={22} color="#111111" />
             </Pressable>
           </View>
-          <Text style={styles.languageFieldTitle}>{t("me.language.app_locale")}</Text>
-          <View style={styles.languageOptionGrid}>
-            {APP_LOCALE_OPTIONS.map((option) => (
-              <OptionChip
-                key={option.value}
-                label={t(option.labelKey)}
-                active={appLocale === option.value}
-                onPress={() => setAppLocale(option.value)}
-              />
-            ))}
-          </View>
-          <Text style={styles.languageFieldTitle}>{t("me.language.learning")}</Text>
-          <Text style={styles.languageHint}>{t("me.language.hint")}</Text>
-          <View style={styles.languageOptionGrid}>
-            {LEARNING_LANGUAGE_OPTIONS.map((option) => (
-              <OptionChip
-                key={option.value}
-                label={t(option.labelKey)}
-                active={learningLanguage === option.value}
-                onPress={() => {
+          <ScrollView style={styles.languageForm} contentContainerStyle={styles.languageFormContent} showsVerticalScrollIndicator={false}>
+            <SelectField
+              id="appLocale"
+              title={t("me.language.app_locale")}
+              valueLabel={appLocaleLabel(appLocale)}
+              open={openSelect === "appLocale"}
+              options={APP_LOCALE_OPTIONS.map((option) => ({
+                key: option.value,
+                label: t(option.labelKey),
+                active: appLocale === option.value,
+                onPress: () => {
+                  setAppLocale(option.value);
+                  onApplyAppLocale(option.value);
+                },
+              }))}
+              onToggle={() => setOpenSelect((current) => current === "appLocale" ? null : "appLocale")}
+              onClose={() => setOpenSelect(null)}
+            />
+            <SelectField
+              id="learningLanguage"
+              title={t("me.language.learning")}
+              valueLabel={learningLanguageLabel(learningLanguage)}
+              open={openSelect === "learningLanguage"}
+              options={LEARNING_LANGUAGE_OPTIONS.map((option) => ({
+                key: option.value,
+                label: t(option.labelKey),
+                active: learningLanguage === option.value,
+                onPress: () => {
                   setLearningLanguage(option.value);
                   setTtsVoiceCode(resolveTtsVoiceCodeForLanguage(ttsVoiceOptions, option.value, null));
-                }}
-              />
-            ))}
-          </View>
-          <Text style={styles.languageFieldTitle}>{t("me.language.tts_voice")}</Text>
-          <Text style={styles.languageHint}>{t("me.language.tts_voice_hint")}</Text>
-          <View style={styles.languageOptionGrid}>
-            {voiceLoading ? <ActivityIndicator size="small" color="#1F6FEB" /> : null}
+                },
+              }))}
+              onToggle={() => setOpenSelect((current) => current === "learningLanguage" ? null : "learningLanguage")}
+              onClose={() => setOpenSelect(null)}
+            />
+            <SelectField
+              id="promptDifficulty"
+              title={t("me.language.difficulty")}
+              valueLabel={promptDifficultyLabel(promptDifficulty)}
+              open={openSelect === "promptDifficulty"}
+              options={PROMPT_DIFFICULTY_OPTIONS.map((option) => ({
+                key: option.value,
+                label: t(option.labelKey),
+                active: promptDifficulty === option.value,
+                onPress: () => setPromptDifficulty(option.value),
+              }))}
+              onToggle={() => setOpenSelect((current) => current === "promptDifficulty" ? null : "promptDifficulty")}
+              onClose={() => setOpenSelect(null)}
+            />
+            <SelectField
+              id="ttsVoice"
+              title={t("me.language.tts_voice")}
+              valueLabel={voiceLoading ? "" : currentLanguageVoiceOptions.find((option) => option.voiceCode === ttsVoiceCode)?.label ?? ""}
+              open={openSelect === "ttsVoice"}
+              disabled={voiceLoading || voiceError || currentLanguageVoiceOptions.length === 0}
+              options={currentLanguageVoiceOptions.map((option) => ({
+                key: option.voiceCode,
+                label: option.label,
+                detail: learningLanguageLabel(option.languageCode as LearningLanguage),
+                active: ttsVoiceCode === option.voiceCode,
+                onPress: () => setTtsVoiceCode(option.voiceCode),
+              }))}
+              onToggle={() => setOpenSelect((current) => current === "ttsVoice" ? null : "ttsVoice")}
+              onClose={() => setOpenSelect(null)}
+            />
+            {voiceLoading ? <ActivityIndicator style={styles.languageInlineStatus} size="small" color="#1F6FEB" /> : null}
             {voiceError ? <Text style={styles.languageHint}>{t("tts.error.failed")}</Text> : null}
-            {!voiceLoading && !voiceError && currentLanguageVoiceOptions.map((option) => (
-              <VoiceOptionChip
-                key={option.voiceCode}
-                languageLabel={learningLanguageLabel(option.languageCode as LearningLanguage)}
-                label={option.label}
-                active={ttsVoiceCode === option.voiceCode}
-                onPress={() => setTtsVoiceCode(option.voiceCode)}
-              />
-            ))}
-          </View>
+            <View style={styles.languageAdvancedBlock}>
+              <Text style={styles.languageFieldTitle}>{t("me.language.stt_advanced")}</Text>
+              <Pressable
+                style={styles.languageToggleRow}
+                onPress={() => setMultilingualRecognitionEnabled((value) => !value)}
+              >
+                <View style={[styles.languageToggleBox, multilingualRecognitionEnabled && styles.languageToggleBoxActive]}>
+                  {multilingualRecognitionEnabled ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+                </View>
+                <View style={styles.languageToggleTextWrap}>
+                  <Text style={styles.languageToggleTitle}>{t("me.language.stt_multilingual")}</Text>
+                </View>
+              </Pressable>
+            </View>
+          </ScrollView>
           <View style={styles.languageActions}>
             <Pressable style={styles.languageCancelButton} onPress={onClose} disabled={saving}>
               <Text style={styles.languageCancelText}>{t("common.cancel")}</Text>
@@ -347,22 +462,69 @@ function LanguageSettingsModal({
   );
 }
 
-function VoiceOptionChip({
-  languageLabel,
-  label,
-  active,
-  onPress,
+function SelectField({
+  title,
+  hint,
+  valueLabel,
+  open,
+  disabled,
+  options,
+  onToggle,
+  onClose,
 }: {
-  languageLabel: string;
-  label: string;
-  active: boolean;
-  onPress: () => void;
+  id: string;
+  title: string;
+  hint?: string;
+  valueLabel: string;
+  open: boolean;
+  disabled?: boolean;
+  options: Array<{
+    key: string;
+    label: string;
+    detail?: string;
+    active: boolean;
+    onPress: () => void;
+  }>;
+  onToggle: () => void;
+  onClose: () => void;
 }) {
   return (
-    <Pressable style={[styles.voiceOptionChip, active && styles.languageOptionChipActive]} onPress={onPress}>
-      <Text style={[styles.voiceOptionTag, active && styles.voiceOptionTagActive]}>{languageLabel}</Text>
-      <Text style={[styles.voiceOptionText, active && styles.languageOptionTextActive]}>{label}</Text>
-    </Pressable>
+    <View style={styles.selectField}>
+      <Text style={styles.languageFieldTitle}>{title}</Text>
+      {hint ? <Text style={styles.languageHint}>{hint}</Text> : null}
+      <Pressable
+        style={[styles.selectButton, disabled && styles.selectButtonDisabled]}
+        onPress={disabled ? undefined : onToggle}
+        disabled={disabled}
+      >
+        <Text style={[styles.selectButtonText, !valueLabel && styles.selectButtonTextMuted]} numberOfLines={1}>
+          {valueLabel || "-"}
+        </Text>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={disabled ? "#B4BBC7" : "#343A45"} />
+      </Pressable>
+      {open && !disabled ? (
+        <View style={styles.selectMenu}>
+          {options.map((option) => (
+            <Pressable
+              key={option.key}
+              style={[styles.selectOption, option.active && styles.selectOptionActive]}
+              onPress={() => {
+                option.onPress();
+                onClose();
+              }}
+            >
+              <View style={styles.selectOptionTextWrap}>
+                {option.detail ? <Text style={[styles.selectOptionDetail, option.active && styles.selectOptionTextActive]}>{option.detail}</Text> : null}
+                <Text style={[styles.selectOptionText, option.active && styles.selectOptionTextActive]} numberOfLines={1}>
+                  {option.label}
+                </Text>
+              </View>
+              {option.active ? <Ionicons name="checkmark" size={18} color="#FFFFFF" /> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -394,22 +556,6 @@ function DeveloperDebugModal({
         </View>
       </View>
     </Modal>
-  );
-}
-
-function OptionChip({
-  label,
-  active,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable style={[styles.languageOptionChip, active && styles.languageOptionChipActive]} onPress={onPress}>
-      <Text style={[styles.languageOptionText, active && styles.languageOptionTextActive]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -460,9 +606,10 @@ function UpdatesDebugModal({
             <View style={styles.updatesDebugActions}>
               <DebugButton label="检查更新" disabled={!!runningAction} onPress={() => onRun("check", Updates.checkForUpdateAsync)} />
               <DebugButton label="下载更新" disabled={!!runningAction} onPress={() => onRun("fetch", Updates.fetchUpdateAsync)} />
-              <DebugButton label="重载应用" disabled={!!runningAction} onPress={() => onRun("reload", Updates.reloadAsync)} />
-              <DebugButton label="读取日志" disabled={!!runningAction} onPress={() => onRun("logs", () => Updates.readLogEntriesAsync(24 * 60 * 60 * 1000))} />
+              <DebugButton label="重载(谨慎)" disabled={!!runningAction} onPress={() => onRun("reload", Updates.reloadAsync)} />
+              <DebugButton label="读取日志" disabled={!!runningAction} onPress={() => onRun("logs", readCombinedDiagnostics)} />
             </View>
+            <Text style={styles.updatesDebugHint}>下载后优先从系统后台划掉 App 再手动打开；只有需要验证 reloadAsync 时再点重载。</Text>
             <Text style={styles.updatesDebugResultTitle}>结果</Text>
             <Text selectable style={styles.updatesDebugResult}>{runningAction ? `${runningAction} running...\n\n` : ""}{result}</Text>
           </ScrollView>
@@ -478,6 +625,142 @@ function DebugButton({ label, disabled, onPress }: { label: string; disabled: bo
       <Text style={styles.updatesDebugButtonText}>{label}</Text>
     </Pressable>
   );
+}
+
+async function readCombinedDiagnostics(): Promise<{ updateLogs: unknown; appLogs: AppLog[] }> {
+  const [updateLogs, appLogs] = await Promise.all([
+    Updates.readLogEntriesAsync(24 * 60 * 60 * 1000),
+    getLogs(),
+  ]);
+  return { updateLogs, appLogs };
+}
+
+function formatCombinedDiagnostics(value: unknown): string {
+  if (!isRecord(value)) return formatDebugValue(value);
+  return [
+    formatAppLogs(value.appLogs),
+    "",
+    formatUpdateLogs(value.updateLogs),
+  ].join("\n");
+}
+
+function formatUpdateLogs(value: unknown): string {
+  if (!Array.isArray(value)) return formatDebugValue(value);
+  const rows = value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const record = entry as Record<string, unknown>;
+      const rawMessage = typeof record.message === "string" ? record.message : "";
+      const message = summarizeUpdateLogMessage(rawMessage);
+      const level = typeof record.level === "string" ? record.level : "unknown";
+      const code = typeof record.code === "string" ? record.code : "None";
+      const timestamp = typeof record.timestamp === "number" ? new Date(record.timestamp).toISOString() : String(record.timestamp ?? "");
+      return {
+        level,
+        code,
+        timestamp,
+        message,
+        searchable: `${level} ${code} ${message}`.toLowerCase(),
+      };
+    })
+    .filter((entry): entry is { level: string; code: string; timestamp: string; message: string; searchable: string } => !!entry);
+  const important = rows.filter((entry) => UPDATE_LOG_KEYWORDS.some((keyword) => entry.searchable.includes(keyword)));
+  const recent = rows.slice(-12);
+  return [
+    `important logs (${important.length}/${rows.length})`,
+    ...important.slice(-24).map(formatUpdateLogLine),
+    "",
+    "recent logs",
+    ...recent.map(formatUpdateLogLine),
+  ].join("\n");
+}
+
+function formatUpdateLogLine(entry: { level: string; code: string; timestamp: string; message: string }): string {
+  return `[${entry.level}/${entry.code}] ${entry.timestamp}\n${entry.message}`;
+}
+
+function formatAppLogs(value: unknown): string {
+  if (!Array.isArray(value)) return formatDebugValue(value);
+  const rows = value.filter((entry): entry is AppLog => isRecord(entry) && typeof entry.event === "string");
+  const important = rows.filter((entry) => entry.level === "error" || /update|error|crash|fatal|global/i.test(entry.event));
+  const recent = rows.slice(-6);
+  return [
+    `app failures (${important.length}/${rows.length})`,
+    ...important.slice(-8).map(formatAppLogLine),
+    "",
+    "recent app",
+    ...recent.map(formatAppLogLine),
+  ].join("\n");
+}
+
+function formatAppLogLine(entry: AppLog): string {
+  const extra = entry.extra ? `\n${JSON.stringify(entry.extra, null, 2).slice(0, 420)}` : "";
+  return `[${entry.level}] ${entry.time}\n${entry.event}${entry.message ? `: ${entry.message}` : ""}${extra}`;
+}
+
+function formatUpdateActionResult(label: string, value: unknown): string {
+  if (label === "reload") {
+    return "reloadAsync called. If the app closes or returns to embedded, read logs after reopening.";
+  }
+  if (!isRecord(value)) return formatDebugValue(value);
+  const lines = [`${label} result`];
+  for (const key of ["isAvailable", "isNew", "isRollBackToEmbedded"] as const) {
+    if (key in value) lines.push(`${key}: ${String(value[key])}`);
+  }
+  const manifest = isRecord(value.manifest) ? value.manifest : null;
+  if (manifest) {
+    const metadata = isRecord(manifest.metadata) ? manifest.metadata : null;
+    const extra = isRecord(manifest.extra) ? manifest.extra : null;
+    lines.push(`id: ${String(manifest.id ?? "null")}`);
+    lines.push(`createdAt: ${String(manifest.createdAt ?? "null")}`);
+    lines.push(`runtimeVersion: ${String(manifest.runtimeVersion ?? "null")}`);
+    lines.push(`branch: ${String(metadata?.branchName ?? "null")}`);
+    lines.push(`group: ${String(metadata?.updateGroup ?? "null")}`);
+    lines.push(`message: ${getUpdateMessage(manifest)}`);
+    if (extra && isRecord(extra.eas)) lines.push(`projectId: ${String(extra.eas.projectId ?? "null")}`);
+  }
+  return lines.join("\n");
+}
+
+function summarizeUpdateLogMessage(rawMessage: string): string {
+  const compact = rawMessage.replace(/\s+/g, " ").trim();
+  if (compact.length <= 360) return compact;
+  const pieces: string[] = [];
+  const stateMatch = compact.match(/state = [^,)]*/);
+  const eventMatch = compact.match(/event = [^,)]*/);
+  const failureMatch = compact.match(/failureCount = \d+/);
+  const updateGroups = collectRegexMatches(compact, /updateGroup = "?([0-9a-f-]{36})"?/gi);
+  const ids = Array.from(new Set(compact.match(UPDATE_ID_PATTERN) ?? []));
+  const flags = [
+    "isStartupProcedureRunning",
+    "isUpdateAvailable",
+    "isUpdatePending",
+    "isChecking",
+    "isDownloading",
+    "isRestarting",
+  ]
+    .map((key) => compact.match(new RegExp(`${key}: (true|false)`, "i"))?.[0])
+    .filter((item): item is string => !!item);
+  if (stateMatch) pieces.push(stateMatch[0]);
+  if (eventMatch) pieces.push(eventMatch[0]);
+  if (failureMatch) pieces.push(failureMatch[0]);
+  if (updateGroups.length) pieces.push(`groups: ${updateGroups.slice(-3).join(", ")}`);
+  if (ids.length) pieces.push(`ids: ${ids.slice(-4).join(", ")}`);
+  if (flags.length) pieces.push(flags.join(", "));
+  if (/checkError: nil/i.test(compact)) pieces.push("checkError: nil");
+  if (/downloadError: nil/i.test(compact)) pieces.push("downloadError: nil");
+  if (/Deleted assets and updates/i.test(compact)) pieces.push(compact.slice(0, 180));
+  return pieces.length ? pieces.join("\n") : `${compact.slice(0, 340)}...`;
+}
+
+function collectRegexMatches(value: string, pattern: RegExp): string[] {
+  const output: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value))) {
+    const item = match[1];
+    if (item && !output.includes(item)) output.push(item);
+  }
+  return output;
 }
 
 function SettingsRow({
@@ -519,6 +802,11 @@ const LEARNING_LANGUAGE_OPTIONS: Array<{ value: LearningLanguage; labelKey: Para
   { value: "ja-JP", labelKey: "learning.ja_jp" },
 ];
 
+const PROMPT_DIFFICULTY_OPTIONS: Array<{ value: PromptDifficulty; labelKey: Parameters<typeof t>[0] }> = [
+  { value: "simple", labelKey: "prompt_difficulty.simple" },
+  { value: "native", labelKey: "prompt_difficulty.native" },
+];
+
 function resolveTtsVoiceCodeForLanguage(
   options: TtsVoiceOption[],
   languageCode: LearningLanguage,
@@ -539,6 +827,19 @@ function appLocaleLabel(value: AppLocale): string {
 function learningLanguageLabel(value: LearningLanguage): string {
   const option = LEARNING_LANGUAGE_OPTIONS.find((item) => item.value === value) ?? LEARNING_LANGUAGE_OPTIONS[0];
   return t(option.labelKey);
+}
+
+function promptDifficultyLabel(value: PromptDifficulty): string {
+  const option = PROMPT_DIFFICULTY_OPTIONS.find((item) => item.value === value) ?? PROMPT_DIFFICULTY_OPTIONS[1];
+  return t(option.labelKey);
+}
+
+function resolvePlanLabel(entitlement: CurrentEntitlement | null, session: AuthSession | null): string {
+  if (entitlement?.tier === "plus") return t("me.plan.plus");
+  if (entitlement?.tier === "pro") return t("me.plan.pro");
+  if (entitlement?.isMember ?? entitlement?.isPro) return t("me.plan.member");
+  if (session?.sessionFlags?.isPro === true) return t("me.plan.member");
+  return t("me.plan.free");
 }
 
 function formatNumber(value: number): string {
@@ -622,7 +923,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 16,
-    paddingBottom: 16,
+    paddingBottom: 92,
   },
 
   profileRow: {
@@ -739,11 +1040,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "500",
   },
-  proSubtitle: {
-    marginTop: 6,
-    color: "#5E6573",
-    fontSize: 13,
-  },
   benefitRow: {
     marginTop: 6,
     flexDirection: "row",
@@ -818,6 +1114,7 @@ const styles = StyleSheet.create({
   },
   languagePanel: {
     padding: 16,
+    maxHeight: "88%",
     borderRadius: 16,
     backgroundColor: "#FFFFFF",
   },
@@ -838,7 +1135,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   languageFieldTitle: {
-    marginTop: 16,
     color: "#343A45",
     fontSize: 13,
     fontWeight: "700",
@@ -849,57 +1145,114 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
-  languageOptionGrid: {
-    marginTop: 10,
+  languageForm: {
+    flexShrink: 1,
+    marginTop: 2,
+  },
+  languageFormContent: {
+    paddingBottom: 2,
+  },
+  selectField: {
+    marginTop: 14,
+  },
+  selectButton: {
+    marginTop: 8,
+    minHeight: 42,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DFE3EA",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: 8,
   },
-  languageOptionChip: {
-    minHeight: 38,
-    minWidth: 90,
+  selectButtonDisabled: {
+    backgroundColor: "#F5F6F8",
+  },
+  selectButtonText: {
+    flex: 1,
+    color: "#343A45",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  selectButtonTextMuted: {
+    color: "#A3A9B4",
+  },
+  selectMenu: {
+    marginTop: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DFE3EA",
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+  },
+  selectOption: {
+    minHeight: 42,
     paddingHorizontal: 12,
     paddingVertical: 9,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#DFE3EA",
-    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF0F4",
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 8,
   },
-  languageOptionChipActive: {
-    borderColor: "#111111",
+  selectOptionActive: {
     backgroundColor: "#111111",
   },
-  languageOptionText: {
-    color: "#5D6470",
+  selectOptionTextWrap: {
+    flex: 1,
+  },
+  selectOptionText: {
+    color: "#343A45",
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
   },
-  languageOptionTextActive: {
-    color: "#FFFFFF",
-  },
-  voiceOptionChip: {
-    minHeight: 48,
-    minWidth: 124,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#DFE3EA",
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
-  },
-  voiceOptionTag: {
+  selectOptionDetail: {
+    marginBottom: 2,
     color: "#7E8491",
     fontSize: 11,
     fontWeight: "600",
   },
-  voiceOptionTagActive: {
-    color: "rgba(255,255,255,0.72)",
+  selectOptionTextActive: {
+    color: "#FFFFFF",
   },
-  voiceOptionText: {
-    marginTop: 2,
+  languageInlineStatus: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+  },
+  languageAdvancedBlock: {
+    marginTop: 14,
+  },
+  languageToggleRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DFE3EA",
+    backgroundColor: "#FAFBFC",
+  },
+  languageToggleBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#B8C0CC",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  languageToggleBoxActive: {
+    borderColor: "#111111",
+    backgroundColor: "#111111",
+  },
+  languageToggleTextWrap: {
+    flex: 1,
+  },
+  languageToggleTitle: {
     color: "#343A45",
     fontSize: 13,
     fontWeight: "700",
@@ -1003,6 +1356,12 @@ const styles = StyleSheet.create({
     color: "#111111",
     fontSize: 13,
     fontWeight: "600",
+  },
+  updatesDebugHint: {
+    marginTop: 8,
+    color: "#7E8491",
+    fontSize: 11,
+    lineHeight: 16,
   },
   updatesDebugResultTitle: {
     marginTop: 14,

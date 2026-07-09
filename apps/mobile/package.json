@@ -8,10 +8,12 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "build:ios:preview": "npx eas-cli build --platform ios --profile preview",
+    "build:ios:testflight": "npx eas-cli build --platform ios --profile testflight",
     "build:ios:production": "npx eas-cli build --platform ios --profile production"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
+    "@picovoice/react-native-voice-processor": "^1.2.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "11.4.1",
     "expo": "~54.0.35",

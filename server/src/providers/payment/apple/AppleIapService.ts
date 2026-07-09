@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
 import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
+import type { SubscriptionRepository } from "@lf/core/ports/repository/SubscriptionRepository.js";
 import type { AppleIapAccountLinkRepository } from "@lf/core/ports/repository/AppleIapAccountLinkRepository.js";
-import type { PaymentOrderStatus } from "@lf/core/ports/payment/PaymentTypes.js";
+import type { PaymentOrderStatus, PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
 import type { AutoRenewService } from "../../../services/payment/AutoRenewService.js";
@@ -34,6 +35,7 @@ export interface VerifyAppleIapTransactionResult {
   transactionId: string;
   originalTransactionId: string;
   productId: string;
+  productCode: PaymentProductCode;
   purchaseKind: "single_purchase" | "auto_renew";
   sourceOrderId: string;
   alreadyApplied: boolean;
@@ -58,6 +60,27 @@ export type AppleAutoRenewReconcileResult =
       transactionProductId: string | null;
     };
 
+type AppleRefundEntitlementRevocationResult =
+  | {
+      status: "revoked";
+      subscriptionId: string;
+      userId: string;
+      plan: string;
+      revokedAt: string;
+      expiresAt: string;
+    }
+  | {
+      status: "no_active_subscription";
+      sourceOrderId: string;
+      revokedAt: string;
+    }
+  | {
+      status: "skipped";
+      reason: "subscription_repository_missing";
+      sourceOrderId: string;
+      revokedAt: string;
+    };
+
 export class AppleIapService {
   constructor(
     private readonly benefitGrantService: BenefitGrantService,
@@ -66,7 +89,8 @@ export class AppleIapService {
     private readonly paymentOrderRepository: PaymentOrderRepository,
     private readonly autoRenewService?: AutoRenewService,
     private readonly appleIapAccountLinkRepository?: AppleIapAccountLinkRepository,
-    private readonly subscriptionService?: SubscriptionService
+    private readonly subscriptionService?: SubscriptionService,
+    private readonly subscriptionRepository?: SubscriptionRepository
   ) {}
 
   isConfigured(): boolean {
@@ -96,9 +120,11 @@ export class AppleIapService {
       token,
       config.rootCaPem
     );
+    const subscriptionProductId = getAppleSubscriptionProductId(config, subscription.productCode);
+    if (!subscriptionProductId) return { status: "skipped", reason: "apple_product_id_missing" };
     const matching = findAppleSubscriptionStatus(appleStatus.statuses, {
       originalTransactionId: subscription.providerAgreementId,
-      productId: config.proProductId,
+      productId: subscriptionProductId,
     });
     const shouldCancel = matching ? shouldCancelAppleAutoRenewFromStatus(matching) : false;
     const result: AppleAutoRenewReconcileResult = {
@@ -260,6 +286,13 @@ export class AppleIapService {
     userId: string;
     transactionId: string;
   }): Promise<VerifyAppleIapTransactionResult> {
+    return this.verifyMembershipTransaction(input);
+  }
+
+  async verifyMembershipTransaction(input: {
+    userId: string;
+    transactionId: string;
+  }): Promise<VerifyAppleIapTransactionResult> {
     const config = loadAppleIapConfig();
 
     const { token, diagnostics: serverTokenDiagnostics } = createAppleServerTokenWithDiagnostics({
@@ -290,10 +323,11 @@ export class AppleIapService {
       });
     }
 
-    const purchaseKind = resolveApplePurchaseKind(transaction.productId, config);
-    if (!purchaseKind) {
+    const purchase = resolveApplePurchase(transaction.productId, config);
+    if (!purchase) {
       throw new AppleIapVerifyError("Product id mismatch", "APPLE_PRODUCT_ID_MISMATCH", {
         expectedProductIds: [
+          config.plusProductId,
           config.proProductId,
           config.proMonthlyOneTimeProductId,
         ].filter(Boolean),
@@ -301,6 +335,7 @@ export class AppleIapService {
         environment: transaction.environment,
       });
     }
+    const { purchaseKind, productCode } = purchase;
 
     const originalTransactionId = transaction.originalTransactionId || transaction.transactionId;
     if (!originalTransactionId) {
@@ -422,6 +457,7 @@ export class AppleIapService {
             latestTransactionId: transaction.transactionId,
             periodStart: grantPeriodStart,
             periodEnd: grantPeriodEnd,
+            productCode,
             metadata: autoRenewMetadata,
           });
         }
@@ -434,6 +470,7 @@ export class AppleIapService {
           currentPeriodStart: grantPeriodStart,
           currentPeriodEnd: grantPeriodEnd,
           nextPeriodEnd: grantPeriodEnd,
+          productCode,
           metadata: autoRenewMetadata,
         });
       }
@@ -446,14 +483,14 @@ export class AppleIapService {
 
     // Apple 已经支付成功，但 OIO 仍要先确认订阅链可归当前账号，再创建内部 paid order。
     // 否则 originalTransactionId 认领失败时，会留下“订单已 paid、权益没发”的半状态。
-    const appleAmount = resolveApplePaymentOrderAmount(transaction);
+    const appleAmount = resolveApplePaymentOrderAmount(transaction, productCode);
     const order = await this.paymentOrderRepository.findOrCreatePaidExternalOrder({
       userId: input.userId,
-      productCode: "pro_monthly",
+      productCode,
       provider: "apple_iap",
       providerOrderId: transaction.transactionId,
       amount: appleAmount.amount,
-      currency: "CNY",
+      currency: appleAmount.currency,
       metadata: {
         appleIap: {
           environment: transaction.environment,
@@ -464,7 +501,8 @@ export class AppleIapService {
           price: transaction.price,
           currency: transaction.currency,
           amountSource: appleAmount.source,
-          amountCents: appleAmount.amount,
+          amountMinorUnits: appleAmount.amount,
+          recordedCurrency: appleAmount.currency,
         },
       },
     });
@@ -475,7 +513,7 @@ export class AppleIapService {
       const result = await this.paymentEntitlementService.grantAfterPayment({
         userId: input.userId,
         sourceOrderId,
-        productCode: "pro_monthly",
+        productCode,
         channel: "ios_iap",
         grantMode,
         periodStart: grantPeriodStart,
@@ -490,7 +528,7 @@ export class AppleIapService {
       const queued = await this.benefitGrantService.enqueueGrant({
         userId: input.userId,
         sourceOrderId,
-        productCode: "pro_monthly",
+        productCode,
         channel: "ios_iap",
         payload: createEntitlementGrantPayload({
           fallbackReason: "sync_grant_failed",
@@ -511,6 +549,7 @@ export class AppleIapService {
       transactionId: transaction.transactionId,
       originalTransactionId,
       productId: transaction.productId,
+      productCode,
       purchaseKind,
       sourceOrderId,
       alreadyApplied,
@@ -576,8 +615,18 @@ export class AppleIapService {
           await this.paymentEventRepository.markIgnored(event.id, "Bundle id mismatch");
           return { status: "ignored", eventId, eventType };
         }
+        await this.paymentEventRepository.updateDetails({
+          id: event.id,
+          providerOrderId: tx.transactionId ?? tx.originalTransactionId ?? null,
+          rawPayload: {
+            notification: sanitizeAppleNotificationForStorage(notification),
+            header: decoded.header,
+            transaction: sanitizeAppleTransactionForStorage(tx),
+          },
+        });
 
-        if (this.autoRenewService && tx.productId === config.proProductId && tx.originalTransactionId) {
+        const purchase = resolveApplePurchase(tx.productId, config);
+        if (this.autoRenewService && purchase?.purchaseKind === "auto_renew" && tx.originalTransactionId) {
           const periodStart = tx.purchaseDate ? new Date(tx.purchaseDate) : null;
           const periodEnd = tx.expiresDate ? new Date(tx.expiresDate) : null;
           if (isApplePaidRenewal(notification.notificationType)) {
@@ -585,6 +634,7 @@ export class AppleIapService {
             const result = await this.autoRenewService.handleApplePaidTransaction({
               originalTransactionId: tx.originalTransactionId,
               transactionId: tx.transactionId,
+              productCode: purchase.productCode,
               periodStart,
               periodEnd,
               rawPayload: {
@@ -597,6 +647,7 @@ export class AppleIapService {
                 appAccountToken: tx.appAccountToken,
                 originalTransactionId: tx.originalTransactionId,
                 transactionId: tx.transactionId,
+                productCode: purchase.productCode,
                 periodStart,
                 periodEnd,
                 rawPayload: {
@@ -613,10 +664,7 @@ export class AppleIapService {
           }
         }
 
-        const nextStatus =
-          tx.productId === config.proProductId
-            ? mapAppleEventToOrderStatus(notification.notificationType)
-            : null;
+        const nextStatus = purchase ? mapAppleEventToOrderStatus(notification.notificationType) : null;
         if (nextStatus) {
           const candidateProviderOrderIds = [
             tx.originalTransactionId,
@@ -625,20 +673,41 @@ export class AppleIapService {
           ].filter((value): value is string => Boolean(value));
           const order = await this.findOrderByProviderOrderIds(candidateProviderOrderIds);
           if (order) {
-            await this.paymentOrderRepository.updateStatus({
+            const orderMetadata = buildAppleNotificationOrderMetadata(order.metadata, {
+              eventId,
+              eventType,
+              notificationType: notification.notificationType ?? null,
+              subtype: notification.subtype ?? null,
+              transactionId: tx.transactionId ?? null,
+              originalTransactionId: tx.originalTransactionId ?? null,
+            });
+            const updatedOrder = await this.paymentOrderRepository.updateStatus({
               id: order.id,
               status: nextStatus,
               expectedCurrentStatuses: getExpectedCurrentStatusesForNextStatus(nextStatus),
-              metadata: {
-                ...(typeof order.metadata === "object" && order.metadata ? order.metadata : {}),
-                appleIap: {
-                  eventType: notification.notificationType ?? null,
+              metadata: orderMetadata,
+            });
+            const effectiveOrder = updatedOrder ?? (order.status === "refunded" ? order : null);
+            if (effectiveOrder && isAppleRefundOrRevoke(notification.notificationType)) {
+              const revocation = await this.revokeEntitlementForRefundedOrder({
+                sourceOrderId: effectiveOrder.id,
+                revokedAt: resolveAppleRevocationDate(tx) ?? new Date(),
+              });
+              await this.paymentOrderRepository.updateStatus({
+                id: effectiveOrder.id,
+                status: "refunded",
+                expectedCurrentStatuses: ["refunded"],
+                metadata: buildAppleNotificationOrderMetadata(effectiveOrder.metadata, {
+                  eventId,
+                  eventType,
+                  notificationType: notification.notificationType ?? null,
                   subtype: notification.subtype ?? null,
                   transactionId: tx.transactionId ?? null,
                   originalTransactionId: tx.originalTransactionId ?? null,
-                },
-              },
-            });
+                  entitlementRevocation: revocation,
+                }),
+              });
+            }
           }
         }
       }
@@ -663,10 +732,48 @@ export class AppleIapService {
     return null;
   }
 
+  private async revokeEntitlementForRefundedOrder(input: {
+    sourceOrderId: string;
+    revokedAt: Date;
+  }): Promise<AppleRefundEntitlementRevocationResult> {
+    const revokedAt = input.revokedAt.toISOString();
+    if (!this.subscriptionRepository) {
+      return {
+        status: "skipped",
+        reason: "subscription_repository_missing",
+        sourceOrderId: input.sourceOrderId,
+        revokedAt,
+      };
+    }
+
+    const subscription = await this.subscriptionRepository.cancelActiveBySourceOrderId({
+      sourceOrderId: input.sourceOrderId,
+      cancelledAt: input.revokedAt,
+      expiresAt: input.revokedAt,
+    });
+    if (!subscription) {
+      return {
+        status: "no_active_subscription",
+        sourceOrderId: input.sourceOrderId,
+        revokedAt,
+      };
+    }
+
+    return {
+      status: "revoked",
+      subscriptionId: subscription.id,
+      userId: subscription.userId,
+      plan: subscription.plan,
+      revokedAt,
+      expiresAt: subscription.expiresAt.toISOString(),
+    };
+  }
+
   private async handleApplePaidTransactionByAppAccountToken(input: {
     appAccountToken: string;
     originalTransactionId: string;
     transactionId: string;
+    productCode: PaymentProductCode;
     periodStart: Date | null;
     periodEnd: Date | null;
     rawPayload: unknown;
@@ -689,6 +796,7 @@ export class AppleIapService {
       currentPeriodStart: input.periodStart,
       currentPeriodEnd: input.periodEnd,
       nextPeriodEnd: input.periodEnd,
+      productCode: input.productCode,
       metadata: {
         source: "apple_server_notification_app_account_token",
         appAccountToken: input.appAccountToken,
@@ -697,6 +805,7 @@ export class AppleIapService {
     await this.autoRenewService.handleApplePaidTransaction({
       originalTransactionId: input.originalTransactionId,
       transactionId: input.transactionId,
+      productCode: input.productCode,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
       rawPayload: input.rawPayload,
@@ -715,7 +824,7 @@ export class AppleIapService {
       return false;
     }
     const current = await this.subscriptionService?.getCurrentSubscription(input.boundUserId, input.now);
-    return current?.isPro !== true || !current.expiresAt || current.expiresAt <= input.now;
+    return current?.isMember !== true || !current.expiresAt || current.expiresAt <= input.now;
   }
 
 }
@@ -758,6 +867,54 @@ function isAppleCancellationNotice(
   );
 }
 
+function isAppleRefundOrRevoke(notificationType: string | undefined): boolean {
+  const type = String(notificationType ?? "").toUpperCase();
+  return type === "REFUND" || type === "REVOKE";
+}
+
+function resolveAppleRevocationDate(transaction: { revocationDate?: number | null }): Date | null {
+  if (typeof transaction.revocationDate !== "number" || !Number.isFinite(transaction.revocationDate)) return null;
+  const date = new Date(transaction.revocationDate);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function buildAppleNotificationOrderMetadata(
+  metadata: unknown,
+  event: {
+    eventId: string;
+    eventType: string;
+    notificationType: string | null;
+    subtype: string | null;
+    transactionId: string | null;
+    originalTransactionId: string | null;
+    entitlementRevocation?: AppleRefundEntitlementRevocationResult;
+  }
+): Record<string, unknown> {
+  const base = asRecord(metadata);
+  const appleIap = asRecord(base.appleIap);
+  return {
+    ...base,
+    appleIap: {
+      ...appleIap,
+      eventId: event.eventId,
+      eventType: event.eventType,
+      notificationType: event.notificationType,
+      subtype: event.subtype,
+      transactionId: event.transactionId,
+      originalTransactionId: event.originalTransactionId,
+      ...(event.entitlementRevocation === undefined
+        ? {}
+        : { entitlementRevocation: event.entitlementRevocation }),
+    },
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function sanitizeAppleNotificationForStorage(notification: AppleServerNotificationPayload): unknown {
   return {
     notificationUUID: notification.notificationUUID ?? null,
@@ -775,6 +932,20 @@ function sanitizeAppleNotificationForStorage(notification: AppleServerNotificati
   };
 }
 
+function sanitizeAppleTransactionForStorage(transaction: ReturnType<typeof decodeTransactionPayload>): unknown {
+  return {
+    transactionId: transaction.transactionId ?? null,
+    originalTransactionId: transaction.originalTransactionId ?? null,
+    productId: transaction.productId ?? null,
+    bundleId: transaction.bundleId ?? null,
+    signedEnvironment: transaction.signedEnvironment ?? null,
+    purchaseDate: transaction.purchaseDate ?? null,
+    expiresDate: transaction.expiresDate ?? null,
+    revocationDate: transaction.revocationDate ?? null,
+    appAccountToken: transaction.appAccountToken ?? null,
+  };
+}
+
 function isAppleSubscriptionBoundRepositoryError(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -783,15 +954,27 @@ function isAppleSubscriptionBoundRepositoryError(error: unknown): boolean {
   );
 }
 
-function resolveApplePurchaseKind(
+function resolveApplePurchase(
   productId: string,
-  config: { proProductId: string; proMonthlyOneTimeProductId: string | null }
-): VerifyAppleIapTransactionResult["purchaseKind"] | null {
-  if (productId === config.proProductId) return "auto_renew";
+  config: { plusProductId: string | null; proProductId: string; proMonthlyOneTimeProductId: string | null }
+): { productCode: PaymentProductCode; purchaseKind: VerifyAppleIapTransactionResult["purchaseKind"] } | null {
+  if (config.plusProductId && productId === config.plusProductId) {
+    return { productCode: "plus_monthly", purchaseKind: "auto_renew" };
+  }
+  if (productId === config.proProductId) {
+    return { productCode: "pro_monthly", purchaseKind: "auto_renew" };
+  }
   if (config.proMonthlyOneTimeProductId && productId === config.proMonthlyOneTimeProductId) {
-    return "single_purchase";
+    return { productCode: "pro_monthly", purchaseKind: "single_purchase" };
   }
   return null;
+}
+
+function getAppleSubscriptionProductId(
+  config: { plusProductId: string | null; proProductId: string },
+  productCode: PaymentProductCode
+): string | null {
+  return productCode === "plus_monthly" ? config.plusProductId : config.proProductId;
 }
 
 function createAppleAppAccountToken(userId: string): string {
@@ -811,23 +994,51 @@ function sameAppleAppAccountToken(left: string | null, right: string | null): bo
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
-function resolveApplePaymentOrderAmount(transaction: { price: number | null; currency: string | null }): {
+function resolveApplePaymentOrderAmount(
+  transaction: { price: number | null; currency: string | null },
+  productCode: PaymentProductCode
+): {
   amount: number;
+  currency: string;
   source: "apple_transaction" | "runtime_config";
 } {
   const currency = transaction.currency?.trim().toUpperCase();
-  if (currency === "CNY" && typeof transaction.price === "number" && Number.isFinite(transaction.price)) {
-    // App Store Server API 的 price 是货币单位的千分之一；库里的 amount 用分。
-    const amount = Math.round(transaction.price / 10);
+  if (currency && typeof transaction.price === "number" && Number.isFinite(transaction.price)) {
+    const amount = convertAppleMilliUnitsToMinorUnits(transaction.price, currency);
     if (amount > 0) {
-      return { amount, source: "apple_transaction" };
+      return { amount, currency, source: "apple_transaction" };
     }
   }
 
   return {
-    amount: getRuntimeConfig().payment.proMonthlyPriceCents,
+    amount:
+      productCode === "plus_monthly"
+        ? getRuntimeConfig().payment.plusMonthlyPriceCents
+        : getRuntimeConfig().payment.proMonthlyPriceCents,
+    currency: "CNY",
     source: "runtime_config",
   };
+}
+
+function convertAppleMilliUnitsToMinorUnits(priceInMilliUnits: number, currency: string): number {
+  // App Store Server API 的 price 是货币单位的千分之一；订单 amount 统一记录该币种最小货币单位。
+  const minorUnitDigits = getCurrencyMinorUnitDigits(currency);
+  const divisor = 10 ** (3 - minorUnitDigits);
+  return Math.round(priceInMilliUnits / divisor);
+}
+
+function getCurrencyMinorUnitDigits(currency: string): number {
+  try {
+    const parts = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+    }).formatToParts(1);
+    const fraction = parts.find((part) => part.type === "fraction");
+    return fraction?.value.length ?? 0;
+  } catch {
+    // 大多数币种是 2 位小数；未知币种按 2 位处理，比强行 CNY 回退更符合实际支付记录。
+    return 2;
+  }
 }
 
 function assertAppleNotificationEnvironmentMatchesTransaction(input: {

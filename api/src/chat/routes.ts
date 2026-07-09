@@ -121,7 +121,12 @@ export interface ChatRouteDeps {
   entitlementService :{
     assertCanUse: (userId: string, requestedChars: number) => Promise<void>;
     assertCanStartGeneration: (userId: string) => Promise<void>;
-    getCurrentEntitlement: (userId: string) => Promise<{ isPro: boolean }>;
+    getCurrentEntitlement: (userId: string) => Promise<{
+      isPro: boolean;
+      features?: {
+        cloudSync?: boolean;
+      };
+    }>;
   };
   rateLimiter: {
     consume: (key: string, limit: number, windowMs: number) => Promise<boolean>;
@@ -204,6 +209,36 @@ function isDiscardClozePracticeBody(value: unknown): value is DiscardClozePracti
 
 export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): void {
   const runtimeConfig = getRuntimeConfig();
+
+  app.get("/chat/contacts", async (_req, reply) => {
+    return reply.status(200).send({
+      ok: true,
+      data: {
+        version: "contacts_v1",
+        contacts: [
+          {
+            id: "curious_companion",
+            code: "curious_companion",
+            nameKey: "contact.curious_companion.name",
+            descriptionKey: "contact.curious_companion.description",
+            nameFallback: "好奇伙伴",
+            descriptionFallback: "改写、对照，也可以简单聊一句",
+            avatarLabel: "OIO",
+            enabled: true,
+            sortOrder: 10,
+            historyContactIds: ["curious_companion", "rewrite_assistant", "english_friend"],
+            defaultCompanionMode: "rewrite_only",
+            capabilities: {
+              companionMode: true,
+              practice: true,
+              dictionary: true,
+              tts: true,
+            },
+          },
+        ],
+      },
+    });
+  });
 
   app.get("/chat/ai-options", async (_req, reply) => {
     const providers = [
@@ -375,7 +410,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
         return reply.status(400).send({
           ok: false,
           request_id: requestId,
-          error: { code: "CONTENT_BLOCKED", message: "This message cannot be sent." },
+          error: { code: "CONTENT_BLOCKED", message: "This message cannot be sent.", stage: "input" },
         });
       }
       throw error;
@@ -1279,7 +1314,16 @@ function countInputCharsWithoutWhitespace(value: string): number {
 
 async function assertProCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {
   const entitlement = await deps.entitlementService.getCurrentEntitlement(userId);
-  if (entitlement.isPro) return;
+  if (entitlement.features?.cloudSync ?? entitlement.isPro) return;
+  const error = new Error("Pro access required") as Error & { code: string; statusCode: number };
+  error.code = "PRO_REQUIRED";
+  error.statusCode = 403;
+  throw error;
+}
+
+async function assertClozeCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {
+  const entitlement = await deps.entitlementService.getCurrentEntitlement(userId);
+  if (entitlement.features?.cloudSync ?? entitlement.isPro) return;
   const error = new Error("Pro access required") as Error & { code: string; statusCode: number };
   error.code = "PRO_REQUIRED";
   error.statusCode = 403;

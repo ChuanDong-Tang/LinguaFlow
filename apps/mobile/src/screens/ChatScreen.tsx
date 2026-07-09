@@ -7,13 +7,14 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession } from "../services/auth/authStorage";
-import { getCurrentEntitlement } from "../services/api/meApi";
+import { getCurrentEntitlement, getUserPreference } from "../services/api/meApi";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import {
   findConversationIdByDateFromCloud,
@@ -44,35 +45,64 @@ import { areMessageRowsEquivalent, toDisplayRows } from "../services/chat/chatMe
 import { useAssistantAutoCopyPreferences } from "../hooks/useAssistantAutoCopyPreferences";
 import { useExclusiveSyncMachine } from "../hooks/useExclusiveSyncMachine";
 import { ChatHeader } from "./chat/ChatHeader";
-import { ChatComposer } from "./chat/ChatComposer";
+import { ChatComposer, type ChatComposerSttPressContext } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
 import { AutoCopySheet } from "./chat/AutoCopySheet";
-import type { SelectableMessageTextRef } from "./chat/SelectableMessageText";
+import type { NativeTextSelectionPayload, SelectableMessageTextRef } from "./chat/SelectableMessageText";
+import { DictionaryPopover } from "./chat/DictionaryPopover";
 import { DatePickerSheet } from "./chat/DatePickerSheet";
 import { useFloatingNotice } from "./shared/FloatingNotice";
 import { InfoDialog, type InfoDialogConfig } from "./shared/InfoDialog";
 import { ClozeControls } from "./chat/ClozeControls";
+import { TtsMiniPlayer } from "../components/TtsMiniPlayer";
 import type { ChatMessage } from "../domain/chat/types";
 import { useChatClozeEditing } from "../hooks/useChatClozeEditing";
 import { consumeChatDateDirty } from "../services/chat/chatPracticeSyncState";
 import {
+  compareChatMessagesByCreatedAt,
   toDateKey,
 } from "../domain/chat/messageState";
 import type { ChatContact } from "../domain/chat/contacts";
 import type { AutoCopyMode } from "../services/preferences/assistantPreferences";
 import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
-import { t, tf } from "../i18n";
+import { getLanguage, t, tf } from "../i18n";
 import { stopTtsAudio } from "../services/tts/ttsPlayback";
+import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
+import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api/sttRealtimeApi";
+import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
+import type { PcmAudioFrame, RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
+
+const STT_PREBUFFER_MAX_FRAMES = 180;
 
 type ChatScreenProps = {
   contact: ChatContact;
   onBack: () => void;
 };
 
+type DictionaryLookupState = {
+  term: string;
+  messageId?: string | null;
+  textStart: number;
+  textEnd: number;
+  anchor?: NativeTextSelectionPayload["selectionRect"];
+  loading: boolean;
+  error: string | null;
+  result: DictionaryLookupResult | null;
+};
+
+type SttRecognitionPlan = {
+  languageIdMode: "at_start" | "continuous";
+  candidateLanguages: string[];
+};
+
+const MULTILINGUAL_STT_LANGUAGES = ["zh-CN", "ja-JP", "ko-KR", "en-US"];
+
 export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
   const contactId = contact.id;
   const [inputText, setInputText] = useState("");
+  const [sttStatus, setSttStatus] = useState<"idle" | "connecting" | "recording" | "stopping">("idle");
+  const [composerSelectionOverride, setComposerSelectionOverride] = useState<{ start: number; end: number } | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [activeGenerationContactId, setActiveGenerationContactId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -85,14 +115,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [localDateKeys, setLocalDateKeys] = useState<Set<string>>(new Set());
   const [cloudDateKeys, setCloudDateKeys] = useState<Set<string>>(new Set());
   const {
-    autoCopyAfterGeneration,
-    autoCopyMode,
+    companionModeByContactId,
     isAutoCopyMenuOpen,
     openAutoCopyMenu,
     closeAutoCopyMenu,
-    setAutoCopyAfterGeneration,
-    setAutoCopyMode,
+    setCompanionMode,
   } = useAssistantAutoCopyPreferences();
+  const companionMode = companionModeByContactId[contactId] ?? contact.defaultCompanionMode ?? "rewrite_only";
+  const canConfigureCompanionMode = contact.capabilities?.companionMode === true;
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
@@ -100,7 +130,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const [syncingDateKey, setSyncingDateKey] = useState<string | null>(null);
   const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
   const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
+  const [dictionaryLookup, setDictionaryLookup] = useState<DictionaryLookupState | null>(null);
   const messageListRef = useRef<FlatList<any> | null>(null);
+  const contactIdRef = useRef(contactId);
+  const inputTextRef = useRef("");
   const scrollMetricsRef = useRef({ y: 0, contentHeight: 0, layoutHeight: 0 });
   const pendingScrollToBottomRef = useRef<{ animated: boolean } | null>(null);
   const activeSelectionRef = useRef<SelectableMessageTextRef | null>(null);
@@ -115,6 +148,17 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const lastCloudSyncAtByDateRef = useRef<Record<string, number>>({});
   const loadedCloudMonthKeysRef = useRef<Set<string>>(new Set());
   const isMountedRef = useRef(true);
+  const dictionaryAbortRef = useRef<AbortController | null>(null);
+  const sttAudioSourceRef = useRef<RealtimeAudioSource | null>(null);
+  const sttSessionRef = useRef<RealtimeSttSession | null>(null);
+  const sttGenerationRef = useRef(0);
+  const sttDraftBaseRef = useRef("");
+  const sttInsertRangeRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
+  const sttFinalTextRef = useRef("");
+  const sttPartialTextRef = useRef("");
+  const sttStatusRef = useRef<"idle" | "connecting" | "recording" | "stopping">("idle");
+  const sttMultilingualRecognitionEnabledRef = useRef(false);
+  const dictionaryRequestSeqRef = useRef(0);
   const isProEntitledRef = useRef(false);
   const isTodaySyncingRef = useRef(false);
   const draftLoadedContactRef = useRef<string | null>(null);
@@ -173,15 +217,65 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     return (
       !activeGenerationContactId &&
       !isTodaySyncing &&
+      sttStatus === "idle" &&
       hasQuota &&
       inputLength >= minInputChars &&
       inputLength <= maxInputChars
     );
-  }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars]);
+  }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars, sttStatus]);
+  const showChatSendFailureAlert = React.useCallback((error?: { code?: string; stage?: "input" | "output" }) => {
+    if (error?.code === "DAILY_QUOTA_EXCEEDED") {
+      Alert.alert(isProEntitledRef.current ? t("chat.error.quota_member_empty") : t("chat.error.quota_free_empty"));
+      return;
+    }
+    if (error?.code === "CONTENT_BLOCKED") {
+      Alert.alert(error.stage === "output" ? t("chat.error.sensitive_output") : t("chat.error.sensitive_input"));
+      return;
+    }
+    Alert.alert(t("chat.error.send_failed_retry"));
+  }, []);
   const selectedDateKey = toDateKey(selectedDate);
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
   const netInfo = useNetInfo();
+  const historyContactIds = useMemo(
+    () => Array.from(new Set((contact.historyContactIds?.length ? contact.historyContactIds : [contactId]).filter(Boolean))),
+    [contact.historyContactIds, contactId],
+  );
+  const cancelActiveStt = React.useCallback((lastEvent: string): boolean => {
+    if (sttStatusRef.current === "idle" && !sttSessionRef.current && !sttAudioSourceRef.current) {
+      return false;
+    }
+    sttGenerationRef.current += 1;
+    void sttAudioSourceRef.current?.stop();
+    sttAudioSourceRef.current = null;
+    sttSessionRef.current?.close();
+    sttSessionRef.current = null;
+    sttStatusRef.current = "idle";
+    setSttStatus("idle");
+    return true;
+  }, []);
+  const applyInputText = React.useCallback((
+    text: string,
+    options?: { source?: "user" | "stt" | "load" | "system"; preserveSelectionOverride?: boolean },
+  ) => {
+    inputTextRef.current = text;
+    if (options?.source === "user") {
+      cancelActiveStt("input edited");
+    }
+    if (!options?.preserveSelectionOverride) {
+      setComposerSelectionOverride(null);
+    }
+    setInputText(text);
+  }, [cancelActiveStt]);
+
+  useEffect(() => {
+    contactIdRef.current = contactId;
+  }, [contactId]);
+
+  useEffect(() => {
+    inputTextRef.current = inputText;
+  }, [inputText]);
 
   
   // 生命周期清理：退出聊天页时取消仍在进行的历史同步，并清掉全局轻提示
@@ -194,7 +288,17 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       daySyncMachine.cancel();
       calendarSyncMachine.cancel();
       clozeSaveMachine.cancel();
-      stopTtsAudio();
+      if (draftLoadedContactRef.current === contactIdRef.current) {
+        void saveChatInputDraft(contactIdRef.current, inputTextRef.current).catch(() => {});
+      }
+      dictionaryAbortRef.current?.abort();
+      dictionaryAbortRef.current = null;
+      sttGenerationRef.current += 1;
+      void sttAudioSourceRef.current?.stop();
+      sttAudioSourceRef.current = null;
+      sttSessionRef.current?.close();
+      sttSessionRef.current = null;
+      stopTtsAudio({ resetControls: true });
     };
   }, []);
 
@@ -214,13 +318,35 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }, [isTodaySyncing]);
 
   useEffect(() => {
+    sttStatusRef.current = sttStatus;
+  }, [sttStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUserPreference()
+      .then((preference) => {
+        if (!cancelled) {
+          sttMultilingualRecognitionEnabledRef.current = preference.sttMultilingualRecognitionEnabled === true;
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          sttMultilingualRecognitionEnabledRef.current = false;
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [contactId]);
+
+  useEffect(() => {
     let cancelled = false;
     draftLoadedContactRef.current = null;
-    setInputText("");
+    applyInputText("", { source: "load" });
     void loadChatInputDraft(contactId).then((draft) => {
       if (cancelled || !isMountedRef.current) return;
       draftLoadedContactRef.current = contactId;
-      setInputText(draft);
+      applyInputText(draft, { source: "load" });
     });
     return () => {
       cancelled = true;
@@ -230,7 +356,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   useEffect(() => {
     if (draftLoadedContactRef.current !== contactId) return;
     const timer = setTimeout(() => {
-      void saveChatInputDraft(contactId, inputText);
+      void saveChatInputDraft(contactId, inputText).catch(() => {});
     }, 250);
     return () => clearTimeout(timer);
   }, [contactId, inputText]);
@@ -246,7 +372,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const entitlement = await getCurrentEntitlement().catch(() => null);
     if (!isMountedRef.current) return;
     setRemainingChars(entitlement?.remainingChars ?? null);
-    setIsProEntitled(entitlement?.isPro === true);
+    setIsProEntitled((entitlement?.features?.highQualityTts ?? entitlement?.isMember ?? entitlement?.isPro) === true);
   }, []);
 
   // 启动初始化：加载本地权益快照，用于额度和 Pro 历史同步开关。
@@ -259,11 +385,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     let cancelled = false;
     async function bootstrapLocal() {
       const dateKey = toDateKey(selectedDate);
-      const storedDateKeys = await listStoredChatDateKeys(contactId);
+      const storedDateKeys = await listStoredChatDateKeysForHistory();
       if (!cancelled) {
         setLocalDateKeys(new Set(storedDateKeys));
       }
-      const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, dateKey));
+      const byDay = toDisplayRows(await loadChatMessagesByDateForHistory(dateKey));
       if (cancelled) return;
       dayLoadedRowsRef.current[dateKey] = byDay;
       setDayMessages(byDay);
@@ -273,7 +399,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [contactId]);
+  }, [contactId, historyContactIds.join(",")]);
 
   // 生成会话订阅：接收流式改写状态和消息列表更新。
   useEffect(() => {
@@ -282,12 +408,12 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       if (snapshot.conversationId) setConversationId(snapshot.conversationId);
       if (!snapshot.changedDateKey || snapshot.changedDateKey !== toDateKey(selectedDate)) return;
       void (async () => {
-        const byDay = toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(selectedDate)));
+        const byDay = toDisplayRows(await loadChatMessagesByDateForHistory(toDateKey(selectedDate)));
         setDayMessages(byDay);
         setMessages(byDay);
       })();
     });
-  }, [contactId, selectedDate]);
+  }, [contactId, historyContactIds.join(","), selectedDate]);
 
   useEffect(() => {
     return subscribeChatGenerationActivity((snapshot) => {
@@ -319,7 +445,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   const handleCopyMessage = React.useCallback(
     (message: ChatMessage, mode: AutoCopyMode) => {
-      void copyAssistantTaggedText(message.text, mode, false, contact.id);
+      void copyAssistantTaggedText(message.text, mode, false);
     },
     [contact.id]
   );
@@ -376,6 +502,303 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const handleComposerBlur = React.useCallback(() => {
     setInputProtectionActive(false);
   }, []);
+  const closeDictionaryLookup = React.useCallback(() => {
+    dictionaryAbortRef.current?.abort();
+    dictionaryAbortRef.current = null;
+    setDictionaryLookup(null);
+  }, []);
+  const stopRealtimeStt = React.useCallback(async (options?: { discardPartial?: boolean }) => {
+    if (sttStatusRef.current === "idle" || sttStatusRef.current === "stopping") return;
+    const generation = sttGenerationRef.current + 1;
+    sttGenerationRef.current = generation;
+    sttStatusRef.current = "stopping";
+    setSttStatus("stopping");
+    const source = sttAudioSourceRef.current;
+    sttAudioSourceRef.current = null;
+    await source?.stop().catch((error) => {
+      console.warn("stt audio source stop failed", error);
+    });
+    const session = sttSessionRef.current;
+    if (options?.discardPartial) {
+      applyInputText(sttDraftBaseRef.current, { source: "system" });
+    }
+    sttSessionRef.current = null;
+    session?.close();
+    if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
+    sttStatusRef.current = "idle";
+    setSttStatus("idle");
+  }, [applyInputText]);
+  const handleSttPress = React.useCallback(async (context: ChatComposerSttPressContext) => {
+    if (sttStatusRef.current === "stopping") {
+      return;
+    }
+    if (sttStatusRef.current !== "idle") {
+      await stopRealtimeStt();
+      return;
+    }
+    if (netInfo.isConnected !== true) {
+      Alert.alert(t("chat.error.network_send"));
+      return;
+    }
+    if (activeGenerationContactId) {
+      Alert.alert(t("chat.error.other_generating"));
+      return;
+    }
+
+    sttStatusRef.current = "connecting";
+    setSttStatus("connecting");
+    const generation = sttGenerationRef.current + 1;
+    sttGenerationRef.current = generation;
+    const sttPlan = resolveSttRecognitionPlan(
+      getLanguage(),
+      sttMultilingualRecognitionEnabledRef.current
+    );
+    closeCopyMenuRef.current?.();
+    clearActiveSelection();
+    stopTtsAudio({ resetControls: true });
+
+    const source = createPicovoiceRealtimeAudioSource();
+    const hasPermission = await source.requestPermission().catch(() => false);
+    if (sttGenerationRef.current !== generation) {
+      await source.stop().catch(() => {});
+      return;
+    }
+    if (!hasPermission) {
+      sttStatusRef.current = "idle";
+      setSttStatus("idle");
+      Alert.alert(t("stt.permission.title"), t("stt.permission.message"));
+      return;
+    }
+
+    const currentInputText = inputTextRef.current;
+    const selectionStart = Math.max(0, Math.min(context.selection.start, context.selection.end, currentInputText.length));
+    const selectionEnd = Math.max(0, Math.min(Math.max(context.selection.start, context.selection.end), currentInputText.length));
+    sttDraftBaseRef.current = currentInputText;
+    sttInsertRangeRef.current = { start: selectionStart, end: selectionEnd };
+    sttFinalTextRef.current = "";
+    sttPartialTextRef.current = "";
+    const languageIdMode = sttPlan.languageIdMode;
+    const candidateLanguages = sttPlan.candidateLanguages;
+
+    const frameLength = 512;
+    const bufferedFrames: PcmAudioFrame[] = [];
+    const sendOrBufferFrame = (frame: PcmAudioFrame) => {
+      if (sttGenerationRef.current !== generation) return;
+      const session = sttSessionRef.current;
+      if (session) {
+        session.sendFrame(frame);
+      } else {
+        bufferedFrames.push({
+          ...frame,
+          pcm: Int16Array.from(frame.pcm),
+        });
+        if (bufferedFrames.length > STT_PREBUFFER_MAX_FRAMES) {
+          bufferedFrames.shift();
+        }
+      }
+    };
+
+    try {
+      sttAudioSourceRef.current = source;
+      await source.start({
+        sampleRate: 16000,
+        frameLength,
+        onFrame: sendOrBufferFrame,
+        onError: (error) => {
+          if (sttGenerationRef.current !== generation) return;
+          console.warn("stt audio source failed", error);
+          void stopRealtimeStt();
+        },
+      });
+      if (sttGenerationRef.current !== generation) {
+        await source.stop().catch(() => {});
+        return;
+      }
+
+      const session = await openRealtimeSttSession({
+        frameLength,
+        languageIdMode,
+        candidateLanguages,
+        onEvent: (event) => {
+          if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
+          if (event.type === "ready") {
+            sttStatusRef.current = "recording";
+            setSttStatus("recording");
+            return;
+          }
+          if (event.type === "partial") {
+            const finalText = event.finalText ?? sttFinalTextRef.current;
+            sttPartialTextRef.current = event.text;
+            const merged = mergeSttDraftResult(sttDraftBaseRef.current, finalText, event.text, sttInsertRangeRef.current);
+            applyInputText(merged.text, { source: "stt", preserveSelectionOverride: true });
+            setComposerSelectionOverride(merged.selection);
+            return;
+          }
+          if (event.type === "final") {
+            sttFinalTextRef.current = event.finalText ?? mergeSttDraft("", sttFinalTextRef.current, event.text);
+            sttPartialTextRef.current = "";
+            const merged = mergeSttDraftResult(sttDraftBaseRef.current, sttFinalTextRef.current, "", sttInsertRangeRef.current);
+            applyInputText(merged.text, { source: "stt", preserveSelectionOverride: true });
+            setComposerSelectionOverride(merged.selection);
+            return;
+          }
+          if (event.type === "done") {
+            sttFinalTextRef.current = event.text || sttFinalTextRef.current;
+            const merged = mergeSttDraftResult(
+              sttDraftBaseRef.current,
+              sttFinalTextRef.current || sttPartialTextRef.current,
+              "",
+              sttInsertRangeRef.current
+            );
+            applyInputText(merged.text, { source: "stt", preserveSelectionOverride: true });
+            setComposerSelectionOverride(merged.selection);
+            sttPartialTextRef.current = "";
+            sttSessionRef.current = null;
+            sttStatusRef.current = "idle";
+            setSttStatus("idle");
+            return;
+          }
+          if (event.type === "error" || event.type === "canceled") {
+            console.warn("stt event", event);
+            void stopRealtimeStt();
+            showNotice({
+              message: t("stt.error.session_failed"),
+              type: "warning",
+              position: "top-right",
+              durationMs: 1800,
+            });
+          }
+        },
+        onError: (error) => {
+          console.warn("stt session failed", error);
+          if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
+          void stopRealtimeStt();
+          showNotice({
+            message: t("stt.error.session_failed"),
+            type: "warning",
+            position: "top-right",
+            durationMs: 1800,
+          });
+        },
+        onClose: () => {
+          if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
+          sttSessionRef.current = null;
+          sttStatusRef.current = "idle";
+          setSttStatus("idle");
+        },
+      });
+      if (sttGenerationRef.current !== generation || isSttInactive(sttStatusRef.current)) {
+        session.close();
+        return;
+      }
+      sttSessionRef.current = session;
+      for (const frame of bufferedFrames) {
+        session.sendFrame(frame);
+      }
+      bufferedFrames.length = 0;
+    } catch (error) {
+      console.warn("stt start failed", error);
+      await source.stop().catch(() => {});
+      if (sttGenerationRef.current !== generation) return;
+      sttAudioSourceRef.current = null;
+      sttSessionRef.current?.close();
+      sttSessionRef.current = null;
+      sttStatusRef.current = "idle";
+      setSttStatus("idle");
+      showNotice({
+        message: t("stt.error.session_failed"),
+        type: "warning",
+        position: "top-right",
+        durationMs: 1800,
+      });
+    }
+  }, [activeGenerationContactId, applyInputText, clearActiveSelection, netInfo.isConnected, showNotice, stopRealtimeStt]);
+  const handleComposerTextChange = React.useCallback((text: string) => {
+    applyInputText(text, { source: "user" });
+  }, [applyInputText]);
+  const handleDictionarySelection = React.useCallback(
+    (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
+      const term = payload.selectedText.trim();
+      if (!term) return;
+      closeCopyMenuRef.current?.();
+      Keyboard.dismiss();
+      clearSelection();
+
+      dictionaryAbortRef.current?.abort();
+      const controller = new AbortController();
+      dictionaryAbortRef.current = controller;
+      const requestSeq = dictionaryRequestSeqRef.current + 1;
+      dictionaryRequestSeqRef.current = requestSeq;
+      const messageId = message.id ?? message.serverId ?? null;
+      const textStart = payload.start;
+      const textEnd = payload.end;
+
+      setDictionaryLookup({
+        term,
+        messageId,
+        textStart,
+        textEnd,
+        anchor: payload.selectionRect,
+        loading: true,
+        error: null,
+        result: null,
+      });
+
+      void (async () => {
+        const fallbackPreference = message.languageCode ? null : await getUserPreference().catch(() => null);
+        const result = await lookupDictionary({
+          term,
+          context: message.text,
+          selectionStart: textStart,
+          selectionEnd: textEnd,
+          targetLanguage: message.languageCode ?? fallbackPreference?.learningLanguage ?? "en-US",
+          uiLanguage: getLanguage(),
+          contactId,
+          messageId,
+          signal: controller.signal,
+        });
+        return result;
+      })().then((result) => {
+        if (!isMountedRef.current || controller.signal.aborted || dictionaryRequestSeqRef.current !== requestSeq) return;
+        setDictionaryLookup((current) => current && current.textStart === textStart && current.textEnd === textEnd
+          ? { ...current, loading: false, result, error: null }
+          : current);
+      }).catch((error) => {
+        if (!isMountedRef.current || controller.signal.aborted || dictionaryRequestSeqRef.current !== requestSeq) return;
+        console.warn("dictionary lookup failed", error);
+        setDictionaryLookup((current) => current
+          ? { ...current, loading: false, error: t("dictionary.error.failed") }
+          : current);
+      }).finally(() => {
+        if (dictionaryAbortRef.current === controller) {
+          dictionaryAbortRef.current = null;
+        }
+      });
+    },
+    [contactId],
+  );
+
+  async function listStoredChatDateKeysForHistory(): Promise<string[]> {
+    const all = await Promise.all(historyContactIds.map((sourceContactId) => listStoredChatDateKeys(sourceContactId)));
+    return Array.from(new Set(all.flat())).sort();
+  }
+
+  async function loadChatMessagesByDateForHistory(dateKey: string): Promise<ChatMessage[]> {
+    const groups = await Promise.all(historyContactIds.map(async (sourceContactId) => {
+      const rows = await loadChatMessagesByDate(sourceContactId, dateKey);
+      return rows.map((row) => ({ ...row, contactId: row.contactId ?? sourceContactId }));
+    }));
+    return mergeMessageRows(groups.flat());
+  }
+
+  function mergeMessageRows(rows: ChatMessage[]): ChatMessage[] {
+    const map = new Map<string, ChatMessage>();
+    for (const row of rows) {
+      const key = `${row.contactId ?? contactId}:${row.serverId ?? row.clientId ?? row.id ?? row.localId}`;
+      map.set(key, row);
+    }
+    return Array.from(map.values()).sort(compareChatMessagesByCreatedAt);
+  }
 
   async function handleSend(): Promise<void> {
     if (netInfo.isConnected !== true) {
@@ -399,7 +822,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return;
     }
     if (remainingChars !== null && remainingChars <= 0) {
-      Alert.alert(t("chat.error.quota_empty"));
+      showChatSendFailureAlert({ code: "DAILY_QUOTA_EXCEEDED" });
       return;
     }
 
@@ -418,7 +841,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       void syncDateQuietly(businessTodayDate, { force: true });
     }
 
-    setInputText("");
+    applyInputText("", { source: "system" });
     await clearChatInputDraft(contactId).catch(() => {});
     Keyboard.dismiss();
     setIsSending(true);
@@ -429,7 +852,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       new Date(),
       businessTodayKey
     );
-    const todayRows = isViewingToday ? dayMessages : toDisplayRows(await loadChatMessagesByDate(contactId, businessTodayKey));
+    userLocal.contactId = contactId;
+    assistantLocal.contactId = contactId;
+    const todayRows = isViewingToday ? dayMessages : toDisplayRows(await loadChatMessagesByDateForHistory(businessTodayKey));
     const localNextRaw = [...todayRows, userLocal, assistantLocal];
     const localNext = toDisplayRows(localNextRaw);
     setDayMessages(localNext);
@@ -445,15 +870,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       assistantClientId: assistantLocal.clientId,
       conversationDateKey: businessTodayKey,
       retryCount: 0,
+      companionMode,
       conversationId,
-      autoCopyAfterGeneration,
-      autoCopyMode,
-      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true, contact.id),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(businessTodayDate, { force: true });
         void refreshEntitlementSnapshot();
       },
+      onFailure: showChatSendFailureAlert,
     });
   }
 
@@ -461,7 +885,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const text = message.retryText?.trim();
     if (!text || activeGenerationContactId || (message.retryCount ?? 0) >= 1) return;
     if (remainingChars !== null && remainingChars <= 0) {
-      Alert.alert(t("chat.error.quota_empty"));
+      showChatSendFailureAlert({ code: "DAILY_QUOTA_EXCEEDED" });
       return;
     }
 
@@ -482,6 +906,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       new Date(),
       retryDateKey
     );
+    userLocal.contactId = contactId;
+    assistantLocal.contactId = contactId;
     const localNext = [...dayMessages, userLocal, assistantLocal];
     setDayMessages(localNext);
     setMessages(toDisplayRows(localNext));
@@ -496,16 +922,15 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       assistantClientId: assistantLocal.clientId,
       conversationDateKey: retryDateKey,
       retryCount,
+      companionMode,
       systemPrompt: message.retrySystemPrompt,
       conversationId,
-      autoCopyAfterGeneration,
-      autoCopyMode,
-      onSuccessText: (assistantText, mode) => copyAssistantTaggedText(assistantText, mode, true, contact.id),
       onStreamDone: () => {
         if (!isMountedRef.current) return;
         void syncDateQuietly(retryDate, { force: true });
         void refreshEntitlementSnapshot();
       },
+      onFailure: showChatSendFailureAlert,
     });
   }
 
@@ -535,12 +960,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     try {
       calendarSyncMachine.setPhase(token, "fetching");
       loadedCloudMonthKeysRef.current.add(monthKey);
-      const keys = await listConversationDateKeysFromCloud({
-        contactId,
+      const keySets = await Promise.all(historyContactIds.map((sourceContactId) => listConversationDateKeysFromCloud({
+        contactId: sourceContactId,
         fromDateKey,
         toDateKey: monthEndDateKey,
         signal: controller.signal,
-      });
+      })));
+      const keys = new Set<string>();
+      keySets.forEach((set) => set.forEach((key) => keys.add(key)));
       if (!isMountedRef.current) return;
       calendarSyncMachine.setPhase(token, "merging");
       setCloudDateKeys((prev) => {
@@ -604,7 +1031,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }
 
   function mapCloudRows(
-    rows: Awaited<ReturnType<typeof listDayMessagesFromCloud>>
+    rows: Array<Awaited<ReturnType<typeof listDayMessagesFromCloud>>[number] & { contactId?: string | null }>
   ): ChatMessage[] {
     return rows.map((row) => ({
       id: row.id,
@@ -621,6 +1048,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       clozeState: row.clozeState ?? null,
       clozeVersion: row.clozeVersion ?? 0,
       clozePracticeDiscardedAt: row.clozePracticeDiscardedAt ?? null,
+      contactId: row.contactId ?? contactId,
     }));
   }
 
@@ -666,7 +1094,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       if (pendingAssistants.length) {
         merged.push(...pendingAssistants);
       }
-      return toDisplayRows(merged).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+      return toDisplayRows(merged).sort(compareChatMessagesByCreatedAt);
     };
     const localPro = await hasLocalProAccess();
     const [session, entitlement] = await Promise.all([
@@ -674,9 +1102,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       localPro ? getCurrentEntitlement().catch(() => null) : Promise.resolve(null),
     ]);
     const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
-    const isPro = entitlement?.isPro === true;
+    const canCloudSync = (entitlement?.features?.cloudSync ?? entitlement?.isMember ?? entitlement?.isPro) === true;
     if (!isMountedRef.current) return { synced: false, changed: false };
-    setIsProEntitled(isPro);
+    setIsProEntitled((entitlement?.features?.highQualityTts ?? entitlement?.isMember ?? entitlement?.isPro) === true);
     const dateKey = toDateKey(d);
     const reqId = ++syncSeqRef.current;
     latestSyncReqByDateRef.current[dateKey] = reqId;
@@ -687,29 +1115,35 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return { synced: true, changed: false };
     }
 
-    if (!isPro) return { synced: false, changed: false };
+    if (!canCloudSync) return { synced: false, changed: false };
 
     // 这里只推进 day 业务状态，不负责弹什么提示；提示逻辑在 syncDateQuietly 里统一做。
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "checking");
     }
-    const cachedLoaded = toDisplayRows(await loadChatMessagesByDate(contactId, dateKey)).sort((a, b) =>
-      a.createdAt < b.createdAt ? -1 : 1
-    );
+    const cachedLoaded = toDisplayRows(await loadChatMessagesByDateForHistory(dateKey)).sort(compareChatMessagesByCreatedAt);
     let resolvedConversationId = await resolveConversationIdForDate(dateKey, options?.signal);
     if (!isMountedRef.current) return { synced: false, changed: false };
 
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "fetching");
     }
-    let allRows = resolvedConversationId
-      ? await listDayMessagesFromCloud({
-          conversationId: resolvedConversationId,
-          userId,
-          dateKey,
-          signal: options?.signal,
-        })
-      : [];
+    const cloudRowsByContact = await Promise.all(historyContactIds.map(async (sourceContactId) => {
+      const sourceConversationId = await findConversationIdByDateFromCloud({
+        dateKey,
+        contactId: sourceContactId,
+        signal: options?.signal,
+      });
+      if (!sourceConversationId) return [];
+      const rows = await listDayMessagesFromCloud({
+        conversationId: sourceConversationId,
+        userId,
+        dateKey,
+        signal: options?.signal,
+      });
+      return rows.map((row) => ({ ...row, contactId: sourceContactId }));
+    }));
+    let allRows = cloudRowsByContact.flat();
     if (!isMountedRef.current) return { synced: false, changed: false };
     if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
 
@@ -719,6 +1153,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const unsyncedLocalRows = cachedLoaded.filter(
       (row) =>
         row.status === "success" &&
+        (row.contactId === contactId || !row.contactId) &&
         !row.serverId &&
         !!row.clientId &&
         !row.clientId.startsWith("cloud-") &&
@@ -748,24 +1183,25 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       if (isMountedRef.current && resolvedConversationId !== conversationId) {
         setConversationId(resolvedConversationId);
       }
-      allRows = await listDayMessagesFromCloud({
-        conversationId: resolvedConversationId,
-        userId,
-        dateKey,
-        signal: options?.signal,
-      });
+      allRows = [
+        ...cloudRowsByContact.flat().filter((row) => row.contactId !== contactId),
+        ...(await listDayMessagesFromCloud({
+          conversationId: resolvedConversationId,
+          userId,
+          dateKey,
+          signal: options?.signal,
+        })).map((row) => ({ ...row, contactId })),
+      ];
       if (!isMountedRef.current) return { synced: false, changed: false };
       if (latestSyncReqByDateRef.current[dateKey] !== reqId) return { synced: false, changed: false };
     }
 
-    if (!resolvedConversationId) return { synced: false, changed: false };
+    if (!resolvedConversationId && allRows.length === 0) return { synced: false, changed: false };
 
     if (options?.syncToken) {
       daySyncMachine.setPhase(options.syncToken, "merging");
     }
-    const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort((a, b) =>
-      a.createdAt < b.createdAt ? -1 : 1
-    );
+    const visibleMapped = toDisplayRows(mapCloudRows(allRows)).sort(compareChatMessagesByCreatedAt);
     setCloudDateKeys((prev) => {
       const next = new Set(prev);
       next.add(dateKey);
@@ -778,9 +1214,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     if (!options?.force && nextVisibleDay.length < cachedLoaded.length) {
       nextVisibleDay = cachedLoaded;
     }
-    const previousVisibleDay = toDisplayRows(await loadChatMessagesByDate(contactId, dayKey)).sort((a, b) =>
-      a.createdAt < b.createdAt ? -1 : 1
-    );
+    const previousVisibleDay = toDisplayRows(await loadChatMessagesByDateForHistory(dayKey)).sort(compareChatMessagesByCreatedAt);
     const changed = !areMessageRowsEquivalent(previousVisibleDay, nextVisibleDay);
     dayLoadedRowsRef.current[dayKey] = nextVisibleDay;
 
@@ -884,7 +1318,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     setIsDateSheetOpen(false);
     setMonthCursor(new Date(d.getFullYear(), d.getMonth(), 1));
 
-    const visibleLocalRows = toDisplayRows(await loadChatMessagesByDate(contactId, toDateKey(d)));
+    const visibleLocalRows = toDisplayRows(await loadChatMessagesByDateForHistory(toDateKey(d)));
     setDayMessages(visibleLocalRows);
     setMessages(visibleLocalRows);
 
@@ -908,11 +1342,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             prepareForCommand();
             setIsDateSheetOpen(true);
           }}
-          onOpenMenu={() => {
-            prepareForCommand();
-            openAutoCopyMenu();
-          }}
+          onOpenMenu={canConfigureCompanionMode
+            ? () => {
+                prepareForCommand();
+                openAutoCopyMenu();
+              }
+            : undefined}
         />
+        <TtsMiniPlayer storageKey="linguaflow.tts_mini_player.chat.v1" />
 
         <MessageList
           contact={contact}
@@ -930,6 +1367,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
           onTextSelection={handleTextSelection}
+          onDictionarySelection={handleDictionarySelection}
           onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
         />
@@ -950,9 +1388,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
         <ChatComposer
           value={inputText}
-          onChangeText={setInputText}
+          onChangeText={handleComposerTextChange}
           onSend={handleSend}
           onStop={() => {}}
+          onSttPress={handleSttPress}
           onFocus={handleComposerFocus}
           onBlur={handleComposerBlur}
           onDisabledPress={() => {
@@ -965,7 +1404,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
               return;
             }
             if (remainingChars !== null && remainingChars <= 0) {
-              Alert.alert(t("chat.error.quota_empty"));
+              showChatSendFailureAlert({ code: "DAILY_QUOTA_EXCEEDED" });
               return;
             }
             const inputLength = countChatGenerationInputChars(inputText);
@@ -980,6 +1419,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           }}
           disabled={!canSend}
           isSending={isSending}
+          sttStatus={sttStatus}
+          inputEditable
+          selectionOverride={composerSelectionOverride}
         />
       </ChatContentFrame>
 
@@ -1006,19 +1448,86 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         onConfirmEditor={() => void confirmClozeEditor()}
         onCloseDelete={() => setClozeDelete(null)}
         onConfirmDelete={() => void confirmDeleteCloze()}
+        onEditDeleteTarget={handleEditClozeGroup}
+        onLookupDeleteTarget={(message, payload) => {
+          handleDictionarySelection(message, payload, () => setClozeDelete(null));
+        }}
       />
-      <AutoCopySheet
-        visible={isAutoCopyMenuOpen}
-        contact={contact}
-        autoCopyEnabled={autoCopyAfterGeneration}
-        selectedMode={autoCopyMode}
-        onClose={closeAutoCopyMenu}
-        onSetAutoCopyEnabled={setAutoCopyAfterGeneration}
-        onSelectMode={setAutoCopyMode}
-      />
+      {canConfigureCompanionMode ? (
+        <AutoCopySheet
+          visible={isAutoCopyMenuOpen}
+          contact={contact}
+          companionMode={companionMode}
+          onClose={closeAutoCopyMenu}
+          onSelectCompanionMode={(mode) => {
+            setCompanionMode(contactId, mode);
+          }}
+        />
+      ) : null}
       <InfoDialog config={dialog} onClose={() => setDialog(null)} />
+      <DictionaryPopover
+        visible={!!dictionaryLookup}
+        anchor={dictionaryLookup?.anchor}
+        term={dictionaryLookup?.term ?? ""}
+        loading={dictionaryLookup?.loading ?? false}
+        error={dictionaryLookup?.error}
+        result={dictionaryLookup?.result}
+        messageId={dictionaryLookup?.messageId}
+        textStart={dictionaryLookup?.textStart}
+        textEnd={dictionaryLookup?.textEnd}
+        canUseTts={isProEntitled}
+        onClose={closeDictionaryLookup}
+      />
     </SafeAreaView>
   );
+}
+
+function mergeSttDraft(
+  base: string,
+  finalText: string,
+  partialText: string,
+  range: { start: number; end: number } = { start: base.length, end: base.length },
+): string {
+  return mergeSttDraftResult(base, finalText, partialText, range).text;
+}
+
+function mergeSttDraftResult(
+  base: string,
+  finalText: string,
+  partialText: string,
+  range: { start: number; end: number } = { start: base.length, end: base.length },
+): { text: string; selection: { start: number; end: number } } {
+  const speech = [finalText.trim(), partialText.trim()].filter(Boolean).join(" ");
+  if (!base) return { text: speech, selection: { start: speech.length, end: speech.length } };
+  if (!speech) return { text: base, selection: { start: range.start, end: range.start } };
+  const start = Math.max(0, Math.min(range.start, range.end, base.length));
+  const end = Math.max(0, Math.min(Math.max(range.start, range.end), base.length));
+  const before = base.slice(0, start);
+  const after = base.slice(end);
+  const prefix = before ? (/\s$/.test(before) ? "" : " ") : "";
+  const suffix = after && !/^\s/.test(after) ? " " : "";
+  const text = `${before}${prefix}${speech}${suffix}${after}`;
+  const cursor = before.length + prefix.length + speech.length;
+  return { text, selection: { start: cursor, end: cursor } };
+}
+
+function resolveSttRecognitionPlan(appLocale: string, multilingualRecognitionEnabled: boolean): SttRecognitionPlan {
+  if (multilingualRecognitionEnabled) {
+    return {
+      languageIdMode: "continuous",
+      candidateLanguages: MULTILINGUAL_STT_LANGUAGES,
+    };
+  }
+  return {
+    languageIdMode: "at_start",
+    candidateLanguages: [resolveDirectSttLanguage(appLocale)],
+  };
+}
+
+function resolveDirectSttLanguage(appLocale: string): string {
+  if (appLocale === "en-US") return "en-US";
+  if (appLocale === "ja-JP") return "ja-JP";
+  return "zh-CN";
 }
 
 function ChatContentFrame({
@@ -1037,6 +1546,10 @@ function ChatContentFrame({
       {children}
     </KeyboardAvoidingView>
   );
+}
+
+function isSttInactive(status: "idle" | "connecting" | "recording" | "stopping"): boolean {
+  return status === "idle" || status === "stopping";
 }
 
 const styles = StyleSheet.create({

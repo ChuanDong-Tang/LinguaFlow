@@ -72,6 +72,22 @@ export class PrismaPaymentEventRepository implements PaymentEventRepository {
     }
   }
 
+  async updateDetails(input: {
+    id: string;
+    providerOrderId?: string | null;
+    rawPayload?: unknown;
+  }): Promise<PaymentEventEntity | null> {
+    const row = await this.prisma.paymentEvent.update({
+      where: { id: input.id },
+      data: {
+        ...(input.providerOrderId === undefined ? {} : { providerOrderId: input.providerOrderId }),
+        ...(input.rawPayload === undefined ? {} : { rawPayload: input.rawPayload }),
+      },
+    });
+
+    return row ? this.toEntity(row) : null;
+  }
+
   async markProcessed(
     id: string,
     options?: { expectedCurrentStatuses?: PaymentEventStatus[] }

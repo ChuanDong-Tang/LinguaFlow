@@ -4,7 +4,7 @@ export type PaymentProviderName = "wechat" | "apple_iap";
 
 export type PaymentOrderStatus = "pending" | "paid" | "closed" | "failed" | "refunded";
 
-export type PaymentProductCode = "pro_monthly";
+export type PaymentProductCode = "plus_monthly" | "pro_monthly";
 
 export interface WeChatAppPayParams {
   appId: string;

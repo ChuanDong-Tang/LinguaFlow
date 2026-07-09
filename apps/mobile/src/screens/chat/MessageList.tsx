@@ -2,10 +2,11 @@ import React from "react";
 import { Animated, FlatList, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatMessage } from "../../domain/chat/types";
-import type { ChatContact } from "../../domain/chat/contacts";
+import { getChatContact, type ChatContact } from "../../domain/chat/contacts";
 import type { AutoCopyMode } from "../../services/preferences/assistantPreferences";
 import { getClozeBlankRanges, getClozeCorrectRanges, getClozeHighlightRanges, normalizeClozeState } from "../../domain/cloze/clozeUtils";
 import { getAssistantClozeText } from "../../domain/cloze/clozeText";
+import { parseTaggedRewrite } from "../../domain/rewrite/taggedRewrite";
 import {
   SelectableMessageText,
   type NativeTextSelectionPayload,
@@ -89,6 +90,11 @@ type MessageListProps = {
     payload: NativeTextSelectionPayload,
     clearSelection: () => void,
   ) => void;
+  onDictionarySelection: (
+    message: ChatMessage,
+    payload: NativeTextSelectionPayload,
+    clearSelection: () => void,
+  ) => void;
   onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
 };
@@ -99,20 +105,22 @@ type RowItem =
 
 const MESSAGE_LIST_PERF_LOGS = false;
 const SLOW_MESSAGE_RENDER_MS = 12;
-function getCopyOptions(contact: ChatContact): { label: string; mode: AutoCopyMode }[] {
-  if (contact.id === "english_friend") {
-    return [
-      { label: t("chat.copy.question"), mode: "en" },
-      { label: t("chat.copy.reply"), mode: "zh" },
-      { label: t("chat.copy.all"), mode: "both" },
-    ];
+function getCopyOptions(text: string): { label: string; mode: AutoCopyMode }[] {
+  const tagged = parseTaggedRewrite(text);
+  const options: { label: string; mode: AutoCopyMode }[] = [];
+  if ((tagged.rewrite || tagged.en || tagged.ja).trim()) {
+    options.push({ label: t("chat.copy.rewrite"), mode: "rewrite" });
   }
-
-  return [
-    { label: t("chat.copy.expression"), mode: "en" },
-    { label: t("chat.copy.note"), mode: "zh" },
-    { label: t("chat.copy.all"), mode: "both" },
-  ];
+  if ((tagged.note || tagged.zh).trim()) {
+    options.push({ label: t("chat.copy.restatement"), mode: "note" });
+  }
+  if (tagged.reply.trim()) {
+    options.push({ label: t("chat.copy.reply"), mode: "reply" });
+  }
+  if (options.length > 1) {
+    options.push({ label: t("chat.copy.all"), mode: "all" });
+  }
+  return options;
 }
 
 function perfNow(): number {
@@ -195,6 +203,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onRetryMessage,
   onCopyMessage,
   onTextSelection,
+  onDictionarySelection,
   onEditClozeGroup,
   onDeleteClozeGroup,
   isCopyMenuOpen,
@@ -215,6 +224,11 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
     payload: NativeTextSelectionPayload,
     clearSelection: () => void,
   ) => void;
+  onDictionarySelection: (
+    message: ChatMessage,
+    payload: NativeTextSelectionPayload,
+    clearSelection: () => void,
+  ) => void;
   onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   isCopyMenuOpen: boolean;
@@ -227,16 +241,17 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   const renderStart = perfNow();
   const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
   const [answersVisible, setAnswersVisible] = React.useState(false);
-  const copyOptions = React.useMemo(() => getCopyOptions(contact), [contact]);
+  const copyOptions = React.useMemo(() => getCopyOptions(message.text), [message.text]);
+  const messageContact = React.useMemo(() => getChatContact(message.contactId, [contact]), [contact, message.contactId]);
   const clozeText = React.useMemo(() => {
     const startedAt = perfNow();
-    const value = getAssistantClozeText(message, contact);
+    const value = getAssistantClozeText(message, messageContact);
     logMessageListPerf("assistant get cloze text", startedAt, {
       localId: message.localId,
       textLength: message.text.length,
     });
     return value;
-  }, [contact, message]);
+  }, [message, messageContact]);
 
   const displayText = clozeText.text;
   const hasDisplayText = displayText.trim().length > 0;
@@ -370,9 +385,16 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                   }
                   : undefined
               }
-              onClozeRangePress={
-                hasClozeGroup && !interactionsDisabled ? (groupIndex) => onEditClozeGroup(message, groupIndex) : undefined
+              enableDictionaryMenu={canShowCloze && !interactionsDisabled}
+              onDictionarySelection={
+                canShowCloze && !interactionsDisabled
+                  ? (payload) => {
+                    onSelectionRefChange(selectableRef.current);
+                    onDictionarySelection({ ...message, text: displayText }, payload, () => selectableRef.current?.clearSelection());
+                  }
+                  : undefined
               }
+              onClozeRangePress={undefined}
               onClozeRangeLongPress={
                 hasClozeGroup && !interactionsDisabled ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined
               }
@@ -490,6 +512,7 @@ export function MessageList({
   onRetryMessage,
   onCopyMessage,
   onTextSelection,
+  onDictionarySelection,
   onEditClozeGroup,
   onDeleteClozeGroup,
 }: MessageListProps) {
@@ -497,6 +520,7 @@ export function MessageList({
   const retryMessageRef = useLatestRef(onRetryMessage);
   const copyMessageRef = useLatestRef(onCopyMessage);
   const textSelectionRef = useLatestRef(onTextSelection);
+  const dictionarySelectionRef = useLatestRef(onDictionarySelection);
   const editClozeGroupRef = useLatestRef(onEditClozeGroup);
   const deleteClozeGroupRef = useLatestRef(onDeleteClozeGroup);
   const isDraggingRef = React.useRef(false);
@@ -571,6 +595,12 @@ export function MessageList({
     },
     [textSelectionRef],
   );
+  const handleDictionarySelection = React.useCallback(
+    (message: ChatMessage, payload: NativeTextSelectionPayload, clearSelection: () => void) => {
+      dictionarySelectionRef.current(message, payload, clearSelection);
+    },
+    [dictionarySelectionRef],
+  );
   const messageTextInteractionsDisabled = Platform.OS === "android" ? inputProtectionActive : false;
   const handleEditClozeGroup = React.useCallback(
     (message: ChatMessage, groupIndex: number) => {
@@ -610,6 +640,7 @@ export function MessageList({
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
           onTextSelection={handleTextSelection}
+          onDictionarySelection={handleDictionarySelection}
           onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
           isCopyMenuOpen={activeCopyMenuId === item.id}
@@ -641,6 +672,7 @@ export function MessageList({
       handleSelectionRefChange,
       handleRetryMessage,
       handleTextSelection,
+      handleDictionarySelection,
       inputProtectionActive,
       messageTextInteractionsDisabled,
       selectedDateLabel,

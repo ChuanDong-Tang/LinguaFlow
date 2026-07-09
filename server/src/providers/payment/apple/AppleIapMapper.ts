@@ -11,6 +11,7 @@ export type AppleTransactionPayload = {
   appAccountToken: string | null;
   purchaseDate: number | null;
   expiresDate: number | null;
+  revocationDate: number | null;
 };
 
 export type AppleServerNotificationPayload = {
@@ -42,6 +43,7 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
   const appAccountToken = readNullableString(payload.appAccountToken);
   const purchaseDate = readNullableNumber(payload.purchaseDate);
   const expiresDate = readNullableNumber(payload.expiresDate);
+  const revocationDate = readNullableNumber(payload.revocationDate);
 
   if (!transactionId || !bundleId || !productId) {
     throw new AppleIapVerifyError("Transaction payload missing required fields");
@@ -58,6 +60,7 @@ export function decodeTransactionPayload(payload: Record<string, unknown>): Appl
     appAccountToken,
     purchaseDate,
     expiresDate,
+    revocationDate,
   };
 }
 

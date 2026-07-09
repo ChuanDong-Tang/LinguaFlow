@@ -11,6 +11,7 @@ export type ChatMessage = {
   localId: string;
   clientId: string;
   serverId?: string | null;
+  contactId?: string | null;
   role: "user" | "assistant";
   text: string;
   time: string;

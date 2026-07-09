@@ -1,52 +1,26 @@
 import React from "react";
-import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatContact } from "../../domain/chat/contacts";
-import type { AutoCopyMode } from "../../services/preferences/assistantPreferences";
+import type { CompanionMode } from "../../services/preferences/assistantPreferences";
 import { t } from "../../i18n";
 
 type AutoCopySheetProps = {
   visible: boolean;
   contact: ChatContact;
-  autoCopyEnabled: boolean;
-  selectedMode: AutoCopyMode;
+  companionMode: CompanionMode;
   onClose: () => void;
-  onSetAutoCopyEnabled: (enabled: boolean) => void;
-  onSelectMode: (mode: AutoCopyMode) => void;
+  onSelectCompanionMode: (mode: CompanionMode) => void;
 };
-
-type AutoCopyOption = {
-  mode: AutoCopyMode;
-  label: string;
-  description: string;
-};
-
-function getAutoCopyOptions(contact: ChatContact): AutoCopyOption[] {
-  if (contact.id === "english_friend") {
-    return [
-      { mode: "en", label: t("chat.autocopy.copy_question"), description: t("chat.autocopy.copy_question_desc") },
-      { mode: "zh", label: t("chat.autocopy.copy_reply"), description: t("chat.autocopy.copy_reply_desc") },
-      { mode: "both", label: t("chat.autocopy.copy_both"), description: t("chat.autocopy.copy_both_question_desc") },
-    ];
-  }
-
-  return [
-    { mode: "en", label: t("chat.autocopy.copy_expression"), description: t("chat.autocopy.copy_expression_desc") },
-    { mode: "zh", label: t("chat.autocopy.copy_note"), description: t("chat.autocopy.copy_note_desc") },
-    { mode: "both", label: t("chat.autocopy.copy_both"), description: t("chat.autocopy.copy_both_expression_desc") },
-  ];
-}
 
 export function AutoCopySheet({
   visible,
   contact,
-  autoCopyEnabled,
-  selectedMode,
+  companionMode,
   onClose,
-  onSetAutoCopyEnabled,
-  onSelectMode,
+  onSelectCompanionMode,
 }: AutoCopySheetProps) {
-  const options = getAutoCopyOptions(contact);
+  const showCompanionMode = contact.capabilities?.companionMode === true;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -54,83 +28,55 @@ export function AutoCopySheet({
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>{t("chat.autocopy.title")}</Text>
-              <Text style={styles.subtitle}>{t("chat.autocopy.subtitle")}</Text>
+              <Text style={styles.title}>{t("chat.settings.title")}</Text>
+              <Text style={styles.subtitle}>{t("chat.settings.subtitle")}</Text>
             </View>
             <Pressable style={styles.closeButton} hitSlop={8} onPress={onClose}>
               <Ionicons name="close" size={20} color="#111111" />
             </Pressable>
           </View>
 
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleTextWrap}>
-              <Text style={styles.toggleLabel}>{t("chat.autocopy.toggle")}</Text>
-              <Text style={styles.toggleDescription}>
-                {t("chat.autocopy.desc")}
-              </Text>
+          {showCompanionMode ? (
+            <View style={styles.modeSection}>
+              <Text style={styles.sectionLabel}>{t("chat.settings.companion_mode")}</Text>
+              <View style={styles.options}>
+                {COMPANION_MODE_OPTIONS.map((option) => {
+                  const selected = companionMode === option.mode;
+                  return (
+                    <Pressable
+                      key={option.mode}
+                      style={[styles.option, selected && styles.optionSelected]}
+                      onPress={() => onSelectCompanionMode(option.mode)}
+                    >
+                      <View style={styles.optionTextWrap}>
+                        <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>{t(option.labelKey)}</Text>
+                        <Text style={styles.optionDescription}>{t(option.descriptionKey)}</Text>
+                      </View>
+                      <View style={[styles.radio, selected && styles.radioSelected]}>
+                        {selected ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
-            <Switch
-              value={autoCopyEnabled}
-              onValueChange={onSetAutoCopyEnabled}
-              trackColor={{ false: "#D5DAE4", true: "#C8C0FF" }}
-              thumbColor={autoCopyEnabled ? "#8E7BFF" : "#FFFFFF"}
-            />
-          </View>
+          ) : null}
 
-          <View style={styles.options}>
-            {options.map((option) => {
-              const selected = selectedMode === option.mode;
-
-              return (
-                <Pressable
-                  key={option.mode}
-                  style={[
-                    styles.option,
-                    selected && autoCopyEnabled && styles.optionSelected,
-                    !autoCopyEnabled && styles.optionDisabled,
-                  ]}
-                  onPress={() => onSelectMode(option.mode)}
-                  disabled={!autoCopyEnabled}
-                >
-                  <View style={styles.optionTextWrap}>
-                    <Text
-                      style={[
-                        styles.optionLabel,
-                        selected && autoCopyEnabled && styles.optionLabelSelected,
-                        !autoCopyEnabled && styles.optionTextDisabled,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.optionDescription,
-                        !autoCopyEnabled && styles.optionTextDisabled,
-                      ]}
-                    >
-                      {option.description}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.radio,
-                      selected && autoCopyEnabled && styles.radioSelected,
-                      !autoCopyEnabled && styles.radioDisabled,
-                    ]}
-                  >
-                    {selected && autoCopyEnabled ? (
-                      <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                    ) : null}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
         </Pressable>
       </Pressable>
     </Modal>
   );
 }
+
+const COMPANION_MODE_OPTIONS: Array<{
+  mode: CompanionMode;
+  labelKey: Parameters<typeof t>[0];
+  descriptionKey: Parameters<typeof t>[0];
+}> = [
+  { mode: "rewrite_only", labelKey: "chat.companion_mode.rewrite_only", descriptionKey: "chat.companion_mode.rewrite_only_desc" },
+  { mode: "native_note", labelKey: "chat.companion_mode.native_note", descriptionKey: "chat.companion_mode.native_note_desc" },
+  { mode: "simple_reply", labelKey: "chat.companion_mode.simple_reply", descriptionKey: "chat.companion_mode.simple_reply_desc" },
+];
 
 const styles = StyleSheet.create({
   scrim: {
@@ -153,30 +99,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 12,
   },
-  toggleRow: {
-    minHeight: 62,
-    borderRadius: 12,
-    backgroundColor: "#F7F8FB",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
+  modeSection: {
+    marginBottom: 12,
   },
-  toggleTextWrap: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  toggleLabel: {
-    color: "#111111",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  toggleDescription: {
-    marginTop: 3,
-    color: "#838AA0",
+  sectionLabel: {
+    marginBottom: 8,
+    color: "#606775",
     fontSize: 12,
-    lineHeight: 16,
+    fontWeight: "700",
   },
   title: {
     color: "#111111",

@@ -2,9 +2,9 @@ import type {
   EntitlementGrantMode,
   GrantEntitlementInput,
   PaymentChannel,
-  PaymentProductCode,
   PrepaidLimitMode,
 } from "./PaymentEntitlementService.js";
+import type { PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
 
 export type EntitlementGrantSnapshot = Pick<
   GrantEntitlementInput,

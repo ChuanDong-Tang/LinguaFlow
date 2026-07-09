@@ -2,8 +2,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { AuthingLoginResponse, LoginCredential, LoginResponse, RefreshTokenResponse } from "@lf/core/contracts/auth.js";
 import {
   isAuthingLoginBody,
+  isConfirmBindEmailBody,
   isConfirmDeleteAccountBody,
   isLoginRequest,
+  isPrepareBindEmailBody,
   isPrepareDeleteAccountBody,
   isRefreshTokenBody,
 } from "./validators.js";
@@ -67,6 +69,33 @@ export interface AuthRouteDeps {
       method: "PHONE_PASSCODE" | "EMAIL_PASSCODE";
       passCode: string;
     }) => Promise<{ success: true }>;
+  };
+  accountEmailBindingService: {
+    prepare: (input: {
+      userId: string;
+      authingToken: string;
+      email: string;
+    }) => Promise<{
+      authingToken: string;
+      email: string;
+      target: string;
+    }>;
+    confirm: (input: {
+      userId: string;
+      authingToken: string;
+      email: string;
+      passCode: string;
+    }) => Promise<{
+      id: string;
+      nickname: string | null;
+      email: string | null;
+      phone: string | null;
+      avatarUrl: string | null;
+      status: "active" | "disabled" | "pending_delete";
+      role: "user" | "admin";
+      createdAt: Date;
+      updatedAt: Date;
+    }>;
   };
 
   userRepository: {
@@ -655,6 +684,140 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       });
     }
   });
+
+  app.post("/auth/bind-email/prepare", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "bind_email", limit: 5, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
+    if (!isPrepareBindEmailBody(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.bind_email.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "REQUEST_INVALID",
+      });
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "REQUEST_INVALID", message: "Invalid bind email payload" },
+      });
+    }
+
+    const userContext = await resolveDeleteAccountUserContext(req, reply, deps, requestId);
+    if (!userContext) return;
+
+    try {
+      const data = await deps.accountEmailBindingService.prepare({
+        userId: userContext.userId,
+        authingToken: body.authingToken,
+        email: body.email,
+      });
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "auth",
+        event: "auth.bind_email.prepare_success",
+        level: "info",
+        status: "success",
+        metadata: { target: data.target },
+      });
+      return reply.status(200).send({ ok: true, data });
+    } catch (error) {
+      const mapped = mapBindEmailError(error);
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "auth",
+        event: "auth.bind_email.prepare_failed",
+        level: "warn",
+        status: "failed",
+        errorCode: mapped.code,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      return reply.status(mapped.status).send({
+        ok: false,
+        error: { code: mapped.code, message: mapped.message },
+      });
+    }
+  });
+
+  app.post("/auth/bind-email/confirm", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "bind_email", limit: 8, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
+    if (!isConfirmBindEmailBody(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.bind_email.confirm_invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "REQUEST_INVALID",
+      });
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "REQUEST_INVALID", message: "Invalid bind email payload" },
+      });
+    }
+
+    const userContext = await resolveDeleteAccountUserContext(req, reply, deps, requestId);
+    if (!userContext) return;
+
+    try {
+      const user = await deps.accountEmailBindingService.confirm({
+        userId: userContext.userId,
+        authingToken: body.authingToken,
+        email: body.email,
+        passCode: body.passCode,
+      });
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "auth",
+        event: "auth.bind_email.success",
+        level: "info",
+        status: "success",
+      });
+      return reply.status(200).send({ ok: true, data: { user } });
+    } catch (error) {
+      const mapped = mapBindEmailError(error);
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "auth",
+        event: "auth.bind_email.failed",
+        level: "warn",
+        status: "failed",
+        errorCode: mapped.code,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      return reply.status(mapped.status).send({
+        ok: false,
+        error: { code: mapped.code, message: mapped.message },
+      });
+    }
+  });
 }
 
 async function resolveDeleteAccountUserContext(
@@ -709,7 +872,8 @@ type AuthRateLimitRule = {
     | "admin_password_login"
     | "refresh"
     | "logout"
-    | "delete_account";
+    | "delete_account"
+    | "bind_email";
   limit: number;
   windowSec: number;
 };
@@ -764,4 +928,26 @@ function sendAccountPendingDeleteError(reply: FastifyReply) {
     ok: false,
     error: { code: "ACCOUNT_PENDING_DELETE", message: "账号正在注销流程中，暂时无法登录" },
   });
+}
+
+function mapBindEmailError(error: unknown): { status: number; code: string; message: string } {
+  const err = error as { code?: unknown; message?: unknown };
+  const code = typeof err.code === "string" ? err.code : "";
+  if (code === "EMAIL_TAKEN") {
+    return { status: 409, code: "EMAIL_TAKEN", message: "该邮箱已绑定其他账号，请更换邮箱或使用该邮箱账号登录" };
+  }
+  if (code === "EMAIL_ALREADY_BOUND") {
+    return { status: 409, code: "EMAIL_ALREADY_BOUND", message: "当前账号已绑定邮箱" };
+  }
+  if (error instanceof Error && error.message === "Invalid email") {
+    return { status: 400, code: "INVALID_EMAIL", message: "邮箱格式不正确" };
+  }
+  if (
+    error instanceof Error &&
+    (error.message.startsWith("Authing token validation failed") ||
+      error.message === "Authing account does not match current user")
+  ) {
+    return { status: 401, code: "AUTHING_REAUTH_REQUIRED", message: "请重新验证身份后绑定邮箱" };
+  }
+  return { status: 400, code: "BIND_EMAIL_FAILED", message: "绑定邮箱失败，请稍后重试" };
 }

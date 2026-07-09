@@ -16,12 +16,13 @@ export class MobileApiError extends Error {
 }
 
 export type MobilePaymentOrderStatus = "pending" | "paid" | "closed" | "failed" | "refunded";
+export type MobilePaymentProductCode = "plus_monthly" | "pro_monthly";
 
 export type MobileCreatePaymentOrderResult = {
   id: string;
   provider: string;
   providerOrderId: string;
-  productCode: "pro_monthly";
+  productCode: MobilePaymentProductCode;
   amount: number;
   currency: "CNY";
   status: "pending";
@@ -30,7 +31,7 @@ export type MobileCreatePaymentOrderResult = {
 };
 
 export type MobilePaymentProductQuote = {
-  productCode: "pro_monthly";
+  productCode: MobilePaymentProductCode;
   amount: number;
   currency: "CNY";
   displayPrice: string;
@@ -40,7 +41,7 @@ export type MobilePaymentOrderResult = {
   id: string;
   provider: string;
   providerOrderId: string;
-  productCode: "pro_monthly";
+  productCode: MobilePaymentProductCode;
   amount: number;
   currency: "CNY";
   status: MobilePaymentOrderStatus;
@@ -51,7 +52,7 @@ export type MobilePaymentOrderResult = {
 export type MobileAutoRenewSubscription = {
   id: string;
   provider: "wechat" | "apple";
-  productCode: "pro_monthly";
+  productCode: MobilePaymentProductCode;
   status: "pending" | "active" | "cancelled" | "expired" | "billing_retry" | "paused";
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
@@ -71,19 +72,20 @@ export type MobileWeChatAutoRenewPreSignResult = {
 export type MobileAppleVerifyTransactionResult = {
   transactionId: string;
   productId: string;
+  productCode: MobilePaymentProductCode;
   purchaseKind: "single_purchase" | "auto_renew";
   autoRenewSubscriptionId?: string | null;
   alreadyApplied?: boolean;
 };
 
-export async function createProMonthlyOrder(): Promise<MobileCreatePaymentOrderResult> {
+export async function createMembershipMonthlyOrder(productCode: MobilePaymentProductCode): Promise<MobileCreatePaymentOrderResult> {
   const res = await fetch(`${BASE_URL}/payment/orders`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(await getAuthHeaders()),
     },
-    body: JSON.stringify({ productCode: "pro_monthly" }),
+    body: JSON.stringify({ productCode }),
   });
   const json = (await res.json()) as ApiResult<MobileCreatePaymentOrderResult>;
   if (!json.ok) {
@@ -92,8 +94,21 @@ export async function createProMonthlyOrder(): Promise<MobileCreatePaymentOrderR
   return json.data;
 }
 
+export async function createProMonthlyOrder(): Promise<MobileCreatePaymentOrderResult> {
+  return createMembershipMonthlyOrder("pro_monthly");
+}
+
 export async function getProMonthlyProductQuote(): Promise<MobilePaymentProductQuote> {
   const res = await fetch(`${BASE_URL}/payment/products/pro-monthly`);
+  const json = (await res.json()) as ApiResult<MobilePaymentProductQuote>;
+  if (!json.ok) {
+    throw new MobileApiError(json.error.code, json.error.message);
+  }
+  return json.data;
+}
+
+export async function getPlusMonthlyProductQuote(): Promise<MobilePaymentProductQuote> {
+  const res = await fetch(`${BASE_URL}/payment/products/plus-monthly`);
   const json = (await res.json()) as ApiResult<MobilePaymentProductQuote>;
   if (!json.ok) {
     throw new MobileApiError(json.error.code, json.error.message);
@@ -123,14 +138,16 @@ export async function getCurrentAutoRenewSubscription(): Promise<MobileAutoRenew
   return json.data.subscription;
 }
 
-export async function createWeChatAutoRenewPreSign(): Promise<MobileWeChatAutoRenewPreSignResult> {
+export async function createWeChatAutoRenewPreSign(
+  productCode: MobilePaymentProductCode
+): Promise<MobileWeChatAutoRenewPreSignResult> {
   const res = await fetch(`${BASE_URL}/payment/autorenew/wechat/pre-sign`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(await getAuthHeaders()),
     },
-    body: JSON.stringify({ productCode: "pro_monthly" }),
+    body: JSON.stringify({ productCode }),
   });
   const json = (await res.json()) as ApiResult<MobileWeChatAutoRenewPreSignResult>;
   if (!json.ok) {

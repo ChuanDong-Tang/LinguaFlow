@@ -4,11 +4,27 @@ import * as AuthSession from "expo-auth-session";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { LoginScreen } from "./screens/LoginScreen";
-import { initI18n, setLanguage, t, tf } from "./i18n";
-import { clearSession, getSession, markForceAuthingLogin } from "./services/auth/authStorage";
+import { getLanguage, getSavedLanguage, initI18n, setLanguage, t, tf } from "./i18n";
+import {
+  clearAuthingAccessToken,
+  clearSession,
+  getAuthingAccessToken,
+  getSession,
+  markForceAuthingLogin,
+  setAuthingAccessToken,
+  setSession,
+} from "./services/auth/authStorage";
 import { clearAccountScopedStorage } from "./services/auth/accountScopedStorage";
-import { confirmDeleteAccount, logout, prepareDeleteAccount } from "./services/api/authApi";
-import { getUserPreference } from "./services/api/meApi";
+import { reconcileLocalInstallState } from "./services/storage/installState";
+import { ApiError, confirmBindEmail, confirmDeleteAccount, logout, prepareBindEmail, prepareDeleteAccount } from "./services/api/authApi";
+import {
+  getUserPreference,
+  updateUserPreference,
+  type AppLocale,
+  type LearningLanguage,
+  type PromptDifficulty,
+  type UserPreference,
+} from "./services/api/meApi";
 import { MainScreen } from "./screens/MainScreen";
 import { MeScreen } from "./screens/MeScreen";
 import { ProScreen } from "./screens/ProScreen";
@@ -18,6 +34,19 @@ import { PracticeSessionScreen } from "./screens/PracticeSessionScreen";
 import { AboutScreen } from "./screens/AboutScreen";
 import { FloatingNoticeProvider } from "./screens/shared/FloatingNotice";
 import { TabBar } from "./screens/shared/TabBar";
+import { LearningFlowHelpModal, LearningPreferenceModal, UiLocaleSetupModal } from "./screens/shared/OnboardingModals";
+import {
+  completeGuide,
+  GUIDE_FIRST_LEARNING_SETUP,
+  GUIDE_INITIAL_UI_LOCALE,
+  GUIDE_LEARNING_FLOW_HELP,
+  isGuideCompleted,
+  loadLocalGuideState,
+  markLocalGuideCompleted,
+  mergeGuideState,
+  saveLocalGuideState,
+  type GuideState,
+} from "./services/preferences/guideState";
 import {
   getAuthingClientId,
   getAuthingDiscovery,
@@ -26,11 +55,13 @@ import {
 } from "./services/auth/authingAuth";
 import { onSessionInvalid } from "./services/auth/authSessionEvents";
 import type { ChatMessage } from "./domain/chat/types";
+import type { User } from "@lf/core/types";
 import type { PracticeCard } from "./domain/practice/practiceService";
 import {
   DEFAULT_CHAT_CONTACT,
   type ChatContact,
 } from "./domain/chat/contacts";
+import { fetchChatContacts, loadCachedChatContacts } from "./services/api/chatContactsApi";
 
 type Screen =
   | "booting"
@@ -53,6 +84,21 @@ export default function App() {
     messages: ChatMessage[];
   } | null>(null);
   const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
+  const [chatContacts, setChatContacts] = useState<ChatContact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsError, setContactsError] = useState(false);
+  const [, bumpLanguageRevision] = useState(0);
+  const [uiLocaleSetupVisible, setUiLocaleSetupVisible] = useState(false);
+  const [uiLocaleDraft, setUiLocaleDraft] = useState<AppLocale>("zh-CN");
+  const [learningPreferenceVisible, setLearningPreferenceVisible] = useState(false);
+  const [learningPreferenceSaving, setLearningPreferenceSaving] = useState(false);
+  const [learningLanguageDraft, setLearningLanguageDraft] = useState<LearningLanguage>("en-US");
+  const [promptDifficultyDraft, setPromptDifficultyDraft] = useState<PromptDifficulty>("native");
+  const [guideState, setGuideState] = useState<GuideState>({});
+  const [guideStateUserId, setGuideStateUserId] = useState<string | null>(null);
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const [onboardingHelpVisible, setOnboardingHelpVisible] = useState(false);
+  const [manualHelpVisible, setManualHelpVisible] = useState(false);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteAccountAuthingToken, setDeleteAccountAuthingToken] = useState("");
   const [deleteAccountMethod, setDeleteAccountMethod] = useState<"PHONE_PASSCODE" | "EMAIL_PASSCODE" | null>(null);
@@ -61,6 +107,14 @@ export default function App() {
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [deleteAccountUserId, setDeleteAccountUserId] = useState("");
   const deleteAccountRunIdRef = useRef(0);
+  const [bindEmailVisible, setBindEmailVisible] = useState(false);
+  const [bindEmailAuthingToken, setBindEmailAuthingToken] = useState("");
+  const [bindEmailValue, setBindEmailValue] = useState("");
+  const [bindEmailTarget, setBindEmailTarget] = useState("");
+  const [bindEmailCode, setBindEmailCode] = useState("");
+  const [bindEmailLoading, setBindEmailLoading] = useState(false);
+  const [bindEmailUserId, setBindEmailUserId] = useState("");
+  const bindEmailRunIdRef = useRef(0);
   const authingConfigured = isAuthingConfigured();
   const authingDiscovery = authingConfigured ? getAuthingDiscovery() : null;
   const authingClientId = authingConfigured ? getAuthingClientId() : "authing-disabled";
@@ -76,6 +130,16 @@ export default function App() {
     },
     authingDiscovery
   );
+  const [bindEmailAuthingRequest, _bindEmailAuthingResponse, promptBindEmailAuthingAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: authingClientId,
+      redirectUri: authingRedirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ["openid", "profile", "email", "phone"],
+      usePKCE: true,
+    },
+    authingDiscovery
+  );
 
   // 判断用户是否已登录
   // 之前这里有一个强行停留1s的设定
@@ -85,16 +149,37 @@ export default function App() {
     async function bootstrap() {
       try {
         await Promise.all([initI18n(), preloadImages(PRELOAD_IMAGES)]);
-        const session = await getSession();
+        const installState = await reconcileLocalInstallState();
+        const savedLanguage = await getSavedLanguage();
+        if (savedLanguage) {
+          setUiLocaleDraft(savedLanguage);
+          await markLocalGuideCompleted(GUIDE_INITIAL_UI_LOCALE);
+        }
+        let session = await getSession();
+        if (installState.isFreshInstall && session) {
+          await clearSession();
+          await clearAuthingAccessToken();
+          await clearAccountScopedStorage();
+          session = null;
+        }
+        let preference: UserPreference | null = null;
         if (session) {
-          const preference = await getUserPreference().catch(() => null);
+          preference = await getUserPreference().catch(() => null);
           if (preference) await setLanguage(preference.appLocale);
         }
         if (!mounted) return;
         setScreen(session ? "main" : "login");
+        if (!session && !savedLanguage) {
+          setUiLocaleSetupVisible(true);
+        }
+        if (session) {
+          void runPostLoginGuideFlow(preference);
+          void loadChatContacts();
+        }
       } catch {
         if (!mounted) return;
         setScreen("login");
+        setUiLocaleSetupVisible(true);
       }
     }
     void bootstrap();
@@ -107,6 +192,7 @@ export default function App() {
   useEffect(() => {
     return onSessionInvalid(() => {
       cancelDeleteAccountFlow();
+      cancelBindEmailFlow();
       setScreen("login");
     });
   }, []);
@@ -119,6 +205,7 @@ export default function App() {
 
   async function handleLogout(): Promise<void> {
     cancelDeleteAccountFlow();
+    cancelBindEmailFlow();
     const session = await getSession();
     if (session?.refreshToken) {
       try {
@@ -126,9 +213,117 @@ export default function App() {
       } catch {}
     }
     await clearSession();
+    await clearAuthingAccessToken();
     await clearAccountScopedStorage();
     await markForceAuthingLogin();
     setScreen("login");
+  }
+
+  async function handleLoginSuccess(): Promise<void> {
+    cancelDeleteAccountFlow();
+    setScreen("main");
+    void loadChatContacts();
+    void runPostLoginGuideFlow();
+  }
+
+  async function loadChatContacts(): Promise<void> {
+    setContactsLoading(true);
+    setContactsError(false);
+    const cached = await loadCachedChatContacts();
+    if (cached?.contacts.length) {
+      setChatContacts(cached.contacts);
+      setActiveContact((current) => cached.contacts.find((item) => item.id === current.id) ?? cached.contacts[0]);
+    }
+    try {
+      const remote = await fetchChatContacts();
+      setChatContacts((current) => {
+        if (current.length && cached?.version === remote.version) return current;
+        return remote.contacts;
+      });
+      setActiveContact((current) => remote.contacts.find((item) => item.id === current.id) ?? remote.contacts[0]);
+    } catch {
+      if (!cached?.contacts.length) setContactsError(true);
+    } finally {
+      setContactsLoading(false);
+    }
+  }
+
+  async function runPostLoginGuideFlow(preloadedPreference?: UserPreference | null): Promise<void> {
+    const preference = preloadedPreference ?? await getUserPreference().catch(() => null);
+    const session = await getSession();
+    const userId = preference?.userId ?? session?.user.id ?? null;
+    setGuideStateUserId(userId);
+    const localGuideState = await loadLocalGuideState(userId);
+    const mergedGuideState = preference ? preference.guideState : localGuideState;
+    setGuideState(mergedGuideState);
+    await saveLocalGuideState(mergedGuideState, userId);
+    const appLocale = getLanguage() as AppLocale;
+    await updateUserPreference({ appLocale }).catch(() => null);
+
+    if (preference) {
+      setLearningLanguageDraft(preference.learningLanguage);
+      setPromptDifficultyDraft(preference.promptDifficulty);
+    }
+
+    if (!isGuideCompleted(mergedGuideState, GUIDE_FIRST_LEARNING_SETUP)) {
+      setLearningPreferenceVisible(true);
+      return;
+    }
+    if (!isGuideCompleted(mergedGuideState, GUIDE_LEARNING_FLOW_HELP)) {
+      setOnboardingHelpVisible(true);
+    }
+  }
+
+  async function completeUiLocaleSetup(): Promise<void> {
+    await setLanguage(uiLocaleDraft);
+    await markLocalGuideCompleted(GUIDE_INITIAL_UI_LOCALE);
+    setUiLocaleSetupVisible(false);
+  }
+
+  function applyAppLocale(value: AppLocale): void {
+    setUiLocaleDraft(value);
+    void setLanguage(value);
+    bumpLanguageRevision((revision) => revision + 1);
+  }
+
+  async function completeLearningPreferenceSetup(): Promise<void> {
+    if (learningPreferenceSaving) return;
+    setLearningPreferenceSaving(true);
+    try {
+      const nextGuideState = completeGuide(guideState, GUIDE_FIRST_LEARNING_SETUP);
+      const saved = await updateUserPreference({
+        appLocale: getLanguage() as AppLocale,
+        learningLanguage: learningLanguageDraft,
+        promptDifficulty: promptDifficultyDraft,
+        guideState: nextGuideState,
+      });
+      setLearningLanguageDraft(saved.learningLanguage);
+      setPromptDifficultyDraft(saved.promptDifficulty);
+      setGuideState(saved.guideState);
+      await saveLocalGuideState(saved.guideState, await resolveCurrentGuideUserId());
+      setLearningPreferenceVisible(false);
+      if (!isGuideCompleted(saved.guideState, GUIDE_LEARNING_FLOW_HELP)) {
+        setOnboardingHelpVisible(true);
+      }
+    } catch {
+      Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
+    } finally {
+      setLearningPreferenceSaving(false);
+    }
+  }
+
+  async function completeOnboardingHelp(): Promise<void> {
+    const nextGuideState = completeGuide(guideState, GUIDE_LEARNING_FLOW_HELP);
+    setGuideState(nextGuideState);
+    await saveLocalGuideState(nextGuideState, await resolveCurrentGuideUserId());
+    await updateUserPreference({ guideState: nextGuideState }).catch(() => null);
+    setOnboardingHelpVisible(false);
+  }
+
+  async function resolveCurrentGuideUserId(): Promise<string | null> {
+    if (guideStateUserId) return guideStateUserId;
+    const session = await getSession();
+    return session?.user.id ?? null;
   }
 
   async function handleDeleteAccount(): Promise<void> {
@@ -227,6 +422,7 @@ export default function App() {
       setDeleteAccountVisible(false);
       resetDeleteAccountState();
       await clearSession();
+      await clearAuthingAccessToken();
       await clearAccountScopedStorage();
       await markForceAuthingLogin();
       setScreen("login");
@@ -263,6 +459,194 @@ export default function App() {
     return session?.user.id === userId;
   }
 
+  async function handleBindEmail(): Promise<void> {
+    const session = await getSession();
+    if (!session?.user.id) {
+      Alert.alert(t("app.bind_email.login_required"));
+      return;
+    }
+    if (session.user.email?.trim()) {
+      Alert.alert(t("me.bind_email.already_title"), tf("me.bind_email.already_message", { email: session.user.email.trim() }));
+      return;
+    }
+    bindEmailRunIdRef.current += 1;
+    setBindEmailUserId(session.user.id);
+    setBindEmailValue("");
+    setBindEmailTarget("");
+    setBindEmailCode("");
+    setBindEmailAuthingToken("");
+    setBindEmailVisible(true);
+  }
+
+  async function sendBindEmailCode(): Promise<void> {
+    if (bindEmailLoading) return;
+    const email = bindEmailValue.trim();
+    if (!email) {
+      Alert.alert(t("app.bind_email.enter_email"));
+      return;
+    }
+
+    const session = await getSession();
+    if (!bindEmailUserId || session?.user.id !== bindEmailUserId) {
+      cancelBindEmailFlow();
+      Alert.alert(t("app.bind_email.expired_title"), t("app.bind_email.expired_message"));
+      return;
+    }
+
+    const runId = bindEmailRunIdRef.current;
+    const userId = bindEmailUserId;
+    setBindEmailLoading(true);
+    try {
+      const authingToken = await resolveBindEmailAuthingToken();
+      if (!(await isCurrentBindEmailRun(runId, userId))) return;
+      const prepared = await prepareBindEmailWithReauthFallback(authingToken, email);
+      if (!(await isCurrentBindEmailRun(runId, userId))) return;
+      setBindEmailAuthingToken(prepared.authingToken);
+      setBindEmailValue(prepared.email);
+      setBindEmailTarget(prepared.target);
+      setBindEmailCode("");
+      Alert.alert(t("app.bind_email.code_sent_title"), tf("app.bind_email.code_sent_message", { target: prepared.target }));
+    } catch (error) {
+      if (await isCurrentBindEmailRun(runId, userId)) {
+        Alert.alert(t("app.bind_email.send_failed_title"), normalizeUserFacingError(error, t("app.bind_email.retry_later")));
+      }
+    } finally {
+      if (await isCurrentBindEmailRun(runId, userId)) {
+        setBindEmailLoading(false);
+      }
+    }
+  }
+
+  async function resolveBindEmailAuthingToken(): Promise<string> {
+    const cachedToken = await getAuthingAccessToken();
+    if (cachedToken) return cachedToken;
+    return requestFreshBindEmailAuthingToken();
+  }
+
+  async function prepareBindEmailWithReauthFallback(authingToken: string, email: string) {
+    try {
+      return await prepareBindEmail({ authingToken, email });
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "AUTHING_REAUTH_REQUIRED") {
+        throw error;
+      }
+      await clearAuthingAccessToken();
+      const freshToken = await requestFreshBindEmailAuthingToken();
+      return prepareBindEmail({ authingToken: freshToken, email });
+    }
+  }
+
+  async function requestFreshBindEmailAuthingToken(): Promise<string> {
+    if (!authingConfigured || !authingDiscovery || !bindEmailAuthingRequest) {
+      throw new Error(t("app.bind_email.unavailable_message"));
+    }
+
+    const result = await promptBindEmailAuthingAsync();
+    if (result.type !== "success") {
+      throw new Error(t("common.operation_cancelled"));
+    }
+
+    const tokenResult = await AuthSession.exchangeCodeAsync(
+      {
+        clientId: authingClientId,
+        code: result.params.code,
+        redirectUri: authingRedirectUri,
+        extraParams: { code_verifier: bindEmailAuthingRequest.codeVerifier ?? "" },
+      },
+      authingDiscovery,
+    );
+    await setAuthingAccessToken(tokenResult.accessToken);
+    return tokenResult.accessToken;
+  }
+
+  async function confirmBindEmailWithReauthFallback(input: {
+    authingToken: string;
+    email: string;
+    passCode: string;
+  }) {
+    try {
+      return await confirmBindEmail(input);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "AUTHING_REAUTH_REQUIRED") {
+        throw error;
+      }
+      await clearAuthingAccessToken();
+      const freshToken = await requestFreshBindEmailAuthingToken();
+      setBindEmailAuthingToken(freshToken);
+      return confirmBindEmail({ ...input, authingToken: freshToken });
+    }
+  }
+
+  async function submitBindEmail(): Promise<void> {
+    if (bindEmailLoading) return;
+    if (!bindEmailAuthingToken || !bindEmailValue.trim()) {
+      await sendBindEmailCode();
+      return;
+    }
+    if (!bindEmailCode.trim()) {
+      Alert.alert(t("app.bind_email.enter_code"));
+      return;
+    }
+
+    const session = await getSession();
+    if (!bindEmailUserId || session?.user.id !== bindEmailUserId) {
+      cancelBindEmailFlow();
+      Alert.alert(t("app.bind_email.expired_title"), t("app.bind_email.expired_message"));
+      return;
+    }
+
+    const runId = bindEmailRunIdRef.current;
+    const userId = bindEmailUserId;
+    setBindEmailLoading(true);
+    try {
+      const result = await confirmBindEmailWithReauthFallback({
+        authingToken: bindEmailAuthingToken,
+        email: bindEmailValue,
+        passCode: bindEmailCode.trim(),
+      });
+      if (!(await isCurrentBindEmailRun(runId, userId))) return;
+      const currentSession = await getSession();
+      if (!currentSession || currentSession.user.id !== userId) return;
+      await setSession({
+        ...currentSession,
+        user: toSessionUser(result.user),
+      });
+      setSessionRevision((revision) => revision + 1);
+      setBindEmailVisible(false);
+      resetBindEmailState();
+      Alert.alert(t("app.bind_email.done_title"), tf("app.bind_email.done_message", { email: result.user.email ?? bindEmailValue }));
+    } catch (error) {
+      if (await isCurrentBindEmailRun(runId, userId)) {
+        Alert.alert(t("app.bind_email.failed_title"), normalizeUserFacingError(error, t("app.bind_email.failed_message")));
+      }
+    } finally {
+      if (await isCurrentBindEmailRun(runId, userId)) {
+        setBindEmailLoading(false);
+      }
+    }
+  }
+
+  function resetBindEmailState(): void {
+    setBindEmailAuthingToken("");
+    setBindEmailValue("");
+    setBindEmailTarget("");
+    setBindEmailCode("");
+    setBindEmailUserId("");
+  }
+
+  function cancelBindEmailFlow(): void {
+    bindEmailRunIdRef.current += 1;
+    setBindEmailVisible(false);
+    setBindEmailLoading(false);
+    resetBindEmailState();
+  }
+
+  async function isCurrentBindEmailRun(runId: number, userId: string): Promise<boolean> {
+    if (bindEmailRunIdRef.current !== runId) return false;
+    const session = await getSession();
+    return session?.user.id === userId;
+  }
+
   const showTabBar = screen === "main" || screen === "practice" || screen === "me";
   const activeTab = showTabBar ? screen : selectedTab;
 
@@ -275,8 +659,7 @@ export default function App() {
       <FadingScreen>
         <LoginScreen
           onLoginSuccess={() => {
-            cancelDeleteAccountFlow();
-            setScreen("main");
+            void handleLoginSuccess();
           }}
         />
       </FadingScreen>
@@ -319,6 +702,10 @@ export default function App() {
         <FadingScreen>
           <TabScreens
             activeTab={activeTab}
+            contacts={chatContacts}
+            contactsLoading={contactsLoading}
+            contactsError={contactsError}
+            onReloadContacts={() => void loadChatContacts()}
             onOpenChat={(contact) => {
               setActiveContact(contact);
               setScreen("chat");
@@ -329,6 +716,10 @@ export default function App() {
             }}
             onOpenPro={() => setScreen("pro")}
             onOpenAbout={() => setScreen("about")}
+            onOpenHelp={() => setManualHelpVisible(true)}
+            onApplyAppLocale={applyAppLocale}
+            sessionRevision={sessionRevision}
+            onBindEmail={handleBindEmail}
             onLogout={handleLogout}
             onDeleteAccount={handleDeleteAccount}
           />
@@ -357,6 +748,47 @@ export default function App() {
                 resetDeleteAccountState();
               }}
               onSubmit={() => void submitDeleteAccount()}
+            />
+            <BindEmailModal
+              visible={bindEmailVisible}
+              email={bindEmailValue}
+              target={bindEmailTarget}
+              passCode={bindEmailCode}
+              loading={bindEmailLoading}
+              onChangeEmail={setBindEmailValue}
+              onChangePassCode={setBindEmailCode}
+              onCancel={cancelBindEmailFlow}
+              onSendCode={() => void sendBindEmailCode()}
+              onSubmit={() => void submitBindEmail()}
+            />
+            <UiLocaleSetupModal
+              visible={uiLocaleSetupVisible}
+              value={uiLocaleDraft}
+              onChange={(value) => {
+                setUiLocaleDraft(value);
+                void setLanguage(value);
+              }}
+              onContinue={() => void completeUiLocaleSetup()}
+            />
+            <LearningPreferenceModal
+              visible={learningPreferenceVisible}
+              learningLanguage={learningLanguageDraft}
+              promptDifficulty={promptDifficultyDraft}
+              saving={learningPreferenceSaving}
+              onChangeLearningLanguage={setLearningLanguageDraft}
+              onChangePromptDifficulty={setPromptDifficultyDraft}
+              onContinue={() => void completeLearningPreferenceSetup()}
+            />
+            <LearningFlowHelpModal
+              visible={onboardingHelpVisible}
+              mode="onboarding"
+              onDone={() => void completeOnboardingHelp()}
+            />
+            <LearningFlowHelpModal
+              visible={manualHelpVisible}
+              mode="manual"
+              onClose={() => setManualHelpVisible(false)}
+              onDone={() => setManualHelpVisible(false)}
             />
             {showTabBar ? (
               <View style={styles.tabBarOverlay}>
@@ -425,6 +857,85 @@ function DeleteAccountModal({
   );
 }
 
+function BindEmailModal({
+  visible,
+  email,
+  target,
+  passCode,
+  loading,
+  onChangeEmail,
+  onChangePassCode,
+  onCancel,
+  onSendCode,
+  onSubmit,
+}: {
+  visible: boolean;
+  email: string;
+  target: string;
+  passCode: string;
+  loading: boolean;
+  onChangeEmail: (value: string) => void;
+  onChangePassCode: (value: string) => void;
+  onCancel: () => void;
+  onSendCode: () => void;
+  onSubmit: () => void;
+}) {
+  const codeSent = Boolean(target);
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.deleteBackdrop}>
+        <View style={styles.deletePanel}>
+          <Text style={styles.deleteTitle}>{t("app.bind_email.title")}</Text>
+          <Text style={styles.deleteDesc}>
+            {codeSent ? tf("app.bind_email.verify_desc", { target }) : t("app.bind_email.input_desc")}
+          </Text>
+          <TextInput
+            style={styles.deleteInput}
+            value={email}
+            onChangeText={onChangeEmail}
+            placeholder={t("app.bind_email.email_placeholder")}
+            placeholderTextColor="#8A8E99"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!loading && !codeSent}
+          />
+          {codeSent ? (
+            <TextInput
+              style={styles.deleteInput}
+              value={passCode}
+              onChangeText={onChangePassCode}
+              placeholder={t("app.bind_email.code_placeholder")}
+              placeholderTextColor="#8A8E99"
+              keyboardType="number-pad"
+              editable={!loading}
+            />
+          ) : null}
+          <View style={styles.deleteActions}>
+            <Pressable style={styles.deleteCancelButton} onPress={onCancel} disabled={loading}>
+              <Text style={styles.deleteCancelText}>{t("common.cancel")}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.bindEmailSubmitButton, loading && styles.deleteButtonDisabled]}
+              onPress={codeSent ? onSubmit : onSendCode}
+              disabled={loading}
+            >
+              <Text style={styles.deleteSubmitText}>
+                {loading
+                  ? t("common.saving")
+                  : codeSent
+                    ? t("app.bind_email.confirm")
+                    : t("app.bind_email.send_code")}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function FadingScreen({ children }: { children: React.ReactNode }) {
   const opacity = React.useRef(new Animated.Value(0)).current;
 
@@ -444,27 +955,78 @@ function FadingScreen({ children }: { children: React.ReactNode }) {
   return <Animated.View style={[styles.fadingScreen, { opacity }]}>{children}</Animated.View>;
 }
 
+function normalizeUserFacingError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback;
+  if (!message || message.length > 100) return fallback;
+  return message;
+}
+
+function toSessionUser(user: {
+  id: string;
+  nickname: string | null;
+  email: string | null;
+  phone: string | null;
+  avatarUrl: string | null;
+  role?: "user" | "admin";
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}): User {
+  return {
+    id: user.id,
+    phone: user.phone,
+    email: user.email,
+    wechatOpenId: null,
+    displayName: user.nickname?.trim() || user.email?.trim() || user.phone?.trim() || null,
+    avatarUrl: user.avatarUrl,
+    role: user.role ?? "user",
+    createdAt: new Date(user.createdAt).toISOString(),
+    updatedAt: new Date(user.updatedAt).toISOString(),
+  };
+}
+
 function TabScreens({
   activeTab,
+  contacts,
+  contactsLoading,
+  contactsError,
+  onReloadContacts,
   onOpenChat,
   onOpenPracticeSession,
   onOpenPro,
   onOpenAbout,
+  onOpenHelp,
+  onApplyAppLocale,
+  sessionRevision,
+  onBindEmail,
   onLogout,
   onDeleteAccount,
 }: {
   activeTab: "main" | "practice" | "me";
+  contacts: ChatContact[];
+  contactsLoading: boolean;
+  contactsError: boolean;
+  onReloadContacts: () => void;
   onOpenChat: (contact: ChatContact) => void;
   onOpenPracticeSession: (cards: PracticeCard[], allMessages: ChatMessage[]) => void;
   onOpenPro: () => void;
   onOpenAbout: () => void;
+  onOpenHelp: () => void;
+  onApplyAppLocale: (value: AppLocale) => void;
+  sessionRevision: number;
+  onBindEmail: () => Promise<void>;
   onLogout: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
 }) {
   return (
     <View style={styles.tabHost}>
       <View style={[styles.tabPage, activeTab !== "main" && styles.tabPageHidden]}>
-        <MainScreen onOpenChat={onOpenChat} />
+        <MainScreen
+          contacts={contacts}
+          loadingContacts={contactsLoading}
+          contactsError={contactsError}
+          onReloadContacts={onReloadContacts}
+          onOpenChat={onOpenChat}
+        />
       </View>
       <View style={[styles.tabPage, activeTab !== "practice" && styles.tabPageHidden]}>
         <PracticeScreen isActive={activeTab === "practice"} onOpenPracticeSession={onOpenPracticeSession} />
@@ -474,6 +1036,10 @@ function TabScreens({
           isActive={activeTab === "me"}
           onOpenPro={onOpenPro}
           onOpenAbout={onOpenAbout}
+          onOpenHelp={onOpenHelp}
+          onApplyAppLocale={onApplyAppLocale}
+          sessionRevision={sessionRevision}
+          onBindEmail={onBindEmail}
           onLogout={onLogout}
           onDeleteAccount={onDeleteAccount}
         />
@@ -570,6 +1136,14 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     backgroundColor: "#C43D3D",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bindEmailSubmitButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#6E63FF",
     alignItems: "center",
     justifyContent: "center",
   },

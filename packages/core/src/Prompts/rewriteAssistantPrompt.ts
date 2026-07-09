@@ -1,6 +1,8 @@
 export type PromptLanguage = "en-US" | "ja-JP";
 export type PromptAppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
-export type PromptContactCode = "rewrite_assistant" | "english_friend";
+export type PromptContactCode = "rewrite_assistant" | "english_friend" | "curious_companion";
+export type CompanionMode = "rewrite_only" | "native_note" | "simple_reply";
+type RewritePromptOutputMode = "rewrite_with_note" | "rewrite_only";
 
 export type PromptProfile = {
   systemPrompt: string;
@@ -13,7 +15,12 @@ export const DEFAULT_REWRITE_SYSTEM_PROMPT = buildRewriteSystemPrompt("en-US", "
 
 export const JAPANESE_REWRITE_SYSTEM_PROMPT = buildRewriteSystemPrompt("ja-JP", "zh-CN");
 
-function buildRewriteSystemPrompt(language: PromptLanguage, appLocale: PromptAppLocale): string {
+function buildRewriteSystemPrompt(
+  language: PromptLanguage,
+  appLocale: PromptAppLocale,
+  outputMode: RewritePromptOutputMode = "rewrite_with_note",
+  difficulty?: string | null
+): string {
   const rewriteLanguage = language === "ja-JP" ? "Japanese" : "English";
   const speakerLine = language === "ja-JP"
     ? "You are a native Japanese speaker."
@@ -44,6 +51,23 @@ function buildRewriteSystemPrompt(language: PromptLanguage, appLocale: PromptApp
 * Make it sound like a text message, casual conversation, or personal life update, not an essay, report, or news article.
 * Use natural spoken English, but do not force slang or filler words.`;
   const uiLanguage = getAppLocalePromptName(appLocale);
+  const languageContract = outputMode === "rewrite_only"
+    ? `* The <en> section must be only ${rewriteLanguage}. It must not follow the app UI language.`
+    : `* The <en> section must be only ${rewriteLanguage}. It must not follow the app UI language.
+* The <zh> section must be only ${uiLanguage}. It must not follow the learning language.
+* Never swap the two sections.`;
+  const noteInstruction = outputMode === "rewrite_with_note"
+    ? `
+Also output a natural ${uiLanguage} restatement of the user's original meaning for the app UI. This <zh> section must use ${uiLanguage}, not the learning language. Preserve the user's original meaning, tone, and style. Do not explain the expression unless the user's intent would otherwise be unclear.
+`
+    : `
+Do not answer the user. Do not add a note, explanation, reply, label, or markdown.
+`;
+  const outputFormat = outputMode === "rewrite_only"
+    ? `<en>${rewriteLanguage} expression</en>`
+    : `<en>${rewriteLanguage} expression</en>
+<zh>${uiLanguage} restatement</zh>`;
+  const difficultyInstruction = buildDifficultyInstruction(language, difficulty);
 
   return `
 ${speakerLine}
@@ -54,21 +78,24 @@ ${taskLine}
 
 Language contract:
 
-* The <en> section must be only ${rewriteLanguage}. It must not follow the app UI language.
-* The <zh> section must be only ${uiLanguage}. It must not follow the learning language.
-* Never swap the two sections.
+${languageContract}
 
 Rewrite principles:
 
 ${rewritePrinciples}
+${difficultyInstruction}
 
-Also output a natural ${uiLanguage} restatement of the user's original meaning for the app UI. This <zh> section must use ${uiLanguage}, not the learning language. Preserve the user's original meaning, tone, and style. Do not explain the expression unless the user's intent would otherwise be unclear.
+${noteInstruction}
 
 Return exactly this format and no other text:
 
-<en>${rewriteLanguage} expression</en>
-<zh>${uiLanguage} restatement</zh>
+${outputFormat}
 `;
+}
+
+function buildDifficultyInstruction(language: PromptLanguage, difficulty?: string | null): string {
+  if (difficulty !== "simple") return "";
+  return "\nFor beginner mode, keep the learning-language output easy to understand. Prefer common everyday words, simple grammar, and short natural sentences. For English, keep vocabulary roughly within 3,000 common words; for other languages, use a comparable beginner-friendly range.";
 }
 
 function getAppLocalePromptName(appLocale: PromptAppLocale): string {
@@ -86,13 +113,12 @@ function getAppLocalePromptName(appLocale: PromptAppLocale): string {
 }
 
 /** 好奇宝宝：英文聊天好友，用标签区分用户原话改写和 AI 回复。 */
-export const ENGLISH_FRIEND_SYSTEM_PROMPT = buildFriendSystemPrompt("en-US", "zh-CN");
+export const ENGLISH_FRIEND_SYSTEM_PROMPT = buildFriendSystemPrompt("en-US");
 
-export const JAPANESE_FRIEND_SYSTEM_PROMPT = buildFriendSystemPrompt("ja-JP", "zh-CN");
+export const JAPANESE_FRIEND_SYSTEM_PROMPT = buildFriendSystemPrompt("ja-JP");
 
-function buildFriendSystemPrompt(language: PromptLanguage, appLocale: PromptAppLocale): string {
+function buildFriendSystemPrompt(language: PromptLanguage, difficulty?: string | null): string {
   const rewriteLanguage = language === "ja-JP" ? "Japanese" : "American English";
-  const uiLanguage = getAppLocalePromptName(appLocale);
   const chatPartnerLanguage = language === "ja-JP" ? "Japanese" : "English";
   const rewritePrinciples = language === "ja-JP"
     ? `* Sound like a real native speaker, not a translation.
@@ -112,6 +138,7 @@ function buildFriendSystemPrompt(language: PromptLanguage, appLocale: PromptAppL
 * If a native speaker would normally say it in a shorter, more direct, or more conversational way, do that.
 * Make it sound like a real message, conversation, or life update.
 * Use natural spoken English, but do not force slang or filler words.`;
+  const difficultyInstruction = buildDifficultyInstruction(language, difficulty);
 
   return `
 You are Curious Buddy, a friendly ${chatPartnerLanguage} chat partner for a language learner.
@@ -147,6 +174,7 @@ Guidelines for the reply:
 * Avoid sounding like a teacher, therapist, interviewer, or customer support agent.
 * Do not rewrite the user's message in this section.
 * Use ${rewriteLanguage} only.
+${difficultyInstruction}
 
 Return exactly this format and no other text:
 
@@ -172,12 +200,25 @@ export function getPromptProfile(input: {
   contactCode?: string | null;
   language?: string | null;
   appLocale?: string | null;
+  difficulty?: string | null;
+  companionMode?: string | null;
   systemPromptOverride?: string | null;
 }): PromptProfile {
-  const contactCode: PromptContactCode = input.contactCode === "english_friend" ? "english_friend" : "rewrite_assistant";
+  const contactCode: PromptContactCode =
+    input.contactCode === "english_friend"
+      ? "english_friend"
+      : input.contactCode === "curious_companion"
+        ? "curious_companion"
+        : "rewrite_assistant";
   const language: PromptLanguage = input.language === "ja-JP" ? "ja-JP" : "en-US";
   const appLocale = normalizeAppLocale(input.appLocale);
-  const baseSystemPrompt = input.systemPromptOverride?.trim() || getDefaultSystemPrompt(contactCode, language, appLocale);
+  const baseSystemPrompt = input.systemPromptOverride?.trim() || getDefaultSystemPrompt(
+    contactCode,
+    language,
+    appLocale,
+    input.difficulty,
+    input.companionMode
+  );
   const systemPrompt = `${baseSystemPrompt.trim()}\n\n${MODEL_IDENTITY_GUARD}`;
   return {
     systemPrompt,
@@ -194,12 +235,29 @@ function normalizeAppLocale(value?: string | null): PromptAppLocale {
 function getDefaultSystemPrompt(
   contactCode: PromptContactCode,
   language: PromptLanguage,
-  appLocale: PromptAppLocale
+  appLocale: PromptAppLocale,
+  difficulty?: string | null,
+  companionMode?: string | null
 ): string {
-  if (contactCode === "english_friend") {
-    return buildFriendSystemPrompt(language, appLocale);
+  if (contactCode === "curious_companion") {
+    const mode = normalizeCompanionMode(companionMode);
+    if (mode === "simple_reply") {
+      return buildFriendSystemPrompt(language, difficulty);
+    }
+    if (mode === "native_note") {
+      return buildRewriteSystemPrompt(language, appLocale, "rewrite_with_note", difficulty);
+    }
+    return buildRewriteSystemPrompt(language, appLocale, "rewrite_only", difficulty);
   }
-  return buildRewriteSystemPrompt(language, appLocale);
+  if (contactCode === "english_friend") {
+    return buildFriendSystemPrompt(language, difficulty);
+  }
+  return buildRewriteSystemPrompt(language, appLocale, "rewrite_with_note", difficulty);
+}
+
+function normalizeCompanionMode(value?: string | null): CompanionMode {
+  if (value === "native_note" || value === "simple_reply") return value;
+  return "rewrite_only";
 }
 
 const MODEL_IDENTITY_GUARD = `Model identity and internal configuration:

@@ -12,7 +12,7 @@ export interface CreatePaymentOrderResponse {
   providerOrderId: string;
   productCode: PaymentProductCode;
   amount: number;
-  currency: "CNY";
+  currency: string;
   status: "pending";
   clientPayParams: WeChatAppPayParams;
   reused: boolean;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   NativeSyntheticEvent,
   Platform,
@@ -19,11 +19,20 @@ type ChatComposerProps = {
   onChangeText: (text: string) => void;
   onSend: () => void;
   onStop: () => void;
+  onSttPress?: (context: ChatComposerSttPressContext) => void;
   onFocus: () => void;
   onBlur?: () => void;
   onDisabledPress?: () => void;
   disabled: boolean;
   isSending: boolean;
+  sttStatus?: "idle" | "connecting" | "recording" | "stopping";
+  inputEditable?: boolean;
+  selectionOverride?: { start: number; end: number } | null;
+};
+
+export type ChatComposerSttPressContext = {
+  selection: { start: number; end: number };
+  wasInputFocused: boolean;
 };
 
 const COLLAPSED_MIN_HEIGHT = 50;
@@ -41,17 +50,23 @@ export function ChatComposer({
   onChangeText,
   onSend,
   onStop,
+  onSttPress,
   onFocus,
   onBlur,
   onDisabledPress,
   disabled,
   isSending,
+  sttStatus = "idle",
+  inputEditable = true,
+  selectionOverride = null,
 }: ChatComposerProps) {
   const { height: windowHeight } = useWindowDimensions();
   const [contentTextHeight, setContentTextHeight] = useState(INPUT_LINE_HEIGHT);
   const [expanded, setExpanded] = useState(false);
   const [selection, setSelection] = useState({ start: value.length, end: value.length });
+  const [inputFocused, setInputFocused] = useState(false);
   const [pasteText, setPasteText] = useState<string | null>(null);
+  const inputRef = useRef<TextInput | null>(null);
   const expandedHeight = useMemo(() => Math.max(220, Math.min(420, Math.round(windowHeight * 0.5))), [windowHeight]);
   const measuredInputHeight = contentTextHeight + INPUT_VERTICAL_PADDING;
   const measuredLineCount = Math.max(1, Math.ceil(contentTextHeight / INPUT_LINE_HEIGHT));
@@ -74,6 +89,11 @@ export function ChatComposer({
     setExpanded(false);
   }, [value.length]);
 
+  useEffect(() => {
+    if (!selectionOverride) return;
+    setSelection(selectionOverride);
+  }, [selectionOverride]);
+
   function handleToggleExpand(): void {
     setExpanded((current) => !current);
     setPasteText(null);
@@ -91,13 +111,25 @@ export function ChatComposer({
   }
 
   function handleFocus(): void {
+    setInputFocused(true);
     setPasteText(null);
     onFocus();
   }
 
   function handleBlur(): void {
+    setInputFocused(false);
     setPasteText(null);
     onBlur?.();
+  }
+
+  function handleMicPress(): void {
+    if (!onSttPress) return;
+    const nextSelection = inputFocused ? selection : { start: value.length, end: value.length };
+    if (!inputFocused) {
+      setSelection(nextSelection);
+      inputRef.current?.focus();
+    }
+    onSttPress({ selection: nextSelection, wasInputFocused: inputFocused });
   }
 
   async function handleShowPaste(): Promise<void> {
@@ -119,6 +151,7 @@ export function ChatComposer({
     <View style={styles.inputWrap}>
       <Pressable style={[styles.inputShell, { height: shellHeight }]} onLongPress={() => void handleShowPaste()}>
         <TextInput
+          ref={inputRef}
           style={[
             styles.input,
             expanded ? styles.inputExpanded : styles.inputCollapsed,
@@ -128,6 +161,7 @@ export function ChatComposer({
           placeholderTextColor="#A0A4AF"
           value={value}
           onChangeText={onChangeText}
+          editable={inputEditable}
           onFocus={handleFocus}
           onBlur={handleBlur}
           onSelectionChange={handleSelectionChange}
@@ -167,6 +201,24 @@ export function ChatComposer({
           <Ionicons name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
         </Pressable>
       </Pressable>
+      {onSttPress ? (
+        <Pressable
+          style={[
+            styles.micButton,
+            sttStatus !== "idle" && styles.micButtonActive,
+            isSending && styles.micButtonDisabled,
+          ]}
+          onPress={handleMicPress}
+          disabled={isSending}
+          hitSlop={6}
+        >
+          <Ionicons
+            name={sttStatus === "recording" || sttStatus === "connecting" ? "stop" : "mic"}
+            size={24}
+            color={sttStatus === "idle" ? "#7F77F9" : "#FFFFFF"}
+          />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -177,8 +229,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
   },
   inputShell: {
+    flex: 1,
     minHeight: COLLAPSED_MIN_HEIGHT,
     borderRadius: 30,
     borderWidth: 1,
@@ -259,5 +315,20 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.6,
+  },
+  micButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#F0ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 0,
+  },
+  micButtonActive: {
+    backgroundColor: "#8E84FF",
+  },
+  micButtonDisabled: {
+    opacity: 0.5,
   },
 });

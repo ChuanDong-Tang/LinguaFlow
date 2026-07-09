@@ -10,9 +10,13 @@ export interface ChatTextGenerationInput{
     contactId?: string;
     languageCode?: string;
     appLocale?: string;
+    promptDifficulty?: string;
+    companionMode?: string;
     provider?: string;
     model?: string;
     systemPrompt?: string;
+    rawUserPrompt?: boolean;
+    maxOutputTokens?: number;
     signal?: AbortSignalLike;
 }
 

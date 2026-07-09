@@ -1,5 +1,5 @@
 import { loadDebugSettings } from "../preferences/debugSettingsStorage";
-import { sendMessageToCloud } from "../api/chatHistoryApi";
+import { ApiError, sendMessageToCloud } from "../api/chatHistoryApi";
 import { getCurrentEntitlement } from "../api/meApi";
 import { startChatGenerationStream } from "./chatGenerationStream";
 import type { ChatGenerationStreamEvent } from "./streamClient";
@@ -22,6 +22,7 @@ export type RunChatGenerationInput = {
   text: string;
   assistantClientId: string;
   retryCount: number;
+  companionMode?: "rewrite_only" | "native_note" | "simple_reply";
   signal: AbortSignal;
   systemPrompt?: string;
   userClientId?: string;
@@ -33,7 +34,10 @@ export type RunChatGenerationInput = {
 export type RunChatGenerationResult = {
   status: ChatGenerationStatus;
   assistantText: string;
+  assistantMessageId?: string;
   errorMessage?: string;
+  errorCode?: string;
+  errorStage?: "input" | "output";
 };
 
 export function createLocalChatPair(
@@ -44,6 +48,7 @@ export function createLocalChatPair(
   const stamp = now.getTime();
   const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const createdAt = now.toISOString();
+  const assistantCreatedAt = new Date(stamp + 1).toISOString();
 
   return {
     userMessage: {
@@ -56,6 +61,7 @@ export function createLocalChatPair(
       createdAt,
       conversationDateKey,
       status: "pending",
+      contactId: null,
     },
     assistantMessage: {
       localId: `local-assistant-${stamp}`,
@@ -64,9 +70,10 @@ export function createLocalChatPair(
       role: "assistant",
       text: "",
       time,
-      createdAt,
+      createdAt: assistantCreatedAt,
       conversationDateKey,
       status: "pending",
+      contactId: null,
       retryText: text,
       retryCount: 0,
     },
@@ -77,15 +84,22 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   let requestSystemPrompt = input.systemPrompt?.trim() || undefined;
   let assistantText = "";
   let streamErrorMessage: string | null = null;
+  let streamErrorCode: string | undefined;
+  let streamErrorStage: "input" | "output" | undefined;
   let userMessageClientId = input.userClientId;
   let pendingDelta = "";
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let streamDoneEvent: Extract<ChatGenerationStreamEvent, { type: "done" }> | null = null;
+  let completedAssistantMessageId: string | undefined;
   let resolveTypingDrain: (() => void) | null = null;
   const FLUSH_INTERVAL_MS = 35;
   const MAX_CHARS_PER_FLUSH = 4;
 
   const markSucceeded = (event: Extract<ChatGenerationStreamEvent, { type: "done" }>) => {
+    const finalText = event.assistantMessage?.content || assistantText;
+    const baseClozeState = event.assistantMessage?.clozeState ?? null;
+    const baseClozeVersion = event.assistantMessage?.clozeVersion ?? 0;
+    completedAssistantMessageId = event.assistantMessage?.id;
     if (userMessageClientId) {
       input.onUpdateMessage(userMessageClientId, (row) => ({ ...row, status: "success" }));
     }
@@ -94,14 +108,14 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       id: event.assistantMessage?.id ?? row.id,
       serverId: event.assistantMessage?.id ?? row.serverId ?? null,
       status: "success",
-      clozeState: event.assistantMessage?.clozeState ?? row.clozeState ?? null,
-      clozeVersion: event.assistantMessage?.clozeVersion ?? row.clozeVersion ?? 0,
+      clozeState: baseClozeState ?? row.clozeState ?? null,
+      clozeVersion: baseClozeVersion,
       retryText: input.text,
       retryCount: input.retryCount,
       retrySystemPrompt: requestSystemPrompt,
       conversationDateKey: event.assistantMessage?.conversationDateKey ?? row.conversationDateKey,
       languageCode: event.assistantMessage?.languageCode ?? row.languageCode ?? null,
-      createdAt: event.assistantMessage?.createdAt ?? new Date().toISOString(),
+      createdAt: event.assistantMessage?.createdAt ?? row.createdAt,
     }));
   };
 
@@ -115,7 +129,6 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     input.onUpdateMessage(input.assistantClientId, (row) => ({
       ...row,
       text: row.text + chunk,
-      createdAt: new Date().toISOString(),
     }));
   };
   // 网络层可以很快收到 delta；UI 层固定节奏吐字，避免一大段瞬间刷出来。
@@ -159,7 +172,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
 
     const localPro = await hasLocalProAccess();
     const entitlement = localPro ? await getCurrentEntitlement().catch(() => null) : null;
-    const cloud = entitlement?.isPro === true
+    const cloud = (entitlement?.features?.cloudSync ?? entitlement?.isMember ?? entitlement?.isPro) === true
       ? await sendMessageToCloud({
           text: input.text,
           contactId: input.contactId,
@@ -174,7 +187,6 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         status: cloud.userMessage.status ?? row.status,
         conversationDateKey: cloud.userMessage.conversationDateKey ?? row.conversationDateKey,
         languageCode: cloud.userMessage.languageCode ?? row.languageCode ?? null,
-        createdAt: cloud.userMessage.createdAt ?? row.createdAt,
       }));
     }
 
@@ -184,6 +196,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         contactId: input.contactId,
         provider: requestProvider,
         model: requestModel,
+        companionMode: input.companionMode,
         conversationId: cloud?.conversationId,
         userMessageId: cloud?.userMessage.id,
         systemPrompt: requestSystemPrompt || undefined,
@@ -202,6 +215,8 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
           }
           flushDelta({ all: true });
           streamErrorMessage = event.message;
+          streamErrorCode = event.code;
+          streamErrorStage = event.stage;
           markFailed(input, tf("chat.error.prefix", { message: event.message }), requestSystemPrompt, userMessageClientId);
         }
 
@@ -230,10 +245,16 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         status: "failed",
         assistantText,
         errorMessage: streamErrorMessage,
+        errorCode: streamErrorCode,
+        errorStage: streamErrorStage,
       };
     }
 
-    return { status: "success", assistantText };
+    return {
+      status: "success",
+      assistantText,
+      assistantMessageId: completedAssistantMessageId,
+    };
   } catch (error) {
     if (flushTimer) {
       clearTimeout(flushTimer);
@@ -242,11 +263,15 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     flushDelta({ all: true });
     const wasStopped = input.isStopRequested?.() === true;
     const message = wasStopped ? t("chat.error.stopped") : error instanceof Error ? error.message : "stream failed";
+    const code = error instanceof ApiError ? error.code : undefined;
+    const stage = error instanceof ApiError ? error.stage : undefined;
     markFailed(input, tf("chat.error.prefix", { message }), requestSystemPrompt, userMessageClientId);
     return {
       status: wasStopped ? "stopped" : "failed",
       assistantText,
       errorMessage: message,
+      errorCode: code,
+      errorStage: stage,
     };
   }
 }
@@ -267,6 +292,5 @@ function markFailed(
     retryText: input.text,
     retryCount: input.retryCount,
     retrySystemPrompt: systemPrompt,
-    createdAt: new Date().toISOString(),
   }));
 }

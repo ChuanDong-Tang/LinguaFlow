@@ -2,11 +2,12 @@ export type TaggedRewriteParts = {
   rewrite: string;
   note: string;
   en: string;
+  ja: string;
   zh: string;
   reply: string;
 };
 
-const DEFAULT_REWRITE_TAGS = ["rewrite", "note", "en", "zh", "cn", "reply"] as const;
+const DEFAULT_REWRITE_TAGS = ["rewrite", "note", "en", "ja", "jp", "zh", "cn", "reply"] as const;
 
 // 前端只把 <en></en> 中间的内容当作“可展示/可挖空”的英文正文。
 // <zh></zh> 只做辅助中文展示，不参与 token 索引和练习判定。
@@ -16,13 +17,15 @@ export function parseTaggedRewrite(text: string): TaggedRewriteParts {
   const rewrite = parts.rewrite.trim();
   const note = parts.note.trim();
   const en = parts.en.trim();
+  const ja = parts.ja.trim() || parts.jp.trim();
   const zh = parts.zh.trim() || parts.cn.trim();
   const reply = parts.reply.trim();
   const fallback = hasAnyTag(text, DEFAULT_REWRITE_TAGS) ? "" : stripKnownTags(text, DEFAULT_REWRITE_TAGS).trim();
   return {
-    rewrite: rewrite || en || fallback,
+    rewrite: rewrite || en || ja || fallback,
     note: note || zh,
     en,
+    ja,
     zh,
     reply,
   };

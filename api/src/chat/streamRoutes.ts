@@ -7,6 +7,7 @@ import {
   resolveActiveUserContext,
   UnauthorizedError,
 } from "../auth/userContext.js";
+import { ContentSafetyBlockedError } from "@lf/server/services/contentSafety/ContentSafetyService.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import type { ChatMessageService } from "@lf/server/services/chat/ChatMessageService.js";
@@ -46,6 +47,11 @@ function isChatGenerationStreamBody(value: unknown): value is ChatGenerationStre
     (v.contactId === undefined || v.contactId === null || typeof v.contactId === "string") &&
     (v.provider === undefined || v.provider === null || typeof v.provider === "string") &&
     (v.model === undefined || v.model === null || typeof v.model === "string") &&
+    (v.companionMode === undefined ||
+      v.companionMode === null ||
+      v.companionMode === "rewrite_only" ||
+      v.companionMode === "native_note" ||
+      v.companionMode === "simple_reply") &&
     (v.systemPrompt === undefined || v.systemPrompt === null || typeof v.systemPrompt === "string")
   );
 }
@@ -83,6 +89,9 @@ function mapChatGenerationErrorToHttp(code: string | undefined): {
   }
   if (code === "RATE_LIMITED") {
     return { status: 429, code: "RATE_LIMITED", message: "Too many requests" };
+  }
+  if (code === "DAILY_QUOTA_EXCEEDED") {
+    return { status: 429, code: "DAILY_QUOTA_EXCEEDED", message: "You've reached your character quota." };
   }
   if (code === "TASK_IN_PROGRESS") {
     return {
@@ -177,6 +186,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
           contactId: body.contactId?.trim() || "rewrite_assistant",
           provider: body.provider?.trim() || undefined,
           model: body.model?.trim() || undefined,
+          companionMode: body.companionMode,
           systemPrompt: body.systemPrompt ?? undefined,
           conversationId: body.conversationId,
           userMessageId: body.userMessageId,
@@ -244,15 +254,16 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
       const safeCode = mapped?.code ?? "INTERNAL_ERROR";
       const safeMessage = mapped?.message ?? "Stream failed";
       const safeStatus = mapped?.status ?? 500;
+      const stage = error instanceof ContentSafetyBlockedError ? error.stage : undefined;
       if (!reply.raw.destroyed && !reply.raw.writableEnded) {
         // If SSE already started, write structured stream error; otherwise return JSON 500.
         if (sseStarted) {
-          reply.raw.write(toSseChunk({ type: "error", message: safeMessage, code: safeCode }));
+          reply.raw.write(toSseChunk({ type: "error", message: safeMessage, code: safeCode, stage }));
           reply.raw.end();
         } else {
           return reply.status(safeStatus).send({
             ok: false,
-            error: { code: safeCode, message: safeMessage },
+            error: { code: safeCode, message: safeMessage, stage },
           });
         }
       }

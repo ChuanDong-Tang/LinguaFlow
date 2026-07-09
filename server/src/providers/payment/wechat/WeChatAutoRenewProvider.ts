@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { WeChatAppPayParams } from "@lf/core/ports/payment/PaymentTypes.js";
+import type { AutoRenewProductCode } from "@lf/core/ports/repository/AutoRenewRepository.js";
 import type { WeChatAutoRenewConfig } from "./WeChatPayConfig.js";
 import { loadWeChatAutoRenewConfig } from "./WeChatPayConfig.js";
 import {
@@ -66,7 +67,8 @@ export class WeChatAutoRenewProvider {
 
   async createH5PreSign(input: {
     userId: string;
-    productCode: "pro_monthly";
+    productCode: AutoRenewProductCode;
+    planId: string;
     description: string;
     amount: number;
     currency: "CNY";
@@ -76,7 +78,8 @@ export class WeChatAutoRenewProvider {
 
   async createScheduledH5PreSign(input: {
     userId: string;
-    productCode: "pro_monthly";
+    productCode: AutoRenewProductCode;
+    planId: string;
   }): Promise<{ outContractCode: string; redirectUrl: string; raw: unknown }> {
     return this.getClient().createScheduledH5PreSign(input);
   }
@@ -122,7 +125,8 @@ class WeChatAutoRenewClient {
 
   async createH5PreSign(input: {
     userId: string;
-    productCode: "pro_monthly";
+    productCode: AutoRenewProductCode;
+    planId: string;
     description: string;
     amount: number;
     currency: "CNY";
@@ -146,7 +150,7 @@ class WeChatAutoRenewClient {
         // 支付中签约：用户支付首期时同时完成自动续费签约，避免“签约后还要等预约扣费”的体验。
         // 首期支付是否成功仍以后续扣款/支付通知为准，不能因为拿到 prepay_id 就直接发权益。
         contract_info: {
-          plan_id: this.config.planId,
+          plan_id: input.planId,
           out_contract_code: outContractCode,
           contract_display_account: input.userId,
           notify_url: this.config.contractNotifyUrl,
@@ -185,7 +189,8 @@ class WeChatAutoRenewClient {
 
   async createScheduledH5PreSign(input: {
     userId: string;
-    productCode: "pro_monthly";
+    productCode: AutoRenewProductCode;
+    planId: string;
   }): Promise<{ outContractCode: string; redirectUrl: string; raw: unknown }> {
     const outContractCode = this.createOutContractCode();
     const path = "/v3/papay/scheduled-deduct-sign/contracts/pre-entrust-sign/h5";
@@ -196,7 +201,7 @@ class WeChatAutoRenewClient {
         appid: this.config.appId,
         mchid: this.config.mchId,
         out_contract_code: outContractCode,
-        plan_id: this.config.planId,
+        plan_id: input.planId,
         contract_display_account: input.userId,
         notify_url: this.config.contractNotifyUrl,
         contract_return_url: this.config.contractReturnUrl,

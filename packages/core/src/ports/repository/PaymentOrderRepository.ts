@@ -4,6 +4,8 @@ import type {
   PaymentProviderName,
 } from "../payment/PaymentTypes.js";
 
+export type PaymentCurrencyCode = string;
+
 export interface PaymentOrderEntity {
   id: string;
   userId: string;
@@ -11,7 +13,7 @@ export interface PaymentOrderEntity {
   provider: PaymentProviderName;
   providerOrderId: string;
   amount: number;
-  currency: "CNY";
+  currency: PaymentCurrencyCode;
   status: PaymentOrderStatus;
   metadata: unknown | null;
   createdAt: Date;
@@ -24,7 +26,7 @@ export interface CreatePaymentOrderRecordInput {
   provider: PaymentProviderName;
   providerOrderId: string;
   amount: number;
-  currency: "CNY";
+  currency: PaymentCurrencyCode;
   status: PaymentOrderStatus;
   metadata?: unknown;
 }
@@ -35,7 +37,7 @@ export interface FindOrCreatePaidExternalOrderInput {
   provider: PaymentProviderName;
   providerOrderId: string;
   amount: number;
-  currency: "CNY";
+  currency: PaymentCurrencyCode;
   metadata?: unknown;
 }
 

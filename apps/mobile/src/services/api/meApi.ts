@@ -8,14 +8,24 @@ type ApiResult<T> = ApiOk<T> | ApiFail;
 
 export type CurrentEntitlement = {
   userId: string;
-  plan: "free" | "pro_monthly";
+  plan: "free" | "plus_monthly" | "pro_monthly";
+  tier: "free" | "plus" | "pro";
   isPro: boolean;
+  isPlus: boolean;
+  isMember: boolean;
   expiresAt: string | null;
   dateKey: string;
   dailyTotalLimit: number;
   validUntil: string | null;
   usedTotalChars: number;
   remainingChars: number;
+  quotas?: {
+    aiDailyChars: number;
+  };
+  features?: {
+    cloudSync: boolean;
+    highQualityTts: boolean;
+  };
   source?: "authing" | "mock";
 };
 
@@ -37,13 +47,18 @@ export type RefreshEntitlementResult = {
 export type AppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
 export type LearningLanguage = "en-US" | "ja-JP";
 export type TtsProviderCode = "azure_global";
+export type PromptDifficulty = "simple" | "native";
+export type GuideState = Record<string, { completedAt?: string }>;
 
 export type UserPreference = {
   userId: string;
   appLocale: AppLocale;
   learningLanguage: LearningLanguage;
+  promptDifficulty: PromptDifficulty;
+  guideState: GuideState;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
+  sttMultilingualRecognitionEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -51,8 +66,11 @@ export type UserPreference = {
 export type UpdateUserPreferenceInput = Partial<{
   appLocale: AppLocale;
   learningLanguage: LearningLanguage;
+  promptDifficulty: PromptDifficulty;
+  guideState: GuideState;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
+  sttMultilingualRecognitionEnabled: boolean;
 }>;
 
 export async function getCurrentEntitlement(): Promise<CurrentEntitlement> {
