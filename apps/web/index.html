@@ -424,8 +424,10 @@
                       <th>总用户</th>
                       <th>使用用户</th>
                       <th>活跃用户</th>
+                      <th>会员用户</th>
+                      <th>Plus 用户</th>
                       <th>Pro 用户</th>
-                      <th>Pro 占比</th>
+                      <th>会员占比</th>
                       <th>总字符</th>
                       <th>人均字符</th>
                     </tr>
@@ -1140,22 +1142,26 @@
         const summary = data.summary || {};
         const todayActivity = (data.dailyUserActivity || [])[0] || {};
         const ttsCost = data.ttsCost || {};
+        const memberUsers = summary.memberUsers ?? summary.proUsers;
+        const nonMemberUsers = summary.nonMemberUsers ?? summary.nonProUsers;
         $("overviewClock").textContent = data.clock
           ? `${data.range?.fromDate || ""} 至 ${data.range?.toDate || ""} · ${data.clock.businessTimeZone} · ${fmtDate(data.clock.serverNowIso)}`
           : "未加载";
         const cards = [
           ["总用户", summary.totalUsers, "active users"],
-          ["当前 Pro", summary.proUsers, "active subscription"],
-          ["非 Pro", summary.nonProUsers, "active users - pro"],
+          ["当前会员", memberUsers, "plus + pro"],
+          ["当前 Plus", summary.plusUsers, "active plus"],
+          ["当前 Pro", summary.proUsers, "active pro"],
+          ["非会员", nonMemberUsers, "active users - members"],
           ["今日使用用户", todayActivity.usingUsers, "messages or quota"],
           ["今日活跃用户", todayActivity.activeUsers, "success or quota"],
           ["今日额度用户", summary.todayQuotaUsers, "daily + free_trial"],
           ["今日平均累计", summary.todayAvgUsedChars, "quota pool / user"],
           ["今日累计合计", summary.todayTotalUsedChars, "quota pool total"],
-          ["今日用满", summary.todayQuotaFullUsers, "pro + free"],
-          ["Pro 用满", summary.todayProQuotaFullUsers, "daily quota"],
+          ["今日用满", summary.todayQuotaFullUsers, "member + free"],
+          ["会员用满", summary.todayProQuotaFullUsers, "daily quota"],
           ["免费用满", summary.todayFreeQuotaFullUsers, "free trial"],
-          ["Pro 占比", percent(summary.proUsers, summary.totalUsers), "current"],
+          ["会员占比", percent(memberUsers, summary.totalUsers), "current"],
           ["TTS 估算成本", ttsCost.estimatedCost || "USD 0.00", `rate ${ttsCost.costPerMillionCharsCents ?? 0} cents / 1M chars`],
           ["TTS 生成字符", ttsCost.generatedChars, "new synthesis only"],
           ["TTS 新生成", ttsCost.generatedRequests, "cache/dedupe excluded"],
@@ -1192,12 +1198,14 @@
             <td>${escapeHtml(row.totalUsers)}</td>
             <td>${escapeHtml(row.usingUsers)}</td>
             <td>${escapeHtml(row.activeUsers)}</td>
+            <td>${escapeHtml(row.memberUsers ?? row.proUsers)}</td>
+            <td>${escapeHtml(row.plusUsers ?? 0)}</td>
             <td>${escapeHtml(row.proUsers)}</td>
-            <td>${escapeHtml(percent(row.proUsers, row.totalUsers))}</td>
+            <td>${escapeHtml(percent(row.memberUsers ?? row.proUsers, row.totalUsers))}</td>
             <td>${escapeHtml(row.totalMessageChars)}</td>
             <td>${escapeHtml(row.avgMessageCharsPerUsingUser)}</td>
           </tr>
-        `).join("") || rowEmpty(8);
+        `).join("") || rowEmpty(10);
         $("ttsCostTbody").innerHTML = (data.dailyTtsUsage || []).map((row) => `
           <tr>
             <td>${escapeHtml(row.dateKey)}</td>

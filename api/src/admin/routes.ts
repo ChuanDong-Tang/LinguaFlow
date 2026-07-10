@@ -300,8 +300,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         `WITH active_users AS (
            SELECT id FROM "users" WHERE status = 'active'
          ),
-         active_pro AS (
-           SELECT DISTINCT "userId"
+         active_memberships AS (
+           SELECT DISTINCT "userId", plan
            FROM "subscriptions"
            WHERE status = 'active'
              AND "expiresAt" > now()
@@ -319,8 +319,10 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
          )
          SELECT
            (SELECT COUNT(*)::int FROM active_users) AS "totalUsers",
-           (SELECT COUNT(*)::int FROM active_users u JOIN active_pro ap ON ap."userId" = u.id) AS "proUsers",
-           (SELECT COUNT(*)::int FROM active_users u LEFT JOIN active_pro ap ON ap."userId" = u.id WHERE ap."userId" IS NULL) AS "nonProUsers",
+           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id) AS "memberUsers",
+           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id WHERE am.plan = 'plus_monthly') AS "plusUsers",
+           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id WHERE am.plan = 'pro_monthly') AS "proUsers",
+           (SELECT COUNT(*)::int FROM active_users u LEFT JOIN active_memberships am ON am."userId" = u.id WHERE am."userId" IS NULL) AS "nonMemberUsers",
            (SELECT COUNT(DISTINCT "userId")::int FROM today_entitlements) AS "todayQuotaUsers",
            COALESCE((SELECT ROUND(AVG("usedTotalChars")::numeric, 2)::float8 FROM today_entitlements), 0) AS "todayAvgUsedChars",
            COALESCE((SELECT SUM("usedTotalChars")::int FROM today_entitlements), 0) AS "todayTotalUsedChars",
@@ -426,6 +428,25 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
              FROM "subscriptions" s
              JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
              WHERE s.status = 'active'
+               AND s.plan IN ('plus_monthly', 'pro_monthly')
+               AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
+               AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
+           ) AS "memberUsers",
+           (
+             SELECT COUNT(DISTINCT s."userId")::int
+             FROM "subscriptions" s
+             JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
+             WHERE s.status = 'active'
+               AND s.plan = 'plus_monthly'
+               AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
+               AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
+           ) AS "plusUsers",
+           (
+             SELECT COUNT(DISTINCT s."userId")::int
+             FROM "subscriptions" s
+             JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
+             WHERE s.status = 'active'
+               AND s.plan = 'pro_monthly'
                AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
                AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
            ) AS "proUsers",
