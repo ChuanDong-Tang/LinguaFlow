@@ -80,6 +80,110 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     return reply.status(200).send({ ok: true, request_id: requestId, data: users });
   });
 
+  app.get("/admin/contact-users", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const query = req.query as Record<string, unknown>;
+    const page = Math.max(1, Math.min(100_000, Number.parseInt(String(query.page ?? "1"), 10) || 1));
+    const pageSize = 50;
+    const membership = String(query.membership ?? "all").trim();
+    const email = String(query.email ?? "all").trim();
+    const q = String(query.q ?? "").trim();
+    const allowedMemberships = new Set(["all", "plus", "pro", "expired", "cancelled", "non_member"]);
+    const allowedEmailFilters = new Set(["all", "with_email", "without_email"]);
+
+    if (!allowedMemberships.has(membership) || !allowedEmailFilters.has(email)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "REQUEST_INVALID", message: "invalid membership or email filter" },
+      });
+    }
+
+    const values: unknown[] = [];
+    const filters: string[] = [];
+    if (membership !== "all") {
+      values.push(membership);
+      filters.push(`cu."membershipStatus" = $${values.length}`);
+    }
+    if (email === "with_email") filters.push(`NULLIF(BTRIM(cu.email), '') IS NOT NULL`);
+    if (email === "without_email") filters.push(`NULLIF(BTRIM(cu.email), '') IS NULL`);
+    if (q) {
+      values.push(`%${q}%`);
+      filters.push(`(
+        cu.id ILIKE $${values.length}
+        OR COALESCE(cu.nickname, '') ILIKE $${values.length}
+        OR COALESCE(cu.email, '') ILIKE $${values.length}
+        OR COALESCE(cu.phone, '') ILIKE $${values.length}
+      )`);
+    }
+
+    const whereSql = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+    values.push(pageSize, (page - 1) * pageSize);
+    const rows = await deps.prisma.$queryRawUnsafe(
+      `WITH classified_users AS (
+         SELECT
+           u.id,
+           u.nickname,
+           u.email,
+           u.phone,
+           u.status AS "accountStatus",
+           u.role,
+           u."createdAt",
+           s.id AS "subscriptionId",
+           s.plan,
+           s.status AS "subscriptionStatus",
+           s."startedAt",
+           s."expiresAt",
+           CASE
+             WHEN s.status = 'active' AND s."expiresAt" > now() AND s.plan = 'plus_monthly' THEN 'plus'
+             WHEN s.status = 'active' AND s."expiresAt" > now() AND s.plan = 'pro_monthly' THEN 'pro'
+             WHEN s.id IS NULL THEN 'non_member'
+             WHEN s.status = 'cancelled' THEN 'cancelled'
+             ELSE 'expired'
+           END AS "membershipStatus"
+         FROM "users" u
+         LEFT JOIN LATERAL (
+           SELECT sub.*
+           FROM "subscriptions" sub
+           WHERE sub."userId" = u.id
+           ORDER BY
+             CASE WHEN sub.status = 'active' AND sub."expiresAt" > now() THEN 0 ELSE 1 END,
+             sub."updatedAt" DESC,
+             sub."expiresAt" DESC
+           LIMIT 1
+         ) s ON true
+       )
+       SELECT
+         cu.*,
+         COUNT(*) OVER()::int AS "totalCount",
+         COUNT(*) FILTER (WHERE NULLIF(BTRIM(cu.email), '') IS NOT NULL) OVER()::int AS "emailCount"
+       FROM classified_users cu
+       ${whereSql}
+       ORDER BY cu."createdAt" DESC, cu.id DESC
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      ...values
+    );
+
+    const total = Number(rows[0]?.totalCount ?? 0);
+    const emailCount = Number(rows[0]?.emailCount ?? 0);
+    const data = rows.map(({ totalCount: _totalCount, emailCount: _emailCount, ...row }) => row);
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+      summary: { total, withEmail: emailCount, withoutEmail: total - emailCount },
+    });
+  });
+
   app.get("/admin/orders", async (req, reply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
