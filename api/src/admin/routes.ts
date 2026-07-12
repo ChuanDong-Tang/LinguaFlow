@@ -90,15 +90,30 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const pageSize = 50;
     const membership = String(query.membership ?? "all").trim();
     const email = String(query.email ?? "all").trim();
+    const autoRenew = String(query.autoRenew ?? "all").trim();
     const q = String(query.q ?? "").trim();
     const allowedMemberships = new Set(["all", "plus", "pro", "expired", "cancelled", "non_member"]);
     const allowedEmailFilters = new Set(["all", "with_email", "without_email"]);
+    const allowedAutoRenewFilters = new Set([
+      "all",
+      "active",
+      "cancelled",
+      "billing_retry",
+      "pending",
+      "paused",
+      "expired",
+      "none",
+    ]);
 
-    if (!allowedMemberships.has(membership) || !allowedEmailFilters.has(email)) {
+    if (
+      !allowedMemberships.has(membership)
+      || !allowedEmailFilters.has(email)
+      || !allowedAutoRenewFilters.has(autoRenew)
+    ) {
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
-        error: { code: "REQUEST_INVALID", message: "invalid membership or email filter" },
+        error: { code: "REQUEST_INVALID", message: "invalid membership, email, or auto-renew filter" },
       });
     }
 
@@ -110,6 +125,11 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     }
     if (email === "with_email") filters.push(`NULLIF(BTRIM(cu.email), '') IS NOT NULL`);
     if (email === "without_email") filters.push(`NULLIF(BTRIM(cu.email), '') IS NULL`);
+    if (autoRenew === "none") filters.push(`cu."autoRenewStatus" IS NULL`);
+    if (autoRenew !== "all" && autoRenew !== "none") {
+      values.push(autoRenew);
+      filters.push(`cu."autoRenewStatus"::text = $${values.length}`);
+    }
     if (q) {
       values.push(`%${q}%`);
       filters.push(`(
@@ -137,6 +157,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            s.status AS "subscriptionStatus",
            s."startedAt",
            s."expiresAt",
+           ar.provider AS "autoRenewProvider",
+           ar.status AS "autoRenewStatus",
            CASE
              WHEN s.status = 'active' AND s."expiresAt" > now() AND s.plan = 'plus_monthly' THEN 'plus'
              WHEN s.status = 'active' AND s."expiresAt" > now() AND s.plan = 'pro_monthly' THEN 'pro'
@@ -155,6 +177,18 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
              sub."expiresAt" DESC
            LIMIT 1
          ) s ON true
+         LEFT JOIN LATERAL (
+           SELECT auto_renew.provider, auto_renew.status, auto_renew."updatedAt"
+           FROM "auto_renew_subscriptions" auto_renew
+           WHERE auto_renew."userId" = u.id
+           ORDER BY
+             CASE
+               WHEN auto_renew.status IN ('pending', 'active', 'billing_retry', 'paused') THEN 0
+               ELSE 1
+             END,
+             auto_renew."updatedAt" DESC
+           LIMIT 1
+         ) ar ON true
        )
        SELECT
          cu.*,
