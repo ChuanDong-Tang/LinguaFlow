@@ -12,7 +12,9 @@ export interface AdminRouteDeps {
   prisma: {
     user: {
       findMany: (args: any) => Promise<any[]>;
+      findFirst: (args: any) => Promise<any | null>;
       findUnique: (args: any) => Promise<any | null>;
+      update: (args: any) => Promise<any>;
     };
     paymentOrder: {
       findMany: (args: any) => Promise<any[]>;
@@ -78,6 +80,195 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     });
 
     return reply.status(200).send({ ok: true, request_id: requestId, data: users });
+  });
+
+  app.get("/admin/contact-users", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const query = req.query as Record<string, unknown>;
+    const page = Math.max(1, Math.min(100_000, Number.parseInt(String(query.page ?? "1"), 10) || 1));
+    const pageSize = 50;
+    const membership = String(query.membership ?? "all").trim();
+    const email = String(query.email ?? "all").trim();
+    const autoRenew = String(query.autoRenew ?? "all").trim();
+    const q = String(query.q ?? "").trim();
+    const allowedMemberships = new Set(["all", "plus", "pro", "expired", "cancelled", "non_member"]);
+    const allowedEmailFilters = new Set(["all", "with_email", "without_email"]);
+    const allowedAutoRenewFilters = new Set([
+      "all",
+      "active",
+      "cancelled",
+      "billing_retry",
+      "pending",
+      "paused",
+      "expired",
+      "none",
+    ]);
+
+    if (
+      !allowedMemberships.has(membership)
+      || !allowedEmailFilters.has(email)
+      || !allowedAutoRenewFilters.has(autoRenew)
+    ) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "REQUEST_INVALID", message: "invalid membership, email, or auto-renew filter" },
+      });
+    }
+
+    const values: unknown[] = [];
+    const filters: string[] = [];
+    if (membership !== "all") {
+      values.push(membership);
+      filters.push(`cu."membershipStatus" = $${values.length}`);
+    }
+    if (email === "with_email") filters.push(`NULLIF(BTRIM(cu.email), '') IS NOT NULL`);
+    if (email === "without_email") filters.push(`NULLIF(BTRIM(cu.email), '') IS NULL`);
+    if (autoRenew === "none") filters.push(`cu."autoRenewStatus" IS NULL`);
+    if (autoRenew !== "all" && autoRenew !== "none") {
+      values.push(autoRenew);
+      filters.push(`cu."autoRenewStatus"::text = $${values.length}`);
+    }
+    if (q) {
+      values.push(`%${q}%`);
+      filters.push(`(
+        cu.id ILIKE $${values.length}
+        OR COALESCE(cu.nickname, '') ILIKE $${values.length}
+        OR COALESCE(cu.email, '') ILIKE $${values.length}
+        OR COALESCE(cu.phone, '') ILIKE $${values.length}
+      )`);
+    }
+
+    const whereSql = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+    values.push(pageSize, (page - 1) * pageSize);
+    const rows = await deps.prisma.$queryRawUnsafe(
+      `WITH classified_users AS (
+         SELECT
+           u.id,
+           u.nickname,
+           u.email,
+           u.phone,
+           u.status AS "accountStatus",
+           u.role,
+           u."createdAt",
+           s.id AS "subscriptionId",
+           s.plan,
+           s.status AS "subscriptionStatus",
+           s."startedAt",
+           s."expiresAt",
+           ar.provider AS "autoRenewProvider",
+           ar.status AS "autoRenewStatus",
+           CASE
+             WHEN s.status = 'active' AND s."expiresAt" > now() AND s.plan = 'plus_monthly' THEN 'plus'
+             WHEN s.status = 'active' AND s."expiresAt" > now() AND s.plan = 'pro_monthly' THEN 'pro'
+             WHEN s.id IS NULL THEN 'non_member'
+             WHEN s.status = 'cancelled' THEN 'cancelled'
+             ELSE 'expired'
+           END AS "membershipStatus"
+         FROM "users" u
+         LEFT JOIN LATERAL (
+           SELECT sub.*
+           FROM "subscriptions" sub
+           WHERE sub."userId" = u.id
+           ORDER BY
+             CASE WHEN sub.status = 'active' AND sub."expiresAt" > now() THEN 0 ELSE 1 END,
+             sub."updatedAt" DESC,
+             sub."expiresAt" DESC
+           LIMIT 1
+         ) s ON true
+         LEFT JOIN LATERAL (
+           SELECT auto_renew.provider, auto_renew.status, auto_renew."updatedAt"
+           FROM "auto_renew_subscriptions" auto_renew
+           WHERE auto_renew."userId" = u.id
+           ORDER BY
+             CASE
+               WHEN auto_renew.status IN ('pending', 'active', 'billing_retry', 'paused') THEN 0
+               ELSE 1
+             END,
+             auto_renew."updatedAt" DESC
+           LIMIT 1
+         ) ar ON true
+       )
+       SELECT
+         cu.*,
+         COUNT(*) OVER()::int AS "totalCount",
+         COUNT(*) FILTER (WHERE NULLIF(BTRIM(cu.email), '') IS NOT NULL) OVER()::int AS "emailCount"
+       FROM classified_users cu
+       ${whereSql}
+       ORDER BY cu."createdAt" DESC, cu.id DESC
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      ...values
+    );
+
+    const total = Number(rows[0]?.totalCount ?? 0);
+    const emailCount = Number(rows[0]?.emailCount ?? 0);
+    const data = rows.map(({ totalCount: _totalCount, emailCount: _emailCount, ...row }) => row);
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+      summary: { total, withEmail: emailCount, withoutEmail: total - emailCount },
+    });
+  });
+
+  app.patch("/admin/users/:id/email", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const id = String((req.params as Record<string, unknown>)?.id ?? "").trim();
+    const email = String((req.body as Record<string, unknown>)?.email ?? "").trim().toLowerCase();
+    if (!id || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "REQUEST_INVALID", message: "请输入有效的邮箱地址" },
+      });
+    }
+
+    const before = await deps.prisma.user.findUnique({ where: { id } });
+    if (!before) {
+      return reply.status(404).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "RESOURCE_NOT_FOUND", message: "用户不存在" },
+      });
+    }
+    const emailOwner = await deps.prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" }, NOT: { id } },
+      select: { id: true },
+    });
+    if (emailOwner) {
+      return reply.status(409).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "EMAIL_TAKEN", message: "该邮箱已被其他账号使用" },
+      });
+    }
+
+    const updated = await deps.prisma.user.update({ where: { id }, data: { email } });
+    await writeAuditLog(deps, {
+      adminId: admin.adminId,
+      action: "admin.users.set_email",
+      targetType: "user",
+      targetId: id,
+      requestId,
+      ip: req.ip,
+      reason: "后台手动设置邮箱",
+      beforeData: { email: before.email },
+      afterData: { email: updated.email },
+    });
+
+    return reply.status(200).send({ ok: true, request_id: requestId, data: { id, email: updated.email } });
   });
 
   app.get("/admin/orders", async (req, reply) => {
@@ -300,8 +491,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         `WITH active_users AS (
            SELECT id FROM "users" WHERE status = 'active'
          ),
-         active_pro AS (
-           SELECT DISTINCT "userId"
+         active_memberships AS (
+           SELECT DISTINCT "userId", plan
            FROM "subscriptions"
            WHERE status = 'active'
              AND "expiresAt" > now()
@@ -319,8 +510,10 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
          )
          SELECT
            (SELECT COUNT(*)::int FROM active_users) AS "totalUsers",
-           (SELECT COUNT(*)::int FROM active_users u JOIN active_pro ap ON ap."userId" = u.id) AS "proUsers",
-           (SELECT COUNT(*)::int FROM active_users u LEFT JOIN active_pro ap ON ap."userId" = u.id WHERE ap."userId" IS NULL) AS "nonProUsers",
+           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id) AS "memberUsers",
+           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id WHERE am.plan = 'plus_monthly') AS "plusUsers",
+           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id WHERE am.plan = 'pro_monthly') AS "proUsers",
+           (SELECT COUNT(*)::int FROM active_users u LEFT JOIN active_memberships am ON am."userId" = u.id WHERE am."userId" IS NULL) AS "nonMemberUsers",
            (SELECT COUNT(DISTINCT "userId")::int FROM today_entitlements) AS "todayQuotaUsers",
            COALESCE((SELECT ROUND(AVG("usedTotalChars")::numeric, 2)::float8 FROM today_entitlements), 0) AS "todayAvgUsedChars",
            COALESCE((SELECT SUM("usedTotalChars")::int FROM today_entitlements), 0) AS "todayTotalUsedChars",
@@ -426,6 +619,25 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
              FROM "subscriptions" s
              JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
              WHERE s.status = 'active'
+               AND s.plan IN ('plus_monthly', 'pro_monthly')
+               AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
+               AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
+           ) AS "memberUsers",
+           (
+             SELECT COUNT(DISTINCT s."userId")::int
+             FROM "subscriptions" s
+             JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
+             WHERE s.status = 'active'
+               AND s.plan = 'plus_monthly'
+               AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
+               AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
+           ) AS "plusUsers",
+           (
+             SELECT COUNT(DISTINCT s."userId")::int
+             FROM "subscriptions" s
+             JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
+             WHERE s.status = 'active'
+               AND s.plan = 'pro_monthly'
                AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
                AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
            ) AS "proUsers",

@@ -377,6 +377,7 @@
         <nav class="tabs">
           <button class="tab active" data-tab="overview">概览</button>
           <button class="tab" data-tab="user">用户排障</button>
+          <button class="tab" data-tab="contacts">用户触达</button>
           <button class="tab" data-tab="payments">支付订阅</button>
           <button class="tab" data-tab="logs">日志审计</button>
         </nav>
@@ -424,8 +425,10 @@
                       <th>总用户</th>
                       <th>使用用户</th>
                       <th>活跃用户</th>
+                      <th>会员用户</th>
+                      <th>Plus 用户</th>
                       <th>Pro 用户</th>
-                      <th>Pro 占比</th>
+                      <th>会员占比</th>
                       <th>总字符</th>
                       <th>人均字符</th>
                     </tr>
@@ -596,6 +599,89 @@
               <div id="diagAutoRenew" class="diag-subpanel table-wrap" style="display:none"></div>
               <div id="diagPaymentEvents" class="diag-subpanel table-wrap" style="display:none"></div>
               <div id="diagEvents" class="diag-subpanel table-wrap" style="display:none"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-contacts" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">用户触达名单</h2>
+                  <p class="section-subtitle">每页固定显示 50 人；当前版本只查询名单，不发送邮件。</p>
+                </div>
+              </div>
+              <div class="form-row" style="grid-template-columns:minmax(200px,1.4fr) repeat(3,minmax(140px,1fr)) repeat(2,140px)">
+                <div class="field">
+                  <label>搜索</label>
+                  <input id="contactSearch" placeholder="用户 ID / 昵称 / 邮箱 / 手机" />
+                </div>
+                <div class="field">
+                  <label>会员状态</label>
+                  <select id="contactMembership">
+                    <option value="all">全部</option>
+                    <option value="plus">Plus</option>
+                    <option value="pro">Pro</option>
+                    <option value="expired">已过期</option>
+                    <option value="cancelled">已取消</option>
+                    <option value="non_member">非会员</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>邮箱状态</label>
+                  <select id="contactEmail">
+                    <option value="all">全部</option>
+                    <option value="with_email">有邮箱</option>
+                    <option value="without_email">无邮箱</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>自动续费协议</label>
+                  <select id="contactAutoRenew">
+                    <option value="all">全部</option>
+                    <option value="active">有效</option>
+                    <option value="cancelled">已取消</option>
+                    <option value="billing_retry">扣款重试</option>
+                    <option value="pending">待生效</option>
+                    <option value="paused">已暂停</option>
+                    <option value="expired">已过期</option>
+                    <option value="none">无协议</option>
+                  </select>
+                </div>
+                <button id="btnLoadContactUsers" class="btn">查询用户</button>
+                <button id="btnExportContactUsers" class="btn secondary">导出账号 CSV</button>
+              </div>
+              <div id="contactMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>用户 ID</th>
+                      <th>昵称</th>
+                      <th>邮箱</th>
+                      <th>手机</th>
+                      <th>账号状态</th>
+                      <th>会员状态</th>
+                      <th>订阅状态</th>
+                      <th>续费渠道</th>
+                      <th>自动续费协议</th>
+                      <th>开始时间</th>
+                      <th>到期时间</th>
+                      <th>注册时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="contactUsersTbody"></tbody>
+                </table>
+              </div>
+              <div class="section-head mt" style="margin-bottom:0">
+                <span id="contactPageInfo" class="muted">尚未查询</span>
+                <div class="inline-actions">
+                  <button id="btnPrevContactUsers" class="btn secondary" disabled>上一页</button>
+                  <button id="btnNextContactUsers" class="btn secondary" disabled>下一页</button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -950,6 +1036,8 @@
         overview: null,
         orders: [],
         subscriptions: [],
+        contactUsersPage: 1,
+        contactUsersTotalPages: 0,
       };
       const DEFAULT_API_BASE_BY_HOST = {
         "admin.yueyantech.com": "https://api.yueyantech.com",
@@ -1140,22 +1228,26 @@
         const summary = data.summary || {};
         const todayActivity = (data.dailyUserActivity || [])[0] || {};
         const ttsCost = data.ttsCost || {};
+        const memberUsers = summary.memberUsers ?? summary.proUsers;
+        const nonMemberUsers = summary.nonMemberUsers ?? summary.nonProUsers;
         $("overviewClock").textContent = data.clock
           ? `${data.range?.fromDate || ""} 至 ${data.range?.toDate || ""} · ${data.clock.businessTimeZone} · ${fmtDate(data.clock.serverNowIso)}`
           : "未加载";
         const cards = [
           ["总用户", summary.totalUsers, "active users"],
-          ["当前 Pro", summary.proUsers, "active subscription"],
-          ["非 Pro", summary.nonProUsers, "active users - pro"],
+          ["当前会员", memberUsers, "plus + pro"],
+          ["当前 Plus", summary.plusUsers, "active plus"],
+          ["当前 Pro", summary.proUsers, "active pro"],
+          ["非会员", nonMemberUsers, "active users - members"],
           ["今日使用用户", todayActivity.usingUsers, "messages or quota"],
           ["今日活跃用户", todayActivity.activeUsers, "success or quota"],
           ["今日额度用户", summary.todayQuotaUsers, "daily + free_trial"],
           ["今日平均累计", summary.todayAvgUsedChars, "quota pool / user"],
           ["今日累计合计", summary.todayTotalUsedChars, "quota pool total"],
-          ["今日用满", summary.todayQuotaFullUsers, "pro + free"],
-          ["Pro 用满", summary.todayProQuotaFullUsers, "daily quota"],
+          ["今日用满", summary.todayQuotaFullUsers, "member + free"],
+          ["会员用满", summary.todayProQuotaFullUsers, "daily quota"],
           ["免费用满", summary.todayFreeQuotaFullUsers, "free trial"],
-          ["Pro 占比", percent(summary.proUsers, summary.totalUsers), "current"],
+          ["会员占比", percent(memberUsers, summary.totalUsers), "current"],
           ["TTS 估算成本", ttsCost.estimatedCost || "USD 0.00", `rate ${ttsCost.costPerMillionCharsCents ?? 0} cents / 1M chars`],
           ["TTS 生成字符", ttsCost.generatedChars, "new synthesis only"],
           ["TTS 新生成", ttsCost.generatedRequests, "cache/dedupe excluded"],
@@ -1192,12 +1284,14 @@
             <td>${escapeHtml(row.totalUsers)}</td>
             <td>${escapeHtml(row.usingUsers)}</td>
             <td>${escapeHtml(row.activeUsers)}</td>
+            <td>${escapeHtml(row.memberUsers ?? row.proUsers)}</td>
+            <td>${escapeHtml(row.plusUsers ?? 0)}</td>
             <td>${escapeHtml(row.proUsers)}</td>
-            <td>${escapeHtml(percent(row.proUsers, row.totalUsers))}</td>
+            <td>${escapeHtml(percent(row.memberUsers ?? row.proUsers, row.totalUsers))}</td>
             <td>${escapeHtml(row.totalMessageChars)}</td>
             <td>${escapeHtml(row.avgMessageCharsPerUsingUser)}</td>
           </tr>
-        `).join("") || rowEmpty(8);
+        `).join("") || rowEmpty(10);
         $("ttsCostTbody").innerHTML = (data.dailyTtsUsage || []).map((row) => `
           <tr>
             <td>${escapeHtml(row.dateKey)}</td>
@@ -1240,6 +1334,145 @@
           </tr>
         `).join("") || rowEmpty(8);
         setStatus(`搜索完成：${users.length} 个用户`);
+      }
+
+      const membershipLabels = {
+        plus: "Plus",
+        pro: "Pro",
+        expired: "已过期",
+        cancelled: "已取消",
+        non_member: "非会员",
+      };
+
+      function buildContactUsersQuery(page) {
+        const qs = new URLSearchParams({
+          page: String(page),
+          membership: $("contactMembership").value,
+          email: $("contactEmail").value,
+          autoRenew: $("contactAutoRenew").value,
+        });
+        const q = $("contactSearch").value.trim();
+        if (q) qs.set("q", q);
+        return qs;
+      }
+
+      async function loadContactUsers(options = {}) {
+        if (options.resetPage) state.contactUsersPage = 1;
+        setStatus("正在查询用户触达名单...");
+        const qs = buildContactUsersQuery(state.contactUsersPage);
+        const res = await request(`/admin/contact-users?${qs.toString()}`);
+        const users = Array.isArray(res.data) ? res.data : [];
+        const pagination = res.pagination || {};
+        const summary = res.summary || {};
+        state.contactUsersPage = Number(pagination.page || 1);
+        state.contactUsersTotalPages = Number(pagination.totalPages || 0);
+
+        $("contactMetrics").innerHTML = [
+          ["筛选结果", summary.total ?? 0, "全部匹配用户"],
+          ["有邮箱", summary.withEmail ?? 0, "可用于后续邮件触达"],
+          ["无邮箱", summary.withoutEmail ?? 0, "暂不可邮件触达"],
+          ["当前页", users.length, "每页最多 50 人"],
+        ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+
+        $("contactUsersTbody").innerHTML = users.map((user) => `
+          <tr>
+            <td class="mono">${escapeHtml(user.id)}</td>
+            <td>${escapeHtml(user.nickname || "-")}</td>
+            <td>${escapeHtml(user.email || "-")}</td>
+            <td>${escapeHtml(user.phone || "-")}</td>
+            <td>${statusPill(user.accountStatus)}</td>
+            <td>${escapeHtml(membershipLabels[user.membershipStatus] || user.membershipStatus)}</td>
+            <td>${escapeHtml(user.subscriptionStatus || "-")}</td>
+            <td>${escapeHtml(user.autoRenewProvider || "-")}</td>
+            <td>${escapeHtml(user.autoRenewStatus || "无协议")}</td>
+            <td>${escapeHtml(fmtDate(user.startedAt) || "-")}</td>
+            <td>${escapeHtml(fmtDate(user.expiresAt) || "-")}</td>
+            <td>${escapeHtml(fmtDate(user.createdAt))}</td>
+            <td><button class="btn secondary" data-contact-op="set-email" data-user-id="${escapeHtml(user.id)}" data-user-email="${escapeHtml(user.email || "")}">设置邮箱</button></td>
+          </tr>
+        `).join("") || rowEmpty(13);
+
+        const total = Number(pagination.total || 0);
+        const totalPages = state.contactUsersTotalPages;
+        $("contactPageInfo").textContent = totalPages
+          ? `第 ${state.contactUsersPage} / ${totalPages} 页，共 ${total} 人`
+          : "没有符合条件的用户";
+        $("btnPrevContactUsers").disabled = state.contactUsersPage <= 1;
+        $("btnNextContactUsers").disabled = !totalPages || state.contactUsersPage >= totalPages;
+        setStatus(`用户触达名单已加载：第 ${state.contactUsersPage} 页，${users.length} 人`);
+      }
+
+      function csvCell(value) {
+        let text = value == null ? "" : String(value);
+        if (/^[=+\-@]/.test(text)) text = `'${text}`;
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+
+      function csvDate(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+      }
+
+      async function exportContactUsers() {
+        const button = $("btnExportContactUsers");
+        button.disabled = true;
+        setStatus("正在准备账号信息 CSV...");
+        try {
+          const first = await request(`/admin/contact-users?${buildContactUsersQuery(1).toString()}`);
+          const users = Array.isArray(first.data) ? [...first.data] : [];
+          const totalPages = Number(first.pagination?.totalPages || 0);
+          for (let page = 2; page <= totalPages; page += 1) {
+            setStatus(`正在导出账号信息：${page} / ${totalPages} 页...`);
+            const res = await request(`/admin/contact-users?${buildContactUsersQuery(page).toString()}`);
+            if (Array.isArray(res.data)) users.push(...res.data);
+          }
+
+          const headers = [
+            "用户ID", "昵称", "邮箱", "手机", "账号状态", "角色", "会员状态", "订阅ID",
+            "订阅套餐", "订阅状态", "续费渠道", "自动续费协议", "会员开始时间", "会员到期时间", "注册时间",
+          ];
+          const rows = users.map((user) => [
+            user.id, user.nickname, user.email, user.phone, user.accountStatus, user.role,
+            membershipLabels[user.membershipStatus] || user.membershipStatus,
+            user.subscriptionId, user.plan, user.subscriptionStatus, user.autoRenewProvider,
+            user.autoRenewStatus, csvDate(user.startedAt), csvDate(user.expiresAt), csvDate(user.createdAt),
+          ]);
+          const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+          const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `用户账号信息-${new Date().toISOString().slice(0, 10)}.csv`;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          setStatus(`账号信息 CSV 已导出：${users.length} 人`);
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      async function setContactUserEmail(userId, currentEmail) {
+        const input = prompt(currentEmail ? "修改邮箱" : "添加邮箱", currentEmail || "");
+        if (input === null) return;
+        const email = input.trim();
+        if (!email) throw new Error("请输入邮箱");
+        if (currentEmail && email.toLowerCase() !== currentEmail.toLowerCase()) {
+          if (!confirm(`确定将邮箱从 ${currentEmail} 修改为 ${email}？`)) return;
+        }
+        await request(`/admin/users/${encodeURIComponent(userId)}/email`, {
+          method: "PATCH",
+          body: JSON.stringify({ email }),
+        });
+        setStatus(`用户 ${userId} 的邮箱已设置为 ${email.toLowerCase()}`);
+        await loadContactUsers();
       }
 
       async function loadDiagnostics(userId = $("userSearch").value.trim()) {
@@ -1699,6 +1932,25 @@
         }));
         $("btnRefreshPaymentSummary").addEventListener("click", guard(loadOverview));
         $("btnSearchUsers").addEventListener("click", guard(searchUsers));
+        $("btnLoadContactUsers").addEventListener("click", guard(() => loadContactUsers({ resetPage: true })));
+        $("btnExportContactUsers").addEventListener("click", guard(exportContactUsers));
+        $("btnPrevContactUsers").addEventListener("click", guard(async () => {
+          if (state.contactUsersPage <= 1) return;
+          state.contactUsersPage -= 1;
+          await loadContactUsers();
+        }));
+        $("btnNextContactUsers").addEventListener("click", guard(async () => {
+          if (state.contactUsersPage >= state.contactUsersTotalPages) return;
+          state.contactUsersPage += 1;
+          await loadContactUsers();
+        }));
+        $("contactUsersTbody").addEventListener("click", guard(async (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLButtonElement) || target.dataset.contactOp !== "set-email") return;
+          const userId = target.dataset.userId || "";
+          if (!userId) return;
+          await setContactUserEmail(userId, target.dataset.userEmail || "");
+        }));
         $("btnLoadDiagnostics").addEventListener("click", guard(() => loadDiagnostics()));
         $("btnGrantPro").addEventListener("click", guard(grantPro));
         $("btnCancelPro").addEventListener("click", guard(cancelProNextDay));

@@ -92,7 +92,7 @@ export function createApp() {
       reply.header("Access-Control-Allow-Origin", allowOrigin);
       reply.header("Vary", "Origin");
       reply.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-request-id");
-      reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+      reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     }
 
     if (req.method === "OPTIONS") {
