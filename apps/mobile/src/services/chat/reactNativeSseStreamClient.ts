@@ -83,6 +83,9 @@ export class ReactNativeSseStreamClient implements StreamClient {
               ...(input.userMessageId
                 ? { userMessageId: input.userMessageId }
                 : {}),
+              ...(input.assistantClientId
+                ? { assistantClientId: input.assistantClientId }
+                : {}),
               systemPrompt: input.systemPrompt,
             }),
           });

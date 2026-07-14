@@ -114,6 +114,16 @@ export function getChatGenerationActivitySnapshot(): { isSending: boolean; activ
   return getActivitySnapshot();
 }
 
+export function getActiveAssistantClientIds(): Set<string> {
+  const activeIds = new Set<string>();
+  for (const state of sessions.values()) {
+    if (state.isSending && state.activeAssistantClientId) {
+      activeIds.add(state.activeAssistantClientId);
+    }
+  }
+  return activeIds;
+}
+
 export async function listStoredChatDateKeys(contactId: string): Promise<string[]> {
   const { uid, cid } = await resolveStorageScope(contactId);
   return listLocalMessageDateKeysScoped(uid, cid);
@@ -256,7 +266,7 @@ export function startChatSession(input: StartChatSessionInput): void {
         emit(state);
       },
       onUpdateMessage: (clientId, updater) => {
-        void updateChatMessage(input.contactId, clientId, updater, input.conversationDateKey);
+        return updateChatMessage(input.contactId, clientId, updater, input.conversationDateKey);
       },
     });
 

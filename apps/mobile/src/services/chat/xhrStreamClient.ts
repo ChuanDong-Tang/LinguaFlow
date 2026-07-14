@@ -112,6 +112,7 @@ export class XhrStreamClient implements StreamClient {
               companionMode: input.companionMode,
               ...(input.conversationId ? { conversationId: input.conversationId } : {}),
               ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
+              ...(input.assistantClientId ? { assistantClientId: input.assistantClientId } : {}),
               systemPrompt: input.systemPrompt,
             })
           );

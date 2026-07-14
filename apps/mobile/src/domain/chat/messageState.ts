@@ -1,5 +1,7 @@
 import type { ChatMessage } from "./types";
 
+export const INACTIVE_ASSISTANT_PLACEHOLDER_GRACE_MS = 2 * 60 * 1000;
+
 export function clampMessages(rows: ChatMessage[], max = 120): ChatMessage[] {
   if (rows.length <= max) return rows;
   return rows.slice(rows.length - max);
@@ -34,6 +36,20 @@ export function updateMessageByClientId(
   updater: (message: ChatMessage) => ChatMessage
 ): ChatMessage[] {
   return rows.map((row) => (row.clientId === clientId ? updater(row) : row));
+}
+
+export function removeInactiveAssistantPlaceholders(
+  rows: ChatMessage[],
+  activeAssistantClientIds: ReadonlySet<string>,
+  nowMs = Date.now(),
+  graceMs = INACTIVE_ASSISTANT_PLACEHOLDER_GRACE_MS
+): ChatMessage[] {
+  return rows.filter((row) => {
+    if (row.role !== "assistant" || row.status !== "pending") return true;
+    if (activeAssistantClientIds.has(row.clientId)) return true;
+    const createdAtMs = Date.parse(row.createdAt);
+    return Number.isFinite(createdAtMs) && nowMs - createdAtMs <= graceMs;
+  });
 }
 
 export function isSameDate(a: Date, b: Date): boolean {

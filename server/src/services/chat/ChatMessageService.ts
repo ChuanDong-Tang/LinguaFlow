@@ -319,7 +319,8 @@ export class ChatMessageService {
     userId: string,
     content: string,
     sourceMessageId: string,
-    languageCode?: string | null
+    languageCode?: string | null,
+    clientId?: string | null
   ): Promise<MessageView> {
     const existing = await this.messageRepository.findAssistantBySourceMessageId(sourceMessageId);
     if (existing) return this.toView(existing);
@@ -336,6 +337,7 @@ export class ChatMessageService {
       content,
       inputChars: 0,
       outputChars: content.length,
+      clientId: clientId ?? null,
       sourceMessageId,
       conversationDateKey: conversation.dateKey,
       languageCode: languageCode ?? "en-US",

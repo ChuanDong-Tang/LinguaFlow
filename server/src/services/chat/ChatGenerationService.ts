@@ -363,7 +363,8 @@ export class ChatGenerationService {
       input.userId,
       assistantText,
       input.userMessageId!,
-      languageCode
+      languageCode,
+      input.assistantClientId?.trim() || null
     );
   }
 

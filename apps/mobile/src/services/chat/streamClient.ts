@@ -12,6 +12,7 @@ export type ChatGenerationStreamEvent =
       type: "done";
       assistantMessage?: {
         id: string;
+        clientId?: string | null;
         role: "user" | "assistant";
         status: "pending" | "success" | "failed";
         content: string;
@@ -40,6 +41,7 @@ export interface StartChatGenerationStreamInput {
   systemPrompt?: string;
   conversationId?: string;
   userMessageId?: string;
+  assistantClientId?: string;
   signal?: AbortSignalLike;
 }
 

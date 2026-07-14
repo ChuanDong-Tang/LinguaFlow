@@ -44,6 +44,10 @@ function isChatGenerationStreamBody(value: unknown): value is ChatGenerationStre
     typeof v.text === "string" &&
     v.text.trim().length > 0 &&
     hasConversationId === hasUserMessageId &&
+    (v.assistantClientId === undefined ||
+      (typeof v.assistantClientId === "string" &&
+        v.assistantClientId.trim().length > 0 &&
+        v.assistantClientId.length <= 160)) &&
     (v.contactId === undefined || v.contactId === null || typeof v.contactId === "string") &&
     (v.provider === undefined || v.provider === null || typeof v.provider === "string") &&
     (v.model === undefined || v.model === null || typeof v.model === "string") &&

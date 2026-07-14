@@ -28,7 +28,7 @@ export type RunChatGenerationInput = {
   userClientId?: string;
   isStopRequested?: () => boolean;
   onConversationReady?: (conversationId: string) => void;
-  onUpdateMessage: (clientId: string, updater: (message: ChatMessage) => ChatMessage) => void;
+  onUpdateMessage: (clientId: string, updater: (message: ChatMessage) => ChatMessage) => Promise<void>;
 };
 
 export type RunChatGenerationResult = {
@@ -92,21 +92,34 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   let streamDoneEvent: Extract<ChatGenerationStreamEvent, { type: "done" }> | null = null;
   let completedAssistantMessageId: string | undefined;
   let resolveTypingDrain: (() => void) | null = null;
+  let messageUpdateQueue = Promise.resolve();
+  let terminalUpdatePromise: Promise<void> | null = null;
   const FLUSH_INTERVAL_MS = 35;
   const MAX_CHARS_PER_FLUSH = 4;
 
-  const markSucceeded = (event: Extract<ChatGenerationStreamEvent, { type: "done" }>) => {
+  const queueMessageUpdate = (
+    clientId: string,
+    updater: (message: ChatMessage) => ChatMessage
+  ): Promise<void> => {
+    const next = messageUpdateQueue.then(() => input.onUpdateMessage(clientId, updater));
+    messageUpdateQueue = next.catch(() => undefined);
+    return next;
+  };
+
+  const markSucceeded = async (event: Extract<ChatGenerationStreamEvent, { type: "done" }>) => {
     const finalText = event.assistantMessage?.content || assistantText;
     const baseClozeState = event.assistantMessage?.clozeState ?? null;
     const baseClozeVersion = event.assistantMessage?.clozeVersion ?? 0;
     completedAssistantMessageId = event.assistantMessage?.id;
     if (userMessageClientId) {
-      input.onUpdateMessage(userMessageClientId, (row) => ({ ...row, status: "success" }));
+      await queueMessageUpdate(userMessageClientId, (row) => ({ ...row, status: "success" }));
     }
-    input.onUpdateMessage(input.assistantClientId, (row) => ({
+    await queueMessageUpdate(input.assistantClientId, (row) => ({
       ...row,
       id: event.assistantMessage?.id ?? row.id,
       serverId: event.assistantMessage?.id ?? row.serverId ?? null,
+      clientId: event.assistantMessage?.clientId ?? row.clientId,
+      text: finalText,
       status: "success",
       clozeState: baseClozeState ?? row.clozeState ?? null,
       clozeVersion: baseClozeVersion,
@@ -119,6 +132,23 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     }));
   };
 
+  const markGenerationFailed = async (
+    text: string,
+    systemPrompt?: string
+  ): Promise<void> => {
+    if (userMessageClientId) {
+      await queueMessageUpdate(userMessageClientId, (row) => ({ ...row, status: "failed" }));
+    }
+    await queueMessageUpdate(input.assistantClientId, (row) => ({
+      ...row,
+      text,
+      status: "failed",
+      retryText: input.text,
+      retryCount: input.retryCount,
+      retrySystemPrompt: systemPrompt,
+    }));
+  };
+
   const flushDelta = (options?: { all?: boolean }) => {
     if (!pendingDelta) return;
     const chunk = options?.all
@@ -126,7 +156,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       : pendingDelta.slice(0, MAX_CHARS_PER_FLUSH);
     pendingDelta = pendingDelta.slice(chunk.length);
     assistantText += chunk;
-    input.onUpdateMessage(input.assistantClientId, (row) => ({
+    void queueMessageUpdate(input.assistantClientId, (row) => ({
       ...row,
       text: row.text + chunk,
     }));
@@ -135,25 +165,26 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
   const scheduleFlush = () => {
     if (flushTimer) return;
     flushTimer = setTimeout(() => {
-      flushTimer = null;
-      flushDelta();
-      if (pendingDelta) {
-        scheduleFlush();
-      } else if (streamDoneEvent && resolveTypingDrain) {
-        const done = streamDoneEvent;
-        streamDoneEvent = null;
-        const resolve = resolveTypingDrain;
-        resolveTypingDrain = null;
-        markSucceeded(done);
-        resolve();
-      }
+      void (async () => {
+        flushTimer = null;
+        flushDelta();
+        if (pendingDelta) {
+          scheduleFlush();
+        } else if (streamDoneEvent && resolveTypingDrain) {
+          const done = streamDoneEvent;
+          streamDoneEvent = null;
+          const resolve = resolveTypingDrain;
+          resolveTypingDrain = null;
+          await markSucceeded(done);
+          resolve();
+        }
+      })();
     }, FLUSH_INTERVAL_MS);
   };
 
   const waitForTypingDrain = (event: Extract<ChatGenerationStreamEvent, { type: "done" }>) => {
     if (!pendingDelta) {
-      markSucceeded(event);
-      return Promise.resolve();
+      return markSucceeded(event);
     }
     streamDoneEvent = event;
     scheduleFlush();
@@ -199,6 +230,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         companionMode: input.companionMode,
         conversationId: cloud?.conversationId,
         userMessageId: cloud?.userMessage.id,
+        assistantClientId: input.assistantClientId,
         systemPrompt: requestSystemPrompt || undefined,
         signal: input.signal,
       },
@@ -217,11 +249,14 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
           streamErrorMessage = event.message;
           streamErrorCode = event.code;
           streamErrorStage = event.stage;
-          markFailed(input, tf("chat.error.prefix", { message: event.message }), requestSystemPrompt, userMessageClientId);
+          terminalUpdatePromise = markGenerationFailed(
+            tf("chat.error.prefix", { message: event.message }),
+            requestSystemPrompt
+          );
         }
 
         if (event.type === "done") {
-          void waitForTypingDrain(event);
+          terminalUpdatePromise = waitForTypingDrain(event);
         }
       }
     );
@@ -239,6 +274,11 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
         scheduleFlush();
       });
     }
+    if (!terminalUpdatePromise && !streamErrorMessage) {
+      throw new Error("stream ended before a terminal event");
+    }
+    await terminalUpdatePromise;
+    await messageUpdateQueue;
 
     if (streamErrorMessage) {
       return {
@@ -265,7 +305,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     const message = wasStopped ? t("chat.error.stopped") : error instanceof Error ? error.message : "stream failed";
     const code = error instanceof ApiError ? error.code : undefined;
     const stage = error instanceof ApiError ? error.stage : undefined;
-    markFailed(input, tf("chat.error.prefix", { message }), requestSystemPrompt, userMessageClientId);
+    await markGenerationFailed(tf("chat.error.prefix", { message }), requestSystemPrompt);
     return {
       status: wasStopped ? "stopped" : "failed",
       assistantText,
@@ -274,23 +314,4 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
       errorStage: stage,
     };
   }
-}
-
-function markFailed(
-  input: RunChatGenerationInput,
-  text: string,
-  systemPrompt?: string,
-  userMessageClientId?: string
-): void {
-  if (userMessageClientId) {
-    input.onUpdateMessage(userMessageClientId, (row) => ({ ...row, status: "failed" }));
-  }
-  input.onUpdateMessage(input.assistantClientId, (row) => ({
-    ...row,
-    text,
-    status: "failed",
-    retryText: input.text,
-    retryCount: input.retryCount,
-    retrySystemPrompt: systemPrompt,
-  }));
 }

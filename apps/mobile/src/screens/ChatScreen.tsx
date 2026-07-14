@@ -25,6 +25,7 @@ import {
 import { createLocalChatPair } from "../services/chat/chatGenerationService";
 import {
   appendChatMessages,
+  getActiveAssistantClientIds,
   getChatGenerationActivitySnapshot,
   listStoredChatDateKeys,
   loadChatMessagesByDate,
@@ -60,6 +61,8 @@ import { useChatClozeEditing } from "../hooks/useChatClozeEditing";
 import { consumeChatDateDirty } from "../services/chat/chatPracticeSyncState";
 import {
   compareChatMessagesByCreatedAt,
+  INACTIVE_ASSISTANT_PLACEHOLDER_GRACE_MS,
+  removeInactiveAssistantPlaceholders,
   toDateKey,
 } from "../domain/chat/messageState";
 import type { ChatContact } from "../domain/chat/contacts";
@@ -420,6 +423,33 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       setActiveGenerationContactId(snapshot.activeContactId);
     });
   }, []);
+
+  useEffect(() => {
+    const activeAssistantClientIds = getActiveAssistantClientIds();
+    const inactivePendingCreatedAt = dayMessages
+      .filter(
+        (row) =>
+          row.role === "assistant" &&
+          row.status === "pending" &&
+          !activeAssistantClientIds.has(row.clientId)
+      )
+      .map((row) => Date.parse(row.createdAt))
+      .filter(Number.isFinite);
+    if (!inactivePendingCreatedAt.length) return;
+
+    const nextCleanupAt = Math.min(...inactivePendingCreatedAt) + INACTIVE_ASSISTANT_PLACEHOLDER_GRACE_MS;
+    const timer = setTimeout(() => {
+      void (async () => {
+        const dateKey = toDateKey(selectedDate);
+        const byDay = toDisplayRows(await loadChatMessagesByDateForHistory(dateKey));
+        if (!isMountedRef.current || selectedDateKeyRef.current !== dateKey) return;
+        setDayMessages(byDay);
+        setMessages(byDay);
+      })();
+    }, Math.max(0, nextCleanupAt - Date.now()) + 50);
+
+    return () => clearTimeout(timer);
+  }, [activeGenerationContactId, dayMessages, selectedDate, historyContactIds.join(",")]);
 
   // 启动同步：进入聊天页后静默同步今天，兼顾多端新增消息。
   useEffect(() => {
@@ -784,9 +814,14 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }
 
   async function loadChatMessagesByDateForHistory(dateKey: string): Promise<ChatMessage[]> {
+    const activeAssistantClientIds = getActiveAssistantClientIds();
     const groups = await Promise.all(historyContactIds.map(async (sourceContactId) => {
       const rows = await loadChatMessagesByDate(sourceContactId, dateKey);
-      return rows.map((row) => ({ ...row, contactId: row.contactId ?? sourceContactId }));
+      const cleaned = removeInactiveAssistantPlaceholders(rows, activeAssistantClientIds);
+      if (cleaned.length !== rows.length) {
+        await replaceChatMessagesByDate(sourceContactId, dateKey, cleaned);
+      }
+      return cleaned.map((row) => ({ ...row, contactId: row.contactId ?? sourceContactId }));
     }));
     return mergeMessageRows(groups.flat());
   }
@@ -1084,12 +1119,16 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     options?: { force?: boolean; signal?: AbortSignal; syncToken?: number }
   ): Promise<{ synced: boolean; changed: boolean }> {
     const mergeCloudAndLocal = (cloudRows: ChatMessage[], localRows: ChatMessage[]): ChatMessage[] => {
-      const getStableKey = (row: ChatMessage): string =>
-        row.serverId ?? row.clientId ?? row.id ?? row.localId;
+      const getMessageKeys = (row: ChatMessage): string[] =>
+        [row.serverId, row.clientId, row.id, row.localId].filter((value): value is string => Boolean(value));
       const merged = [...cloudRows];
-      const cloudKeys = new Set(cloudRows.map(getStableKey));
-      const pendingAssistants = localRows.filter(
-        (row) => row.role === "assistant" && row.status === "pending" && !cloudKeys.has(getStableKey(row))
+      const cloudKeys = new Set(cloudRows.flatMap(getMessageKeys));
+      const activeAssistantClientIds = getActiveAssistantClientIds();
+      const pendingAssistants = removeInactiveAssistantPlaceholders(localRows, activeAssistantClientIds).filter(
+        (row) =>
+          row.role === "assistant" &&
+          row.status === "pending" &&
+          !getMessageKeys(row).some((key) => cloudKeys.has(key))
       );
       if (pendingAssistants.length) {
         merged.push(...pendingAssistants);
