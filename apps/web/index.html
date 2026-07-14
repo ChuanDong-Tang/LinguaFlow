@@ -293,6 +293,21 @@
         background: #f2f4f7;
         border-color: #d0d5dd;
       }
+      .status-pass {
+        color: var(--success);
+        background: #ecfdf3;
+        border-color: #abefc6;
+      }
+      .status-warn {
+        color: var(--warn);
+        background: #fffaeb;
+        border-color: #fedf89;
+      }
+      .status-fail {
+        color: var(--danger);
+        background: #fef3f2;
+        border-color: #fecdca;
+      }
       .json-box {
         max-height: 260px;
         overflow: auto;
@@ -379,6 +394,7 @@
           <button class="tab" data-tab="user">用户排障</button>
           <button class="tab" data-tab="contacts">用户触达</button>
           <button class="tab" data-tab="payments">支付订阅</button>
+          <button class="tab" data-tab="audit">生产审计</button>
           <button class="tab" data-tab="logs">日志审计</button>
         </nav>
 
@@ -796,6 +812,49 @@
           </div>
         </section>
 
+        <section id="panel-audit" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">生产功能审计</h2>
+                  <p class="section-subtitle">使用当前管理员 Access Token 验证真实 API；默认仅执行只读请求，不创建订单、不扣额度、不修改用户数据。</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="btnRunProductionAudit" class="btn">开始审计</button>
+                  <button id="btnClearProductionAudit" class="btn secondary">清空结果</button>
+                </div>
+              </div>
+              <div id="auditSessionFacts" class="mini-grid"></div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">审计结果</h2>
+                  <p id="productionAuditMeta" class="section-subtitle">尚未执行</p>
+                </div>
+              </div>
+              <div id="productionAuditMetrics" class="metrics"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>结果</th>
+                      <th>检查项</th>
+                      <th>接口</th>
+                      <th>HTTP</th>
+                      <th>耗时</th>
+                      <th>说明</th>
+                    </tr>
+                  </thead>
+                  <tbody id="productionAuditTbody"></tbody>
+                </table>
+              </div>
+              <pre id="productionAuditJson" class="json-box mt">{}</pre>
+            </div>
+          </div>
+        </section>
+
         <section id="panel-logs" class="panel">
           <div class="card">
             <div class="section">
@@ -1036,6 +1095,7 @@
         overview: null,
         orders: [],
         subscriptions: [],
+        productionAudit: [],
         contactUsersPage: 1,
         contactUsersTotalPages: 0,
       };
@@ -1160,6 +1220,275 @@
           }
           throw error;
         }
+      }
+
+      function decodeAccessTokenPayload(token) {
+        const parts = String(token || "").split(".");
+        if (parts.length !== 3) throw new Error("Access Token 不是合法的 JWT 格式");
+        const normalized = parts[1].replaceAll("-", "+").replaceAll("_", "/");
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+        try {
+          const binary = atob(padded);
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+          return JSON.parse(new TextDecoder().decode(bytes));
+        } catch {
+          throw new Error("Access Token payload 无法解析");
+        }
+      }
+
+      function inspectCurrentSession() {
+        const apiBase = normalizeApiBase($("apiBase").value);
+        const token = $("token").value.trim();
+        if (!apiBase || !token) throw new Error("请先登录并获取 Access Token");
+        const payload = decodeAccessTokenPayload(token);
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const expiresAt = typeof payload.exp === "number" ? new Date(payload.exp * 1000) : null;
+        const issuedAt = typeof payload.iat === "number" ? new Date(payload.iat * 1000) : null;
+        const expired = !expiresAt || payload.exp <= nowSeconds;
+        return {
+          apiBase,
+          userId: typeof payload.sub === "string" ? payload.sub : "",
+          sessionId: typeof payload.sid === "string" ? payload.sid : "",
+          tokenType: typeof payload.typ === "string" ? payload.typ : "",
+          issuedAt,
+          expiresAt,
+          expired,
+          payload,
+        };
+      }
+
+      function renderAuditSession(session) {
+        const facts = [
+          ["API", session.apiBase],
+          ["用户 ID", session.userId || "缺失"],
+          ["Session ID", session.sessionId || "缺失（旧 Token）"],
+          ["Token 类型", session.tokenType || "缺失"],
+          ["签发时间", session.issuedAt ? fmtDate(session.issuedAt) : "缺失"],
+          ["过期时间", session.expiresAt ? fmtDate(session.expiresAt) : "缺失"],
+        ];
+        $("auditSessionFacts").innerHTML = facts.map(([label, value]) => `
+          <div class="fact">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+          </div>
+        `).join("");
+      }
+
+      async function auditRequest(path, timeoutMs = 15000) {
+        const apiBase = normalizeApiBase($("apiBase").value);
+        const token = $("token").value.trim();
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        const startedAt = performance.now();
+        try {
+          const response = await adminFetch(`${apiBase}${path}`, {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            signal: controller.signal,
+          }, apiBase);
+          const data = await response.json().catch(() => null);
+          return {
+            httpStatus: response.status,
+            durationMs: Math.round(performance.now() - startedAt),
+            data,
+          };
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+
+      function auditResultStatus(result) {
+        if (!result || result.httpStatus < 200 || result.httpStatus >= 300 || result.data?.ok !== true) {
+          return "fail";
+        }
+        return "pass";
+      }
+
+      function auditErrorMessage(result) {
+        return result?.data?.error?.message || result?.data?.error || `HTTP ${result?.httpStatus ?? "未知"}`;
+      }
+
+      function paymentHealthAudit(result) {
+        if (auditResultStatus(result) === "fail") {
+          return { status: "fail", detail: auditErrorMessage(result) };
+        }
+        const providers = result.data?.data?.providers || {};
+        const failed = Object.entries(providers).filter(([, value]) => value?.enabled && !value?.ok).map(([name]) => name);
+        const disabled = Object.entries(providers).filter(([, value]) => !value?.enabled).map(([name]) => name);
+        if (failed.length) return { status: "fail", detail: `已启用但异常：${failed.join(", ")}` };
+        if (disabled.length) return { status: "warn", detail: `配置正常；未启用：${disabled.join(", ")}` };
+        return { status: "pass", detail: `支付渠道正常：${Object.keys(providers).join(", ")}` };
+      }
+
+      function opsAlertsAudit(result) {
+        if (auditResultStatus(result) === "fail") {
+          return { status: "fail", detail: auditErrorMessage(result) };
+        }
+        const data = result.data?.data || {};
+        const thresholds = data.thresholds || {};
+        const exceeded = Object.entries(thresholds)
+          .filter(([key, threshold]) => Number(data[key] || 0) > Number(threshold))
+          .map(([key]) => `${key}=${data[key]}`);
+        return exceeded.length
+          ? { status: "warn", detail: `超过告警阈值：${exceeded.join("；")}` }
+          : { status: "pass", detail: "最近 24 小时核心指标未超过告警阈值" };
+      }
+
+      function renderProductionAudit() {
+        const rows = state.productionAudit;
+        const counts = { pass: 0, warn: 0, fail: 0 };
+        rows.forEach((row) => {
+          if (counts[row.status] !== undefined) counts[row.status] += 1;
+        });
+        $("productionAuditMetrics").innerHTML = [
+          ["检查项", rows.length, "total"],
+          ["通过", counts.pass, "PASS"],
+          ["警告", counts.warn, "WARN"],
+          ["失败", counts.fail, "FAIL"],
+        ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+        $("productionAuditTbody").innerHTML = rows.map((row) => `
+          <tr>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.name)}</td>
+            <td class="mono">${escapeHtml(row.endpoint)}</td>
+            <td>${escapeHtml(row.httpStatus ?? "-")}</td>
+            <td>${row.durationMs == null ? "-" : `${escapeHtml(row.durationMs)} ms`}</td>
+            <td>${escapeHtml(row.detail)}</td>
+          </tr>
+        `).join("") || rowEmpty(6, "尚未执行审计");
+        $("productionAuditJson").textContent = JSON.stringify({
+          generatedAt: new Date().toISOString(),
+          summary: { total: rows.length, ...counts },
+          checks: rows,
+        }, null, 2);
+      }
+
+      async function runProductionAudit() {
+        const session = inspectCurrentSession();
+        renderAuditSession(session);
+        state.productionAudit = [];
+        const sessionStatus = session.expired || session.tokenType !== "access"
+          ? "fail"
+          : session.sessionId
+            ? "pass"
+            : "warn";
+        state.productionAudit.push({
+          status: sessionStatus,
+          name: "Access Token / Session",
+          endpoint: "JWT 本地解析",
+          httpStatus: null,
+          durationMs: null,
+          detail: session.expired
+            ? "Access Token 已过期"
+            : session.tokenType !== "access"
+              ? `Token 类型异常：${session.tokenType || "缺失"}`
+              : session.sessionId
+                ? "Token 格式、类型、有效期和 Session ID 正常；签名由后续认证接口验证"
+                : "Token 有效但没有 Session ID，可能是旧版 Token",
+        });
+        renderProductionAudit();
+
+        const today = todayDateKey();
+        const checks = [
+          {
+            name: "API / 数据库 / Redis",
+            endpoint: "/health",
+            evaluate: (result) => {
+              if (auditResultStatus(result) === "fail") return { status: "fail", detail: auditErrorMessage(result) };
+              const health = result.data?.data || {};
+              const bad = ["api", "db", "redis"].filter((key) => health[key] && health[key].ok !== true);
+              return bad.length
+                ? { status: "fail", detail: `异常组件：${bad.join(", ")}` }
+                : { status: "pass", detail: health.redis?.skipped ? "API、数据库正常；Redis 未配置并已跳过" : "API、数据库、Redis 正常" };
+            },
+          },
+          { name: "业务时钟", endpoint: "/clock", detail: "业务时间接口正常" },
+          { name: "管理员权限与概览", endpoint: `/admin/metrics/overview?fromDate=${today}&toDate=${today}`, detail: "管理员 Token、数据库聚合查询正常" },
+          { name: "运营告警", endpoint: "/admin/ops/alerts", evaluate: opsAlertsAudit },
+          { name: "用户偏好", endpoint: "/me/preferences", detail: "用户身份与偏好读取正常" },
+          { name: "会员状态", endpoint: "/me/subscription", detail: "会员状态查询正常" },
+          { name: "当前额度", endpoint: "/me/entitlement", detail: "额度查询正常" },
+          { name: "支付配置", endpoint: "/payment/health", evaluate: paymentHealthAudit },
+          {
+            name: "Plus 月度产品",
+            endpoint: "/payment/products/plus-monthly",
+            evaluate: (result) => auditResultStatus(result) === "pass" && result.data?.data?.productCode === "plus_monthly"
+              ? { status: "pass", detail: `${result.data.data.displayPrice || result.data.data.amount} ${result.data.data.currency || ""}`.trim() }
+              : { status: "fail", detail: auditErrorMessage(result) },
+          },
+          {
+            name: "Pro 月度产品",
+            endpoint: "/payment/products/pro-monthly",
+            evaluate: (result) => auditResultStatus(result) === "pass" && result.data?.data?.productCode === "pro_monthly"
+              ? { status: "pass", detail: `${result.data.data.displayPrice || result.data.data.amount} ${result.data.data.currency || ""}`.trim() }
+              : { status: "fail", detail: auditErrorMessage(result) },
+          },
+          { name: "聊天联系人配置", endpoint: "/chat/contacts", detail: "聊天联系人配置读取正常" },
+          { name: "AI 模型配置", endpoint: "/chat/ai-options", detail: "AI Provider 和模型配置读取正常" },
+          { name: "TTS 声音配置", endpoint: "/tts/voices", detail: "TTS 声音列表读取正常" },
+        ];
+
+        $("btnRunProductionAudit").disabled = true;
+        $("productionAuditMeta").textContent = `执行中：0 / ${checks.length}`;
+        setStatus("正在执行生产功能审计...");
+        try {
+          for (let index = 0; index < checks.length; index += 1) {
+            const check = checks[index];
+            try {
+              const result = await auditRequest(check.endpoint);
+              const evaluated = check.evaluate
+                ? check.evaluate(result)
+                : auditResultStatus(result) === "pass"
+                  ? { status: "pass", detail: check.detail }
+                  : { status: "fail", detail: auditErrorMessage(result) };
+              state.productionAudit.push({
+                status: evaluated.status,
+                name: check.name,
+                endpoint: `GET ${check.endpoint}`,
+                httpStatus: result.httpStatus,
+                durationMs: result.durationMs,
+                detail: evaluated.detail,
+              });
+            } catch (error) {
+              state.productionAudit.push({
+                status: "fail",
+                name: check.name,
+                endpoint: `GET ${check.endpoint}`,
+                httpStatus: null,
+                durationMs: null,
+                detail: error instanceof DOMException && error.name === "AbortError"
+                  ? "请求超过 15 秒"
+                  : error instanceof Error ? error.message : String(error),
+              });
+            }
+            $("productionAuditMeta").textContent = `执行中：${index + 1} / ${checks.length}`;
+            renderProductionAudit();
+          }
+        } finally {
+          $("btnRunProductionAudit").disabled = false;
+        }
+        const failed = state.productionAudit.filter((row) => row.status === "fail").length;
+        const warned = state.productionAudit.filter((row) => row.status === "warn").length;
+        $("productionAuditMeta").textContent = `完成于 ${fmtDate(new Date())} · ${failed} 失败 · ${warned} 警告`;
+        setStatus(failed ? `生产审计完成：${failed} 项失败` : warned ? `生产审计完成：${warned} 项警告` : "生产审计全部通过");
+      }
+
+      function clearProductionAudit() {
+        state.productionAudit = [];
+        $("auditSessionFacts").innerHTML = "";
+        $("productionAuditMeta").textContent = "尚未执行";
+        renderProductionAudit();
+        $("productionAuditJson").textContent = "{}";
+        setStatus("已清空生产审计结果");
       }
 
       function escapeHtml(value) {
@@ -1957,6 +2286,8 @@
         $("btnLoadOrders").addEventListener("click", guard(loadOrders));
         $("btnLoadSubscriptions").addEventListener("click", guard(loadSubscriptions));
         $("btnLoadSubscriptions2").addEventListener("click", guard(loadSubscriptions));
+        $("btnRunProductionAudit").addEventListener("click", guard(runProductionAudit));
+        $("btnClearProductionAudit").addEventListener("click", clearProductionAudit);
         $("btnLoadLogs").addEventListener("click", guard(loadLogs));
         $("btnLoadContentSafetyLogs").addEventListener("click", guard(() => loadContentSafetyLogs({ reset: true })));
         $("btnPrevContentSafetyLogs").addEventListener("click", guard(loadPrevContentSafetyLogs));
@@ -2000,6 +2331,7 @@
 
       loadLocal();
       setOverviewRange(14);
+      renderProductionAudit();
       bindEvents();
       if ($("token").value.trim()) {
         setStatus("已加载本地登录状态");
