@@ -189,5 +189,6 @@ function toErrorMessage(error: unknown): string {
 function mapProviderToChannel(provider: string): PaymentChannel | null {
   if (provider === "wechat") return "wechat";
   if (provider === "apple_iap") return "ios_iap";
+  if (provider === "google_play_iap") return "android_iap";
   return null;
 }

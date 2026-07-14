@@ -1,6 +1,6 @@
 /** AutoRenewRepository：定义自动续费协议与每期扣款记录的数据接口。 */
 
-export type AutoRenewProvider = "wechat" | "apple";
+export type AutoRenewProvider = "wechat" | "apple" | "google_play";
 
 export type AutoRenewStatus =
   | "pending"

@@ -2,10 +2,12 @@ import type { PrismaClient } from "@prisma/client";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { TtsStorageProvider } from "../../services/tts/TtsStorageProvider.js";
+import type { GooglePlayBillingService } from "../../providers/payment/google/GooglePlayBillingService.js";
 
 export interface AccountDeletionCleanupWorkerOptions {
   intervalMs?: number;
   batchSize?: number;
+  googlePlayBillingService?: GooglePlayBillingService;
 }
 
 export class AccountDeletionCleanupWorker {
@@ -113,6 +115,7 @@ export class AccountDeletionCleanupWorker {
   }
 
   private async disableUserAndDeleteData(userId: string): Promise<void> {
+    const googlePlayRenewalsStopped = await this.stopGooglePlayRenewalsBeforeDeletion(userId);
     const ttsObjectKeys = await this.prisma.ttsAsset.findMany({
       where: { userId, status: "ready" },
       select: { objectKey: true },
@@ -131,6 +134,7 @@ export class AccountDeletionCleanupWorker {
       await tx.autoRenewCharge.deleteMany({ where: { userId } });
       await tx.autoRenewSubscription.deleteMany({ where: { userId } });
       await tx.appleIapAccountLink.deleteMany({ where: { userId } });
+      await tx.googlePlayAccountLink.deleteMany({ where: { userId } });
       await tx.subscription.deleteMany({ where: { userId } });
       await tx.entitlement.deleteMany({ where: { userId } });
       await tx.ttsRequestLog.deleteMany({ where: { userId } });
@@ -162,8 +166,34 @@ export class AccountDeletionCleanupWorker {
       metadata: {
         ttsCosObjectsDeleted: this.ttsStorageProvider ? ttsObjectKeys.length : 0,
         ttsCosCleanupSkipped: !this.ttsStorageProvider,
+        googlePlayRenewalsStopped,
       },
     });
+  }
+
+  private async stopGooglePlayRenewalsBeforeDeletion(userId: string): Promise<number> {
+    const subscriptions = await this.prisma.autoRenewSubscription.findMany({
+      where: {
+        userId,
+        provider: "google_play",
+        status: { in: ["pending", "active", "billing_retry", "paused"] },
+      },
+      select: { providerAgreementId: true },
+    });
+    if (subscriptions.length === 0) return 0;
+    const service = this.options.googlePlayBillingService;
+    if (!service) {
+      throw new Error("GOOGLE_PLAY_ACCOUNT_DELETION_CANCEL_SERVICE_NOT_CONFIGURED");
+    }
+
+    let stopped = 0;
+    for (const subscription of subscriptions) {
+      const status = await service.stopSubscriptionRenewalForAccountDeletion(
+        subscription.providerAgreementId
+      );
+      if (status === "cancelled") stopped += 1;
+    }
+    return stopped;
   }
 
   private async tryAcquireLock(): Promise<boolean> {

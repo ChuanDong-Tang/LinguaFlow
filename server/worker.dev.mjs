@@ -1,8 +1,11 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPaymentOrderRepository } from "./src/infrastructure/repository/PrismaPaymentOrderRepository.ts";
+import { PrismaPaymentEventRepository } from "./src/infrastructure/repository/PrismaPaymentEventRepository.ts";
 import { PrismaBenefitGrantRepository } from "./src/infrastructure/repository/PrismaBenefitGrantRepository.ts";
 import { PrismaSubscriptionRepository } from "./src/infrastructure/repository/PrismaSubscriptionRepository.ts";
+import { PrismaGooglePlayAccountLinkRepository } from "./src/infrastructure/repository/PrismaGooglePlayAccountLinkRepository.ts";
 import { WeChatPaymentProvider } from "./src/providers/payment/index.ts";
+import { GooglePlayBillingService } from "./src/providers/payment/google/GooglePlayBillingService.ts";
 import { PaymentOrderService } from "./src/services/payment/PaymentOrderService.ts";
 import { PaymentEntitlementService } from "./src/services/payment/PaymentEntitlementService.ts";
 import { BenefitGrantService } from "./src/services/payment/BenefitGrantService.ts";
@@ -18,6 +21,7 @@ import { SystemEventLogCleanupWorker } from "./src/workers/system/SystemEventLog
 import { AiRequestLogCleanupWorker } from "./src/workers/ai/AiRequestLogCleanupWorker.ts";
 import { PaymentCertSyncWorker } from "./src/workers/payment/PaymentCertSyncWorker.ts";
 import { WeChatAutoRenewBillingWorker } from "./src/workers/payment/WeChatAutoRenewBillingWorker.ts";
+import { GooglePlayAcknowledgeWorker } from "./src/workers/payment/GooglePlayAcknowledgeWorker.ts";
 import { getRuntimeConfig } from "./src/config/runtimeConfig.ts";
 import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
 import { AutoRenewService } from "./src/services/payment/AutoRenewService.ts";
@@ -28,8 +32,10 @@ import { TtsRequestLogCleanupWorker } from "./src/workers/tts/TtsRequestLogClean
 
 const prisma = new PrismaClient();
 const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
+const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
 const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
 const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
+const googlePlayAccountLinkRepository = new PrismaGooglePlayAccountLinkRepository(prisma);
 const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
 const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
 const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
@@ -53,6 +59,15 @@ const autoRenewService = new AutoRenewService(
   subscriptionService
 );
 const benefitGrantService = new BenefitGrantService(benefitGrantRepository);
+const googlePlayBillingService = new GooglePlayBillingService(
+  paymentEntitlementService,
+  paymentOrderRepository,
+  autoRenewService,
+  paymentEventRepository,
+  subscriptionRepository,
+  benefitGrantService,
+  googlePlayAccountLinkRepository
+);
 const worker = new PaymentReconcileWorker(
   paymentOrderService,
   benefitGrantService,
@@ -69,7 +84,8 @@ const ttsStorageProvider = new CosStorageProvider();
 const accountDeletionCleanupWorker = new AccountDeletionCleanupWorker(
   prisma,
   systemEventLogRepository,
-  ttsStorageProvider
+  ttsStorageProvider,
+  { googlePlayBillingService }
 );
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
@@ -81,6 +97,11 @@ const paymentCertSyncWorker = new PaymentCertSyncWorker(
 );
 const weChatAutoRenewBillingWorker = new WeChatAutoRenewBillingWorker(
   autoRenewService,
+  systemEventLogRepository
+);
+const googlePlayAcknowledgeWorker = new GooglePlayAcknowledgeWorker(
+  prisma,
+  googlePlayBillingService,
   systemEventLogRepository
 );
 
@@ -111,6 +132,7 @@ try {
   ttsRequestLogCleanupWorker.start();
   paymentCertSyncWorker.start();
   weChatAutoRenewBillingWorker.start();
+  googlePlayAcknowledgeWorker.start();
 } catch (error) {
   console.error("[worker] start failed", error);
   await systemEventLogRepository.create({
@@ -138,6 +160,7 @@ async function shutdown() {
   ttsRequestLogCleanupWorker.stop();
   paymentCertSyncWorker.stop();
   weChatAutoRenewBillingWorker.stop();
+  googlePlayAcknowledgeWorker.stop();
   await prisma.$disconnect();
 }
 

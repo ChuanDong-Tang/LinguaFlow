@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -21,6 +21,8 @@ import {
   getCurrentAutoRenewSubscription,
   MobileApiError,
   registerAppleAppAccountToken,
+  registerGooglePlayObfuscatedAccountId,
+  verifyGooglePlaySubscriptionPurchase,
   verifyAppleProMonthlyTransaction,
   type MobileAutoRenewSubscription,
   type MobilePaymentProductCode,
@@ -49,6 +51,15 @@ import {
   getAppleTransactionId,
   getAppleProductIdForSource,
 } from "../services/payment/appleIap";
+import {
+  GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+  GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+  assertGooglePlayBillingAvailable,
+  createGooglePlayObfuscatedAccountId,
+  getGooglePlayBasePlanOfferToken,
+  getGooglePlayProductId,
+  getGooglePlayPurchaseToken,
+} from "../services/payment/googlePlayBilling";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import { environmentStorageKey } from "../services/storage/environmentStorageKey";
 import { t, tf } from "../i18n";
@@ -68,6 +79,7 @@ const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_
 const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ONE_TIME_PURCHASE === "true";
 const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
+const ENABLE_GOOGLE_PLAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW === "true";
 const PRODUCT_PRICE_CACHE_KEY = environmentStorageKey("lf_membership_product_price_v2");
 const AUTO_RENEW_CACHE_KEY = environmentStorageKey("lf_current_auto_renew_v1");
 const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
@@ -86,7 +98,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
   const [hasLoadedAutoRenew, setHasLoadedAutoRenew] = useState(false);
   const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
+  const [isGooglePlayPurchaseFinishing, setIsGooglePlayPurchaseFinishing] = useState(false);
   const [isRestoringApplePurchases, setIsRestoringApplePurchases] = useState(false);
+  const [isRestoringGooglePlayPurchases, setIsRestoringGooglePlayPurchases] = useState(false);
   const [isRedeemingAppleOffer, setIsRedeemingAppleOffer] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
   const [plusWechatPriceLabel, setPlusWechatPriceLabel] = useState<string | null>(null);
@@ -114,13 +128,12 @@ export function ProScreen({ onBack }: ProScreenProps) {
   });
   const shouldShowAutoRenewInfo = !isRenew || Boolean(autoRenew);
   const canStartOneTimePurchase =
-    (Platform.OS === "ios" && ENABLE_APPLE_ONE_TIME_PURCHASE) ||
-    (Platform.OS === "android" && ENABLE_WECHAT_ONE_TIME_PURCHASE);
+    Platform.OS === "ios" && ENABLE_APPLE_ONE_TIME_PURCHASE;
   const canStartAutoRenew =
     !isRenew &&
     hasLoadedAutoRenew &&
     ((Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
-      (Platform.OS === "android" && ENABLE_WECHAT_AUTO_RENEW));
+      (Platform.OS === "android" && ENABLE_GOOGLE_PLAY_AUTO_RENEW));
   const shouldShowPurchaseActions = !isRenew || manageableAutoRenew;
   const shouldReservePurchaseActionSpace = shouldShowPurchaseActions || (isRenew && !hasLoadedAutoRenew);
 
@@ -348,7 +361,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
 
     if (Platform.OS === "android") {
-      await startWechatOneTimePurchase();
+      safeAlert(t("pro.not_open"), t("pro.alert.one_time_not_open"));
       return;
     }
 
@@ -418,11 +431,11 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
 
     if (Platform.OS === "android") {
-      if (!ENABLE_WECHAT_AUTO_RENEW) {
-        safeAlert(t("pro.not_open"), t("pro.alert.wechat_auto_not_open"));
+      if (!ENABLE_GOOGLE_PLAY_AUTO_RENEW) {
+        safeAlert(t("pro.not_open"), t("pro.alert.unsupported_auto"));
         return;
       }
-      await startWechatAutoRenew(productCode);
+      await startGooglePlaySubscriptionPurchase(productCode);
       return;
     }
 
@@ -471,6 +484,69 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
+  async function startGooglePlaySubscriptionPurchase(productCode: MobilePaymentProductCode): Promise<void> {
+    assertGooglePlayBillingAvailable(productCode);
+    if (!appleIap?.connected) {
+      safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
+      return;
+    }
+    const productId = getGooglePlayProductId(productCode);
+    const product = appleIap.subscriptions.find((item) => item.id === productId);
+    if (!product) {
+      safeAlert(t("pro.alert.apple_product_loading_title"), t("pro.alert.apple_product_loading_message"));
+      return;
+    }
+
+    setIsPaying(true);
+    setIsAutoRenewLoading(true);
+    try {
+      const latestEntitlement = await refreshProEntitlementState();
+      if (!isScreenAlive()) return;
+      if (latestEntitlement?.entitlement.isMember ?? latestEntitlement?.entitlement.isPro) {
+        setIsRenew(true);
+        safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_subscribe_later"));
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+        return;
+      }
+      const session = await getSession();
+      const obfuscatedAccountId = session?.user.id ? await createGooglePlayObfuscatedAccountId(session.user.id) : null;
+      if (obfuscatedAccountId) {
+        await registerGooglePlayObfuscatedAccountId(obfuscatedAccountId);
+      }
+      const offerToken = getGooglePlayBasePlanOfferToken(product, productCode);
+      if (!offerToken) {
+        throw new Error("Google Play base plan is unavailable or does not match the configured plan.");
+      }
+      const purchaseResult = await appleIap.requestPurchase({
+        type: "subs",
+        request: {
+          google: {
+            skus: [productId],
+            obfuscatedAccountId,
+            subscriptionOffers: [{ sku: productId, offerToken }],
+          },
+        },
+      });
+      if (isEmptyApplePurchaseResult(purchaseResult)) {
+        if (!isScreenAlive()) return;
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+      }
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      if (isAppleUserCancelledPurchase(error)) {
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+        return;
+      }
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.payment_start_failed"), message);
+      setIsPaying(false);
+      setIsAutoRenewLoading(false);
+    }
+  }
+
   async function openWechatContractOnlyFlow(redirectUrl: string | null): Promise<void> {
     if (redirectUrl) {
       // 已有 Pro 时不能再扣首期，走 H5 预签约只建立下周期自动续费协议。
@@ -485,6 +561,15 @@ export function ProScreen({ onBack }: ProScreenProps) {
     if (autoRenew.provider === "apple") {
       // Apple 订阅只能去 Apple ID 订阅管理里取消，服务端不能替用户直接取消平台订阅。
       safeAlert(t("pro.alert.apple_manage_title"), t("pro.alert.apple_manage_message"));
+      return;
+    }
+    if (autoRenew.provider === "google_play") {
+      const productId = getGooglePlayProductId(autoRenew.productCode);
+      const url =
+        "https://play.google.com/store/account/subscriptions" +
+        `?sku=${encodeURIComponent(productId)}` +
+        "&package=com.yueyantech.oio";
+      await Linking.openURL(url);
       return;
     }
     setIsAutoRenewLoading(true);
@@ -670,6 +755,39 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
+  async function handleGooglePlayPurchaseSuccess(purchase: Purchase): Promise<void> {
+    if (isGooglePlayPurchaseFinishing) return;
+    setIsGooglePlayPurchaseFinishing(true);
+    try {
+      if (!isGooglePlayProPurchase(purchase)) return;
+      const purchaseToken = getGooglePlayPurchaseToken(purchase);
+      const session = await getSession();
+      const obfuscatedAccountId = session?.user.id ? await createGooglePlayObfuscatedAccountId(session.user.id) : null;
+      await verifyGooglePlaySubscriptionPurchase({
+        productId: purchase.productId,
+        purchaseToken,
+        obfuscatedAccountId,
+      });
+      if (!appleIap) throw new Error(t("pro.alert.apple_not_initialized"));
+      await appleIap.finishTransaction({ purchase, isConsumable: false });
+      const entitlementResult = await refreshProEntitlementState();
+      const currentAutoRenew = await getCurrentAutoRenewSubscription();
+      if (!isScreenAlive()) return;
+      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
+      applyAutoRenewToState(currentAutoRenew);
+      alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      safeAlert(t("pro.alert.apple_verify_failed"), formatGooglePlayPaymentErrorMessage(error));
+    } finally {
+      if (isScreenAlive()) {
+        setIsGooglePlayPurchaseFinishing(false);
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+      }
+    }
+  }
+
   async function handleRestoreApplePurchases(options?: { silentFailure?: boolean }): Promise<void> {
     const silentFailure = options?.silentFailure ?? false;
     if (Platform.OS !== "ios") return;
@@ -743,6 +861,60 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
+  async function handleRestoreGooglePlayPurchases(): Promise<void> {
+    if (Platform.OS !== "android") return;
+    if (!appleIap?.connected) {
+      safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
+      return;
+    }
+    if (isRestoringGooglePlayPurchases) return;
+
+    setIsRestoringGooglePlayPurchases(true);
+    try {
+      const purchases = (await getAvailablePurchases()).filter(isGooglePlayProPurchase);
+      if (purchases.length === 0) {
+        if (isScreenAlive()) {
+          safeAlert(t("pro.alert.restore_not_found_title"), t("pro.alert.restore_not_found_message"));
+        }
+        return;
+      }
+
+      const session = await getSession();
+      const obfuscatedAccountId = session?.user.id
+        ? await createGooglePlayObfuscatedAccountId(session.user.id)
+        : null;
+      let lastError: unknown = null;
+      for (const purchase of purchases) {
+        try {
+          await verifyGooglePlaySubscriptionPurchase({
+            productId: purchase.productId,
+            purchaseToken: getGooglePlayPurchaseToken(purchase),
+            obfuscatedAccountId,
+          });
+          await appleIap.finishTransaction({ purchase, isConsumable: false }).catch(() => {});
+          const entitlementResult = await refreshProEntitlementState();
+          const currentAutoRenew = await getCurrentAutoRenewSubscription();
+          if (!isScreenAlive()) return;
+          setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
+          applyAutoRenewToState(currentAutoRenew);
+          alertRestoreSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (isScreenAlive()) {
+        safeAlert(t("pro.alert.restore_failed_title"), formatGooglePlayPaymentErrorMessage(lastError));
+      }
+    } catch (error) {
+      if (isScreenAlive()) {
+        safeAlert(t("pro.alert.restore_failed_title"), formatGooglePlayPaymentErrorMessage(error));
+      }
+    } finally {
+      if (isScreenAlive()) setIsRestoringGooglePlayPurchases(false);
+    }
+  }
+
   async function handleRedeemAppleOfferCode(): Promise<void> {
     if (Platform.OS !== "ios") return;
     if (isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading) return;
@@ -764,14 +936,26 @@ export function ProScreen({ onBack }: ProScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      {Platform.OS === "ios" ? (
+      {Platform.OS === "ios" || Platform.OS === "android" ? (
         <AppleIapBridge
           onReady={setAppleIap}
           onPurchaseSuccess={(purchase) => {
+            if (Platform.OS === "android") {
+              void handleGooglePlayPurchaseSuccess(purchase);
+              return;
+            }
             void handleApplePurchaseSuccess(purchase);
           }}
           onPurchaseError={(error) => {
             if (!isScreenAlive()) return;
+            if (Platform.OS === "android") {
+              if (!isAppleUserCancelledPurchase(error)) {
+                safeAlert(t("pro.alert.payment_start_failed"), formatGooglePlayPaymentErrorMessage(error));
+              }
+              setIsPaying(false);
+              setIsAutoRenewLoading(false);
+              return;
+            }
             clearApplePurchaseTimeout();
             const isUserInitiatedPurchase = applePurchaseIntentRef.current;
             applePurchaseIntentRef.current = false;
@@ -904,16 +1088,21 @@ export function ProScreen({ onBack }: ProScreenProps) {
               ) : null}
             </View>
           ) : null}
-          {Platform.OS === "ios" ? (
+          {Platform.OS === "ios" || Platform.OS === "android" ? (
             <Pressable
               style={[
                 styles.restoreButton,
-                (isRestoringApplePurchases || isRedeemingAppleOffer) && styles.subscribeButtonDisabled,
+                (isRestoringApplePurchases || isRestoringGooglePlayPurchases || isRedeemingAppleOffer) &&
+                  styles.subscribeButtonDisabled,
               ]}
-              onPress={() => void handleRestoreApplePurchases()}
-              disabled={isRestoringApplePurchases || isRedeemingAppleOffer}
+              onPress={() =>
+                void (Platform.OS === "android"
+                  ? handleRestoreGooglePlayPurchases()
+                  : handleRestoreApplePurchases())
+              }
+              disabled={isRestoringApplePurchases || isRestoringGooglePlayPurchases || isRedeemingAppleOffer}
             >
-              {isRestoringApplePurchases ? (
+              {isRestoringApplePurchases || isRestoringGooglePlayPurchases ? (
                 <ActivityIndicator color="#111111" />
               ) : (
                 <>
@@ -967,11 +1156,23 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError }: AppleIa
 
   useEffect(() => {
     if (!iap.connected) return;
-    void iap.fetchProducts({
-      skus: [APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID, APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID].filter(Boolean),
-      type: "subs",
-    });
-    void iap.fetchProducts({ skus: [getAppleProductIdForSource("single_purchase")], type: "in-app" });
+    if (Platform.OS === "android") {
+      void iap.fetchProducts({
+        skus: [
+          GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+          GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+        ].filter(Boolean),
+        type: "subs",
+      });
+      return;
+    }
+    if (Platform.OS === "ios") {
+      void iap.fetchProducts({
+        skus: [APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID, APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID].filter(Boolean),
+        type: "subs",
+      });
+      void iap.fetchProducts({ skus: [getAppleProductIdForSource("single_purchase")], type: "in-app" });
+    }
   }, [iap.connected, iap.fetchProducts]);
 
   return null;
@@ -996,13 +1197,18 @@ type MembershipTierInput = {
 };
 
 function resolveMembershipTier(input?: MembershipTierInput): "plus" | "pro" {
-  if (input?.productCode === "plus_monthly" || input?.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID) {
+  if (
+    input?.productCode === "plus_monthly" ||
+    input?.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+    input?.productId === GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+  ) {
     return "plus";
   }
   if (
     input?.productCode === "pro_monthly" ||
     input?.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
-    input?.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID
+    input?.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID ||
+    input?.productId === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
   ) {
     return "pro";
   }
@@ -1047,7 +1253,9 @@ function formatDate(value: string): string {
 }
 
 function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): string {
-  return provider === "apple" ? "Apple" : t("pro.provider.wechat");
+  if (provider === "apple") return "Apple";
+  if (provider === "google_play") return "Google Play";
+  return t("pro.provider.wechat");
 }
 
 function readPositiveIntEnv(value: string | undefined, fallback: number): number {
@@ -1182,7 +1390,7 @@ function isValidCachedAutoRenewSubscription(value: unknown): value is MobileAuto
   const candidate = value as Partial<MobileAutoRenewSubscription>;
   return (
     typeof candidate.id === "string" &&
-    (candidate.provider === "apple" || candidate.provider === "wechat") &&
+    (candidate.provider === "apple" || candidate.provider === "wechat" || candidate.provider === "google_play") &&
     (candidate.productCode === "plus_monthly" || candidate.productCode === "pro_monthly") &&
     typeof candidate.status === "string"
   );
@@ -1208,9 +1416,15 @@ function resolveMembershipPriceLabels(input: {
   }
 
   if (Platform.OS === "android") {
+    const plusSubscriptionPrice = input.appleIap?.subscriptions.find(
+      (product) => product.id === GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+    )?.displayPrice;
+    const proSubscriptionPrice = input.appleIap?.subscriptions.find(
+      (product) => product.id === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+    )?.displayPrice;
     return {
-      plus: input.plusWechatPriceLabel,
-      pro: input.proWechatPriceLabel,
+      plus: plusSubscriptionPrice ?? input.plusWechatPriceLabel,
+      pro: proSubscriptionPrice ?? input.proWechatPriceLabel,
       monthSuffix: t("pro.price.month_suffix"),
     };
   }
@@ -1247,6 +1461,13 @@ function isAppleProPurchase(purchase: Purchase): boolean {
   );
 }
 
+function isGooglePlayProPurchase(purchase: Purchase): boolean {
+  return (
+    purchase.productId === GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+    purchase.productId === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+  );
+}
+
 function isEmptyApplePurchaseResult(result: unknown): boolean {
   return result === null || (Array.isArray(result) && result.length === 0);
 }
@@ -1264,6 +1485,22 @@ function formatApplePaymentErrorMessage(error: unknown, fallback = t("app.delete
   }
   if (error instanceof MobileApiError) {
     if (error.code === "APPLE_SUBSCRIPTION_EXPIRED") {
+      return t("pro.alert.apple_subscription_expired");
+    }
+    if (error.code === "AUTO_RENEW_SWITCH_BLOCKED") {
+      return t("pro.alert.pro_active_subscribe_later");
+    }
+    if (error.code === "PRO_RENEWAL_TOO_EARLY") {
+      return t("pro.alert.pro_active_buy_later");
+    }
+    return error.message || fallback;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
+function formatGooglePlayPaymentErrorMessage(error: unknown, fallback = t("app.delete.retry_later")): string {
+  if (error instanceof MobileApiError) {
+    if (error.code === "GOOGLE_PLAY_SUBSCRIPTION_INACTIVE" || error.code === "GOOGLE_PLAY_SUBSCRIPTION_EXPIRED") {
       return t("pro.alert.apple_subscription_expired");
     }
     if (error.code === "AUTO_RENEW_SWITCH_BLOCKED") {
@@ -1301,18 +1538,20 @@ function isWechatUserCancelError(error: unknown): boolean {
 
 function formatAutoRenewProviderLabel(): string {
   if (Platform.OS === "ios") return "Apple ";
-  if (Platform.OS === "android") return t("pro.provider.wechat");
+  if (Platform.OS === "android") return "Google Play";
   return "";
 }
 
 function formatAutoRenewButtonLabel(): string {
   if (Platform.OS === "ios") return t("pro.auto.apple_subscription");
-  if (Platform.OS === "android") return t("pro.auto.wechat_subscription");
+  if (Platform.OS === "android") return "Google Play";
   return t("pro.auto.start");
 }
 
 function formatAutoRenewCancelButtonLabel(provider: MobileAutoRenewSubscription["provider"]): string {
-  return provider === "apple" ? t("pro.auto.cancel_apple") : t("pro.auto.cancel_wechat");
+  if (provider === "apple") return t("pro.auto.cancel_apple");
+  if (provider === "google_play") return "Manage in Google Play";
+  return t("pro.auto.cancel_wechat");
 }
 
 function BenefitItem({

@@ -5,7 +5,7 @@ import type { PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js"
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import { assertCanGrantSingleProMonthly } from "./ProPrepaidLimit.js";
 
-export type PaymentChannel = "wechat" | "ios_iap";
+export type PaymentChannel = "wechat" | "ios_iap" | "android_iap";
 export type EntitlementGrantMode = "fixed_duration" | "subscription_period";
 export type PrepaidLimitMode = "enforce" | "skip";
 

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { timingSafeEqual } from "node:crypto";
 import type { CreatePaymentOrderRequest } from "@lf/core/contracts/payment/CreatePaymentOrderContract.js";
 import {
   PaymentOrderAccessDeniedError,
@@ -16,12 +17,18 @@ import {
   type AutoRenewService,
 } from "@lf/server/services/payment/AutoRenewService.js";
 import { AppleIapService } from "@lf/server/providers/payment/apple/AppleIapService.js";
+import { GooglePlayBillingService } from "@lf/server/providers/payment/google/GooglePlayBillingService.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import {
   AppleIapConfigError,
   AppleIapSubscriptionAlreadyBoundError,
   AppleIapVerifyError,
 } from "@lf/server/providers/payment/apple/AppleIapErrors.js";
+import {
+  GooglePlayBillingConfigError,
+  GooglePlayBillingVerifyError,
+  GooglePlaySubscriptionAlreadyBoundError,
+} from "@lf/server/providers/payment/google/GooglePlayBillingErrors.js";
 import { checkWeChatPayConfig } from "@lf/server/providers/payment/wechat/WeChatPayConfig.js";
 import {
   AccountDisabledError,
@@ -38,6 +45,7 @@ export interface PaymentRouteDeps {
   paymentNotifyService: PaymentNotifyService;
   autoRenewService: AutoRenewService;
   appleIapService: AppleIapService;
+  googlePlayBillingService: GooglePlayBillingService;
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
@@ -53,6 +61,7 @@ const CLIENT_ERROR_MESSAGES = {
   RESOURCE_NOT_FOUND: "Payment order not found.",
   IAP_VERIFY_FAILED: "Unable to verify purchase at the moment.",
   APPLE_SUBSCRIPTION_ALREADY_BOUND: "This Apple subscription is already bound to another OIO account.",
+  GOOGLE_PLAY_SUBSCRIPTION_ALREADY_BOUND: "This Google Play subscription is already bound to another OIO account.",
   IAP_NOTIFY_FAILED: "Notification processing failed.",
   AUTH_UNAUTHORIZED: "Authentication required.",
   ACCOUNT_DISABLED: "Account is unavailable.",
@@ -80,6 +89,30 @@ function isAppleVerifyTransactionRequest(
   );
 }
 
+function isGooglePlayVerifyPurchaseRequest(
+  value: unknown
+): value is { productId: string; purchaseToken: string; obfuscatedAccountId?: string | null } {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.productId === "string" &&
+    v.productId.trim().length > 0 &&
+    typeof v.purchaseToken === "string" &&
+    v.purchaseToken.trim().length > 0 &&
+    (v.obfuscatedAccountId === undefined ||
+      v.obfuscatedAccountId === null ||
+      typeof v.obfuscatedAccountId === "string")
+  );
+}
+
+function isGooglePlayObfuscatedAccountIdRequest(
+  value: unknown
+): value is { obfuscatedAccountId: string } {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.obfuscatedAccountId === "string" && v.obfuscatedAccountId.trim().length > 0;
+}
+
 function isAppleAppAccountTokenRequest(
   value: unknown
 ): value is { appAccountToken: string } {
@@ -99,6 +132,12 @@ function isAppleServerNotificationRequest(
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return typeof v.signedPayload === "string" && v.signedPayload.trim().length > 0;
+}
+
+function isGooglePlayNotificationRequest(
+  value: unknown
+): value is { message?: { messageId?: string; data?: string }; subscription?: string } {
+  return Boolean(value && typeof value === "object");
 }
 
 function isCreatePaymentOrderRequest(value: unknown): value is CreatePaymentOrderRequest {
@@ -131,6 +170,20 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
   app.get("/payment/health", async (_req, reply) => {
     const wechat = checkWeChatPayConfig();
     const appleIap = { ok: deps.appleIapService.isConfigured() };
+    const googlePlayBillingConfigured = deps.googlePlayBillingService.isConfigured();
+    const googlePlayNotificationOidcConfigured = Boolean(
+      config.payment.googlePlayBilling.notifyOidcAudience &&
+        config.payment.googlePlayBilling.notifyOidcServiceAccountEmail
+    );
+    const googlePlay = {
+      ok:
+        googlePlayBillingConfigured &&
+        Boolean(config.payment.googlePlayBilling.notifyToken) &&
+        (!config.isProduction || googlePlayNotificationOidcConfigured),
+      billingConfigured: googlePlayBillingConfigured,
+      notificationAuthConfigured: Boolean(config.payment.googlePlayBilling.notifyToken),
+      notificationOidcConfigured: googlePlayNotificationOidcConfigured,
+    };
     const providers = {
       wechat: {
         ok: !config.payment.wechatPayEnabled || wechat.ok,
@@ -142,8 +195,13 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         enabled: config.payment.appleIap.enabled,
         detail: config.payment.appleIap.enabled ? appleIap : { disabled: true },
       },
+      googlePlay: {
+        ok: !config.payment.googlePlayBilling.enabled || googlePlay.ok,
+        enabled: config.payment.googlePlayBilling.enabled,
+        detail: config.payment.googlePlayBilling.enabled ? googlePlay : { disabled: true },
+      },
     };
-    const ok = providers.wechat.ok && providers.ios.ok;
+    const ok = providers.wechat.ok && providers.ios.ok && providers.googlePlay.ok;
 
     return reply.status(ok ? 200 : 503).send({
       ok,
@@ -889,6 +947,202 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     }
   });
 
+  app.post("/payment/google-play/verify-purchase", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    if (!isGooglePlayVerifyPurchaseRequest(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.google_play.verify.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "VALIDATION_FAILED",
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid Google Play verify payload" },
+      });
+    }
+
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+    if (!config.payment.googlePlayBilling.enabled) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.google_play.verify.disabled",
+        level: "warn",
+        status: "failed",
+        errorCode: "GOOGLE_PLAY_BILLING_DISABLED",
+      });
+      return reply.status(503).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "GOOGLE_PLAY_BILLING_DISABLED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
+      });
+    }
+
+    try {
+      const data = await deps.googlePlayBillingService.verifySubscriptionPurchase({
+        userId: userContext.userId,
+        productId: body.productId.trim(),
+        purchaseToken: body.purchaseToken.trim(),
+        obfuscatedAccountId: body.obfuscatedAccountId?.trim() || null,
+      });
+
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Google Play IAP verify failed";
+      if (error instanceof AutoRenewSwitchBlockedError) {
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.AUTO_RENEW_SWITCH_BLOCKED,
+            provider: error.provider,
+            currentPeriodEnd: error.currentPeriodEnd.toISOString(),
+          },
+        });
+      }
+      if (error instanceof ProRenewalTooEarlyError) {
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY,
+            expiresAt: error.expiresAt.toISOString(),
+          },
+        });
+      }
+      if (error instanceof GooglePlaySubscriptionAlreadyBoundError) {
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.GOOGLE_PLAY_SUBSCRIPTION_ALREADY_BOUND,
+            purchaseToken: error.purchaseToken,
+          },
+        });
+      }
+      if (error instanceof GooglePlayBillingConfigError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.google_play.verify.not_configured",
+          level: "warn",
+          status: "failed",
+          errorCode: error.code,
+          errorMessage: message,
+        });
+        return reply.status(503).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
+        });
+      }
+
+      const verifyErrorCode =
+        error instanceof GooglePlayBillingVerifyError
+          ? error.code
+          : "IAP_VERIFY_FAILED";
+      const verifyErrorDetails =
+        error instanceof GooglePlayBillingVerifyError
+          ? error.details
+          : null;
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.google_play.verify.failed",
+        level: "warn",
+        status: "failed",
+        errorCode: verifyErrorCode,
+        errorMessage: message,
+        metadata: verifyErrorDetails
+          ? { googlePlayVerify: verifyErrorDetails }
+          : undefined,
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: verifyErrorCode, message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
+      });
+    }
+  });
+
+  app.post("/payment/google-play/account-link", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    if (!isGooglePlayObfuscatedAccountIdRequest(body)) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.google_play.account_link.invalid_payload",
+        level: "warn",
+        status: "failed",
+        errorCode: "VALIDATION_FAILED",
+      });
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid Google Play account link payload" },
+      });
+    }
+
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+    if (!config.payment.googlePlayBilling.enabled) {
+      return reply.status(503).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "GOOGLE_PLAY_BILLING_DISABLED", message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
+      });
+    }
+
+    try {
+      const data = await deps.googlePlayBillingService.registerObfuscatedAccountId({
+        userId: userContext.userId,
+        obfuscatedAccountId: body.obfuscatedAccountId.trim(),
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Google Play account link registration failed";
+      const errorCode =
+        error instanceof GooglePlayBillingVerifyError
+          ? error.code
+          : error instanceof GooglePlaySubscriptionAlreadyBoundError
+            ? error.code
+            : "GOOGLE_PLAY_ACCOUNT_LINK_FAILED";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.google_play.account_link.failed",
+        level: "warn",
+        status: "failed",
+        errorCode,
+        errorMessage: message,
+      });
+      return reply.status(error instanceof GooglePlayBillingVerifyError ? 400 : 409).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: errorCode, message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
+      });
+    }
+  });
+
   app.post("/payment/ios/app-account-token", async (req, reply) => {
     const body = req.body as unknown;
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -1016,6 +1270,146 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       });
     }
   });
+
+  app.post("/payment/google-play/notify", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: {
+        routeKey: "google_play_notify",
+        path: "/payment/google-play/notify",
+        limit: config.payment.rateLimitWebhookLimit,
+        windowSec: config.payment.rateLimitWebhookWindowSec,
+        responseType: "api",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+    if (!config.payment.googlePlayBilling.enabled) {
+      return reply.status(503).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "GOOGLE_PLAY_BILLING_DISABLED", message: CLIENT_ERROR_MESSAGES.IAP_NOTIFY_FAILED },
+      });
+    }
+    const sharedTokenValid = isGooglePlayNotifyTokenValid(
+      req,
+      config.payment.googlePlayBilling.notifyToken
+    );
+    const oidcValid = await isGooglePlayNotifyOidcValid(req, {
+      required: config.isProduction,
+      audience: config.payment.googlePlayBilling.notifyOidcAudience,
+      serviceAccountEmail: config.payment.googlePlayBilling.notifyOidcServiceAccountEmail,
+    });
+    if (!sharedTokenValid || !oidcValid) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "payment",
+        event: "payment.google_play.notify.unauthorized",
+        level: "warn",
+        status: "failed",
+        errorCode: "GOOGLE_PLAY_NOTIFY_UNAUTHORIZED",
+      });
+      return reply.status(401).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "GOOGLE_PLAY_NOTIFY_UNAUTHORIZED", message: CLIENT_ERROR_MESSAGES.IAP_NOTIFY_FAILED },
+      });
+    }
+    if (!isGooglePlayNotificationRequest(body)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid Google Play notify payload" },
+      });
+    }
+    const messageId = typeof body.message?.messageId === "string" ? body.message.messageId : requestId;
+    await deps.googlePlayBillingService.handleRealtimeDeveloperNotification({
+      messageId,
+      rawPayload: body,
+    });
+    return reply.status(200).send({ ok: true, request_id: requestId });
+  });
+}
+
+function isGooglePlayNotifyTokenValid(req: FastifyRequest, expectedToken: string | null): boolean {
+  // Never expose a mutation-capable webhook without an authentication secret.
+  if (!expectedToken) return false;
+  const headerToken = firstHeaderValue(req.headers["x-google-play-notify-token"]);
+  const query = req.query && typeof req.query === "object" ? (req.query as Record<string, unknown>) : {};
+  const queryToken = typeof query.token === "string" ? query.token : null;
+  return tokensEqual(headerToken, expectedToken) || tokensEqual(queryToken, expectedToken);
+}
+
+function tokensEqual(actual: string | null | undefined, expected: string): boolean {
+  if (!actual) return false;
+  const actualBytes = Buffer.from(actual);
+  const expectedBytes = Buffer.from(expected);
+  return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
+}
+
+let cachedGooglePlayNotifyOidc:
+  | { token: string; audience: string; email: string; expiresAtMs: number }
+  | null = null;
+
+async function isGooglePlayNotifyOidcValid(
+  req: FastifyRequest,
+  input: {
+    required: boolean;
+    audience: string | null;
+    serviceAccountEmail: string | null;
+  }
+): Promise<boolean> {
+  if (!input.required && (!input.audience || !input.serviceAccountEmail)) return true;
+  if (!input.audience || !input.serviceAccountEmail) return false;
+
+  const authorization = firstHeaderValue(req.headers.authorization);
+  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  const token = match?.[1]?.trim();
+  if (!token) return false;
+  const now = Date.now();
+  if (
+    cachedGooglePlayNotifyOidc?.token === token &&
+    cachedGooglePlayNotifyOidc.audience === input.audience &&
+    cachedGooglePlayNotifyOidc.email === input.serviceAccountEmail &&
+    cachedGooglePlayNotifyOidc.expiresAtMs > now + 30_000
+  ) {
+    return true;
+  }
+
+  try {
+    const response = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`
+    );
+    if (!response.ok) return false;
+    const claims = (await response.json()) as Record<string, unknown>;
+    const audience = typeof claims.aud === "string" ? claims.aud : "";
+    const email = typeof claims.email === "string" ? claims.email : "";
+    const emailVerified = claims.email_verified === true || claims.email_verified === "true";
+    const expiresAtMs = Number(claims.exp) * 1000;
+    if (
+      audience !== input.audience ||
+      email !== input.serviceAccountEmail ||
+      !emailVerified ||
+      !Number.isFinite(expiresAtMs) ||
+      expiresAtMs <= now
+    ) {
+      return false;
+    }
+    cachedGooglePlayNotifyOidc = {
+      token,
+      audience,
+      email,
+      expiresAtMs,
+    };
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function resolvePaymentUserContext(
@@ -1074,12 +1468,14 @@ type PaymentRateLimitRule = {
     | "wechat_notify"
     | "wechat_refund_notify"
     | "ios_notify"
+    | "google_play_notify"
     | "orders_create"
     | "orders_query";
   path:
     | "/payment/wechat/notify"
     | "/payment/wechat/refund-notify"
     | "/payment/ios/notify"
+    | "/payment/google-play/notify"
     | "/payment/orders"
     | "/payment/orders/:id";
   limit: number;

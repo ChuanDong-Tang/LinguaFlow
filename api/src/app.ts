@@ -34,6 +34,7 @@ import { SubscriptionService } from "@lf/server/services/subscription/Subscripti
 import { PaymentOrderService } from "@lf/server/services/payment/PaymentOrderService.js";
 import { PaymentNotifyService } from "@lf/server/services/payment/PaymentNotifyService.js";
 import { AppleIapService } from "@lf/server/providers/payment/apple/AppleIapService.js";
+import { GooglePlayBillingService } from "@lf/server/providers/payment/google/GooglePlayBillingService.js";
 import { PaymentEntitlementService } from "@lf/server/services/payment/PaymentEntitlementService.js";
 import { BenefitGrantService } from "@lf/server/services/payment/BenefitGrantService.js";
 import { WeChatPaymentProvider } from "@lf/server/providers/payment/wechat/WeChatPaymentProvider.js";
@@ -43,6 +44,7 @@ import { PrismaSystemEventLogRepository } from "@lf/server/infrastructure/reposi
 import { PrismaTrustedCertRepository } from "@lf/server/infrastructure/repository/PrismaTrustedCertRepository.js";
 import { PrismaAutoRenewRepository } from "@lf/server/infrastructure/repository/PrismaAutoRenewRepository.js";
 import { PrismaAppleIapAccountLinkRepository } from "@lf/server/infrastructure/repository/PrismaAppleIapAccountLinkRepository.js";
+import { PrismaGooglePlayAccountLinkRepository } from "@lf/server/infrastructure/repository/PrismaGooglePlayAccountLinkRepository.js";
 import {
   InMemoryChatGenerationRateLimiter,
   RedisChatGenerationRateLimiter,
@@ -166,6 +168,7 @@ export function createApp() {
   const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
   const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
   const appleIapAccountLinkRepository = new PrismaAppleIapAccountLinkRepository(prisma);
+  const googlePlayAccountLinkRepository = new PrismaGooglePlayAccountLinkRepository(prisma);
   const paymentProvider = runtimeConfig.payment.wechatPayEnabled
     ? new WeChatPaymentProvider()
     : new DisabledWeChatPaymentProvider();
@@ -214,6 +217,15 @@ export function createApp() {
     appleIapAccountLinkRepository,
     subscriptionService,
     subscriptionRepository
+  );
+  const googlePlayBillingService = new GooglePlayBillingService(
+    paymentEntitlementService,
+    paymentOrderRepository,
+    autoRenewService,
+    paymentEventRepository,
+    subscriptionRepository,
+    benefitGrantService,
+    googlePlayAccountLinkRepository
   );
   const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
   const chatGenerationService = new ChatGenerationService(
@@ -277,6 +289,7 @@ export function createApp() {
       paymentNotifyService,
       autoRenewService,
       appleIapService,
+      googlePlayBillingService,
       userRepository,
       systemEventLogRepository,
     });

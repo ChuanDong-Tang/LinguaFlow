@@ -28,6 +28,7 @@ model User {
   subscriptions  Subscription[]
   autoRenewSubscriptions AutoRenewSubscription[]
   appleIapAccountLinks AppleIapAccountLink[]
+  googlePlayAccountLinks GooglePlayAccountLink[]
   preference     UserPreference?
 
   @@map("users")
@@ -351,6 +352,21 @@ model AppleIapAccountLink {
   @@map("apple_iap_account_links")
 }
 
+model GooglePlayAccountLink {
+  obfuscatedAccountId String   @id
+  userId              String
+  purchaseToken       String?
+  latestOrderId       String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([purchaseToken])
+  @@map("google_play_account_links")
+}
+
 model AiRequestLog {
   id             String             @id @default(cuid())
   requestId      String
@@ -567,6 +583,7 @@ enum SubscriptionStatus {
 enum AutoRenewProvider {
   wechat
   apple
+  google_play
 }
 
 enum AutoRenewStatus {

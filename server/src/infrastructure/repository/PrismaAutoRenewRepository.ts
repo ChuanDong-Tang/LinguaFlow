@@ -118,7 +118,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
   }
 
   async findByProviderAgreement(input: {
-    provider: "wechat" | "apple";
+    provider: "wechat" | "apple" | "google_play";
     providerAgreementId: string;
   }): Promise<AutoRenewSubscriptionEntity | null> {
     const row = await this.prisma.autoRenewSubscription.findUnique({
@@ -134,7 +134,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
   }
 
   async findByLatestTransaction(input: {
-    provider: "wechat" | "apple";
+    provider: "wechat" | "apple" | "google_play";
     latestTransactionId: string;
   }): Promise<AutoRenewSubscriptionEntity | null> {
     const row = await this.prisma.autoRenewSubscription.findFirst({
@@ -239,7 +239,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
   }
 
   async findChargeByProviderCharge(input: {
-    provider: "wechat" | "apple";
+    provider: "wechat" | "apple" | "google_play";
     providerChargeId: string;
   }): Promise<AutoRenewChargeEntity | null> {
     const row = await this.prisma.autoRenewCharge.findUnique({
@@ -271,7 +271,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
   }
 
   async listChargesByStatuses(input: {
-    provider: "wechat" | "apple";
+    provider: "wechat" | "apple" | "google_play";
     statuses: Array<"scheduled" | "pending" | "paid" | "failed" | "refunded">;
     before: Date;
     limit: number;
@@ -343,7 +343,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
   private toSubscriptionEntity(row: {
     id: string;
     userId: string;
-    provider: "wechat" | "apple";
+    provider: "wechat" | "apple" | "google_play";
     productCode: "plus_monthly" | "pro_monthly";
     status: "pending" | "active" | "cancelled" | "expired" | "billing_retry" | "paused";
     providerAgreementId: string;
@@ -378,7 +378,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     id: string;
     autoRenewSubscriptionId: string;
     userId: string;
-    provider: "wechat" | "apple";
+    provider: "wechat" | "apple" | "google_play";
     productCode: "plus_monthly" | "pro_monthly";
     providerChargeId: string;
     periodKey: string | null;

@@ -21,7 +21,7 @@ export class PrismaBenefitGrantRepository implements BenefitGrantRepository {
     userId: string;
     sourceOrderId: string;
     productCode: PaymentProductCode;
-    channel: "wechat" | "ios_iap";
+    channel: "wechat" | "ios_iap" | "android_iap";
     payload?: unknown;
   }): Promise<{ grant: BenefitGrantEntity; created: boolean }> {
     const existing = await this.prisma.benefitGrant.findUnique({
