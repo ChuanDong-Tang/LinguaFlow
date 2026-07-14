@@ -1,4 +1,5 @@
 import type { BenefitGrantRepository } from "@lf/core/ports/repository/BenefitGrantRepository.js";
+import type { PaymentChannel } from "./PaymentEntitlementService.js";
 import type { PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
 
 export class BenefitGrantService {
@@ -8,7 +9,7 @@ export class BenefitGrantService {
     userId: string;
     sourceOrderId: string;
     productCode: PaymentProductCode;
-    channel: "wechat" | "ios_iap";
+    channel: PaymentChannel;
     payload?: unknown;
   }): Promise<{ created: boolean; id: string }> {
     const result = await this.repository.enqueue(input);

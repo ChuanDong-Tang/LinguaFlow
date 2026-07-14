@@ -82,6 +82,22 @@ export class SubscriptionService {
     );
 
     if (existingByOrder) {
+      if (input.periodEnd && input.periodEnd > now) {
+        const wasAlreadyApplied =
+          existingByOrder.status === "active" && existingByOrder.expiresAt >= input.periodEnd;
+        const synced = await this.subscriptionRepository.syncPeriodBySourceOrderId({
+          sourceOrderId: input.sourceOrderId,
+          plan: input.plan,
+          startedAt: input.periodStart ?? existingByOrder.startedAt,
+          expiresAt: input.periodEnd,
+        });
+        if (synced) {
+          return {
+            subscription: synced,
+            alreadyApplied: wasAlreadyApplied,
+          };
+        }
+      }
       return {
         subscription: existingByOrder,
         alreadyApplied: true,

@@ -49,6 +49,18 @@ export interface PaymentRuntimeConfig {
     proMonthlyOneTimeProductId: string | null;
     allowSandboxFallback: boolean;
   };
+  googlePlayBilling: {
+    enabled: boolean;
+    packageName: string | null;
+    serviceAccountJson: string | null;
+    plusMonthlyProductId: string | null;
+    proMonthlyProductId: string | null;
+    plusMonthlyBasePlanId: string | null;
+    proMonthlyBasePlanId: string | null;
+    notifyToken: string | null;
+    notifyOidcAudience: string | null;
+    notifyOidcServiceAccountEmail: string | null;
+  };
 }
 
 export interface RuntimeConfig {
@@ -389,6 +401,18 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       proMonthlyProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_PRODUCT_ID),
       proMonthlyOneTimeProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_ONE_TIME_PRODUCT_ID),
       allowSandboxFallback: readBoolean(env.APPLE_IAP_ALLOW_SANDBOX_FALLBACK, mode !== "production"),
+    },
+    googlePlayBilling: {
+      enabled: readBoolean(env.GOOGLE_PLAY_BILLING_ENABLED, false),
+      packageName: trimToNull(env.GOOGLE_PLAY_PACKAGE_NAME),
+      serviceAccountJson: trimToNull(env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON),
+      plusMonthlyProductId: trimToNull(env.GOOGLE_PLAY_PLUS_MONTHLY_PRODUCT_ID),
+      proMonthlyProductId: trimToNull(env.GOOGLE_PLAY_PRO_MONTHLY_PRODUCT_ID),
+      plusMonthlyBasePlanId: trimToNull(env.GOOGLE_PLAY_PLUS_MONTHLY_BASE_PLAN_ID),
+      proMonthlyBasePlanId: trimToNull(env.GOOGLE_PLAY_PRO_MONTHLY_BASE_PLAN_ID),
+      notifyToken: trimToNull(env.GOOGLE_PLAY_NOTIFY_TOKEN),
+      notifyOidcAudience: trimToNull(env.GOOGLE_PLAY_NOTIFY_OIDC_AUDIENCE),
+      notifyOidcServiceAccountEmail: trimToNull(env.GOOGLE_PLAY_NOTIFY_OIDC_SERVICE_ACCOUNT_EMAIL),
     },
   };
 }

@@ -3,3 +3,4 @@
 export * from "./wechat/WeChatPaymentProvider.js";
 export * from "./wechat/WeChatAutoRenewProvider.js";
 export * from "./apple/index.js";
+export * from "./google/index.js";

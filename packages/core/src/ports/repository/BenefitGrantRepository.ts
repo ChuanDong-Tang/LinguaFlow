@@ -1,7 +1,7 @@
 import type { PaymentProductCode } from "../payment/PaymentTypes.js";
 
 export type BenefitGrantStatus = "pending" | "processing" | "success" | "failed";
-export type BenefitGrantChannel = "wechat" | "ios_iap";
+export type BenefitGrantChannel = "wechat" | "ios_iap" | "android_iap";
 
 export interface BenefitGrantEntity {
   id: string;

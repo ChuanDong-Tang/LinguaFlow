@@ -85,6 +85,32 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
     return latest ? this.toEntity(latest) : null;
   }
 
+  async syncPeriodBySourceOrderId(input: {
+    sourceOrderId: string;
+    plan: SubscriptionPlan;
+    startedAt: Date;
+    expiresAt: Date;
+  }): Promise<SubscriptionEntity | null> {
+    const current = await this.prisma.subscription.findUnique({
+      where: { sourceOrderId: input.sourceOrderId },
+    });
+    if (!current) return null;
+
+    await this.prisma.subscription.updateMany({
+      where: { id: current.id },
+      data: {
+        plan: input.plan,
+        status: "active",
+        startedAt: current.startedAt < input.startedAt ? current.startedAt : input.startedAt,
+        expiresAt: current.expiresAt > input.expiresAt ? current.expiresAt : input.expiresAt,
+      },
+    });
+    const latest = await this.prisma.subscription.findUnique({
+      where: { id: current.id },
+    });
+    return latest ? this.toEntity(latest) : null;
+  }
+
   async create(input: CreateSubscriptionInput): Promise<SubscriptionEntity> {
     const row = await this.prisma.subscription.create({
       data: {

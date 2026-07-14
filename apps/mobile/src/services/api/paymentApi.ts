@@ -51,7 +51,7 @@ export type MobilePaymentOrderResult = {
 
 export type MobileAutoRenewSubscription = {
   id: string;
-  provider: "wechat" | "apple";
+  provider: "wechat" | "apple" | "google_play";
   productCode: MobilePaymentProductCode;
   status: "pending" | "active" | "cancelled" | "expired" | "billing_retry" | "paused";
   currentPeriodStart: string | null;
@@ -74,6 +74,15 @@ export type MobileAppleVerifyTransactionResult = {
   productId: string;
   productCode: MobilePaymentProductCode;
   purchaseKind: "single_purchase" | "auto_renew";
+  autoRenewSubscriptionId?: string | null;
+  alreadyApplied?: boolean;
+};
+
+export type MobileGooglePlayVerifyPurchaseResult = {
+  purchaseToken: string;
+  productId: string;
+  productCode: MobilePaymentProductCode;
+  purchaseKind: "auto_renew";
   autoRenewSubscriptionId?: string | null;
   alreadyApplied?: boolean;
 };
@@ -193,6 +202,41 @@ export async function verifyAppleProMonthlyTransaction(
     throw new MobileApiError(json.error.code, json.error.message);
   }
   return json.data;
+}
+
+export async function verifyGooglePlaySubscriptionPurchase(input: {
+  productId: string;
+  purchaseToken: string;
+  obfuscatedAccountId?: string | null;
+}): Promise<MobileGooglePlayVerifyPurchaseResult> {
+  const res = await fetch(`${BASE_URL}/payment/google-play/verify-purchase`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await getAuthHeaders()),
+    },
+    body: JSON.stringify(input),
+  });
+  const json = (await res.json()) as ApiResult<MobileGooglePlayVerifyPurchaseResult>;
+  if (!json.ok) {
+    throw new MobileApiError(json.error.code, json.error.message);
+  }
+  return json.data;
+}
+
+export async function registerGooglePlayObfuscatedAccountId(obfuscatedAccountId: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/payment/google-play/account-link`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await getAuthHeaders()),
+    },
+    body: JSON.stringify({ obfuscatedAccountId }),
+  });
+  const json = (await res.json()) as ApiResult<{ obfuscatedAccountId: string }>;
+  if (!json.ok) {
+    throw new MobileApiError(json.error.code, json.error.message);
+  }
 }
 
 export async function registerAppleAppAccountToken(appAccountToken: string): Promise<void> {

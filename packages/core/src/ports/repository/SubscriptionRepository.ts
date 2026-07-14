@@ -33,5 +33,11 @@ export interface SubscriptionRepository {
     cancelledAt: Date;
     expiresAt: Date;
   }): Promise<SubscriptionEntity | null>;
+  syncPeriodBySourceOrderId(input: {
+    sourceOrderId: string;
+    plan: SubscriptionPlan;
+    startedAt: Date;
+    expiresAt: Date;
+  }): Promise<SubscriptionEntity | null>;
   create(input: CreateSubscriptionInput): Promise<SubscriptionEntity>;
 }

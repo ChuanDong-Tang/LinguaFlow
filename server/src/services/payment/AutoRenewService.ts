@@ -132,6 +132,15 @@ export class AutoRenewService {
     });
   }
 
+  async getGooglePlaySubscriptionByPurchaseToken(
+    purchaseToken: string
+  ): Promise<AutoRenewSubscriptionEntity | null> {
+    return this.autoRenewRepository.findByProviderAgreement({
+      provider: "google_play",
+      providerAgreementId: purchaseToken,
+    });
+  }
+
   async transferAppleSubscriptionToUser(input: {
     subscriptionId: string;
     userId: string;
@@ -645,6 +654,69 @@ export class AutoRenewService {
     return { status: "processed" };
   }
 
+  async handleGooglePlayPaidTransaction(input: {
+    purchaseToken: string;
+    providerChargeId: string;
+    productCode?: AutoRenewProductCode;
+    periodStart?: Date | null;
+    periodEnd?: Date | null;
+    rawPayload?: unknown;
+  }): Promise<{ status: "processed" | "ignored"; userId: string | null }> {
+    const subscription = await this.autoRenewRepository.findByProviderAgreement({
+      provider: "google_play",
+      providerAgreementId: input.purchaseToken,
+    });
+    if (!subscription) return { status: "ignored", userId: null };
+    await this.recordPaidCharge({
+      userId: subscription.userId,
+      provider: "google_play",
+      productCode: input.productCode ?? subscription.productCode,
+      providerAgreementId: input.purchaseToken,
+      providerChargeId: input.providerChargeId,
+      periodKey: input.providerChargeId,
+      periodStart: input.periodStart ?? null,
+      periodEnd: input.periodEnd ?? null,
+      paidAt: input.periodStart ?? new Date(),
+      rawPayload: input.rawPayload ?? null,
+    });
+    await this.autoRenewRepository.updateSubscription({
+      id: subscription.id,
+      status: "active",
+      latestTransactionId: input.providerChargeId,
+      currentPeriodStart: input.periodStart ?? subscription.currentPeriodStart,
+      currentPeriodEnd: input.periodEnd ?? subscription.currentPeriodEnd,
+      nextBillingAt: input.periodEnd ? computeEarlyBillingAt(input.periodEnd) : subscription.nextBillingAt,
+      cancelledAt: null,
+      allowReactivation: true,
+      metadata: mergeMetadata(subscription.metadata, {
+        googlePlayPaid: input.rawPayload ?? null,
+      }),
+    });
+
+    return { status: "processed", userId: subscription.userId };
+  }
+
+  async handleGooglePlayCancelled(input: {
+    purchaseToken: string;
+    rawPayload?: unknown;
+  }): Promise<{ status: "processed" | "ignored" }> {
+    const subscription = await this.autoRenewRepository.findByProviderAgreement({
+      provider: "google_play",
+      providerAgreementId: input.purchaseToken,
+    });
+    if (!subscription) return { status: "ignored" };
+    if (subscription.status === "cancelled") return { status: "ignored" };
+
+    await this.autoRenewRepository.cancelSubscription({
+      id: subscription.id,
+      cancelledAt: new Date(),
+      metadata: mergeMetadata(subscription.metadata, {
+        googlePlayCancel: input.rawPayload ?? null,
+      }),
+    });
+    return { status: "processed" };
+  }
+
   async runDueWeChatBilling(input: {
     limit?: number;
     now?: Date;
@@ -957,7 +1029,7 @@ export class AutoRenewService {
       userId: input.userId,
       sourceOrderId: createAutoRenewEntitlementSourceOrderId(input.provider, input.providerChargeId),
       productCode,
-      channel: input.provider === "apple" ? "ios_iap" : "wechat",
+      channel: input.provider === "apple" ? "ios_iap" : input.provider === "google_play" ? "android_iap" : "wechat",
       grantMode: "subscription_period",
       periodStart: input.periodStart ?? null,
       periodEnd: input.periodEnd ?? null,
@@ -1203,6 +1275,9 @@ function createAutoRenewEntitlementSourceOrderId(
 ): string {
   if (provider === "apple") {
     return `apple_iap:${providerChargeId}`;
+  }
+  if (provider === "google_play") {
+    return `google_play_iap:${providerChargeId}`;
   }
   return `${provider}_autorenew:${providerChargeId}`;
 }
