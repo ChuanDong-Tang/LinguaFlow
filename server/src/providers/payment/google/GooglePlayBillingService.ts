@@ -142,7 +142,6 @@ export class GooglePlayBillingService {
         subscriptionId: input.productId,
         purchaseToken: input.purchaseToken,
         accessToken,
-        externalAccountId: expectedAccountId,
       });
     }
 
@@ -237,7 +236,6 @@ export class GooglePlayBillingService {
       subscriptionId: productId,
       purchaseToken,
       accessToken,
-      externalAccountId: readString(googlePlay.obfuscatedAccountId),
     });
     return "acknowledged";
   }
@@ -390,8 +388,6 @@ export class GooglePlayBillingService {
             subscriptionId: productId,
             purchaseToken: decoded.purchaseToken,
             accessToken,
-            externalAccountId:
-              subscription.externalAccountIdentifiers?.obfuscatedExternalAccountId ?? null,
           });
         }
         if (!result.alreadyApplied) {
@@ -552,7 +548,6 @@ export class GooglePlayBillingService {
     subscriptionId: string;
     purchaseToken: string;
     accessToken: string;
-    externalAccountId: string | null;
   }): Promise<void> {
     try {
       await acknowledgeGoogleSubscription({
@@ -560,7 +555,6 @@ export class GooglePlayBillingService {
         subscriptionId: input.subscriptionId,
         purchaseToken: input.purchaseToken,
         accessToken: input.accessToken,
-        externalAccountId: input.externalAccountId,
       });
       const order = await this.paymentOrderRepository.findById(input.orderId);
       if (!order) return;

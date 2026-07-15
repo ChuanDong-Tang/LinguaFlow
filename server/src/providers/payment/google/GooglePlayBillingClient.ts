@@ -112,7 +112,6 @@ export async function acknowledgeGoogleSubscription(input: {
   subscriptionId: string;
   purchaseToken: string;
   accessToken: string;
-  externalAccountId?: string | null;
 }): Promise<void> {
   const response = await fetchGoogleApi(
     `${GOOGLE_ANDROID_PUBLISHER_BASE_URL}/applications/${encodeURIComponent(input.packageName)}` +
@@ -124,11 +123,7 @@ export async function acknowledgeGoogleSubscription(input: {
         Authorization: `Bearer ${input.accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        ...(input.externalAccountId
-          ? { externalAccountIds: { obfuscatedAccountId: input.externalAccountId } }
-          : {}),
-      }),
+      body: JSON.stringify({}),
     }
   );
   if (response.ok) return;
