@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "cos-nodejs-sdk-v5": "^2.15.4",
-    "microsoft-cognitiveservices-speech-sdk": "^1.50.0"
+    "microsoft-cognitiveservices-speech-sdk": "^1.50.0",
+    "undici": "^7.28.0"
   },
   "devDependencies": {
     "tsx": "^4.21.0"

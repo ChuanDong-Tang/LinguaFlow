@@ -29,6 +29,7 @@ import {
   GooglePlayBillingVerifyError,
   GooglePlaySubscriptionAlreadyBoundError,
 } from "@lf/server/providers/payment/google/GooglePlayBillingErrors.js";
+import { fetchGoogleApi } from "@lf/server/providers/payment/google/GoogleApiHttpClient.js";
 import { checkWeChatPayConfig } from "@lf/server/providers/payment/wechat/WeChatPayConfig.js";
 import {
   AccountDisabledError,
@@ -1071,7 +1072,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
           ? { googlePlayVerify: verifyErrorDetails }
           : undefined,
       });
-      return reply.status(400).send({
+      return reply.status(verifyErrorCode === "GOOGLE_API_NETWORK_ERROR" ? 503 : 400).send({
         ok: false,
         request_id: requestId,
         error: { code: verifyErrorCode, message: CLIENT_ERROR_MESSAGES.IAP_VERIFY_FAILED },
@@ -1382,7 +1383,7 @@ async function isGooglePlayNotifyOidcValid(
   }
 
   try {
-    const response = await fetch(
+    const response = await fetchGoogleApi(
       `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`
     );
     if (!response.ok) return false;

@@ -30,3 +30,4 @@ scripts/
 
 /ecosystem.test.config.cjs
 /ecosystem.production.config.cjs
+/build_mobile_aab.bat

@@ -51,6 +51,8 @@ export interface PaymentRuntimeConfig {
   };
   googlePlayBilling: {
     enabled: boolean;
+    apiProxyUrl: string | null;
+    apiTimeoutMs: number;
     packageName: string | null;
     serviceAccountJson: string | null;
     plusMonthlyProductId: string | null;
@@ -404,6 +406,8 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
     },
     googlePlayBilling: {
       enabled: readBoolean(env.GOOGLE_PLAY_BILLING_ENABLED, false),
+      apiProxyUrl: trimToNull(env.GOOGLE_API_PROXY_URL),
+      apiTimeoutMs: readPositiveInt(env.GOOGLE_API_TIMEOUT_MS, 15_000),
       packageName: trimToNull(env.GOOGLE_PLAY_PACKAGE_NAME),
       serviceAccountJson: trimToNull(env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON),
       plusMonthlyProductId: trimToNull(env.GOOGLE_PLAY_PLUS_MONTHLY_PRODUCT_ID),

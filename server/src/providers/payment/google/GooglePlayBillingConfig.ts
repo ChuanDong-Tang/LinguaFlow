@@ -9,6 +9,7 @@ export interface GoogleServiceAccountCredentials {
 }
 
 export interface GooglePlayBillingRuntimeConfig {
+  apiProxyUrl: string | null;
   packageName: string;
   credentials: GoogleServiceAccountCredentials;
   plusProductId: string;
@@ -30,6 +31,7 @@ export function isGooglePlayBillingConfigured(): boolean {
 export function loadGooglePlayBillingConfig(): GooglePlayBillingRuntimeConfig {
   const config = getRuntimeConfig();
   return {
+    apiProxyUrl: config.payment.googlePlayBilling.apiProxyUrl,
     packageName: requireConfig(config.payment.googlePlayBilling.packageName, "GOOGLE_PLAY_PACKAGE_NAME"),
     credentials: parseServiceAccountCredentials(
       requireConfig(config.payment.googlePlayBilling.serviceAccountJson, "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON")

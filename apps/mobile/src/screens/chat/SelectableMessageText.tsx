@@ -411,5 +411,6 @@ const styles = StyleSheet.create({
   },
   layoutText: {
     color: "transparent",
+    opacity: 0,
   },
 });

@@ -32,7 +32,7 @@ module.exports = {
     },
     android: {
       package: "com.yueyantech.oio",
-      versionCode: 55,
+      versionCode: 59,
       allowBackup: false,
       permissions: ["RECORD_AUDIO"],
       adaptiveIcon: {
@@ -60,6 +60,7 @@ module.exports = {
       "./plugins/with-chat-selectable-text",
       "./plugins/with-picovoice-voice-processor",
       "./plugins/with-wechat-pay",
+      "./plugins/with-android-release-signing",
     ],
     owner: "reedtang",
     runtimeVersion: {

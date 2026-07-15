@@ -6,6 +6,7 @@ import {
 } from "./GooglePlayBillingConstants.js";
 import type { GoogleServiceAccountCredentials } from "./GooglePlayBillingConfig.js";
 import { GooglePlayBillingVerifyError } from "./GooglePlayBillingErrors.js";
+import { fetchGoogleApi } from "./GoogleApiHttpClient.js";
 
 export interface GoogleSubscriptionPurchaseV2 {
   kind?: string;
@@ -54,7 +55,7 @@ export async function createGoogleAccessToken(credentials: GoogleServiceAccountC
   }
 
   const assertion = createServiceAccountJwt(credentials, now);
-  const response = await fetch(credentials.token_uri || GOOGLE_OAUTH_TOKEN_URL, {
+  const response = await fetchGoogleApi(credentials.token_uri || GOOGLE_OAUTH_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -87,7 +88,7 @@ export async function fetchGoogleSubscriptionV2(input: {
   purchaseToken: string;
   accessToken: string;
 }): Promise<GoogleSubscriptionPurchaseV2> {
-  const response = await fetch(
+  const response = await fetchGoogleApi(
     `${GOOGLE_ANDROID_PUBLISHER_BASE_URL}/applications/${encodeURIComponent(input.packageName)}` +
       `/purchases/subscriptionsv2/tokens/${encodeURIComponent(input.purchaseToken)}`,
     {
@@ -113,7 +114,7 @@ export async function acknowledgeGoogleSubscription(input: {
   accessToken: string;
   externalAccountId?: string | null;
 }): Promise<void> {
-  const response = await fetch(
+  const response = await fetchGoogleApi(
     `${GOOGLE_ANDROID_PUBLISHER_BASE_URL}/applications/${encodeURIComponent(input.packageName)}` +
       `/purchases/subscriptions/${encodeURIComponent(input.subscriptionId)}` +
       `/tokens/${encodeURIComponent(input.purchaseToken)}:acknowledge`,
@@ -144,7 +145,7 @@ export async function cancelGoogleSubscriptionRenewal(input: {
   purchaseToken: string;
   accessToken: string;
 }): Promise<void> {
-  const response = await fetch(
+  const response = await fetchGoogleApi(
     `${GOOGLE_ANDROID_PUBLISHER_BASE_URL}/applications/${encodeURIComponent(input.packageName)}` +
       `/purchases/subscriptionsv2/tokens/${encodeURIComponent(input.purchaseToken)}:cancel`,
     {

@@ -601,7 +601,10 @@ export function MessageList({
     },
     [dictionarySelectionRef],
   );
-  const messageTextInteractionsDisabled = Platform.OS === "android" ? inputProtectionActive : false;
+  // The native selectable text view can take focus and dismiss the composer itself.
+  // Disabling it while the Android composer is focused makes long-press selection
+  // impossible after the keyboard is hidden but the TextInput retains focus.
+  const messageTextInteractionsDisabled = false;
   const handleEditClozeGroup = React.useCallback(
     (message: ChatMessage, groupIndex: number) => {
       editClozeGroupRef.current(message, groupIndex);

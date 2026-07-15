@@ -29,6 +29,7 @@ import org.json.JSONArray
 class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   companion object {
     private const val TAG = "ChatSelectableText"
+    private const val CUSTOM_MENU_ITEM_ID_BASE = 0x4F490000
   }
 
   private var rawText: String = ""
@@ -93,6 +94,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
   fun setMenuOptions(value: List<String>) {
     menuOptions = value
+    currentActionMode?.invalidate()
   }
 
   fun setSelectionMode(@Suppress("UNUSED_PARAMETER") value: String?) {
@@ -273,21 +275,18 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
         ensureSpannableTextBuffer()
         currentActionMode = mode
+        populateSelectionMenu(menu)
         emitSelectionStart()
         return true
       }
 
       override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
-        if (menuOptions.isEmpty()) return true
-        menu?.clear()
-        menuOptions.forEachIndexed { index, option ->
-          menu?.add(0, index, 0, option)
-        }
+        populateSelectionMenu(menu)
         return true
       }
 
       override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
-        val optionIndex = item?.itemId ?: 0
+        val optionIndex = (item?.itemId ?: return false) - CUSTOM_MENU_ITEM_ID_BASE
         val chosenOption = menuOptions.getOrNull(optionIndex) ?: return false
         val selectedStart = selectionStart.coerceAtMost(selectionEnd).coerceIn(0, rawText.length)
         val selectedEnd = selectionStart.coerceAtLeast(selectionEnd).coerceIn(selectedStart, rawText.length)
@@ -304,6 +303,16 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         }
         scheduleSelectionRelease()
       }
+    }
+  }
+
+  private fun populateSelectionMenu(menu: Menu?) {
+    if (menu == null || menuOptions.isEmpty()) return
+    menu.clear()
+    menuOptions.forEachIndexed { index, option ->
+      menu
+        .add(Menu.NONE, CUSTOM_MENU_ITEM_ID_BASE + index, index, option)
+        .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS or MenuItem.SHOW_AS_ACTION_WITH_TEXT)
     }
   }
 
