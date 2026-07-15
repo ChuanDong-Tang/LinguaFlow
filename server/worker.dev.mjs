@@ -22,6 +22,7 @@ import { AiRequestLogCleanupWorker } from "./src/workers/ai/AiRequestLogCleanupW
 import { PaymentCertSyncWorker } from "./src/workers/payment/PaymentCertSyncWorker.ts";
 import { WeChatAutoRenewBillingWorker } from "./src/workers/payment/WeChatAutoRenewBillingWorker.ts";
 import { GooglePlayAcknowledgeWorker } from "./src/workers/payment/GooglePlayAcknowledgeWorker.ts";
+import { GooglePlaySubscriptionReconcileWorker } from "./src/workers/payment/GooglePlaySubscriptionReconcileWorker.ts";
 import { getRuntimeConfig } from "./src/config/runtimeConfig.ts";
 import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
 import { AutoRenewService } from "./src/services/payment/AutoRenewService.ts";
@@ -104,6 +105,11 @@ const googlePlayAcknowledgeWorker = new GooglePlayAcknowledgeWorker(
   googlePlayBillingService,
   systemEventLogRepository
 );
+const googlePlaySubscriptionReconcileWorker = new GooglePlaySubscriptionReconcileWorker(
+  prisma,
+  googlePlayBillingService,
+  systemEventLogRepository
+);
 
 const runtime = getRuntimeConfig();
 let shuttingDown = false;
@@ -133,6 +139,7 @@ try {
   paymentCertSyncWorker.start();
   weChatAutoRenewBillingWorker.start();
   googlePlayAcknowledgeWorker.start();
+  googlePlaySubscriptionReconcileWorker.start();
 } catch (error) {
   console.error("[worker] start failed", error);
   await systemEventLogRepository.create({
@@ -161,6 +168,7 @@ async function shutdown() {
   paymentCertSyncWorker.stop();
   weChatAutoRenewBillingWorker.stop();
   googlePlayAcknowledgeWorker.stop();
+  googlePlaySubscriptionReconcileWorker.stop();
   await prisma.$disconnect();
 }
 

@@ -5,3 +5,4 @@ export * from "./BenefitGrantWorker.js";
 export * from "./PaymentCertSyncWorker.js";
 export * from "./WeChatAutoRenewBillingWorker.js";
 export * from "./GooglePlayAcknowledgeWorker.js";
+export * from "./GooglePlaySubscriptionReconcileWorker.js";

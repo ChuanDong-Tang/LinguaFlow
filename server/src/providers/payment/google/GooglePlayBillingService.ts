@@ -40,6 +40,16 @@ export interface VerifyGooglePlayPurchaseResult {
 
 export type GooglePlayAcknowledgeReconcileStatus = "acknowledged" | "pending" | "skipped";
 
+export type GooglePlayAutoRenewReconcileResult =
+  | { status: "skipped"; reason: "service_unavailable" | "no_current_google_play_subscription" }
+  | {
+      status: "checked";
+      action: "unchanged" | "paid_period_recorded" | "cancelled" | "suspended";
+      subscriptionState: string;
+      autoRenewEnabled: boolean;
+      currentPeriodEnd: string | null;
+    };
+
 export class GooglePlayBillingService {
   constructor(
     private readonly paymentEntitlementService: PaymentEntitlementService,
@@ -204,6 +214,105 @@ export class GooglePlayBillingService {
       accessToken,
     });
     return "cancelled";
+  }
+
+  async reconcileCurrentAutoRenewForUser(userId: string): Promise<GooglePlayAutoRenewReconcileResult> {
+    if (!this.autoRenewService) return { status: "skipped", reason: "service_unavailable" };
+    const current = (await this.autoRenewService.getCurrent(userId)).subscription;
+    if (!current || current.provider !== GOOGLE_PLAY_AUTORENEW_PROVIDER) {
+      return { status: "skipped", reason: "no_current_google_play_subscription" };
+    }
+    return this.reconcileGooglePlayAutoRenewSubscription(current.providerAgreementId);
+  }
+
+  async reconcileGooglePlayAutoRenewSubscription(
+    purchaseToken: string
+  ): Promise<GooglePlayAutoRenewReconcileResult> {
+    if (!this.autoRenewService) return { status: "skipped", reason: "service_unavailable" };
+    const local = await this.autoRenewService.getGooglePlaySubscriptionByPurchaseToken(purchaseToken);
+    if (!local) return { status: "skipped", reason: "no_current_google_play_subscription" };
+
+    const config = loadGooglePlayBillingConfig();
+    const accessToken = await createGoogleAccessToken(config.credentials);
+    const subscription = await fetchGoogleSubscriptionV2({
+      packageName: config.packageName,
+      purchaseToken,
+      accessToken,
+    });
+    const state = String(subscription.subscriptionState ?? "").toUpperCase();
+    const autoRenewEnabled = (subscription.lineItems ?? []).some(
+      (lineItem) => lineItem.autoRenewingPlan?.autoRenewEnabled === true
+    );
+    const resolvedProduct = resolveCurrentConfiguredLineItem(subscription, config);
+    const lineItem = resolvedProduct?.lineItem ?? null;
+    const periodEnd = parseGoogleDate(lineItem?.expiryTime);
+    const periodStart = parseGoogleDate(subscription.startTime);
+    const providerChargeId = subscription.latestOrderId ?? local.latestTransactionId ?? purchaseToken;
+    let paidPeriodRecorded = false;
+
+    if (resolvedProduct && periodEnd) {
+      assertGoogleLineItemMatchesConfiguredBasePlan(
+        resolvedProduct.lineItem,
+        resolvedProduct.productCode,
+        config
+      );
+      const periodChanged =
+        local.latestTransactionId !== providerChargeId ||
+        local.currentPeriodEnd?.getTime() !== periodEnd.getTime();
+      if (periodChanged) {
+        await this.autoRenewService.handleGooglePlayPaidTransaction({
+          purchaseToken,
+          providerChargeId,
+          productCode: resolvedProduct.productCode,
+          periodStart,
+          periodEnd,
+          rawPayload: { source: "google_play_active_reconcile", subscription },
+        });
+        paidPeriodRecorded = true;
+      }
+    }
+
+    const mustStopAutoRenew =
+      !autoRenewEnabled ||
+      state === "SUBSCRIPTION_STATE_CANCELED" ||
+      state === "SUBSCRIPTION_STATE_EXPIRED" ||
+      state === "SUBSCRIPTION_STATE_ON_HOLD" ||
+      state === "SUBSCRIPTION_STATE_PAUSED" ||
+      state === "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED";
+    const periodExpired = Boolean(periodEnd && periodEnd <= new Date());
+    const mustSuspendEntitlement =
+      periodExpired ||
+      state === "SUBSCRIPTION_STATE_EXPIRED" ||
+      state === "SUBSCRIPTION_STATE_ON_HOLD" ||
+      state === "SUBSCRIPTION_STATE_PAUSED" ||
+      state === "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED";
+
+    if (mustStopAutoRenew) {
+      await this.autoRenewService.handleGooglePlayCancelled({
+        purchaseToken,
+        rawPayload: { source: "google_play_active_reconcile", subscription },
+      });
+    }
+    if (mustSuspendEntitlement) {
+      await this.suspendCurrentEntitlementForPurchaseToken(
+        purchaseToken,
+        periodEnd && periodEnd <= new Date() ? periodEnd : new Date()
+      );
+    }
+
+    return {
+      status: "checked",
+      action: mustSuspendEntitlement
+        ? "suspended"
+        : mustStopAutoRenew
+          ? "cancelled"
+          : paidPeriodRecorded
+            ? "paid_period_recorded"
+            : "unchanged",
+      subscriptionState: state,
+      autoRenewEnabled,
+      currentPeriodEnd: periodEnd?.toISOString() ?? null,
+    };
   }
 
   async reconcilePendingAcknowledgementOrder(

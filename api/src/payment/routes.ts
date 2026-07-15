@@ -269,6 +269,36 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       });
     }
 
+    try {
+      const reconcileResult = await deps.googlePlayBillingService.reconcileCurrentAutoRenewForUser(
+        userContext.userId
+      );
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.google_play.autorenew.reconcile_checked",
+        level: "info",
+        status:
+          reconcileResult.status === "checked" && reconcileResult.action !== "unchanged"
+            ? "success"
+            : "ignored",
+        errorCode: "GOOGLE_PLAY_AUTORENEW_RECONCILE_CHECKED",
+        metadata: { googlePlayAutoRenewReconcile: reconcileResult },
+      });
+    } catch (error) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.google_play.autorenew.reconcile_failed",
+        level: "warn",
+        status: "failed",
+        errorCode: "GOOGLE_PLAY_AUTORENEW_RECONCILE_FAILED",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     const data = await deps.autoRenewService.getCurrent(userContext.userId);
     return reply.status(200).send({
       ok: true,
