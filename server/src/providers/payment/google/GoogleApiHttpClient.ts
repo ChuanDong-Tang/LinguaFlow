@@ -5,38 +5,60 @@ import {
   GooglePlayBillingVerifyError,
 } from "./GooglePlayBillingErrors.js";
 
-let cachedProxy: { url: string; dispatcher: ProxyAgent } | null = null;
+let cachedProxy: { key: string; dispatcher: ProxyAgent } | null = null;
 
 /** Sends only explicitly selected Google API calls through the dedicated proxy. */
 export async function fetchGoogleApi(input: string | URL, init?: Parameters<typeof fetch>[1]) {
   const config = getRuntimeConfig().payment.googlePlayBilling;
-  const timeoutSignal = AbortSignal.timeout(config.apiTimeoutMs);
-  const signal = init?.signal
-    ? AbortSignal.any([init.signal, timeoutSignal])
-    : timeoutSignal;
-  try {
-    return await fetch(input, {
-      ...init,
-      signal,
-      ...(config.apiProxyUrl
-        ? { dispatcher: getProxyDispatcher(config.apiProxyUrl) }
-        : {}),
-    });
-  } catch (error) {
-    if (error instanceof GooglePlayBillingConfigError) throw error;
-    throw new GooglePlayBillingVerifyError(
-      "Google API network request failed",
-      "GOOGLE_API_NETWORK_ERROR",
-      {
-        proxyEnabled: Boolean(config.apiProxyUrl),
-        cause: describeNetworkError(error),
-      }
-    );
+  const deadline = Date.now() + config.apiTimeoutMs;
+  let lastError: unknown = null;
+  let attempts = 0;
+
+  while (attempts < config.apiMaxAttempts && Date.now() < deadline) {
+    attempts += 1;
+    const remainingMs = Math.max(deadline - Date.now(), 1);
+    const timeoutSignal = AbortSignal.timeout(remainingMs);
+    const signal = init?.signal
+      ? AbortSignal.any([init.signal, timeoutSignal])
+      : timeoutSignal;
+    try {
+      return await fetch(input, {
+        ...init,
+        signal,
+        ...(config.apiProxyUrl
+          ? {
+              dispatcher: getProxyDispatcher(
+                config.apiProxyUrl,
+                config.apiConnectTimeoutMs
+              ),
+            }
+          : {}),
+      });
+    } catch (error) {
+      if (error instanceof GooglePlayBillingConfigError) throw error;
+      lastError = error;
+      if (config.apiProxyUrl) resetProxyDispatcher();
+      if (init?.signal?.aborted || attempts >= config.apiMaxAttempts) break;
+      const delayMs = config.apiRetryBaseDelayMs * 2 ** (attempts - 1);
+      if (Date.now() + delayMs >= deadline) break;
+      await delay(delayMs);
+    }
   }
+
+  throw new GooglePlayBillingVerifyError(
+    "Google API network request failed",
+    "GOOGLE_API_NETWORK_ERROR",
+    {
+      proxyEnabled: Boolean(config.apiProxyUrl),
+      cause: describeNetworkError(lastError),
+      attempts,
+    }
+  );
 }
 
-function getProxyDispatcher(rawProxyUrl: string): ProxyAgent {
-  if (cachedProxy?.url === rawProxyUrl) return cachedProxy.dispatcher;
+function getProxyDispatcher(rawProxyUrl: string, connectTimeoutMs: number): ProxyAgent {
+  const cacheKey = `${rawProxyUrl}\n${connectTimeoutMs}`;
+  if (cachedProxy?.key === cacheKey) return cachedProxy.dispatcher;
 
   let parsed: URL;
   try {
@@ -69,9 +91,20 @@ function getProxyDispatcher(rawProxyUrl: string): ProxyAgent {
   const dispatcher = new ProxyAgent({
     uri: parsed.toString(),
     token: `Basic ${Buffer.from(`${username}:${password}`, "utf8").toString("base64")}`,
+    connectTimeout: connectTimeoutMs,
   });
-  cachedProxy = { url: rawProxyUrl, dispatcher };
+  cachedProxy = { key: cacheKey, dispatcher };
   return dispatcher;
+}
+
+function resetProxyDispatcher(): void {
+  const dispatcher = cachedProxy?.dispatcher;
+  cachedProxy = null;
+  if (dispatcher) void dispatcher.close().catch(() => undefined);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function describeNetworkError(error: unknown): string {

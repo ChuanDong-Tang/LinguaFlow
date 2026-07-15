@@ -35,9 +35,10 @@ export interface VerifyGooglePlayPurchaseResult {
   purchaseKind: "auto_renew";
   autoRenewSubscriptionId: string | null;
   alreadyApplied: boolean;
+  acknowledgementPending: boolean;
 }
 
-export type GooglePlayAcknowledgeReconcileStatus = "acknowledged" | "skipped";
+export type GooglePlayAcknowledgeReconcileStatus = "acknowledged" | "pending" | "skipped";
 
 export class GooglePlayBillingService {
   constructor(
@@ -135,14 +136,15 @@ export class GooglePlayBillingService {
       source: "google_play_verify_purchase",
       obfuscatedAccountId: expectedAccountId,
     });
+    let acknowledgementPending = false;
     if (subscription.acknowledgementState !== "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED") {
-      await this.acknowledgeGooglePlaySubscriptionAfterLocalApply({
+      acknowledgementPending = (await this.acknowledgeGooglePlaySubscriptionAfterLocalApply({
         orderId: result.orderId,
         packageName: config.packageName,
         subscriptionId: input.productId,
         purchaseToken: input.purchaseToken,
         accessToken,
-      });
+      })) === "pending";
     }
 
     return {
@@ -152,6 +154,7 @@ export class GooglePlayBillingService {
       purchaseKind: "auto_renew",
       autoRenewSubscriptionId: result.autoRenewSubscriptionId,
       alreadyApplied: result.alreadyApplied,
+      acknowledgementPending,
     };
   }
 
@@ -230,14 +233,14 @@ export class GooglePlayBillingService {
       return "acknowledged";
     }
 
-    await this.acknowledgeGooglePlaySubscriptionAfterLocalApply({
+    const acknowledgementStatus = await this.acknowledgeGooglePlaySubscriptionAfterLocalApply({
       orderId: order.id,
       packageName: config.packageName,
       subscriptionId: productId,
       purchaseToken,
       accessToken,
     });
-    return "acknowledged";
+    return acknowledgementStatus;
   }
 
   async handleRealtimeDeveloperNotification(input: { messageId: string; rawPayload: unknown }): Promise<{
@@ -548,7 +551,7 @@ export class GooglePlayBillingService {
     subscriptionId: string;
     purchaseToken: string;
     accessToken: string;
-  }): Promise<void> {
+  }): Promise<"acknowledged" | "pending"> {
     try {
       await acknowledgeGoogleSubscription({
         packageName: input.packageName,
@@ -557,8 +560,9 @@ export class GooglePlayBillingService {
         accessToken: input.accessToken,
       });
       const order = await this.paymentOrderRepository.findById(input.orderId);
-      if (!order) return;
+      if (!order) return "acknowledged";
       await this.markGooglePlayOrderAcknowledged(order.id);
+      return "acknowledged";
     } catch (error) {
       const order = await this.paymentOrderRepository.findById(input.orderId);
       if (order) {
@@ -576,6 +580,7 @@ export class GooglePlayBillingService {
           }),
         });
       }
+      if (isRetryableGooglePlayAcknowledgeError(error)) return "pending";
       throw error;
     }
   }
@@ -653,6 +658,15 @@ export class GooglePlayBillingService {
         subscription.expiresAt >= periodEnd
     );
   }
+}
+
+function isRetryableGooglePlayAcknowledgeError(error: unknown): boolean {
+  if (!(error instanceof GooglePlayBillingVerifyError)) return false;
+  if (error.code === "GOOGLE_API_NETWORK_ERROR") return true;
+  const match = error.code.match(/^GOOGLE_PLAY_ACK_HTTP_(\d{3})$/);
+  if (!match) return false;
+  const status = Number(match[1]);
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
 }
 
 function resolveGoogleProductCode(

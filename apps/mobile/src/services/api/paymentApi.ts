@@ -85,6 +85,7 @@ export type MobileGooglePlayVerifyPurchaseResult = {
   purchaseKind: "auto_renew";
   autoRenewSubscriptionId?: string | null;
   alreadyApplied?: boolean;
+  acknowledgementPending?: boolean;
 };
 
 export async function createMembershipMonthlyOrder(productCode: MobilePaymentProductCode): Promise<MobileCreatePaymentOrderResult> {

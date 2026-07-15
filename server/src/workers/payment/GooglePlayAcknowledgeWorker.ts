@@ -75,6 +75,7 @@ export class GooglePlayAcknowledgeWorker {
       });
 
       let acknowledged = 0;
+      let pending = 0;
       let skipped = 0;
       let failed = 0;
       for (const order of orders) {
@@ -82,6 +83,8 @@ export class GooglePlayAcknowledgeWorker {
           const status = await this.googlePlayBillingService.reconcilePendingAcknowledgementOrder(order.id);
           if (status === "acknowledged") {
             acknowledged += 1;
+          } else if (status === "pending") {
+            pending += 1;
           } else {
             skipped += 1;
           }
@@ -104,7 +107,7 @@ export class GooglePlayAcknowledgeWorker {
       }
 
       if (orders.length > 0 || failed > 0) {
-        const result = { checked: orders.length, acknowledged, skipped, failed };
+        const result = { checked: orders.length, acknowledged, pending, skipped, failed };
         console.log("[google-play-acknowledge]", result);
         await this.writeWorkerLog({
           event: "payment.google_play_ack.worker_reconciled",

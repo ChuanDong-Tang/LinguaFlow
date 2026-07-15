@@ -53,6 +53,9 @@ export interface PaymentRuntimeConfig {
     enabled: boolean;
     apiProxyUrl: string | null;
     apiTimeoutMs: number;
+    apiConnectTimeoutMs: number;
+    apiMaxAttempts: number;
+    apiRetryBaseDelayMs: number;
     packageName: string | null;
     serviceAccountJson: string | null;
     plusMonthlyProductId: string | null;
@@ -408,6 +411,9 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       enabled: readBoolean(env.GOOGLE_PLAY_BILLING_ENABLED, false),
       apiProxyUrl: trimToNull(env.GOOGLE_API_PROXY_URL),
       apiTimeoutMs: readPositiveInt(env.GOOGLE_API_TIMEOUT_MS, 15_000),
+      apiConnectTimeoutMs: readPositiveInt(env.GOOGLE_API_CONNECT_TIMEOUT_MS, 5_000),
+      apiMaxAttempts: Math.min(readPositiveInt(env.GOOGLE_API_MAX_ATTEMPTS, 3), 5),
+      apiRetryBaseDelayMs: readPositiveInt(env.GOOGLE_API_RETRY_BASE_DELAY_MS, 250),
       packageName: trimToNull(env.GOOGLE_PLAY_PACKAGE_NAME),
       serviceAccountJson: trimToNull(env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON),
       plusMonthlyProductId: trimToNull(env.GOOGLE_PLAY_PLUS_MONTHLY_PRODUCT_ID),
