@@ -32,7 +32,7 @@ module.exports = {
     },
     android: {
       package: "com.yueyantech.oio",
-      versionCode: 60,
+      versionCode: 61,
       allowBackup: false,
       permissions: ["RECORD_AUDIO"],
       adaptiveIcon: {
@@ -56,6 +56,7 @@ module.exports = {
       "expo-font",
       "expo-web-browser",
       "expo-audio",
+      "./plugins/with-android-audio-playback-policy",
       "expo-secure-store",
       "./plugins/with-chat-selectable-text",
       "./plugins/with-picovoice-voice-processor",
