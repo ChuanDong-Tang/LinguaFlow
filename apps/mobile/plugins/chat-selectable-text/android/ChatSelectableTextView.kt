@@ -44,6 +44,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   private var pendingDownX: Float = 0f
   private var pendingDownY: Float = 0f
   private var pendingSelectionRelease: Boolean = false
+  private var pendingTextApply: Boolean = false
   private var textApplyRequested: Boolean = false
   private var rangeLongPressed: Boolean = false
   private val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
@@ -177,6 +178,11 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
   override fun performLongClick(): Boolean {
     ensureSpannableTextBuffer()
+    if (!isLongPressWithinTextBounds()) {
+      parent?.requestDisallowInterceptTouchEvent(false)
+      releaseSelectableIfIdle()
+      return false
+    }
     return try {
       super.performLongClick()
     } catch (error: RuntimeException) {
@@ -184,6 +190,27 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       releaseSelectableIfIdle()
       false
     }
+  }
+
+  private fun isLongPressWithinTextBounds(): Boolean {
+    val textLayout = layout ?: return false
+    if (rawText.isEmpty() || textLayout.lineCount == 0) return false
+
+    val contentX = pendingDownX - totalPaddingLeft + scrollX
+    val contentY = pendingDownY - totalPaddingTop + scrollY
+    if (contentY < 0f || contentY >= textLayout.height.toFloat()) return false
+
+    val line = textLayout.getLineForVertical(contentY.toInt())
+    val baseline = textLayout.getLineBaseline(line).toFloat()
+    val fontMetrics = paint.fontMetrics
+    val tolerance = resources.displayMetrics.density * 2f
+    val glyphTop = baseline + fontMetrics.ascent - tolerance
+    val glyphBottom = baseline + fontMetrics.descent + tolerance
+    if (contentY < glyphTop || contentY > glyphBottom) return false
+
+    val lineLeft = minOf(textLayout.getLineLeft(line), textLayout.getLineRight(line)) - tolerance
+    val lineRight = maxOf(textLayout.getLineLeft(line), textLayout.getLineRight(line)) + tolerance
+    return contentX in lineLeft..lineRight
   }
 
   override fun onAttachedToWindow() {
@@ -198,15 +225,19 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
   private fun requestApplyText() {
     textApplyRequested = true
-    applyTextIfReady()
+    if (pendingTextApply) return
+    pendingTextApply = true
+    post {
+      pendingTextApply = false
+      applyTextIfReady()
+    }
   }
 
   private fun applyTextIfReady() {
     if (!textApplyRequested) return
+    if (!isAttachedToWindow || layoutParams == null) return
     textApplyRequested = false
     applyText()
-    requestLayout()
-    invalidate()
   }
 
   private fun applyText() {

@@ -32,7 +32,7 @@ module.exports = {
     },
     android: {
       package: "com.yueyantech.oio",
-      versionCode: 59,
+      versionCode: 60,
       allowBackup: false,
       permissions: ["RECORD_AUDIO"],
       adaptiveIcon: {

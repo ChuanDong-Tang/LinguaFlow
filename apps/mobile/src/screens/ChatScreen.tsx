@@ -142,7 +142,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const activeSelectionRef = useRef<SelectableMessageTextRef | null>(null);
   const activeCopyMenuRef = useRef(false);
   const closeCopyMenuRef = useRef<(() => void) | null>(null);
-  const messageTextTouchActiveRef = useRef(false);
   const commandTouchActiveRef = useRef(false);
   const selectedDateKeyRef = useRef(toDateKey(new Date()));
   const dayLoadedRowsRef = useRef<Record<string, ChatMessage[]>>({});
@@ -481,9 +480,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   );
 
   const handleSelectionRefChange = React.useCallback((ref: SelectableMessageTextRef | null) => {
-    if (ref) {
-      messageTextTouchActiveRef.current = true;
-    }
     activeSelectionRef.current = ref;
   }, []);
   const clearActiveSelection = React.useCallback(() => {
@@ -502,24 +498,23 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     Keyboard.dismiss();
   }, [clearActiveSelection]);
   const handleMessageTextInteractionStart = React.useCallback(() => {
-    messageTextTouchActiveRef.current = true;
     closeCopyMenuRef.current?.();
     Keyboard.dismiss();
   }, []);
+  const handleRootTouchStart = React.useCallback(() => {
+    if (activeSelectionRef.current) {
+      clearActiveSelection();
+    }
+  }, [clearActiveSelection]);
   const handleRootTouchEnd = React.useCallback(() => {
+    const startedOnCommand = commandTouchActiveRef.current;
+    commandTouchActiveRef.current = false;
     setTimeout(() => {
-      const startedOnMessageText = messageTextTouchActiveRef.current;
-      const startedOnCommand = commandTouchActiveRef.current;
-      messageTextTouchActiveRef.current = false;
-      commandTouchActiveRef.current = false;
       if (!startedOnCommand && activeCopyMenuRef.current) {
         closeCopyMenuRef.current?.();
       }
-      if (!startedOnMessageText && !startedOnCommand && activeSelectionRef.current) {
-        clearActiveSelection();
-      }
     }, 0);
-  }, [clearActiveSelection]);
+  }, []);
   const handleCopyMenuStateChange = React.useCallback((state: { isOpen: boolean; close: () => void }) => {
     activeCopyMenuRef.current = state.isOpen;
     closeCopyMenuRef.current = state.close;
@@ -1373,7 +1368,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ChatContentFrame onAndroidTouchEnd={handleRootTouchEnd}>
+      <ChatContentFrame
+        onAndroidTouchStart={handleRootTouchStart}
+        onAndroidTouchEnd={handleRootTouchEnd}
+      >
         <ChatHeader
           contact={contact}
           onBack={onBack}
@@ -1571,15 +1569,18 @@ function resolveDirectSttLanguage(appLocale: string): string {
 
 function ChatContentFrame({
   children,
+  onAndroidTouchStart,
   onAndroidTouchEnd,
 }: {
   children: React.ReactNode;
+  onAndroidTouchStart: () => void;
   onAndroidTouchEnd: () => void;
 }) {
   return (
     <KeyboardAvoidingView
       style={styles.content}
       behavior="height"
+      onTouchStart={Platform.OS === "android" ? onAndroidTouchStart : undefined}
       onTouchEnd={Platform.OS === "android" ? onAndroidTouchEnd : undefined}
     >
       {children}

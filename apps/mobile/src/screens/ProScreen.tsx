@@ -15,8 +15,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   cancelAutoRenewSubscription,
   createWeChatAutoRenewPreSign,
-  getPlusMonthlyProductQuote,
-  getProMonthlyProductQuote,
   createProMonthlyOrder,
   getCurrentAutoRenewSubscription,
   MobileApiError,
@@ -80,7 +78,9 @@ const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ON
 const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
 const ENABLE_GOOGLE_PLAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW === "true";
-const PRODUCT_PRICE_CACHE_KEY = environmentStorageKey("lf_membership_product_price_v2");
+const PRODUCT_PRICE_CACHE_KEY = environmentStorageKey(
+  Platform.OS === "android" ? "lf_membership_product_price_v3" : "lf_membership_product_price_v2"
+);
 const AUTO_RENEW_CACHE_KEY = environmentStorageKey("lf_current_auto_renew_v1");
 const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
   process.env.EXPO_PUBLIC_PRO_PRICE_CACHE_TTL_MS,
@@ -98,22 +98,22 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
   const [hasLoadedAutoRenew, setHasLoadedAutoRenew] = useState(false);
   const [isApplePurchaseFinishing, setIsApplePurchaseFinishing] = useState(false);
-  const [isGooglePlayPurchaseFinishing, setIsGooglePlayPurchaseFinishing] = useState(false);
   const [isRestoringApplePurchases, setIsRestoringApplePurchases] = useState(false);
   const [isRestoringGooglePlayPurchases, setIsRestoringGooglePlayPurchases] = useState(false);
   const [isRedeemingAppleOffer, setIsRedeemingAppleOffer] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
-  const [plusWechatPriceLabel, setPlusWechatPriceLabel] = useState<string | null>(null);
-  const [proWechatPriceLabel, setProWechatPriceLabel] = useState<string | null>(null);
   const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(null);
   const applePurchaseIntentRef = useRef(false);
   const applePurchaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appleAppAccountTokenRef = useRef<string | null>(null);
   const appleAppAccountTokenPromiseRef = useRef<Promise<string | null> | null>(null);
+  const googlePlayPurchaseIntentRef = useRef(false);
+  const googlePlayPurchaseFinishingRef = useRef(false);
+  const handledGooglePlayPurchaseTokensRef = useRef(new Set<string>());
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
   const manageableAutoRenew = isRenew && activeAutoRenew;
-  const liveProductPrices = resolveMembershipPriceLabels({ appleIap, plusWechatPriceLabel, proWechatPriceLabel });
+  const liveProductPrices = resolveMembershipPriceLabels(appleIap);
   const productPrices = hasAnyProductPrice(liveProductPrices) ? liveProductPrices : cachedProductPrices ?? liveProductPrices;
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
   const membershipStatusLabel = resolveMembershipStatusLabel({
@@ -321,26 +321,6 @@ export function ProScreen({ onBack }: ProScreenProps) {
   }, [liveProductPrices.plus, liveProductPrices.pro, liveProductPrices.monthSuffix]);
 
   useEffect(() => {
-    if (Platform.OS !== "android") return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [plusQuote, proQuote] = await Promise.all([
-          getPlusMonthlyProductQuote().catch(() => null),
-          getProMonthlyProductQuote().catch(() => null),
-        ]);
-        if (!cancelled && isScreenAlive()) {
-          setPlusWechatPriceLabel(plusQuote?.displayPrice ?? null);
-          setProWechatPriceLabel(proQuote?.displayPrice ?? null);
-        }
-      } catch {}
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isScreenAlive]);
-
-  useEffect(() => {
     if (Platform.OS !== "ios") return;
     void ensureAppleAppAccountTokenRegistered().catch(() => { });
   }, []);
@@ -518,6 +498,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!offerToken) {
         throw new Error("Google Play base plan is unavailable or does not match the configured plan.");
       }
+      googlePlayPurchaseIntentRef.current = true;
       const purchaseResult = await appleIap.requestPurchase({
         type: "subs",
         request: {
@@ -529,11 +510,13 @@ export function ProScreen({ onBack }: ProScreenProps) {
         },
       });
       if (isEmptyApplePurchaseResult(purchaseResult)) {
+        googlePlayPurchaseIntentRef.current = false;
         if (!isScreenAlive()) return;
         setIsPaying(false);
         setIsAutoRenewLoading(false);
       }
     } catch (error) {
+      googlePlayPurchaseIntentRef.current = false;
       if (!isScreenAlive()) return;
       if (isAppleUserCancelledPurchase(error)) {
         setIsPaying(false);
@@ -756,11 +739,15 @@ export function ProScreen({ onBack }: ProScreenProps) {
   }
 
   async function handleGooglePlayPurchaseSuccess(purchase: Purchase): Promise<void> {
-    if (isGooglePlayPurchaseFinishing) return;
-    setIsGooglePlayPurchaseFinishing(true);
+    if (!isGooglePlayProPurchase(purchase) || googlePlayPurchaseFinishingRef.current) return;
+    googlePlayPurchaseFinishingRef.current = true;
+    const isUserInitiatedPurchase = googlePlayPurchaseIntentRef.current;
+    googlePlayPurchaseIntentRef.current = false;
+    let purchaseToken: string | null = null;
     try {
-      if (!isGooglePlayProPurchase(purchase)) return;
-      const purchaseToken = getGooglePlayPurchaseToken(purchase);
+      purchaseToken = getGooglePlayPurchaseToken(purchase);
+      if (handledGooglePlayPurchaseTokensRef.current.has(purchaseToken)) return;
+      handledGooglePlayPurchaseTokensRef.current.add(purchaseToken);
       const session = await getSession();
       const obfuscatedAccountId = session?.user.id ? await createGooglePlayObfuscatedAccountId(session.user.id) : null;
       await verifyGooglePlaySubscriptionPurchase({
@@ -775,13 +762,20 @@ export function ProScreen({ onBack }: ProScreenProps) {
       if (!isScreenAlive()) return;
       setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
       applyAutoRenewToState(currentAutoRenew);
-      alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
+      if (isUserInitiatedPurchase) {
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
+      }
     } catch (error) {
+      if (purchaseToken) {
+        handledGooglePlayPurchaseTokensRef.current.delete(purchaseToken);
+      }
       if (!isScreenAlive()) return;
-      safeAlert(t("pro.alert.apple_verify_failed"), formatGooglePlayPaymentErrorMessage(error));
+      if (isUserInitiatedPurchase) {
+        safeAlert(t("pro.alert.apple_verify_failed"), formatGooglePlayPaymentErrorMessage(error));
+      }
     } finally {
+      googlePlayPurchaseFinishingRef.current = false;
       if (isScreenAlive()) {
-        setIsGooglePlayPurchaseFinishing(false);
         setIsPaying(false);
         setIsAutoRenewLoading(false);
       }
@@ -949,7 +943,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
           onPurchaseError={(error) => {
             if (!isScreenAlive()) return;
             if (Platform.OS === "android") {
-              if (!isAppleUserCancelledPurchase(error)) {
+              const isUserInitiatedPurchase = googlePlayPurchaseIntentRef.current;
+              googlePlayPurchaseIntentRef.current = false;
+              if (isUserInitiatedPurchase && !isAppleUserCancelledPurchase(error)) {
                 safeAlert(t("pro.alert.payment_start_failed"), formatGooglePlayPaymentErrorMessage(error));
               }
               setIsPaying(false);
@@ -1396,16 +1392,12 @@ function isValidCachedAutoRenewSubscription(value: unknown): value is MobileAuto
   );
 }
 
-function resolveMembershipPriceLabels(input: {
-  appleIap: AppleIapBridgeState | null;
-  plusWechatPriceLabel: string | null;
-  proWechatPriceLabel: string | null;
-}): ProductPriceLabels {
+function resolveMembershipPriceLabels(appleIap: AppleIapBridgeState | null): ProductPriceLabels {
   if (Platform.OS === "ios") {
-    const plusSubscriptionPrice = input.appleIap?.subscriptions.find(
+    const plusSubscriptionPrice = appleIap?.subscriptions.find(
       (product) => product.id === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
     )?.displayPrice;
-    const proSubscriptionPrice = input.appleIap?.subscriptions.find(
+    const proSubscriptionPrice = appleIap?.subscriptions.find(
       (product) => product.id === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
     )?.displayPrice;
     return {
@@ -1416,15 +1408,15 @@ function resolveMembershipPriceLabels(input: {
   }
 
   if (Platform.OS === "android") {
-    const plusSubscriptionPrice = input.appleIap?.subscriptions.find(
+    const plusSubscriptionPrice = appleIap?.subscriptions.find(
       (product) => product.id === GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
     )?.displayPrice;
-    const proSubscriptionPrice = input.appleIap?.subscriptions.find(
+    const proSubscriptionPrice = appleIap?.subscriptions.find(
       (product) => product.id === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
     )?.displayPrice;
     return {
-      plus: plusSubscriptionPrice ?? input.plusWechatPriceLabel,
-      pro: proSubscriptionPrice ?? input.proWechatPriceLabel,
+      plus: plusSubscriptionPrice ?? null,
+      pro: proSubscriptionPrice ?? null,
       monthSuffix: t("pro.price.month_suffix"),
     };
   }
