@@ -23,7 +23,12 @@ if (releaseBuildRequested && !missingReleaseSigningProperties.isEmpty()) {
 
 const RELEASE_SIGNING_CONFIG = `
         release {
-            if (missingReleaseSigningProperties.isEmpty()) {
+            if ([
+                'OIO_UPLOAD_STORE_FILE',
+                'OIO_UPLOAD_KEY_ALIAS',
+                'OIO_UPLOAD_STORE_PASSWORD',
+                'OIO_UPLOAD_KEY_PASSWORD',
+            ].every { project.findProperty(it) }) {
                 storeFile file(findProperty('OIO_UPLOAD_STORE_FILE'))
                 storePassword findProperty('OIO_UPLOAD_STORE_PASSWORD')
                 keyAlias findProperty('OIO_UPLOAD_KEY_ALIAS')
