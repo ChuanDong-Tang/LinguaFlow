@@ -14,6 +14,8 @@ import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 
+const FAILED_MODEL_OUTPUT_LOG_MAX_CHARS = 12_000;
+
 export interface DictionaryRouteDeps {
   aiProvider: AIProvider;
   rateLimiter?: ChatGenerationRateLimiter;
@@ -195,6 +197,7 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
         durationMs: Date.now() - startedAt,
         inputChars: body.context.length + body.term.length,
         outputChars: output.length,
+        modelOutput: output,
         body,
         error,
       });
@@ -363,6 +366,7 @@ async function writeDictionaryLog(
     durationMs: number;
     inputChars: number;
     outputChars: number;
+    modelOutput?: string;
     body: DictionaryLookupBody;
     error?: unknown;
   }
@@ -388,6 +392,12 @@ async function writeDictionaryLog(
       inputChars: input.inputChars,
       outputChars: input.outputChars,
       durationMs: input.durationMs,
+      ...(input.status === "failed"
+        ? {
+            modelOutput: (input.modelOutput ?? "").slice(0, FAILED_MODEL_OUTPUT_LOG_MAX_CHARS),
+            modelOutputTruncated: (input.modelOutput?.length ?? 0) > FAILED_MODEL_OUTPUT_LOG_MAX_CHARS,
+          }
+        : {}),
     },
   });
 }
