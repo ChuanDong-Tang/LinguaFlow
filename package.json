@@ -4,13 +4,11 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "node scripts/dev-all.mjs",
         "dev:web": "npm --prefix apps/web run dev",
         "dev:mobile": "npm --prefix apps/mobile run start",
         "dev:api": "npm --prefix api run dev",
         "dev:worker": "node --env-file-if-exists=.env --import tsx server/worker.dev.mjs",
         "start:worker": "node --env-file-if-exists=.env --import tsx server/worker.dev.mjs",
-        "dev:all": "node scripts/dev-all.mjs",
         "seed:dev-users": "npm --prefix api run seed:dev-users",
         "cleanup:fake-conversations": "npm --prefix api run cleanup:fake-conversations"
     },

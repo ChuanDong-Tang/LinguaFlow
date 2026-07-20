@@ -45,10 +45,16 @@ LinguaFlow 是一个面向英语学习场景的本地优先应用，当前重点
 
 ```bash
 npm install
-npm run dev
 ```
 
-这里会同时拉起后台、API、Worker 和管理后台开发入口。
+根据需要在不同终端分别启动移动端、API、Worker 或管理后台：
+
+```bash
+npm run dev:mobile
+npm run dev:api
+npm run dev:worker
+npm run dev:web
+```
 
 ## 当前账号接入骨架
 
@@ -80,4 +86,3 @@ npm run dev
 - `dev-notes/DEVELOPMENT_LOG.md` 仅保留日志索引，不再写长篇当日细节
 - 仅在架构边界变化时更新：`dev-notes/ARCHITECTURE.md`
 - `dev-notes/DEVELOPMENT_PLAN.md` 仅保留重要技术选型与边界决策
-
