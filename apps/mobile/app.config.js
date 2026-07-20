@@ -46,7 +46,6 @@ module.exports = {
       favicon: "./assets/app/logo_main.png",
     },
     extra: {
-      wechatAppId: process.env.EXPO_PUBLIC_WECHAT_APP_ID,
       eas: {
         projectId: "0a8b5bb4-bdb1-4950-b3e9-6e2530b9c836",
       },
@@ -60,7 +59,6 @@ module.exports = {
       "expo-secure-store",
       "./plugins/with-chat-selectable-text",
       "./plugins/with-picovoice-voice-processor",
-      "./plugins/with-wechat-pay",
       "./plugins/with-android-release-signing",
     ],
     owner: "reedtang",
