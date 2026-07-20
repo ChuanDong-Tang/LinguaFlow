@@ -10,13 +10,13 @@ import {
   type StyleProp,
   type TextStyle,
 } from "react-native";
+import { t } from "../../i18n";
 import {
   ChatSelectableTextView,
   clearChatSelectableTextSelection,
   type ChatSelectableTextRangeEvent,
   type ChatSelectableTextSelectionEvent,
 } from "./ChatSelectableTextView";
-import { t } from "../../i18n";
 
 export type NativeTextSelectionPayload = {
   start: number;
