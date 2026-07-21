@@ -139,6 +139,7 @@ export interface JournalRepository {
   findByIdForUser(entryId: string, userId: string): Promise<JournalEntryEntity | null>;
   findActiveByUser(userId: string): Promise<JournalEntryEntity | null>;
   listByUserDate(userId: string, dateKey: string, limit: number): Promise<JournalEntryEntity[]>;
+  listDateKeysByUser(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]>;
   listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<JournalEntryEntity[]>;
   claimNextQueued(workerId: string, leaseExpiresAt: Date): Promise<JournalEntryEntity | null>;
   renewLease(entryId: string, workerId: string, leaseExpiresAt: Date): Promise<boolean>;

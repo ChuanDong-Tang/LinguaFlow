@@ -154,6 +154,16 @@ export class PrismaJournalRepository implements JournalRepository {
           data: { entryId: row.id, claimedAt: new Date() },
         });
         if (claimed.count !== 1) throw new Error("JOURNAL_IMAGE_NOT_READY");
+
+        // `row` was loaded before the image was claimed, so its included image
+        // relation is stale. Reload it so the create response can already carry
+        // the thumbnail while the rewrite task is still queued/processing.
+        const rowWithImage = await tx.journalEntry.findUnique({
+          where: { id: row.id },
+          include: includeSegments,
+        });
+        if (!rowWithImage) throw new Error("JOURNAL_ENTRY_NOT_FOUND_AFTER_CREATE");
+        return toEntry(rowWithImage);
       }
       return toEntry(row);
     });
@@ -196,6 +206,20 @@ export class PrismaJournalRepository implements JournalRepository {
       include: includeSegments,
     });
     return rows.map(toEntry);
+  }
+
+  async listDateKeysByUser(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]> {
+    const rows = await this.prisma.journalEntry.findMany({
+      where: {
+        userId,
+        dateKey: { gte: fromDateKey, lte: toDateKey },
+        status: { in: ["queued", "processing", "completed"] },
+      },
+      distinct: ["dateKey"],
+      select: { dateKey: true },
+      orderBy: { dateKey: "asc" },
+    });
+    return rows.map((row: { dateKey: string }) => row.dateKey);
   }
 
   async listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<JournalEntryEntity[]> {

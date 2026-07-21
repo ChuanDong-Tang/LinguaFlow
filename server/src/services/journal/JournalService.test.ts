@@ -2,11 +2,32 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { MessageEntity } from "@lf/core/ports/repository/MessageRepository.js";
 import {
+  JournalCloudSyncRequiredError,
   JournalPracticeConflictError,
   JournalService,
   JournalValidationError,
   pairLegacyMessages,
 } from "./JournalService.js";
+
+test("journal cloud API access requires the cloudSync feature", async () => {
+  const freeService = new JournalService(
+    {} as never,
+    {} as never,
+    { getCurrentEntitlement: async () => ({ features: { cloudSync: false } }) } as never,
+    {} as never,
+    60_000,
+  );
+  await assert.rejects(freeService.assertCloudSyncAccess("free-user"), JournalCloudSyncRequiredError);
+
+  const memberService = new JournalService(
+    {} as never,
+    {} as never,
+    { getCurrentEntitlement: async () => ({ features: { cloudSync: true } }) } as never,
+    {} as never,
+    60_000,
+  );
+  await memberService.assertCloudSyncAccess("member-user");
+});
 
 test("legacy pairing prefers the latest successful assistant for an explicit source", () => {
   const user = message({ id: "u1", role: "user", createdAt: "2026-07-20T01:00:00Z" });
@@ -132,6 +153,26 @@ test("dictation validates and saves a legacy cloud record", async () => {
 
   assert.equal(savedSourceId, "a1");
   assert.equal(practice?.dictationLastResult, "correct");
+});
+
+test("journal date keys validate the range and delegate to the repository", async () => {
+  let received: string[] | null = null;
+  const repository = {
+    listDateKeysByUser: async (userId: string, fromDateKey: string, toDateKey: string) => {
+      received = [userId, fromDateKey, toDateKey];
+      return ["2026-07-20", "2026-07-21"];
+    },
+  };
+  const service = new JournalService(repository as never, {} as never, {} as never, {} as never, 60_000);
+
+  const result = await service.listDateKeys("user-1", "2026-07-01", "2026-07-31");
+
+  assert.deepEqual(received, ["user-1", "2026-07-01", "2026-07-31"]);
+  assert.deepEqual(result, ["2026-07-20", "2026-07-21"]);
+  await assert.rejects(
+    service.listDateKeys("user-1", "2026-08-01", "2026-07-31"),
+    JournalValidationError,
+  );
 });
 
 function journalServiceForCloze(options: {

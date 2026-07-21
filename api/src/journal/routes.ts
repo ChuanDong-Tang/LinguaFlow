@@ -12,6 +12,7 @@ import {
   JournalTaskInProgressError,
   JournalValidationError,
   JournalPracticeConflictError,
+  JournalCloudSyncRequiredError,
 } from "@lf/server/services/journal/JournalService.js";
 import type { CreateJournalEntryInput, UpdateJournalClozeInput } from "@lf/core/types/journal.js";
 import {
@@ -138,6 +139,24 @@ export function registerJournalRoutes(app: FastifyInstance, deps: JournalRouteDe
     const dateKey = String((req.query as { dateKey?: unknown })?.dateKey ?? "");
     try {
       const data = await deps.journalService.listDate(userId, dateKey);
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleJournalError(reply, requestId, error);
+    }
+  });
+
+  app.get("/journal/date-keys", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveJournalUser(req, reply, deps, requestId, "/journal/date-keys");
+    if (!userId) return;
+    const query = req.query as { fromDateKey?: unknown; toDateKey?: unknown };
+    try {
+      const data = await deps.journalService.listDateKeys(
+        userId,
+        String(query.fromDateKey ?? ""),
+        String(query.toDateKey ?? ""),
+      );
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       return handleJournalError(reply, requestId, error);
@@ -330,6 +349,7 @@ async function resolveJournalUser(
       authorization: req.headers.authorization,
       userRepository: deps.userRepository,
     });
+    await deps.journalService.assertCloudSyncAccess(context.userId);
     return context.userId;
   } catch (error) {
     if (error instanceof UnauthorizedError) {
@@ -347,6 +367,10 @@ async function resolveJournalUser(
         metadata: { path },
       });
       failure(reply, 403, requestId, error.code, error.message);
+      return null;
+    }
+    if (error instanceof JournalCloudSyncRequiredError) {
+      failure(reply, 403, requestId, error.code, "云端同步需要会员权限");
       return null;
     }
     throw error;

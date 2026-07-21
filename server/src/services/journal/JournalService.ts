@@ -51,6 +51,10 @@ export class JournalPracticeConflictError extends Error {
   readonly code = "JOURNAL_PRACTICE_CONFLICT";
 }
 
+export class JournalCloudSyncRequiredError extends Error {
+  readonly code = "JOURNAL_CLOUD_SYNC_REQUIRED";
+}
+
 export class JournalService {
   constructor(
     private readonly repository: JournalRepository,
@@ -62,6 +66,11 @@ export class JournalService {
     private readonly messageRepository?: MessageRepository,
     private readonly imageService?: JournalImageService,
   ) {}
+
+  async assertCloudSyncAccess(userId: string): Promise<void> {
+    const entitlement = await this.entitlementService.getCurrentEntitlement(userId);
+    if (!entitlement.features.cloudSync) throw new JournalCloudSyncRequiredError("Cloud sync membership required");
+  }
 
   async bootstrap(userId: string, hasLegacyLocalHistory: boolean): Promise<JournalRecordSummaryView[]> {
     if (hasLegacyLocalHistory || await this.repository.hasAnyByUser(userId)) return [];
@@ -168,6 +177,13 @@ export class JournalService {
     return [...journal, ...legacy]
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))
       .slice(0, 200);
+  }
+
+  async listDateKeys(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]> {
+    assertDateKey(fromDateKey);
+    assertDateKey(toDateKey);
+    if (fromDateKey > toDateKey) throw new JournalValidationError("Invalid date range");
+    return this.repository.listDateKeysByUser(userId, fromDateKey, toDateKey);
   }
 
   async listRecent(userId: string, beforeDateKey: string, limit: number): Promise<JournalRecordSummaryView[]> {
