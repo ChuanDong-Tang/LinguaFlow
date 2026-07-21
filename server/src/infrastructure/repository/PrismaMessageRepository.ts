@@ -151,6 +151,19 @@ export class PrismaMessageRepository implements MessageRepository {
     return rows.map((row) => this.toEntity(row));
   }
 
+  async listSuccessfulByUserBefore(userId: string, before: Date, limit: number): Promise<MessageEntity[]> {
+    const rows = await this.prisma.message.findMany({
+      where: {
+        userId,
+        status: "success",
+        createdAt: { lt: before },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit,
+    });
+    return rows.map((row) => this.toEntity(row));
+  }
+
   async listByConversationRange(input: ListByConversationRangeInput): Promise<MessageEntity[]> {
     const rows = await this.prisma.message.findMany({
       where: {

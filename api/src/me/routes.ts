@@ -23,12 +23,30 @@ import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { checkIpPathRateLimit } from "../lib/rateLimit.js";
+import type { UserProfileService } from "@lf/server/services/auth/UserProfileService.js";
+import {
+  InvalidProfileNicknameError,
+  ProfileModerationUnavailableError,
+  ProfileNicknameBlockedError,
+} from "@lf/server/services/auth/UserProfileService.js";
+import type { UserAvatarService } from "@lf/server/services/auth/UserAvatarService.js";
+import {
+  AvatarModerationRejectedError,
+  AvatarModerationUnavailableError,
+  AvatarNotFoundError,
+  AvatarValidationError,
+} from "@lf/server/services/auth/UserAvatarService.js";
 
 export interface MeRouteDeps {
   subscriptionService: SubscriptionService;
   entitlementService: EntitlementService;
   paymentEntitlementRefreshService: PaymentEntitlementRefreshService;
   userPreferenceRepository: UserPreferenceRepository;
+  userProfileService: UserProfileService;
+  userAvatarService: UserAvatarService;
+  profileRateLimiter: {
+    consume: (key: string, limit: number, windowMs: number) => Promise<boolean>;
+  };
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
@@ -56,6 +74,140 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
 }
 
 export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void {
+  app.get("/me/profile", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/profile");
+    if (!userContext) return;
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: await deps.userProfileService.getProfile(userContext.userId),
+    });
+  });
+
+  app.get("/me/bindings", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/bindings");
+    if (!userContext) return;
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: await deps.userProfileService.getBindings(userContext.userId),
+    });
+  });
+
+  app.put("/me/profile/nickname", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const body = req.body as { nickname?: unknown } | null;
+    if (!body || typeof body.nickname !== "string") {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid nickname" },
+      });
+    }
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/profile/nickname");
+    if (!userContext) return;
+    const allowed = await deps.profileRateLimiter.consume(
+      `profile:nickname:${userContext.userId}`,
+      5,
+      3_600_000,
+    );
+    if (!allowed) {
+      return reply.status(429).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "RATE_LIMITED", message: "Too many nickname changes" },
+      });
+    }
+    try {
+      const profile = await deps.userProfileService.updateNickname({
+        userId: userContext.userId,
+        nickname: body.nickname,
+        requestId,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data: profile });
+    } catch (error) {
+      if (error instanceof InvalidProfileNicknameError) {
+        return reply.status(400).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: "这个昵称格式不正确" },
+        });
+      }
+      if (error instanceof ProfileNicknameBlockedError) {
+        return reply.status(400).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: "这个昵称暂时无法使用，请换一个试试" },
+        });
+      }
+      if (error instanceof ProfileModerationUnavailableError) {
+        return reply.status(503).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: "暂时无法保存昵称，请稍后再试" },
+        });
+      }
+      throw error;
+    }
+  });
+
+  app.post("/me/avatar-uploads", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const body = req.body as { fileSize?: unknown; width?: unknown; height?: unknown } | null;
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/avatar-uploads");
+    if (!userContext) return;
+    const allowed = await deps.profileRateLimiter.consume(`profile:avatar:${userContext.userId}`, 5, 3_600_000);
+    if (!allowed) {
+      return reply.status(429).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "RATE_LIMITED", message: "头像更新过于频繁，请稍后再试" },
+      });
+    }
+    try {
+      const upload = await deps.userAvatarService.createUpload({
+        userId: userContext.userId,
+        fileSize: body?.fileSize as number,
+        width: body?.width as number,
+        height: body?.height as number,
+      });
+      return reply.status(201).send({ ok: true, request_id: requestId, data: upload });
+    } catch (error) {
+      return handleAvatarError(error, reply, requestId);
+    }
+  });
+
+  app.post("/me/avatar-uploads/:uploadId/complete", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/avatar-uploads/:uploadId/complete");
+    if (!userContext) return;
+    const { uploadId } = req.params as { uploadId: string };
+    try {
+      await deps.userAvatarService.complete(userContext.userId, uploadId, requestId);
+      const profile = await deps.userProfileService.getProfile(userContext.userId);
+      return reply.status(200).send({ ok: true, request_id: requestId, data: profile });
+    } catch (error) {
+      return handleAvatarError(error, reply, requestId);
+    }
+  });
+
+  app.delete("/me/avatar", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/avatar");
+    if (!userContext) return;
+    await deps.userAvatarService.remove(userContext.userId);
+    const profile = await deps.userProfileService.getProfile(userContext.userId);
+    return reply.status(200).send({ ok: true, request_id: requestId, data: profile });
+  });
+
   app.get("/me/preferences", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
@@ -338,6 +490,22 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       });
     }
   });
+}
+
+function handleAvatarError(error: unknown, reply: FastifyReply, requestId: string) {
+  if (error instanceof AvatarValidationError) {
+    return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+  }
+  if (error instanceof AvatarNotFoundError) {
+    return reply.status(404).send({ ok: false, request_id: requestId, error: { code: error.code, message: "头像上传不存在或已过期" } });
+  }
+  if (error instanceof AvatarModerationRejectedError) {
+    return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: "这个头像暂时无法使用，请换一张试试" } });
+  }
+  if (error instanceof AvatarModerationUnavailableError) {
+    return reply.status(503).send({ ok: false, request_id: requestId, error: { code: error.code, message: "暂时无法保存头像，请稍后再试" } });
+  }
+  throw error;
 }
 
 async function resolveMeUserContext(

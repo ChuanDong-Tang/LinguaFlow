@@ -8,45 +8,275 @@ datasource db {
 }
 
 model User {
-  id             String             @id @default(cuid())
-  nickname       String?
-  email          String?
-  phone          String?
-  avatarUrl      String?
-  status         UserStatus         @default(active)
-  role           UserRole           @default(user)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  authIdentities UserAuthIdentity[]
-  sessions       UserSession[]
-  conversations  Conversation[]
-  messages       Message[]
-  ttsAssets      TtsAsset[]
-  ttsRequestLogs TtsRequestLog[]
-  sttRequestLogs SttRequestLog[]
-  entitlements   Entitlement[]
-  subscriptions  Subscription[]
+  id                     String                  @id @default(cuid())
+  nickname               String?
+  email                  String?
+  phone                  String?
+  avatarUrl              String?
+  status                 UserStatus              @default(active)
+  role                   UserRole                @default(user)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  authIdentities         UserAuthIdentity[]
+  sessions               UserSession[]
+  conversations          Conversation[]
+  messages               Message[]
+  ttsAssets              TtsAsset[]
+  ttsRequestLogs         TtsRequestLog[]
+  sttRequestLogs         SttRequestLog[]
+  entitlements           Entitlement[]
+  subscriptions          Subscription[]
   autoRenewSubscriptions AutoRenewSubscription[]
-  appleIapAccountLinks AppleIapAccountLink[]
+  appleIapAccountLinks   AppleIapAccountLink[]
   googlePlayAccountLinks GooglePlayAccountLink[]
-  preference     UserPreference?
+  preference             UserPreference?
+  profile                UserProfile?
+  avatarAssets           UserAvatarAsset[]
+  journalEntries         JournalEntry[]
+  journalImageAssets     JournalImageAsset[]
+  journalPracticeStates  JournalPracticeState[]
+  journalLegacyHidden    JournalLegacyHidden[]
+  journalSpeechAssets    JournalSpeechAsset[]
 
-  @@map("users")
   @@index([email])
   @@index([phone])
+  @@map("users")
+}
+
+model UserProfile {
+  userId             String   @id
+  nickname           String
+  nicknameSource     String   @default("default_generated")
+  registrationMethod String
+  avatarAssetId      String?  @unique
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatarAsset UserAvatarAsset? @relation("CurrentUserAvatar", fields: [avatarAssetId], references: [id], onDelete: SetNull)
+
+  @@index([nicknameSource, updatedAt])
+  @@map("user_profiles")
+}
+
+model UserAvatarAsset {
+  id                   String    @id @default(cuid())
+  userId               String
+  status               String    @default("pending")
+  originalObjectKey    String
+  uploadObjectKey      String?
+  profileObjectKey     String?
+  thumbnailObjectKey   String?
+  mimeType             String
+  fileSize             Int
+  width                Int
+  height               Int
+  fileMd5              String?
+  moderationRequestId  String?
+  moderationSuggestion String?
+  moderationLabel      String?
+  moderationSubLabel   String?
+  moderationScore      Float?
+  moderatedAt          DateTime?
+  expiresAt            DateTime?
+  claimedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentForProfile UserProfile? @relation("CurrentUserAvatar")
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+  @@map("user_avatar_assets")
+}
+
+model JournalEntry {
+  id                       String    @id @default(cuid())
+  userId                   String
+  dateKey                  String
+  originalText             String?
+  rewrittenText            String?
+  languageCode             String
+  promptDifficultySnapshot String
+  promptVersion            String
+  status                   String    @default("queued")
+  clientId                 String
+  inputChars               Int       @default(0)
+  outputChars              Int       @default(0)
+  isSample                 Boolean   @default(false)
+  sampleImageKey           String?
+  publishedAt              DateTime?
+  processingAt             DateTime?
+  leaseExpiresAt           DateTime?
+  workerId                 String?
+  failedAt                 DateTime?
+  deletedAt                DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  segments     JournalRewriteSegment[]
+  image        JournalImageAsset?
+  speechAssets JournalSpeechAsset[]
+
+  @@unique([userId, clientId])
+  @@index([userId, dateKey, createdAt])
+  @@index([userId, status, createdAt])
+  @@index([status, leaseExpiresAt, createdAt])
+  @@index([publishedAt])
+  @@map("journal_entries")
+}
+
+model JournalRewriteSegment {
+  id         String   @id @default(cuid())
+  entryId    String
+  ordinal    Int
+  text       String
+  startUtf16 Int
+  endUtf16   Int
+  createdAt  DateTime @default(now())
+
+  entry JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@unique([entryId, ordinal])
+  @@index([entryId, startUtf16])
+  @@map("journal_rewrite_segments")
+}
+
+model JournalImageAsset {
+  id                   String    @id @default(cuid())
+  userId               String
+  entryId              String?   @unique
+  status               String    @default("pending")
+  originalObjectKey    String
+  uploadObjectKey      String?
+  thumbnailObjectKey   String?
+  thumbnailStatus      String    @default("pending")
+  thumbnailVersion     Int       @default(1)
+  mimeType             String
+  fileSize             Int
+  width                Int
+  height               Int
+  orientation          Int?
+  detailAspect         String?
+  cropData             Json?
+  focalPointX          Float?
+  focalPointY          Float?
+  fileMd5              String?
+  moderationRequestId  String?
+  moderationSuggestion String?
+  moderationLabel      String?
+  moderationSubLabel   String?
+  moderationScore      Float?
+  moderatedAt          DateTime?
+  expiresAt            DateTime
+  claimedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entry JournalEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+  @@index([thumbnailStatus, updatedAt])
+  @@map("journal_image_assets")
+}
+
+model JournalPracticeState {
+  id                       String    @id @default(cuid())
+  userId                   String
+  sourceKind               String
+  sourceId                 String
+  segmentId                String?
+  scopeKey                 String
+  clozeState               Json?
+  clozeVersion             Int       @default(0)
+  clozeLastPracticedAt     DateTime?
+  clozeLastResult          String?
+  clozePracticeCount       Int       @default(0)
+  clozeCorrectStreak       Int       @default(0)
+  clozeNextReviewAt        DateTime?
+  clozeCompletedAt         DateTime?
+  dictationCompleted       Boolean   @default(false)
+  dictationLastPracticedAt DateTime?
+  dictationLastResult      String?
+  dictationPracticeCount   Int       @default(0)
+  dictationCorrectStreak   Int       @default(0)
+  dictationNextReviewAt    DateTime?
+  dictationCompletedAt     DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceKind, sourceId, scopeKey])
+  @@index([userId, clozeNextReviewAt])
+  @@index([userId, dictationNextReviewAt])
+  @@map("journal_practice_states")
+}
+
+model JournalLegacyHidden {
+  id                 String   @id @default(cuid())
+  userId             String
+  assistantMessageId String
+  createdAt          DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, assistantMessageId])
+  @@index([userId, createdAt])
+  @@map("journal_legacy_hidden")
+}
+
+model JournalSpeechAsset {
+  id                 String    @id @default(cuid())
+  userId             String
+  entryId            String?
+  segmentId          String?
+  sourceKind         String
+  cacheKey           String    @unique
+  provider           String
+  voiceCode          String
+  languageCode       String
+  sourceText         String
+  sourceTextHash     String
+  format             String    @default("mp3")
+  status             String    @default("ready")
+  objectKey          String
+  objectUrl          String?
+  objectUrlExpiresAt DateTime?
+  durationMs         Int?
+  wordMarks          Json?
+  sentenceMarks      Json?
+  errorCode          String?
+  errorMessage       String?
+  lastAccessedAt     DateTime  @default(now())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entry JournalEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([entryId, sourceKind])
+  @@index([status, updatedAt])
+  @@index([sourceKind, lastAccessedAt])
+  @@map("journal_speech_assets")
 }
 
 model UserPreference {
-  userId           String   @id
-  appLocale        String   @default("zh-CN")
-  learningLanguage String   @default("en-US")
-  promptDifficulty String   @default("native")
-  guideState       Json     @default("{}")
-  ttsProvider      String   @default("azure_global")
-  ttsVoiceCode     String?
-  sttMultilingualRecognitionEnabled Boolean @default(false)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  userId                            String   @id
+  appLocale                         String   @default("zh-CN")
+  learningLanguage                  String   @default("en-US")
+  promptDifficulty                  String   @default("native")
+  guideState                        Json     @default("{}")
+  ttsProvider                       String   @default("azure_global")
+  ttsVoiceCode                      String?
+  sttMultilingualRecognitionEnabled Boolean  @default(false)
+  createdAt                         DateTime @default(now())
+  updatedAt                         DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -115,56 +345,56 @@ model Conversation {
   contact  Contact   @relation(fields: [contactId], references: [id], onDelete: Restrict)
   messages Message[]
 
+  @@unique([userId, contactId, dateKey])
   @@index([userId, updatedAt(sort: Desc)])
   @@index([userId, contactId, updatedAt(sort: Desc)])
   @@map("conversations")
-  @@unique([userId, contactId, dateKey])
 }
 
 model Message {
-  id               String        @id @default(cuid())
-  conversationId   String
-  userId           String
-  role             MessageRole
-  status           MessageStatus @default(pending)
-  content          String
-  inputChars       Int           @default(0)
-  outputChars      Int           @default(0)
-  clientId         String?
-  sourceMessageId  String?       @unique
-  clozeState       Json?
-  clozeVersion     Int           @default(0)
+  id                       String        @id @default(cuid())
+  conversationId           String
+  userId                   String
+  role                     MessageRole
+  status                   MessageStatus @default(pending)
+  content                  String
+  inputChars               Int           @default(0)
+  outputChars              Int           @default(0)
+  clientId                 String?
+  sourceMessageId          String?       @unique
+  clozeState               Json?
+  clozeVersion             Int           @default(0)
   clozePracticeDiscardedAt DateTime?
-  conversationDateKey String?
-  languageCode     String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  conversationDateKey      String?
+  languageCode             String?
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   ttsAssets    TtsAsset[]
 
+  @@unique([userId, conversationId, clientId])
   @@index([conversationId, conversationDateKey, createdAt])
   @@index([userId, conversationDateKey])
   @@index([conversationId, createdAt])
   @@index([userId, createdAt])
   @@index([userId, status, createdAt])
-  @@unique([userId, conversationId, clientId])
   @@map("messages")
 }
 
 model TtsAsset {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   userId             String
   messageId          String
   provider           String
   voiceCode          String
   languageCode       String
-  sourceKey          String   @default("rewrite")
+  sourceKey          String    @default("rewrite")
   sourceText         String
   sourceTextHash     String
-  format             String   @default("mp3")
-  status             String   @default("ready")
+  format             String    @default("mp3")
+  status             String    @default("ready")
   objectKey          String
   objectUrl          String?
   objectUrlExpiresAt DateTime?
@@ -172,8 +402,8 @@ model TtsAsset {
   wordMarks          Json?
   sentenceMarks      Json?
   errorMessage       String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
@@ -214,29 +444,29 @@ model TtsRequestLog {
 }
 
 model SttRequestLog {
-  id                           String   @id @default(cuid())
-  requestId                    String?
-  userId                       String
-  provider                     String
-  mode                         String   @default("realtime")
-  languageIdMode               String
-  candidateLanguages           Json
-  detectedLanguage             String?
-  languageDetectionConfidence  String?
-  audioFormat                  String   @default("pcm_s16le")
-  sampleRate                   Int
-  channels                     Int
-  bitsPerSample                Int
-  audioBytes                   Int      @default(0)
-  audioDurationMs              Int      @default(0)
-  billableSeconds              Int      @default(0)
-  transcriptChars              Int      @default(0)
-  recognizedTextPresent        Boolean  @default(false)
-  status                       String
-  durationMs                   Int?
-  errorCode                    String?
-  errorMessage                 String?
-  createdAt                    DateTime @default(now())
+  id                          String   @id @default(cuid())
+  requestId                   String?
+  userId                      String
+  provider                    String
+  mode                        String   @default("realtime")
+  languageIdMode              String
+  candidateLanguages          Json
+  detectedLanguage            String?
+  languageDetectionConfidence String?
+  audioFormat                 String   @default("pcm_s16le")
+  sampleRate                  Int
+  channels                    Int
+  bitsPerSample               Int
+  audioBytes                  Int      @default(0)
+  audioDurationMs             Int      @default(0)
+  billableSeconds             Int      @default(0)
+  transcriptChars             Int      @default(0)
+  recognizedTextPresent       Boolean  @default(false)
+  status                      String
+  durationMs                  Int?
+  errorCode                   String?
+  errorMessage                String?
+  createdAt                   DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -281,10 +511,10 @@ model Subscription {
 }
 
 model AutoRenewSubscription {
-  id                  String                  @id @default(cuid())
+  id                  String            @id @default(cuid())
   userId              String
   provider            AutoRenewProvider
-  productCode          String
+  productCode         String
   status              AutoRenewStatus
   providerAgreementId String
   latestTransactionId String?
@@ -293,8 +523,8 @@ model AutoRenewSubscription {
   nextBillingAt       DateTime?
   cancelledAt         DateTime?
   metadata            Json?
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   charges AutoRenewCharge[]
@@ -347,8 +577,8 @@ model AppleIapAccountLink {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
   @@unique([originalTransactionId])
+  @@index([userId])
   @@map("apple_iap_account_links")
 }
 
@@ -362,8 +592,8 @@ model GooglePlayAccountLink {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
   @@unique([purchaseToken])
+  @@index([userId])
   @@map("google_play_account_links")
 }
 
@@ -450,17 +680,17 @@ model BenefitGrant {
 }
 
 model AdminAuditLog {
-  id          String   @id @default(cuid())
-  adminId     String
-  action      String
-  targetType  String
-  targetId    String?
-  requestId   String?
-  ip          String?
-  beforeData  Json?
-  afterData   Json?
-  reason      String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  adminId    String
+  action     String
+  targetType String
+  targetId   String?
+  requestId  String?
+  ip         String?
+  beforeData Json?
+  afterData  Json?
+  reason     String?
+  createdAt  DateTime @default(now())
 
   @@index([action, createdAt])
   @@index([targetType, targetId, createdAt])
@@ -469,7 +699,7 @@ model AdminAuditLog {
 }
 
 model SystemEventLog {
-  id           String                 @id @default(cuid())
+  id           String               @id @default(cuid())
   requestId    String?
   userId       String?
   module       String
@@ -479,7 +709,7 @@ model SystemEventLog {
   errorCode    String?
   errorMessage String?
   metadata     Json?
-  createdAt    DateTime               @default(now())
+  createdAt    DateTime             @default(now())
 
   @@index([requestId])
   @@index([userId, createdAt])
@@ -490,19 +720,19 @@ model SystemEventLog {
 }
 
 model TrustedCert {
-  id            String   @id @default(cuid())
-  provider      String
-  keyId         String
-  materialType  String
-  pem           String
-  fingerprint   String?
-  notBefore     DateTime?
-  notAfter      DateTime?
-  status        String   @default("active")
-  metadata      Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  lastSyncedAt  DateTime?
+  id           String    @id @default(cuid())
+  provider     String
+  keyId        String
+  materialType String
+  pem          String
+  fingerprint  String?
+  notBefore    DateTime?
+  notAfter     DateTime?
+  status       String    @default("active")
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastSyncedAt DateTime?
 
   @@unique([provider, keyId, materialType])
   @@index([provider, status, notAfter])

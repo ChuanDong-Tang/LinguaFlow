@@ -1,6 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { TtsSourceKey } from "@lf/core/ports/repository/TtsAssetRepository.js";
 import type { TtsService } from "@lf/server/services/tts/TtsService.js";
+import type { JournalSpeechService } from "@lf/server/services/journal/JournalSpeechService.js";
+import {
+  JournalSpeechGenerationInProgressError,
+  JournalSpeechProRequiredError,
+} from "@lf/server/services/journal/JournalSpeechService.js";
+import { JournalNotFoundError, JournalValidationError } from "@lf/server/services/journal/JournalService.js";
 import type { ChatGenerationRateLimiter } from "@lf/server/services/chat/ChatGenerationRateLimiter.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import {
@@ -22,6 +28,7 @@ import { writeSystemEventLog } from "../lib/systemEventLog.js";
 
 export interface TtsRouteDeps {
   ttsService: TtsService;
+  journalSpeechService: JournalSpeechService;
   rateLimiter?: ChatGenerationRateLimiter;
   userRepository: {
     findById: (userId: string) => Promise<{
@@ -235,6 +242,98 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
 
   app.get("/tts/messages/:messageId", handleTtsMessageRequest);
   app.post("/tts/messages/:messageId", handleTtsMessageRequest);
+  app.get("/tts/journal/:entryId/segments/:segmentId", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    let userId: string;
+    try {
+      userId = (await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      })).userId;
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
+      if (error instanceof AccountDisabledError || error instanceof AccountPendingDeleteError) {
+        return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
+      throw error;
+    }
+    const params = req.params as { entryId?: unknown; segmentId?: unknown };
+    const query = req.query as { sourceKind?: unknown; start?: unknown; end?: unknown };
+    const rateLimitResult = await consumeTtsRateLimit(deps.rateLimiter);
+    if (!rateLimitResult.allowed) {
+      return reply.status(429).send({ ok: false, request_id: requestId, error: { code: rateLimitResult.code, message: "发音请求过于频繁，请稍后再试" } });
+    }
+    try {
+      const data = await deps.journalSpeechService.getOrCreateSegment({
+        userId,
+        entryId: String(params.entryId ?? ""),
+        segmentId: String(params.segmentId ?? ""),
+        sourceKind: query.sourceKind === "dictation_sentence" ? "dictation_sentence" : "review_segment",
+        startUtf16: query.start === undefined ? undefined : Number(query.start),
+        endUtf16: query.end === undefined ? undefined : Number(query.end),
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (error instanceof JournalSpeechProRequiredError) {
+        return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "需要 Plus 或 Pro 才能使用高质量发音" } });
+      }
+      if (error instanceof JournalNotFoundError) {
+        return reply.status(404).send({ ok: false, request_id: requestId, error: { code: error.code, message: "记录不存在" } });
+      }
+      if (error instanceof JournalValidationError) {
+        return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
+      if (error instanceof JournalSpeechGenerationInProgressError) {
+        return reply.status(202).send({ ok: false, request_id: requestId, error: { code: error.code, message: "发音仍在生成，请稍后重试" } });
+      }
+      throw error;
+    }
+  });
+
+  app.post("/tts/journal/:entryId/selection", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    let userId: string;
+    try {
+      userId = (await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      })).userId;
+    } catch (error) {
+      if (error instanceof UnauthorizedError) return reply.status(401).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      if (error instanceof AccountDisabledError || error instanceof AccountPendingDeleteError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      throw error;
+    }
+    const rateLimitResult = await consumeTtsRateLimit(deps.rateLimiter);
+    if (!rateLimitResult.allowed) return reply.status(429).send({ ok: false, request_id: requestId, error: { code: rateLimitResult.code, message: "发音请求过于频繁，请稍后再试" } });
+    const params = req.params as { entryId?: unknown };
+    const body = req.body as {
+      segmentId?: unknown;
+      start?: unknown;
+      end?: unknown;
+      startUtf16?: unknown;
+      endUtf16?: unknown;
+    } | null;
+    try {
+      const data = await deps.journalSpeechService.getOrCreateSelection({
+        userId,
+        entryId: String(params.entryId ?? ""),
+        segmentId: String(body?.segmentId ?? ""),
+        startUtf16: Number(body?.startUtf16 ?? body?.start),
+        endUtf16: Number(body?.endUtf16 ?? body?.end),
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (error instanceof JournalSpeechProRequiredError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "需要 Plus 或 Pro 才能使用高质量发音" } });
+      if (error instanceof JournalNotFoundError) return reply.status(404).send({ ok: false, request_id: requestId, error: { code: error.code, message: "记录不存在" } });
+      if (error instanceof JournalValidationError) return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      if (error instanceof JournalSpeechGenerationInProgressError) return reply.status(202).send({ ok: false, request_id: requestId, error: { code: error.code, message: "发音仍在生成，请稍后重试" } });
+      throw error;
+    }
+  });
 }
 
 function parseRange(req: FastifyRequest): { ok: true; sourceKey: TtsSourceKey; textStart?: number; textEnd?: number } | { ok: false; message: string } {

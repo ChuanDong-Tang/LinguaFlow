@@ -30,8 +30,27 @@ import { WeChatAutoRenewProvider } from "./src/providers/payment/index.ts";
 import { CosStorageProvider } from "./src/providers/storage/CosStorageProvider.ts";
 import { TtsAssetCleanupWorker } from "./src/workers/tts/TtsAssetCleanupWorker.ts";
 import { TtsRequestLogCleanupWorker } from "./src/workers/tts/TtsRequestLogCleanupWorker.ts";
+import { PrismaJournalRepository } from "./src/infrastructure/repository/PrismaJournalRepository.ts";
+import { PrismaEntitlementRepository } from "./src/infrastructure/repository/PrismaEntitlementRepository.ts";
+import { PrismaAiRequestLogRepository } from "./src/infrastructure/repository/PrismaAiRequestLogRepository.ts";
+import { createAIProvider } from "./src/providers/ai/createAIProvider.ts";
+import { JournalRewriteWorkerService } from "./src/services/journal/JournalRewriteWorkerService.ts";
+import { JournalRewriteWorker } from "./src/workers/journal/JournalRewriteWorker.ts";
+import { JournalImageCleanupWorker } from "./src/workers/journal/JournalImageCleanupWorker.ts";
+import { JournalSpeechCleanupWorker } from "./src/workers/journal/JournalSpeechCleanupWorker.ts";
+import { JournalImageStorageProvider } from "./src/providers/storage/JournalImageStorageProvider.ts";
+import { PrismaUserProfileRepository } from "./src/infrastructure/repository/PrismaUserProfileRepository.ts";
+import { UserAvatarCleanupWorker } from "./src/workers/auth/UserAvatarCleanupWorker.ts";
+import { EntitlementService } from "./src/services/entitlement/EntitlementService.ts";
+import {
+  InMemoryChatGenerationTaskGuard,
+  RedisChatGenerationTaskGuard,
+} from "./src/services/chat/ChatGenerationTaskGuard.ts";
+import { ContentSafetyService } from "./src/services/contentSafety/ContentSafetyService.ts";
+import { TencentTmsClient } from "./src/services/contentSafety/TencentTmsClient.ts";
 
 const prisma = new PrismaClient();
+const runtime = getRuntimeConfig();
 const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
 const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
 const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
@@ -82,11 +101,12 @@ const benefitGrantWorker = new BenefitGrantWorker(
 );
 const sessionCleanupWorker = new SessionCleanupWorker(prisma, systemEventLogRepository);
 const ttsStorageProvider = new CosStorageProvider();
+const journalImageStorageProvider = new JournalImageStorageProvider();
 const accountDeletionCleanupWorker = new AccountDeletionCleanupWorker(
   prisma,
   systemEventLogRepository,
   ttsStorageProvider,
-  { googlePlayBillingService }
+  { googlePlayBillingService, imageStorageProvider: journalImageStorageProvider }
 );
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
@@ -110,8 +130,56 @@ const googlePlaySubscriptionReconcileWorker = new GooglePlaySubscriptionReconcil
   googlePlayBillingService,
   systemEventLogRepository
 );
+const journalRepository = new PrismaJournalRepository(prisma);
+const entitlementRepository = new PrismaEntitlementRepository(prisma);
+const entitlementService = new EntitlementService(entitlementRepository, subscriptionService);
+const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
+const workerRedisClient = getRedisClient();
+const journalTaskGuard = workerRedisClient
+  ? new RedisChatGenerationTaskGuard(workerRedisClient)
+  : new InMemoryChatGenerationTaskGuard();
+const journalTmsClient =
+  runtime.contentSafetyTencentTmsEnabled &&
+  runtime.contentSafetyTencentSecretId &&
+  runtime.contentSafetyTencentSecretKey
+    ? new TencentTmsClient({
+        secretId: runtime.contentSafetyTencentSecretId,
+        secretKey: runtime.contentSafetyTencentSecretKey,
+        region: runtime.contentSafetyTencentRegion,
+        bizType: runtime.contentSafetyTencentBizType,
+        timeoutMs: runtime.contentSafetyTencentTimeoutMs,
+      })
+    : undefined;
+const journalContentSafetyService = new ContentSafetyService(systemEventLogRepository, {
+  tencentTmsClient: journalTmsClient,
+  tencentTmsEnabled: Boolean(journalTmsClient),
+  tencentTmsBlockSuggestions: runtime.contentSafetyTencentBlockSuggestions,
+  tencentTmsFailClosed: runtime.contentSafetyTencentFailClosed,
+  tencentTmsReviewMode: runtime.contentSafetyTencentReviewMode,
+});
+const journalRewriteService = new JournalRewriteWorkerService(
+  journalRepository,
+  createAIProvider(runtime),
+  entitlementService,
+  journalTaskGuard,
+  aiRequestLogRepository,
+  systemEventLogRepository,
+  journalContentSafetyService,
+);
+const journalRewriteWorker = new JournalRewriteWorker(journalRewriteService);
+const journalImageCleanupWorker = new JournalImageCleanupWorker(
+  journalRepository,
+  journalImageStorageProvider,
+);
+const journalSpeechCleanupWorker = new JournalSpeechCleanupWorker(
+  journalRepository,
+  ttsStorageProvider,
+);
+const userAvatarCleanupWorker = new UserAvatarCleanupWorker(
+  new PrismaUserProfileRepository(prisma),
+  journalImageStorageProvider,
+);
 
-const runtime = getRuntimeConfig();
 let shuttingDown = false;
 
 if (runtime.requireRedis) {
@@ -126,7 +194,7 @@ if (runtime.requireRedis) {
   }
 }
 
-console.log("[worker] payment/grant/session/account-delete/log/ai/tts/cert workers running");
+console.log("[worker] payment/grant/session/account-delete/log/ai/tts/cert/journal workers running");
 try {
   worker.start();
   benefitGrantWorker.start();
@@ -140,6 +208,10 @@ try {
   weChatAutoRenewBillingWorker.start();
   googlePlayAcknowledgeWorker.start();
   googlePlaySubscriptionReconcileWorker.start();
+  journalRewriteWorker.start();
+  journalImageCleanupWorker.start();
+  journalSpeechCleanupWorker.start();
+  userAvatarCleanupWorker.start();
 } catch (error) {
   console.error("[worker] start failed", error);
   await systemEventLogRepository.create({
@@ -169,6 +241,10 @@ async function shutdown() {
   weChatAutoRenewBillingWorker.stop();
   googlePlayAcknowledgeWorker.stop();
   googlePlaySubscriptionReconcileWorker.stop();
+  journalRewriteWorker.stop();
+  journalImageCleanupWorker.stop();
+  journalSpeechCleanupWorker.stop();
+  userAvatarCleanupWorker.stop();
   await prisma.$disconnect();
 }
 

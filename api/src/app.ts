@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
 import { MockAuthProvider } from "@lf/core/ports/auth/MockAuthProvider.js";
 import { PrismaUserRepository } from "@lf/server/infrastructure/repository/PrismaUserRepository.js";
+import { PrismaUserProfileRepository } from "@lf/server/infrastructure/repository/PrismaUserProfileRepository.js";
+import { PrismaJournalRepository } from "@lf/server/infrastructure/repository/PrismaJournalRepository.js";
 import { PrismaUserPreferenceRepository } from "@lf/server/infrastructure/repository/PrismaUserPreferenceRepository.js";
 import { PrismaUserSessionRepository } from "@lf/server/infrastructure/repository/PrismaUserSessionRepository.js";
 import { PrismaTtsAssetRepository } from "@lf/server/infrastructure/repository/PrismaTtsAssetRepository.js";
@@ -10,6 +12,14 @@ import { PrismaSttRequestLogRepository } from "@lf/server/infrastructure/reposit
 import { AuthLoginService } from "@lf/server/services/auth/AuthLoginService.js";
 import { AccountDeletionService } from "@lf/server/services/auth/AccountDeletionService.js";
 import { AccountEmailBindingService } from "@lf/server/services/auth/AccountEmailBindingService.js";
+import { UserProfileService } from "@lf/server/services/auth/UserProfileService.js";
+import { UserAvatarService } from "@lf/server/services/auth/UserAvatarService.js";
+import { JournalService } from "@lf/server/services/journal/JournalService.js";
+import { JournalSpeechService } from "@lf/server/services/journal/JournalSpeechService.js";
+import { JournalImageService } from "@lf/server/services/journal/JournalImageService.js";
+import { JournalImageStorageProvider } from "@lf/server/providers/storage/JournalImageStorageProvider.js";
+import { TencentImsClient } from "@lf/server/services/contentSafety/TencentImsClient.js";
+import { registerJournalRoutes } from "./journal/routes.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
 import { createAIProvider } from "@lf/server/providers/ai/createAIProvider.js";
@@ -118,6 +128,8 @@ export function createApp() {
 
   const authProvider = new MockAuthProvider();
   const userRepository = new PrismaUserRepository(prisma);
+  const userProfileRepository = new PrismaUserProfileRepository(prisma);
+  const journalRepository = new PrismaJournalRepository(prisma);
   const userPreferenceRepository = new PrismaUserPreferenceRepository(prisma);
   const userSessionRepository = new PrismaUserSessionRepository(prisma);
   const ttsAssetRepository = new PrismaTtsAssetRepository(prisma);
@@ -165,6 +177,34 @@ export function createApp() {
     tencentTmsFailClosed: runtimeConfig.contentSafetyTencentFailClosed,
     tencentTmsReviewMode: runtimeConfig.contentSafetyTencentReviewMode,
   });
+  const tencentImsClient = runtimeConfig.contentSafetyTencentSecretId && runtimeConfig.contentSafetyTencentSecretKey
+    ? new TencentImsClient({
+        secretId: runtimeConfig.contentSafetyTencentSecretId,
+        secretKey: runtimeConfig.contentSafetyTencentSecretKey,
+        region: runtimeConfig.contentSafetyTencentRegion,
+        bizType: process.env.TENCENT_IMS_BIZ_TYPE?.trim() || null,
+        timeoutMs: Number(process.env.TENCENT_IMS_TIMEOUT_MS ?? 8_000),
+      })
+    : undefined;
+  const imageStorageProvider = new JournalImageStorageProvider();
+  const userProfileService = new UserProfileService(
+    userProfileRepository,
+    tencentTmsClient,
+    systemEventLogRepository,
+    imageStorageProvider,
+  );
+  const userAvatarService = new UserAvatarService(
+    userProfileRepository,
+    imageStorageProvider,
+    tencentImsClient,
+    systemEventLogRepository,
+  );
+  const journalImageService = new JournalImageService(
+    journalRepository,
+    imageStorageProvider,
+    tencentImsClient,
+    systemEventLogRepository,
+  );
   const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
   const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
   const appleIapAccountLinkRepository = new PrismaAppleIapAccountLinkRepository(prisma);
@@ -237,17 +277,38 @@ export function createApp() {
     chatGenerationRateLimiter,
     conversationRepository,
     userPreferenceRepository,
-    contentSafetyService
+    contentSafetyService,
+    journalRepository,
   );
+  const journalService = new JournalService(
+    journalRepository,
+    userPreferenceRepository,
+    entitlementService,
+    chatGenerationTaskGuard,
+    runtimeConfig.chatGenerationTaskTtlMs,
+    contentSafetyService,
+    messageRepository,
+    journalImageService,
+  );
+  const ttsProvider = new AzureGlobalTtsProvider();
+  const ttsStorageProvider = new CosStorageProvider();
   const ttsService = new TtsService(
     messageRepository,
     userPreferenceRepository,
     ttsAssetRepository,
     entitlementService,
-    new AzureGlobalTtsProvider(),
-    new CosStorageProvider(),
+    ttsProvider,
+    ttsStorageProvider,
     ttsRequestLogRepository,
     redisClient
+  );
+  const journalSpeechService = new JournalSpeechService(
+    journalRepository,
+    userPreferenceRepository,
+    entitlementService,
+    ttsProvider,
+    ttsStorageProvider,
+    redisClient,
   );
   const sttService = new SttService(new AzureGlobalSttProvider());
 
@@ -276,11 +337,22 @@ export function createApp() {
       entitlementService,
       rateLimiter: chatGenerationRateLimiter,
     });
+    registerJournalRoutes(app, {
+      journalService,
+      journalImageService,
+      journalEnabled: runtimeConfig.journalEnabled,
+      rateLimiter: chatGenerationRateLimiter,
+      userRepository,
+      systemEventLogRepository,
+    });
     registerMeRoutes(app, {
       subscriptionService,
       entitlementService,
       paymentEntitlementRefreshService,
       userPreferenceRepository,
+      userProfileService,
+      userAvatarService,
+      profileRateLimiter: chatGenerationRateLimiter,
       userRepository,
       systemEventLogRepository,
     });
@@ -295,6 +367,7 @@ export function createApp() {
     });
     registerTtsRoutes(app, {
       ttsService,
+      journalSpeechService,
       rateLimiter: chatGenerationRateLimiter,
       userRepository,
       systemEventLogRepository,

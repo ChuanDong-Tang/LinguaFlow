@@ -1,5 +1,6 @@
 export interface ChatGenerationTaskGuard {
   acquire(userId: string, taskId: string, ttlMs: number): Promise<boolean>;
+  renew(userId: string, taskId: string, ttlMs: number): Promise<boolean>;
   release(userId: string, taskId: string): Promise<void>;
 }
 
@@ -32,6 +33,13 @@ export class InMemoryChatGenerationTaskGuard implements ChatGenerationTaskGuard 
       this.tasks.delete(userId);
     }
   }
+
+  async renew(userId: string, taskId: string, ttlMs: number): Promise<boolean> {
+    const current = this.tasks.get(userId);
+    if (current?.taskId !== taskId || current.expiresAt <= Date.now()) return false;
+    current.expiresAt = Date.now() + ttlMs;
+    return true;
+  }
 }
 
 type RedisLike = {
@@ -59,6 +67,22 @@ export class RedisChatGenerationTaskGuard implements ChatGenerationTaskGuard {
       this.keyForUser(userId),
       taskId
     );
+  }
+
+  async renew(userId: string, taskId: string, ttlMs: number): Promise<boolean> {
+    const result = await this.redis.eval(
+      `
+      if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+      end
+      return 0
+      `,
+      1,
+      this.keyForUser(userId),
+      taskId,
+      ttlMs
+    );
+    return Number(result) === 1;
   }
 
   private keyForUser(userId: string): string {

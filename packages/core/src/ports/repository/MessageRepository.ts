@@ -114,6 +114,7 @@ export interface MessageRepository {
   findByUserConversationClientId(userId: string, conversationId: string, clientId: string): Promise<MessageEntity | null>;
   listByConversation(conversationId: string, limit: number): Promise<MessageEntity[]>;
   listByUserAndDay(userId: string, dayStart: Date, dayEnd: Date): Promise<MessageEntity[]>;
+  listSuccessfulByUserBefore(userId: string, before: Date, limit: number): Promise<MessageEntity[]>;
   listByConversationRange(input: ListByConversationRangeInput): Promise<MessageEntity[]>;
   listByConversationDayPage(input: ListByConversationDayPageInput): Promise<MessageEntity[]>;
   listDateKeysByUserContactRange(input: ListDateKeysByUserContactRangeInput): Promise<string[]>;

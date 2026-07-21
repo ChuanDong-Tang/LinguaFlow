@@ -77,6 +77,7 @@ export interface RuntimeConfig {
   mockUserIds: string[];
   requireRedis: boolean;
   redisUrl: string | null;
+  journalEnabled: boolean;
   authingDomain: string | null;
   authingAppId: string | null;
   authingAppSecret: string | null;
@@ -199,6 +200,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     mockUserIds: readCsv(env.LF_MOCK_USER_IDS, ["mock_user_001"]),
     requireRedis: readBoolean(env.LF_REQUIRE_REDIS, mode === "production"),
     redisUrl: trimToNull(env.REDIS_URL),
+    journalEnabled: readBoolean(env.LF_JOURNAL_ENABLED, mode !== "production"),
     authingDomain: trimToNull(env.AUTHING_DOMAIN),
     authingAppId: trimToNull(env.AUTHING_APP_ID),
     authingAppSecret: trimToNull(env.AUTHING_APP_SECRET),

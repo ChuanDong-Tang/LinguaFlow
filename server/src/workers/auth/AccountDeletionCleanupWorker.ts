@@ -3,11 +3,13 @@ import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { TtsStorageProvider } from "../../services/tts/TtsStorageProvider.js";
 import type { GooglePlayBillingService } from "../../providers/payment/google/GooglePlayBillingService.js";
+import type { JournalImageStorageProvider } from "../../providers/storage/JournalImageStorageProvider.js";
 
 export interface AccountDeletionCleanupWorkerOptions {
   intervalMs?: number;
   batchSize?: number;
   googlePlayBillingService?: GooglePlayBillingService;
+  imageStorageProvider?: JournalImageStorageProvider;
 }
 
 export class AccountDeletionCleanupWorker {
@@ -120,11 +122,30 @@ export class AccountDeletionCleanupWorker {
       where: { userId, status: "ready" },
       select: { objectKey: true },
     });
+    const journalSpeechObjectKeys = await this.prisma.journalSpeechAsset.findMany({
+      where: { userId },
+      select: { objectKey: true },
+    });
+    const journalImages = await this.prisma.journalImageAsset.findMany({
+      where: { userId },
+      select: { originalObjectKey: true, uploadObjectKey: true, thumbnailObjectKey: true },
+    });
+    const avatars = await this.prisma.userAvatarAsset.findMany({
+      where: { userId },
+      select: { originalObjectKey: true, uploadObjectKey: true, profileObjectKey: true, thumbnailObjectKey: true },
+    });
     if (this.ttsStorageProvider) {
-      for (const row of ttsObjectKeys) {
+      for (const row of [...ttsObjectKeys, ...journalSpeechObjectKeys]) {
         if (!row.objectKey) continue;
         await this.ttsStorageProvider.deleteObject(row.objectKey);
       }
+    }
+    if (this.options.imageStorageProvider) {
+      const imageKeys = new Set([
+        ...journalImages.flatMap((row) => [row.originalObjectKey, row.uploadObjectKey, row.thumbnailObjectKey]),
+        ...avatars.flatMap((row) => [row.originalObjectKey, row.uploadObjectKey, row.profileObjectKey, row.thumbnailObjectKey]),
+      ].filter((key): key is string => Boolean(key)));
+      for (const key of imageKeys) await this.options.imageStorageProvider.delete(key);
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -139,6 +160,13 @@ export class AccountDeletionCleanupWorker {
       await tx.entitlement.deleteMany({ where: { userId } });
       await tx.ttsRequestLog.deleteMany({ where: { userId } });
       await tx.ttsAsset.deleteMany({ where: { userId } });
+      await tx.journalSpeechAsset.deleteMany({ where: { userId } });
+      await tx.journalPracticeState.deleteMany({ where: { userId } });
+      await tx.journalLegacyHidden.deleteMany({ where: { userId } });
+      await tx.journalImageAsset.deleteMany({ where: { userId } });
+      await tx.journalEntry.deleteMany({ where: { userId } });
+      await tx.userProfile.deleteMany({ where: { userId } });
+      await tx.userAvatarAsset.deleteMany({ where: { userId } });
       await tx.message.deleteMany({ where: { userId } });
       await tx.conversation.deleteMany({ where: { userId } });
       await tx.userSession.deleteMany({ where: { userId } });
@@ -164,8 +192,12 @@ export class AccountDeletionCleanupWorker {
       status: "success",
       userId,
       metadata: {
-        ttsCosObjectsDeleted: this.ttsStorageProvider ? ttsObjectKeys.length : 0,
+        ttsCosObjectsDeleted: this.ttsStorageProvider ? ttsObjectKeys.length + journalSpeechObjectKeys.length : 0,
         ttsCosCleanupSkipped: !this.ttsStorageProvider,
+        imageCosObjectsDeleted: this.options.imageStorageProvider
+          ? journalImages.length + avatars.length
+          : 0,
+        imageCosCleanupSkipped: !this.options.imageStorageProvider,
         googlePlayRenewalsStopped,
       },
     });

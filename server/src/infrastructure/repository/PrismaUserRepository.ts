@@ -9,6 +9,7 @@ import type {
   UserEntity,
   UserRepository,
 } from "@lf/core/ports/repository/UserRepository.js";
+import { generateDefaultProfileNickname } from "../../services/auth/profileNickname.js";
 
 type PrismaUserClient = {
   user: {
@@ -22,6 +23,9 @@ type PrismaUserClient = {
     findUnique: (args: any) => Promise<any>;
     upsert: (args: any) => Promise<any>;
     create: (args: any) => Promise<any>;
+  };
+  userProfile: {
+    upsert: (args: any) => Promise<any>;
   };
   $transaction: <T>(fn: (tx: any) => Promise<T>) => Promise<T>;
 };
@@ -61,6 +65,7 @@ export class PrismaUserRepository implements UserRepository {
             avatarUrl: input.avatarUrl ?? undefined,
           },
         });
+        await ensureUserProfile(tx, updatedUser);
         return { user: this.toUserEntity(updatedUser), isNewUser: false };
       }
 
@@ -73,6 +78,7 @@ export class PrismaUserRepository implements UserRepository {
           status: "active"
         },
       });
+      await ensureUserProfile(tx, createdUser);
 
       try {
         await tx.userAuthIdentity.create({
@@ -127,14 +133,18 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   async create(input: CreateUserInput): Promise<UserEntity> {
-    const created = await this.prisma.user.create({
-      data: {
-        nickname: input.nickname ?? null,
-        email: input.email ?? null,
-        phone: input.phone ?? null,
-        avatarUrl: input.avatarUrl ?? null,
-        status: "active",
-      },
+    const created = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          nickname: input.nickname ?? null,
+          email: input.email ?? null,
+          phone: input.phone ?? null,
+          avatarUrl: input.avatarUrl ?? null,
+          status: "active",
+        },
+      });
+      await ensureUserProfile(tx, user);
+      return user;
     });
 
     return this.toUserEntity(created);
@@ -162,25 +172,28 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   async ensureUserExists(input: EnsureUserExistsInput): Promise<void> {
-    await this.prisma.user.upsert({
-      where: { id: input.id },
-      update: {
-        nickname: input.nickname ?? undefined,
-        email: input.email ?? undefined,
-        phone: input.phone ?? undefined,
-        avatarUrl: input.avatarUrl ?? undefined,
-        status: input.status ?? undefined,
-        role: input.role ?? undefined,
-      },
-      create: {
-        id: input.id,
-        nickname: input.nickname ?? null,
-        email: input.email ?? null,
-        phone: input.phone ?? null,
-        avatarUrl: input.avatarUrl ?? null,
-        status: input.status ?? "active",
-        role: input.role ?? "user",
-      },
+    await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.upsert({
+        where: { id: input.id },
+        update: {
+          nickname: input.nickname ?? undefined,
+          email: input.email ?? undefined,
+          phone: input.phone ?? undefined,
+          avatarUrl: input.avatarUrl ?? undefined,
+          status: input.status ?? undefined,
+          role: input.role ?? undefined,
+        },
+        create: {
+          id: input.id,
+          nickname: input.nickname ?? null,
+          email: input.email ?? null,
+          phone: input.phone ?? null,
+          avatarUrl: input.avatarUrl ?? null,
+          status: input.status ?? "active",
+          role: input.role ?? "user",
+        },
+      });
+      await ensureUserProfile(tx, user);
     });
   }
 
@@ -265,4 +278,17 @@ export class PrismaUserRepository implements UserRepository {
     };
   }
 
+}
+
+async function ensureUserProfile(tx: any, user: { id: string; phone?: string | null }): Promise<void> {
+  await tx.userProfile.upsert({
+    where: { userId: user.id },
+    create: {
+      userId: user.id,
+      nickname: generateDefaultProfileNickname(),
+      nicknameSource: "default_generated",
+      registrationMethod: user.phone ? "phone" : "email",
+    },
+    update: {},
+  });
 }

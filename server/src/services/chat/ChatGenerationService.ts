@@ -45,6 +45,7 @@ export class ChatGenerationService {
     private readonly conversationRepository: ConversationRepository,
     private readonly userPreferenceRepository: UserPreferenceRepository,
     private readonly contentSafetyService?: ContentSafetyService,
+    private readonly activeJournalLookup?: { findActiveByUser(userId: string): Promise<unknown | null> },
   ) {}
   
   async generateChatStream(
@@ -199,6 +200,23 @@ export class ChatGenerationService {
       throw error;
     }
 
+    if (await this.activeJournalLookup?.findActiveByUser(input.userId)) {
+      if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
+      const error = createAppError(
+        "TASK_IN_PROGRESS",
+        "A journal generation task is already running for this user."
+      );
+      await this.logFailedAiRequest(input, {
+        startedAt,
+        status: "task_in_progress",
+        error,
+        outputChars: 0,
+        provider: effectiveProvider,
+        model: effectiveModel,
+      });
+      throw error;
+    }
+
     const acquired = await this.taskGuard.acquire(input.userId, taskId, taskTtlMs);
 
     if (!acquired) {
@@ -217,6 +235,10 @@ export class ChatGenerationService {
       });
       throw error;
     }
+
+    const taskRenewTimer = setInterval(() => {
+      void this.taskGuard.renew(input.userId, taskId, taskTtlMs).catch(() => undefined);
+    }, Math.max(1_000, Math.floor(taskTtlMs / 3)));
 
     try {
       await this.entitlementService.assertCanStartGeneration(input.userId, { dateKey: quotaDateKey });
@@ -336,6 +358,7 @@ export class ChatGenerationService {
       });
       throw error;
     } finally {
+      clearInterval(taskRenewTimer);
       await this.taskGuard.release(input.userId, taskId);
     }
   }
