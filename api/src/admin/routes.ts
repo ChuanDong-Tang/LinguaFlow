@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import type { SubscriptionService } from "@lf/server/services/subscription/SubscriptionService.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
+import { getRedisClient } from "@lf/server/infrastructure/redis/redisClient.js";
 import { dateKeyRangeInBusinessTimeZone, formatDateKeyInTimeZone } from "@lf/server/services/time/businessClock.js";
 import { requireAdmin } from "../auth/adminAuth.js";
 import { resolveRequestId } from "../lib/httpResult.js";
@@ -1196,6 +1197,150 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
   });
 
+  app.get("/admin/card/operations", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const runtime = getRuntimeConfig();
+    const now = new Date();
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1_000);
+    const [cardRows, jobRows, failedJobs] = await Promise.all([
+      deps.prisma.$queryRawUnsafe(
+        `SELECT
+           COUNT(*)::int AS "total",
+           COUNT(*) FILTER (WHERE status = 'queued')::int AS "queuedNow",
+           COUNT(*) FILTER (WHERE status = 'processing')::int AS "processingNow",
+           COUNT(*) FILTER (WHERE status = 'completed' AND "publishedAt" >= $1)::int AS "completed24h",
+           COUNT(*) FILTER (WHERE status = 'failed' AND "failedAt" >= $1)::int AS "failed24h",
+           MIN("createdAt") FILTER (WHERE status = 'queued') AS "oldestQueuedAt",
+           COALESCE(
+             percentile_cont(0.5) WITHIN GROUP (
+               ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("publishedAt" - "createdAt")) * 1000)
+             ) FILTER (WHERE status = 'completed' AND "publishedAt" >= $1),
+             0
+           )::float8 AS "completionP50Ms",
+           COALESCE(
+             percentile_cont(0.95) WITHIN GROUP (
+               ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("publishedAt" - "createdAt")) * 1000)
+             ) FILTER (WHERE status = 'completed' AND "publishedAt" >= $1),
+             0
+           )::float8 AS "completionP95Ms"
+         FROM "cards"
+         WHERE "deletedAt" IS NULL`,
+        last24h,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT
+           "jobType",
+           COUNT(*) FILTER (
+             WHERE status = 'queued' AND "availableAt" <= now()
+           )::int AS "readyQueued",
+           COUNT(*) FILTER (
+             WHERE status = 'queued' AND "availableAt" > now()
+           )::int AS "scheduledRetry",
+           COUNT(*) FILTER (WHERE status = 'processing')::int AS "processing",
+           COUNT(*) FILTER (
+             WHERE status = 'processing'
+               AND "leaseExpiresAt" IS NOT NULL
+               AND "leaseExpiresAt" < now()
+           )::int AS "expiredLease",
+           COUNT(*) FILTER (
+             WHERE status = 'completed' AND "completedAt" >= $1
+           )::int AS "completed24h",
+           COUNT(*) FILTER (
+             WHERE status = 'failed' AND "failedAt" >= $1
+           )::int AS "failed24h",
+           MIN("createdAt") FILTER (
+             WHERE status = 'queued' AND "availableAt" <= now()
+           ) AS "oldestReadyAt"
+         FROM "card_enrichment_jobs"
+         GROUP BY "jobType"
+         ORDER BY "jobType" ASC`,
+        last24h,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT
+           id,
+           "jobType",
+           "sourceKind",
+           "sourceId",
+           attempts,
+           "lastError",
+           "failedAt"
+         FROM "card_enrichment_jobs"
+         WHERE status = 'failed'
+         ORDER BY "failedAt" DESC NULLS LAST, "updatedAt" DESC
+         LIMIT 25`,
+      ),
+    ]);
+
+    const card = cardRows[0] ?? {};
+    const oldestQueuedAt = dateOrNull(card.oldestQueuedAt);
+    const jobs = jobRows.map((row) => {
+      const oldestReadyAt = dateOrNull(row.oldestReadyAt);
+      return {
+        ...row,
+        oldestReadyAt,
+        oldestReadyWaitSeconds: ageSeconds(oldestReadyAt, now),
+      };
+    });
+    const concurrencyDefinitions = [
+      ["rewrite", runtime.cardRewriteGlobalConcurrency],
+      ["embedding", runtime.cardEmbeddingGlobalConcurrency],
+      ["progress-detection", runtime.cardProgressDetectionGlobalConcurrency],
+      ["phrase-normalization", runtime.cardPhraseNormalizationGlobalConcurrency],
+      ["phrase-history", runtime.cardPhraseHistoryGlobalConcurrency],
+      ["phrase-index", runtime.cardPhraseIndexGlobalConcurrency],
+    ] as const;
+    const redis = await loadCardRedisOperations(concurrencyDefinitions, now);
+
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: {
+        generatedAt: now.toISOString(),
+        window: { from: last24h.toISOString(), to: now.toISOString() },
+        card: {
+          ...card,
+          oldestQueuedAt,
+          oldestQueuedWaitSeconds: ageSeconds(oldestQueuedAt, now),
+        },
+        jobs,
+        failedJobs,
+        redis,
+        config: {
+          apiRateLimits: {
+            cardCreate: {
+              user: runtime.cardCreateUserRateLimit,
+              ip: runtime.cardCreateIpRateLimit,
+              global: runtime.cardCreateGlobalRateLimit,
+              windowMs: runtime.cardCreateRateWindowMs,
+            },
+            cardSearch: {
+              user: runtime.cardSearchUserRateLimit,
+              ip: runtime.cardSearchIpRateLimit,
+              windowMs: runtime.cardSearchRateWindowMs,
+            },
+            cardRelation: {
+              user: runtime.cardRelationUserRateLimit,
+              ip: runtime.cardRelationIpRateLimit,
+              windowMs: runtime.cardSearchRateWindowMs,
+            },
+            recallSearch: {
+              user: runtime.recallSearchUserRateLimit,
+              ip: runtime.recallSearchIpRateLimit,
+              semanticGlobal: runtime.recallSemanticSearchGlobalRateLimit,
+              semanticDailyUser: runtime.recallSemanticSearchDailyLimit,
+              windowMs: runtime.recallRateWindowMs,
+            },
+          },
+          workerConcurrencyLeaseMs: runtime.cardWorkerConcurrencyLeaseMs,
+        },
+      },
+    });
+  });
+
   app.get("/admin/ops/alerts", async (req, reply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
@@ -1503,6 +1648,94 @@ function formatMinorCurrency(cents: number, currency: string): string {
 function toInt(value: unknown): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
+}
+
+async function loadCardRedisOperations(
+  definitions: ReadonlyArray<readonly [scope: string, limit: number]>,
+  now: Date,
+): Promise<{
+  available: boolean;
+  error: string | null;
+  slots: Array<{ scope: string; active: number; limit: number; utilization: number }>;
+  rateLimitRejections: Array<{ scope: string; count: number; ttlSeconds: number | null }>;
+}> {
+  try {
+    const redis = getRedisClient();
+    if (!redis) return {
+      available: false,
+      error: "Redis is not configured",
+      slots: [],
+      rateLimitRejections: [],
+    };
+    const pong = await redis.ping();
+    if (pong !== "PONG") throw new Error("Unexpected Redis ping response");
+    const rejectionScopes = [
+      "card:create:user",
+      "card:create:ip",
+      "card:create:global",
+      "card:search:user",
+      "card:search:ip",
+      "card:relation:user",
+      "card:relation:ip",
+      "card:image-upload:user",
+      "recall:seed:user",
+      "recall:search:user",
+      "recall:search:ip",
+      "recall:semantic:daily",
+      "recall:semantic:global",
+      "recall:create:user",
+      "recall:expand:user",
+    ];
+    const [slots, rateLimitRejections] = await Promise.all([
+      Promise.all(definitions.map(async ([scope, limit]) => {
+        const active = Number(await redis.zcount(
+          `card-worker:concurrency:${scope}`,
+          now.getTime(),
+          "+inf",
+        ));
+        return {
+          scope,
+          active: Number.isFinite(active) ? active : 0,
+          limit,
+          utilization: limit > 0 ? Math.round((active / limit) * 10_000) / 100 : 0,
+        };
+      })),
+      Promise.all(rejectionScopes.map(async (scope) => {
+        const key = `metrics:card-rate-limit-rejected:${scope}`;
+        const [rawCount, ttlMs] = await Promise.all([redis.get(key), redis.pttl(key)]);
+        return {
+          scope,
+          count: Math.max(0, Number(rawCount ?? 0) || 0),
+          ttlSeconds: ttlMs >= 0 ? Math.ceil(ttlMs / 1000) : null,
+        };
+      })),
+    ]);
+    return {
+      available: true,
+      error: null,
+      slots,
+      rateLimitRejections: rateLimitRejections.filter((row) => row.count > 0),
+    };
+  } catch (error) {
+    return {
+      available: false,
+      error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+      slots: [],
+      rateLimitRejections: [],
+    };
+  }
+}
+
+function dateOrNull(value: unknown): string | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+  if (typeof value !== "string" || !value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function ageSeconds(value: string | null, now: Date): number {
+  if (!value) return 0;
+  return Math.max(0, Math.floor((now.getTime() - new Date(value).getTime()) / 1_000));
 }
 
 function uniqueNonEmptyStrings(values: unknown[]): string[] {

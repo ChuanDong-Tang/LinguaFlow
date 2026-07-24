@@ -30,15 +30,25 @@ import { WeChatAutoRenewProvider } from "./src/providers/payment/index.ts";
 import { CosStorageProvider } from "./src/providers/storage/CosStorageProvider.ts";
 import { TtsAssetCleanupWorker } from "./src/workers/tts/TtsAssetCleanupWorker.ts";
 import { TtsRequestLogCleanupWorker } from "./src/workers/tts/TtsRequestLogCleanupWorker.ts";
-import { PrismaJournalRepository } from "./src/infrastructure/repository/PrismaJournalRepository.ts";
+import { PrismaCardRepository } from "./src/infrastructure/repository/PrismaCardRepository.ts";
+import { PrismaCardEnrichmentRepository } from "./src/infrastructure/repository/PrismaCardEnrichmentRepository.ts";
 import { PrismaEntitlementRepository } from "./src/infrastructure/repository/PrismaEntitlementRepository.ts";
 import { PrismaAiRequestLogRepository } from "./src/infrastructure/repository/PrismaAiRequestLogRepository.ts";
 import { createAIProvider } from "./src/providers/ai/createAIProvider.ts";
-import { JournalRewriteWorkerService } from "./src/services/journal/JournalRewriteWorkerService.ts";
-import { JournalRewriteWorker } from "./src/workers/journal/JournalRewriteWorker.ts";
-import { JournalImageCleanupWorker } from "./src/workers/journal/JournalImageCleanupWorker.ts";
-import { JournalSpeechCleanupWorker } from "./src/workers/journal/JournalSpeechCleanupWorker.ts";
-import { JournalImageStorageProvider } from "./src/providers/storage/JournalImageStorageProvider.ts";
+import { CardRewriteWorkerService } from "./src/services/card/CardRewriteWorkerService.ts";
+import { CardRewriteWorker } from "./src/workers/card/CardRewriteWorker.ts";
+import { SerialCardJobWorker } from "./src/workers/card/SerialCardJobWorker.ts";
+import { RedisCardWorkerConcurrencyGuard } from "./src/workers/card/CardWorkerConcurrencyGuard.ts";
+import { CardEnrichmentWorkerService } from "./src/services/card/CardEnrichmentWorkerService.ts";
+import { AzureEmbeddingProvider } from "./src/providers/ai/AzureEmbeddingProvider.ts";
+import { PhraseNormalizationWorkerService } from "./src/services/card/PhraseNormalizationWorkerService.ts";
+import { PhraseHistoryIndexWorkerService } from "./src/services/card/PhraseHistoryIndexWorkerService.ts";
+import { CardPhraseIndexWorkerService } from "./src/services/card/CardPhraseIndexWorkerService.ts";
+import { ProgressPhraseDetectionService } from "./src/services/card/ProgressPhraseDetectionService.ts";
+import { ProgressPhraseDetectionWorkerService } from "./src/services/card/ProgressPhraseDetectionWorkerService.ts";
+import { CardImageCleanupWorker } from "./src/workers/card/CardImageCleanupWorker.ts";
+import { CardSpeechCleanupWorker } from "./src/workers/card/CardSpeechCleanupWorker.ts";
+import { CardImageStorageProvider } from "./src/providers/storage/CardImageStorageProvider.ts";
 import { PrismaUserProfileRepository } from "./src/infrastructure/repository/PrismaUserProfileRepository.ts";
 import { UserAvatarCleanupWorker } from "./src/workers/auth/UserAvatarCleanupWorker.ts";
 import { EntitlementService } from "./src/services/entitlement/EntitlementService.ts";
@@ -101,12 +111,12 @@ const benefitGrantWorker = new BenefitGrantWorker(
 );
 const sessionCleanupWorker = new SessionCleanupWorker(prisma, systemEventLogRepository);
 const ttsStorageProvider = new CosStorageProvider();
-const journalImageStorageProvider = new JournalImageStorageProvider();
+const cardImageStorageProvider = new CardImageStorageProvider();
 const accountDeletionCleanupWorker = new AccountDeletionCleanupWorker(
   prisma,
   systemEventLogRepository,
   ttsStorageProvider,
-  { googlePlayBillingService, imageStorageProvider: journalImageStorageProvider }
+  { googlePlayBillingService, imageStorageProvider: cardImageStorageProvider }
 );
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
@@ -130,15 +140,20 @@ const googlePlaySubscriptionReconcileWorker = new GooglePlaySubscriptionReconcil
   googlePlayBillingService,
   systemEventLogRepository
 );
-const journalRepository = new PrismaJournalRepository(prisma);
+const cardRepository = new PrismaCardRepository(prisma);
+const cardEnrichmentRepository = new PrismaCardEnrichmentRepository(prisma);
 const entitlementRepository = new PrismaEntitlementRepository(prisma);
 const entitlementService = new EntitlementService(entitlementRepository, subscriptionService);
 const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
+const cardAiProvider = createAIProvider(runtime);
 const workerRedisClient = getRedisClient();
-const journalTaskGuard = workerRedisClient
+const cardTaskGuard = workerRedisClient
   ? new RedisChatGenerationTaskGuard(workerRedisClient)
   : new InMemoryChatGenerationTaskGuard();
-const journalTmsClient =
+const cardWorkerConcurrencyGuard = workerRedisClient
+  ? new RedisCardWorkerConcurrencyGuard(workerRedisClient, runtime.cardWorkerConcurrencyLeaseMs)
+  : undefined;
+const cardTmsClient =
   runtime.contentSafetyTencentTmsEnabled &&
   runtime.contentSafetyTencentSecretId &&
   runtime.contentSafetyTencentSecretKey
@@ -150,34 +165,117 @@ const journalTmsClient =
         timeoutMs: runtime.contentSafetyTencentTimeoutMs,
       })
     : undefined;
-const journalContentSafetyService = new ContentSafetyService(systemEventLogRepository, {
-  tencentTmsClient: journalTmsClient,
-  tencentTmsEnabled: Boolean(journalTmsClient),
+const cardContentSafetyService = new ContentSafetyService(systemEventLogRepository, {
+  tencentTmsClient: cardTmsClient,
+  tencentTmsEnabled: Boolean(cardTmsClient),
   tencentTmsBlockSuggestions: runtime.contentSafetyTencentBlockSuggestions,
   tencentTmsFailClosed: runtime.contentSafetyTencentFailClosed,
   tencentTmsReviewMode: runtime.contentSafetyTencentReviewMode,
 });
-const journalRewriteService = new JournalRewriteWorkerService(
-  journalRepository,
-  createAIProvider(runtime),
+const cardRewriteService = new CardRewriteWorkerService(
+  cardRepository,
+  cardAiProvider,
   entitlementService,
-  journalTaskGuard,
+  cardTaskGuard,
   aiRequestLogRepository,
   systemEventLogRepository,
-  journalContentSafetyService,
+  cardContentSafetyService,
 );
-const journalRewriteWorker = new JournalRewriteWorker(journalRewriteService);
-const journalImageCleanupWorker = new JournalImageCleanupWorker(
-  journalRepository,
-  journalImageStorageProvider,
+const cardRewriteWorker = new CardRewriteWorker(cardRewriteService, {
+  concurrencyGuard: cardWorkerConcurrencyGuard,
+  concurrencyLimit: runtime.cardRewriteGlobalConcurrency,
+});
+const phraseNormalizationWorker = new SerialCardJobWorker(
+  new PhraseNormalizationWorkerService(cardEnrichmentRepository, cardAiProvider),
+  {
+    workerIdPrefix: "phrase-normalization",
+    errorLabel: "phrase-normalization-worker",
+    concurrencyGuard: cardWorkerConcurrencyGuard,
+    concurrencyScope: "phrase-normalization",
+    concurrencyLimit: runtime.cardPhraseNormalizationGlobalConcurrency,
+  },
 );
-const journalSpeechCleanupWorker = new JournalSpeechCleanupWorker(
-  journalRepository,
+const phraseHistoryIndexWorker = new SerialCardJobWorker(
+  new PhraseHistoryIndexWorkerService(cardEnrichmentRepository),
+  {
+    workerIdPrefix: "phrase-history",
+    errorLabel: "phrase-history-worker",
+    concurrencyGuard: cardWorkerConcurrencyGuard,
+    concurrencyScope: "phrase-history",
+    concurrencyLimit: runtime.cardPhraseHistoryGlobalConcurrency,
+  },
+);
+const cardPhraseIndexWorker = new SerialCardJobWorker(
+  new CardPhraseIndexWorkerService(cardEnrichmentRepository),
+  {
+    workerIdPrefix: "card-phrase-index",
+    errorLabel: "card-phrase-index-worker",
+    concurrencyGuard: cardWorkerConcurrencyGuard,
+    concurrencyScope: "phrase-index",
+    concurrencyLimit: runtime.cardPhraseIndexGlobalConcurrency,
+  },
+);
+const progressPhraseDetectionWorker = new SerialCardJobWorker(
+  new ProgressPhraseDetectionWorkerService(
+    cardEnrichmentRepository,
+    new ProgressPhraseDetectionService(cardAiProvider),
+  ),
+  {
+    workerIdPrefix: "progress-phrase",
+    errorLabel: "progress-phrase-worker",
+    concurrencyGuard: cardWorkerConcurrencyGuard,
+    concurrencyScope: "progress-detection",
+    concurrencyLimit: runtime.cardProgressDetectionGlobalConcurrency,
+  },
+);
+const embeddingConfigValues = [
+  runtime.azureEmbeddingEndpoint,
+  runtime.azureEmbeddingApiKey,
+  runtime.azureEmbeddingDeployment,
+];
+const hasAnyEmbeddingConfig = embeddingConfigValues.some(Boolean);
+const hasCompleteEmbeddingConfig = embeddingConfigValues.every(Boolean);
+if (hasAnyEmbeddingConfig && !hasCompleteEmbeddingConfig) {
+  throw new Error("AZURE_EMBEDDING_CONFIG_INCOMPLETE");
+}
+if (runtime.isProduction && runtime.cardEnabled && !hasCompleteEmbeddingConfig) {
+  throw new Error("AZURE_EMBEDDING_CONFIG_REQUIRED");
+}
+const cardEnrichmentWorker = hasCompleteEmbeddingConfig
+  ? new SerialCardJobWorker(
+      new CardEnrichmentWorkerService(
+        cardEnrichmentRepository,
+        new AzureEmbeddingProvider({
+          endpoint: runtime.azureEmbeddingEndpoint,
+          apiKey: runtime.azureEmbeddingApiKey,
+          deployment: runtime.azureEmbeddingDeployment,
+          apiVersion: runtime.azureEmbeddingApiVersion,
+          model: runtime.azureEmbeddingModel,
+          dimensions: runtime.azureEmbeddingDimensions,
+          timeoutMs: runtime.azureEmbeddingTimeoutMs,
+        }),
+        systemEventLogRepository,
+      ),
+      {
+        workerIdPrefix: "card-enrichment",
+        errorLabel: "card-enrichment-worker",
+        concurrencyGuard: cardWorkerConcurrencyGuard,
+        concurrencyScope: "embedding",
+        concurrencyLimit: runtime.cardEmbeddingGlobalConcurrency,
+      },
+    )
+  : null;
+const cardImageCleanupWorker = new CardImageCleanupWorker(
+  cardRepository,
+  cardImageStorageProvider,
+);
+const cardSpeechCleanupWorker = new CardSpeechCleanupWorker(
+  cardRepository,
   ttsStorageProvider,
 );
 const userAvatarCleanupWorker = new UserAvatarCleanupWorker(
   new PrismaUserProfileRepository(prisma),
-  journalImageStorageProvider,
+  cardImageStorageProvider,
 );
 
 let shuttingDown = false;
@@ -194,7 +292,7 @@ if (runtime.requireRedis) {
   }
 }
 
-console.log("[worker] payment/grant/session/account-delete/log/ai/tts/cert/journal workers running");
+console.log("[worker] payment/grant/session/account-delete/log/ai/tts/cert/card workers running");
 try {
   worker.start();
   benefitGrantWorker.start();
@@ -208,9 +306,14 @@ try {
   weChatAutoRenewBillingWorker.start();
   googlePlayAcknowledgeWorker.start();
   googlePlaySubscriptionReconcileWorker.start();
-  journalRewriteWorker.start();
-  journalImageCleanupWorker.start();
-  journalSpeechCleanupWorker.start();
+  cardRewriteWorker.start();
+  cardEnrichmentWorker?.start();
+  phraseNormalizationWorker.start();
+  phraseHistoryIndexWorker.start();
+  cardPhraseIndexWorker.start();
+  progressPhraseDetectionWorker.start();
+  cardImageCleanupWorker.start();
+  cardSpeechCleanupWorker.start();
   userAvatarCleanupWorker.start();
 } catch (error) {
   console.error("[worker] start failed", error);
@@ -241,9 +344,14 @@ async function shutdown() {
   weChatAutoRenewBillingWorker.stop();
   googlePlayAcknowledgeWorker.stop();
   googlePlaySubscriptionReconcileWorker.stop();
-  journalRewriteWorker.stop();
-  journalImageCleanupWorker.stop();
-  journalSpeechCleanupWorker.stop();
+  cardRewriteWorker.stop();
+  cardEnrichmentWorker?.stop();
+  phraseNormalizationWorker.stop();
+  phraseHistoryIndexWorker.stop();
+  cardPhraseIndexWorker.stop();
+  progressPhraseDetectionWorker.stop();
+  cardImageCleanupWorker.stop();
+  cardSpeechCleanupWorker.stop();
   userAvatarCleanupWorker.stop();
   await prisma.$disconnect();
 }

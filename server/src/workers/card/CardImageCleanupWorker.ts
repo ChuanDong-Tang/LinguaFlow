@@ -1,12 +1,12 @@
-import type { JournalRepository } from "@lf/core/ports/repository/JournalRepository.js";
-import type { JournalImageStorageProvider } from "../../providers/storage/JournalImageStorageProvider.js";
+import type { CardRepository } from "@lf/core/ports/repository/CardRepository.js";
+import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
 
-export class JournalImageCleanupWorker {
+export class CardImageCleanupWorker {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   constructor(
-    private readonly repository: JournalRepository,
-    private readonly storage: JournalImageStorageProvider,
+    private readonly repository: CardRepository,
+    private readonly storage: CardImageStorageProvider,
     private readonly options: { intervalMs?: number; batchSize?: number } = {},
   ) {}
   start(): void {
@@ -23,20 +23,20 @@ export class JournalImageCleanupWorker {
       for (const asset of assets) {
         try {
           const extension = asset.mimeType === "image/png" ? "png" : "jpg";
-          const promotedKey = `journal-assets/${asset.userId}/${asset.id}/original.${extension}`;
+          const promotedKey = `card-assets/${asset.userId}/${asset.id}/original.${extension}`;
           const keys = new Set([
             asset.originalObjectKey,
             ...(asset.uploadObjectKey ? [asset.uploadObjectKey] : []),
             promotedKey,
             ...(asset.thumbnailObjectKey ? [asset.thumbnailObjectKey] : []),
-            `journal-assets/${asset.userId}/${asset.id}/thumbnail-v1.jpg`,
+            `card-assets/${asset.userId}/${asset.id}/thumbnail-v1.jpg`,
           ]);
           const deleted = await Promise.allSettled([...keys].map((key) => this.storage.delete(key)));
           const failed = deleted.find((result) => result.status === "rejected");
           if (failed?.status === "rejected") throw failed.reason;
           await this.repository.deleteUnclaimedImageAsset(asset.id);
         } catch (error) {
-          console.error("[journal-image-cleanup] asset cleanup failed", asset.id, error);
+          console.error("[card-image-cleanup] asset cleanup failed", asset.id, error);
         }
       }
       const uploadObjects = await this.repository.listImageUploadObjectsForCleanup(this.options.batchSize ?? 100);
@@ -46,7 +46,7 @@ export class JournalImageCleanupWorker {
           await this.storage.delete(asset.uploadObjectKey);
           await this.repository.clearImageUploadObjectKey(asset.id, asset.uploadObjectKey);
         } catch (error) {
-          console.error("[journal-image-cleanup] isolated upload cleanup failed", asset.id, error);
+          console.error("[card-image-cleanup] isolated upload cleanup failed", asset.id, error);
         }
       }
     } finally { this.running = false; }

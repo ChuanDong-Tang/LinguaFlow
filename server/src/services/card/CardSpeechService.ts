@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { JournalRepository, JournalSpeechAssetEntity } from "@lf/core/ports/repository/JournalRepository.js";
+import type { CardRepository, CardSpeechAssetEntity } from "@lf/core/ports/repository/CardRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import { normalizeLearningText } from "@lf/core/text/learningText.js";
 import { countGraphemes, isUtf16GraphemeBoundary } from "@lf/core/text/grapheme.js";
@@ -7,17 +7,17 @@ import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { TtsProvider } from "../tts/TtsProvider.js";
 import type { TtsStorageProvider } from "../tts/TtsStorageProvider.js";
 import { resolveDefaultTtsVoice } from "../tts/TtsVoiceCatalog.js";
-import { JournalNotFoundError, JournalValidationError } from "./JournalService.js";
+import { CardNotFoundError, CardValidationError } from "./CardService.js";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
 
-export class JournalSpeechProRequiredError extends Error {
+export class CardSpeechProRequiredError extends Error {
   readonly code = "PRO_REQUIRED";
 }
-export class JournalSpeechGenerationInProgressError extends Error {
+export class CardSpeechGenerationInProgressError extends Error {
   readonly code = "TTS_GENERATION_IN_PROGRESS";
 }
 
-export type JournalSpeechAssetView = {
+export type CardSpeechAssetView = {
   id: string;
   entryId: string;
   segmentId: string;
@@ -29,7 +29,7 @@ export type JournalSpeechAssetView = {
   cached: boolean;
 };
 
-const generations = new Map<string, Promise<JournalSpeechAssetEntity>>();
+const generations = new Map<string, Promise<CardSpeechAssetEntity>>();
 type GenerateInput = {
   userId: string;
   entryId: string | null;
@@ -43,9 +43,9 @@ type GenerateInput = {
   sourceTextHash: string;
 };
 
-export class JournalSpeechService {
+export class CardSpeechService {
   constructor(
-    private readonly repository: JournalRepository,
+    private readonly repository: CardRepository,
     private readonly preferenceRepository: UserPreferenceRepository,
     private readonly entitlementService: EntitlementService,
     private readonly provider: TtsProvider,
@@ -60,33 +60,33 @@ export class JournalSpeechService {
     sourceKind?: "review_segment" | "dictation_sentence";
     startUtf16?: number;
     endUtf16?: number;
-  }): Promise<JournalSpeechAssetView> {
+  }): Promise<CardSpeechAssetView> {
     const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
-    if (!entitlement.features.highQualityTts) throw new JournalSpeechProRequiredError();
+    if (!entitlement.features.highQualityTts) throw new CardSpeechProRequiredError();
     const entry = await this.repository.findByIdForUser(input.entryId, input.userId);
-    if (!entry || entry.status !== "completed") throw new JournalNotFoundError();
+    if (!entry || entry.status !== "completed") throw new CardNotFoundError();
     const segment = entry.segments.find((candidate) => candidate.id === input.segmentId);
-    if (!segment) throw new JournalNotFoundError();
+    if (!segment) throw new CardNotFoundError();
     const hasRange = input.startUtf16 !== undefined || input.endUtf16 !== undefined;
-    if (hasRange && (input.startUtf16 === undefined || input.endUtf16 === undefined)) throw new JournalValidationError("Invalid speech range");
+    if (hasRange && (input.startUtf16 === undefined || input.endUtf16 === undefined)) throw new CardValidationError("Invalid speech range");
     const selectedText = hasRange
       ? (() => {
           if (
             input.startUtf16! >= input.endUtf16! ||
             !isUtf16GraphemeBoundary(segment.text, input.startUtf16!) ||
             !isUtf16GraphemeBoundary(segment.text, input.endUtf16!)
-          ) throw new JournalValidationError("Invalid speech range");
+          ) throw new CardValidationError("Invalid speech range");
           return segment.text.slice(input.startUtf16, input.endUtf16);
         })()
       : segment.text;
     const sourceText = normalizeLearningText({ text: selectedText, languageCode: entry.languageCode });
     const sourceKind = input.sourceKind ?? "review_segment";
     const maxChars = sourceKind === "dictation_sentence" ? 300 : 800;
-    if (!sourceText || countGraphemes(sourceText) > maxChars) throw new JournalValidationError("Invalid speech segment");
+    if (!sourceText || countGraphemes(sourceText) > maxChars) throw new CardValidationError("Invalid speech segment");
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
     const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(entry.languageCode, provider);
-    const sourceTextHash = sha256(`journal-tts-v1\n${sourceText}`);
+    const sourceTextHash = sha256(`card-tts-v1\n${sourceText}`);
     const cacheKey = sha256([
       input.userId,
       input.entryId,
@@ -124,25 +124,25 @@ export class JournalSpeechService {
     segmentId: string;
     startUtf16: number;
     endUtf16: number;
-  }): Promise<JournalSpeechAssetView> {
+  }): Promise<CardSpeechAssetView> {
     const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
-    if (!entitlement.features.highQualityTts) throw new JournalSpeechProRequiredError();
+    if (!entitlement.features.highQualityTts) throw new CardSpeechProRequiredError();
     const entry = await this.repository.findByIdForUser(input.entryId, input.userId);
-    if (!entry || entry.status !== "completed") throw new JournalNotFoundError();
+    if (!entry || entry.status !== "completed") throw new CardNotFoundError();
     const segment = entry.segments.find((candidate) => candidate.id === input.segmentId);
-    if (!segment) throw new JournalNotFoundError();
+    if (!segment) throw new CardNotFoundError();
     if (
       input.startUtf16 >= input.endUtf16 ||
       !isUtf16GraphemeBoundary(segment.text, input.startUtf16) ||
       !isUtf16GraphemeBoundary(segment.text, input.endUtf16)
-    ) throw new JournalValidationError("Invalid speech selection");
+    ) throw new CardValidationError("Invalid speech selection");
     const selected = segment.text.slice(input.startUtf16, input.endUtf16);
-    if (!selected.trim() || countGraphemes(selected) > 100) throw new JournalValidationError("选区需要包含 1 到 100 个字符");
+    if (!selected.trim() || countGraphemes(selected) > 100) throw new CardValidationError("选区需要包含 1 到 100 个字符");
     const sourceText = normalizeLearningText({ text: selected, languageCode: entry.languageCode });
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
     const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(entry.languageCode, provider);
-    const sourceTextHash = sha256(`journal-selection-tts-v1\n${sourceText}`);
+    const sourceTextHash = sha256(`card-selection-tts-v1\n${sourceText}`);
     const cacheKey = sha256([
       input.userId,
       "selection",
@@ -173,9 +173,9 @@ export class JournalSpeechService {
     finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
   }
 
-  private async generateWithLock(input: GenerateInput): Promise<JournalSpeechAssetEntity> {
+  private async generateWithLock(input: GenerateInput): Promise<CardSpeechAssetEntity> {
     if (!this.redisClient) return this.generate(input);
-    const lockKey = `lock:tts:journal:${input.cacheKey}`;
+    const lockKey = `lock:tts:card:${input.cacheKey}`;
     const lockValue = `${process.pid}:${Date.now()}:${randomUUID()}`;
     const deadline = Date.now() + 120_000;
     while (Date.now() <= deadline) {
@@ -198,10 +198,10 @@ export class JournalSpeechService {
       if (cached) return this.refreshUrlIfNeeded(cached);
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    throw new JournalSpeechGenerationInProgressError();
+    throw new CardSpeechGenerationInProgressError();
   }
 
-  private async generate(input: GenerateInput): Promise<JournalSpeechAssetEntity> {
+  private async generate(input: GenerateInput): Promise<CardSpeechAssetEntity> {
     const synthesized = await this.provider.synthesize({
       text: input.sourceText,
       languageCode: input.languageCode,
@@ -210,8 +210,8 @@ export class JournalSpeechService {
     });
     const generationId = randomUUID();
     const objectKey = input.entryId
-      ? `tts/journal/${input.userId}/${input.entryId}/${input.cacheKey}-${generationId}.mp3`
-      : `tts/journal/${input.userId}/selections/${input.cacheKey}-${generationId}.mp3`;
+      ? `tts/card/${input.userId}/${input.entryId}/${input.cacheKey}-${generationId}.mp3`
+      : `tts/card/${input.userId}/selections/${input.cacheKey}-${generationId}.mp3`;
     const uploaded = await this.storage.upload({ key: objectKey, body: synthesized.audio, contentType: synthesized.contentType });
     return this.repository.saveReadySpeechAsset({
       userId: input.userId,
@@ -233,20 +233,20 @@ export class JournalSpeechService {
     });
   }
 
-  private async refreshUrlIfNeeded(asset: JournalSpeechAssetEntity): Promise<JournalSpeechAssetEntity> {
+  private async refreshUrlIfNeeded(asset: CardSpeechAssetEntity): Promise<CardSpeechAssetEntity> {
     if (asset.objectUrl && (!asset.objectUrlExpiresAt || asset.objectUrlExpiresAt.getTime() > Date.now() + 60_000)) return asset;
     const signed = await this.storage.getObjectUrl(asset.objectKey);
     return this.repository.updateSpeechAssetUrl(asset.id, signed.objectUrl, signed.objectUrlExpiresAt);
   }
 
   private toView(
-    asset: JournalSpeechAssetEntity,
+    asset: CardSpeechAssetEntity,
     cached: boolean,
     context?: { entryId: string; segmentId: string },
-  ): JournalSpeechAssetView {
+  ): CardSpeechAssetView {
     const entryId = asset.entryId ?? context?.entryId;
     const segmentId = asset.segmentId ?? context?.segmentId;
-    if (!entryId || !segmentId || !asset.objectUrl) throw new Error("JOURNAL_TTS_SIGNED_URL_FAILED");
+    if (!entryId || !segmentId || !asset.objectUrl) throw new Error("CARD_TTS_SIGNED_URL_FAILED");
     return {
       id: asset.id,
       entryId,

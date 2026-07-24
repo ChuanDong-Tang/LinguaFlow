@@ -1,18 +1,19 @@
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
-import type { JournalEntryEntity, JournalRepository } from "@lf/core/ports/repository/JournalRepository.js";
+import type { CardEntryEntity, CardRepository } from "@lf/core/ports/repository/CardRepository.js";
 import type { AiRequestLogRepository } from "@lf/core/ports/repository/AiRequestLogRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
-import { getPromptProfile, parseTaggedRewriteOutput } from "@lf/core/Prompts/rewriteAssistantPrompt.js";
+import { buildCardExpressionPrompt, parseCardExpressionOutput } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import { segmentLearningSentences } from "@lf/core/text/learningText.js";
 import { countGraphemes } from "@lf/core/text/grapheme.js";
+import { createHash } from "node:crypto";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
 import type { ChatGenerationTaskGuard } from "../chat/ChatGenerationTaskGuard.js";
-import { taskGuardId } from "./JournalService.js";
+import { taskGuardId } from "./CardService.js";
 
-export class JournalRewriteWorkerService {
+export class CardRewriteWorkerService {
   constructor(
-    private readonly repository: JournalRepository,
+    private readonly repository: CardRepository,
     private readonly aiProvider: AIProvider,
     private readonly entitlementService: EntitlementService,
     private readonly taskGuard: ChatGenerationTaskGuard,
@@ -42,7 +43,7 @@ export class JournalRewriteWorkerService {
       if (!marked) continue;
       failed += 1;
       await this.taskGuard.release(entry.userId, taskGuardId(entry.clientId));
-      await this.logFailure(entry, "JOURNAL_TASK_LEASE_EXPIRED", "Journal worker lease expired");
+      await this.logFailure(entry, "CARD_TASK_LEASE_EXPIRED", "Card worker lease expired");
     }
     return failed;
   }
@@ -54,14 +55,14 @@ export class JournalRewriteWorkerService {
     );
   }
 
-  private async process(entry: JournalEntryEntity, workerId: string): Promise<void> {
+  private async process(entry: CardEntryEntity, workerId: string): Promise<void> {
     const originalText = entry.originalText;
     if (!originalText) {
-      await this.fail(entry, workerId, new Error("JOURNAL_ORIGINAL_TEXT_MISSING"));
+      await this.fail(entry, workerId, new Error("CARD_ORIGINAL_TEXT_MISSING"));
       return;
     }
 
-    const requestId = `journal_${entry.id}`;
+    const requestId = `card_${entry.id}`;
     const startedAt = Date.now();
     let rawOutput = "";
     const renewEvery = this.options.leaseRenewMs ?? 30_000;
@@ -73,32 +74,36 @@ export class JournalRewriteWorkerService {
     }, renewEvery);
 
     try {
-      const profile = getPromptProfile({
-        contactCode: "curious_companion",
-        language: entry.languageCode,
-        appLocale: "zh-CN",
+      const prompt = buildCardExpressionPrompt({
+        text: originalText,
+        languageCode: entry.languageCode,
+        appLocale: entry.appLocaleSnapshot,
         difficulty: entry.promptDifficultySnapshot,
-        companionMode: "rewrite_only",
       });
       await this.aiProvider.generateChatTextStream(
         {
           userId: entry.userId,
-          text: originalText,
+          text: prompt.userPrompt,
           languageCode: entry.languageCode,
-          appLocale: "zh-CN",
+          appLocale: entry.appLocaleSnapshot,
           promptDifficulty: entry.promptDifficultySnapshot,
           companionMode: "rewrite_only",
-          systemPrompt: profile.systemPrompt,
+          systemPrompt: prompt.systemPrompt,
+          rawUserPrompt: true,
         },
         (event) => {
           if (event.type === "delta") rawOutput += event.text;
         },
       );
-      const rewrittenText = parseTaggedRewriteOutput(rawOutput).rewrite.trim();
-      if (!rewrittenText) throw new Error("JOURNAL_REWRITE_EMPTY");
-      this.contentSafetyService?.assertAllowed(rewrittenText, "output");
+      const parsedOutput = parseCardExpressionOutput(rawOutput);
+      const rewrittenText = parsedOutput.expression.trim();
+      const topic = parsedOutput.topic.trim();
+      if (!rewrittenText) throw new Error("CARD_REWRITE_EMPTY");
+      if (!topic) throw new Error("CARD_TOPIC_EMPTY");
+      const moderatedOutput = `${topic}\n${rewrittenText}`;
+      this.contentSafetyService?.assertAllowed(moderatedOutput, "output");
       await this.contentSafetyService?.assertAllowedRemote({
-        text: rewrittenText,
+        text: moderatedOutput,
         stage: "output",
         requestId,
         userId: entry.userId,
@@ -114,10 +119,15 @@ export class JournalRewriteWorkerService {
         startUtf16: segment.textStart,
         endUtf16: segment.textEnd,
       }));
+      const embeddingInput = buildCardEmbeddingInput(originalText, rewrittenText);
+      const embeddingInputHash = createHash("sha256").update(embeddingInput).digest("hex");
       await this.repository.complete({
         entryId: entry.id,
         workerId,
         rewrittenText,
+        topic,
+        embeddingInputHash,
+        embeddingInputVersion: `card_embedding_input_v1:${embeddingInputHash}`,
         outputChars: countGraphemes(rewrittenText),
         publishedAt: new Date(),
         segments,
@@ -129,7 +139,7 @@ export class JournalRewriteWorkerService {
           { dateKey: entry.dateKey },
         );
       } catch (error) {
-        await this.writeSystemLog(entry, "journal.entitlement.settlement_failed", error, {
+        await this.writeSystemLog(entry, "card.entitlement.settlement_failed", error, {
           requestId,
           inputChars: entry.inputChars,
           outputChars: countGraphemes(rewrittenText),
@@ -144,7 +154,7 @@ export class JournalRewriteWorkerService {
   }
 
   private async fail(
-    entry: JournalEntryEntity,
+    entry: CardEntryEntity,
     workerId: string,
     error: unknown,
     durationMs = 0,
@@ -153,7 +163,7 @@ export class JournalRewriteWorkerService {
     await this.repository.markFailedAndScrub(entry.id, workerId, new Date());
     try {
       await this.aiRequestLogRepository.create({
-        requestId: `journal_${entry.id}`,
+        requestId: `card_${entry.id}`,
         userId: entry.userId,
         provider: this.aiProvider.providerName,
         model: this.aiProvider.modelName,
@@ -170,8 +180,8 @@ export class JournalRewriteWorkerService {
     await this.logFailure(entry, resolveErrorCode(error), safeErrorMessage(error));
   }
 
-  private async logFailure(entry: JournalEntryEntity, errorCode: string, errorMessage: string): Promise<void> {
-    await this.writeSystemLog(entry, "journal.rewrite.failed", new Error(errorMessage), {
+  private async logFailure(entry: CardEntryEntity, errorCode: string, errorMessage: string): Promise<void> {
+    await this.writeSystemLog(entry, "card.rewrite.failed", new Error(errorMessage), {
       errorCode,
       workerId: entry.workerId,
       provider: this.aiProvider.providerName,
@@ -180,7 +190,7 @@ export class JournalRewriteWorkerService {
   }
 
   private async writeSystemLog(
-    entry: JournalEntryEntity,
+    entry: CardEntryEntity,
     event: string,
     error: unknown,
     metadata: Record<string, unknown>,
@@ -188,7 +198,7 @@ export class JournalRewriteWorkerService {
     try {
       await this.systemEventLogRepository?.create({
         userId: entry.userId,
-        module: "journal",
+        module: "card",
         event,
         level: "error",
         status: "failed",
@@ -200,6 +210,10 @@ export class JournalRewriteWorkerService {
       // System logging never changes task state.
     }
   }
+}
+
+export function buildCardEmbeddingInput(originalText: string, rewrittenText: string): string {
+  return `Original: ${originalText.trim()}\nExpression: ${rewrittenText.trim()}`;
 }
 
 function resolveErrorCode(error: unknown): string {

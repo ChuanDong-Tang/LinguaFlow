@@ -45,7 +45,7 @@ export class ChatGenerationService {
     private readonly conversationRepository: ConversationRepository,
     private readonly userPreferenceRepository: UserPreferenceRepository,
     private readonly contentSafetyService?: ContentSafetyService,
-    private readonly activeJournalLookup?: { findActiveByUser(userId: string): Promise<unknown | null> },
+    private readonly activeCardLookup?: { findActiveByUser(userId: string): Promise<unknown | null> },
   ) {}
   
   async generateChatStream(
@@ -200,11 +200,11 @@ export class ChatGenerationService {
       throw error;
     }
 
-    if (await this.activeJournalLookup?.findActiveByUser(input.userId)) {
+    if (await this.activeCardLookup?.findActiveByUser(input.userId)) {
       if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
       const error = createAppError(
         "TASK_IN_PROGRESS",
-        "A journal generation task is already running for this user."
+        "A card generation task is already running for this user."
       );
       await this.logFailedAiRequest(input, {
         startedAt,

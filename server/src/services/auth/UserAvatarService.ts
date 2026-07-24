@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
 import type { UserProfileRepository } from "@lf/core/ports/repository/UserProfileRepository.js";
-import type { JournalImageStorageProvider } from "../../providers/storage/JournalImageStorageProvider.js";
+import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
 import type { TencentImsClient } from "../contentSafety/TencentImsClient.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 
@@ -13,7 +13,7 @@ export class AvatarModerationUnavailableError extends Error { readonly code = "A
 export class UserAvatarService {
   constructor(
     private readonly repository: UserProfileRepository,
-    private readonly storage: JournalImageStorageProvider,
+    private readonly storage: CardImageStorageProvider,
     private readonly imsClient?: TencentImsClient,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
   ) {}

@@ -1,28 +1,34 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { JournalRepository } from "@lf/core/ports/repository/JournalRepository.js";
-import type { JournalImageStorageProvider } from "../../providers/storage/JournalImageStorageProvider.js";
+import type { CardRepository } from "@lf/core/ports/repository/CardRepository.js";
+import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
 import type { TencentImsClient } from "../contentSafety/TencentImsClient.js";
-import { JournalNotFoundError, JournalValidationError } from "./JournalService.js";
+import { CardNotFoundError, CardValidationError } from "./CardService.js";
 import sharp from "sharp";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
+import type { EntitlementService } from "../entitlement/EntitlementService.js";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2_200;
 
-export class JournalImageModerationUnavailableError extends Error {
-  readonly code = "JOURNAL_IMAGE_MODERATION_UNAVAILABLE";
+export class CardImageModerationUnavailableError extends Error {
+  readonly code = "CARD_IMAGE_MODERATION_UNAVAILABLE";
 }
 
-export class JournalImageProcessingUnavailableError extends Error {
-  readonly code = "JOURNAL_IMAGE_PROCESSING_UNAVAILABLE";
+export class CardImageProcessingUnavailableError extends Error {
+  readonly code = "CARD_IMAGE_PROCESSING_UNAVAILABLE";
 }
 
-export class JournalImageService {
+export class CardImageQuotaExceededError extends Error {
+  readonly code = "CARD_IMAGE_QUOTA_EXCEEDED";
+}
+
+export class CardImageService {
   constructor(
-    private readonly repository: JournalRepository,
-    private readonly storage: JournalImageStorageProvider,
+    private readonly repository: CardRepository,
+    private readonly storage: CardImageStorageProvider,
     private readonly imsClient?: TencentImsClient,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
+    private readonly entitlementService?: EntitlementService,
   ) {}
 
   async createUpload(input: {
@@ -32,35 +38,54 @@ export class JournalImageService {
     width: number;
     height: number;
   }) {
-    if (!['image/jpeg', 'image/png'].includes(input.mimeType)) throw new JournalValidationError("只支持 JPEG 或 PNG 图片");
-    if (!Number.isInteger(input.fileSize) || input.fileSize < 1 || input.fileSize > MAX_IMAGE_BYTES) throw new JournalValidationError("图片大小不符合要求");
-    if (![input.width, input.height].every((value) => Number.isInteger(value) && value > 0 && value <= MAX_IMAGE_EDGE)) throw new JournalValidationError("图片尺寸不符合要求");
+    if (!['image/jpeg', 'image/png'].includes(input.mimeType)) throw new CardValidationError("只支持 JPEG 或 PNG 图片");
+    if (!Number.isInteger(input.fileSize) || input.fileSize < 1 || input.fileSize > MAX_IMAGE_BYTES) throw new CardValidationError("图片大小不符合要求");
+    if (![input.width, input.height].every((value) => Number.isInteger(value) && value > 0 && value <= MAX_IMAGE_EDGE)) throw new CardValidationError("图片尺寸不符合要求");
     const ratio = input.width / input.height;
     if (Math.min(Math.abs(ratio - 3 / 2), Math.abs(ratio - 4 / 5)) > 0.02) {
-      throw new JournalValidationError("图片需要裁剪为横向 3:2 或竖向 4:5");
+      throw new CardValidationError("图片需要裁剪为横向 3:2 或竖向 4:5");
     }
     const id = randomUUID();
     const extension = input.mimeType === "image/png" ? "png" : "jpg";
-    const objectKey = `journal-isolated/${input.userId}/${id}/original.${extension}`;
+    const objectKey = `card-isolated/${input.userId}/${id}/original.${extension}`;
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1_000);
-    await this.repository.createImageUpload({ id, userId: input.userId, objectKey, mimeType: input.mimeType, fileSize: input.fileSize, width: input.width, height: input.height, expiresAt });
-    const upload = await this.storage.createUploadAuthorization(objectKey);
+    const entitlement = await this.entitlementService?.getCurrentEntitlement(input.userId);
+    if (!entitlement) throw new CardImageQuotaExceededError("Image entitlement is unavailable");
+    const reserved = await this.repository.createImageUploadWithinQuota({
+      id,
+      userId: input.userId,
+      quotaDateKey: entitlement.dateKey,
+      objectKey,
+      mimeType: input.mimeType,
+      fileSize: input.fileSize,
+      width: input.width,
+      height: input.height,
+      expiresAt,
+    });
+    if (!reserved) throw new CardImageQuotaExceededError("Cloud image quota exceeded");
+    let upload: Awaited<ReturnType<CardImageStorageProvider["createUploadAuthorization"]>>;
+    try {
+      upload = await this.storage.createUploadAuthorization(objectKey);
+    } catch (error) {
+      await this.repository.markImageUploadCleanup(id, input.userId).catch(() => null);
+      throw error;
+    }
     return { uploadId: id, uploadUrl: upload.uploadUrl, headers: { ...upload.headers, "Content-Type": input.mimeType }, expiresAt: expiresAt.toISOString() };
   }
 
   async complete(userId: string, uploadId: string) {
     const asset = await this.repository.findImageUpload(uploadId, userId);
-    if (!asset || asset.entryId || asset.expiresAt.getTime() <= Date.now()) throw new JournalNotFoundError();
+    if (!asset || asset.entryId || asset.expiresAt.getTime() <= Date.now()) throw new CardNotFoundError();
     if (asset.status === "approved" || asset.status === "approved_with_review") {
       return toStatus(await this.ensureThumbnail(asset));
     }
     if (asset.status === "rejected") return toStatus(asset);
     let bytes: Buffer;
     try { bytes = await this.storage.download(asset.originalObjectKey); }
-    catch { throw new JournalValidationError("没有找到已上传的图片"); }
-    if (bytes.length !== asset.fileSize || bytes.length > MAX_IMAGE_BYTES) throw new JournalValidationError("图片大小校验失败");
+    catch { throw new CardValidationError("没有找到已上传的图片"); }
+    if (bytes.length !== asset.fileSize || bytes.length > MAX_IMAGE_BYTES) throw new CardValidationError("图片大小校验失败");
     const metadata = inspectStaticImage(bytes);
-    if (!metadata || metadata.mimeType !== asset.mimeType || metadata.width !== asset.width || metadata.height !== asset.height) throw new JournalValidationError("图片格式或尺寸校验失败");
+    if (!metadata || metadata.mimeType !== asset.mimeType || metadata.width !== asset.width || metadata.height !== asset.height) throw new CardValidationError("图片格式或尺寸校验失败");
     const fileMd5 = createHash("md5").update(bytes).digest("hex");
     await this.repository.updateImageUploadModeration({
       id: uploadId,
@@ -71,7 +96,7 @@ export class JournalImageService {
     if (!this.imsClient) {
       await this.repository.updateImageUploadModeration({ id: uploadId, userId, status: "moderation_failed", fileMd5 });
       await this.logModeration(userId, uploadId, { status: "failed", errorCode: "IMS_NOT_CONFIGURED" });
-      throw new JournalImageModerationUnavailableError("Image moderation is unavailable");
+      throw new CardImageModerationUnavailableError("Image moderation is unavailable");
     }
     let result;
     try {
@@ -80,7 +105,7 @@ export class JournalImageService {
     } catch (error) {
       await this.repository.updateImageUploadModeration({ id: uploadId, userId, status: "moderation_failed", fileMd5 });
       await this.logModeration(userId, uploadId, { status: "failed", errorCode: "IMS_UNAVAILABLE" });
-      throw new JournalImageModerationUnavailableError("Image moderation is unavailable");
+      throw new CardImageModerationUnavailableError("Image moderation is unavailable");
     }
     const status = result.suggestion === "Pass"
       ? "approved"
@@ -90,18 +115,18 @@ export class JournalImageService {
     const moderationAccepted = result.suggestion === "Pass" || result.suggestion === "Review";
     await this.logModeration(userId, uploadId, {
       status: moderationAccepted ? "success" : "failed",
-      errorCode: moderationAccepted ? null : "JOURNAL_IMAGE_REJECTED",
+      errorCode: moderationAccepted ? null : "CARD_IMAGE_REJECTED",
       vendorRequestId: result.requestId,
       suggestion: result.suggestion,
       label: result.label,
     });
     const extension = asset.mimeType === "image/png" ? "png" : "jpg";
-    const promotedObjectKey = `journal-assets/${userId}/${uploadId}/original.${extension}`;
+    const promotedObjectKey = `card-assets/${userId}/${uploadId}/original.${extension}`;
     if (status !== "rejected") {
       try {
         await this.storage.upload(promotedObjectKey, bytes, asset.mimeType);
       } catch {
-        throw new JournalImageProcessingUnavailableError("Image promotion failed");
+        throw new CardImageProcessingUnavailableError("Image promotion failed");
       }
     }
     const updated = await this.repository.updateImageUploadModeration({
@@ -114,14 +139,14 @@ export class JournalImageService {
       moderationLabel: result.label,
       originalObjectKey: status === "rejected" ? undefined : promotedObjectKey,
     });
-    if (!updated) throw new JournalNotFoundError();
+    if (!updated) throw new CardNotFoundError();
     if (status !== "rejected") void this.storage.delete(asset.originalObjectKey).catch(() => undefined);
     return toStatus(status === "rejected" ? updated : await this.ensureThumbnail(updated, bytes));
   }
 
   async status(userId: string, uploadId: string) {
     const asset = await this.repository.findImageUpload(uploadId, userId);
-    if (!asset) throw new JournalNotFoundError();
+    if (!asset) throw new CardNotFoundError();
     if ((asset.status === "approved" || asset.status === "approved_with_review") && asset.thumbnailStatus !== "ready") {
       return toStatus(await this.ensureThumbnail(asset));
     }
@@ -134,7 +159,7 @@ export class JournalImageService {
     try { await this.storage.delete(asset.originalObjectKey); } catch { /* cleanup worker retries later */ }
   }
 
-  async views(asset: NonNullable<Awaited<ReturnType<JournalRepository["findImageUpload"]>>>) {
+  async views(asset: NonNullable<Awaited<ReturnType<CardRepository["findImageUpload"]>>>) {
     const original = await this.storage.getSignedUrl(asset.originalObjectKey, 3_600);
     const thumbnail = asset.thumbnailObjectKey
       ? await this.storage.getSignedUrl(asset.thumbnailObjectKey, 3_600)
@@ -157,7 +182,7 @@ export class JournalImageService {
   }
 
   private async ensureThumbnail(
-    asset: NonNullable<Awaited<ReturnType<JournalRepository["findImageUpload"]>>>,
+    asset: NonNullable<Awaited<ReturnType<CardRepository["findImageUpload"]>>>,
     existingBytes?: Buffer,
   ) {
     if (asset.thumbnailObjectKey && asset.thumbnailStatus === "ready") return asset;
@@ -195,8 +220,8 @@ export class JournalImageService {
     try {
       await this.systemEventLogRepository?.create({
         userId,
-        module: "journal",
-        event: "journal.image.moderation",
+        module: "card",
+        event: "card.image.moderation",
         level: input.status === "success" ? "info" : "warn",
         status: input.status,
         errorCode: input.errorCode,
@@ -213,7 +238,7 @@ export class JournalImageService {
   }
 }
 
-function toStatus(asset: Awaited<ReturnType<JournalRepository["findImageUpload"]>> & {}) {
+function toStatus(asset: Awaited<ReturnType<CardRepository["findImageUpload"]>> & {}) {
   return { uploadId: asset!.id, status: asset!.status, expiresAt: asset!.expiresAt.toISOString() };
 }
 

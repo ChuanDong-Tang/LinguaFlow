@@ -8,6 +8,7 @@ import type {
   UserPreferenceEntity,
   UserPreferenceRepository,
 } from "@lf/core/ports/repository/UserPreferenceRepository.js";
+import { isTargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 import type { EntitlementService } from "@lf/server/services/entitlement/EntitlementService.js";
 import type { SubscriptionService } from "@lf/server/services/subscription/SubscriptionService.js";
 import type { PaymentEntitlementRefreshService } from "@lf/server/services/payment/PaymentEntitlementRefreshService.js";
@@ -603,7 +604,7 @@ function isAppLocale(value: unknown): value is AppLocale {
 }
 
 function isLearningLanguage(value: unknown): value is LearningLanguage {
-  return value === "en-US" || value === "ja-JP";
+  return isTargetLanguageCode(value);
 }
 
 function isPromptDifficulty(value: unknown): value is PromptDifficulty {

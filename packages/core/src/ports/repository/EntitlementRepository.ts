@@ -6,6 +6,8 @@ export interface EntitlementEntity {
   dateKey: string;
   dailyTotalLimit: number;
   usedTotalChars: number;
+  imageLimit: number;
+  usedImages: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -14,6 +16,7 @@ export interface EnsureDailyEntitlementInput {
   userId: string;
   dateKey: string;
   dailyTotalLimit: number;
+  imageLimit: number;
 }
 
 export interface ConsumeDailyEntitlementInput {

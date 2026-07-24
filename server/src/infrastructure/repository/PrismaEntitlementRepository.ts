@@ -33,6 +33,8 @@ export class PrismaEntitlementRepository implements EntitlementRepository {
         dateKey: input.dateKey,
         dailyTotalLimit: input.dailyTotalLimit,
         usedTotalChars: 0,
+        imageLimit: input.imageLimit,
+        usedImages: 0,
       },
       update: {
         dailyTotalLimit: {
@@ -41,7 +43,7 @@ export class PrismaEntitlementRepository implements EntitlementRepository {
       },
     });
 
-    if (row.dailyTotalLimit < input.dailyTotalLimit) {
+    if (row.dailyTotalLimit < input.dailyTotalLimit || row.imageLimit < input.imageLimit) {
       const updated = await this.prisma.entitlement.update({
         where: {
           userId_dateKey: {
@@ -50,7 +52,8 @@ export class PrismaEntitlementRepository implements EntitlementRepository {
           },
         },
         data: {
-          dailyTotalLimit: input.dailyTotalLimit,
+          dailyTotalLimit: Math.max(row.dailyTotalLimit, input.dailyTotalLimit),
+          imageLimit: Math.max(row.imageLimit, input.imageLimit),
         },
       });
 
@@ -143,6 +146,8 @@ export class PrismaEntitlementRepository implements EntitlementRepository {
     dateKey: string;
     dailyTotalLimit: number;
     usedTotalChars: number;
+    imageLimit: number;
+    usedImages: number;
     createdAt: Date;
     updatedAt: Date;
   }): EntitlementEntity {
@@ -152,6 +157,8 @@ export class PrismaEntitlementRepository implements EntitlementRepository {
       dateKey: row.dateKey,
       dailyTotalLimit: row.dailyTotalLimit,
       usedTotalChars: row.usedTotalChars,
+      imageLimit: row.imageLimit,
+      usedImages: row.usedImages,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

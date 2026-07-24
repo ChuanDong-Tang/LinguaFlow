@@ -32,11 +32,17 @@ model User {
   preference             UserPreference?
   profile                UserProfile?
   avatarAssets           UserAvatarAsset[]
-  journalEntries         JournalEntry[]
-  journalImageAssets     JournalImageAsset[]
-  journalPracticeStates  JournalPracticeState[]
-  journalLegacyHidden    JournalLegacyHidden[]
-  journalSpeechAssets    JournalSpeechAsset[]
+  cards                  Card[]
+  cardImageAssets        CardImageAsset[]
+  cardPracticeStates     CardPracticeState[]
+  cardSpeechAssets       CardSpeechAsset[]
+  cardCollections        CardCollection[]
+  cardEmbeddings         CardEmbedding[]
+  phrases                Phrase[]
+  phraseVariants         PhraseVariant[]
+  phraseOccurrences      PhraseOccurrence[]
+  cardEnrichmentJobs     CardEnrichmentJob[]
+  recallSessions         RecallSession[]
 
   @@index([email])
   @@index([phone])
@@ -91,13 +97,14 @@ model UserAvatarAsset {
   @@map("user_avatar_assets")
 }
 
-model JournalEntry {
+model Card {
   id                       String    @id @default(cuid())
   userId                   String
   dateKey                  String
   originalText             String?
   rewrittenText            String?
   languageCode             String
+  appLocaleSnapshot        String
   promptDifficultySnapshot String
   promptVersion            String
   status                   String    @default("queued")
@@ -105,7 +112,9 @@ model JournalEntry {
   inputChars               Int       @default(0)
   outputChars              Int       @default(0)
   isSample                 Boolean   @default(false)
-  sampleImageKey           String?
+  topic                    String?
+  topicEditedAt            DateTime?
+  collectionId             String?
   publishedAt              DateTime?
   processingAt             DateTime?
   leaseExpiresAt           DateTime?
@@ -115,20 +124,28 @@ model JournalEntry {
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 
-  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  segments     JournalRewriteSegment[]
-  image        JournalImageAsset?
-  speechAssets JournalSpeechAsset[]
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  collection         CardCollection?      @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  segments           CardRewriteSegment[]
+  image              CardImageAsset?
+  practiceState      CardPracticeState?
+  speechAssets       CardSpeechAsset[]
+  embeddings         CardEmbedding[]
+  phraseOccurrences  PhraseOccurrence[]
+  recallNodes        RecallSessionNode[]
+  seedRecallSessions RecallSession[]      @relation("RecallSeedCard")
 
   @@unique([userId, clientId])
   @@index([userId, dateKey, createdAt])
   @@index([userId, status, createdAt])
+  @@index([userId, collectionId, createdAt(sort: Desc)])
+  @@index([collectionId])
   @@index([status, leaseExpiresAt, createdAt])
   @@index([publishedAt])
-  @@map("journal_entries")
+  @@map("cards")
 }
 
-model JournalRewriteSegment {
+model CardRewriteSegment {
   id         String   @id @default(cuid())
   entryId    String
   ordinal    Int
@@ -137,14 +154,14 @@ model JournalRewriteSegment {
   endUtf16   Int
   createdAt  DateTime @default(now())
 
-  entry JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entry Card @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
   @@unique([entryId, ordinal])
   @@index([entryId, startUtf16])
-  @@map("journal_rewrite_segments")
+  @@map("card_rewrite_segments")
 }
 
-model JournalImageAsset {
+model CardImageAsset {
   id                   String    @id @default(cuid())
   userId               String
   entryId              String?   @unique
@@ -158,79 +175,49 @@ model JournalImageAsset {
   fileSize             Int
   width                Int
   height               Int
-  orientation          Int?
-  detailAspect         String?
-  cropData             Json?
-  focalPointX          Float?
-  focalPointY          Float?
   fileMd5              String?
   moderationRequestId  String?
   moderationSuggestion String?
   moderationLabel      String?
-  moderationSubLabel   String?
-  moderationScore      Float?
   moderatedAt          DateTime?
   expiresAt            DateTime
   claimedAt            DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  entry JournalEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entry Card? @relation(fields: [entryId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([status, expiresAt])
   @@index([thumbnailStatus, updatedAt])
-  @@map("journal_image_assets")
+  @@map("card_image_assets")
 }
 
-model JournalPracticeState {
-  id                       String    @id @default(cuid())
-  userId                   String
-  sourceKind               String
-  sourceId                 String
-  segmentId                String?
-  scopeKey                 String
-  clozeState               Json?
-  clozeVersion             Int       @default(0)
-  clozeLastPracticedAt     DateTime?
-  clozeLastResult          String?
-  clozePracticeCount       Int       @default(0)
-  clozeCorrectStreak       Int       @default(0)
-  clozeNextReviewAt        DateTime?
-  clozeCompletedAt         DateTime?
-  dictationCompleted       Boolean   @default(false)
-  dictationLastPracticedAt DateTime?
-  dictationLastResult      String?
-  dictationPracticeCount   Int       @default(0)
-  dictationCorrectStreak   Int       @default(0)
-  dictationNextReviewAt    DateTime?
-  dictationCompletedAt     DateTime?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
+model CardPracticeState {
+  id                     String    @id @default(cuid())
+  userId                 String
+  cardId                 String    @unique
+  clozeState             Json?
+  clozeVersion           Int       @default(0)
+  clozeLastResult        String?
+  clozeCorrectStreak     Int       @default(0)
+  clozeNextReviewAt      DateTime?
+  dictationLastResult    String?
+  dictationCorrectStreak Int       @default(0)
+  dictationNextReviewAt  DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, sourceKind, sourceId, scopeKey])
   @@index([userId, clozeNextReviewAt])
   @@index([userId, dictationNextReviewAt])
-  @@map("journal_practice_states")
+  @@map("card_practice_states")
 }
 
-model JournalLegacyHidden {
-  id                 String   @id @default(cuid())
-  userId             String
-  assistantMessageId String
-  createdAt          DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, assistantMessageId])
-  @@index([userId, createdAt])
-  @@map("journal_legacy_hidden")
-}
-
-model JournalSpeechAsset {
+model CardSpeechAsset {
   id                 String    @id @default(cuid())
   userId             String
   entryId            String?
@@ -242,7 +229,6 @@ model JournalSpeechAsset {
   languageCode       String
   sourceText         String
   sourceTextHash     String
-  format             String    @default("mp3")
   status             String    @default("ready")
   objectKey          String
   objectUrl          String?
@@ -250,20 +236,219 @@ model JournalSpeechAsset {
   durationMs         Int?
   wordMarks          Json?
   sentenceMarks      Json?
-  errorCode          String?
-  errorMessage       String?
   lastAccessedAt     DateTime  @default(now())
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  entry JournalEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entry Card? @relation(fields: [entryId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([entryId, sourceKind])
   @@index([status, updatedAt])
   @@index([sourceKind, lastAccessedAt])
-  @@map("journal_speech_assets")
+  @@map("card_speech_assets")
+}
+
+model CardCollection {
+  id             String   @id @default(cuid())
+  userId         String
+  name           String
+  normalizedName String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards Card[]
+
+  @@unique([userId, normalizedName])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("card_collections")
+}
+
+model CardEmbedding {
+  id           String                      @id @default(cuid())
+  userId       String
+  cardId       String
+  provider     String
+  model        String
+  modelVersion String
+  dimensions   Int
+  inputHash    String
+  embedding    Unsupported("vector(1536)")
+  createdAt    DateTime                    @default(now())
+  updatedAt    DateTime                    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, modelVersion])
+  @@index([userId, modelVersion])
+  @@map("card_embeddings")
+}
+
+model Phrase {
+  id                String   @id @default(cuid())
+  userId            String
+  languageCode      String
+  canonicalText     String
+  canonicalKey      String
+  status            String   @default("pending_normalization")
+  normalizerVersion String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variants    PhraseVariant[]
+  occurrences PhraseOccurrence[]
+  recallEdges RecallSessionEdge[]
+
+  @@unique([userId, languageCode, canonicalKey])
+  @@index([userId, languageCode, status])
+  @@map("phrases")
+}
+
+model PhraseVariant {
+  id                String   @id @default(cuid())
+  phraseId          String
+  userId            String
+  languageCode      String
+  surfaceText       String
+  normalizedText    String
+  source            String
+  normalizerVersion String
+  createdAt         DateTime @default(now())
+
+  phrase Phrase @relation(fields: [phraseId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([phraseId, normalizedText])
+  @@index([userId, languageCode, normalizedText])
+  @@map("phrase_variants")
+}
+
+model PhraseOccurrence {
+  id            String   @id @default(cuid())
+  phraseId      String
+  userId        String
+  cardId        String
+  cardCreatedAt DateTime
+  sourceField   String
+  segmentId     String?
+  segmentKey    String   @default("")
+  startUtf16    Int
+  endUtf16      Int
+  surfaceText   String
+  matchType     String
+  clozeBlankId  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  phrase Phrase @relation(fields: [phraseId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([phraseId, cardId, sourceField, segmentKey, startUtf16, endUtf16])
+  @@index([phraseId, cardId])
+  @@index([userId, cardId, sourceField, phraseId])
+  @@index([userId, phraseId, sourceField, cardCreatedAt])
+  @@map("phrase_occurrences")
+}
+
+model CardEnrichmentJob {
+  id             String    @id @default(cuid())
+  userId         String
+  sourceKind     String
+  sourceId       String
+  jobType        String
+  status         String    @default("queued")
+  attempts       Int       @default(0)
+  availableAt    DateTime  @default(now())
+  processingAt   DateTime?
+  leaseExpiresAt DateTime?
+  workerId       String?
+  inputHash      String
+  inputVersion   String
+  payload        Json?
+  lastError      String?
+  completedAt    DateTime?
+  failedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceKind, sourceId, jobType, inputVersion])
+  @@index([status, availableAt, leaseExpiresAt, createdAt])
+  @@index([userId, sourceKind, sourceId, createdAt])
+  @@map("card_enrichment_jobs")
+}
+
+model RecallSession {
+  id            String    @id @default(cuid())
+  userId        String
+  seedCardId    String
+  launchMode    String
+  launchContext Json?
+  status        String    @default("active")
+  lastOpenedAt  DateTime  @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seedCard Card                @relation("RecallSeedCard", fields: [seedCardId], references: [id], onDelete: Cascade)
+  nodes    RecallSessionNode[]
+  edges    RecallSessionEdge[]
+
+  @@index([userId, status, updatedAt(sort: Desc)])
+  @@map("recall_sessions")
+}
+
+model RecallSessionNode {
+  id          String    @id @default(cuid())
+  sessionId   String
+  cardId      String
+  state       String    @default("unvisited")
+  ordinal     Int
+  openedAt    DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  session       RecallSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  card          Card                @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  outgoingEdges RecallSessionEdge[] @relation("RecallEdgeFrom")
+  incomingEdges RecallSessionEdge[] @relation("RecallEdgeTo")
+
+  @@unique([sessionId, cardId])
+  @@unique([sessionId, ordinal])
+  @@index([sessionId, state])
+  @@map("recall_session_nodes")
+}
+
+model RecallSessionEdge {
+  id           String   @id @default(cuid())
+  sessionId    String
+  fromNodeId   String
+  toNodeId     String
+  relationKey  String
+  relationType String
+  phraseId     String?
+  reasons      Json
+  isDirected   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  session  RecallSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  fromNode RecallSessionNode @relation("RecallEdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode   RecallSessionNode @relation("RecallEdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+  phrase   Phrase?           @relation(fields: [phraseId], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, fromNodeId, toNodeId, relationKey])
+  @@index([sessionId, fromNodeId])
+  @@index([sessionId, toNodeId])
+  @@index([phraseId])
+  @@map("recall_session_edges")
 }
 
 model UserPreference {
@@ -483,6 +668,8 @@ model Entitlement {
   dateKey         String
   dailyTotalLimit Int
   usedTotalChars  Int      @default(0)
+  imageLimit      Int      @default(0)
+  usedImages      Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

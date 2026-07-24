@@ -2,7 +2,11 @@
 
 export * from "./PrismaUserRepository.js";
 export * from "./PrismaUserProfileRepository.js";
-export * from "./PrismaJournalRepository.js";
+export * from "./PrismaCardRepository.js";
+export * from "./PrismaCardEnrichmentRepository.js";
+export * from "./PrismaCardRelationRepository.js";
+export * from "./PrismaCardCollectionRepository.js";
+export * from "./PrismaRecallRepository.js";
 export * from "./PrismaUserPreferenceRepository.js";
 export * from "./PrismaUserSessionRepository.js";
 export * from "./PrismaConversationRepository.js";

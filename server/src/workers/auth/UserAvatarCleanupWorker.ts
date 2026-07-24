@@ -1,5 +1,5 @@
 import type { UserProfileRepository } from "@lf/core/ports/repository/UserProfileRepository.js";
-import type { JournalImageStorageProvider } from "../../providers/storage/JournalImageStorageProvider.js";
+import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
 
 export class UserAvatarCleanupWorker {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -7,7 +7,7 @@ export class UserAvatarCleanupWorker {
 
   constructor(
     private readonly repository: UserProfileRepository,
-    private readonly storage: JournalImageStorageProvider,
+    private readonly storage: CardImageStorageProvider,
     private readonly options: { intervalMs?: number; batchSize?: number } = {},
   ) {}
 

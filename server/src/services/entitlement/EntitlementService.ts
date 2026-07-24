@@ -36,9 +36,13 @@ export interface CurrentEntitlementView {
   remainingChars: number;
   quotas: {
     aiDailyChars: number;
+    cloudImages: number;
+    usedCloudImages: number;
+    remainingCloudImages: number;
   };
   features: {
     cloudSync: boolean;
+    conversationHistorySync: boolean;
     highQualityTts: boolean;
   };
 }
@@ -52,14 +56,13 @@ export class EntitlementService {
   // 严格检查额度够不够
   async assertCanUse(userId: string, requestedChars: number, options?: { dateKey?: string }): Promise<void> {
     const quota = await this.resolveQuota(userId, options);
-    // Pro 仍按自然日额度；免费用户复用一条固定 free_trial 记录作为总额度池。
+    // 会员按自然日额度；免费用户复用一条固定记录作为永久总额度池。
     const entitlement = await this.entitlementRepository.ensureDaily({
       userId,
       dateKey: quota.dateKey,
       dailyTotalLimit: quota.totalLimit,
+      imageLimit: quota.imageLimit,
     });
-    // 免费额度有效期从该额度记录首次创建时间开始计算，避免每次查询/使用都重新续期。
-    this.assertQuotaNotExpired(quota, entitlement.createdAt);
 
     const remainingChars = entitlement.dailyTotalLimit - entitlement.usedTotalChars;
     if (requestedChars > remainingChars) {
@@ -74,14 +77,13 @@ export class EntitlementService {
   // 宽松检查，额度不够的时候，允许最后一次发送
   async assertCanStartGeneration(userId: string, options?: { dateKey?: string }): Promise<void> {
     const quota = await this.resolveQuota(userId, options);
-    // Pro 仍按自然日额度；免费用户复用一条固定 free_trial 记录作为总额度池。
+    // 会员按自然日额度；免费用户复用一条固定记录作为永久总额度池。
     const entitlement = await this.entitlementRepository.ensureDaily({
       userId,
       dateKey: quota.dateKey,
       dailyTotalLimit: quota.totalLimit,
+      imageLimit: quota.imageLimit,
     });
-    // 免费额度有效期从该额度记录首次创建时间开始计算，避免每次查询/使用都重新续期。
-    this.assertQuotaNotExpired(quota, entitlement.createdAt);
 
     const remainingChars = entitlement.dailyTotalLimit - entitlement.usedTotalChars;
     if (remainingChars <= 0) {
@@ -98,13 +100,12 @@ export class EntitlementService {
 
     const quota = await this.resolveQuota(userId, options);
 
-    // 先确保额度记录存在，再基于记录 createdAt 判断免费试用是否过期。
-    const ensured = await this.entitlementRepository.ensureDaily({
+    await this.entitlementRepository.ensureDaily({
       userId,
       dateKey: quota.dateKey,
       dailyTotalLimit: quota.totalLimit,
+      imageLimit: quota.imageLimit,
     });
-    this.assertQuotaNotExpired(quota, ensured.createdAt);
 
     const entitlement = await this.entitlementRepository.tryConsumeDaily({
       userId,
@@ -117,6 +118,7 @@ export class EntitlementService {
         userId,
         dateKey: quota.dateKey,
         dailyTotalLimit: quota.totalLimit,
+        imageLimit: quota.imageLimit,
       });
       const remainingChars = latest.dailyTotalLimit - latest.usedTotalChars;
 
@@ -132,12 +134,12 @@ export class EntitlementService {
     if (chars <= 0) return;
 
     const quota = await this.resolveQuota(userId, options);
-    const ensured = await this.entitlementRepository.ensureDaily({
+    await this.entitlementRepository.ensureDaily({
       userId,
       dateKey: quota.dateKey,
       dailyTotalLimit: quota.totalLimit,
+      imageLimit: quota.imageLimit,
     });
-    this.assertQuotaNotExpired(quota, ensured.createdAt);
 
     // 已经发起的生成要保证完整返回；这里最多把额度扣到上限，不让 usedTotalChars 超过 dailyTotalLimit。
     await this.entitlementRepository.consumeDailyUpToLimit({
@@ -154,9 +156,8 @@ export class EntitlementService {
       userId,
       dateKey: quota.dateKey,
       dailyTotalLimit: quota.totalLimit,
+      imageLimit: quota.imageLimit,
     });
-    const validUntil = this.resolveValidUntil(quota, entitlement.createdAt);
-    const isExpired = validUntil !== null && validUntil.getTime() <= Date.now();
     const remainingChars = entitlement.dailyTotalLimit - entitlement.usedTotalChars;
 
     return {
@@ -169,11 +170,14 @@ export class EntitlementService {
       expiresAt: subscription.expiresAt?.toISOString() ?? null,
       dateKey: quota.dateKey,
       dailyTotalLimit: entitlement.dailyTotalLimit,
-      validUntil: validUntil?.toISOString() ?? null,
+      validUntil: null,
       usedTotalChars: entitlement.usedTotalChars,
-      remainingChars: isExpired ? 0 : Math.max(0, remainingChars),
+      remainingChars: Math.max(0, remainingChars),
       quotas: {
         aiDailyChars: entitlement.dailyTotalLimit,
+        cloudImages: entitlement.imageLimit,
+        usedCloudImages: entitlement.usedImages,
+        remainingCloudImages: Math.max(0, entitlement.imageLimit - entitlement.usedImages),
       },
       features: featuresForTier(subscription.tier),
     };
@@ -203,41 +207,36 @@ export class EntitlementService {
       return {
         dateKey: preferredDateKey ?? this.currentDateKey(),
         totalLimit: tier === "plus" ? config.plusDailyTotalLimit : config.proDailyTotalLimit,
-        validDays: null,
+        imageLimit: imageLimitForTier(tier),
       };
     }
 
-    // 免费用户不是每日恢复，而是一个总试用额度池：free_trial + 总额度 + 有效天数。
+    // 免费用户不是每日恢复，而是一个永久的一次性欢迎额度池。
     return {
       dateKey: FREE_TRIAL_DATE_KEY,
       totalLimit: config.freeTrialTotalLimit,
-      validDays: config.freeTrialValidDays,
+      imageLimit: imageLimitForTier(tier),
     };
-  }
-
-  private assertQuotaNotExpired(quota: QuotaWindow, entitlementCreatedAt: Date): void {
-    const validUntil = this.resolveValidUntil(quota, entitlementCreatedAt);
-    if (!validUntil || validUntil.getTime() > Date.now()) return;
-    throw new DailyQuotaExceededError({
-      remainingChars: 0,
-      totalLimit: quota.totalLimit,
-      usedTotalChars: quota.totalLimit,
-    });
-  }
-
-  private resolveValidUntil(quota: QuotaWindow, entitlementCreatedAt: Date): Date | null {
-    if (!quota.validDays) return null;
-    // 免费试用有效期以首次创建 free_trial entitlement 的时间为起点。
-    return new Date(entitlementCreatedAt.getTime() + quota.validDays * 24 * 60 * 60 * 1000);
   }
 }
 
 function featuresForTier(tier: MembershipTier): CurrentEntitlementView["features"] {
   const features = getRuntimeConfig().membershipFeatures;
+  const conversationHistorySync = features.conversationHistorySync.includes(tier);
   return {
-    cloudSync: features.cloudSync.includes(tier),
+    // Keep the legacy field aligned with its original chat-history meaning.
+    // Card cloud storage is available to every signed-in user and does not use this flag.
+    cloudSync: conversationHistorySync,
+    conversationHistorySync,
     highQualityTts: features.highQualityTts.includes(tier),
   };
+}
+
+function imageLimitForTier(tier: MembershipTier): number {
+  const config = getRuntimeConfig();
+  if (tier === "pro") return config.proDailyImageLimit;
+  if (tier === "plus") return config.plusDailyImageLimit;
+  return config.freeTotalImageLimit;
 }
 
 // 历史表结构仍叫 dailyTotalLimit/dateKey；这里用固定 dateKey 表示“免费试用总额度”。
@@ -246,5 +245,5 @@ const FREE_TRIAL_DATE_KEY = "free_trial";
 type QuotaWindow = {
   dateKey: string;
   totalLimit: number;
-  validDays: number | null;
+  imageLimit: number;
 };

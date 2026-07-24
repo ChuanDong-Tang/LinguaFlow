@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { TtsSourceKey } from "@lf/core/ports/repository/TtsAssetRepository.js";
 import type { TtsService } from "@lf/server/services/tts/TtsService.js";
-import type { JournalSpeechService } from "@lf/server/services/journal/JournalSpeechService.js";
+import type { CardSpeechService } from "@lf/server/services/card/CardSpeechService.js";
 import {
-  JournalSpeechGenerationInProgressError,
-  JournalSpeechProRequiredError,
-} from "@lf/server/services/journal/JournalSpeechService.js";
-import { JournalNotFoundError, JournalValidationError } from "@lf/server/services/journal/JournalService.js";
+  CardSpeechGenerationInProgressError,
+  CardSpeechProRequiredError,
+} from "@lf/server/services/card/CardSpeechService.js";
+import { CardNotFoundError, CardValidationError } from "@lf/server/services/card/CardService.js";
 import type { ChatGenerationRateLimiter } from "@lf/server/services/chat/ChatGenerationRateLimiter.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import {
@@ -28,7 +28,7 @@ import { writeSystemEventLog } from "../lib/systemEventLog.js";
 
 export interface TtsRouteDeps {
   ttsService: TtsService;
-  journalSpeechService: JournalSpeechService;
+  cardSpeechService: CardSpeechService;
   rateLimiter?: ChatGenerationRateLimiter;
   userRepository: {
     findById: (userId: string) => Promise<{
@@ -242,7 +242,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
 
   app.get("/tts/messages/:messageId", handleTtsMessageRequest);
   app.post("/tts/messages/:messageId", handleTtsMessageRequest);
-  app.get("/tts/journal/:entryId/segments/:segmentId", async (req, reply) => {
+  app.get("/tts/cards/:entryId/segments/:segmentId", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
     let userId: string;
@@ -267,7 +267,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       return reply.status(429).send({ ok: false, request_id: requestId, error: { code: rateLimitResult.code, message: "发音请求过于频繁，请稍后再试" } });
     }
     try {
-      const data = await deps.journalSpeechService.getOrCreateSegment({
+      const data = await deps.cardSpeechService.getOrCreateSegment({
         userId,
         entryId: String(params.entryId ?? ""),
         segmentId: String(params.segmentId ?? ""),
@@ -277,23 +277,23 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
-      if (error instanceof JournalSpeechProRequiredError) {
+      if (error instanceof CardSpeechProRequiredError) {
         return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "需要 Plus 或 Pro 才能使用高质量发音" } });
       }
-      if (error instanceof JournalNotFoundError) {
+      if (error instanceof CardNotFoundError) {
         return reply.status(404).send({ ok: false, request_id: requestId, error: { code: error.code, message: "记录不存在" } });
       }
-      if (error instanceof JournalValidationError) {
+      if (error instanceof CardValidationError) {
         return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
       }
-      if (error instanceof JournalSpeechGenerationInProgressError) {
+      if (error instanceof CardSpeechGenerationInProgressError) {
         return reply.status(202).send({ ok: false, request_id: requestId, error: { code: error.code, message: "发音仍在生成，请稍后重试" } });
       }
       throw error;
     }
   });
 
-  app.post("/tts/journal/:entryId/selection", async (req, reply) => {
+  app.post("/tts/cards/:entryId/selection", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
     let userId: string;
@@ -318,7 +318,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       endUtf16?: unknown;
     } | null;
     try {
-      const data = await deps.journalSpeechService.getOrCreateSelection({
+      const data = await deps.cardSpeechService.getOrCreateSelection({
         userId,
         entryId: String(params.entryId ?? ""),
         segmentId: String(body?.segmentId ?? ""),
@@ -327,10 +327,10 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
-      if (error instanceof JournalSpeechProRequiredError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "需要 Plus 或 Pro 才能使用高质量发音" } });
-      if (error instanceof JournalNotFoundError) return reply.status(404).send({ ok: false, request_id: requestId, error: { code: error.code, message: "记录不存在" } });
-      if (error instanceof JournalValidationError) return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
-      if (error instanceof JournalSpeechGenerationInProgressError) return reply.status(202).send({ ok: false, request_id: requestId, error: { code: error.code, message: "发音仍在生成，请稍后重试" } });
+      if (error instanceof CardSpeechProRequiredError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "需要 Plus 或 Pro 才能使用高质量发音" } });
+      if (error instanceof CardNotFoundError) return reply.status(404).send({ ok: false, request_id: requestId, error: { code: error.code, message: "记录不存在" } });
+      if (error instanceof CardValidationError) return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      if (error instanceof CardSpeechGenerationInProgressError) return reply.status(202).send({ ok: false, request_id: requestId, error: { code: error.code, message: "发音仍在生成，请稍后重试" } });
       throw error;
     }
   });

@@ -4,7 +4,7 @@ import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemE
 import type { UserBindingsView, UserProfileView } from "@lf/core/types/profile.js";
 import type { TencentTmsClient } from "../contentSafety/TencentTmsClient.js";
 import { generateDefaultProfileNickname } from "./profileNickname.js";
-import type { JournalImageStorageProvider } from "../../providers/storage/JournalImageStorageProvider.js";
+import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
 
 export class InvalidProfileNicknameError extends Error {
   readonly code = "PROFILE_NICKNAME_INVALID";
@@ -23,7 +23,7 @@ export class UserProfileService {
     private readonly repository: UserProfileRepository,
     private readonly tmsClient?: TencentTmsClient,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
-    private readonly avatarStorage?: JournalImageStorageProvider,
+    private readonly avatarStorage?: CardImageStorageProvider,
   ) {}
 
   async getProfile(userId: string): Promise<UserProfileView> {

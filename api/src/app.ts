@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { MockAuthProvider } from "@lf/core/ports/auth/MockAuthProvider.js";
 import { PrismaUserRepository } from "@lf/server/infrastructure/repository/PrismaUserRepository.js";
 import { PrismaUserProfileRepository } from "@lf/server/infrastructure/repository/PrismaUserProfileRepository.js";
-import { PrismaJournalRepository } from "@lf/server/infrastructure/repository/PrismaJournalRepository.js";
+import { PrismaCardRepository } from "@lf/server/infrastructure/repository/PrismaCardRepository.js";
 import { PrismaUserPreferenceRepository } from "@lf/server/infrastructure/repository/PrismaUserPreferenceRepository.js";
 import { PrismaUserSessionRepository } from "@lf/server/infrastructure/repository/PrismaUserSessionRepository.js";
 import { PrismaTtsAssetRepository } from "@lf/server/infrastructure/repository/PrismaTtsAssetRepository.js";
@@ -14,12 +14,19 @@ import { AccountDeletionService } from "@lf/server/services/auth/AccountDeletion
 import { AccountEmailBindingService } from "@lf/server/services/auth/AccountEmailBindingService.js";
 import { UserProfileService } from "@lf/server/services/auth/UserProfileService.js";
 import { UserAvatarService } from "@lf/server/services/auth/UserAvatarService.js";
-import { JournalService } from "@lf/server/services/journal/JournalService.js";
-import { JournalSpeechService } from "@lf/server/services/journal/JournalSpeechService.js";
-import { JournalImageService } from "@lf/server/services/journal/JournalImageService.js";
-import { JournalImageStorageProvider } from "@lf/server/providers/storage/JournalImageStorageProvider.js";
+import { CardService } from "@lf/server/services/card/CardService.js";
+import { CardSpeechService } from "@lf/server/services/card/CardSpeechService.js";
+import { CardImageService } from "@lf/server/services/card/CardImageService.js";
+import { AzureEmbeddingProvider } from "@lf/server/providers/ai/AzureEmbeddingProvider.js";
+import { PrismaCardRelationRepository } from "@lf/server/infrastructure/repository/PrismaCardRelationRepository.js";
+import { CardRelationService } from "@lf/server/services/card/CardRelationService.js";
+import { PrismaCardCollectionRepository } from "@lf/server/infrastructure/repository/PrismaCardCollectionRepository.js";
+import { CardCollectionService } from "@lf/server/services/card/CardCollectionService.js";
+import { PrismaRecallRepository } from "@lf/server/infrastructure/repository/PrismaRecallRepository.js";
+import { RecallService } from "@lf/server/services/card/RecallService.js";
+import { CardImageStorageProvider } from "@lf/server/providers/storage/CardImageStorageProvider.js";
 import { TencentImsClient } from "@lf/server/services/contentSafety/TencentImsClient.js";
-import { registerJournalRoutes } from "./journal/routes.js";
+import { registerCardRoutes } from "./card/routes.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
 import { createAIProvider } from "@lf/server/providers/ai/createAIProvider.js";
@@ -129,7 +136,7 @@ export function createApp() {
   const authProvider = new MockAuthProvider();
   const userRepository = new PrismaUserRepository(prisma);
   const userProfileRepository = new PrismaUserProfileRepository(prisma);
-  const journalRepository = new PrismaJournalRepository(prisma);
+  const cardRepository = new PrismaCardRepository(prisma);
   const userPreferenceRepository = new PrismaUserPreferenceRepository(prisma);
   const userSessionRepository = new PrismaUserSessionRepository(prisma);
   const ttsAssetRepository = new PrismaTtsAssetRepository(prisma);
@@ -140,6 +147,29 @@ export function createApp() {
   const accountEmailBindingService = new AccountEmailBindingService(userRepository);
   const runtimeConfig = getRuntimeConfig();
   const aiProvider = createAIProvider(runtimeConfig);
+  const embeddingConfigValues = [
+    runtimeConfig.azureEmbeddingEndpoint,
+    runtimeConfig.azureEmbeddingApiKey,
+    runtimeConfig.azureEmbeddingDeployment,
+  ];
+  const hasAnyEmbeddingConfig = embeddingConfigValues.some(Boolean);
+  const hasCompleteEmbeddingConfig = embeddingConfigValues.every(Boolean);
+  if (hasAnyEmbeddingConfig && !hasCompleteEmbeddingConfig) throw new Error("AZURE_EMBEDDING_CONFIG_INCOMPLETE");
+  if (runtimeConfig.isProduction && runtimeConfig.cardEnabled && !hasCompleteEmbeddingConfig) {
+    throw new Error("AZURE_EMBEDDING_CONFIG_REQUIRED");
+  }
+  const embeddingProvider = hasCompleteEmbeddingConfig
+    ? new AzureEmbeddingProvider({
+        endpoint: runtimeConfig.azureEmbeddingEndpoint!,
+        apiKey: runtimeConfig.azureEmbeddingApiKey!,
+        deployment: runtimeConfig.azureEmbeddingDeployment!,
+        apiVersion: runtimeConfig.azureEmbeddingApiVersion,
+        model: runtimeConfig.azureEmbeddingModel,
+        dimensions: runtimeConfig.azureEmbeddingDimensions,
+        timeoutMs: runtimeConfig.azureEmbeddingTimeoutMs,
+      })
+    : undefined;
+  const cardRelationRepository = new PrismaCardRelationRepository(prisma);
   const conversationRepository = new PrismaConversationRepository(prisma);
   const messageRepository = new PrismaMessageRepository(prisma);
   const chatMessageService = new ChatMessageService(conversationRepository, messageRepository);
@@ -150,6 +180,12 @@ export function createApp() {
   const chatGenerationRateLimiter = redisClient
     ? new RedisChatGenerationRateLimiter(redisClient)
     : new InMemoryChatGenerationRateLimiter();
+  if (runtimeConfig.requireRedis) {
+    app.addHook("onReady", async () => {
+      const pong = await redisClient!.ping();
+      if (pong !== "PONG") throw new Error("REDIS_STARTUP_CHECK_FAILED");
+    });
+  }
   const entitlementRepository = new PrismaEntitlementRepository(prisma);
   const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
   const subscriptionService = new SubscriptionService(subscriptionRepository);
@@ -186,7 +222,7 @@ export function createApp() {
         timeoutMs: Number(process.env.TENCENT_IMS_TIMEOUT_MS ?? 8_000),
       })
     : undefined;
-  const imageStorageProvider = new JournalImageStorageProvider();
+  const imageStorageProvider = new CardImageStorageProvider();
   const userProfileService = new UserProfileService(
     userProfileRepository,
     tencentTmsClient,
@@ -199,11 +235,20 @@ export function createApp() {
     tencentImsClient,
     systemEventLogRepository,
   );
-  const journalImageService = new JournalImageService(
-    journalRepository,
+  const cardImageService = new CardImageService(
+    cardRepository,
     imageStorageProvider,
     tencentImsClient,
     systemEventLogRepository,
+    entitlementService,
+  );
+  const cardRelationService = new CardRelationService(
+    cardRelationRepository,
+    {
+      modelVersion: embeddingProvider?.modelVersion ?? null,
+      minTopicSimilarity: runtimeConfig.relatedTopicMinSimilarity,
+    },
+    cardImageService,
   );
   const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
   const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
@@ -278,18 +323,19 @@ export function createApp() {
     conversationRepository,
     userPreferenceRepository,
     contentSafetyService,
-    journalRepository,
+    cardRepository,
   );
-  const journalService = new JournalService(
-    journalRepository,
+  const cardService = new CardService(
+    cardRepository,
     userPreferenceRepository,
     entitlementService,
     chatGenerationTaskGuard,
     runtimeConfig.chatGenerationTaskTtlMs,
     contentSafetyService,
-    messageRepository,
-    journalImageService,
+    cardImageService,
   );
+  const cardCollectionService = new CardCollectionService(new PrismaCardCollectionRepository(prisma));
+  const recallService = new RecallService(new PrismaRecallRepository(prisma), cardRelationService, embeddingProvider);
   const ttsProvider = new AzureGlobalTtsProvider();
   const ttsStorageProvider = new CosStorageProvider();
   const ttsService = new TtsService(
@@ -302,8 +348,8 @@ export function createApp() {
     ttsRequestLogRepository,
     redisClient
   );
-  const journalSpeechService = new JournalSpeechService(
-    journalRepository,
+  const cardSpeechService = new CardSpeechService(
+    cardRepository,
     userPreferenceRepository,
     entitlementService,
     ttsProvider,
@@ -337,10 +383,13 @@ export function createApp() {
       entitlementService,
       rateLimiter: chatGenerationRateLimiter,
     });
-    registerJournalRoutes(app, {
-      journalService,
-      journalImageService,
-      journalEnabled: runtimeConfig.journalEnabled,
+    registerCardRoutes(app, {
+      cardService,
+      cardImageService,
+      cardCollectionService,
+      recallService,
+      cardRelationService,
+      cardEnabled: runtimeConfig.cardEnabled,
       rateLimiter: chatGenerationRateLimiter,
       userRepository,
       systemEventLogRepository,
@@ -367,7 +416,7 @@ export function createApp() {
     });
     registerTtsRoutes(app, {
       ttsService,
-      journalSpeechService,
+      cardSpeechService,
       rateLimiter: chatGenerationRateLimiter,
       userRepository,
       systemEventLogRepository,

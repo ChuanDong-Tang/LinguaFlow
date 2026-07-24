@@ -8,6 +8,7 @@ import type {
   UserPreferenceEntity,
   UserPreferenceRepository,
 } from "@lf/core/ports/repository/UserPreferenceRepository.js";
+import { targetLanguageOrDefault } from "@lf/core/language/targetLanguages.js";
 
 const DEFAULT_PREFERENCE: Pick<
   UserPreferenceEntity,
@@ -115,7 +116,7 @@ function normalizeAppLocale(value: string): AppLocale {
 }
 
 function normalizeLearningLanguage(value: string): LearningLanguage {
-  return value === "ja-JP" ? "ja-JP" : "en-US";
+  return targetLanguageOrDefault(value);
 }
 
 function normalizeTtsProvider(value: string): TtsProviderCode {

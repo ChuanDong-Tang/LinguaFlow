@@ -1,4 +1,10 @@
-export type LearningTextLanguage = "en-US" | "ja-JP";
+import {
+  getTargetLanguageProfile,
+  targetLanguageOrDefault,
+  type TargetLanguageCode,
+} from "../language/targetLanguages.js";
+
+export type LearningTextLanguage = TargetLanguageCode;
 
 export type NormalizeLearningTextInput = {
   text: string;
@@ -18,15 +24,11 @@ export type SegmentLearningSentencesInput = {
   maxSegmentChars?: number;
 };
 
-const DEFAULT_THRESHOLDS: Record<LearningTextLanguage, { min: number; max: number }> = {
-  "en-US": { min: 24, max: 180 },
-  "ja-JP": { min: 12, max: 120 },
-};
-
 export function normalizeLearningText(input: NormalizeLearningTextInput): string {
   const language = normalizeLearningLanguage(input.languageCode);
+  const profile = getTargetLanguageProfile(language);
   let text = stripLearningMarkup(input.text);
-  if (language === "ja-JP") {
+  if (profile.text.compactLineBreaks) {
     text = text.replace(/\r?\n+/g, "");
     text = text.replace(/[ \t\f\v]+/g, " ");
     return text.trim();
@@ -38,9 +40,9 @@ export function normalizeLearningText(input: NormalizeLearningTextInput): string
 
 export function segmentLearningSentences(input: SegmentLearningSentencesInput): LearningSentenceSegment[] {
   const language = normalizeLearningLanguage(input.languageCode);
-  const thresholds = DEFAULT_THRESHOLDS[language];
-  const minSegmentChars = Math.max(1, Math.floor(input.minSegmentChars ?? thresholds.min));
-  const maxSegmentChars = Math.max(minSegmentChars, Math.floor(input.maxSegmentChars ?? thresholds.max));
+  const profile = getTargetLanguageProfile(language);
+  const minSegmentChars = Math.max(1, Math.floor(input.minSegmentChars ?? profile.text.minSegmentChars));
+  const maxSegmentChars = Math.max(minSegmentChars, Math.floor(input.maxSegmentChars ?? profile.text.maxSegmentChars));
   const sourceText = input.text;
   const natural = splitByNaturalBoundaries(sourceText, language, maxSegmentChars);
   const merged = mergeShortSegments(natural, minSegmentChars, maxSegmentChars);
@@ -48,7 +50,7 @@ export function segmentLearningSentences(input: SegmentLearningSentencesInput): 
 }
 
 export function normalizeLearningLanguage(languageCode?: string | null): LearningTextLanguage {
-  return languageCode === "ja-JP" ? "ja-JP" : "en-US";
+  return targetLanguageOrDefault(languageCode);
 }
 
 function stripLearningMarkup(text: string): string {
@@ -68,7 +70,7 @@ function splitByNaturalBoundaries(
   language: LearningTextLanguage,
   maxSegmentChars: number
 ): LearningSentenceSegment[] {
-  const primary = language === "ja-JP" ? /[。！？!?]+/g : /[.!?;]+/g;
+  const primary = cloneGlobalRegExp(getTargetLanguageProfile(language).text.primaryBoundary);
   const segments: LearningSentenceSegment[] = [];
   let start = 0;
   for (const match of text.matchAll(primary)) {
@@ -112,7 +114,8 @@ function findSplitIndex(
   maxSegmentChars: number
 ): number {
   const target = Math.min(end, start + maxSegmentChars);
-  const secondary = language === "ja-JP" ? /[、，,]/g : /[,，:：]/g;
+  const profile = getTargetLanguageProfile(language);
+  const secondary = cloneGlobalRegExp(profile.text.secondaryBoundary);
   let best = -1;
   const slice = text.slice(start, target);
   for (const match of slice.matchAll(secondary)) {
@@ -120,11 +123,15 @@ function findSplitIndex(
   }
   if (best > start) return best;
 
-  if (language === "en-US") {
+  if (profile.text.preferSpaceSplit) {
     const space = text.lastIndexOf(" ", target);
     if (space > start) return space + 1;
   }
   return target;
+}
+
+function cloneGlobalRegExp(value: RegExp): RegExp {
+  return new RegExp(value.source, value.flags.includes("g") ? value.flags : `${value.flags}g`);
 }
 
 function mergeShortSegments(

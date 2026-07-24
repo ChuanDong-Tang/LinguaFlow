@@ -3,13 +3,13 @@ import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { TtsStorageProvider } from "../../services/tts/TtsStorageProvider.js";
 import type { GooglePlayBillingService } from "../../providers/payment/google/GooglePlayBillingService.js";
-import type { JournalImageStorageProvider } from "../../providers/storage/JournalImageStorageProvider.js";
+import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
 
 export interface AccountDeletionCleanupWorkerOptions {
   intervalMs?: number;
   batchSize?: number;
   googlePlayBillingService?: GooglePlayBillingService;
-  imageStorageProvider?: JournalImageStorageProvider;
+  imageStorageProvider?: CardImageStorageProvider;
 }
 
 export class AccountDeletionCleanupWorker {
@@ -122,11 +122,11 @@ export class AccountDeletionCleanupWorker {
       where: { userId, status: "ready" },
       select: { objectKey: true },
     });
-    const journalSpeechObjectKeys = await this.prisma.journalSpeechAsset.findMany({
+    const cardSpeechObjectKeys = await this.prisma.cardSpeechAsset.findMany({
       where: { userId },
       select: { objectKey: true },
     });
-    const journalImages = await this.prisma.journalImageAsset.findMany({
+    const cardImages = await this.prisma.cardImageAsset.findMany({
       where: { userId },
       select: { originalObjectKey: true, uploadObjectKey: true, thumbnailObjectKey: true },
     });
@@ -135,14 +135,14 @@ export class AccountDeletionCleanupWorker {
       select: { originalObjectKey: true, uploadObjectKey: true, profileObjectKey: true, thumbnailObjectKey: true },
     });
     if (this.ttsStorageProvider) {
-      for (const row of [...ttsObjectKeys, ...journalSpeechObjectKeys]) {
+      for (const row of [...ttsObjectKeys, ...cardSpeechObjectKeys]) {
         if (!row.objectKey) continue;
         await this.ttsStorageProvider.deleteObject(row.objectKey);
       }
     }
     if (this.options.imageStorageProvider) {
       const imageKeys = new Set([
-        ...journalImages.flatMap((row) => [row.originalObjectKey, row.uploadObjectKey, row.thumbnailObjectKey]),
+        ...cardImages.flatMap((row) => [row.originalObjectKey, row.uploadObjectKey, row.thumbnailObjectKey]),
         ...avatars.flatMap((row) => [row.originalObjectKey, row.uploadObjectKey, row.profileObjectKey, row.thumbnailObjectKey]),
       ].filter((key): key is string => Boolean(key)));
       for (const key of imageKeys) await this.options.imageStorageProvider.delete(key);
@@ -160,11 +160,15 @@ export class AccountDeletionCleanupWorker {
       await tx.entitlement.deleteMany({ where: { userId } });
       await tx.ttsRequestLog.deleteMany({ where: { userId } });
       await tx.ttsAsset.deleteMany({ where: { userId } });
-      await tx.journalSpeechAsset.deleteMany({ where: { userId } });
-      await tx.journalPracticeState.deleteMany({ where: { userId } });
-      await tx.journalLegacyHidden.deleteMany({ where: { userId } });
-      await tx.journalImageAsset.deleteMany({ where: { userId } });
-      await tx.journalEntry.deleteMany({ where: { userId } });
+      await tx.cardSpeechAsset.deleteMany({ where: { userId } });
+      await tx.cardPracticeState.deleteMany({ where: { userId } });
+      await tx.cardImageAsset.deleteMany({ where: { userId } });
+      await tx.recallSession.deleteMany({ where: { userId } });
+      await tx.cardEnrichmentJob.deleteMany({ where: { userId } });
+      await tx.cardEmbedding.deleteMany({ where: { userId } });
+      await tx.phrase.deleteMany({ where: { userId } });
+      await tx.cardCollection.deleteMany({ where: { userId } });
+      await tx.card.deleteMany({ where: { userId } });
       await tx.userProfile.deleteMany({ where: { userId } });
       await tx.userAvatarAsset.deleteMany({ where: { userId } });
       await tx.message.deleteMany({ where: { userId } });
@@ -192,10 +196,10 @@ export class AccountDeletionCleanupWorker {
       status: "success",
       userId,
       metadata: {
-        ttsCosObjectsDeleted: this.ttsStorageProvider ? ttsObjectKeys.length + journalSpeechObjectKeys.length : 0,
+        ttsCosObjectsDeleted: this.ttsStorageProvider ? ttsObjectKeys.length + cardSpeechObjectKeys.length : 0,
         ttsCosCleanupSkipped: !this.ttsStorageProvider,
         imageCosObjectsDeleted: this.options.imageStorageProvider
-          ? journalImages.length + avatars.length
+          ? cardImages.length + avatars.length
           : 0,
         imageCosCleanupSkipped: !this.options.imageStorageProvider,
         googlePlayRenewalsStopped,

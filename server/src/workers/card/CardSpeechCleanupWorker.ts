@@ -1,12 +1,12 @@
-import type { JournalRepository } from "@lf/core/ports/repository/JournalRepository.js";
+import type { CardRepository } from "@lf/core/ports/repository/CardRepository.js";
 import type { TtsStorageProvider } from "../../services/tts/TtsStorageProvider.js";
 
-export class JournalSpeechCleanupWorker {
+export class CardSpeechCleanupWorker {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
   constructor(
-    private readonly repository: JournalRepository,
+    private readonly repository: CardRepository,
     private readonly storage: TtsStorageProvider,
     private readonly options: { intervalMs?: number; batchSize?: number; dictionaryRetentionMs?: number } = {},
   ) {}
@@ -34,7 +34,7 @@ export class JournalSpeechCleanupWorker {
           await this.storage.deleteObject(asset.objectKey);
           await this.repository.deleteSpeechAsset(asset.id, staleDictionaryBefore);
         } catch (error) {
-          console.error("[journal-speech-cleanup] asset cleanup failed", asset.id, error);
+          console.error("[card-speech-cleanup] asset cleanup failed", asset.id, error);
         }
       }
     } finally {

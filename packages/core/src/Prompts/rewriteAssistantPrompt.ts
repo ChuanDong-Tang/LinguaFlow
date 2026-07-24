@@ -210,7 +210,11 @@ export function getPromptProfile(input: {
       : input.contactCode === "curious_companion"
         ? "curious_companion"
         : "rewrite_assistant";
-  const language: PromptLanguage = input.language === "ja-JP" ? "ja-JP" : "en-US";
+  const language: PromptLanguage = input.language === undefined || input.language === null || input.language === "en-US"
+    ? "en-US"
+    : input.language === "ja-JP"
+      ? "ja-JP"
+      : throwUnsupportedLegacyChatLanguage(input.language);
   const appLocale = normalizeAppLocale(input.appLocale);
   const baseSystemPrompt = input.systemPromptOverride?.trim() || getDefaultSystemPrompt(
     contactCode,
@@ -225,6 +229,12 @@ export function getPromptProfile(input: {
     buildUserPrompt: contactCode === "english_friend" ? buildEnglishFriendUserPrompt : buildRewriteUserPrompt,
     outputFormat: "rewrite_reply_tags",
   };
+}
+
+function throwUnsupportedLegacyChatLanguage(language: string): never {
+  const error = new Error(`Unsupported legacy chat language: ${language}`) as Error & { code: string };
+  error.code = "LEGACY_CHAT_LANGUAGE_UNSUPPORTED";
+  throw error;
 }
 
 function normalizeAppLocale(value?: string | null): PromptAppLocale {

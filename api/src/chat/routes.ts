@@ -125,6 +125,7 @@ export interface ChatRouteDeps {
       isPro: boolean;
       features?: {
         cloudSync?: boolean;
+        conversationHistorySync?: boolean;
       };
     }>;
   };
@@ -1314,7 +1315,7 @@ function countInputCharsWithoutWhitespace(value: string): number {
 
 async function assertProCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {
   const entitlement = await deps.entitlementService.getCurrentEntitlement(userId);
-  if (entitlement.features?.cloudSync ?? entitlement.isPro) return;
+  if (entitlement.features?.conversationHistorySync ?? entitlement.features?.cloudSync ?? entitlement.isPro) return;
   const error = new Error("Pro access required") as Error & { code: string; statusCode: number };
   error.code = "PRO_REQUIRED";
   error.statusCode = 403;
@@ -1323,7 +1324,7 @@ async function assertProCloudAccess(deps: ChatRouteDeps, userId: string): Promis
 
 async function assertClozeCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {
   const entitlement = await deps.entitlementService.getCurrentEntitlement(userId);
-  if (entitlement.features?.cloudSync ?? entitlement.isPro) return;
+  if (entitlement.features?.conversationHistorySync ?? entitlement.features?.cloudSync ?? entitlement.isPro) return;
   const error = new Error("Pro access required") as Error & { code: string; statusCode: number };
   error.code = "PRO_REQUIRED";
   error.statusCode = 403;

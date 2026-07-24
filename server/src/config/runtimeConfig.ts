@@ -77,7 +77,41 @@ export interface RuntimeConfig {
   mockUserIds: string[];
   requireRedis: boolean;
   redisUrl: string | null;
-  journalEnabled: boolean;
+  cardEnabled: boolean;
+  azureEmbeddingEndpoint: string | null;
+  azureEmbeddingApiKey: string | null;
+  azureEmbeddingDeployment: string | null;
+  azureEmbeddingApiVersion: string;
+  azureEmbeddingModel: string;
+  azureEmbeddingDimensions: number;
+  azureEmbeddingTimeoutMs: number;
+  relatedTopicMinSimilarity: number;
+  cardCreateUserRateLimit: number;
+  cardCreateGlobalRateLimit: number;
+  cardCreateRateWindowMs: number;
+  cardCreateIpRateLimit: number;
+  cardSearchUserRateLimit: number;
+  cardSearchRateWindowMs: number;
+  cardSearchIpRateLimit: number;
+  cardRelationUserRateLimit: number;
+  cardRelationIpRateLimit: number;
+  cardImageUploadUserRateLimit: number;
+  cardImageUploadRateWindowMs: number;
+  recallSeedUserRateLimit: number;
+  recallSearchUserRateLimit: number;
+  recallSemanticSearchGlobalRateLimit: number;
+  recallSemanticSearchDailyLimit: number;
+  recallCreateUserRateLimit: number;
+  recallExpandUserRateLimit: number;
+  recallRateWindowMs: number;
+  recallSearchIpRateLimit: number;
+  cardRewriteGlobalConcurrency: number;
+  cardEmbeddingGlobalConcurrency: number;
+  cardProgressDetectionGlobalConcurrency: number;
+  cardPhraseNormalizationGlobalConcurrency: number;
+  cardPhraseHistoryGlobalConcurrency: number;
+  cardPhraseIndexGlobalConcurrency: number;
+  cardWorkerConcurrencyLeaseMs: number;
   authingDomain: string | null;
   authingAppId: string | null;
   authingAppSecret: string | null;
@@ -105,11 +139,13 @@ export interface RuntimeConfig {
   plusDailyTotalLimit: number;
   proDailyTotalLimit: number;
   membershipFeatures: {
-    cloudSync: MembershipFeatureTier[];
+    conversationHistorySync: MembershipFeatureTier[];
     highQualityTts: MembershipFeatureTier[];
   };
   freeTrialTotalLimit: number;
-  freeTrialValidDays: number;
+  freeTotalImageLimit: number;
+  plusDailyImageLimit: number;
+  proDailyImageLimit: number;
   benefitGrantRetryEnabled: boolean;
   benefitGrantMaxAttempts: number;
   benefitGrantBackoffMaxMs: number;
@@ -200,7 +236,41 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     mockUserIds: readCsv(env.LF_MOCK_USER_IDS, ["mock_user_001"]),
     requireRedis: readBoolean(env.LF_REQUIRE_REDIS, mode === "production"),
     redisUrl: trimToNull(env.REDIS_URL),
-    journalEnabled: readBoolean(env.LF_JOURNAL_ENABLED, mode !== "production"),
+    cardEnabled: readBoolean(env.LF_CARD_ENABLED, mode !== "production"),
+    azureEmbeddingEndpoint: trimToNull(env.AZURE_EMBEDDING_ENDPOINT),
+    azureEmbeddingApiKey: trimToNull(env.AZURE_EMBEDDING_API_KEY),
+    azureEmbeddingDeployment: trimToNull(env.AZURE_EMBEDDING_DEPLOYMENT),
+    azureEmbeddingApiVersion: env.AZURE_EMBEDDING_API_VERSION?.trim() || "2024-10-21",
+    azureEmbeddingModel: env.AZURE_EMBEDDING_MODEL?.trim() || "text-embedding-3-small",
+    azureEmbeddingDimensions: readPositiveInt(env.AZURE_EMBEDDING_DIMENSIONS, 1536),
+    azureEmbeddingTimeoutMs: readPositiveInt(env.AZURE_EMBEDDING_TIMEOUT_MS, 20_000),
+    relatedTopicMinSimilarity: readUnitFloat(env.RELATED_TOPIC_MIN_SIMILARITY, 0.65),
+    cardCreateUserRateLimit: readPositiveInt(env.CARD_CREATE_USER_RATE_LIMIT, 5),
+    cardCreateGlobalRateLimit: readPositiveInt(env.CARD_CREATE_GLOBAL_RATE_LIMIT, 120),
+    cardCreateRateWindowMs: readPositiveInt(env.CARD_CREATE_RATE_WINDOW_MS, 60_000),
+    cardCreateIpRateLimit: readPositiveInt(env.CARD_CREATE_IP_RATE_LIMIT, 60),
+    cardSearchUserRateLimit: readPositiveInt(env.CARD_SEARCH_USER_RATE_LIMIT, 60),
+    cardSearchRateWindowMs: readPositiveInt(env.CARD_SEARCH_RATE_WINDOW_MS, 60_000),
+    cardSearchIpRateLimit: readPositiveInt(env.CARD_SEARCH_IP_RATE_LIMIT, 300),
+    cardRelationUserRateLimit: readPositiveInt(env.CARD_RELATION_USER_RATE_LIMIT, 120),
+    cardRelationIpRateLimit: readPositiveInt(env.CARD_RELATION_IP_RATE_LIMIT, 600),
+    cardImageUploadUserRateLimit: readPositiveInt(env.CARD_IMAGE_UPLOAD_USER_RATE_LIMIT, 20),
+    cardImageUploadRateWindowMs: readPositiveInt(env.CARD_IMAGE_UPLOAD_RATE_WINDOW_MS, 3_600_000),
+    recallSeedUserRateLimit: readPositiveInt(env.RECALL_SEED_USER_RATE_LIMIT, 60),
+    recallSearchUserRateLimit: readPositiveInt(env.RECALL_SEARCH_USER_RATE_LIMIT, 30),
+    recallSemanticSearchGlobalRateLimit: readPositiveInt(env.RECALL_SEMANTIC_SEARCH_GLOBAL_RATE_LIMIT, 120),
+    recallSemanticSearchDailyLimit: readPositiveInt(env.RECALL_SEMANTIC_SEARCH_DAILY_LIMIT, 100),
+    recallCreateUserRateLimit: readPositiveInt(env.RECALL_CREATE_USER_RATE_LIMIT, 10),
+    recallExpandUserRateLimit: readPositiveInt(env.RECALL_EXPAND_USER_RATE_LIMIT, 60),
+    recallRateWindowMs: readPositiveInt(env.RECALL_RATE_WINDOW_MS, 60_000),
+    recallSearchIpRateLimit: readPositiveInt(env.RECALL_SEARCH_IP_RATE_LIMIT, 120),
+    cardRewriteGlobalConcurrency: readPositiveInt(env.CARD_REWRITE_GLOBAL_CONCURRENCY, 4),
+    cardEmbeddingGlobalConcurrency: readPositiveInt(env.CARD_EMBEDDING_GLOBAL_CONCURRENCY, 8),
+    cardProgressDetectionGlobalConcurrency: readPositiveInt(env.CARD_PROGRESS_DETECTION_GLOBAL_CONCURRENCY, 4),
+    cardPhraseNormalizationGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_NORMALIZATION_GLOBAL_CONCURRENCY, 4),
+    cardPhraseHistoryGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_HISTORY_GLOBAL_CONCURRENCY, 2),
+    cardPhraseIndexGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_INDEX_GLOBAL_CONCURRENCY, 2),
+    cardWorkerConcurrencyLeaseMs: readPositiveInt(env.CARD_WORKER_CONCURRENCY_LEASE_MS, 300_000),
     authingDomain: trimToNull(env.AUTHING_DOMAIN),
     authingAppId: trimToNull(env.AUTHING_APP_ID),
     authingAppSecret: trimToNull(env.AUTHING_APP_SECRET),
@@ -241,11 +311,16 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     plusDailyTotalLimit: readPositiveInt(env.LF_PLUS_DAILY_TOTAL_LIMIT, 5_000),
     proDailyTotalLimit: readPositiveInt(env.LF_PRO_DAILY_TOTAL_LIMIT, 10_000),
     membershipFeatures: {
-      cloudSync: readTierCsv(env.LF_FEATURE_CLOUD_SYNC_TIERS, ["plus", "pro"]),
+      conversationHistorySync: readTierCsv(
+        env.LF_FEATURE_CONVERSATION_HISTORY_SYNC_TIERS ?? env.LF_FEATURE_CLOUD_SYNC_TIERS,
+        ["plus", "pro"],
+      ),
       highQualityTts: readTierCsv(env.LF_FEATURE_HIGH_QUALITY_TTS_TIERS, ["plus", "pro"]),
     },
-    freeTrialTotalLimit: readPositiveInt(env.LF_FREE_TRIAL_TOTAL_LIMIT, 5000),
-    freeTrialValidDays: readPositiveInt(env.LF_FREE_TRIAL_VALID_DAYS, 7),
+    freeTrialTotalLimit: readPositiveInt(env.LF_FREE_TRIAL_TOTAL_LIMIT, 10_000),
+    freeTotalImageLimit: readPositiveInt(env.LF_FREE_TOTAL_IMAGE_LIMIT ?? env.LF_FREE_CLOUD_IMAGE_LIMIT, 10),
+    plusDailyImageLimit: readPositiveInt(env.LF_PLUS_DAILY_IMAGE_LIMIT ?? env.LF_PLUS_CLOUD_IMAGE_LIMIT, 100),
+    proDailyImageLimit: readPositiveInt(env.LF_PRO_DAILY_IMAGE_LIMIT ?? env.LF_PRO_CLOUD_IMAGE_LIMIT, 500),
     payment: readPaymentRuntimeConfig(env, mode),
     benefitGrantRetryEnabled: readBoolean(env.LF_BENEFIT_GRANT_RETRY_ENABLED, true),
     benefitGrantMaxAttempts: readPositiveInt(env.LF_BENEFIT_GRANT_MAX_ATTEMPTS, 6),
@@ -448,6 +523,11 @@ function readPositiveInt(value: string | undefined, fallback: number): number {
 function readNonNegativeInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function readUnitFloat(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback;
 }
 
 function trimToNull(value: string | undefined): string | null {

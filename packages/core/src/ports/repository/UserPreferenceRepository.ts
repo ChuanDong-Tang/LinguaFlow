@@ -1,5 +1,7 @@
+import type { TargetLanguageCode } from "../../language/targetLanguages.js";
+
 export type AppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
-export type LearningLanguage = "en-US" | "ja-JP";
+export type LearningLanguage = TargetLanguageCode;
 export type TtsProviderCode = "azure_global";
 export type PromptDifficulty = "simple" | "native";
 export type GuideState = Record<string, { completedAt?: string }>;

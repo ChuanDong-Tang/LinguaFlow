@@ -7,7 +7,7 @@ type CosClient = {
 };
 type CosConstructor = new (options: { SecretId: string; SecretKey: string }) => CosClient;
 
-export class JournalImageStorageProvider {
+export class CardImageStorageProvider {
   private clientPromise: Promise<CosClient> | null = null;
   private readonly secretId = process.env.TENCENT_COS_SECRET_ID ?? process.env.COS_SECRET_ID ?? "";
   private readonly secretKey = process.env.TENCENT_COS_SECRET_KEY ?? process.env.COS_SECRET_KEY ?? "";
