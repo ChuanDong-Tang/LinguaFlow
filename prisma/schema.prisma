@@ -254,6 +254,7 @@ model CardCollection {
   id             String   @id @default(cuid())
   userId         String
   parentId       String?
+  sortOrder      Int      @default(0)
   name           String
   normalizedName String
   createdAt      DateTime @default(now())
@@ -266,7 +267,7 @@ model CardCollection {
 
   @@unique([userId, normalizedName])
   @@index([userId, updatedAt(sort: Desc)])
-  @@index([userId, parentId])
+  @@index([userId, parentId, sortOrder])
   @@map("card_collections")
 }
 

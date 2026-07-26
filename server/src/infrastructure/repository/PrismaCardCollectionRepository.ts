@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 export interface CardCollectionView {
   id: string;
   parentId: string | null;
+  sortOrder: number;
   name: string;
   cardCount: number;
   createdAt: Date;
@@ -16,7 +17,7 @@ export class PrismaCardCollectionRepository {
     const [collections, unclassifiedCount] = await Promise.all([
       this.prisma.cardCollection.findMany({
         where: { userId },
-        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }, { id: "asc" }],
         include: {
           _count: {
             select: { cards: { where: { status: "completed", deletedAt: null } } },
@@ -29,6 +30,7 @@ export class PrismaCardCollectionRepository {
       collections: collections.map((collection) => ({
         id: collection.id,
         parentId: collection.parentId,
+        sortOrder: collection.sortOrder,
         name: collection.name,
         cardCount: collection._count.cards,
         createdAt: collection.createdAt,
@@ -43,8 +45,13 @@ export class PrismaCardCollectionRepository {
       const parent = await this.prisma.cardCollection.findFirst({ where: { id: parentId, userId }, select: { id: true } });
       if (!parent) throw new Error("CARD_COLLECTION_PARENT_NOT_FOUND");
     }
+    const lastSibling = await this.prisma.cardCollection.findFirst({
+      where: { userId, parentId },
+      orderBy: [{ sortOrder: "desc" }, { createdAt: "desc" }],
+      select: { sortOrder: true },
+    });
     const collection = await this.prisma.cardCollection.create({
-      data: { userId, name, normalizedName, parentId },
+      data: { userId, name, normalizedName, parentId, sortOrder: (lastSibling?.sortOrder ?? -1) + 1 },
     });
     return { ...collection, cardCount: 0 };
   }
@@ -66,6 +73,7 @@ export class PrismaCardCollectionRepository {
     return collection ? {
       id: collection.id,
       parentId: collection.parentId,
+      sortOrder: collection.sortOrder,
       name: collection.name,
       cardCount: collection._count.cards,
       createdAt: collection.createdAt,
@@ -78,10 +86,10 @@ export class PrismaCardCollectionRepository {
     return result.count === 1;
   }
 
-  async reparent(userId: string, collectionId: string, parentId: string | null): Promise<boolean> {
+  async reparent(userId: string, collectionId: string, parentId: string | null, position?: number): Promise<boolean> {
     const collections = await this.prisma.cardCollection.findMany({
       where: { userId },
-      select: { id: true, parentId: true },
+      select: { id: true, parentId: true, sortOrder: true },
     });
     if (!collections.some((collection) => collection.id === collectionId)) return false;
     if (parentId && !collections.some((collection) => collection.id === parentId)) {
@@ -92,11 +100,21 @@ export class PrismaCardCollectionRepository {
       if (cursor === collectionId) throw new Error("CARD_COLLECTION_CYCLE");
       cursor = collections.find((collection) => collection.id === cursor)?.parentId ?? null;
     }
-    const changed = await this.prisma.cardCollection.updateMany({
-      where: { id: collectionId, userId },
-      data: { parentId },
-    });
-    return changed.count === 1;
+    const siblings = collections
+      .filter((collection) => collection.parentId === parentId && collection.id !== collectionId)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id));
+    const targetPosition = Number.isInteger(position)
+      ? Math.max(0, Math.min(siblings.length, Number(position)))
+      : siblings.length;
+    siblings.splice(targetPosition, 0, { id: collectionId, parentId, sortOrder: targetPosition });
+    await this.prisma.$transaction(siblings.map((collection, index) => this.prisma.cardCollection.updateMany({
+      where: { id: collection.id, userId },
+      data: {
+        ...(collection.id === collectionId ? { parentId } : {}),
+        sortOrder: index,
+      },
+    })));
+    return true;
   }
 
   async move(input: {

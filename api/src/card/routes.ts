@@ -278,12 +278,13 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     reply.header("x-request-id", requestId);
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/collections/:collectionId/parent");
     if (!userId) return;
-    const body = req.body as { parentId?: unknown } | null;
+    const body = req.body as { parentId?: unknown; position?: unknown } | null;
     try {
       await deps.cardCollectionService.reparent(
         userId,
         String((req.params as { collectionId?: unknown }).collectionId ?? ""),
         typeof body?.parentId === "string" && body.parentId ? body.parentId : null,
+        body?.position === undefined ? undefined : Number(body.position),
       );
       return reply.status(204).send();
     } catch (error) { return handleCardError(reply, requestId, error); }

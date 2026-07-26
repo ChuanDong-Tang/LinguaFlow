@@ -41,10 +41,13 @@ export class CardCollectionService {
     if (!collectionId || !await this.repository.remove(userId, collectionId)) throw new CardNotFoundError();
   }
 
-  async reparent(userId: string, collectionId: string, parentId: string | null): Promise<void> {
+  async reparent(userId: string, collectionId: string, parentId: string | null, position?: number): Promise<void> {
     if (!collectionId) throw new CardValidationError("Invalid collection id");
     try {
-      if (!await this.repository.reparent(userId, collectionId, parentId)) throw new CardNotFoundError();
+      if (position !== undefined && (!Number.isInteger(position) || position < 0)) {
+        throw new CardValidationError("Invalid collection position");
+      }
+      if (!await this.repository.reparent(userId, collectionId, parentId, position)) throw new CardNotFoundError();
     } catch (error) {
       if (error instanceof Error && error.message === "CARD_COLLECTION_PARENT_NOT_FOUND") throw new CardNotFoundError();
       if (error instanceof Error && error.message === "CARD_COLLECTION_CYCLE") {
@@ -100,10 +103,11 @@ function isUniqueConflict(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
 }
 
-function toView(collection: { id: string; parentId: string | null; name: string; cardCount: number; createdAt: Date; updatedAt: Date }) {
+function toView(collection: { id: string; parentId: string | null; sortOrder: number; name: string; cardCount: number; createdAt: Date; updatedAt: Date }) {
   return {
     id: collection.id,
     parentId: collection.parentId,
+    sortOrder: collection.sortOrder,
     name: collection.name,
     cardCount: collection.cardCount,
     createdAt: collection.createdAt.toISOString(),
