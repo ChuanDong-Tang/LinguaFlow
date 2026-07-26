@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 
 export interface CardCollectionView {
   id: string;
+  parentId: string | null;
   name: string;
   cardCount: number;
   createdAt: Date;
@@ -27,6 +28,7 @@ export class PrismaCardCollectionRepository {
     return {
       collections: collections.map((collection) => ({
         id: collection.id,
+        parentId: collection.parentId,
         name: collection.name,
         cardCount: collection._count.cards,
         createdAt: collection.createdAt,
@@ -36,9 +38,13 @@ export class PrismaCardCollectionRepository {
     };
   }
 
-  async create(userId: string, name: string, normalizedName: string): Promise<CardCollectionView> {
+  async create(userId: string, name: string, normalizedName: string, parentId: string | null): Promise<CardCollectionView> {
+    if (parentId) {
+      const parent = await this.prisma.cardCollection.findFirst({ where: { id: parentId, userId }, select: { id: true } });
+      if (!parent) throw new Error("CARD_COLLECTION_PARENT_NOT_FOUND");
+    }
     const collection = await this.prisma.cardCollection.create({
-      data: { userId, name, normalizedName },
+      data: { userId, name, normalizedName, parentId },
     });
     return { ...collection, cardCount: 0 };
   }
@@ -59,6 +65,7 @@ export class PrismaCardCollectionRepository {
     });
     return collection ? {
       id: collection.id,
+      parentId: collection.parentId,
       name: collection.name,
       cardCount: collection._count.cards,
       createdAt: collection.createdAt,
@@ -69,6 +76,27 @@ export class PrismaCardCollectionRepository {
   async remove(userId: string, collectionId: string): Promise<boolean> {
     const result = await this.prisma.cardCollection.deleteMany({ where: { id: collectionId, userId } });
     return result.count === 1;
+  }
+
+  async reparent(userId: string, collectionId: string, parentId: string | null): Promise<boolean> {
+    const collections = await this.prisma.cardCollection.findMany({
+      where: { userId },
+      select: { id: true, parentId: true },
+    });
+    if (!collections.some((collection) => collection.id === collectionId)) return false;
+    if (parentId && !collections.some((collection) => collection.id === parentId)) {
+      throw new Error("CARD_COLLECTION_PARENT_NOT_FOUND");
+    }
+    let cursor = parentId;
+    while (cursor) {
+      if (cursor === collectionId) throw new Error("CARD_COLLECTION_CYCLE");
+      cursor = collections.find((collection) => collection.id === cursor)?.parentId ?? null;
+    }
+    const changed = await this.prisma.cardCollection.updateMany({
+      where: { id: collectionId, userId },
+      data: { parentId },
+    });
+    return changed.count === 1;
   }
 
   async move(input: {

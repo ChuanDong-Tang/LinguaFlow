@@ -13,12 +13,13 @@ export class CardCollectionService {
     };
   }
 
-  async create(userId: string, rawName: string) {
+  async create(userId: string, rawName: string, parentId: string | null = null) {
     const { name, normalizedName } = normalizeCollectionName(rawName);
     try {
-      return toView(await this.repository.create(userId, name, normalizedName));
+      return toView(await this.repository.create(userId, name, normalizedName, parentId));
     } catch (error) {
       if (isUniqueConflict(error)) throw new CardValidationError("A collection with this name already exists");
+      if (error instanceof Error && error.message === "CARD_COLLECTION_PARENT_NOT_FOUND") throw new CardNotFoundError();
       throw error;
     }
   }
@@ -38,6 +39,19 @@ export class CardCollectionService {
 
   async remove(userId: string, collectionId: string): Promise<void> {
     if (!collectionId || !await this.repository.remove(userId, collectionId)) throw new CardNotFoundError();
+  }
+
+  async reparent(userId: string, collectionId: string, parentId: string | null): Promise<void> {
+    if (!collectionId) throw new CardValidationError("Invalid collection id");
+    try {
+      if (!await this.repository.reparent(userId, collectionId, parentId)) throw new CardNotFoundError();
+    } catch (error) {
+      if (error instanceof Error && error.message === "CARD_COLLECTION_PARENT_NOT_FOUND") throw new CardNotFoundError();
+      if (error instanceof Error && error.message === "CARD_COLLECTION_CYCLE") {
+        throw new CardValidationError("A collection cannot be moved into itself or its descendants");
+      }
+      throw error;
+    }
   }
 
   async move(userId: string, recordIds: string[], collectionId: string | null): Promise<void> {
@@ -86,9 +100,10 @@ function isUniqueConflict(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
 }
 
-function toView(collection: { id: string; name: string; cardCount: number; createdAt: Date; updatedAt: Date }) {
+function toView(collection: { id: string; parentId: string | null; name: string; cardCount: number; createdAt: Date; updatedAt: Date }) {
   return {
     id: collection.id,
+    parentId: collection.parentId,
     name: collection.name,
     cardCount: collection.cardCount,
     createdAt: collection.createdAt.toISOString(),

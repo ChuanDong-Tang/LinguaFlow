@@ -166,9 +166,13 @@ export class CardService {
     userId: string,
     collectionId: string | null | undefined,
     limit: number,
+    offset = 0,
+    fromDateKey?: string,
   ): Promise<CardRecordSummaryView[]> {
     const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, Math.floor(limit))) : 100;
-    const entries = await this.repository.listByUser(userId, collectionId, safeLimit);
+    const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
+    if (fromDateKey) assertDateKey(fromDateKey);
+    const entries = await this.repository.listByUser(userId, collectionId, safeLimit, safeOffset, fromDateKey);
     return Promise.all(entries.map((entry) => this.summaryWithImage(entry)));
   }
 

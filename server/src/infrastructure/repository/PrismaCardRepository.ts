@@ -23,6 +23,9 @@ type PrismaCardClient = {
     updateMany: (args: any) => Promise<{ count: number }>;
     deleteMany: (args: any) => Promise<{ count: number }>;
   };
+  cardCollection: {
+    findMany: (args: any) => Promise<any[]>;
+  };
   cardRewriteSegment: {
     deleteMany: (args: any) => Promise<any>;
     createMany: (args: any) => Promise<any>;
@@ -76,17 +79,42 @@ export class PrismaCardRepository implements CardRepository {
     userId: string,
     collectionId: string | null | undefined,
     limit: number,
+    offset = 0,
+    fromDateKey?: string,
   ): Promise<CardEntryEntity[]> {
+    let collectionWhere: { collectionId: null | { in: string[] } } | Record<string, never> = {};
+    if (collectionId === null) {
+      collectionWhere = { collectionId: null };
+    } else if (typeof collectionId === "string") {
+      const collections = await this.prisma.cardCollection.findMany({
+        where: { userId },
+        select: { id: true, parentId: true },
+      });
+      const included = new Set([collectionId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const collection of collections) {
+          if (collection.parentId && included.has(collection.parentId) && !included.has(collection.id)) {
+            included.add(collection.id);
+            changed = true;
+          }
+        }
+      }
+      collectionWhere = { collectionId: { in: Array.from(included) } };
+    }
     return this.prisma.card.findMany({
       where: {
         userId,
         deletedAt: null,
         status: { notIn: ["failed", "deleted"] },
-        ...(collectionId !== undefined ? { collectionId } : {}),
+        ...collectionWhere,
+        ...(fromDateKey ? { dateKey: { gte: fromDateKey } } : {}),
       },
       include: includeSegments,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit,
+      skip: Math.max(0, offset),
     });
   }
 

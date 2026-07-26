@@ -147,6 +147,8 @@ export interface CardRepository {
     userId: string,
     collectionId: string | null | undefined,
     limit: number,
+    offset?: number,
+    fromDateKey?: string,
   ): Promise<CardEntryEntity[]>;
   listDateKeysByUser(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]>;
   listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<CardEntryEntity[]>;

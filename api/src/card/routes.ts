@@ -237,7 +237,12 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/collections");
     if (!userId) return;
     try {
-      const data = await deps.cardCollectionService.create(userId, String((req.body as { name?: unknown } | null)?.name ?? ""));
+      const body = req.body as { name?: unknown; parentId?: unknown } | null;
+      const data = await deps.cardCollectionService.create(
+        userId,
+        String(body?.name ?? ""),
+        typeof body?.parentId === "string" && body.parentId ? body.parentId : null,
+      );
       return reply.status(201).send({ ok: true, request_id: requestId, data });
     } catch (error) { return handleCardError(reply, requestId, error); }
   });
@@ -264,6 +269,22 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     if (!userId) return;
     try {
       await deps.cardCollectionService.remove(userId, String((req.params as { collectionId?: unknown }).collectionId ?? ""));
+      return reply.status(204).send();
+    } catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
+  app.put("/cards/collections/:collectionId/parent", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/collections/:collectionId/parent");
+    if (!userId) return;
+    const body = req.body as { parentId?: unknown } | null;
+    try {
+      await deps.cardCollectionService.reparent(
+        userId,
+        String((req.params as { collectionId?: unknown }).collectionId ?? ""),
+        typeof body?.parentId === "string" && body.parentId ? body.parentId : null,
+      );
       return reply.status(204).send();
     } catch (error) { return handleCardError(reply, requestId, error); }
   });
@@ -409,7 +430,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     reply.header("x-request-id", requestId);
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards");
     if (!userId) return;
-    const query = req.query as { dateKey?: unknown; collectionId?: unknown; unclassified?: unknown; limit?: unknown };
+    const query = req.query as { dateKey?: unknown; collectionId?: unknown; unclassified?: unknown; limit?: unknown; offset?: unknown; fromDateKey?: unknown };
     try {
       const data = typeof query.dateKey === "string" && query.dateKey
         ? await deps.cardService.listDate(userId, query.dateKey)
@@ -417,6 +438,8 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
             userId,
             query.unclassified === "true" ? null : typeof query.collectionId === "string" ? query.collectionId : undefined,
             Number(query.limit),
+            Number(query.offset),
+            typeof query.fromDateKey === "string" && query.fromDateKey ? query.fromDateKey : undefined,
           );
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {

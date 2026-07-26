@@ -253,6 +253,7 @@ model CardSpeechAsset {
 model CardCollection {
   id             String   @id @default(cuid())
   userId         String
+  parentId       String?
   name           String
   normalizedName String
   createdAt      DateTime @default(now())
@@ -260,9 +261,12 @@ model CardCollection {
 
   user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   cards Card[]
+  parent   CardCollection?  @relation("CardCollectionTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children CardCollection[] @relation("CardCollectionTree")
 
   @@unique([userId, normalizedName])
   @@index([userId, updatedAt(sort: Desc)])
+  @@index([userId, parentId])
   @@map("card_collections")
 }
 
