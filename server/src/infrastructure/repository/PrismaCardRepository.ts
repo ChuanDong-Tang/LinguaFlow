@@ -1,5 +1,6 @@
 import type {
   CompleteCardEntryInput,
+  CreateDirectCardEntryInput,
   CreateQueuedCardEntryInput,
   CardEntryEntity,
   CardRepository,
@@ -62,7 +63,7 @@ type PrismaCardClient = {
 
 const includeSegments = {
   segments: { orderBy: { ordinal: "asc" } },
-  image: true,
+  images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }] },
 } as const;
 
 export class PrismaCardRepository implements CardRepository {
@@ -217,6 +218,90 @@ export class PrismaCardRepository implements CardRepository {
         return toEntry(rowWithImage);
       }
       return toEntry(row);
+    });
+  }
+
+  async createDirect(input: CreateDirectCardEntryInput): Promise<CardEntryEntity> {
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.card.create({
+        data: {
+          userId: input.userId,
+          dateKey: input.dateKey,
+          originalText: input.originalText,
+          rewrittenText: input.rewrittenText,
+          translationText: input.translationText,
+          replyText: input.replyText,
+          languageCode: input.languageCode,
+          appLocaleSnapshot: input.appLocaleSnapshot,
+          promptDifficultySnapshot: input.promptDifficultySnapshot,
+          promptVersion: input.promptVersion,
+          clientId: input.clientId,
+          inputChars: countGraphemes(input.originalText ?? input.rewrittenText ?? ""),
+          outputChars: countGraphemes(input.rewrittenText ?? ""),
+          status: "completed",
+          publishedAt: new Date(),
+        },
+        include: includeSegments,
+      });
+      if (input.segments.length) {
+        await tx.cardRewriteSegment.createMany({
+          data: input.segments.map((segment) => ({ entryId: row.id, ...segment })),
+        });
+      }
+      for (const [ordinal, imageUploadId] of input.imageUploadIds.entries()) {
+        const claimed = await tx.cardImageAsset.updateMany({
+          where: {
+            id: imageUploadId,
+            userId: input.userId,
+            entryId: null,
+            status: { in: ["approved", "approved_with_review"] },
+            thumbnailStatus: "ready",
+            expiresAt: { gt: new Date() },
+          },
+          data: { entryId: row.id, ordinal, claimedAt: new Date() },
+        });
+        if (claimed.count !== 1) throw new Error("CARD_IMAGE_NOT_READY");
+      }
+      const created = await tx.card.findFirst({ where: { id: row.id }, include: includeSegments });
+      if (!created) throw new Error("CARD_ENTRY_NOT_FOUND_AFTER_CREATE");
+      return toEntry(created);
+    });
+  }
+
+  async updateContent(input: {
+    entryId: string;
+    userId: string;
+    originalText: string | null;
+    rewrittenText: string | null;
+    translationText: string | null;
+    replyText: string | null;
+    segments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
+    clearPractice: boolean;
+  }): Promise<CardEntryEntity | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const changed = await tx.card.updateMany({
+        where: { id: input.entryId, userId: input.userId, status: "completed", deletedAt: null },
+        data: {
+          originalText: input.originalText,
+          rewrittenText: input.rewrittenText,
+          translationText: input.translationText,
+          replyText: input.replyText,
+          inputChars: countGraphemes(input.originalText ?? input.rewrittenText ?? ""),
+          outputChars: countGraphemes(input.rewrittenText ?? ""),
+        },
+      });
+      if (changed.count !== 1) return null;
+      await tx.cardRewriteSegment.deleteMany({ where: { entryId: input.entryId } });
+      if (input.segments.length) {
+        await tx.cardRewriteSegment.createMany({
+          data: input.segments.map((segment) => ({ entryId: input.entryId, ...segment })),
+        });
+      }
+      if (input.clearPractice) {
+        await tx.cardPracticeState.deleteMany({ where: { cardId: input.entryId, userId: input.userId } });
+      }
+      const updated = await tx.card.findFirst({ where: { id: input.entryId }, include: includeSegments });
+      return updated ? toEntry(updated) : null;
     });
   }
 
@@ -926,7 +1011,7 @@ export class PrismaCardRepository implements CardRepository {
         include: includeSegments,
       });
       if (!entry) return null;
-      if (entry.image?.id === input.imageUploadId) return toEntry(entry);
+      if (entry.images?.[0]?.id === input.imageUploadId && entry.images.length === 1) return toEntry(entry);
       await tx.cardImageAsset.updateMany({
         where: { entryId: entry.id },
         data: { entryId: null, status: "cleanup_pending" },
@@ -949,6 +1034,48 @@ export class PrismaCardRepository implements CardRepository {
         where: { id: entry.id },
         include: includeSegments,
       });
+      return updated ? toEntry(updated) : null;
+    });
+  }
+
+  async appendEntryImage(input: { entryId: string; userId: string; imageUploadId: string }): Promise<CardEntryEntity | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.card.findFirst({
+        where: { id: input.entryId, userId: input.userId, status: "completed" },
+        include: includeSegments,
+      });
+      if (!entry) return null;
+      if (entry.images.some((image: { id: string }) => image.id === input.imageUploadId)) return toEntry(entry);
+      const ordinal = entry.images.reduce((max: number, image: { ordinal: number }) => Math.max(max, image.ordinal), -1) + 1;
+      const claimed = await tx.cardImageAsset.updateMany({
+        where: {
+          id: input.imageUploadId,
+          userId: input.userId,
+          entryId: null,
+          status: { in: ["approved", "approved_with_review"] },
+          thumbnailStatus: "ready",
+          expiresAt: { gt: new Date() },
+        },
+        data: { entryId: entry.id, ordinal, claimedAt: new Date() },
+      });
+      if (claimed.count !== 1) throw new Error("CARD_IMAGE_NOT_READY");
+      const updated = await tx.card.findFirst({ where: { id: entry.id }, include: includeSegments });
+      return updated ? toEntry(updated) : null;
+    });
+  }
+
+  async removeEntryImage(input: { entryId: string; userId: string; imageId: string }): Promise<CardEntryEntity | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.card.findFirst({
+        where: { id: input.entryId, userId: input.userId, status: "completed" },
+        include: includeSegments,
+      });
+      if (!entry) return null;
+      await tx.cardImageAsset.updateMany({
+        where: { id: input.imageId, entryId: entry.id, userId: input.userId },
+        data: { entryId: null, ordinal: 0, status: "cleanup_pending" },
+      });
+      const updated = await tx.card.findFirst({ where: { id: entry.id }, include: includeSegments });
       return updated ? toEntry(updated) : null;
     });
   }
@@ -1085,6 +1212,8 @@ function toEntry(row: any): CardEntryEntity {
     dateKey: row.dateKey,
     originalText: row.originalText ?? null,
     rewrittenText: row.rewrittenText ?? null,
+    translationText: row.translationText ?? null,
+    replyText: row.replyText ?? null,
     languageCode: row.languageCode,
     appLocaleSnapshot: normalizeAppLocale(row.appLocaleSnapshot),
     promptDifficultySnapshot: row.promptDifficultySnapshot,
@@ -1106,7 +1235,7 @@ function toEntry(row: any): CardEntryEntity {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     segments: Array.isArray(row.segments) ? row.segments.map(toSegment) : [],
-    image: row.image ? toImageAsset(row.image) : null,
+    images: Array.isArray(row.images) ? row.images.map(toImageAsset) : [],
   };
 }
 
@@ -1195,6 +1324,7 @@ function toImageAsset(row: any): CardImageAssetEntity {
     id: row.id,
     userId: row.userId,
     entryId: row.entryId ?? null,
+    ordinal: Number(row.ordinal) || 0,
     status: row.status,
     originalObjectKey: row.originalObjectKey,
     uploadObjectKey: row.uploadObjectKey ?? null,

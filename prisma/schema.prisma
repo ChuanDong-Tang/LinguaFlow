@@ -103,6 +103,8 @@ model Card {
   dateKey                  String
   originalText             String?
   rewrittenText            String?
+  translationText          String?
+  replyText                String?
   languageCode             String
   appLocaleSnapshot        String
   promptDifficultySnapshot String
@@ -127,7 +129,7 @@ model Card {
   user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   collection         CardCollection?      @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   segments           CardRewriteSegment[]
-  image              CardImageAsset?
+  images             CardImageAsset[]
   practiceState      CardPracticeState?
   speechAssets       CardSpeechAsset[]
   embeddings         CardEmbedding[]
@@ -164,7 +166,8 @@ model CardRewriteSegment {
 model CardImageAsset {
   id                   String    @id @default(cuid())
   userId               String
-  entryId              String?   @unique
+  entryId              String?
+  ordinal              Int       @default(0)
   status               String    @default("pending")
   originalObjectKey    String
   uploadObjectKey      String?
@@ -189,6 +192,7 @@ model CardImageAsset {
   entry Card? @relation(fields: [entryId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
+  @@index([entryId, ordinal])
   @@index([status, expiresAt])
   @@index([thumbnailStatus, updatedAt])
   @@map("card_image_assets")

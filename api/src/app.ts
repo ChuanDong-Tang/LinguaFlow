@@ -333,6 +333,7 @@ export function createApp() {
     runtimeConfig.chatGenerationTaskTtlMs,
     contentSafetyService,
     cardImageService,
+    aiProvider,
   );
   const cardCollectionService = new CardCollectionService(new PrismaCardCollectionRepository(prisma));
   const recallService = new RecallService(new PrismaRecallRepository(prisma), cardRelationService, embeddingProvider);

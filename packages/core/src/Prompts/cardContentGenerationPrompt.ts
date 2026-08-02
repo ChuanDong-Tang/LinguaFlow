@@ -1,0 +1,26 @@
+export type CardGeneratedContentTarget = "expression" | "translation" | "reply";
+
+export function buildCardContentGenerationPrompt(input: {
+  target: CardGeneratedContentTarget;
+  sourceText: string;
+  languageCode: string;
+  appLocale: string;
+  difficulty: string;
+}): { systemPrompt: string; userPrompt: string } {
+  const task = input.target === "expression"
+    ? `Rewrite the record as natural everyday ${languageName(input.languageCode)}. Preserve its meaning, facts, tone, emotion, and point of view.`
+    : input.target === "translation"
+      ? `Translate the content naturally into ${languageName(input.appLocale)}. Preserve its meaning and tone.`
+      : `Write one natural, empathetic reply in ${languageName(input.languageCode)} to the content. Do not invent facts or give unsolicited advice.`;
+  return {
+    systemPrompt: `${task}\nReturn only the generated content. Do not use markdown, labels, quotation marks, or explanations.${input.difficulty === "simple" ? " Use common, clear vocabulary." : ""}`,
+    userPrompt: `<card_content>${input.sourceText}</card_content>`,
+  };
+}
+
+function languageName(code: string): string {
+  if (code === "zh-CN") return "Simplified Chinese";
+  if (code === "zh-TW") return "Traditional Chinese";
+  if (code === "ja-JP") return "Japanese";
+  return "American English";
+}

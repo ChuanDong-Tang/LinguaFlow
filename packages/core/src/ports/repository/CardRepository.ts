@@ -17,6 +17,8 @@ export interface CardEntryEntity {
   dateKey: string;
   originalText: string | null;
   rewrittenText: string | null;
+  translationText: string | null;
+  replyText: string | null;
   languageCode: string;
   appLocaleSnapshot: AppLocale;
   promptDifficultySnapshot: string;
@@ -38,7 +40,7 @@ export interface CardEntryEntity {
   createdAt: Date;
   updatedAt: Date;
   segments: CardSegmentEntity[];
-  image: CardImageAssetEntity | null;
+  images: CardImageAssetEntity[];
 }
 
 export interface CardPracticeStateEntity {
@@ -80,6 +82,7 @@ export interface CardImageAssetEntity {
   id: string;
   userId: string;
   entryId: string | null;
+  ordinal: number;
   status: string;
   originalObjectKey: string;
   uploadObjectKey: string | null;
@@ -111,6 +114,22 @@ export interface CreateQueuedCardEntryInput {
   imageUploadId?: string | null;
 }
 
+export interface CreateDirectCardEntryInput {
+  userId: string;
+  dateKey: string;
+  originalText: string | null;
+  rewrittenText: string | null;
+  translationText: string | null;
+  replyText: string | null;
+  languageCode: string;
+  appLocaleSnapshot: AppLocale;
+  promptDifficultySnapshot: string;
+  promptVersion: string;
+  clientId: string;
+  imageUploadIds: string[];
+  segments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
+}
+
 export interface CompleteCardEntryInput {
   entryId: string;
   workerId: string;
@@ -139,6 +158,17 @@ export interface CardRepository {
     promptVersion: string;
   }): Promise<CardEntryEntity[]>;
   createQueued(input: CreateQueuedCardEntryInput): Promise<CardEntryEntity>;
+  createDirect(input: CreateDirectCardEntryInput): Promise<CardEntryEntity>;
+  updateContent(input: {
+    entryId: string;
+    userId: string;
+    originalText: string | null;
+    rewrittenText: string | null;
+    translationText: string | null;
+    replyText: string | null;
+    segments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
+    clearPractice: boolean;
+  }): Promise<CardEntryEntity | null>;
   findByUserClientId(userId: string, clientId: string): Promise<CardEntryEntity | null>;
   findByIdForUser(entryId: string, userId: string): Promise<CardEntryEntity | null>;
   findActiveByUser(userId: string): Promise<CardEntryEntity | null>;
@@ -246,4 +276,6 @@ export interface CardRepository {
     userId: string;
     imageUploadId: string | null;
   }): Promise<CardEntryEntity | null>;
+  appendEntryImage(input: { entryId: string; userId: string; imageUploadId: string }): Promise<CardEntryEntity | null>;
+  removeEntryImage(input: { entryId: string; userId: string; imageId: string }): Promise<CardEntryEntity | null>;
 }

@@ -9,6 +9,7 @@ import type { EntitlementService } from "../entitlement/EntitlementService.js";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2_200;
+const THUMBNAIL_VERSION = 2;
 
 export class CardImageModerationUnavailableError extends Error {
   readonly code = "CARD_IMAGE_MODERATION_UNAVAILABLE";
@@ -147,7 +148,7 @@ export class CardImageService {
   async status(userId: string, uploadId: string) {
     const asset = await this.repository.findImageUpload(uploadId, userId);
     if (!asset) throw new CardNotFoundError();
-    if ((asset.status === "approved" || asset.status === "approved_with_review") && asset.thumbnailStatus !== "ready") {
+    if ((asset.status === "approved" || asset.status === "approved_with_review") && (asset.thumbnailStatus !== "ready" || asset.thumbnailVersion < THUMBNAIL_VERSION)) {
       return toStatus(await this.ensureThumbnail(asset));
     }
     return toStatus(asset);
@@ -160,23 +161,30 @@ export class CardImageService {
   }
 
   async views(asset: NonNullable<Awaited<ReturnType<CardRepository["findImageUpload"]>>>) {
-    const original = await this.storage.getSignedUrl(asset.originalObjectKey, 3_600);
-    const thumbnail = asset.thumbnailObjectKey
-      ? await this.storage.getSignedUrl(asset.thumbnailObjectKey, 3_600)
+    const resolved = asset.thumbnailStatus !== "ready" || asset.thumbnailVersion < THUMBNAIL_VERSION
+      ? await this.ensureThumbnail(asset)
+      : asset;
+    const original = await this.storage.getSignedUrl(resolved.originalObjectKey, 3_600);
+    const thumbnail = resolved.thumbnailObjectKey
+      ? await this.storage.getSignedUrl(resolved.thumbnailObjectKey, 3_600)
       : original;
+    const landscape = resolved.width >= resolved.height;
+    const hasV2Thumbnail = Boolean(resolved.thumbnailObjectKey) && resolved.thumbnailVersion >= THUMBNAIL_VERSION;
     return {
       thumbnail: {
+        id: resolved.id,
         url: thumbnail.url,
         urlExpiresAt: thumbnail.expiresAt.toISOString(),
-        width: asset.thumbnailObjectKey ? 360 : asset.width,
-        height: asset.thumbnailObjectKey ? 360 : asset.height,
+        width: hasV2Thumbnail ? (landscape ? 360 : 288) : resolved.thumbnailObjectKey ? 360 : resolved.width,
+        height: hasV2Thumbnail ? (landscape ? 240 : 360) : resolved.thumbnailObjectKey ? 360 : resolved.height,
       },
       image: {
+        id: resolved.id,
         url: original.url,
         urlExpiresAt: original.expiresAt.toISOString(),
-        width: asset.width,
-        height: asset.height,
-        aspect: asset.width >= asset.height ? "3:2" as const : "4:5" as const,
+        width: resolved.width,
+        height: resolved.height,
+        aspect: landscape ? "3:2" as const : "4:5" as const,
       },
     };
   }
@@ -185,22 +193,29 @@ export class CardImageService {
     asset: NonNullable<Awaited<ReturnType<CardRepository["findImageUpload"]>>>,
     existingBytes?: Buffer,
   ) {
-    if (asset.thumbnailObjectKey && asset.thumbnailStatus === "ready") return asset;
+    if (asset.thumbnailObjectKey && asset.thumbnailStatus === "ready" && asset.thumbnailVersion >= THUMBNAIL_VERSION) return asset;
     try {
       const bytes = existingBytes ?? await this.storage.download(asset.originalObjectKey);
+      const landscape = asset.width >= asset.height;
+      const thumbnailWidth = landscape ? 360 : 288;
+      const thumbnailHeight = landscape ? 240 : 360;
       const thumbnail = await sharp(bytes)
         .rotate()
-        .resize(360, 360, { fit: "cover", position: "centre" })
+        .resize(thumbnailWidth, thumbnailHeight, { fit: "cover", position: "centre" })
         .jpeg({ quality: 84, mozjpeg: true })
         .toBuffer();
-      const thumbnailObjectKey = asset.originalObjectKey.replace(/\/original\.[^.]+$/u, "/thumbnail-v1.jpg");
+      const thumbnailObjectKey = asset.originalObjectKey.replace(/\/original\.[^.]+$/u, `/thumbnail-v${THUMBNAIL_VERSION}.jpg`);
       await this.storage.upload(thumbnailObjectKey, thumbnail, "image/jpeg");
-      return await this.repository.updateImageThumbnail({
+      const updated = await this.repository.updateImageThumbnail({
         id: asset.id,
         userId: asset.userId,
         thumbnailObjectKey,
-        thumbnailVersion: 1,
-      }) ?? asset;
+        thumbnailVersion: THUMBNAIL_VERSION,
+      });
+      if (updated && asset.thumbnailObjectKey && asset.thumbnailObjectKey !== thumbnailObjectKey) {
+        await this.storage.delete(asset.thumbnailObjectKey).catch(() => undefined);
+      }
+      return updated ?? asset;
     } catch {
       return asset;
     }

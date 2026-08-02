@@ -33,6 +33,7 @@ export interface CardRewriteSegmentView {
 }
 
 export interface CardImageThumbnailView {
+  id: string;
   url: string;
   urlExpiresAt: string | null;
   width: number;
@@ -75,7 +76,11 @@ export interface CardRecordSummaryView {
 export interface CardRecordDetailView extends CardRecordSummaryView {
   originalText: string;
   rewrittenText: string | null;
+  translationText: string | null;
+  replyText: string | null;
   rewriteSegments: CardRewriteSegmentView[];
+  images: CardImageDetailView[];
+  /** Compatibility field for clients before multi-image Card support. */
   image: CardImageDetailView | null;
   practice: CardPracticeView | null;
 }
@@ -107,8 +112,20 @@ export type UpdateCardClozeInput = {
 
 export interface CreateCardEntryInput {
   clientId: string;
-  originalText: string;
+  originalText?: string | null;
+  rewrittenText?: string | null;
+  translationText?: string | null;
+  replyText?: string | null;
+  generateRewrite?: boolean;
+  imageUploadIds?: string[];
   imageUploadId?: string | null;
+}
+
+export interface UpdateCardContentInput {
+  originalText?: string | null;
+  rewrittenText?: string | null;
+  translationText?: string | null;
+  replyText?: string | null;
 }
 
 export interface RecordDetailOpenOptions {

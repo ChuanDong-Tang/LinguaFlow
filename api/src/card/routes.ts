@@ -17,7 +17,7 @@ import {
   CardValidationError,
   CardPracticeConflictError,
 } from "@lf/server/services/card/CardService.js";
-import type { CreateCardEntryInput, UpdateCardClozeInput } from "@lf/core/types/cardRecord.js";
+import type { CreateCardEntryInput, UpdateCardClozeInput, UpdateCardContentInput } from "@lf/core/types/cardRecord.js";
 import {
   AccountDisabledError,
   AccountPendingDeleteError,
@@ -359,7 +359,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards");
     if (!userId) return;
     const body = req.body as Partial<CreateCardEntryInput> | null;
-    if (!body || typeof body.clientId !== "string" || typeof body.originalText !== "string") {
+    if (!body || typeof body.clientId !== "string") {
       return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid card entry");
     }
     try {
@@ -375,11 +375,77 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         requestId,
         body: {
           clientId: body.clientId,
-          originalText: body.originalText,
+          originalText: typeof body.originalText === "string" ? body.originalText : null,
+          rewrittenText: typeof body.rewrittenText === "string" ? body.rewrittenText : null,
+          translationText: typeof body.translationText === "string" ? body.translationText : null,
+          replyText: typeof body.replyText === "string" ? body.replyText : null,
+          generateRewrite: body.generateRewrite !== false,
+          imageUploadIds: Array.isArray(body.imageUploadIds)
+            ? body.imageUploadIds.filter((value): value is string => typeof value === "string")
+            : [],
           imageUploadId: typeof body.imageUploadId === "string" ? body.imageUploadId : null,
         },
       });
       return reply.status(202).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
+  app.post("/cards/generate-preview", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/generate-preview");
+    if (!userId) return;
+    const body = req.body as { target?: unknown; sourceText?: unknown } | null;
+    const target = body?.target;
+    if ((target !== "expression" && target !== "translation" && target !== "reply") || typeof body?.sourceText !== "string") {
+      return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid generation request");
+    }
+    try {
+      const data = await deps.cardService.generateDraftContent({ userId, requestId, target, sourceText: body.sourceText });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
+  app.patch("/cards/:recordId/content", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/content");
+    if (!userId) return;
+    const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
+    const body = (req.body ?? {}) as UpdateCardContentInput;
+    try {
+      const data = await deps.cardService.updateContent(userId, `card:${recordId}`, body);
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
+  app.post("/cards/:recordId/generate", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/generate");
+    if (!userId) return;
+    const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
+    const target = (req.body as { target?: unknown } | null)?.target;
+    if (target !== "expression" && target !== "translation" && target !== "reply") {
+      return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid generation target");
+    }
+    try {
+      const data = await deps.cardService.generateContent({
+        userId,
+        requestId,
+        recordId: `card:${recordId}`,
+        target,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       return handleCardError(reply, requestId, error);
     }
@@ -717,6 +783,35 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     } catch (error) {
       return handleCardError(reply, requestId, error);
     }
+  });
+
+  app.post("/cards/:recordId/images", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/images");
+    if (!userId) return;
+    const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
+    const imageUploadId = String((req.body as { imageUploadId?: unknown } | null)?.imageUploadId ?? "");
+    try {
+      const data = await deps.cardService.appendImage(userId, `card:${recordId}`, imageUploadId);
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
+  app.delete("/cards/:recordId/images/:imageId", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/images/:imageId");
+    if (!userId) return;
+    const params = req.params as { recordId?: unknown; imageId?: unknown };
+    try {
+      const data = await deps.cardService.removeImage(
+        userId,
+        `card:${String(params.recordId ?? "")}`,
+        String(params.imageId ?? ""),
+      );
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) { return handleCardError(reply, requestId, error); }
   });
 
   app.delete("/cards/:recordId/image", async (req, reply) => {

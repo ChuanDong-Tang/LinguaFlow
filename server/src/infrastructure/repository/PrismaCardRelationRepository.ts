@@ -72,7 +72,7 @@ export class PrismaCardRelationRepository {
         status: "completed",
         deletedAt: null,
       },
-      include: { image: true },
+      include: { images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }], take: 1 } },
     });
     const rows: CardRelationPreviewRow[] = cards.map((card) => ({
       recordId: `card:${card.id}`,
@@ -85,7 +85,7 @@ export class PrismaCardRelationRepository {
       languageCode: card.languageCode,
       isSample: card.isSample,
       createdAt: card.createdAt,
-      image: card.image as CardImageAssetEntity | null,
+      image: (card.images[0] as CardImageAssetEntity | undefined) ?? null,
     }));
     const byRecordId = new Map(rows.map((row) => [row.recordId, row]));
     return input.refs.flatMap((ref) => {
