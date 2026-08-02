@@ -91,6 +91,7 @@ export function MainScreen({ isActive, refreshRevision, onOpenCard, onOpenRecall
   const refreshSequenceRef = useRef(0);
   const searchSequenceRef = useRef(0);
   const submitInFlightRef = useRef(false);
+  const sidebarActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequenceRef.current;
@@ -110,6 +111,9 @@ export function MainScreen({ isActive, refreshRevision, onOpenCard, onOpenRecall
       setCollections(collectionResult.collections);
       setUnclassifiedCount(collectionResult.unclassifiedCount);
       setHasMore(rows.length === LIBRARY_PAGE_SIZE);
+      if (libraryView !== "unclassified" && !collectionResult.collections.some((collection) => collection.id === libraryView)) {
+        setLibraryView("unclassified");
+      }
     } catch {
       if (sequence !== refreshSequenceRef.current) return;
       Alert.alert("暂时无法加载", "请检查网络后重试");
@@ -160,6 +164,21 @@ export function MainScreen({ isActive, refreshRevision, onOpenCard, onOpenRecall
   useEffect(() => {
     if (isActive) void refresh();
   }, [isActive, refresh, refreshRevision]);
+
+  useEffect(() => {
+    if (isActive) return;
+    setSidebarVisible(false);
+    setCollectionMoveVisible(false);
+    setCollectionMoveTargetId(null);
+    if (sidebarActionTimerRef.current) {
+      clearTimeout(sidebarActionTimerRef.current);
+      sidebarActionTimerRef.current = null;
+    }
+  }, [isActive]);
+
+  useEffect(() => () => {
+    if (sidebarActionTimerRef.current) clearTimeout(sidebarActionTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!isActive || !activeRecordId) return;
@@ -470,9 +489,24 @@ export function MainScreen({ isActive, refreshRevision, onOpenCard, onOpenRecall
   }
 
   async function removeCollection(collection: CardCollection): Promise<void> {
+    const removedIds = collectionDescendantIds(collection.id, collections);
+    removedIds.add(collection.id);
     await deleteCardCollection(collection.id);
-    if (libraryView === collection.id) setLibraryView("all");
+    if (removedIds.has(libraryView)) {
+      clearSearch();
+      setLibraryView("unclassified");
+      return;
+    }
     await refresh();
+  }
+
+  function closeSidebarThen(action: () => void): void {
+    if (sidebarActionTimerRef.current) clearTimeout(sidebarActionTimerRef.current);
+    setSidebarVisible(false);
+    sidebarActionTimerRef.current = setTimeout(() => {
+      sidebarActionTimerRef.current = null;
+      action();
+    }, 220);
   }
 
   async function moveCollection(collectionId: string, parentId: string | null, position?: number): Promise<void> {
@@ -614,8 +648,8 @@ export function MainScreen({ isActive, refreshRevision, onOpenCard, onOpenRecall
         {!searchResults && loading ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
         {!searchResults && !loading && !records.length ? (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>{libraryView === "all" ? "你的生活，会从这里慢慢留下来" : "这个生活集还没有故事"}</Text>
-            <Text style={styles.emptyText}>{libraryView === "all" ? "一场雨、一次见面，或者一个没有答案的念头。" : "可以把相关的生活记录收进这里。"}</Text>
+            <Text style={styles.emptyTitle}>{libraryView === "unclassified" ? "还没有等待整理的生活" : "这个生活集还没有故事"}</Text>
+            <Text style={styles.emptyText}>{libraryView === "unclassified" ? "记录下一段生活，它会先留在这里。" : "可以把相关的生活记录收进这里。"}</Text>
             <Pressable style={styles.emptyAction} onPress={() => setComposerVisible(true)}>
               <Text style={styles.emptyActionText}>制作第一张卡片</Text>
             </Pressable>
@@ -664,21 +698,18 @@ export function MainScreen({ isActive, refreshRevision, onOpenCard, onOpenRecall
           selectLibraryView(view);
         }}
         onOpenRecall={() => {
-          setSidebarVisible(false);
-          setTimeout(onOpenRecall, 240);
+          closeSidebarThen(onOpenRecall);
         }}
         onCreateCollection={(name, parentId) => saveCollection(name, undefined, parentId)}
         onRenameCollection={(collectionId, name) => saveCollection(name, collectionId)}
         onToggleFavorite={toggleCollectionFavorite}
         onDeleteCollection={removeCollection}
         onRequestMoveCollection={(collectionId) => {
-          setSidebarVisible(false);
           setCollectionMoveTargetId(collectionId);
-          setTimeout(() => setCollectionMoveVisible(true), 240);
+          closeSidebarThen(() => setCollectionMoveVisible(true));
         }}
         onOpenAccount={() => {
-          setSidebarVisible(false);
-          setTimeout(onOpenAccount, 240);
+          closeSidebarThen(onOpenAccount);
         }}
       />
     </SafeAreaView>
@@ -1029,11 +1060,16 @@ function AnimatedSidebarModal({ visible, onRequestClose, children }: {
   const [mounted, setMounted] = useState(visible);
   const translateX = useRef(new Animated.Value(-380)).current;
   const scrimOpacity = useRef(new Animated.Value(0)).current;
+  const animationSequenceRef = useRef(0);
 
   useEffect(() => {
+    const sequence = ++animationSequenceRef.current;
+    translateX.stopAnimation();
+    scrimOpacity.stopAnimation();
     if (visible) {
       setMounted(true);
       requestAnimationFrame(() => {
+        if (animationSequenceRef.current !== sequence) return;
         Animated.parallel([
           Animated.spring(translateX, { toValue: 0, damping: 24, stiffness: 240, mass: 0.9, useNativeDriver: true }),
           Animated.timing(scrimOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
@@ -1046,9 +1082,9 @@ function AnimatedSidebarModal({ visible, onRequestClose, children }: {
       Animated.timing(translateX, { toValue: -380, duration: 210, useNativeDriver: true }),
       Animated.timing(scrimOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
     ]).start(({ finished }) => {
-      if (finished) setMounted(false);
+      if (finished && animationSequenceRef.current === sequence) setMounted(false);
     });
-  }, [mounted, scrimOpacity, translateX, visible]);
+  }, [scrimOpacity, translateX, visible]);
 
   if (!mounted) return null;
   return (
