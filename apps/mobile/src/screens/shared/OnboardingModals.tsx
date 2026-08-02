@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { AppLocale, LearningLanguage, PromptDifficulty } from "../../services/api/meApi";
 import { t } from "../../i18n";
+import { theme } from "../../theme";
 
 export function UiLocaleSetupModal({
   visible,
@@ -292,12 +293,12 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: "#F0EDFF",
+    backgroundColor: theme.colors.accentSoft,
     alignItems: "center",
     justifyContent: "center",
   },
   stepIndexText: {
-    color: "#4E3EFF",
+    color: theme.colors.accentStrong,
     fontSize: 13,
     fontWeight: "700",
   },

@@ -35,6 +35,7 @@ import {
 } from "../domain/practice/practiceService";
 import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
 import { t, tf } from "../i18n";
+import { theme } from "../theme";
 
 type PracticeScreenProps = {
   isActive: boolean;
@@ -808,7 +809,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#7A70F2",
+    backgroundColor: theme.colors.accentStrong,
   },
   monthRow: {
     marginTop: 14,
@@ -887,7 +888,7 @@ const styles = StyleSheet.create({
     width: 3,
     height: 3,
     borderRadius: 2,
-    backgroundColor: "#7A70F2",
+    backgroundColor: theme.colors.accentStrong,
   },
 
   reviewStack: {
@@ -922,7 +923,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#F0EDFF",
+    backgroundColor: theme.colors.accentSoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -942,7 +943,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "#F0EDFF",
+    backgroundColor: theme.colors.accentSoft,
     alignItems: "center",
     justifyContent: "center",
   },

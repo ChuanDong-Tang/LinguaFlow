@@ -1136,7 +1136,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       localPro ? getCurrentEntitlement().catch(() => null) : Promise.resolve(null),
     ]);
     const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
-    const canCloudSync = (entitlement?.features?.cloudSync ?? entitlement?.isMember ?? entitlement?.isPro) === true;
+    const canCloudSync = (entitlement?.features?.conversationHistorySync ?? entitlement?.isMember ?? entitlement?.isPro) === true;
     if (!isMountedRef.current) return { synced: false, changed: false };
     setIsProEntitled((entitlement?.features?.highQualityTts ?? entitlement?.isMember ?? entitlement?.isPro) === true);
     const dateKey = toDateKey(d);

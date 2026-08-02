@@ -203,7 +203,7 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
 
     const localPro = await hasLocalProAccess();
     const entitlement = localPro ? await getCurrentEntitlement().catch(() => null) : null;
-    const cloud = (entitlement?.features?.cloudSync ?? entitlement?.isMember ?? entitlement?.isPro) === true
+    const cloud = (entitlement?.features?.conversationHistorySync ?? entitlement?.isMember ?? entitlement?.isPro) === true
       ? await sendMessageToCloud({
           text: input.text,
           contactId: input.contactId,

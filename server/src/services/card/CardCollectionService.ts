@@ -41,6 +41,11 @@ export class CardCollectionService {
     if (!collectionId || !await this.repository.remove(userId, collectionId)) throw new CardNotFoundError();
   }
 
+  async setFavorite(userId: string, collectionId: string, isFavorite: boolean): Promise<void> {
+    if (!collectionId || typeof isFavorite !== "boolean") throw new CardValidationError("Invalid favorite state");
+    if (!await this.repository.setFavorite(userId, collectionId, isFavorite)) throw new CardNotFoundError();
+  }
+
   async reparent(userId: string, collectionId: string, parentId: string | null, position?: number): Promise<void> {
     if (!collectionId) throw new CardValidationError("Invalid collection id");
     try {
@@ -103,11 +108,12 @@ function isUniqueConflict(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
 }
 
-function toView(collection: { id: string; parentId: string | null; sortOrder: number; name: string; cardCount: number; createdAt: Date; updatedAt: Date }) {
+function toView(collection: { id: string; parentId: string | null; sortOrder: number; isFavorite: boolean; name: string; cardCount: number; createdAt: Date; updatedAt: Date }) {
   return {
     id: collection.id,
     parentId: collection.parentId,
     sortOrder: collection.sortOrder,
+    isFavorite: collection.isFavorite,
     name: collection.name,
     cardCount: collection.cardCount,
     createdAt: collection.createdAt.toISOString(),

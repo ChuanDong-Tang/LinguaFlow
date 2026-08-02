@@ -1,17 +1,24 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Updates from "expo-updates";
+import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession, type AuthSession } from "../services/auth/authStorage";
 import {
   getUserPreference,
+  getUserBindings,
+  getUserProfile,
+  updateProfileNickname,
+  removeProfileAvatar,
   updateUserPreference,
   type AppLocale,
   type CurrentEntitlement,
   type LearningLanguage,
   type PromptDifficulty,
   type UserPreference,
+  type UserBindings,
+  type UserProfile,
 } from "../services/api/meApi";
 import { getCachedEntitlementForUser, isSameEntitlement } from "../services/entitlement/entitlementCache";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
@@ -21,6 +28,9 @@ import { t, tf } from "../i18n";
 import { DebugPromptModal } from "./shared/DebugPromptModal";
 import { listTtsVoices, type TtsVoiceOption } from "../services/api/ttsApi";
 import { getLogs, type AppLog } from "../services/logger";
+import { theme } from "../theme";
+import { prepareAndUploadAvatar } from "../services/profile/avatarUpload";
+import { TARGET_LANGUAGE_CODES } from "@lf/core/language/targetLanguages";
 
 type MeScreenProps = {
   isActive: boolean;
@@ -32,24 +42,28 @@ type MeScreenProps = {
   onBindEmail: () => Promise<void> | void;
   onLogout: () => Promise<void> | void;
   onDeleteAccount: () => Promise<void> | void;
+  onClose?: () => void;
 };
 
 const OTA_DEBUG_JS_LABEL = "Dictionary overlay close fix";
 const UPDATE_LOG_KEYWORDS = ["error", "fail", "exception", "crash", "rollback", "emergency", "launch", "reset", "delete"];
 const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
-export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApplyAppLocale, sessionRevision, onBindEmail, onLogout, onDeleteAccount }: MeScreenProps) {
+export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApplyAppLocale, sessionRevision, onBindEmail, onLogout, onDeleteAccount, onClose }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
   const appLocaleSyncSeqRef = useRef(0);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
   const [preference, setPreference] = useState<UserPreference | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [bindings, setBindings] = useState<UserBindings | null>(null);
+  const [profileVisible, setProfileVisible] = useState(false);
+  const [bindingsVisible, setBindingsVisible] = useState(false);
   const [languageSettingsVisible, setLanguageSettingsVisible] = useState(false);
   const [devDebugVisible, setDevDebugVisible] = useState(false);
   const [aiDebugVisible, setAiDebugVisible] = useState(false);
   const [isLoadingEntitlement, setIsLoadingEntitlement] = useState(true);
   const [updatesDebugVisible, setUpdatesDebugVisible] = useState(false);
-  const [updatesTapCount, setUpdatesTapCount] = useState(0);
   const [updatesAction, setUpdatesAction] = useState<string | null>(null);
   const [updatesResult, setUpdatesResult] = useState("尚未执行操作");
 
@@ -61,14 +75,18 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
       if (isMounted()) setIsLoadingEntitlement(true);
       await recoverPendingPaymentIfAny();
       const localSession = await getSession();
-      const [cached, localPreference] = await Promise.all([
+      const [cached, localPreference, remoteProfile, remoteBindings] = await Promise.all([
         localSession?.user.id ? getCachedEntitlementForUser(localSession.user.id) : Promise.resolve(null),
         localSession ? getUserPreference().catch(() => null) : Promise.resolve(null),
+        localSession ? getUserProfile().catch(() => null) : Promise.resolve(null),
+        localSession ? getUserBindings().catch(() => null) : Promise.resolve(null),
       ]);
       if (cancelled || !isMounted()) return;
       setSession(localSession);
       if (cached) setEntitlement(cached.data);
       if (localPreference) setPreference(localPreference);
+      if (remoteProfile) setProfile(remoteProfile);
+      if (remoteBindings) setBindings(remoteBindings);
       setIsLoadingEntitlement(!cached);
       try {
         const refreshed = await refreshEntitlementAndSessionSafe();
@@ -96,7 +114,8 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
     return { dailyTotalLimit, remainingChars, ratio: Math.max(0, Math.min(1, ratio)) };
   }, [entitlement, session?.sessionFlags?.isPro]);
 
-  const userName = resolveUserName(session);
+  // Never fall back to raw auth email/phone while the privacy-safe profile is loading.
+  const userName = profile?.nickname || "OIO";
   const isAdmin = session?.user.role === "admin";
   const isMember = entitlement ? (entitlement.isMember ?? entitlement.isPro) : session?.sessionFlags?.isPro === true;
   const planLabel = resolvePlanLabel(entitlement, session);
@@ -107,32 +126,29 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
     : entitlement?.validUntil
       ? tf("me.quota.valid_until", { time: formatDateTime(entitlement.validUntil) })
       : t("me.quota.free_valid");
-  const boundEmail = session?.user.email?.trim() || "";
-
-  function handleBindEmailPress(): void {
-    if (boundEmail) {
-      Alert.alert(t("me.bind_email.already_title"), tf("me.bind_email.already_message", { email: boundEmail }));
-      return;
-    }
-    void onBindEmail();
-  }
+  const bindingSummary = bindings?.email.bound
+    ? bindings.email.maskedValue ?? "已绑定"
+    : bindings?.phone.maskedValue ?? "查看";
 
   return (
     <SafeAreaView style={styles.container}>
+      {onClose ? (
+        <View style={styles.sheetHeader}>
+          <Pressable accessibilityLabel="关闭我的页面" style={styles.sheetClose} onPress={onClose}>
+            <Ionicons name="chevron-down" size={24} color={theme.colors.text} />
+          </Pressable>
+          <Text style={styles.sheetTitle}>我的</Text>
+          <View style={styles.sheetClose} />
+        </View>
+      ) : null}
       <ScrollView style={styles.scroller} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Pressable style={styles.profileRow} onPress={() => {
-          if (!isAdmin) return;
-          setUpdatesTapCount((count) => {
-            const next = count + 1;
-            if (next >= 6) {
-              setDevDebugVisible(true);
-              return 0;
-            }
-            return next;
-          });
-        }}>
+        <Pressable
+          style={styles.profileRow}
+          onPress={() => setProfileVisible(true)}
+          onLongPress={() => { if (isAdmin) setDevDebugVisible(true); }}
+        >
           <View style={styles.profileAvatar}>
-            <Text style={styles.profileAvatarText}>OIO</Text>
+            {profile?.avatar ? <Image source={{ uri: profile.avatar.thumbnailUrl }} style={styles.profileAvatarImage} /> : <Text style={styles.profileAvatarText}>OIO</Text>}
           </View>
           <View style={styles.profileBody}>
             <Text style={styles.profileName}>{userName}</Text>
@@ -146,7 +162,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
             <Text style={styles.quotaLabel}>{quotaLabel}</Text>
             <Text style={styles.quotaNumber}>{quota.remainingChars === null ? "--" : formatNumber(quota.remainingChars)}</Text>
             <Text style={styles.quotaUnit}>{t("me.quota.unit")}</Text>
-            {isLoadingEntitlement ? <ActivityIndicator size="small" color="#6E63FF" style={styles.quotaLoading} /> : null}
+            {isLoadingEntitlement ? <ActivityIndicator size="small" color={theme.colors.accentStrong} style={styles.quotaLoading} /> : null}
           </View>
           <View style={styles.progressRow}>
             <View style={styles.progressTrack}>
@@ -164,7 +180,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
           <Text style={styles.proTitle}>{t("me.pro.title")}</Text>
           {([t("me.pro.benefit.quota"), t("me.pro.benefit.cloud"), t("me.pro.benefit.tts")]).map((item) => (
             <View key={item} style={styles.benefitRow}>
-              <Ionicons name="checkmark-circle-outline" size={18} color="#746BFF" />
+              <Ionicons name="checkmark-circle-outline" size={18} color={theme.colors.accentStrong} />
               <Text style={styles.benefitText}>{item}</Text>
             </View>
           ))}
@@ -177,10 +193,10 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
         <Text style={styles.sectionTitle}>{t("me.section.more")}</Text>
         <View style={styles.settingsCard}>
           <SettingsRow
-            icon="mail-outline"
-            label={t("me.bind_email")}
-            value={boundEmail || t("me.bind_email.not_bound")}
-            onPress={handleBindEmailPress}
+            icon="link-outline"
+            label="绑定信息"
+            value={bindingSummary}
+            onPress={() => setBindingsVisible(true)}
           />
           <SettingsRow
             icon="language-outline"
@@ -198,6 +214,21 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
           <SettingsRow icon="person-remove-outline" label={t("me.delete_account")} onPress={onDeleteAccount} tone="danger" isLast />
         </View>
       </ScrollView>
+      <ProfileEditModal
+        visible={profileVisible}
+        profile={profile}
+        onClose={() => setProfileVisible(false)}
+        onSaved={setProfile}
+      />
+      <BindingsModal
+        visible={bindingsVisible}
+        bindings={bindings}
+        onClose={() => setBindingsVisible(false)}
+        onBindEmail={() => {
+          setBindingsVisible(false);
+          void onBindEmail();
+        }}
+      />
       <LanguageSettingsModal
         visible={languageSettingsVisible}
         preference={preference}
@@ -264,6 +295,155 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
         }}
       />
     </SafeAreaView>
+  );
+}
+
+function ProfileEditModal({ visible, profile, onClose, onSaved }: {
+  visible: boolean;
+  profile: UserProfile | null;
+  onClose: () => void;
+  onSaved: (profile: UserProfile) => void;
+}) {
+  const [nickname, setNickname] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible) setNickname(profile?.nickname ?? "");
+  }, [profile?.nickname, visible]);
+
+  async function save(): Promise<void> {
+    if (!nickname.trim() || saving) return;
+    setSaving(true);
+    try {
+      onSaved(await updateProfileNickname(nickname));
+    } catch (error) {
+      Alert.alert("无法保存昵称", error instanceof Error ? error.message : "请稍后再试");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function chooseAvatar(): void {
+    if (avatarSaving) return;
+    Alert.alert("更换头像", undefined, [
+      { text: "拍照", onPress: () => void pickAvatar("camera") },
+      { text: "从相册选择", onPress: () => void pickAvatar("library") },
+      { text: "取消", style: "cancel" },
+    ]);
+  }
+
+  async function pickAvatar(source: "camera" | "library"): Promise<void> {
+    const permission = source === "camera"
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("需要图片权限", source === "camera" ? "请允许使用相机后再拍照" : "请允许访问相册后再选择图片");
+      return;
+    }
+    const result = source === "camera"
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
+    const asset = result.assets?.[0];
+    if (result.canceled || !asset?.uri) return;
+    setAvatarSaving(true);
+    try {
+      onSaved(await prepareAndUploadAvatar({ uri: asset.uri }));
+    } catch (error) {
+      Alert.alert("无法保存头像", error instanceof Error ? error.message : "请稍后再试");
+    } finally {
+      setAvatarSaving(false);
+    }
+  }
+
+  async function removeAvatar(): Promise<void> {
+    if (avatarSaving || !profile?.avatar) return;
+    setAvatarSaving(true);
+    try { onSaved(await removeProfileAvatar()); }
+    catch (error) { Alert.alert("无法移除头像", error instanceof Error ? error.message : "请稍后再试"); }
+    finally { setAvatarSaving(false); }
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.profileModalBackdrop}>
+        <View style={styles.profileModalPanel}>
+          <View style={styles.profileModalHeader}>
+            <Text style={styles.profileModalTitle}>编辑资料</Text>
+            <Pressable hitSlop={10} onPress={onClose} disabled={saving || avatarSaving}>
+              <Ionicons name="close" size={22} color={theme.colors.text} />
+            </Pressable>
+          </View>
+          <View style={styles.profileEditAvatar}>
+            {profile?.avatar ? <Image source={{ uri: profile.avatar.url }} style={styles.profileEditAvatarImage} /> : <Text style={styles.profileEditAvatarText}>OIO</Text>}
+            {avatarSaving ? <View style={styles.profileAvatarBusy}><ActivityIndicator color={theme.colors.surface} /></View> : null}
+          </View>
+          <View style={styles.profileAvatarActions}>
+            <Pressable disabled={avatarSaving} onPress={chooseAvatar}><Text style={styles.profileAvatarActionText}>{profile?.avatar ? "更换头像" : "设置头像"}</Text></Pressable>
+            {profile?.avatar ? <Pressable disabled={avatarSaving} onPress={() => void removeAvatar()}><Text style={styles.profileAvatarRemoveText}>移除头像</Text></Pressable> : null}
+          </View>
+          <Text style={styles.profileFieldLabel}>用户名</Text>
+          <TextInput
+            value={nickname}
+            onChangeText={setNickname}
+            editable={!saving}
+            maxLength={64}
+            placeholder="输入用户名"
+            placeholderTextColor={theme.colors.textMuted}
+            style={styles.profileNicknameInput}
+          />
+          <Text style={styles.profileFieldHint}>1–24 个字符；保存后会进行内容审核。用户名可以与其他人重复。</Text>
+          <Pressable style={[styles.profileSaveButton, saving && styles.profileSaveButtonDisabled]} disabled={saving} onPress={() => void save()}>
+            {saving ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.profileSaveButtonText}>保存用户名</Text>}
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function BindingsModal({ visible, bindings, onClose, onBindEmail }: {
+  visible: boolean;
+  bindings: UserBindings | null;
+  onClose: () => void;
+  onBindEmail: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.profileModalBackdrop}>
+        <View style={styles.profileModalPanel}>
+          <View style={styles.profileModalHeader}>
+            <Text style={styles.profileModalTitle}>绑定信息</Text>
+            <Pressable hitSlop={10} onPress={onClose}><Ionicons name="close" size={22} color={theme.colors.text} /></Pressable>
+          </View>
+          <BindingRow label="手机号" item={bindings?.phone ?? null} />
+          <BindingRow label="邮箱" item={bindings?.email ?? null} onBind={onBindEmail} />
+          <Text style={styles.bindingPrivacy}>为保护隐私，这里只显示脱敏后的绑定信息。</Text>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function BindingRow({ label, item, onBind }: {
+  label: string;
+  item: UserBindings["phone"] | null;
+  onBind?: () => void;
+}) {
+  let value = "正在加载";
+  if (item?.bound) value = item.maskedValue ?? "已绑定";
+  else if (item?.action === "unsupported") value = "暂不支持绑定";
+  else if (item) value = "未绑定";
+  return (
+    <View style={styles.bindingRow}>
+      <View style={styles.bindingRowBody}>
+        <Text style={styles.bindingLabel}>{label}</Text>
+        <Text style={styles.bindingValue}>{value}</Text>
+      </View>
+      {item?.action === "bind" && onBind ? (
+        <Pressable style={styles.bindingButton} onPress={onBind}><Text style={styles.bindingButtonText}>绑定邮箱</Text></Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -797,10 +977,15 @@ const APP_LOCALE_OPTIONS: Array<{ value: AppLocale; labelKey: Parameters<typeof 
   { value: "ja-JP", labelKey: "language.ja_jp" },
 ];
 
-const LEARNING_LANGUAGE_OPTIONS: Array<{ value: LearningLanguage; labelKey: Parameters<typeof t>[0] }> = [
-  { value: "en-US", labelKey: "learning.en_us" },
-  { value: "ja-JP", labelKey: "learning.ja_jp" },
-];
+const LEARNING_LANGUAGE_LABELS: Record<LearningLanguage, Parameters<typeof t>[0]> = {
+  "en-US": "learning.en_us",
+  "ja-JP": "learning.ja_jp",
+};
+
+const LEARNING_LANGUAGE_OPTIONS = TARGET_LANGUAGE_CODES.map((value) => ({
+  value,
+  labelKey: LEARNING_LANGUAGE_LABELS[value],
+}));
 
 const PROMPT_DIFFICULTY_OPTIONS: Array<{ value: PromptDifficulty; labelKey: Parameters<typeof t>[0] }> = [
   { value: "simple", labelKey: "prompt_difficulty.simple" },
@@ -918,6 +1103,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F7F8FA",
   },
+  sheetHeader: {
+    minHeight: 54,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.border,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  sheetClose: {
+    width: 48,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetTitle: {
+    flex: 1,
+    color: theme.colors.text,
+    textAlign: "center",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   scroller: {
     flex: 1,
   },
@@ -936,8 +1142,8 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 27,
     borderWidth: 1,
-    borderColor: "#E2DFFF",
-    backgroundColor: "#F0EDFF",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.accentSoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -946,6 +1152,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
     letterSpacing: 0.5,
+  },
+  profileAvatarImage: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
   },
   profileBody: {
     marginLeft: 14,
@@ -985,7 +1196,7 @@ const styles = StyleSheet.create({
   },
   quotaNumber: {
     marginLeft: 8,
-    color: "#746BFF",
+    color: theme.colors.accentStrong,
     fontSize: 20,
     fontWeight: "500",
   },
@@ -1013,7 +1224,7 @@ const styles = StyleSheet.create({
   progressFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: "#746BFF",
+    backgroundColor: theme.colors.accentStrong,
   },
   progressText: {
     minWidth: 92,
@@ -1032,8 +1243,8 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#E2DFFF",
-    backgroundColor: "#F7F5FF",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.accentSoft,
   },
   proTitle: {
     color: "#111111",
@@ -1056,7 +1267,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#D6D1F4",
+    borderColor: theme.colors.border,
     backgroundColor: "rgba(255,255,255,0.72)",
     flexDirection: "row",
     alignItems: "center",
@@ -1346,7 +1557,7 @@ const styles = StyleSheet.create({
     minHeight: 34,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: "#F0ECFF",
+    backgroundColor: theme.colors.accentSoft,
     justifyContent: "center",
   },
   updatesDebugButtonDisabled: {
@@ -1377,4 +1588,111 @@ const styles = StyleSheet.create({
     color: "#111111",
     fontSize: 11,
   },
+  profileModalBackdrop: {
+    flex: 1,
+    paddingHorizontal: 20,
+    justifyContent: "center",
+    backgroundColor: theme.colors.scrim,
+  },
+  profileModalPanel: {
+    padding: 18,
+    borderRadius: theme.radius.card,
+    backgroundColor: theme.colors.surface,
+  },
+  profileModalHeader: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  profileModalTitle: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  profileEditAvatar: {
+    marginTop: 18,
+    alignSelf: "center",
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.accentSoft,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  profileEditAvatarImage: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+  },
+  profileEditAvatarText: {
+    color: theme.colors.accentStrong,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  profileAvatarBusy: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(30,35,38,0.55)",
+  },
+  profileAvatarActions: {
+    marginTop: 10,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 18,
+  },
+  profileAvatarActionText: { color: theme.colors.accentStrong, fontSize: 13, fontWeight: "600" },
+  profileAvatarRemoveText: { color: theme.colors.danger, fontSize: 13 },
+  profileFieldLabel: {
+    marginTop: 20,
+    marginBottom: 7,
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  profileNicknameInput: {
+    height: 48,
+    paddingHorizontal: 13,
+    borderRadius: theme.radius.control,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.canvas,
+    color: theme.colors.text,
+    fontSize: 16,
+  },
+  profileFieldHint: {
+    marginTop: 7,
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  profileSaveButton: {
+    marginTop: 18,
+    height: 46,
+    borderRadius: theme.radius.control,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.accentStrong,
+  },
+  profileSaveButtonDisabled: { opacity: 0.6 },
+  profileSaveButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
+  bindingRow: {
+    minHeight: 66,
+    marginTop: 10,
+    paddingHorizontal: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: theme.radius.control,
+    backgroundColor: theme.colors.canvas,
+  },
+  bindingRowBody: { flex: 1 },
+  bindingLabel: { color: theme.colors.text, fontSize: 14, fontWeight: "500" },
+  bindingValue: { marginTop: 4, color: theme.colors.textSecondary, fontSize: 12 },
+  bindingButton: { minHeight: 36, paddingHorizontal: 11, borderRadius: theme.radius.pill, justifyContent: "center", backgroundColor: theme.colors.accentSoft },
+  bindingButtonText: { color: theme.colors.accentStrong, fontSize: 12, fontWeight: "600" },
+  bindingPrivacy: { marginTop: 12, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16 },
 });

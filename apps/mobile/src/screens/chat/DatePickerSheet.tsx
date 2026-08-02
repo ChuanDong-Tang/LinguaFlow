@@ -12,6 +12,8 @@ type DatePickerSheetProps = {
   onNextMonth: () => void;
   onSelectDate: (d: Date) => void;
   hasRecordDateKeys: Set<string>;
+  allowEmptyDates?: boolean;
+  maximumDate?: Date;
 };
 
 const WEEK_LABEL_KEYS = [
@@ -24,7 +26,7 @@ const WEEK_LABEL_KEYS = [
   "chat.date.week.sat",
 ] as const;
 
-export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, onPrevMonth, onNextMonth, onSelectDate, hasRecordDateKeys }: DatePickerSheetProps) {
+export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, onPrevMonth, onNextMonth, onSelectDate, hasRecordDateKeys, allowEmptyDates = false, maximumDate }: DatePickerSheetProps) {
   const cells = useMemo(() => buildMonthCells(monthCursor), [monthCursor]);
   const title = tf("chat.date.month_format", {
     year: monthCursor.getFullYear(),
@@ -38,18 +40,21 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
 
     const isSelected = isSameDate(cellDate, selectedDate);
     const hasRecord = hasRecordDateKeys.has(toDateKey(cellDate));
+    const afterMaximum = maximumDate ? startOfDay(cellDate).getTime() > startOfDay(maximumDate).getTime() : false;
+    const disabled = afterMaximum || (!allowEmptyDates && !hasRecord);
 
     return (
       <Pressable
         key={cellDate.toISOString()}
         style={styles.cell}
         onPress={() => onSelectDate(cellDate)}
-        disabled={!hasRecord}
+        disabled={disabled}
       >
         <View style={[styles.dayDot, isSelected && styles.dayDotSelected]}>
-          <Text style={[styles.dayText, !hasRecord && styles.dayTextMuted, isSelected && styles.dayTextSelected]}>
+          <Text style={[styles.dayText, disabled && styles.dayTextMuted, isSelected && styles.dayTextSelected]}>
             {cellDate.getDate()}
           </Text>
+          {hasRecord ? <View style={[styles.recordDot, isSelected && styles.recordDotSelected]} /> : null}
         </View>
       </Pressable>
     );
@@ -129,6 +134,10 @@ function buildMonthCells(monthCursor: Date): Array<Date | null> {
 
 function isSameDate(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 function toDateKey(date: Date): string {
@@ -247,5 +256,16 @@ const styles = StyleSheet.create({
   dayTextSelected: {
     color: "#111111",
     fontWeight: "700",
+  },
+  recordDot: {
+    position: "absolute",
+    bottom: 3,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#8A82C8",
+  },
+  recordDotSelected: {
+    backgroundColor: "#655CAD",
   },
 });

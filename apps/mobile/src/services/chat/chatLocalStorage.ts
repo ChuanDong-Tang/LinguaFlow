@@ -5,6 +5,38 @@ import { compareChatMessagesByCreatedAt, getMessageDateKey, toDateKey } from "..
 const CHAT_LOCAL_SCOPE_PREFIX = "lf_chat_local_messages_v3";
 const CHAT_LOCAL_DAYS_SCOPE_PREFIX = "lf_chat_local_days_v3";
 
+export async function hasLocalChatHistoryScoped(userId: string): Promise<boolean> {
+  const prefix = `${CHAT_LOCAL_DAYS_SCOPE_PREFIX}:${userId}:`;
+  const keys = await AsyncStorage.getAllKeys();
+  const dayKeys = keys.filter((key) => key.startsWith(prefix));
+  if (!dayKeys.length) return false;
+  const rows = await AsyncStorage.multiGet(dayKeys);
+  return rows.some(([, value]) => {
+    if (!value) return false;
+    try {
+      return Array.isArray(JSON.parse(value)) && JSON.parse(value).length > 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
+export async function loadLocalConversationsByDateScoped(
+  userId: string,
+  dateKey: string,
+): Promise<Array<{ conversationId: string; messages: ChatMessage[] }>> {
+  const prefix = `${CHAT_LOCAL_SCOPE_PREFIX}:${userId}:`;
+  const suffix = `:${dateKey}`;
+  const keys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(prefix) && key.endsWith(suffix));
+  return Promise.all(keys.map(async (key) => {
+    const conversationId = key.slice(prefix.length, -suffix.length);
+    return {
+      conversationId,
+      messages: await loadLocalMessagesByDateScoped(userId, conversationId, dateKey),
+    };
+  }));
+}
+
 function messagesDayKey(userId: string, conversationId: string, dateKey: string): string {
   return `${CHAT_LOCAL_SCOPE_PREFIX}:${userId}:${conversationId}:${dateKey}`;
 }
@@ -53,6 +85,22 @@ function normalizeRows(rows: ChatMessage[]): ChatMessage[] {
 
 export async function listLocalMessageDateKeysScoped(userId: string, conversationId: string): Promise<string[]> {
   return getIndexedDays(userId, conversationId);
+}
+
+export async function listAllLocalMessageDateKeysScoped(userId: string): Promise<string[]> {
+  const prefix = `${CHAT_LOCAL_DAYS_SCOPE_PREFIX}:${userId}:`;
+  const keys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(prefix));
+  const rows = await AsyncStorage.multiGet(keys);
+  const dates = rows.flatMap(([, raw]) => {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  return uniqueSortedDays(dates);
 }
 
 export async function loadLocalMessagesByDateScoped(

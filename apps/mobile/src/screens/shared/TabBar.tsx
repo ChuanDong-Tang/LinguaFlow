@@ -2,6 +2,7 @@ import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { t } from "../../i18n";
+import { theme } from "../../theme";
 
 type TabBarProps = {
   activeTab: "main" | "practice" | "me";
@@ -16,9 +17,9 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
       <Pressable style={styles.tab} onPress={activeTab === "main" ? undefined : onPressMain}>
         <View style={styles.iconSlot}>
           <Ionicons
-            name="chatbubble-ellipses-outline"
+            name="book-outline"
             size={24}
-            color={activeTab === "main" ? "#746BFF" : "#9AA0AB"}
+            color={activeTab === "main" ? theme.colors.accentStrong : theme.colors.textMuted}
           />
         </View>
         <Text style={[styles.label, activeTab === "main" && styles.labelActive]}>{t("tabs.chat")}</Text>
@@ -27,9 +28,9 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
       <Pressable style={styles.tab} onPress={activeTab === "practice" ? undefined : onPressPractice}>
         <View style={styles.iconSlot}>
           <Ionicons
-            name="list-outline"
+            name="git-network-outline"
             size={24}
-            color={activeTab === "practice" ? "#746BFF" : "#9AA0AB"}
+            color={activeTab === "practice" ? theme.colors.accentStrong : theme.colors.textMuted}
           />
         </View>
         <Text style={[styles.label, activeTab === "practice" && styles.labelActive]}>{t("tabs.practice")}</Text>
@@ -40,7 +41,7 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
           <Ionicons
             name="person-outline"
             size={24}
-            color={activeTab === "me" ? "#746BFF" : "#9AA0AB"}
+            color={activeTab === "me" ? theme.colors.accentStrong : theme.colors.textMuted}
           />
         </View>
         <Text style={[styles.label, activeTab === "me" && styles.labelActive]}>{t("tabs.me")}</Text>
@@ -53,8 +54,8 @@ const styles = StyleSheet.create({
   bar: {
     height: 86,
     borderTopWidth: 1,
-    borderTopColor: "#E7E5DF",
-    backgroundColor: "#FFFEFB",
+    borderTopColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
@@ -70,10 +71,10 @@ const styles = StyleSheet.create({
     height: 16,
     lineHeight: 16,
     fontSize: 12,
-    color: "#9AA0AB",
+    color: theme.colors.textMuted,
   },
   labelActive: {
-    color: "#746BFF",
+    color: theme.colors.accentStrong,
   },
   iconSlot: {
     width: 24,

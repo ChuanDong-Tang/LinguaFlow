@@ -255,6 +255,7 @@ model CardCollection {
   userId         String
   parentId       String?
   sortOrder      Int      @default(0)
+  isFavorite     Boolean  @default(false)
   name           String
   normalizedName String
   createdAt      DateTime @default(now())

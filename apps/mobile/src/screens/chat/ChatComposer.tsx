@@ -13,6 +13,7 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
 import { t } from "../../i18n";
+import { theme } from "../../theme";
 
 type ChatComposerProps = {
   value: string;
@@ -298,7 +299,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 14,
-    backgroundColor: "#F0ECFF",
+    backgroundColor: theme.colors.accentSoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -309,7 +310,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#F0ECFF",
+    backgroundColor: theme.colors.accentSoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -320,7 +321,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: "#F0ECFF",
+    backgroundColor: theme.colors.accentSoft,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 0,

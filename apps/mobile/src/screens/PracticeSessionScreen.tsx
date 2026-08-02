@@ -44,6 +44,7 @@ import {
   subscribeTtsPlayback,
 } from "../services/tts/ttsPlayback";
 import { segmentLearningSentences } from "../domain/learning/learningText";
+import { buildClozeFlowSegments, ClozeTokenFlow, type ClozeFlowSegment } from "./shared/ClozeTokenFlow";
 
 type PracticeSessionScreenProps = {
   initialCards: PracticeCard[];
@@ -51,71 +52,13 @@ type PracticeSessionScreenProps = {
   onBack: () => void;
 };
 
-type PracticeEnglishSegment =
-  | {
-      type: "text";
-      key: string;
-      tokenIndex: number;
-      text: string;
-      highlighted: boolean;
-      correct: boolean;
-      spacer: boolean;
-      spacerHighlighted: boolean;
-      textStart: number;
-      textEnd: number;
-    }
-  | {
-      type: "blank";
-      key: string;
-      tokenIndex: number;
-      width: number;
-      spacer: boolean;
-      spacerHighlighted: boolean;
-      expectedText: string;
-      textStart: number;
-      textEnd: number;
-    };
+type PracticeEnglishSegment = ClozeFlowSegment;
 
 const CARD_SWITCH_SWIPE_RATIO = 0.16;
 const ACTIVE_BLANK_KEYBOARD_GAP = 88;
 
 function buildPracticeEnglishSegments(card: PracticeCard): PracticeEnglishSegment[] {
-  const phraseSet = new Set(card.phraseTokenIndexes);
-  const blankSet = new Set(card.blankTokenIndexes);
-  const correctSet = new Set(card.correctTokenIndexes);
-  return card.tokens.map((token, tokenListIndex) => {
-    const isPhrase = phraseSet.has(token.index);
-    const isAnsweredBlank = blankSet.has(token.index) && correctSet.has(token.index);
-    const isBlank = blankSet.has(token.index) && !correctSet.has(token.index);
-    const previous = card.tokens[tokenListIndex - 1];
-    const spacer = !!previous && token.kind === "word" && previous.kind === "word";
-    const spacerHighlighted = spacer && isPhrase && phraseSet.has(previous.index);
-    if (isBlank) {
-      return {
-        type: "blank",
-        key: `blank-${token.index}`,
-        tokenIndex: token.index,
-        width: Math.max(36, token.text.length * 10),
-        spacer,
-        spacerHighlighted,
-        expectedText: token.text,
-        textStart: token.start,
-        textEnd: token.end,
-      };
-    }
-    return {
-      type: "text",
-      key: `text-${token.index}`,
-      tokenIndex: token.index,
-      text: token.text,
-      highlighted: isPhrase || isAnsweredBlank,
-      correct: isAnsweredBlank,
-      spacer,
-      spacerHighlighted,
-      textStart: token.start,
-      textEnd: token.end,
-    };
-  });
+  return buildClozeFlowSegments({ tokens: card.tokens, phraseTokenIndexes: card.phraseTokenIndexes, blankTokenIndexes: card.blankTokenIndexes, correctTokenIndexes: card.correctTokenIndexes });
 }
 
 type PracticeSentenceRow = {
@@ -980,41 +923,6 @@ function PracticeEnglish({
     onPlaySentence(sentenceIndex);
   }
 
-  function renderSegment(segment: PracticeEnglishSegment): React.ReactNode {
-    if (segment.type === "blank") {
-      const checked = checkedAnswers[segment.tokenIndex];
-      const isCorrect = checked === "correct";
-      const isIncorrect = checked === "incorrect";
-      const answer = answers[segment.tokenIndex] ?? "";
-      return (
-        <React.Fragment key={segment.key}>
-          {segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
-          {isCorrect ? (
-            <Text style={[styles.tokenText, styles.correctText]}>{answer || segment.expectedText}</Text>
-          ) : isIncorrect ? (
-            <Text style={[styles.tokenText, styles.phraseText, styles.incorrectAnswerText]}>{segment.expectedText}</Text>
-          ) : (
-            <PracticeBlankInput
-              segment={segment}
-              answer={answer}
-              onChangeAnswer={onChangeAnswer}
-              onFocus={onBlankFocus}
-            />
-          )}
-        </React.Fragment>
-      );
-    }
-
-    return (
-      <React.Fragment key={segment.key}>
-        {segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.englishText}> </Text> : null}
-        <Text style={[styles.tokenText, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}>
-          {segment.text}
-        </Text>
-      </React.Fragment>
-    );
-  }
-
   return (
     <View style={styles.englishSentences}>
       {sentenceRows.map((row, sentenceIndex) => (
@@ -1038,41 +946,11 @@ function PracticeEnglish({
           delayLongPress={350}
         >
           <View style={styles.englishFlow}>
-            {row.segments.map((segment) => renderSegment(segment))}
+            <ClozeTokenFlow segments={row.segments} answers={answers} checkedAnswers={checkedAnswers} onChangeAnswer={onChangeAnswer} onBlankFocus={onBlankFocus} />
           </View>
         </Pressable>
       ))}
     </View>
-  );
-}
-
-function PracticeBlankInput({
-  segment,
-  answer,
-  onChangeAnswer,
-  onFocus,
-}: {
-  segment: Extract<PracticeEnglishSegment, { type: "blank" }>;
-  answer: string;
-  onChangeAnswer: (tokenIndex: number, value: string) => void;
-  onFocus: (inputRef: TextInput | null) => void;
-}) {
-  const inputRef = useRef<TextInput | null>(null);
-
-  return (
-    <TextInput
-      ref={inputRef}
-      style={[
-        styles.blankInput,
-        { width: segment.width },
-      ]}
-      value={answer}
-      onFocus={() => onFocus(inputRef.current)}
-      onPressIn={(event) => event.stopPropagation()}
-      onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)}
-      autoCapitalize="none"
-      autoCorrect={false}
-    />
   );
 }
 

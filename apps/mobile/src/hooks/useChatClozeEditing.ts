@@ -123,7 +123,7 @@ export function useChatClozeEditing({
       await applyMessageUpdate(optimistic);
 
       if (currentMessage.id) {
-        const canSyncCloze = await hasLocalFeatureAccess("cloudSync");
+        const canSyncCloze = await hasLocalFeatureAccess("conversationHistorySync");
         isProEntitledRef.current = canSyncCloze;
         setIsProEntitled(canSyncCloze);
       }

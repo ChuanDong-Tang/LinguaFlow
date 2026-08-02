@@ -54,6 +54,9 @@ export function isSameEntitlement(a: CurrentEntitlement | null, b: CurrentEntitl
     a.dateKey === b.dateKey &&
     a.dailyTotalLimit === b.dailyTotalLimit &&
     a.usedTotalChars === b.usedTotalChars &&
-    a.remainingChars === b.remainingChars
+    a.remainingChars === b.remainingChars &&
+    a.quotas?.cloudImages === b.quotas?.cloudImages &&
+    a.quotas?.usedCloudImages === b.quotas?.usedCloudImages &&
+    a.quotas?.remainingCloudImages === b.quotas?.remainingCloudImages
   );
 }

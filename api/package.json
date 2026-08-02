@@ -6,7 +6,8 @@
                     "dev":  "node --env-file-if-exists=.env --env-file-if-exists=../.env --import tsx src/server.ts",
                     "start":  "tsx src/server.ts",
                     "seed:dev-users":  "tsx src/dev/seedUsers.ts",
-                    "cleanup:fake-conversations":  "tsx src/dev/cleanupFakeConversations.ts"
+                    "cleanup:fake-conversations":  "tsx src/dev/cleanupFakeConversations.ts",
+                    "migrate:chat-cards":  "tsx src/dev/migrateChatMessagesToCards.ts"
                 },
     "dependencies":  {
                          "@fastify/websocket":  "^11.2.0",

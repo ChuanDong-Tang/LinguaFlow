@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatContact } from "../../domain/chat/contacts";
 import type { CompanionMode } from "../../services/preferences/assistantPreferences";
 import { t } from "../../i18n";
+import { theme } from "../../theme";
 
 type AutoCopySheetProps = {
   visible: boolean;
@@ -141,7 +142,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   optionSelected: {
-    borderColor: "#8E7BFF",
+    borderColor: theme.colors.accent,
     backgroundColor: "#F5F3FF",
   },
   optionDisabled: {
@@ -158,7 +159,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   optionLabelSelected: {
-    color: "#5A47D8",
+    color: theme.colors.accentStrong,
   },
   optionDescription: {
     marginTop: 3,
@@ -179,8 +180,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   radioSelected: {
-    borderColor: "#8E7BFF",
-    backgroundColor: "#8E7BFF",
+    borderColor: theme.colors.accentStrong,
+    backgroundColor: theme.colors.accentStrong,
   },
   radioDisabled: {
     borderColor: "#D8DDE7",

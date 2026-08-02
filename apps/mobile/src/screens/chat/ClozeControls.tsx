@@ -6,6 +6,8 @@ import { normalizeClozeState, tokenizeForCloze } from "../../domain/cloze/clozeU
 import { getAssistantClozeText } from "../../domain/cloze/clozeText";
 import { t } from "../../i18n";
 import type { NativeTextSelectionPayload } from "./SelectableMessageText";
+import { theme } from "../../theme";
+import { ClozeTokenEditor } from "../shared/ClozeTokenEditor";
 
 export type ClozeEditorState = {
   message: ChatMessage;
@@ -44,14 +46,9 @@ export function ClozeControls({
   onEditDeleteTarget,
   onLookupDeleteTarget,
 }: ClozeControlsProps) {
-  const lastEditorRef = React.useRef<ClozeEditorState | null>(null);
-  if (editor) {
-    lastEditorRef.current = editor;
-  }
-  const visibleEditor = editor ?? lastEditorRef.current;
-  const editorTokens = visibleEditor
-    ? tokenizeForCloze(getAssistantClozeText(visibleEditor.message, contact).text).filter((token) =>
-        visibleEditor.tokenIndexes.includes(token.index)
+  const editorTokens = editor
+    ? tokenizeForCloze(getAssistantClozeText(editor.message, contact).text).filter((token) =>
+        editor.tokenIndexes.includes(token.index)
       )
     : [];
   const deleteLookup = React.useMemo(() => {
@@ -79,38 +76,18 @@ export function ClozeControls({
 
   return (
     <>
-      <Modal visible={!!editor} transparent animationType="fade" onRequestClose={onCloseEditor}>
-        <View style={styles.editorScrim}>
-          <View style={styles.editorCard}>
-            <Text style={styles.editorTitle}>{t("cloze.edit")}</Text>
-            <ScrollView style={styles.editorScroll} contentContainerStyle={styles.editorTokens}>
-              {editorTokens.map((token) => {
-                const active = visibleEditor?.draftBlankIndexes.includes(token.index) ?? false;
-
-                return (
-                  <Pressable
-                    key={token.index}
-                    style={[styles.editorToken, active && styles.editorTokenActive]}
-                    onPress={() => onToggleDraftToken(token.index)}
-                  >
-                    <Text style={[styles.editorTokenText, active && styles.editorTokenTextActive]}>
-                      {token.text}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-            <View style={styles.editorActions}>
-              <Pressable style={styles.editorCancel} onPress={onCloseEditor}>
-                <Text style={styles.editorCancelText}>{t("common.cancel")}</Text>
-              </Pressable>
-              <Pressable style={styles.editorConfirm} onPress={onConfirmEditor}>
-                <Text style={styles.editorConfirmText}>{t("common.confirm")}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <ClozeTokenEditor
+        value={editor ? { tokens: editorTokens, selectedTokenIndexes: editor.draftBlankIndexes } : null}
+        onChange={(next) => {
+          const current = new Set(editor?.draftBlankIndexes ?? []);
+          const target = new Set(next);
+          editorTokens.forEach((token) => {
+            if (current.has(token.index) !== target.has(token.index)) onToggleDraftToken(token.index);
+          });
+        }}
+        onCancel={onCloseEditor}
+        onConfirm={onConfirmEditor}
+      />
 
       <Modal visible={!!deleteTarget} transparent animationType="fade" onRequestClose={onCloseDelete}>
         <Pressable style={styles.selectionOverlay} onPress={onCloseDelete}>
@@ -243,15 +220,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   editorTokenActive: {
-    borderColor: "#8E7BFF",
-    backgroundColor: "#F0EDFF",
+    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accentSoft,
   },
   editorTokenText: {
     color: "#111111",
     fontSize: 15,
   },
   editorTokenTextActive: {
-    color: "#5A47D8",
+    color: theme.colors.accentStrong,
     fontWeight: "700",
   },
   editorActions: {
@@ -277,7 +254,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "#8E7BFF",
+    backgroundColor: theme.colors.accentStrong,
     alignItems: "center",
     justifyContent: "center",
   },

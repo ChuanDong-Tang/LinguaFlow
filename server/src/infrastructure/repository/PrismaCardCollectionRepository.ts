@@ -4,6 +4,7 @@ export interface CardCollectionView {
   id: string;
   parentId: string | null;
   sortOrder: number;
+  isFavorite: boolean;
   name: string;
   cardCount: number;
   createdAt: Date;
@@ -31,6 +32,7 @@ export class PrismaCardCollectionRepository {
         id: collection.id,
         parentId: collection.parentId,
         sortOrder: collection.sortOrder,
+        isFavorite: collection.isFavorite,
         name: collection.name,
         cardCount: collection._count.cards,
         createdAt: collection.createdAt,
@@ -74,11 +76,20 @@ export class PrismaCardCollectionRepository {
       id: collection.id,
       parentId: collection.parentId,
       sortOrder: collection.sortOrder,
+      isFavorite: collection.isFavorite,
       name: collection.name,
       cardCount: collection._count.cards,
       createdAt: collection.createdAt,
       updatedAt: collection.updatedAt,
     } : null;
+  }
+
+  async setFavorite(userId: string, collectionId: string, isFavorite: boolean): Promise<boolean> {
+    const changed = await this.prisma.cardCollection.updateMany({
+      where: { id: collectionId, userId },
+      data: { isFavorite },
+    });
+    return changed.count === 1;
   }
 
   async remove(userId: string, collectionId: string): Promise<boolean> {

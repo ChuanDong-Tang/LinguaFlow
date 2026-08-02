@@ -29,11 +29,14 @@ import { MainScreen } from "./screens/MainScreen";
 import { MeScreen } from "./screens/MeScreen";
 import { ProScreen } from "./screens/ProScreen";
 import { ChatScreen } from "./screens/ChatScreen";
-import { PracticeScreen } from "./screens/PracticeScreen";
+import { RecallScreen } from "./screens/RecallScreen";
+import {
+  CardDetailNavigator,
+  type CardDetailRequest,
+} from "./screens/CardDetailNavigator";
 import { PracticeSessionScreen } from "./screens/PracticeSessionScreen";
 import { AboutScreen } from "./screens/AboutScreen";
 import { FloatingNoticeProvider } from "./screens/shared/FloatingNotice";
-import { TabBar } from "./screens/shared/TabBar";
 import { LearningFlowHelpModal, LearningPreferenceModal, UiLocaleSetupModal } from "./screens/shared/OnboardingModals";
 import {
   completeGuide,
@@ -62,6 +65,7 @@ import {
   type ChatContact,
 } from "./domain/chat/contacts";
 import { fetchChatContacts, loadCachedChatContacts } from "./services/api/chatContactsApi";
+import { theme } from "./theme";
 
 type Screen =
   | "booting"
@@ -97,8 +101,13 @@ export default function App() {
   const [guideState, setGuideState] = useState<GuideState>({});
   const [guideStateUserId, setGuideStateUserId] = useState<string | null>(null);
   const [sessionRevision, setSessionRevision] = useState(0);
+  const [cardDataRevision, setCardDataRevision] = useState(0);
+  const [cardDetailRequest, setCardDetailRequest] = useState<CardDetailRequest | null>(null);
+  const cardDetailRequestKeyRef = useRef(0);
   const [onboardingHelpVisible, setOnboardingHelpVisible] = useState(false);
   const [manualHelpVisible, setManualHelpVisible] = useState(false);
+  const [accountSheetVisible, setAccountSheetVisible] = useState(false);
+  const [recallVisible, setRecallVisible] = useState(false);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteAccountAuthingToken, setDeleteAccountAuthingToken] = useState("");
   const [deleteAccountMethod, setDeleteAccountMethod] = useState<"PHONE_PASSCODE" | "EMAIL_PASSCODE" | null>(null);
@@ -193,6 +202,9 @@ export default function App() {
     return onSessionInvalid(() => {
       cancelDeleteAccountFlow();
       cancelBindEmailFlow();
+      setAccountSheetVisible(false);
+      setRecallVisible(false);
+      setCardDetailRequest(null);
       setScreen("login");
     });
   }, []);
@@ -206,6 +218,7 @@ export default function App() {
   async function handleLogout(): Promise<void> {
     cancelDeleteAccountFlow();
     cancelBindEmailFlow();
+    setAccountSheetVisible(false);
     const session = await getSession();
     if (session?.refreshToken) {
       try {
@@ -216,7 +229,20 @@ export default function App() {
     await clearAuthingAccessToken();
     await clearAccountScopedStorage();
     await markForceAuthingLogin();
+    setCardDetailRequest(null);
     setScreen("login");
+  }
+
+  function openCardDetail(
+    recordId: string,
+    initialTab: CardDetailRequest["initialTab"] = "review",
+  ): void {
+    cardDetailRequestKeyRef.current += 1;
+    setCardDetailRequest({
+      key: cardDetailRequestKeyRef.current,
+      recordId,
+      initialTab,
+    });
   }
 
   async function handleLoginSuccess(): Promise<void> {
@@ -647,8 +673,7 @@ export default function App() {
     return session?.user.id === userId;
   }
 
-  const showTabBar = screen === "main" || screen === "practice" || screen === "me";
-  const activeTab = showTabBar ? screen : selectedTab;
+  const activeTab = screen === "main" || screen === "practice" || screen === "me" ? screen : selectedTab;
 
   let content: React.ReactNode;
   if (screen === "booting") {
@@ -686,13 +711,13 @@ export default function App() {
     } else if (screen === "pro") {
       overlay = (
         <FadingScreen>
-          <ProScreen onBack={() => setScreen("me")} />
+          <ProScreen onBack={() => { setScreen("main"); setAccountSheetVisible(true); }} />
         </FadingScreen>
       );
     } else if (screen === "about") {
       overlay = (
         <FadingScreen>
-          <AboutScreen onBack={() => setScreen("me")} />
+          <AboutScreen onBack={() => { setScreen("main"); setAccountSheetVisible(true); }} />
         </FadingScreen>
       );
     }
@@ -722,9 +747,28 @@ export default function App() {
             onBindEmail={handleBindEmail}
             onLogout={handleLogout}
             onDeleteAccount={handleDeleteAccount}
+            cardDataRevision={cardDataRevision}
+            onOpenCard={openCardDetail}
+            onOpenLibrary={() => setScreen("main")}
+            onOpenRecall={() => setRecallVisible(true)}
+            onOpenAccount={() => setAccountSheetVisible(true)}
           />
         </FadingScreen>
+        {recallVisible ? (
+          <View style={styles.overlayScreen}>
+            <RecallScreen
+              isActive
+              onOpenCard={openCardDetail}
+              onOpenLibrary={() => setRecallVisible(false)}
+            />
+          </View>
+        ) : null}
         {overlay ? <View style={styles.overlayScreen}>{overlay}</View> : null}
+        <CardDetailNavigator
+          request={cardDetailRequest}
+          onClose={() => setCardDetailRequest(null)}
+          onChanged={() => setCardDataRevision((value) => value + 1)}
+        />
       </View>
     );
   }
@@ -761,6 +805,31 @@ export default function App() {
               onSendCode={() => void sendBindEmailCode()}
               onSubmit={() => void submitBindEmail()}
             />
+            <Modal
+              visible={accountSheetVisible}
+              animationType="slide"
+              presentationStyle="pageSheet"
+              onRequestClose={() => setAccountSheetVisible(false)}
+            >
+              <MeScreen
+                isActive={accountSheetVisible}
+                onClose={() => setAccountSheetVisible(false)}
+                onOpenPro={() => {
+                  setAccountSheetVisible(false);
+                  setScreen("pro");
+                }}
+                onOpenAbout={() => {
+                  setAccountSheetVisible(false);
+                  setScreen("about");
+                }}
+                onOpenHelp={() => setManualHelpVisible(true)}
+                onApplyAppLocale={applyAppLocale}
+                sessionRevision={sessionRevision}
+                onBindEmail={handleBindEmail}
+                onLogout={handleLogout}
+                onDeleteAccount={handleDeleteAccount}
+              />
+            </Modal>
             <UiLocaleSetupModal
               visible={uiLocaleSetupVisible}
               value={uiLocaleDraft}
@@ -790,16 +859,6 @@ export default function App() {
               onClose={() => setManualHelpVisible(false)}
               onDone={() => setManualHelpVisible(false)}
             />
-            {showTabBar ? (
-              <View style={styles.tabBarOverlay}>
-                <TabBar
-                  activeTab={activeTab}
-                  onPressMain={() => setScreen("main")}
-                  onPressPractice={() => setScreen("practice")}
-                  onPressMe={() => setScreen("me")}
-                />
-              </View>
-            ) : null}
           </View>
         </FloatingNoticeProvider>
       </KeyboardProvider>
@@ -1000,6 +1059,11 @@ function TabScreens({
   onBindEmail,
   onLogout,
   onDeleteAccount,
+  cardDataRevision,
+  onOpenCard,
+  onOpenLibrary,
+  onOpenRecall,
+  onOpenAccount,
 }: {
   activeTab: "main" | "practice" | "me";
   contacts: ChatContact[];
@@ -1016,20 +1080,29 @@ function TabScreens({
   onBindEmail: () => Promise<void>;
   onLogout: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
+  cardDataRevision: number;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"]) => void;
+  onOpenLibrary: () => void;
+  onOpenRecall: () => void;
+  onOpenAccount: () => void;
 }) {
   return (
     <View style={styles.tabHost}>
       <View style={[styles.tabPage, activeTab !== "main" && styles.tabPageHidden]}>
         <MainScreen
-          contacts={contacts}
-          loadingContacts={contactsLoading}
-          contactsError={contactsError}
-          onReloadContacts={onReloadContacts}
-          onOpenChat={onOpenChat}
+          isActive={activeTab === "main"}
+          refreshRevision={cardDataRevision}
+          onOpenCard={onOpenCard}
+          onOpenRecall={onOpenRecall}
+          onOpenAccount={onOpenAccount}
         />
       </View>
       <View style={[styles.tabPage, activeTab !== "practice" && styles.tabPageHidden]}>
-        <PracticeScreen isActive={activeTab === "practice"} onOpenPracticeSession={onOpenPracticeSession} />
+        <RecallScreen
+          isActive={activeTab === "practice"}
+          onOpenCard={onOpenCard}
+          onOpenLibrary={onOpenLibrary}
+        />
       </View>
       <View style={[styles.tabPage, activeTab !== "me" && styles.tabPageHidden]}>
         <MeScreen
@@ -1071,7 +1144,7 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   fadingScreen: { flex: 1, backgroundColor: "#FCFCFD" },
-  tabHost: { flex: 1, paddingBottom: 86 },
+  tabHost: { flex: 1 },
   tabPage: { ...StyleSheet.absoluteFillObject },
   tabPageHidden: { display: "none" },
   tabBarOverlay: {
@@ -1143,7 +1216,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#6E63FF",
+    backgroundColor: theme.colors.accentStrong,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -7,7 +7,7 @@ module.exports = {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.0.6",
+    version: "1.0.7",
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
@@ -25,6 +25,8 @@ module.exports = {
       icon: "./assets/app/logo_main_apple.png",
       infoPlist: {
         NSMicrophoneUsageDescription: "OIO 需要使用麦克风把你说的话转成文字。",
+        NSPhotoLibraryUsageDescription: "OIO 需要访问相册，让你为生活记录选择图片。",
+        NSCameraUsageDescription: "OIO 需要使用相机，让你为生活记录拍摄图片。",
       },
       config: {
         usesNonExemptEncryption: false,
@@ -55,6 +57,19 @@ module.exports = {
       "expo-font",
       "expo-web-browser",
       "expo-audio",
+      [
+        "expo-image-picker",
+        {
+          photosPermission: "OIO 需要访问相册，让你为生活记录选择图片。",
+          cameraPermission: "OIO 需要使用相机，让你为生活记录拍摄图片。",
+        },
+      ],
+      [
+        "expo-media-library",
+        {
+          photosPermission: "OIO 需要访问最近照片，让你更快地为生活记录选择图片。",
+        },
+      ],
       "./plugins/with-android-audio-playback-policy",
       "expo-secure-store",
       "./plugins/with-chat-selectable-text",
