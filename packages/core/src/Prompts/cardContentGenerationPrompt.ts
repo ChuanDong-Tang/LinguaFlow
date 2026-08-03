@@ -10,7 +10,7 @@ export function buildCardContentGenerationPrompt(input: {
   const task = input.target === "expression"
     ? `Rewrite the record as natural everyday ${languageName(input.languageCode)}. Preserve its meaning, facts, tone, emotion, and point of view.`
     : input.target === "translation"
-      ? `Translate the content naturally into ${languageName(input.appLocale)}. Preserve its meaning and tone.`
+      ? `Organize the record into clear, natural wording in the record's own primary language. The input may mix languages; preserve intentional foreign terms where natural. Preserve meaning, facts, tone, emotion, and point of view. Do not translate it into a different language.`
       : `Write one natural, empathetic reply in ${languageName(input.languageCode)} to the content. Do not invent facts or give unsolicited advice.`;
   return {
     systemPrompt: `${task}\nReturn only the generated content. Do not use markdown, labels, quotation marks, or explanations.${input.difficulty === "simple" ? " Use common, clear vocabulary." : ""}`,
