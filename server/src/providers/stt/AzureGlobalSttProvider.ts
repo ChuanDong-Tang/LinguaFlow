@@ -105,9 +105,11 @@ function createSpeechConfig(
     const endpoint = new URL(`wss://${region}.stt.speech.microsoft.com/speech/universal/v2`);
     const speechConfig = SpeechSDK.SpeechConfig.fromEndpoint(endpoint, subscriptionKey);
     speechConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceConnection_LanguageIdMode, "Continuous");
+    speechConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceResponse_PostProcessingOption, "TrueText");
     return speechConfig;
   }
   const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(subscriptionKey, region);
+  speechConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceResponse_PostProcessingOption, "TrueText");
   if (languageIdMode === "at_start" && languages.length > 1) {
     speechConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceConnection_LanguageIdMode, "AtStart");
   }
