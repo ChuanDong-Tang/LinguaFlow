@@ -13,6 +13,7 @@ import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 
 const FAILED_MODEL_OUTPUT_LOG_MAX_CHARS = 12_000;
+const DATAMUSE_TIMEOUT_MS = 4_000;
 
 export interface DictionaryRouteDeps {
   aiProvider: AIProvider;
@@ -139,17 +140,12 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
       if (body.targetLanguage !== "en-US") {
         return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "DICTIONARY_NOT_FOUND", message: "词典中没有找到这个词或短语" } });
       }
-      const upstream = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(body.term.trim())}`, {
-        headers: { Accept: "application/json" },
-        signal: abortController.signal,
-      });
-      if (upstream.status === 404) {
+      const normalizedTerm = normalizeLookupTerm(body.term);
+      const data = await lookupEnglishDictionary(normalizedTerm, abortController.signal);
+      if (!data) {
         return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "DICTIONARY_NOT_FOUND", message: "词典中没有找到这个词或短语" } });
       }
-      if (!upstream.ok) throw new Error(`DICTIONARY_UPSTREAM_${upstream.status}`);
-      const upstreamBody = await upstream.json() as unknown;
-      outputChars = JSON.stringify(upstreamBody).length;
-      const data = normalizeFreeDictionaryResult(upstreamBody, body.term);
+      outputChars = JSON.stringify(data).length;
       await writeDictionaryLog(deps.systemEventLogRepository, {
         requestId,
         userId: userContext.userId,
@@ -187,6 +183,82 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
   });
 }
 
+async function lookupEnglishDictionary(term: string, clientSignal: AbortSignal): Promise<DictionaryLookupResult | null> {
+  if (!term) return null;
+  const datamuseBody = await fetchJsonWithTimeout(
+    `https://api.datamuse.com/words?sp=${encodeURIComponent(term)}&qe=sp&md=dpr&ipa=1&max=1`,
+    DATAMUSE_TIMEOUT_MS,
+    clientSignal,
+  );
+  return datamuseBody === null ? null : normalizeDatamuseResult(datamuseBody, term);
+}
+
+async function fetchJsonWithTimeout(url: string, timeoutMs: number, clientSignal: AbortSignal): Promise<unknown | null> {
+  const controller = new AbortController();
+  const abortFromClient = () => controller.abort(clientSignal.reason);
+  clientSignal.addEventListener("abort", abortFromClient, { once: true });
+  const timer = setTimeout(() => controller.abort(new Error("DICTIONARY_UPSTREAM_TIMEOUT")), timeoutMs);
+  try {
+    const response = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`DICTIONARY_UPSTREAM_${response.status}`);
+    return await response.json() as unknown;
+  } finally {
+    clearTimeout(timer);
+    clientSignal.removeEventListener("abort", abortFromClient);
+  }
+}
+
+function normalizeLookupTerm(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US").replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, "");
+}
+
+function normalizeDatamuseResult(value: unknown, fallbackTerm: string): DictionaryLookupResult | null {
+  const entry = Array.isArray(value) ? value.find(isRecord) : null;
+  if (!entry) return null;
+  const definitions = Array.isArray(entry.defs) ? entry.defs.map(readString).filter(Boolean) : [];
+  if (!definitions.length) return null;
+  const grouped = new Map<string, Array<{ definition: string; example: null }>>();
+  for (const raw of definitions) {
+    const separator = raw.indexOf("\t");
+    const code = separator >= 0 ? raw.slice(0, separator) : "";
+    const definition = separator >= 0 ? raw.slice(separator + 1).trim() : raw;
+    if (!definition) continue;
+    const partOfSpeech = datamusePartOfSpeech(code);
+    const rows = grouped.get(partOfSpeech) ?? [];
+    if (rows.length < 3) rows.push({ definition, example: null });
+    grouped.set(partOfSpeech, rows);
+  }
+  const meanings = Array.from(grouped, ([partOfSpeech, rows]) => ({ partOfSpeech, definitions: rows }));
+  if (!meanings.length) return null;
+  const tags = Array.isArray(entry.tags) ? entry.tags.map(readString) : [];
+  const phonetic = tags.find((tag) => tag.startsWith("pron:"))?.slice(5).trim() || null;
+  const firstDefinition = meanings[0]!.definitions[0]!;
+  const legacyContent = {
+    meaning: meanings.flatMap((meaning) => meaning.definitions.map((definition) => definition.definition)).slice(0, 3).join("\n"),
+    example: "No example available.",
+    sourceNote: null,
+    scenario: meanings.map((meaning) => meaning.partOfSpeech).filter(Boolean).join(", ") || "Dictionary entry",
+  };
+  return {
+    term: readString(entry.defHeadword) || readString(entry.word) || fallbackTerm,
+    phonetic,
+    audioUrl: null,
+    meanings,
+    source: null,
+    target: { ...legacyContent, meaning: legacyContent.meaning || firstDefinition.definition },
+    ui: { ...legacyContent, meaning: legacyContent.meaning || firstDefinition.definition },
+  };
+}
+
+function datamusePartOfSpeech(code: string): string {
+  if (code === "n") return "noun";
+  if (code === "v") return "verb";
+  if (code === "adj") return "adjective";
+  if (code === "adv") return "adverb";
+  return code || "other";
+}
+
 function isDictionaryLookupBody(value: unknown): value is DictionaryLookupBody {
   if (!value || typeof value !== "object") return false;
   const body = value as Record<string, unknown>;
@@ -208,32 +280,6 @@ function isDictionaryLookupBody(value: unknown): value is DictionaryLookupBody {
     body.contactId.trim().length > 0 &&
     (body.messageId === undefined || body.messageId === null || typeof body.messageId === "string")
   );
-}
-
-function normalizeFreeDictionaryResult(value: unknown, fallbackTerm: string): DictionaryLookupResult {
-  const entries = Array.isArray(value) ? value.filter(isRecord) : [];
-  const entry = entries[0];
-  if (!entry) throw new Error("DICTIONARY_RESULT_EMPTY");
-  const phonetics = Array.isArray(entry.phonetics) ? entry.phonetics.filter(isRecord) : [];
-  const phonetic = readString(entry.phonetic) || phonetics.map((item) => readString(item.text)).find(Boolean) || null;
-  const rawAudio = phonetics.map((item) => readString(item.audio)).find(Boolean) || null;
-  const audioUrl = rawAudio?.startsWith("//") ? `https:${rawAudio}` : rawAudio;
-  const meanings = (Array.isArray(entry.meanings) ? entry.meanings.filter(isRecord) : []).map((meaning) => ({
-    partOfSpeech: readString(meaning.partOfSpeech),
-    definitions: (Array.isArray(meaning.definitions) ? meaning.definitions.filter(isRecord) : []).slice(0, 3).map((definition) => ({
-      definition: readString(definition.definition),
-      example: readString(definition.example) || null,
-    })).filter((definition) => definition.definition),
-  })).filter((meaning) => meaning.definitions.length > 0);
-  if (!meanings.length) throw new Error("DICTIONARY_RESULT_EMPTY");
-  const firstDefinition = meanings[0]!.definitions[0]!;
-  const legacyContent = {
-    meaning: meanings.flatMap((meaning) => meaning.definitions.map((definition) => definition.definition)).slice(0, 3).join("\n"),
-    example: firstDefinition.example ?? "No example available.",
-    sourceNote: null,
-    scenario: meanings.map((meaning) => meaning.partOfSpeech).filter(Boolean).join(", ") || "Dictionary entry",
-  };
-  return { term: readString(entry.word) || fallbackTerm.trim(), phonetic, audioUrl, meanings, source: null, target: legacyContent, ui: legacyContent };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

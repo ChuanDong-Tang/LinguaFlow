@@ -173,6 +173,34 @@ export class CardSpeechService {
     finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
   }
 
+  async getOrCreateDictionaryTerm(input: { userId: string; term: string; languageCode?: string }): Promise<CardSpeechAssetView> {
+    const languageCode = input.languageCode === "ja-JP" ? "ja-JP" : "en-US";
+    const sourceText = normalizeLearningText({ text: input.term, languageCode });
+    if (!sourceText || countGraphemes(sourceText) > 100) throw new CardValidationError("单词需要包含 1 到 100 个字符");
+    const preference = await this.preferenceRepository.getByUserId(input.userId);
+    const provider = this.provider.providerName;
+    const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(languageCode, provider);
+    const sourceTextHash = sha256(`dictionary-term-tts-v1\n${sourceText}`);
+    const globallyShareable = isShortDictionaryExpression(sourceText);
+    const cacheKey = sha256([
+      globallyShareable ? "shared" : input.userId,
+      "dictionary-term",
+      provider,
+      voiceCode,
+      languageCode,
+      sourceTextHash,
+    ].join("\n"));
+    const context = { entryId: "dictionary", segmentId: sourceTextHash };
+    const cached = await this.repository.findReadySpeechAsset(cacheKey);
+    if (cached) return this.toView(await this.refreshUrlIfNeeded(cached), true, context);
+    const existing = generations.get(cacheKey);
+    if (existing) return this.toView(await existing, true, context);
+    const generation = this.generateWithLock({ userId: input.userId, entryId: null, segmentId: null, sourceKind: "dictionary_term", cacheKey, provider, voiceCode, languageCode, sourceText, sourceTextHash });
+    generations.set(cacheKey, generation);
+    try { return this.toView(await generation, false, context); }
+    finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
+  }
+
   private async generateWithLock(input: GenerateInput): Promise<CardSpeechAssetEntity> {
     if (!this.redisClient) return this.generate(input);
     const lockKey = `lock:tts:card:${input.cacheKey}`;
@@ -259,6 +287,11 @@ export class CardSpeechService {
       cached,
     };
   }
+}
+
+function isShortDictionaryExpression(text: string): boolean {
+  if (countGraphemes(text) > 60) return false;
+  return text.trim().split(/\s+/u).filter(Boolean).length <= 5;
 }
 
 function sha256(value: string): string {

@@ -56,6 +56,26 @@ type TtsMessageBody = {
 };
 
 export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): void {
+  app.post("/tts/dictionary", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    try {
+      const userId = (await resolveActiveUserContext({ authorization: req.headers.authorization, userRepository: deps.userRepository })).userId;
+      const body = req.body as { term?: unknown; languageCode?: unknown } | null;
+      if (typeof body?.term !== "string" || !body.term.trim()) throw new CardValidationError("Invalid dictionary term");
+      const rateLimitResult = await consumeTtsRateLimit(deps.rateLimiter);
+      if (!rateLimitResult.allowed) return reply.status(429).send({ ok: false, request_id: requestId, error: { code: rateLimitResult.code, message: "发音请求过于频繁，请稍后再试" } });
+      const data = await deps.cardSpeechService.getOrCreateDictionaryTerm({ userId, term: body.term, languageCode: typeof body.languageCode === "string" ? body.languageCode : "en-US" });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) return reply.status(401).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      if (error instanceof AccountDisabledError || error instanceof AccountPendingDeleteError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      if (error instanceof CardSpeechProRequiredError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "需要 Plus 或 Pro 才能使用高质量发音" } });
+      if (error instanceof CardValidationError) return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      if (error instanceof CardSpeechGenerationInProgressError) return reply.status(202).send({ ok: false, request_id: requestId, error: { code: error.code, message: "发音仍在生成，请稍后重试" } });
+      throw error;
+    }
+  });
   async function handleTtsMessageRequest(req: FastifyRequest, reply: FastifyReply) {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
