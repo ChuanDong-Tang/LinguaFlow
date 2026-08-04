@@ -229,16 +229,17 @@ export class CardService {
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
     if (!current || current.status !== "completed") throw new CardNotFoundError();
-    const sourceText = input.target === "expression"
-      ? current.originalText
-      : current.rewrittenText || current.originalText;
+    const sourceText = input.target === "reply"
+      ? current.rewrittenText || current.originalText
+      : current.originalText;
     if (!sourceText) throw new CardValidationError("No source content to generate from");
     await this.entitlementService.assertCanUse(input.userId, countGraphemes(sourceText), { dateKey: current.dateKey });
+    const preference = await this.userPreferenceRepository.getByUserId(input.userId);
     const prompt = buildCardContentGenerationPrompt({
       target: input.target,
       sourceText,
       languageCode: current.languageCode,
-      appLocale: current.appLocaleSnapshot,
+      appLocale: preference.appLocale,
       difficulty: current.promptDifficultySnapshot,
     });
     let output = "";
@@ -246,7 +247,7 @@ export class CardService {
       userId: input.userId,
       text: prompt.userPrompt,
       languageCode: current.languageCode,
-      appLocale: current.appLocaleSnapshot,
+      appLocale: preference.appLocale,
       promptDifficulty: current.promptDifficultySnapshot,
       companionMode: "rewrite_only",
       systemPrompt: prompt.systemPrompt,
