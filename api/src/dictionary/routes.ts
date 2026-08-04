@@ -141,7 +141,8 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
         return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "DICTIONARY_NOT_FOUND", message: "词典中没有找到这个词或短语" } });
       }
       const normalizedTerm = normalizeLookupTerm(body.term);
-      const data = await lookupEnglishDictionary(normalizedTerm, abortController.signal);
+      const dictionaryResult = await lookupEnglishDictionary(normalizedTerm, abortController.signal);
+      const data = dictionaryResult ? attachContextExample(dictionaryResult, body) : null;
       if (!data) {
         return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "DICTIONARY_NOT_FOUND", message: "词典中没有找到这个词或短语" } });
       }
@@ -181,6 +182,34 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
       reply.raw.off("close", abortOnClientClose);
     }
   });
+}
+
+function attachContextExample(result: DictionaryLookupResult, body: DictionaryLookupBody): DictionaryLookupResult {
+  const example = extractSelectionSentence(body.context, body.selectionStart, body.selectionEnd);
+  if (!example || !result.meanings[0]?.definitions[0]) return result;
+  const meanings = result.meanings.map((meaning, meaningIndex) => ({
+    ...meaning,
+    definitions: meaning.definitions.map((definition, definitionIndex) => (
+      meaningIndex === 0 && definitionIndex === 0 ? { ...definition, example } : definition
+    )),
+  }));
+  return {
+    ...result,
+    meanings,
+    target: { ...result.target, example },
+    ui: { ...result.ui, example },
+  };
+}
+
+function extractSelectionSentence(context: string, selectionStart: number, selectionEnd: number): string | null {
+  const left = context.slice(0, selectionStart);
+  const right = context.slice(selectionEnd);
+  const leftBoundary = Math.max(left.lastIndexOf("."), left.lastIndexOf("!"), left.lastIndexOf("?"), left.lastIndexOf("。"), left.lastIndexOf("！"), left.lastIndexOf("？"));
+  const rightMatch = right.match(/[.!?。！？]/u);
+  const sentenceStart = leftBoundary < 0 ? 0 : leftBoundary + 1;
+  const sentenceEnd = rightMatch?.index === undefined ? context.length : selectionEnd + rightMatch.index + 1;
+  const sentence = context.slice(sentenceStart, sentenceEnd).trim().replace(/\s+/gu, " ");
+  return sentence && sentence.length <= 500 ? sentence : null;
 }
 
 async function lookupEnglishDictionary(term: string, clientSignal: AbortSignal): Promise<DictionaryLookupResult | null> {
@@ -232,7 +261,9 @@ function normalizeDatamuseResult(value: unknown, fallbackTerm: string): Dictiona
   const meanings = Array.from(grouped, ([partOfSpeech, rows]) => ({ partOfSpeech, definitions: rows }));
   if (!meanings.length) return null;
   const tags = Array.isArray(entry.tags) ? entry.tags.map(readString) : [];
-  const phonetic = tags.find((tag) => tag.startsWith("pron:"))?.slice(5).trim() || null;
+  const ipa = tags.find((tag) => tag.startsWith("ipa_pron:"))?.slice("ipa_pron:".length).trim();
+  const fallbackPronunciation = tags.find((tag) => tag.startsWith("pron:"))?.slice("pron:".length).trim();
+  const phonetic = ipa ? `/${ipa}/` : fallbackPronunciation || null;
   const firstDefinition = meanings[0]!.definitions[0]!;
   const legacyContent = {
     meaning: meanings.flatMap((meaning) => meaning.definitions.map((definition) => definition.definition)).slice(0, 3).join("\n"),
