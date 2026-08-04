@@ -1,7 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
-import { buildDictionarySystemPrompt, buildDictionaryUserPrompt } from "@lf/core/Prompts/dictionaryLookupPrompt.js";
-import type { PromptAppLocale, PromptLanguage } from "@lf/core/Prompts/rewriteAssistantPrompt.js";
 import type { ChatGenerationRateLimiter } from "@lf/server/services/chat/ChatGenerationRateLimiter.js";
 import {
   AccountDisabledError,
@@ -41,22 +39,15 @@ type DictionaryLookupBody = {
 
 type DictionaryLookupResult = {
   term: string;
-  source?: {
-    type: string;
-    title: string;
-  } | null;
-  target: {
-    meaning: string;
-    example: string;
-    sourceNote?: string | null;
-    scenario: string;
-  };
-  ui: {
-    meaning: string;
-    example: string;
-    sourceNote?: string | null;
-    scenario: string;
-  };
+  phonetic: string | null;
+  audioUrl: string | null;
+  meanings: Array<{
+    partOfSpeech: string;
+    definitions: Array<{ definition: string; example: string | null }>;
+  }>;
+  source: null;
+  target: { meaning: string; example: string; sourceNote: null; scenario: string };
+  ui: { meaning: string; example: string; sourceNote: null; scenario: string };
 };
 
 export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryRouteDeps): void {
@@ -136,7 +127,7 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
     }
 
     const startedAt = Date.now();
-    let output = "";
+    let outputChars = 0;
     const abortController = new AbortController();
     const abortOnClientClose = () => {
       if (!reply.raw.writableEnded) {
@@ -145,49 +136,33 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
     };
     reply.raw.on("close", abortOnClientClose);
     try {
-      const targetLanguage = normalizeLearningLanguage(body.targetLanguage);
-      const uiLanguage = normalizeAppLocale(body.uiLanguage);
-      const prompt = buildDictionaryUserPrompt({
-        term: body.term,
-        context: body.context,
-        selectionStart: body.selectionStart,
-        selectionEnd: body.selectionEnd,
-        targetLanguage,
-        uiLanguage,
+      if (body.targetLanguage !== "en-US") {
+        return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "DICTIONARY_NOT_FOUND", message: "词典中没有找到这个词或短语" } });
+      }
+      const upstream = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(body.term.trim())}`, {
+        headers: { Accept: "application/json" },
+        signal: abortController.signal,
       });
-      await deps.aiProvider.generateChatTextStream(
-        {
-          userId: userContext.userId,
-          text: prompt,
-          contactId: body.contactId,
-          languageCode: targetLanguage,
-          appLocale: uiLanguage,
-          systemPrompt: buildDictionarySystemPrompt({
-            targetLanguage,
-            uiLanguage,
-          }),
-          rawUserPrompt: true,
-          maxOutputTokens: runtimeConfig.dictionaryLookupMaxOutputTokens,
-          signal: abortController.signal,
-        },
-        (event) => {
-          if (event.type === "delta") output += event.text;
-        }
-      );
-      const data = normalizeDictionaryResult(parseDictionaryJson(output), body.term);
+      if (upstream.status === 404) {
+        return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "DICTIONARY_NOT_FOUND", message: "词典中没有找到这个词或短语" } });
+      }
+      if (!upstream.ok) throw new Error(`DICTIONARY_UPSTREAM_${upstream.status}`);
+      const upstreamBody = await upstream.json() as unknown;
+      outputChars = JSON.stringify(upstreamBody).length;
+      const data = normalizeFreeDictionaryResult(upstreamBody, body.term);
       await writeDictionaryLog(deps.systemEventLogRepository, {
         requestId,
         userId: userContext.userId,
         status: "success",
         durationMs: Date.now() - startedAt,
         inputChars: body.context.length + body.term.length,
-        outputChars: output.length,
+        outputChars,
         body,
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       if (abortController.signal.aborted) {
-        req.log.info({ requestId, outputChars: output.length }, "dictionary lookup aborted");
+        req.log.info({ requestId, outputChars }, "dictionary lookup aborted");
         return;
       }
       await writeDictionaryLog(deps.systemEventLogRepository, {
@@ -196,8 +171,7 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
         status: "failed",
         durationMs: Date.now() - startedAt,
         inputChars: body.context.length + body.term.length,
-        outputChars: output.length,
-        modelOutput: output,
+        outputChars,
         body,
         error,
       });
@@ -236,67 +210,30 @@ function isDictionaryLookupBody(value: unknown): value is DictionaryLookupBody {
   );
 }
 
-function parseDictionaryJson(text: string): unknown {
-  const trimmed = text.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1));
-    }
-    throw new Error("DICTIONARY_JSON_PARSE_FAILED");
-  }
-}
-
-function normalizeDictionaryResult(value: unknown, fallbackTerm: string): DictionaryLookupResult {
-  const root = isRecord(value) ? value : {};
-  const target = isRecord(root.target) ? root.target : {};
-  const ui = isRecord(root.ui) ? root.ui : {};
-  const source = normalizeDictionarySource(root.source);
-  const result = {
-    term: readString(root.term) || fallbackTerm,
-    source,
-    target: {
-      meaning: readString(target.meaning),
-      example: readString(target.example),
-      sourceNote: readString(target.sourceNote) || null,
-      scenario: readString(target.scenario),
-    },
-    ui: {
-      meaning: readString(ui.meaning),
-      example: readString(ui.example),
-      sourceNote: readString(ui.sourceNote) || null,
-      scenario: readString(ui.scenario),
-    },
+function normalizeFreeDictionaryResult(value: unknown, fallbackTerm: string): DictionaryLookupResult {
+  const entries = Array.isArray(value) ? value.filter(isRecord) : [];
+  const entry = entries[0];
+  if (!entry) throw new Error("DICTIONARY_RESULT_EMPTY");
+  const phonetics = Array.isArray(entry.phonetics) ? entry.phonetics.filter(isRecord) : [];
+  const phonetic = readString(entry.phonetic) || phonetics.map((item) => readString(item.text)).find(Boolean) || null;
+  const rawAudio = phonetics.map((item) => readString(item.audio)).find(Boolean) || null;
+  const audioUrl = rawAudio?.startsWith("//") ? `https:${rawAudio}` : rawAudio;
+  const meanings = (Array.isArray(entry.meanings) ? entry.meanings.filter(isRecord) : []).map((meaning) => ({
+    partOfSpeech: readString(meaning.partOfSpeech),
+    definitions: (Array.isArray(meaning.definitions) ? meaning.definitions.filter(isRecord) : []).slice(0, 3).map((definition) => ({
+      definition: readString(definition.definition),
+      example: readString(definition.example) || null,
+    })).filter((definition) => definition.definition),
+  })).filter((meaning) => meaning.definitions.length > 0);
+  if (!meanings.length) throw new Error("DICTIONARY_RESULT_EMPTY");
+  const firstDefinition = meanings[0]!.definitions[0]!;
+  const legacyContent = {
+    meaning: meanings.flatMap((meaning) => meaning.definitions.map((definition) => definition.definition)).slice(0, 3).join("\n"),
+    example: firstDefinition.example ?? "No example available.",
+    sourceNote: null,
+    scenario: meanings.map((meaning) => meaning.partOfSpeech).filter(Boolean).join(", ") || "Dictionary entry",
   };
-  if (
-    !result.target.meaning ||
-    !result.target.example ||
-    !result.target.scenario ||
-    !result.ui.meaning ||
-    !result.ui.example ||
-    !result.ui.scenario
-  ) {
-    throw new Error("DICTIONARY_JSON_INCOMPLETE");
-  }
-  return result;
-}
-
-function normalizeDictionarySource(value: unknown): DictionaryLookupResult["source"] {
-  if (!isRecord(value)) return null;
-  const title = readString(value.title);
-  if (!title) return null;
-  const type = normalizeSourceType(readString(value.type));
-  return { type, title };
-}
-
-function normalizeSourceType(value: string): string {
-  if (value === "movie" || value === "book" || value === "quote" || value === "speech" || value === "song") {
-    return value;
-  }
-  return "other";
+  return { term: readString(entry.word) || fallbackTerm.trim(), phonetic, audioUrl, meanings, source: null, target: legacyContent, ui: legacyContent };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -307,20 +244,11 @@ function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function normalizeLearningLanguage(value: string): PromptLanguage {
-  return value === "ja-JP" ? "ja-JP" : "en-US";
-}
-
-function isSupportedLearningLanguage(value: unknown): value is PromptLanguage {
+function isSupportedLearningLanguage(value: unknown): value is "en-US" | "ja-JP" {
   return value === "en-US" || value === "ja-JP";
 }
 
-function normalizeAppLocale(value: string): PromptAppLocale {
-  if (value === "zh-TW" || value === "en-US" || value === "ja-JP") return value;
-  return "zh-CN";
-}
-
-function isSupportedAppLocale(value: unknown): value is PromptAppLocale {
+function isSupportedAppLocale(value: unknown): value is "zh-CN" | "zh-TW" | "en-US" | "ja-JP" {
   return value === "zh-CN" || value === "zh-TW" || value === "en-US" || value === "ja-JP";
 }
 
