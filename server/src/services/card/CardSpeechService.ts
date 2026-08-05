@@ -176,7 +176,7 @@ export class CardSpeechService {
   async getOrCreateDictionaryTerm(input: { userId: string; term: string; languageCode?: string }): Promise<CardSpeechAssetView> {
     const languageCode = input.languageCode === "ja-JP" ? "ja-JP" : "en-US";
     const sourceText = normalizeLearningText({ text: input.term, languageCode });
-    if (!sourceText || countGraphemes(sourceText) > 100) throw new CardValidationError("单词需要包含 1 到 100 个字符");
+    if (!sourceText || countGraphemes(sourceText) > 3_000) throw new CardValidationError("发音内容需要包含 1 到 3000 个字符");
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
     const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(languageCode, provider);

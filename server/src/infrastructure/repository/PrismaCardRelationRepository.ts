@@ -271,6 +271,7 @@ export class PrismaCardRelationRepository {
              ON historical."phraseId" = anchors."phraseId"
             AND historical."userId" = $1
             AND historical."sourceField" = 'ai_expression'
+            AND historical."clozeBlankId" IS NOT NULL
             AND historical."cardCreatedAt" < anchors."cardCreatedAt"
            JOIN "phrases" AS phrase ON phrase."id" = historical."phraseId" AND phrase."userId" = $1
            JOIN "cards" AS historical_card
@@ -283,6 +284,7 @@ export class PrismaCardRelationRepository {
                    historical."cardCreatedAt" DESC
        )
        SELECT * FROM deduplicated
+        WHERE "isFirstUserProduced" = TRUE
         ORDER BY "cardCreatedAt" DESC, "sourceId" DESC
         LIMIT $3`,
       input.userId,

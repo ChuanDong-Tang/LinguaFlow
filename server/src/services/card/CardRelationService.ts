@@ -156,7 +156,7 @@ export class CardRelationService {
     };
   }
 
-  async relations(userId: string, recordId: string, requestedLimit?: number): Promise<Array<{
+  async relations(userId: string, recordId: string, _requestedLimit?: number): Promise<Array<{
     recordId: string;
     topic: string | null;
     card: CardRelationPreview | null;
@@ -180,33 +180,21 @@ export class CardRelationService {
         }
     >;
   }>> {
-    const limit = Number.isFinite(requestedLimit)
-      ? Math.max(1, Math.min(50, Math.floor(requestedLimit!)))
-      : 20;
-    const [topics, phrases, progress] = await Promise.all([
+    const [topics, progress] = await Promise.all([
       this.relatedTopics(userId, recordId, 50),
-      this.relatedPhrases(userId, recordId, 100),
       this.progress(userId, recordId, 100),
     ]);
     type RelationReason =
       | (typeof topics)[number]["reason"]
-      | (typeof phrases)[number]["reason"]
       | (typeof progress)[number]["reason"];
-    const byRecord = new Map<string, { recordId: string; topic: string | null; reasons: RelationReason[] }>();
-    for (const item of [...progress, ...phrases, ...topics]) {
-      const existing = byRecord.get(item.recordId) ?? { recordId: item.recordId, topic: item.topic, reasons: [] };
-      if (!existing.topic && item.topic) existing.topic = item.topic;
-      if (!existing.reasons.some((reason) => reasonKey(reason) === reasonKey(item.reason))) {
-        existing.reasons.push(item.reason);
-      }
-      byRecord.set(item.recordId, existing);
-    }
-    const selected = Array.from(byRecord.values())
-      .sort((left, right) => {
-        if (right.reasons.length !== left.reasons.length) return right.reasons.length - left.reasons.length;
-        return relationPriority(right.reasons) - relationPriority(left.reasons);
-      })
-      .slice(0, limit);
+    const selected: Array<{ recordId: string; topic: string | null; reasons: RelationReason[] }> = [];
+    const growth = progress
+      .filter((item) => item.reason.isFirstUserProduced)
+      .sort((left, right) => phraseLearningWeight(right.reason.phrase) - phraseLearningWeight(left.reason.phrase))[0];
+    if (growth) selected.push({ recordId: growth.recordId, topic: growth.topic, reasons: [growth.reason] });
+    const topicCandidates = topics.filter((item) => item.recordId !== growth?.recordId);
+    const topic = randomItem(topicCandidates);
+    if (topic) selected.push({ recordId: topic.recordId, topic: topic.topic, reasons: [topic.reason] });
     const refs = selected.flatMap((item) => {
       const ref = parseCardRecordId(item.recordId);
       return ref ? [{ sourceKind: ref.source, sourceId: ref.sourceId }] : [];
@@ -242,12 +230,11 @@ export class CardRelationService {
   }
 }
 
-function reasonKey(reason: { type: string; phraseId?: string; evidence?: string }): string {
-  return `${reason.type}:${reason.phraseId ?? ""}:${reason.evidence ?? ""}`;
+function randomItem<T>(items: T[]): T | undefined {
+  return items.length ? items[Math.floor(Math.random() * items.length)] : undefined;
 }
 
-function relationPriority(reasons: Array<{ type: string }>): number {
-  if (reasons.some((reason) => reason.type === "progress")) return 3;
-  if (reasons.some((reason) => reason.type === "phrase")) return 2;
-  return 1;
+function phraseLearningWeight(phrase: string): number {
+  const words = phrase.trim().split(/\s+/u).filter(Boolean).length;
+  return words * 1_000 + Array.from(phrase.trim()).length;
 }
