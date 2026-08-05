@@ -112,6 +112,7 @@ export type UpdateCardClozeInput = {
 
 export interface CreateCardEntryInput {
   clientId: string;
+  collectionId?: string | null;
   originalText?: string | null;
   rewrittenText?: string | null;
   translationText?: string | null;
@@ -122,6 +123,7 @@ export interface CreateCardEntryInput {
 }
 
 export interface UpdateCardContentInput {
+  collectionId?: string | null;
   originalText?: string | null;
   rewrittenText?: string | null;
   translationText?: string | null;

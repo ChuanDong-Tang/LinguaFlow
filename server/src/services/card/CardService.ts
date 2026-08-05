@@ -94,6 +94,7 @@ export class CardService {
     const rewrittenText = input.body.rewrittenText?.trim() ?? "";
     const translationText = input.body.translationText?.trim() ?? "";
     const replyText = input.body.replyText?.trim() ?? "";
+    const collectionId = input.body.collectionId?.trim() || null;
     const generateRewrite = input.body.generateRewrite !== false;
     if (!clientId || clientId.length > 128) throw new CardValidationError("Invalid client id");
     const primaryText = rewrittenText || originalText;
@@ -128,8 +129,10 @@ export class CardService {
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
     const dateKey = formatDateKeyInTimeZone(new Date());
     if (!generateRewrite) {
-      const created = await this.repository.createDirect({
+      let created;
+      try { created = await this.repository.createDirect({
         userId: input.userId,
+        collectionId,
         dateKey,
         originalText: originalText || null,
         rewrittenText: rewrittenText || null,
@@ -142,7 +145,10 @@ export class CardService {
         clientId,
         imageUploadIds,
         segments: buildSegments(primaryText, preference.learningLanguage),
-      });
+      }); } catch (error) {
+        if (error instanceof Error && error.message === "CARD_COLLECTION_NOT_FOUND") throw new CardNotFoundError();
+        throw error;
+      }
       return this.summaryWithImage(created);
     }
     await this.entitlementService.assertCanUse(input.userId, inputChars, { dateKey });
@@ -157,6 +163,7 @@ export class CardService {
     try {
       const created = await this.repository.createQueued({
         userId: input.userId,
+        collectionId,
         dateKey,
         originalText,
         languageCode: preference.learningLanguage,
@@ -170,6 +177,7 @@ export class CardService {
       return this.summaryWithImage(created);
     } catch (error) {
       await this.taskGuard.release(input.userId, taskId);
+      if (error instanceof Error && error.message === "CARD_COLLECTION_NOT_FOUND") throw new CardNotFoundError();
       const racedDuplicate = await this.repository.findByUserClientId(input.userId, clientId);
       if (racedDuplicate) {
         if (racedDuplicate.status === "failed" || racedDuplicate.status === "deleted") {
@@ -199,21 +207,27 @@ export class CardService {
     const rewrittenText = normalizePatchedText(patch, "rewrittenText", current.rewrittenText);
     const translationText = normalizePatchedText(patch, "translationText", current.translationText);
     const replyText = normalizePatchedText(patch, "replyText", current.replyText);
+    const collectionId = Object.prototype.hasOwnProperty.call(patch, "collectionId") ? patch.collectionId?.trim() || null : current.collectionId;
     const primaryText = rewrittenText || originalText;
     if (!primaryText) throw new CardValidationError("A Card must contain a record or expression");
     const allContent = [originalText, rewrittenText, translationText, replyText].filter(Boolean).join("\n");
     this.contentSafetyService?.assertAllowed(allContent, "input");
     const clearPractice = current.rewrittenText !== rewrittenText || (!rewrittenText && current.originalText !== originalText);
-    const updated = await this.repository.updateContent({
+    let updated;
+    try { updated = await this.repository.updateContent({
       entryId: parsed.sourceId,
       userId,
+      collectionId,
       originalText,
       rewrittenText,
       translationText,
       replyText,
       segments: buildSegments(primaryText, current.languageCode),
       clearPractice,
-    });
+    }); } catch (error) {
+      if (error instanceof Error && error.message === "CARD_COLLECTION_NOT_FOUND") throw new CardNotFoundError();
+      throw error;
+    }
     if (!updated) throw new CardNotFoundError();
     return this.detail(userId, recordId);
   }

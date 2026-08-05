@@ -25,6 +25,7 @@ type PrismaCardClient = {
     deleteMany: (args: any) => Promise<{ count: number }>;
   };
   cardCollection: {
+    findFirst: (args: any) => Promise<any>;
     findMany: (args: any) => Promise<any[]>;
   };
   cardRewriteSegment: {
@@ -179,9 +180,11 @@ export class PrismaCardRepository implements CardRepository {
 
   async createQueued(input: CreateQueuedCardEntryInput): Promise<CardEntryEntity> {
     return this.prisma.$transaction(async (tx) => {
+      if (input.collectionId && !await tx.cardCollection.findFirst({ where: { id: input.collectionId, userId: input.userId }, select: { id: true } })) throw new Error("CARD_COLLECTION_NOT_FOUND");
       const row = await tx.card.create({
         data: {
           userId: input.userId,
+          collectionId: input.collectionId,
           dateKey: input.dateKey,
           originalText: input.originalText,
           languageCode: input.languageCode,
@@ -223,9 +226,11 @@ export class PrismaCardRepository implements CardRepository {
 
   async createDirect(input: CreateDirectCardEntryInput): Promise<CardEntryEntity> {
     return this.prisma.$transaction(async (tx) => {
+      if (input.collectionId && !await tx.cardCollection.findFirst({ where: { id: input.collectionId, userId: input.userId }, select: { id: true } })) throw new Error("CARD_COLLECTION_NOT_FOUND");
       const row = await tx.card.create({
         data: {
           userId: input.userId,
+          collectionId: input.collectionId,
           dateKey: input.dateKey,
           originalText: input.originalText,
           rewrittenText: input.rewrittenText,
@@ -271,6 +276,7 @@ export class PrismaCardRepository implements CardRepository {
   async updateContent(input: {
     entryId: string;
     userId: string;
+    collectionId: string | null;
     originalText: string | null;
     rewrittenText: string | null;
     translationText: string | null;
@@ -279,9 +285,11 @@ export class PrismaCardRepository implements CardRepository {
     clearPractice: boolean;
   }): Promise<CardEntryEntity | null> {
     return this.prisma.$transaction(async (tx) => {
+      if (input.collectionId && !await tx.cardCollection.findFirst({ where: { id: input.collectionId, userId: input.userId }, select: { id: true } })) throw new Error("CARD_COLLECTION_NOT_FOUND");
       const changed = await tx.card.updateMany({
         where: { id: input.entryId, userId: input.userId, status: "completed", deletedAt: null },
         data: {
+          collectionId: input.collectionId,
           originalText: input.originalText,
           rewrittenText: input.rewrittenText,
           translationText: input.translationText,

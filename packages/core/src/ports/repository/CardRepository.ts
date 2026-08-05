@@ -103,6 +103,7 @@ export interface CardImageAssetEntity {
 
 export interface CreateQueuedCardEntryInput {
   userId: string;
+  collectionId: string | null;
   dateKey: string;
   originalText: string;
   languageCode: string;
@@ -116,6 +117,7 @@ export interface CreateQueuedCardEntryInput {
 
 export interface CreateDirectCardEntryInput {
   userId: string;
+  collectionId: string | null;
   dateKey: string;
   originalText: string | null;
   rewrittenText: string | null;
@@ -162,6 +164,7 @@ export interface CardRepository {
   updateContent(input: {
     entryId: string;
     userId: string;
+    collectionId: string | null;
     originalText: string | null;
     rewrittenText: string | null;
     translationText: string | null;

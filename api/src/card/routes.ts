@@ -375,6 +375,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         requestId,
         body: {
           clientId: body.clientId,
+          collectionId: body.collectionId === null ? null : typeof body.collectionId === "string" ? body.collectionId : null,
           originalText: typeof body.originalText === "string" ? body.originalText : null,
           rewrittenText: typeof body.rewrittenText === "string" ? body.rewrittenText : null,
           translationText: typeof body.translationText === "string" ? body.translationText : null,
