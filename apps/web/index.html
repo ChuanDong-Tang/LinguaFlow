@@ -756,6 +756,7 @@
           <div class="nav-group">
             <div class="nav-label">运营</div>
             <button class="tab active" data-tab="overview">运营概览</button>
+            <button class="tab" data-tab="resources">资源监控</button>
             <button class="tab" data-tab="cardops">Card 运行</button>
           </div>
           <div class="nav-group">
@@ -919,6 +920,32 @@
                     </tr>
                   </thead>
                   <tbody id="usageTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-resources" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">AI 资源池</h2>
+                  <p id="resourceMeta" class="section-subtitle">监控最近一分钟请求、实时并发、耗时与限流。达到 70% 提醒，90% 告警。</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="btnLoadResources" class="btn">刷新</button>
+                  <button id="btnToggleResourceAutoRefresh" class="btn secondary">开启 15 秒刷新</button>
+                </div>
+              </div>
+              <div id="resourceAlerts" class="metrics"></div>
+            </div>
+            <div class="section">
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>资源</th><th>最近一分钟</th><th>当前并发</th><th>一分钟峰值</th><th>平均耗时</th><th>成功 / 失败</th><th>限流</th><th>状态</th></tr></thead>
+                  <tbody id="resourceTbody"></tbody>
                 </table>
               </div>
             </div>
@@ -1633,6 +1660,8 @@
         productionAudit: [],
         cardOperations: null,
         cardOperationsTimer: null,
+        resources: null,
+        resourceTimer: null,
         contactUsersPage: 1,
         contactUsersTotalPages: 0,
       };
@@ -1642,6 +1671,7 @@
       };
       const TAB_META = {
         overview: ["运营概览", "查看用户活跃、额度消耗与核心服务成本。"],
+        resources: ["资源监控", "监控 LLM、STT、TTS 与 Embedding 的实时负载。"],
         cardops: ["Card 运行", "监控生成任务、队列积压、并发槽与限流保护。"],
         user: ["用户排障", "定位单个用户的账号、会员、额度与支付状态。"],
         contacts: ["用户触达", "筛选可触达用户并导出账号名单。"],
@@ -2110,6 +2140,62 @@
         state.cardOperations = res.data || {};
         renderCardOperations(state.cardOperations);
         setStatus("Card 运行状态已刷新");
+      }
+
+      async function loadResources() {
+        setStatus("正在加载资源监控...");
+        const res = await request("/admin/resources/overview");
+        state.resources = res.data || {};
+        renderResources(state.resources);
+        setStatus("资源监控已刷新");
+      }
+
+      function renderResources(data) {
+        const rows = Array.isArray(data.resources) ? data.resources : [];
+        const labels = { llm: "LLM", stt: "STT", tts: "TTS", embedding: "Embedding" };
+        const evaluated = rows.map((row) => {
+          const rpmRatio = Number(row.requestLimit) > 0 ? Number(row.requestsLastMinute) / Number(row.requestLimit) : 0;
+          const concurrencyRatio = Number(row.concurrencyLimit) > 0 ? Number(row.currentConcurrency) / Number(row.concurrencyLimit) : 0;
+          const peakRatio = Number(row.concurrencyLimit) > 0 ? Number(row.peakConcurrencyLastMinute) / Number(row.concurrencyLimit) : 0;
+          const ratio = Math.max(rpmRatio, concurrencyRatio, peakRatio);
+          const status = Number(row.limitedLastMinute) > 0 || ratio >= 0.9 ? "告警" : ratio >= 0.7 ? "提醒" : "正常";
+          return { ...row, rpmRatio, concurrencyRatio, ratio, status };
+        });
+        const warningCount = evaluated.filter((row) => row.status !== "正常").length;
+        const limitedCount = evaluated.reduce((sum, row) => sum + Number(row.limitedLastMinute || 0), 0);
+        $("resourceMeta").textContent = `${data.redisShared ? "Redis 跨实例统计" : "单实例内存统计"} · 刷新于 ${fmtDate(data.generatedAt)}`;
+        $("resourceAlerts").innerHTML = [
+          ["资源池", evaluated.length, "LLM / STT / TTS / Embedding"],
+          ["需要关注", warningCount, warningCount ? "达到阈值或发生限流" : "当前负载正常"],
+          ["一分钟限流", limitedCount, "请求或并发被拒绝"],
+          ["统计方式", data.redisShared ? "跨实例" : "单实例", data.redisShared ? "所有服务共享" : "仅当前进程"],
+        ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+        $("resourceTbody").innerHTML = evaluated.map((row) => {
+          const statusClass = row.status === "告警" ? "status-fail" : row.status === "提醒" ? "status-warn" : "status-pass";
+          return `<tr>
+            <td><strong>${escapeHtml(labels[row.resource] || row.resource)}</strong></td>
+            <td>${escapeHtml(row.requestsLastMinute)} / ${escapeHtml(row.requestLimit)} <span class="muted">(${Math.round(row.rpmRatio * 100)}%)</span></td>
+            <td>${escapeHtml(row.currentConcurrency)} / ${escapeHtml(row.concurrencyLimit)} <span class="muted">(${Math.round(row.concurrencyRatio * 100)}%)</span></td>
+            <td>${escapeHtml(row.peakConcurrencyLastMinute)} / ${escapeHtml(row.concurrencyLimit)}</td>
+            <td>${row.averageDurationMs == null ? "—" : escapeHtml(formatDurationMs(row.averageDurationMs))}</td>
+            <td>${escapeHtml(row.succeededLastMinute)} / ${escapeHtml(row.failedLastMinute)}</td>
+            <td>${escapeHtml(row.limitedLastMinute)}</td>
+            <td><span class="pill ${statusClass}">${escapeHtml(row.status)}</span></td>
+          </tr>`;
+        }).join("") || rowEmpty(8, "暂无资源数据");
+      }
+
+      function toggleResourceAutoRefresh() {
+        if (state.resourceTimer) {
+          clearInterval(state.resourceTimer);
+          state.resourceTimer = null;
+          $("btnToggleResourceAutoRefresh").textContent = "开启 15 秒刷新";
+          return;
+        }
+        state.resourceTimer = setInterval(() => {
+          if ($("panel-resources").classList.contains("active") && $("token").value.trim()) void loadResources().catch(() => undefined);
+        }, 15_000);
+        $("btnToggleResourceAutoRefresh").textContent = "关闭自动刷新";
       }
 
       function renderCardOperations(data) {
@@ -2893,6 +2979,7 @@
             if (tab.dataset.tab === "cardops" && !state.cardOperations) {
               await loadCardOperations();
             }
+            if (tab.dataset.tab === "resources" && !state.resources) await loadResources();
           }));
         });
         document.querySelectorAll(".tab[data-user-subtab]").forEach((tab) => {
@@ -2912,6 +2999,8 @@
         $("btnLogout").addEventListener("click", () => {
           if (state.cardOperationsTimer) clearInterval(state.cardOperationsTimer);
           state.cardOperationsTimer = null;
+          if (state.resourceTimer) clearInterval(state.resourceTimer);
+          state.resourceTimer = null;
           $("token").value = "";
           $("password").value = "";
           saveLocal();
@@ -2921,6 +3010,8 @@
         $("btnLoadOverview").addEventListener("click", guard(loadOverview));
         $("btnLoadCardOperations").addEventListener("click", guard(loadCardOperations));
         $("btnToggleCardAutoRefresh").addEventListener("click", toggleCardOperationsAutoRefresh);
+        $("btnLoadResources").addEventListener("click", guard(loadResources));
+        $("btnToggleResourceAutoRefresh").addEventListener("click", toggleResourceAutoRefresh);
         $("btnOverview7d").addEventListener("click", guard(async () => {
           setOverviewRange(7);
           await loadOverview();
