@@ -2,6 +2,7 @@ import { parseCardRecordId } from "@lf/core/types/cardRecord.js";
 import type { EmbeddingProvider } from "@lf/core/ports/ai/EmbeddingProvider.js";
 import type { PrismaRecallRepository, RecallReason } from "../../infrastructure/repository/PrismaRecallRepository.js";
 import type { CardRelationService } from "./CardRelationService.js";
+import type { CardImageService } from "./CardImageService.js";
 
 const LAUNCH_MODES = new Set(["recommended", "shuffle", "search", "collection", "time", "card_detail"]);
 const NODE_LIMIT = 12;
@@ -11,6 +12,7 @@ export class RecallService {
     private readonly repository: PrismaRecallRepository,
     private readonly relations: CardRelationService,
     private readonly embeddingProvider?: EmbeddingProvider,
+    private readonly imageService?: CardImageService,
   ) {}
 
   async seedCandidates(userId: string, mode: string, excludedRecordIds: string[], requestedLimit?: number) {
@@ -19,7 +21,7 @@ export class RecallService {
       const ref = parseCardRecordId(recordId);
       return ref?.source === "card" ? [ref.sourceId] : [];
     });
-    return this.repository.seedCandidates(userId, normalizedMode, excludedSourceIds, clamp(requestedLimit, 1, 10, 1));
+    return this.withThumbnails(userId, await this.repository.seedCandidates(userId, normalizedMode, excludedSourceIds, clamp(requestedLimit, 1, 10, 1)));
   }
 
   async search(userId: string, input: {
@@ -49,12 +51,12 @@ export class RecallService {
           embedding: result.embedding,
           modelVersion: result.modelVersion,
         });
-        if (semantic.length) return semantic;
+        if (semantic.length) return this.withThumbnails(userId, semantic);
       } catch {
         // Exploration search remains usable through lexical matching when vector search is unavailable.
       }
     }
-    return this.repository.searchCandidates(searchInput);
+    return this.withThumbnails(userId, await this.repository.searchCandidates(searchInput));
   }
 
   async lexicalSearch(userId: string, input: {
@@ -68,13 +70,26 @@ export class RecallService {
     const timeRange = ["recent", "this_year", "last_year", "earlier"].includes(input.timeRange ?? "")
       ? input.timeRange as "recent" | "this_year" | "last_year" | "earlier"
       : undefined;
-    return this.repository.searchCandidates({
+    return this.withThumbnails(userId, await this.repository.searchCandidates({
       userId,
       query,
       collectionId: input.collectionId === "unclassified" ? null : input.collectionId?.trim() || undefined,
       timeRange,
       limit: clamp(input.limit, 1, 50, 20),
-    });
+    }));
+  }
+
+  private async withThumbnails<T extends { recordId: string }>(userId: string, candidates: T[]): Promise<Array<T & { thumbnail: { url: string; urlExpiresAt: string | null; width: number; height: number } | null }>> {
+    if (!candidates.length || !this.imageService) return candidates.map((candidate) => ({ ...candidate, thumbnail: null }));
+    const refs = candidates.map((candidate) => parseCardRecordId(candidate.recordId)).filter((ref): ref is NonNullable<typeof ref> => ref?.source === "card");
+    const images = await this.repository.findCandidateImages(userId, refs.map((ref) => ref.sourceId));
+    return Promise.all(candidates.map(async (candidate) => {
+      const ref = parseCardRecordId(candidate.recordId);
+      const image = ref?.source === "card" ? images.get(ref.sourceId) : undefined;
+      if (!image) return { ...candidate, thumbnail: null };
+      try { return { ...candidate, thumbnail: (await this.imageService!.views(image)).thumbnail }; }
+      catch { return { ...candidate, thumbnail: null }; }
+    }));
   }
 
   async create(userId: string, input: { seedRecordId: string; launchMode: string; launchContext?: unknown }) {

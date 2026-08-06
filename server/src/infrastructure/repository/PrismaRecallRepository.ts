@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { cardRecordId, parseCardRecordId } from "@lf/core/types/cardRecord.js";
+import type { CardImageAssetEntity } from "@lf/core/ports/repository/CardRepository.js";
 
 export interface RecallCandidate {
   recordId: string;
@@ -35,6 +36,15 @@ export interface RecallRelationInput {
 
 export class PrismaRecallRepository {
   constructor(private readonly prisma: PrismaClient) {}
+
+  async findCandidateImages(userId: string, sourceIds: string[]): Promise<Map<string, CardImageAssetEntity>> {
+    if (!sourceIds.length) return new Map();
+    const cards = await this.prisma.card.findMany({
+      where: { userId, id: { in: sourceIds }, status: "completed", deletedAt: null },
+      select: { id: true, images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }], take: 1 } },
+    });
+    return new Map(cards.flatMap((card) => card.images[0] ? [[card.id, card.images[0] as CardImageAssetEntity] as const] : []));
+  }
 
   async seedCandidates(userId: string, mode: "recommended" | "shuffle", excludedSourceIds: string[], limit: number): Promise<RecallCandidate[]> {
     const rows = await this.prisma.card.findMany({

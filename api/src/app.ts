@@ -340,7 +340,7 @@ export function createApp() {
     aiProvider,
   );
   const cardCollectionService = new CardCollectionService(new PrismaCardCollectionRepository(prisma));
-  const recallService = new RecallService(new PrismaRecallRepository(prisma), cardRelationService, embeddingProvider);
+  const recallService = new RecallService(new PrismaRecallRepository(prisma), cardRelationService, embeddingProvider, cardImageService);
   const ttsProvider = new AzureGlobalTtsProvider();
   const ttsStorageProvider = new CosStorageProvider();
   const ttsService = new TtsService(
