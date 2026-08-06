@@ -3,6 +3,7 @@ import type { EmbeddingProvider } from "@lf/core/ports/ai/EmbeddingProvider.js";
 import type { PrismaRecallRepository, RecallReason } from "../../infrastructure/repository/PrismaRecallRepository.js";
 import type { CardRelationService } from "./CardRelationService.js";
 import type { CardImageService } from "./CardImageService.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 const LAUNCH_MODES = new Set(["recommended", "shuffle", "search", "collection", "time", "card_detail"]);
 const NODE_LIMIT = 12;
@@ -13,6 +14,7 @@ export class RecallService {
     private readonly relations: CardRelationService,
     private readonly embeddingProvider?: EmbeddingProvider,
     private readonly imageService?: CardImageService,
+    private readonly resourceGovernor?: ResourceGovernor,
   ) {}
 
   async seedCandidates(userId: string, mode: string, excludedRecordIds: string[], requestedLimit?: number) {
@@ -45,7 +47,10 @@ export class RecallService {
     };
     if (query && this.embeddingProvider && input.semanticEnabled !== false) {
       try {
-        const result = await this.embeddingProvider.embed(query);
+        const embed = () => this.embeddingProvider!.embed(query);
+        const result = this.resourceGovernor
+          ? await this.resourceGovernor.execute("embedding", userId, embed)
+          : await embed();
         const semantic = await this.repository.semanticSearchCandidates({
           ...searchInput,
           embedding: result.embedding,

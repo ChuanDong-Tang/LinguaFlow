@@ -3,6 +3,7 @@ import type { EmbeddingProvider } from "@lf/core/ports/ai/EmbeddingProvider.js";
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { buildCardEmbeddingInput } from "./CardRewriteWorkerService.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 export class CardEnrichmentWorkerService {
   constructor(
@@ -10,6 +11,7 @@ export class CardEnrichmentWorkerService {
     private readonly embeddingProvider: EmbeddingProvider,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly options: { leaseMs?: number; maxAttempts?: number } = {},
+    private readonly resourceGovernor?: ResourceGovernor,
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
@@ -29,7 +31,10 @@ export class CardEnrichmentWorkerService {
         await this.repository.completeWithoutResult(job, "CARD_EMBEDDING_INPUT_STALE");
         return true;
       }
-      const result = await this.embeddingProvider.embed(input);
+      const embed = () => this.embeddingProvider.embed(input);
+      const result = this.resourceGovernor
+        ? await this.resourceGovernor.executeConcurrency("embedding", job.userId, embed)
+        : await embed();
       await this.repository.completeEmbeddingJob(job, result);
     } catch (error) {
       const maxAttempts = this.options.maxAttempts ?? 3;

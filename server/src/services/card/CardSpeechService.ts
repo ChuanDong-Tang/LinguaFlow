@@ -9,6 +9,7 @@ import type { TtsStorageProvider } from "../tts/TtsStorageProvider.js";
 import { resolveDefaultTtsVoice } from "../tts/TtsVoiceCatalog.js";
 import { CardNotFoundError, CardValidationError } from "./CardService.js";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 export class CardSpeechProRequiredError extends Error {
   readonly code = "PRO_REQUIRED";
@@ -51,6 +52,7 @@ export class CardSpeechService {
     private readonly provider: TtsProvider,
     private readonly storage: TtsStorageProvider,
     private readonly redisClient?: RedisClient | null,
+    private readonly resourceGovernor?: ResourceGovernor,
   ) {}
 
   async getOrCreateSegment(input: {
@@ -230,12 +232,15 @@ export class CardSpeechService {
   }
 
   private async generate(input: GenerateInput): Promise<CardSpeechAssetEntity> {
-    const synthesized = await this.provider.synthesize({
+    const synthesize = () => this.provider.synthesize({
       text: input.sourceText,
       languageCode: input.languageCode,
       voiceCode: input.voiceCode,
       sentenceSegments: [{ text: input.sourceText, textStart: 0, textEnd: input.sourceText.length }],
     });
+    const synthesized = this.resourceGovernor
+      ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
+      : await synthesize();
     const generationId = randomUUID();
     const objectKey = input.entryId
       ? `tts/card/${input.userId}/${input.entryId}/${input.cacheKey}-${generationId}.mp3`

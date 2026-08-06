@@ -76,6 +76,7 @@ import { registerQuickNoteRoutes } from "./quickNote/routes.js";
 import { PrismaQuickNoteRepository } from "@lf/server/infrastructure/repository/PrismaQuickNoteRepository.js";
 import { QuickNoteService } from "@lf/server/services/quickNote/QuickNoteService.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
+import { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 import { PaymentCertSyncService } from "@lf/server/services/payment/PaymentCertSyncService.js";
 import { AutoRenewService } from "@lf/server/services/payment/AutoRenewService.js";
 import { PaymentEntitlementRefreshService } from "@lf/server/services/payment/PaymentEntitlementRefreshService.js";
@@ -184,6 +185,7 @@ export function createApp() {
   const chatGenerationRateLimiter = redisClient
     ? new RedisChatGenerationRateLimiter(redisClient)
     : new InMemoryChatGenerationRateLimiter();
+  const resourceGovernor = new ResourceGovernor(runtimeConfig.resourcePolicies, redisClient);
   if (runtimeConfig.requireRedis) {
     app.addHook("onReady", async () => {
       const pong = await redisClient!.ping();
@@ -328,6 +330,7 @@ export function createApp() {
     userPreferenceRepository,
     contentSafetyService,
     cardRepository,
+    resourceGovernor,
   );
   const cardService = new CardService(
     cardRepository,
@@ -338,9 +341,10 @@ export function createApp() {
     contentSafetyService,
     cardImageService,
     aiProvider,
+    resourceGovernor,
   );
   const cardCollectionService = new CardCollectionService(new PrismaCardCollectionRepository(prisma));
-  const recallService = new RecallService(new PrismaRecallRepository(prisma), cardRelationService, embeddingProvider, cardImageService);
+  const recallService = new RecallService(new PrismaRecallRepository(prisma), cardRelationService, embeddingProvider, cardImageService, resourceGovernor);
   const ttsProvider = new AzureGlobalTtsProvider();
   const ttsStorageProvider = new CosStorageProvider();
   const ttsService = new TtsService(
@@ -351,7 +355,8 @@ export function createApp() {
     ttsProvider,
     ttsStorageProvider,
     ttsRequestLogRepository,
-    redisClient
+    redisClient,
+    resourceGovernor,
   );
   const cardSpeechService = new CardSpeechService(
     cardRepository,
@@ -360,6 +365,7 @@ export function createApp() {
     ttsProvider,
     ttsStorageProvider,
     redisClient,
+    resourceGovernor,
   );
   const sttService = new SttService(new AzureGlobalSttProvider());
 
@@ -424,6 +430,7 @@ export function createApp() {
       ttsService,
       cardSpeechService,
       rateLimiter: chatGenerationRateLimiter,
+      resourceGovernor,
       userRepository,
       systemEventLogRepository,
     });
@@ -436,11 +443,12 @@ export function createApp() {
     registerSttRoutes(app, {
       sttService,
       rateLimiter: chatGenerationRateLimiter,
+      resourceGovernor,
       userRepository,
       sttRequestLogRepository,
       systemEventLogRepository,
     });
-    registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository });
+    registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository, resourceGovernor });
 
     app.get("/health", async (_req, reply) => {
       const db = await prisma

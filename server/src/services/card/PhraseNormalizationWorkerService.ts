@@ -5,12 +5,14 @@ import {
   parsePhraseNormalizationOutput,
 } from "@lf/core/Prompts/phraseNormalizationPrompt.js";
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 export class PhraseNormalizationWorkerService {
   constructor(
     private readonly repository: CardEnrichmentRepository,
     private readonly aiProvider: AIProvider,
     private readonly options: { leaseMs?: number; maxAttempts?: number } = {},
+    private readonly resourceGovernor?: ResourceGovernor,
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
@@ -29,7 +31,7 @@ export class PhraseNormalizationWorkerService {
       const normalizationSource = source;
       const prompt = buildPhraseNormalizationPrompt(normalizationSource);
       let rawOutput = "";
-      await this.aiProvider.generateChatTextStream({
+      const generate = () => this.aiProvider.generateChatTextStream({
         userId: normalizationSource.userId,
         text: prompt.userPrompt,
         languageCode: normalizationSource.languageCode,
@@ -39,6 +41,8 @@ export class PhraseNormalizationWorkerService {
       }, (event) => {
         if (event.type === "delta") rawOutput += event.text;
       });
+      if (this.resourceGovernor) await this.resourceGovernor.execute("llm", normalizationSource.userId, generate);
+      else await generate();
       const parsed = parsePhraseNormalizationOutput(rawOutput);
       const canonicalKey = normalizePhraseSurface(parsed.canonicalText, normalizationSource.languageCode);
       if (!canonicalKey) throw phraseError("PHRASE_CANONICAL_INVALID");

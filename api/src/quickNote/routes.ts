@@ -9,6 +9,7 @@ import {
   UnauthorizedError,
 } from "../auth/userContext.js";
 import { resolveRequestId } from "../lib/httpResult.js";
+import { ResourceLimitedError } from "@lf/server/services/resource/ResourceGovernor.js";
 
 export function registerQuickNoteRoutes(app: FastifyInstance, deps: {
   quickNoteService: QuickNoteService;
@@ -176,6 +177,7 @@ async function resolveUser(
 }
 
 function handleError(reply: FastifyReply, requestId: string, error: unknown) {
+  if (error instanceof ResourceLimitedError) return failure(reply, 429, requestId, error.code, "请求较多，请稍后重试");
   if (error instanceof QuickNoteValidationError) return failure(reply, 400, requestId, error.code, error.message);
   if (error instanceof QuickNoteNotFoundError) return failure(reply, 404, requestId, error.code, "随手记不存在");
   throw error;

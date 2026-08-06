@@ -7,6 +7,7 @@ import { dateKeyRangeInBusinessTimeZone, formatDateKeyInTimeZone } from "@lf/ser
 import { requireAdmin } from "../auth/adminAuth.js";
 import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
+import type { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 
 export interface AdminRouteDeps {
   subscriptionService: SubscriptionService;
@@ -55,9 +56,22 @@ export interface AdminRouteDeps {
     $queryRawUnsafe: (query: string, ...values: unknown[]) => Promise<any[]>;
   };
   systemEventLogRepository?: SystemEventLogWriter;
+  resourceGovernor?: ResourceGovernor;
 }
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps): void {
+  app.get("/admin/resources/overview", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const resources = await deps.resourceGovernor?.snapshots() ?? [];
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: { generatedAt: new Date().toISOString(), redisShared: Boolean(getRuntimeConfig().redisUrl), resources },
+    });
+  });
+
   app.get("/admin/users", async (req, reply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;

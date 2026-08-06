@@ -5,6 +5,7 @@ import type { TtsRequestLogRepository } from "@lf/core/ports/repository/TtsReque
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import { normalizeLearningText, segmentLearningSentences } from "@lf/core/text/learningText.js";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { TtsProvider } from "./TtsProvider.js";
 import type { TtsStorageProvider } from "./TtsStorageProvider.js";
@@ -106,7 +107,8 @@ export class TtsService {
     private readonly ttsProvider: TtsProvider,
     private readonly storageProvider: TtsStorageProvider,
     private readonly ttsRequestLogRepository?: TtsRequestLogRepository,
-    private readonly redisClient?: RedisClient | null
+    private readonly redisClient?: RedisClient | null,
+    private readonly resourceGovernor?: ResourceGovernor,
   ) {}
 
   async getOrCreateMessageAsset(input: {
@@ -418,7 +420,7 @@ export class TtsService {
       languageCode: input.languageCode,
       minSegmentChars: 1,
     });
-    const synthesized = await withRetry(
+    const synthesize = () => withRetry(
       () => this.ttsProvider.synthesize({
         text: input.sourceText,
         languageCode: input.languageCode,
@@ -427,6 +429,9 @@ export class TtsService {
       }),
       readPositiveInt(process.env.TTS_SYNTHESIS_MAX_ATTEMPTS, 2)
     );
+    const synthesized = this.resourceGovernor
+      ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
+      : await synthesize();
     const objectKey = buildObjectKey({
       userId: input.userId,
       messageId: input.messageId,

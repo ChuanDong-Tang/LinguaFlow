@@ -7,6 +7,7 @@ import {
 import { findPhraseMatches } from "@lf/core/text/phraseMatching.js";
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
 import { getTargetLanguageProfile } from "@lf/core/language/targetLanguages.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 export interface DetectedProgressPhrase {
   surfaceText: string;
@@ -16,7 +17,7 @@ export interface DetectedProgressPhrase {
 
 /** Stateless extraction. Persistence and history matching stay in the caller's data boundary. */
 export class ProgressPhraseDetectionService {
-  constructor(private readonly aiProvider: AIProvider) {}
+  constructor(private readonly aiProvider: AIProvider, private readonly resourceGovernor?: ResourceGovernor) {}
 
   async detect(input: { userId: string; originalText: string; languageCode: string }): Promise<{
     phrases: DetectedProgressPhrase[];
@@ -35,7 +36,7 @@ export class ProgressPhraseDetectionService {
     }
     const prompt = buildProgressPhraseDetectionPrompt({ originalText, languageCode: input.languageCode });
     let rawOutput = "";
-    await this.aiProvider.generateChatTextStream({
+    const generate = () => this.aiProvider.generateChatTextStream({
       userId: input.userId,
       text: prompt.userPrompt,
       languageCode: input.languageCode,
@@ -45,6 +46,8 @@ export class ProgressPhraseDetectionService {
     }, (event) => {
       if (event.type === "delta") rawOutput += event.text;
     });
+    if (this.resourceGovernor) await this.resourceGovernor.execute("llm", input.userId, generate);
+    else await generate();
     const phrases = parseProgressPhraseDetectionOutput(rawOutput).flatMap((surfaceText) => {
       const normalizedText = normalizePhraseSurface(surfaceText, input.languageCode);
       const occurrences = findPhraseMatches(originalText, [surfaceText], input.languageCode);

@@ -18,6 +18,7 @@ import {
   ContentSafetyBlockedError,
   type ContentSafetyService,
 } from "../contentSafety/ContentSafetyService.js";
+import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
   userId: string;
@@ -46,6 +47,7 @@ export class ChatGenerationService {
     private readonly userPreferenceRepository: UserPreferenceRepository,
     private readonly contentSafetyService?: ContentSafetyService,
     private readonly activeCardLookup?: { findActiveByUser(userId: string): Promise<unknown | null> },
+    private readonly resourceGovernor?: ResourceGovernor,
   ) {}
   
   async generateChatStream(
@@ -84,9 +86,28 @@ export class ChatGenerationService {
     const config = getRuntimeConfig();
 
     const taskTtlMs = config.chatGenerationTaskTtlMs;
+    if (this.resourceGovernor) {
+      try {
+        await this.resourceGovernor.consumeRequest("llm", input.userId);
+      } catch (cause) {
+        if (!(cause instanceof ResourceLimitedError)) throw cause;
+        if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);
+        const error = createAppError("RATE_LIMITED", cause.message);
+        await this.logFailedAiRequest(input, {
+          startedAt,
+          status: "rate_limited",
+          error,
+          outputChars: 0,
+          provider: effectiveProvider,
+          model: effectiveModel,
+        });
+        throw error;
+      }
+    }
+
     const rateLimit = config.chatGenerationGlobalRateLimit;
     const rateWindowMs = config.chatGenerationGlobalRateWindowMs;
-    const rateAllowed = await this.rateLimiter.consume(
+    const rateAllowed = this.resourceGovernor ? true : await this.rateLimiter.consume(
       this.currentRateLimitKey(),
       rateLimit,
       rateWindowMs
@@ -111,7 +132,7 @@ export class ChatGenerationService {
 
     const userRateLimit = config.chatGenerationUserRateLimit;
     const userRateWindowMs = config.chatGenerationUserRateWindowMs;
-    const userRateAllowed = await this.rateLimiter.consume(
+    const userRateAllowed = this.resourceGovernor ? true : await this.rateLimiter.consume(
       this.userRateLimitKey(input.userId),
       userRateLimit,
       userRateWindowMs
@@ -243,7 +264,7 @@ export class ChatGenerationService {
     try {
       await this.entitlementService.assertCanStartGeneration(input.userId, { dateKey: quotaDateKey });
 
-      await this.aiProvider.generateChatTextStream(
+      const generate = () => this.aiProvider.generateChatTextStream(
         {
           userId: input.userId,
           text: input.text,
@@ -292,6 +313,13 @@ export class ChatGenerationService {
           await onEvent(event);
         }
       );
+      try {
+        if (this.resourceGovernor) await this.resourceGovernor.executeConcurrency("llm", input.userId, generate);
+        else await generate();
+      } catch (error) {
+        if (error instanceof ResourceLimitedError) throw createAppError("RATE_LIMITED", error.message);
+        throw error;
+      }
       if (outputBuffer) {
         this.contentSafetyService?.assertAllowed(assistantText, "output");
         try {

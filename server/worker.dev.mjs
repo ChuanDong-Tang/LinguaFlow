@@ -58,6 +58,7 @@ import {
 } from "./src/services/chat/ChatGenerationTaskGuard.ts";
 import { ContentSafetyService } from "./src/services/contentSafety/ContentSafetyService.ts";
 import { TencentTmsClient } from "./src/services/contentSafety/TencentTmsClient.ts";
+import { ResourceGovernor } from "./src/services/resource/ResourceGovernor.ts";
 
 const prisma = new PrismaClient();
 const runtime = getRuntimeConfig();
@@ -147,6 +148,7 @@ const entitlementService = new EntitlementService(entitlementRepository, subscri
 const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
 const cardAiProvider = createAIProvider(runtime);
 const workerRedisClient = getRedisClient();
+const resourceGovernor = new ResourceGovernor(runtime.resourcePolicies, workerRedisClient);
 const cardTaskGuard = workerRedisClient
   ? new RedisChatGenerationTaskGuard(workerRedisClient)
   : new InMemoryChatGenerationTaskGuard();
@@ -180,17 +182,19 @@ const cardRewriteService = new CardRewriteWorkerService(
   aiRequestLogRepository,
   systemEventLogRepository,
   cardContentSafetyService,
+  {},
+  resourceGovernor,
 );
 const cardRewriteWorker = new CardRewriteWorker(cardRewriteService, {
-  concurrencyGuard: cardWorkerConcurrencyGuard,
+  concurrencyGuard: undefined,
   concurrencyLimit: runtime.cardRewriteGlobalConcurrency,
 });
 const phraseNormalizationWorker = new SerialCardJobWorker(
-  new PhraseNormalizationWorkerService(cardEnrichmentRepository, cardAiProvider),
+  new PhraseNormalizationWorkerService(cardEnrichmentRepository, cardAiProvider, {}, resourceGovernor),
   {
     workerIdPrefix: "phrase-normalization",
     errorLabel: "phrase-normalization-worker",
-    concurrencyGuard: cardWorkerConcurrencyGuard,
+    concurrencyGuard: undefined,
     concurrencyScope: "phrase-normalization",
     concurrencyLimit: runtime.cardPhraseNormalizationGlobalConcurrency,
   },
@@ -218,12 +222,12 @@ const cardPhraseIndexWorker = new SerialCardJobWorker(
 const progressPhraseDetectionWorker = new SerialCardJobWorker(
   new ProgressPhraseDetectionWorkerService(
     cardEnrichmentRepository,
-    new ProgressPhraseDetectionService(cardAiProvider),
+    new ProgressPhraseDetectionService(cardAiProvider, resourceGovernor),
   ),
   {
     workerIdPrefix: "progress-phrase",
     errorLabel: "progress-phrase-worker",
-    concurrencyGuard: cardWorkerConcurrencyGuard,
+    concurrencyGuard: undefined,
     concurrencyScope: "progress-detection",
     concurrencyLimit: runtime.cardProgressDetectionGlobalConcurrency,
   },
@@ -255,11 +259,13 @@ const cardEnrichmentWorker = hasCompleteEmbeddingConfig
           timeoutMs: runtime.azureEmbeddingTimeoutMs,
         }),
         systemEventLogRepository,
+        {},
+        resourceGovernor,
       ),
       {
         workerIdPrefix: "card-enrichment",
         errorLabel: "card-enrichment-worker",
-        concurrencyGuard: cardWorkerConcurrencyGuard,
+        concurrencyGuard: undefined,
         concurrencyScope: "embedding",
         concurrencyLimit: runtime.cardEmbeddingGlobalConcurrency,
       },

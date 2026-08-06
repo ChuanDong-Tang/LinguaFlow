@@ -1,3 +1,5 @@
+import { resolveResourcePolicies, type ResourcePolicies } from "./resourcePolicies.js";
+
 export type RuntimeMode = "development" | "production" | "test";
 export type AiProviderName = "deepseek" | "openai" | "grok";
 export type MembershipFeatureTier = "free" | "plus" | "pro";
@@ -77,6 +79,7 @@ export interface RuntimeConfig {
   mockUserIds: string[];
   requireRedis: boolean;
   redisUrl: string | null;
+  resourcePolicies: ResourcePolicies;
   cardEnabled: boolean;
   azureEmbeddingEndpoint: string | null;
   azureEmbeddingApiKey: string | null;
@@ -229,6 +232,17 @@ export interface RuntimeConfig {
 
 export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   const mode = normalizeMode(env.NODE_ENV);
+  const resourcePolicies = resolveResourcePolicies(env, {
+    llmUserRpm: readPositiveInt(env.CHAT_GENERATION_USER_RATE_LIMIT, 20),
+    llmGlobalRpm: readPositiveInt(env.CHAT_GENERATION_GLOBAL_RATE_LIMIT, 30),
+    llmGlobalConcurrency: readPositiveInt(env.CARD_REWRITE_GLOBAL_CONCURRENCY, 4),
+    sttUserRpm: readPositiveInt(env.STT_REALTIME_USER_RATE_LIMIT, 20),
+    sttGlobalRpm: readPositiveInt(env.STT_REALTIME_GLOBAL_RATE_LIMIT, 80),
+    sttMaxSessionMs: readPositiveInt(env.STT_REALTIME_MAX_SESSION_MS, 60_000),
+    ttsGlobalRpm: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_LIMIT, 100),
+    embeddingGlobalRpm: readPositiveInt(env.RECALL_SEMANTIC_SEARCH_GLOBAL_RATE_LIMIT, 120),
+    embeddingGlobalConcurrency: readPositiveInt(env.CARD_EMBEDDING_GLOBAL_CONCURRENCY, 8),
+  });
   return {
     mode,
     isProduction: mode === "production",
@@ -236,6 +250,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     mockUserIds: readCsv(env.LF_MOCK_USER_IDS, ["mock_user_001"]),
     requireRedis: readBoolean(env.LF_REQUIRE_REDIS, mode === "production"),
     redisUrl: trimToNull(env.REDIS_URL),
+    resourcePolicies,
     cardEnabled: readBoolean(env.LF_CARD_ENABLED, mode !== "production"),
     azureEmbeddingEndpoint: trimToNull(env.AZURE_EMBEDDING_ENDPOINT),
     azureEmbeddingApiKey: trimToNull(env.AZURE_EMBEDDING_API_KEY),
@@ -258,14 +273,14 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardImageUploadRateWindowMs: readPositiveInt(env.CARD_IMAGE_UPLOAD_RATE_WINDOW_MS, 3_600_000),
     recallSeedUserRateLimit: readPositiveInt(env.RECALL_SEED_USER_RATE_LIMIT, 60),
     recallSearchUserRateLimit: readPositiveInt(env.RECALL_SEARCH_USER_RATE_LIMIT, 30),
-    recallSemanticSearchGlobalRateLimit: readPositiveInt(env.RECALL_SEMANTIC_SEARCH_GLOBAL_RATE_LIMIT, 120),
+    recallSemanticSearchGlobalRateLimit: resourcePolicies.embedding.globalRequestsPerMinute,
     recallSemanticSearchDailyLimit: readPositiveInt(env.RECALL_SEMANTIC_SEARCH_DAILY_LIMIT, 100),
     recallCreateUserRateLimit: readPositiveInt(env.RECALL_CREATE_USER_RATE_LIMIT, 10),
     recallExpandUserRateLimit: readPositiveInt(env.RECALL_EXPAND_USER_RATE_LIMIT, 60),
     recallRateWindowMs: readPositiveInt(env.RECALL_RATE_WINDOW_MS, 60_000),
     recallSearchIpRateLimit: readPositiveInt(env.RECALL_SEARCH_IP_RATE_LIMIT, 120),
-    cardRewriteGlobalConcurrency: readPositiveInt(env.CARD_REWRITE_GLOBAL_CONCURRENCY, 4),
-    cardEmbeddingGlobalConcurrency: readPositiveInt(env.CARD_EMBEDDING_GLOBAL_CONCURRENCY, 8),
+    cardRewriteGlobalConcurrency: resourcePolicies.llm.globalConcurrency,
+    cardEmbeddingGlobalConcurrency: resourcePolicies.embedding.globalConcurrency,
     cardProgressDetectionGlobalConcurrency: readPositiveInt(env.CARD_PROGRESS_DETECTION_GLOBAL_CONCURRENCY, 4),
     cardPhraseNormalizationGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_NORMALIZATION_GLOBAL_CONCURRENCY, 4),
     cardPhraseHistoryGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_HISTORY_GLOBAL_CONCURRENCY, 2),
@@ -369,9 +384,9 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     accountDeletionCleanupIntervalMs: readPositiveInt(env.LF_ACCOUNT_DELETION_CLEANUP_INTERVAL_MS, 7 * 24 * 60 * 60 * 1000),
     accountDeletionCleanupBatchSize: readPositiveInt(env.LF_ACCOUNT_DELETION_CLEANUP_BATCH_SIZE, 5),
     chatGenerationTaskTtlMs: readPositiveInt(env.CHAT_GENERATION_TASK_TTL_MS, 60_000),
-    chatGenerationGlobalRateLimit: readPositiveInt(env.CHAT_GENERATION_GLOBAL_RATE_LIMIT, 30),
+    chatGenerationGlobalRateLimit: resourcePolicies.llm.globalRequestsPerMinute,
     chatGenerationGlobalRateWindowMs: readPositiveInt(env.CHAT_GENERATION_GLOBAL_RATE_WINDOW_MS, 60_000),
-    chatGenerationUserRateLimit: readPositiveInt(env.CHAT_GENERATION_USER_RATE_LIMIT, 20),
+    chatGenerationUserRateLimit: resourcePolicies.llm.userRequestsPerMinute,
     chatGenerationUserRateWindowMs: readPositiveInt(env.CHAT_GENERATION_USER_RATE_WINDOW_MS, 60_000),
     chatGenerationMaxInputChars: readPositiveInt(env.CHAT_GENERATION_MAX_INPUT_CHARS, 3000),
     chatGenerationMinInputChars: readPositiveInt(env.CHAT_GENERATION_MIN_INPUT_CHARS, 10),
@@ -381,8 +396,8 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     dictionaryLookupUserRateLimit: readPositiveInt(env.DICTIONARY_LOOKUP_USER_RATE_LIMIT, 80),
     dictionaryLookupRateWindowMs: readPositiveInt(env.DICTIONARY_LOOKUP_RATE_WINDOW_MS, 60_000),
     dictionaryLookupMaxOutputTokens: readPositiveInt(env.DICTIONARY_LOOKUP_MAX_OUTPUT_TOKENS, 420),
-    sttRealtimeGlobalRateLimit: readPositiveInt(env.STT_REALTIME_GLOBAL_RATE_LIMIT, 80),
-    sttRealtimeUserRateLimit: readPositiveInt(env.STT_REALTIME_USER_RATE_LIMIT, 20),
+    sttRealtimeGlobalRateLimit: resourcePolicies.stt.globalRequestsPerMinute,
+    sttRealtimeUserRateLimit: resourcePolicies.stt.userRequestsPerMinute,
     sttRealtimeRateWindowMs: readPositiveInt(env.STT_REALTIME_RATE_WINDOW_MS, 60_000),
     sttRealtimeMaxSessionMs: readPositiveInt(env.STT_REALTIME_MAX_SESSION_MS, 60_000),
     sttRealtimeCandidateLanguages: readCsv(env.STT_REALTIME_CANDIDATE_LANGUAGES, [
@@ -392,7 +407,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
       "ko-KR",
     ]).slice(0, 4),
     sttRequestLogEnabled: readBoolean(env.STT_REQUEST_LOG_ENABLED, false),
-    ttsMessagesGlobalRateLimit: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_LIMIT, 100),
+    ttsMessagesGlobalRateLimit: resourcePolicies.tts.globalRequestsPerMinute,
     ttsMessagesGlobalRateWindowMs: readPositiveInt(env.TTS_MESSAGES_GLOBAL_RATE_WINDOW_MS, 60_000),
     ttsCostPerMillionCharsCents: readNonNegativeInt(env.TTS_COST_PER_1M_CHARS_CENTS, 0),
     ttsCostCurrency: env.TTS_COST_CURRENCY?.trim() || "USD",

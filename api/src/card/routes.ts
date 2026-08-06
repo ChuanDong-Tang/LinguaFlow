@@ -28,6 +28,7 @@ import { resolveRequestId } from "../lib/httpResult.js";
 import { resolveClientIp } from "../lib/rateLimit.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
+import { ResourceLimitedError } from "@lf/server/services/resource/ResourceGovernor.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 
 export interface CardRouteDeps {
@@ -842,7 +843,6 @@ async function consumeRecallSemanticSearchAllowance(
 ): Promise<boolean> {
   return consumeLimits(rateLimiter, [
     [`recall:semantic:daily:user:${userId}`, config.recallSemanticSearchDailyLimit, 86_400_000],
-    ["recall:semantic:global", config.recallSemanticSearchGlobalRateLimit, config.recallRateWindowMs],
   ]);
 }
 
@@ -915,6 +915,9 @@ async function resolveCardUser(
 }
 
 function handleCardError(reply: FastifyReply, requestId: string, error: unknown) {
+  if (error instanceof ResourceLimitedError) {
+    return failure(reply, 429, requestId, error.code, "请求较多，请稍后重试");
+  }
   if (error instanceof CardValidationError) {
     return failure(reply, 400, requestId, error.code, error.message);
   }

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import type { SttService } from "@lf/server/services/stt/SttService.js";
+import { ResourceLimitedError, type ResourceGovernor, type ResourceLease } from "@lf/server/services/resource/ResourceGovernor.js";
 import {
   AccountDisabledError,
   AccountPendingDeleteError,
@@ -39,6 +40,7 @@ export interface SttRouteDeps {
   rateLimiter: {
     consume: (key: string, limit: number, windowMs: number) => Promise<boolean>;
   };
+  resourceGovernor?: ResourceGovernor;
 }
 
 export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): void {
@@ -54,6 +56,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
     let userId: string | null = null;
     let sessionId: string | null = null;
     let sttSession: Awaited<ReturnType<SttService["startRealtimeSession"]>> | null = null;
+    let resourceLease: ResourceLease | null = null;
     let audioBytes = 0;
     let transcriptChars = 0;
     let finalText = "";
@@ -101,8 +104,13 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
       } catch {
         sttSession?.close();
       }
+      await resourceLease?.release().catch(() => undefined);
+      resourceLease = null;
       const audioDurationMs = estimatePcmDurationMs(audioBytes, 16000, 1, 16);
       const durationMs = Date.now() - startedAt;
+      if (resourceLease || authenticated) {
+        await deps.resourceGovernor?.observeCompletion("stt", durationMs, input.status === "success").catch(() => undefined);
+      }
       if (userId && runtimeConfig.sttRequestLogEnabled) {
         await deps.sttRequestLogRepository?.create({
           requestId,
@@ -169,14 +177,32 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
           userRepository: deps.userRepository,
         });
         userId = userContext.userId;
-        const rateLimit = await consumeSttRateLimit(deps.rateLimiter, userId, {
-          globalLimit: runtimeConfig.sttRealtimeGlobalRateLimit,
-          userLimit: runtimeConfig.sttRealtimeUserRateLimit,
-          windowMs: runtimeConfig.sttRealtimeRateWindowMs,
-        });
+        let rateLimit;
+        if (deps.resourceGovernor) {
+          try {
+            await deps.resourceGovernor.consumeRequest("stt", userId);
+            rateLimit = { allowed: true } as const;
+          } catch (error) {
+            if (!(error instanceof ResourceLimitedError)) throw error;
+            rateLimit = { allowed: false, code: error.scope === "user_rate" ? "STT_USER_RATE_LIMITED" : "STT_GLOBAL_RATE_LIMITED" } as const;
+          }
+        } else {
+          rateLimit = await consumeSttRateLimit(deps.rateLimiter, userId, {
+            globalLimit: runtimeConfig.sttRealtimeGlobalRateLimit,
+            userLimit: runtimeConfig.sttRealtimeUserRateLimit,
+            windowMs: runtimeConfig.sttRealtimeRateWindowMs,
+          });
+        }
         if (!rateLimit.allowed) {
           await closeWithError(rateLimit.code, "Too many STT sessions. Please try again later.");
           return;
+        }
+        if (deps.resourceGovernor) {
+          resourceLease = await deps.resourceGovernor.acquireConcurrency("stt", userId);
+          if (!resourceLease) {
+            await closeWithError("STT_GLOBAL_RATE_LIMITED", "Too many active STT sessions. Please try again later.");
+            return false;
+          }
         }
         authenticated = true;
         sendJson({ type: "hello", requestId });

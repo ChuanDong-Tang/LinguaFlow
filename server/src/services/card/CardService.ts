@@ -24,6 +24,7 @@ import { CARD_EXPRESSION_PROMPT_VERSION } from "@lf/core/Prompts/cardExpressionP
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
 import { segmentLearningSentences } from "@lf/core/text/learningText.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { buildCardContentGenerationPrompt, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
 
 const MAX_ORIGINAL_GRAPHEMES = 3_000;
@@ -68,6 +69,7 @@ export class CardService {
     private readonly contentSafetyService?: ContentSafetyService,
     private readonly imageService?: CardImageService,
     private readonly aiProvider?: AIProvider,
+    private readonly resourceGovernor?: ResourceGovernor,
   ) {}
 
   async bootstrap(userId: string): Promise<CardRecordSummaryView[]> {
@@ -257,17 +259,19 @@ export class CardService {
       difficulty: current.promptDifficultySnapshot,
     });
     let output = "";
-    await this.aiProvider.generateChatTextStream({
-      userId: input.userId,
-      text: prompt.userPrompt,
-      languageCode: current.languageCode,
-      appLocale: preference.appLocale,
-      promptDifficulty: current.promptDifficultySnapshot,
-      companionMode: "rewrite_only",
-      systemPrompt: prompt.systemPrompt,
-      rawUserPrompt: true,
-      maxOutputTokens: 1_000,
-    }, (event) => { if (event.type === "delta") output += event.text; });
+    const generate = () => this.aiProvider!.generateChatTextStream({
+        userId: input.userId,
+        text: prompt.userPrompt,
+        languageCode: current.languageCode,
+        appLocale: preference.appLocale,
+        promptDifficulty: current.promptDifficultySnapshot,
+        companionMode: "rewrite_only",
+        systemPrompt: prompt.systemPrompt,
+        rawUserPrompt: true,
+        maxOutputTokens: 1_000,
+      }, (event) => { if (event.type === "delta") output += event.text; });
+    if (this.resourceGovernor) await this.resourceGovernor.execute("llm", input.userId, generate);
+    else await generate();
     output = output.trim();
     if (!output) throw new CardValidationError("Generated content is empty");
     this.contentSafetyService?.assertAllowed(output, "output");
@@ -312,17 +316,19 @@ export class CardService {
       difficulty: preference.promptDifficulty,
     });
     let output = "";
-    await this.aiProvider.generateChatTextStream({
-      userId: input.userId,
-      text: prompt.userPrompt,
-      languageCode: preference.learningLanguage,
-      appLocale: preference.appLocale,
-      promptDifficulty: preference.promptDifficulty,
-      companionMode: "rewrite_only",
-      systemPrompt: prompt.systemPrompt,
-      rawUserPrompt: true,
-      maxOutputTokens: 1_000,
-    }, (event) => { if (event.type === "delta") output += event.text; });
+    const generate = () => this.aiProvider!.generateChatTextStream({
+        userId: input.userId,
+        text: prompt.userPrompt,
+        languageCode: preference.learningLanguage,
+        appLocale: preference.appLocale,
+        promptDifficulty: preference.promptDifficulty,
+        companionMode: "rewrite_only",
+        systemPrompt: prompt.systemPrompt,
+        rawUserPrompt: true,
+        maxOutputTokens: 1_000,
+      }, (event) => { if (event.type === "delta") output += event.text; });
+    if (this.resourceGovernor) await this.resourceGovernor.execute("llm", input.userId, generate);
+    else await generate();
     output = output.trim();
     if (!output) throw new CardValidationError("Generated content is empty");
     this.contentSafetyService?.assertAllowed(output, "output");

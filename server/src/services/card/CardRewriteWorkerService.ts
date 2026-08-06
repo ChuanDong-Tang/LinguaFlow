@@ -10,6 +10,7 @@ import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
 import type { ChatGenerationTaskGuard } from "../chat/ChatGenerationTaskGuard.js";
 import { taskGuardId } from "./CardService.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 export class CardRewriteWorkerService {
   constructor(
@@ -21,6 +22,7 @@ export class CardRewriteWorkerService {
     private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly contentSafetyService?: ContentSafetyService,
     private readonly options: { leaseMs?: number; leaseRenewMs?: number } = {},
+    private readonly resourceGovernor?: ResourceGovernor,
   ) {}
 
   get leaseMs(): number {
@@ -80,7 +82,7 @@ export class CardRewriteWorkerService {
         appLocale: entry.appLocaleSnapshot,
         difficulty: entry.promptDifficultySnapshot,
       });
-      await this.aiProvider.generateChatTextStream(
+      const generate = () => this.aiProvider.generateChatTextStream(
         {
           userId: entry.userId,
           text: prompt.userPrompt,
@@ -95,6 +97,8 @@ export class CardRewriteWorkerService {
           if (event.type === "delta") rawOutput += event.text;
         },
       );
+      if (this.resourceGovernor) await this.resourceGovernor.execute("llm", entry.userId, generate);
+      else await generate();
       const parsedOutput = parseCardExpressionOutput(rawOutput);
       const rewrittenText = parsedOutput.expression.trim();
       const topic = parsedOutput.topic.trim();
