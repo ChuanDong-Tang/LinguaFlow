@@ -108,6 +108,26 @@ export class QuickNoteService {
     }
   }
 
+  async addLayer(userId: string, noteId: string, target: unknown): Promise<QuickNoteView> {
+    if (target !== "expression" && target !== "translation" && target !== "reply") throw new QuickNoteValidationError("内容类型无效");
+    let current = await this.repository.find(userId, noteId);
+    if (!current && noteId.startsWith("legacy:")) current = await this.materializeLegacy(userId, noteId.slice("legacy:".length));
+    if (!current) throw new QuickNoteNotFoundError();
+    const updated = await this.repository.updateGenerationStatus(userId, current.id, target, "added");
+    if (!updated) throw new QuickNoteNotFoundError();
+    return updated;
+  }
+
+  async removeLayer(userId: string, noteId: string, target: unknown): Promise<QuickNoteView> {
+    if (target !== "expression" && target !== "translation" && target !== "reply") throw new QuickNoteValidationError("内容类型无效");
+    const current = await this.repository.find(userId, noteId);
+    if (!current) throw new QuickNoteNotFoundError();
+    const field = target === "expression" ? "expressionText" : target === "translation" ? "translationText" : "replyText";
+    const updated = await this.repository.updateContent(userId, noteId, { [field]: null });
+    if (!updated) throw new QuickNoteNotFoundError();
+    return updated;
+  }
+
   async remove(userId: string, noteId: string): Promise<void> {
     if (!await this.repository.remove(userId, noteId)) throw new QuickNoteNotFoundError();
   }

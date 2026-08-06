@@ -75,6 +75,35 @@ export function registerQuickNoteRoutes(app: FastifyInstance, deps: {
     }
   });
 
+  app.post("/quick-notes/:noteId/layers", async (req, reply) => {
+    const requestId = prepareReply(req, reply);
+    const userId = await resolveUser(req, reply, deps, requestId);
+    if (!userId) return;
+    try {
+      const note = await deps.quickNoteService.addLayer(
+        userId,
+        (req.params as { noteId: string }).noteId,
+        (req.body as { target?: unknown } | null)?.target,
+      );
+      return reply.status(200).send({ ok: true, request_id: requestId, data: serialize(note) });
+    } catch (error) {
+      return handleError(reply, requestId, error);
+    }
+  });
+
+  app.delete("/quick-notes/:noteId/layers/:target", async (req, reply) => {
+    const requestId = prepareReply(req, reply);
+    const userId = await resolveUser(req, reply, deps, requestId);
+    if (!userId) return;
+    try {
+      const params = req.params as { noteId: string; target: string };
+      const note = await deps.quickNoteService.removeLayer(userId, params.noteId, params.target);
+      return reply.status(200).send({ ok: true, request_id: requestId, data: serialize(note) });
+    } catch (error) {
+      return handleError(reply, requestId, error);
+    }
+  });
+
   app.patch("/quick-notes/:noteId/expression", async (req, reply) => {
     const requestId = prepareReply(req, reply);
     const userId = await resolveUser(req, reply, deps, requestId);

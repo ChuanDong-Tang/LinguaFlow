@@ -211,7 +211,7 @@ export class PrismaQuickNoteRepository {
     userId: string,
     noteId: string,
     target: "expression" | "translation" | "reply",
-    status: "idle" | "generating" | "ready" | "failed",
+    status: "idle" | "added" | "generating" | "ready" | "failed",
   ): Promise<QuickNoteView | null> {
     const statusField = target === "expression" ? "expressionStatus" : target === "translation" ? "translationStatus" : "replyStatus";
     const changed = await this.prisma.quickNote.updateMany({ where: { id: noteId, userId }, data: { [statusField]: status } });
