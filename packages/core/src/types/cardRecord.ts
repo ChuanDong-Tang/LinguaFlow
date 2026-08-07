@@ -15,6 +15,7 @@ export interface CardClozeBlank {
   startUtf16: number;
   endUtf16: number;
   answer: string;
+  mastered?: boolean;
 }
 
 export interface CardClozeState {
@@ -106,6 +107,7 @@ export type UpdateCardClozeInput = {
   operation:
     | { type: "add"; segmentId: string; startUtf16: number; endUtf16: number }
     | { type: "remove"; blankId: string }
+    | { type: "master"; blankId: string }
     | { type: "result" };
   result?: CardPracticeResult;
 };

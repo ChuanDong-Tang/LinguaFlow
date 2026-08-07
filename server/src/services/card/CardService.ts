@@ -563,6 +563,10 @@ export class CardService {
       if (index < 0) throw new CardValidationError("Cloze blank does not exist");
       state.blanks.splice(index, 1);
       phraseMutation = { type: "remove", clozeBlankId: operation.blankId };
+    } else if (operation.type === "master") {
+      const blank = state.blanks.find((candidate) => candidate.id === operation.blankId);
+      if (!blank) throw new CardValidationError("Cloze blank does not exist");
+      blank.mastered = true;
     }
     const practicedAt = input.result ? new Date() : null;
     const correctStreak = input.result === "correct" ? (current?.clozeCorrectStreak ?? 0) + 1 : 0;
@@ -664,6 +668,7 @@ function isPracticeResult(value: unknown): value is CardPracticeResult {
 function isClozeOperation(value: unknown): value is UpdateCardClozeInput["operation"] {
   if (!value || typeof value !== "object" || !("type" in value)) return false;
   if (value.type === "result") return true;
+  if (value.type === "master") return "blankId" in value && typeof value.blankId === "string" && Boolean(value.blankId.trim());
   if (value.type === "remove") return "blankId" in value && typeof value.blankId === "string" && Boolean(value.blankId.trim());
   return value.type === "add" &&
     "segmentId" in value && typeof value.segmentId === "string" && Boolean(value.segmentId.trim()) &&
@@ -683,7 +688,7 @@ function normalizeClozeState(value: unknown): CardClozeState {
     "endUtf16" in blank && Number.isInteger(blank.endUtf16) &&
     "answer" in blank && typeof blank.answer === "string"
   );
-  return { schemaVersion: 1, blanks: [...blanks] };
+  return { schemaVersion: 1, blanks: blanks.map((blank) => ({ ...blank, mastered: blank.mastered === true })) };
 }
 
 function toPracticeView(
