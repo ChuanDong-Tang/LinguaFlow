@@ -261,6 +261,7 @@ model CardCollection {
   parentId       String?
   sortOrder      Int      @default(0)
   isFavorite     Boolean  @default(false)
+  favoriteSortOrder Int?
   name           String
   normalizedName String
   createdAt      DateTime @default(now())
@@ -274,6 +275,7 @@ model CardCollection {
   @@unique([userId, normalizedName])
   @@index([userId, updatedAt(sort: Desc)])
   @@index([userId, parentId, sortOrder])
+  @@index([userId, isFavorite, favoriteSortOrder])
   @@map("card_collections")
 }
 

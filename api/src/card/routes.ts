@@ -291,6 +291,22 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     } catch (error) { return handleCardError(reply, requestId, error); }
   });
 
+  app.put("/cards/collections/:collectionId/favorite-position", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/collections/:collectionId/favorite-position");
+    if (!userId) return;
+    const position = Number((req.body as { position?: unknown } | null)?.position);
+    try {
+      await deps.cardCollectionService.reorderFavorite(
+        userId,
+        String((req.params as { collectionId?: unknown }).collectionId ?? ""),
+        position,
+      );
+      return reply.status(204).send();
+    } catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
   app.put("/cards/collections/:collectionId/parent", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);

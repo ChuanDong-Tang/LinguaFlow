@@ -46,6 +46,11 @@ export class CardCollectionService {
     if (!await this.repository.setFavorite(userId, collectionId, isFavorite)) throw new CardNotFoundError();
   }
 
+  async reorderFavorite(userId: string, collectionId: string, position: number): Promise<void> {
+    if (!collectionId || !Number.isInteger(position) || position < 0) throw new CardValidationError("Invalid favorite position");
+    if (!await this.repository.reorderFavorite(userId, collectionId, position)) throw new CardNotFoundError();
+  }
+
   async reparent(userId: string, collectionId: string, parentId: string | null, position?: number): Promise<void> {
     if (!collectionId) throw new CardValidationError("Invalid collection id");
     try {
@@ -108,12 +113,13 @@ function isUniqueConflict(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
 }
 
-function toView(collection: { id: string; parentId: string | null; sortOrder: number; isFavorite: boolean; name: string; cardCount: number; createdAt: Date; updatedAt: Date }) {
+function toView(collection: { id: string; parentId: string | null; sortOrder: number; isFavorite: boolean; favoriteSortOrder: number | null; name: string; cardCount: number; createdAt: Date; updatedAt: Date }) {
   return {
     id: collection.id,
     parentId: collection.parentId,
     sortOrder: collection.sortOrder,
     isFavorite: collection.isFavorite,
+    favoriteSortOrder: collection.favoriteSortOrder,
     name: collection.name,
     cardCount: collection.cardCount,
     createdAt: collection.createdAt.toISOString(),

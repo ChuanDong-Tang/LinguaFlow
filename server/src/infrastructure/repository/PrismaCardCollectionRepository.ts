@@ -5,6 +5,7 @@ export interface CardCollectionView {
   parentId: string | null;
   sortOrder: number;
   isFavorite: boolean;
+  favoriteSortOrder: number | null;
   name: string;
   cardCount: number;
   createdAt: Date;
@@ -33,6 +34,7 @@ export class PrismaCardCollectionRepository {
         parentId: collection.parentId,
         sortOrder: collection.sortOrder,
         isFavorite: collection.isFavorite,
+        favoriteSortOrder: collection.favoriteSortOrder,
         name: collection.name,
         cardCount: collection._count.cards,
         createdAt: collection.createdAt,
@@ -77,6 +79,7 @@ export class PrismaCardCollectionRepository {
       parentId: collection.parentId,
       sortOrder: collection.sortOrder,
       isFavorite: collection.isFavorite,
+      favoriteSortOrder: collection.favoriteSortOrder,
       name: collection.name,
       cardCount: collection._count.cards,
       createdAt: collection.createdAt,
@@ -85,11 +88,38 @@ export class PrismaCardCollectionRepository {
   }
 
   async setFavorite(userId: string, collectionId: string, isFavorite: boolean): Promise<boolean> {
-    const changed = await this.prisma.cardCollection.updateMany({
-      where: { id: collectionId, userId },
-      data: { isFavorite },
+    return this.prisma.$transaction(async (tx) => {
+      const collection = await tx.cardCollection.findFirst({ where: { id: collectionId, userId }, select: { id: true, isFavorite: true } });
+      if (!collection) return false;
+      if (collection.isFavorite === isFavorite) return true;
+      const lastFavorite = isFavorite ? await tx.cardCollection.findFirst({
+        where: { userId, isFavorite: true },
+        orderBy: [{ favoriteSortOrder: "desc" }, { createdAt: "desc" }],
+        select: { favoriteSortOrder: true },
+      }) : null;
+      await tx.cardCollection.update({
+        where: { id: collectionId },
+        data: { isFavorite, favoriteSortOrder: isFavorite ? (lastFavorite?.favoriteSortOrder ?? -1) + 1 : null },
+      });
+      return true;
     });
-    return changed.count === 1;
+  }
+
+  async reorderFavorite(userId: string, collectionId: string, position: number): Promise<boolean> {
+    const favorites = await this.prisma.cardCollection.findMany({
+      where: { userId, isFavorite: true },
+      orderBy: [{ favoriteSortOrder: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+    });
+    const index = favorites.findIndex((collection) => collection.id === collectionId);
+    if (index < 0) return false;
+    const [moved] = favorites.splice(index, 1);
+    favorites.splice(Math.max(0, Math.min(favorites.length, position)), 0, moved);
+    await this.prisma.$transaction(favorites.map((collection, favoriteSortOrder) => this.prisma.cardCollection.updateMany({
+      where: { id: collection.id, userId, isFavorite: true },
+      data: { favoriteSortOrder },
+    })));
+    return true;
   }
 
   async remove(userId: string, collectionId: string): Promise<boolean> {
