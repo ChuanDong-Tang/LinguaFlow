@@ -10,6 +10,8 @@ type RawBoundaryMark = {
   durationMs: number;
 };
 
+const SPEECH_SYNTHESIS_TIMEOUT_MS = 20_000;
+
 export class AzureGlobalTtsProvider implements TtsProvider {
   readonly providerName = "azure_global";
 
@@ -58,11 +60,15 @@ export class AzureGlobalTtsProvider implements TtsProvider {
     };
 
     try {
-      const result = await speakSsml(synthesizer, buildSsml({
-        text: input.text,
-        languageCode: input.languageCode,
-        voiceCode: input.voiceCode || resolveDefaultTtsVoice(input.languageCode, this.providerName),
-      }));
+      const result = await withTimeout(
+        speakSsml(synthesizer, buildSsml({
+          text: input.text,
+          languageCode: input.languageCode,
+          voiceCode: input.voiceCode || resolveDefaultTtsVoice(input.languageCode, this.providerName),
+        })),
+        SPEECH_SYNTHESIS_TIMEOUT_MS,
+        "Azure speech synthesis timed out",
+      );
       if (result.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
         throw new Error(result.errorDetails || `Azure speech synthesis failed: ${result.reason}`);
       }
@@ -82,6 +88,16 @@ export class AzureGlobalTtsProvider implements TtsProvider {
       synthesizer.close();
     }
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
 }
 
 async function loadSpeechSdk(): Promise<SpeechSdkModule> {
