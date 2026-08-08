@@ -107,7 +107,7 @@ export class RecallService {
     );
     const session = await this.requireSession(userId, sessionId);
     const seed = session.nodes[0];
-    if (seed) await this.expand(userId, sessionId, seed.id, 4);
+    if (seed) await this.expand(userId, sessionId, seed.id, 2);
     return this.requireSession(userId, sessionId);
   }
 
@@ -122,7 +122,7 @@ export class RecallService {
   async expand(userId: string, sessionId: string, nodeId: string, requestedLimit?: number) {
     const recordId = await this.repository.nodeRecordId(userId, sessionId, nodeId);
     if (!recordId) throw recallError("RECALL_NODE_NOT_FOUND");
-    const related = await this.relations.relations(userId, recordId, clamp(requestedLimit, 1, 20, 4));
+    const related = await this.relations.relations(userId, recordId, clamp(requestedLimit, 1, 20, 2));
     await this.repository.persistExpansion({
       userId,
       sessionId,
