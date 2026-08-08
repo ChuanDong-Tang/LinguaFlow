@@ -18,6 +18,14 @@ export class EmailTakenError extends Error {
   }
 }
 
+export class EmailBindingUnsupportedError extends Error {
+  readonly code = "EMAIL_BINDING_UNSUPPORTED";
+
+  constructor(message = "Only phone accounts can bind an email") {
+    super(message);
+  }
+}
+
 export class AccountEmailBindingService {
   constructor(private readonly userRepository: UserRepository) {}
 
@@ -78,6 +86,9 @@ export class AccountEmailBindingService {
     if (!current) throw new Error("User not found");
     if (current.email?.trim()) {
       throw new EmailAlreadyBoundError();
+    }
+    if (!current.phone?.trim()) {
+      throw new EmailBindingUnsupportedError();
     }
 
     const owner = await this.userRepository.findByEmail(email);
