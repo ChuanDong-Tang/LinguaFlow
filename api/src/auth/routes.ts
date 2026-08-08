@@ -939,6 +939,9 @@ function mapBindEmailError(error: unknown): { status: number; code: string; mess
   if (code === "EMAIL_ALREADY_BOUND") {
     return { status: 409, code: "EMAIL_ALREADY_BOUND", message: "当前账号已绑定邮箱" };
   }
+  if (code === "EMAIL_BINDING_UNSUPPORTED") {
+    return { status: 403, code: "EMAIL_BINDING_UNSUPPORTED", message: "仅手机号注册账号支持绑定邮箱" };
+  }
   if (error instanceof Error && error.message === "Invalid email") {
     return { status: 400, code: "INVALID_EMAIL", message: "邮箱格式不正确" };
   }
