@@ -11,6 +11,7 @@ import type { ContentSafetyService } from "../contentSafety/ContentSafetyService
 import type { ChatGenerationTaskGuard } from "../chat/ChatGenerationTaskGuard.js";
 import { taskGuardId } from "./CardService.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
+import { buildCardContentSegments } from "./cardContentSegments.js";
 
 export class CardRewriteWorkerService {
   constructor(
@@ -129,12 +130,28 @@ export class CardRewriteWorkerService {
         entryId: entry.id,
         workerId,
         rewrittenText,
+        rewrittenLanguageCode: entry.languageCode,
+        rewrittenSourceHash: entry.originalContentHash ?? cardContentHash(originalText),
         topic,
         embeddingInputHash,
         embeddingInputVersion: `card_embedding_input_v1:${embeddingInputHash}`,
         outputChars: countGraphemes(rewrittenText),
         publishedAt: new Date(),
         segments,
+        contentSegments: buildCardContentSegments([
+          {
+            contentType: "original",
+            text: originalText,
+            languageCode: entry.appLocaleSnapshot,
+            sourceHash: entry.originalContentHash ?? cardContentHash(originalText),
+          },
+          {
+            contentType: "rewrite",
+            text: rewrittenText,
+            languageCode: entry.languageCode,
+            sourceHash: entry.originalContentHash ?? cardContentHash(originalText),
+          },
+        ]),
       });
       try {
         await this.entitlementService.consumeUpToLimit(
@@ -218,6 +235,11 @@ export class CardRewriteWorkerService {
 
 export function buildCardEmbeddingInput(originalText: string, rewrittenText: string): string {
   return `Original: ${originalText.trim()}\nExpression: ${rewrittenText.trim()}`;
+}
+
+function cardContentHash(text: string): string {
+  const normalized = text.normalize("NFKC").replace(/\r\n?/gu, "\n").trim();
+  return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
 function resolveErrorCode(error: unknown): string {

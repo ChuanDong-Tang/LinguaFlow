@@ -1,5 +1,6 @@
 import type { CardRepository } from "@lf/core/ports/repository/CardRepository.js";
 import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
+import type { UsageV2Service } from "../../services/usage/UsageV2Service.js";
 
 export class CardImageCleanupWorker {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -8,6 +9,7 @@ export class CardImageCleanupWorker {
     private readonly repository: CardRepository,
     private readonly storage: CardImageStorageProvider,
     private readonly options: { intervalMs?: number; batchSize?: number } = {},
+    private readonly usageV2Service?: UsageV2Service,
   ) {}
   start(): void {
     if (this.timer) return;
@@ -34,6 +36,14 @@ export class CardImageCleanupWorker {
           const deleted = await Promise.allSettled([...keys].map((key) => this.storage.delete(key)));
           const failed = deleted.find((result) => result.status === "rejected");
           if (failed?.status === "rejected") throw failed.reason;
+          await this.usageV2Service?.releaseCommittedImage({
+            userId: asset.userId,
+            requestId: `cleanup:${asset.id}`,
+            bytes: asset.fileSize,
+            imageId: asset.id,
+            objectKey: asset.originalObjectKey,
+          });
+          await this.usageV2Service?.releaseImageReservation(asset.userId, asset.id);
           await this.repository.deleteUnclaimedImageAsset(asset.id);
         } catch (error) {
           console.error("[card-image-cleanup] asset cleanup failed", asset.id, error);

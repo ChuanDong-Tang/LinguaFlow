@@ -98,6 +98,10 @@ export interface RuntimeConfig {
   cardSearchIpRateLimit: number;
   cardRelationUserRateLimit: number;
   cardRelationIpRateLimit: number;
+  cardListPageSizeMax: number;
+  cardTitleMaxChars: number;
+  cardContentMaxChars: number;
+  cardImagesMaxPerCard: number;
   cardImageUploadUserRateLimit: number;
   cardImageUploadRateWindowMs: number;
   recallSeedUserRateLimit: number;
@@ -106,9 +110,11 @@ export interface RuntimeConfig {
   recallSemanticSearchDailyLimit: number;
   recallCreateUserRateLimit: number;
   recallExpandUserRateLimit: number;
+  recallExplorationNodeLimit: number;
   recallRateWindowMs: number;
   recallSearchIpRateLimit: number;
   cardRewriteGlobalConcurrency: number;
+  cardTopicGlobalConcurrency: number;
   cardEmbeddingGlobalConcurrency: number;
   cardProgressDetectionGlobalConcurrency: number;
   cardPhraseNormalizationGlobalConcurrency: number;
@@ -139,6 +145,16 @@ export interface RuntimeConfig {
   grokAllowedModels: string[];
   grokTimeoutMs: number;
   quotaTimeZone: string;
+  usageV2ConfigVersion: string;
+  freeMonthlyTokenLimit: number;
+  plusMonthlyTokenLimit: number;
+  proMonthlyTokenLimit: number;
+  freeImageStorageBytes: number;
+  plusImageStorageBytes: number;
+  proImageStorageBytes: number;
+  freeDailyImageUploadLimit: number;
+  plusDailyImageUploadLimit: number;
+  proDailyImageUploadLimit: number;
   plusDailyTotalLimit: number;
   proDailyTotalLimit: number;
   membershipFeatures: {
@@ -269,6 +285,10 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardSearchIpRateLimit: readPositiveInt(env.CARD_SEARCH_IP_RATE_LIMIT, 300),
     cardRelationUserRateLimit: readPositiveInt(env.CARD_RELATION_USER_RATE_LIMIT, 120),
     cardRelationIpRateLimit: readPositiveInt(env.CARD_RELATION_IP_RATE_LIMIT, 600),
+    cardListPageSizeMax: readPositiveInt(env.CARD_LIST_PAGE_SIZE_MAX, 50),
+    cardTitleMaxChars: readPositiveInt(env.CARD_TITLE_MAX_CHARS, 100),
+    cardContentMaxChars: readPositiveInt(env.CARD_CONTENT_MAX_CHARS, 10_000),
+    cardImagesMaxPerCard: readPositiveInt(env.CARD_IMAGES_MAX_PER_CARD, 10),
     cardImageUploadUserRateLimit: readPositiveInt(env.CARD_IMAGE_UPLOAD_USER_RATE_LIMIT, 20),
     cardImageUploadRateWindowMs: readPositiveInt(env.CARD_IMAGE_UPLOAD_RATE_WINDOW_MS, 3_600_000),
     recallSeedUserRateLimit: readPositiveInt(env.RECALL_SEED_USER_RATE_LIMIT, 60),
@@ -277,9 +297,11 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     recallSemanticSearchDailyLimit: readPositiveInt(env.RECALL_SEMANTIC_SEARCH_DAILY_LIMIT, 100),
     recallCreateUserRateLimit: readPositiveInt(env.RECALL_CREATE_USER_RATE_LIMIT, 10),
     recallExpandUserRateLimit: readPositiveInt(env.RECALL_EXPAND_USER_RATE_LIMIT, 60),
+    recallExplorationNodeLimit: readPositiveInt(env.RECALL_EXPLORATION_NODE_LIMIT, 12),
     recallRateWindowMs: readPositiveInt(env.RECALL_RATE_WINDOW_MS, 60_000),
     recallSearchIpRateLimit: readPositiveInt(env.RECALL_SEARCH_IP_RATE_LIMIT, 120),
     cardRewriteGlobalConcurrency: resourcePolicies.llm.globalConcurrency,
+    cardTopicGlobalConcurrency: readPositiveInt(env.CARD_TOPIC_GLOBAL_CONCURRENCY, 2),
     cardEmbeddingGlobalConcurrency: resourcePolicies.embedding.globalConcurrency,
     cardProgressDetectionGlobalConcurrency: readPositiveInt(env.CARD_PROGRESS_DETECTION_GLOBAL_CONCURRENCY, 4),
     cardPhraseNormalizationGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_NORMALIZATION_GLOBAL_CONCURRENCY, 4),
@@ -323,6 +345,16 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     ),
     grokTimeoutMs: readPositiveInt(env.GROK_TIMEOUT_MS ?? env.OPENAI_TIMEOUT_MS ?? env.ChatGPT_TIMEOUT_MS, 20_000),
     quotaTimeZone: env.LF_QUOTA_TIME_ZONE?.trim() || "Asia/Shanghai",
+    usageV2ConfigVersion: env.LF_USAGE_V2_CONFIG_VERSION?.trim() || "usage-v2.1",
+    freeMonthlyTokenLimit: readPositiveInt(env.LF_V2_FREE_MONTHLY_TOKEN_LIMIT, 10_000),
+    plusMonthlyTokenLimit: readPositiveInt(env.LF_V2_PLUS_MONTHLY_TOKEN_LIMIT, 250_000),
+    proMonthlyTokenLimit: readPositiveInt(env.LF_V2_PRO_MONTHLY_TOKEN_LIMIT, 500_000),
+    freeImageStorageBytes: readPositiveInt(env.LF_V2_FREE_IMAGE_STORAGE_BYTES, 50 * 1024 * 1024),
+    plusImageStorageBytes: readPositiveInt(env.LF_V2_PLUS_IMAGE_STORAGE_BYTES, 1024 * 1024 * 1024),
+    proImageStorageBytes: readPositiveInt(env.LF_V2_PRO_IMAGE_STORAGE_BYTES, 5 * 1024 * 1024 * 1024),
+    freeDailyImageUploadLimit: readPositiveInt(env.LF_V2_FREE_DAILY_IMAGE_UPLOAD_LIMIT, 20),
+    plusDailyImageUploadLimit: readPositiveInt(env.LF_V2_PLUS_DAILY_IMAGE_UPLOAD_LIMIT, 100),
+    proDailyImageUploadLimit: readPositiveInt(env.LF_V2_PRO_DAILY_IMAGE_UPLOAD_LIMIT, 300),
     plusDailyTotalLimit: readPositiveInt(env.LF_PLUS_DAILY_TOTAL_LIMIT, 5_000),
     proDailyTotalLimit: readPositiveInt(env.LF_PRO_DAILY_TOTAL_LIMIT, 10_000),
     membershipFeatures: {

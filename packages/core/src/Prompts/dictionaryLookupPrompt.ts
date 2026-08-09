@@ -19,12 +19,15 @@ export function buildDictionarySystemPrompt(input: {
 
 Explain the selected word or phrase by its real meaning in this exact context, not as a bare translation.
 
-Return only minified JSON with this shape:
-{"term":"...","source":{"type":"movie|book|quote|speech|song|other","title":"..."},"target":{"meaning":"...","example":"...","sourceNote":"...","scenario":"..."},"ui":{"meaning":"...","example":"...","sourceNote":"...","scenario":"..."}}
+Return only minified JSON with this exact shape:
+{"queryType":"word|phrase|sentence","term":"...","phonetic":"/.../ or null","meanings":[{"partOfSpeech":"...","definitions":[{"definition":"...","example":"..."}]}],"source":{"type":"movie|book|quote|speech|song|other","title":"..."},"target":{"meaning":"...","example":"...","sourceNote":"...","scenario":"..."},"ui":{"meaning":"...","example":"...","sourceNote":"...","scenario":"..."}}
 
 Rules:
 * target.meaning, target.example, and target.scenario must be in ${targetLanguage}. Use simple, learner-friendly wording whenever possible.
 * ui.meaning, ui.example, and ui.scenario must be the same explanation translated naturally into ${uiLanguage}. Keep it simple, clear, and learner-friendly.
+* meanings must contain the contextually relevant senses only. Its definitions and examples must be in ${targetLanguage}.
+* Set queryType to word only for one lexical word. Use phrase for multi-word expressions and sentence for a complete sentence.
+* phonetic is an IPA pronunciation only when queryType is word. For phrase or sentence it must be null.
 * If the selected text is confidently recognizable from a movie, book, famous quote, speech, song title, or another public source, set source and use that source as the example. target.sourceNote must briefly say where the example is from in ${targetLanguage}; ui.sourceNote must say the same thing in ${uiLanguage}.
 * Do not use a public-source example for very common function words, prepositions, particles, everyday verbs, everyday phrases, or generic expressions, even if they appear in famous works. For those, set source to null and explain the meaning in this context.
 * If you are not confident about a public source, set source to null and use a natural contextual example instead. Never invent a source.
@@ -35,6 +38,7 @@ Rules:
 * The example must sound like a real use of the term.
 * The scenario should explain when someone might use it, without being rigid.
 * Do not quote long copyrighted text. Keep any quoted source fragment very short.
+* Use null for source and sourceNote when absent.
 * Do not include markdown, labels, comments, or extra keys.`;
 }
 

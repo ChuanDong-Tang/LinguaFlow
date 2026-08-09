@@ -18,6 +18,17 @@ export function registerQuickNoteRoutes(app: FastifyInstance, deps: {
     findById: (userId: string) => Promise<{ id: string; status: "active" | "disabled" | "pending_delete" } | null>;
   };
 }): void {
+  app.addHook("onRequest", async (req) => {
+    if (!req.url.startsWith("/quick-notes")) return;
+    req.log.warn({
+      module: "quick_note",
+      event: "quick_note.legacy_request",
+      method: req.method,
+      path: req.url.split("?", 1)[0],
+      deprecated: true,
+    }, "legacy QuickNote request observed");
+  });
+
   app.post("/quick-notes", async (req, reply) => {
     const requestId = prepareReply(req, reply);
     const userId = await resolveUser(req, reply, deps, requestId);
@@ -200,3 +211,7 @@ function serialize(note: {
 function failure(reply: FastifyReply, status: number, requestId: string, code: string, message: string) {
   return reply.status(status).send({ ok: false, request_id: requestId, error: { code, message } });
 }
+/**
+ * @deprecated Legacy compatibility routes. New clients do not expose or call QuickNote.
+ * Keep these routes until the measured compatibility window ends, then replace with 410.
+ */

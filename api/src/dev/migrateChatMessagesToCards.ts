@@ -166,7 +166,10 @@ async function main(): Promise<void> {
           userId: user.id,
           dateKey: candidate.dateKey,
           originalText: candidate.originalText,
+          originalContentHash: cardContentHash(candidate.originalText),
           rewrittenText: candidate.rewrittenText,
+          rewrittenLanguageCode: candidate.languageCode,
+          rewrittenSourceHash: cardContentHash(candidate.originalText),
           languageCode: candidate.languageCode,
           appLocaleSnapshot: appLocale,
           promptDifficultySnapshot: promptDifficulty,
@@ -288,6 +291,11 @@ function loadDatabaseUrl(databaseLine: number | null): void {
     .replace(/"$/, "");
   if (!value) throw new Error("Selected LF_DATABASE_URL is empty");
   process.env.LF_DATABASE_URL = value;
+}
+
+function cardContentHash(text: string): string {
+  const normalized = text.normalize("NFKC").replace(/\r\n?/gu, "\n").trim();
+  return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
 main()

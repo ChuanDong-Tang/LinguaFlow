@@ -6,7 +6,6 @@ import type { CardImageService } from "./CardImageService.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 const LAUNCH_MODES = new Set(["recommended", "shuffle", "search", "collection", "time", "card_detail"]);
-const NODE_LIMIT = 12;
 
 export class RecallService {
   constructor(
@@ -15,6 +14,7 @@ export class RecallService {
     private readonly embeddingProvider?: EmbeddingProvider,
     private readonly imageService?: CardImageService,
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly explorationNodeLimit = 12,
   ) {}
 
   async seedCandidates(userId: string, mode: string, excludedRecordIds: string[], requestedLimit?: number) {
@@ -99,15 +99,27 @@ export class RecallService {
 
   async create(userId: string, input: { seedRecordId: string; launchMode: string; launchContext?: unknown }) {
     if (!LAUNCH_MODES.has(input.launchMode)) throw recallError("RECALL_LAUNCH_MODE_INVALID");
-    const sessionId = await this.repository.createSession(
-      userId,
-      input.seedRecordId,
-      input.launchMode,
-      sanitizeLaunchContext(input.launchContext),
-    );
+    const launchContext = sanitizeLaunchContext(input.launchContext);
+    const dateKey = input.launchMode === "time" ? launchContext?.dateKey : undefined;
+    if (input.launchMode === "time" && !isDateKey(dateKey)) throw recallError("RECALL_DATE_INVALID");
+    const dateSession = dateKey
+      ? await this.repository.createDateSession(userId, dateKey, launchContext)
+      : null;
+    const sessionId = dateSession?.sessionId
+      ?? await this.repository.createSession(userId, input.seedRecordId, input.launchMode, launchContext);
+    const timelineRecordIds = dateSession?.recordIds ?? [];
+    if (timelineRecordIds.length) {
+      const allowed = new Set(timelineRecordIds);
+      const relatedWithinDate = (await Promise.all(timelineRecordIds.map(async (fromRecordId) =>
+        (await this.relations.relations(userId, fromRecordId, 20))
+          .filter((item) => item.recordId !== fromRecordId && allowed.has(item.recordId))
+          .map((item) => ({ fromRecordId, toRecordId: item.recordId, reasons: item.reasons as RecallReason[] }))
+      ))).flat();
+      await this.repository.persistTimelineRelations(userId, sessionId, relatedWithinDate);
+    }
     const session = await this.requireSession(userId, sessionId);
     const seed = session.nodes[0];
-    if (seed) await this.expand(userId, sessionId, seed.id, 2);
+    if (seed && input.launchMode !== "time") await this.expand(userId, sessionId, seed.id, 2);
     return this.requireSession(userId, sessionId);
   }
 
@@ -128,7 +140,7 @@ export class RecallService {
       sessionId,
       fromNodeId: nodeId,
       relations: related.map((item) => ({ recordId: item.recordId, reasons: item.reasons as RecallReason[] })),
-      nodeLimit: NODE_LIMIT,
+      nodeLimit: Math.max(1, Math.floor(this.explorationNodeLimit)),
     });
     return this.requireSession(userId, sessionId);
   }
@@ -153,10 +165,12 @@ export class RecallService {
 function sanitizeLaunchContext(value: unknown): Record<string, string> | undefined {
   if (!value || typeof value !== "object") return undefined;
   const source = value as Record<string, unknown>;
-  const allowed = ["collectionId", "timeRange"];
+  const allowed = ["collectionId", "timeRange", "dateKey"];
   const entries = allowed.flatMap((key) => typeof source[key] === "string" ? [[key, String(source[key]).slice(0, 100)] as const] : []);
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
+
+function isDateKey(value: string | undefined): value is string { return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value)); }
 
 function clamp(value: number | undefined, min: number, max: number, fallback: number): number {
   return Number.isFinite(value) ? Math.max(min, Math.min(max, Math.floor(value!))) : fallback;

@@ -8,6 +8,7 @@ export type CardRecordSource = "card";
 export type CardEntryStatus = "queued" | "processing" | "completed" | "failed" | "deleted";
 export type CardTaskStatus = Exclude<CardEntryStatus, "deleted">;
 export type CardPracticeResult = "correct" | "incorrect" | "revealed";
+export type CardLearningContentType = "original" | "rewrite" | "reply";
 
 export interface CardClozeBlank {
   id: string;
@@ -31,6 +32,15 @@ export interface CardRewriteSegmentView {
   text: string;
   startUtf16: number;
   endUtf16: number;
+}
+
+export interface CardContentBlockView {
+  contentType: CardLearningContentType;
+  contentVersion: string;
+  text: string;
+  languageCode: string;
+  segments: CardRewriteSegmentView[];
+  practice: CardPracticeView | null;
 }
 
 export interface CardImageThumbnailView {
@@ -60,6 +70,8 @@ export interface CardPracticeView extends CardPracticeSummaryView {
 
 export interface CardRecordSummaryView {
   id: CardRecordId;
+  title: string | null;
+  displayTitle: string;
   topic: string | null;
   collectionId: string | null;
   source: CardRecordSource;
@@ -77,9 +89,13 @@ export interface CardRecordSummaryView {
 export interface CardRecordDetailView extends CardRecordSummaryView {
   originalText: string;
   rewrittenText: string | null;
+  rewrittenLanguageCode: string | null;
   translationText: string | null;
+  translationLanguageCode: string | null;
   replyText: string | null;
+  replyLanguageCode: string | null;
   rewriteSegments: CardRewriteSegmentView[];
+  contentBlocks: CardContentBlockView[];
   images: CardImageDetailView[];
   /** Compatibility field for clients before multi-image Card support. */
   image: CardImageDetailView | null;
@@ -100,9 +116,13 @@ export interface CardPracticeQueueItemView {
 
 export interface UpdateCardDictationInput {
   result: CardPracticeResult;
+  contentType?: CardLearningContentType;
+  contentVersion?: string;
 }
 
 export type UpdateCardClozeInput = {
+  contentType?: CardLearningContentType;
+  contentVersion?: string;
   baseVersion: number;
   operation:
     | { type: "add"; segmentId: string; startUtf16: number; endUtf16: number }
@@ -115,6 +135,7 @@ export type UpdateCardClozeInput = {
 export interface CreateCardEntryInput {
   clientId: string;
   collectionId?: string | null;
+  title?: string | null;
   originalText?: string | null;
   rewrittenText?: string | null;
   translationText?: string | null;
@@ -126,6 +147,7 @@ export interface CreateCardEntryInput {
 
 export interface UpdateCardContentInput {
   collectionId?: string | null;
+  title?: string | null;
   originalText?: string | null;
   rewrittenText?: string | null;
   translationText?: string | null;

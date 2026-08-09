@@ -19,6 +19,8 @@ import {
   ContentSafetyBlockedError,
   type ContentSafetyService,
 } from "@lf/server/services/contentSafety/ContentSafetyService.js";
+import type { CardService } from "@lf/server/services/card/CardService.js";
+import { parseTaggedRewriteOutput } from "@lf/core/Prompts/rewriteAssistantPrompt.js";
 
 type SendMessageBody = {
   userId: string;
@@ -104,6 +106,7 @@ type DiscardClozePracticeBody = {
 
 export interface ChatRouteDeps {
   chatMessageService: ChatMessageService;
+  cardService: CardService;
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
@@ -222,8 +225,8 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
             code: "curious_companion",
             nameKey: "contact.curious_companion.name",
             descriptionKey: "contact.curious_companion.description",
-            nameFallback: "好奇伙伴",
-            descriptionFallback: "改写、对照，也可以简单聊一句",
+            nameFallback: "AI 助手 Beta",
+            descriptionFallback: "直接说或输入，默认帮你自然改写",
             avatarLabel: "OIO",
             enabled: true,
             sortOrder: 10,
@@ -270,6 +273,84 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
         providers,
       },
     });
+  });
+
+  app.get("/chat/conversations/history", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    let userContext;
+    try {
+      userContext = await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
+      if (error instanceof AccountDisabledError) {
+        return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
+      throw error;
+    }
+    const query = (req.query ?? {}) as { limit?: string; cursor?: string };
+    const parsedLimit = Number.parseInt(query.limit ?? "30", 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(30, Math.max(1, parsedLimit)) : 30;
+    const data = await deps.chatMessageService.listConversationHistory({
+      userId: userContext.userId,
+      limit,
+      cursor: query.cursor?.trim() || undefined,
+    });
+    return reply.status(200).send({ ok: true, request_id: requestId, data });
+  });
+
+  app.post("/chat/messages/:messageId/save-card", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    let userContext;
+    try {
+      userContext = await resolveActiveUserContext({
+        authorization: req.headers.authorization,
+        userRepository: deps.userRepository,
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return reply.status(401).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
+      if (error instanceof AccountDisabledError) {
+        return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
+      throw error;
+    }
+    const messageId = (req.params as { messageId?: string }).messageId?.trim();
+    if (!messageId) {
+      return reply.status(400).send({ ok: false, request_id: requestId, error: { code: "VALIDATION_FAILED", message: "messageId is required" } });
+    }
+    try {
+      const source = await deps.chatMessageService.resolveCardSource(userContext.userId, messageId);
+      const tagged = source.assistantText ? parseTaggedRewriteOutput(source.assistantText) : null;
+      const data = await deps.cardService.create({
+        userId: userContext.userId,
+        requestId,
+        trustedSource: { dateKey: source.dateKey, createdAt: source.createdAt },
+        body: {
+          clientId: `chat-message:v1:${source.userMessageId}`,
+          title: null,
+          originalText: source.originalText,
+          rewrittenText: tagged?.rewrite || null,
+          translationText: tagged?.note || null,
+          replyText: tagged?.reply || null,
+          collectionId: null,
+          generateRewrite: false,
+        },
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (error instanceof MessageAccessDeniedError) {
+        return reply.status(404).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
+      throw error;
+    }
   });
 
   // 发用户消息（先落库 pending）
@@ -351,7 +432,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
 
     try {
       await deps.entitlementService.assertCanStartGeneration(userContext.userId);
-      await assertProCloudAccess(deps, userContext.userId);
     } catch (error) {
       if(
         typeof error === "object" &&
@@ -598,7 +678,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     try {
-      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.listConversationMessages({
         conversationId,
         userId: userContext.userId,
@@ -689,7 +768,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     const toDateKey = query.toDateKey?.trim() || defaultTo;
 
     try {
-      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.listConversationMessagesByDateRange({
         conversationId,
         userId: userContext.userId,
@@ -771,7 +849,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
 
     let conversationId: string | null;
     try {
-      await assertProCloudAccess(deps, userContext.userId);
       conversationId = await deps.chatMessageService.findConversationIdByUserContactDate({
         userId: userContext.userId,
         contactId,
@@ -848,7 +925,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     try {
-      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.listConversationDateKeys({
         userId: userContext.userId,
         contactId,
@@ -925,7 +1001,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     try {
-      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.listPracticeDayStats({
         userId: userContext.userId,
         contactIds,
@@ -1001,7 +1076,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     try {
-      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.listPracticeDateKeys({
         userId: userContext.userId,
         contactIds,
@@ -1076,7 +1150,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     try {
-      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.listDayMessagesPage({
         conversationId,
         userId: userContext.userId,
@@ -1161,7 +1234,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     try {
-      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.updateMessageCloze({
         userId: userContext.userId,
         messageId: body.messageId.trim(),
@@ -1283,7 +1355,6 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): v
     }
 
     try {
-      await assertProCloudAccess(deps, userContext.userId);
       const data = await deps.chatMessageService.discardClozePractice({
         userId: userContext.userId,
         messageId: body.messageId.trim(),
@@ -1313,7 +1384,10 @@ function countInputCharsWithoutWhitespace(value: string): number {
   return value.replace(/\s/g, "").length;
 }
 
-async function assertProCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {
+async function assertProCloudAccess(
+  deps: ChatRouteDeps,
+  userId: string,
+): Promise<void> {
   const entitlement = await deps.entitlementService.getCurrentEntitlement(userId);
   if (entitlement.features?.conversationHistorySync ?? entitlement.features?.cloudSync ?? entitlement.isPro) return;
   const error = new Error("Pro access required") as Error & { code: string; statusCode: number };

@@ -23,12 +23,6 @@ export interface AuthingLoginRequestBody {
   authingToken: string;
 }
 
-/** 测试环境临时账号登录请求体 */
-export interface TestPasswordLoginRequestBody {
-  account: string;
-  password: string;
-}
-
 /** Authing 登录（落库链路）响应体 */
 export interface AuthingLoginResponse {
   accessToken: string;

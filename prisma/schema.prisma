@@ -35,6 +35,7 @@ model User {
   cards                  Card[]
   cardImageAssets        CardImageAsset[]
   cardPracticeStates     CardPracticeState[]
+  cardContentPracticeStates CardContentPracticeState[]
   cardSpeechAssets       CardSpeechAsset[]
   cardCollections        CardCollection[]
   cardEmbeddings         CardEmbedding[]
@@ -44,10 +45,39 @@ model User {
   cardEnrichmentJobs     CardEnrichmentJob[]
   recallSessions         RecallSession[]
   quickNotes             QuickNote[]
+  dictionaryLookupCaches DictionaryLookupCache[]
+  aiTokenCycles          AiTokenCycle[]
+  aiTokenTransactions    AiTokenTransaction[]
+  imageStorageAccount    ImageStorageAccount?
+  imageStorageTransactions ImageStorageTransaction[]
 
   @@index([email])
   @@index([phone])
   @@map("users")
+}
+
+model DictionaryLookupCache {
+  id             String   @id @default(cuid())
+  userId         String
+  cacheKey       String   @unique
+  term           String
+  contextHash    String
+  targetLanguage String
+  uiLanguage     String
+  promptVersion  String
+  provider       String
+  model          String
+  result         Json
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([userId, updatedAt])
+  @@index([targetLanguage, uiLanguage, updatedAt])
+  @@map("dictionary_lookup_caches")
 }
 
 model UserProfile {
@@ -102,10 +132,18 @@ model Card {
   id                       String    @id @default(cuid())
   userId                   String
   dateKey                  String
+  title                    String?
   originalText             String?
+  originalContentHash      String?
   rewrittenText            String?
+  rewrittenLanguageCode    String?
+  rewrittenSourceHash      String?
   translationText          String?
+  translationLanguageCode  String?
+  translationSourceHash    String?
   replyText                String?
+  replyLanguageCode        String?
+  replySourceHash          String?
   languageCode             String
   appLocaleSnapshot        String
   promptDifficultySnapshot String
@@ -130,6 +168,8 @@ model Card {
   user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   collection         CardCollection?      @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   segments           CardRewriteSegment[]
+  contentSegments    CardContentSegment[]
+  contentPracticeStates CardContentPracticeState[]
   images             CardImageAsset[]
   practiceState      CardPracticeState?
   speechAssets       CardSpeechAsset[]
@@ -162,6 +202,26 @@ model CardRewriteSegment {
   @@unique([entryId, ordinal])
   @@index([entryId, startUtf16])
   @@map("card_rewrite_segments")
+}
+
+model CardContentSegment {
+  id             String   @id @default(cuid())
+  entryId        String
+  contentType    String
+  contentVersion String
+  ordinal        Int
+  text           String
+  startUtf16     Int
+  endUtf16       Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  entry Card @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@unique([entryId, contentType, ordinal])
+  @@index([entryId, contentType, startUtf16])
+  @@index([entryId, contentType, contentVersion])
+  @@map("card_content_segments")
 }
 
 model CardImageAsset {
@@ -220,6 +280,32 @@ model CardPracticeState {
   @@index([userId, clozeNextReviewAt])
   @@index([userId, dictationNextReviewAt])
   @@map("card_practice_states")
+}
+
+model CardContentPracticeState {
+  id                     String   @id @default(cuid())
+  userId                 String
+  cardId                 String
+  contentType            String
+  contentVersion         String
+  clozeState             Json?
+  clozeVersion           Int      @default(0)
+  clozeLastResult        String?
+  clozeCorrectStreak     Int      @default(0)
+  clozeNextReviewAt      DateTime?
+  dictationLastResult    String?
+  dictationCorrectStreak Int      @default(0)
+  dictationNextReviewAt  DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, contentType])
+  @@index([userId, contentType, clozeNextReviewAt])
+  @@index([userId, contentType, dictationNextReviewAt])
+  @@map("card_content_practice_states")
 }
 
 model CardSpeechAsset {
@@ -717,6 +803,108 @@ model Entitlement {
   @@unique([userId, dateKey])
   @@index([dateKey])
   @@map("entitlements")
+}
+
+model AiTokenCycle {
+  id             String   @id @default(cuid())
+  userId         String
+  apiVersion     String
+  tier           String
+  periodStart    DateTime
+  periodEnd      DateTime
+  quotaTokens    Int
+  reservedTokens Int      @default(0)
+  usedTokens     Int      @default(0)
+  grantSource    String
+  configVersion  String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions AiTokenTransaction[]
+
+  @@unique([userId, apiVersion, periodStart])
+  @@index([userId, apiVersion, periodEnd])
+  @@map("ai_token_cycles")
+}
+
+model UsageV2SystemState {
+  key       String   @id
+  launchedAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("usage_v2_system_state")
+}
+
+model AiTokenTransaction {
+  id             String   @id @default(cuid())
+  userId         String
+  cycleId        String
+  requestId      String
+  feature        String
+  status         String
+  reservedTokens Int      @default(0)
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  totalTokens    Int      @default(0)
+  meteringSource String?
+  provider       String?
+  model          String?
+  metadata       Json?
+  settledAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cycle AiTokenCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, requestId])
+  @@index([cycleId, status, createdAt])
+  @@index([userId, feature, createdAt])
+  @@map("ai_token_transactions")
+}
+
+model ImageStorageAccount {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  tier          String
+  capacityBytes BigInt
+  reservedBytes BigInt   @default(0)
+  usedBytes     BigInt   @default(0)
+  configVersion String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user         User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions ImageStorageTransaction[]
+
+  @@map("image_storage_accounts")
+}
+
+model ImageStorageTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  accountId   String
+  requestId   String
+  kind        String
+  status      String
+  dateKey     String
+  bytes       BigInt
+  imageId     String?
+  objectKey   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account ImageStorageAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, requestId, kind])
+  @@index([accountId, status, createdAt])
+  @@index([userId, dateKey, kind, status])
+  @@index([userId, imageId])
+  @@map("image_storage_transactions")
 }
 
 model Subscription {

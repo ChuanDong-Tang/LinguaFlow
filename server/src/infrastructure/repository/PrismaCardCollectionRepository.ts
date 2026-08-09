@@ -184,10 +184,10 @@ export class PrismaCardCollectionRepository {
     });
   }
 
-  async updateTopic(input: {
+  async updateTitle(input: {
     userId: string;
     cardId: string;
-    topic: string;
+    title: string | null;
   }): Promise<boolean> {
     const changed = await this.prisma.card.updateMany({
       where: {
@@ -196,7 +196,7 @@ export class PrismaCardCollectionRepository {
         status: "completed",
         deletedAt: null,
       },
-      data: { topic: input.topic, topicEditedAt: new Date() },
+      data: { title: input.title },
     });
     return changed.count === 1;
   }

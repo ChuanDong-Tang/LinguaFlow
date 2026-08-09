@@ -16,7 +16,15 @@ import {
   CardTaskInProgressError,
   CardValidationError,
   CardPracticeConflictError,
+  CardLearningAccessError,
+  CardContentConflictError,
 } from "@lf/server/services/card/CardService.js";
+import {
+  DailyImageUploadLimitExceededError,
+  ImageStorageQuotaExceededError,
+  TokenRequestAlreadyExistsError,
+  TokenQuotaExceededError,
+} from "@lf/server/services/usage/UsageV2Service.js";
 import type { CreateCardEntryInput, UpdateCardClozeInput, UpdateCardContentInput } from "@lf/core/types/cardRecord.js";
 import {
   AccountDisabledError,
@@ -50,6 +58,26 @@ export interface CardRouteDeps {
 
 export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): void {
   const rateConfig = getRuntimeConfig();
+
+  app.get("/cards/capabilities", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/capabilities");
+    if (!userId) return;
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: {
+        limits: {
+          titleChars: rateConfig.cardTitleMaxChars,
+          contentChars: rateConfig.cardContentMaxChars,
+          imagesPerCard: rateConfig.cardImagesMaxPerCard,
+          listPageSize: rateConfig.cardListPageSizeMax,
+        },
+      },
+    });
+  });
 
   app.post("/cards/bootstrap", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
@@ -354,16 +382,21 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     } catch (error) { return handleCardError(reply, requestId, error); }
   });
 
-  app.patch("/cards/:recordId/topic", async (req, reply) => {
+  app.patch("/cards/:recordId/title", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
-    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/topic");
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/title");
     if (!userId) return;
     try {
-      const data = await deps.cardCollectionService.updateTopic(
+      const rawTitle = (req.body as { title?: unknown } | null)?.title;
+      const title = rawTitle === null ? null : typeof rawTitle === "string" ? rawTitle : undefined;
+      if (title === undefined) {
+        return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid title");
+      }
+      const data = await deps.cardCollectionService.updateTitle(
         userId,
         String((req.params as { recordId?: unknown }).recordId ?? ""),
-        String((req.body as { topic?: unknown } | null)?.topic ?? ""),
+        title,
       );
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) { return handleCardError(reply, requestId, error); }
@@ -393,6 +426,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         body: {
           clientId: body.clientId,
           collectionId: body.collectionId === null ? null : typeof body.collectionId === "string" ? body.collectionId : null,
+          title: body.title === null ? null : typeof body.title === "string" ? body.title : undefined,
           originalText: typeof body.originalText === "string" ? body.originalText : null,
           rewrittenText: typeof body.rewrittenText === "string" ? body.rewrittenText : null,
           translationText: typeof body.translationText === "string" ? body.translationText : null,
@@ -422,7 +456,10 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid generation request");
     }
     try {
-      const data = await deps.cardService.generateDraftContent({ userId, requestId, target, sourceText: body.sourceText });
+      const data = await deps.cardService.generateDraftContent({
+        userId, requestId, target, sourceText: body.sourceText,
+        usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
+      });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       return handleCardError(reply, requestId, error);
@@ -462,6 +499,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         requestId,
         recordId: `card:${recordId}`,
         target,
+        usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -490,6 +528,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         fileSize: Number(body?.fileSize),
         width: Number(body?.width),
         height: Number(body?.height),
+        usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
       });
       return reply.status(201).send({ ok: true, request_id: requestId, data });
     } catch (error) { return handleCardError(reply, requestId, error); }
@@ -502,7 +541,11 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/image-uploads/:uploadId/complete");
     if (!userId) return;
     try {
-      const data = await deps.cardImageService.complete(userId, String((req.params as { uploadId?: unknown }).uploadId ?? ""));
+      const data = await deps.cardImageService.complete(
+        userId,
+        String((req.params as { uploadId?: unknown }).uploadId ?? ""),
+        req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
+      );
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) { return handleCardError(reply, requestId, error); }
   });
@@ -549,6 +592,33 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     }
   });
 
+  app.get("/cards/page", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/page");
+    if (!userId) return;
+    const query = req.query as {
+      dateKey?: unknown;
+      collectionId?: unknown;
+      unclassified?: unknown;
+      limit?: unknown;
+      cursor?: unknown;
+      fromDateKey?: unknown;
+    };
+    try {
+      const data = await deps.cardService.listLibraryPage(userId, {
+        collectionId: query.unclassified === "true" ? null : typeof query.collectionId === "string" ? query.collectionId : undefined,
+        dateKey: typeof query.dateKey === "string" && query.dateKey ? query.dateKey : undefined,
+        fromDateKey: typeof query.fromDateKey === "string" && query.fromDateKey ? query.fromDateKey : undefined,
+        limit: Number(query.limit),
+        cursor: typeof query.cursor === "string" && query.cursor ? query.cursor : undefined,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
   app.get("/cards/date-keys", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
@@ -557,6 +627,24 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const query = req.query as { fromDateKey?: unknown; toDateKey?: unknown };
     try {
       const data = await deps.cardService.listDateKeys(
+        userId,
+        String(query.fromDateKey ?? ""),
+        String(query.toDateKey ?? ""),
+      );
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
+  app.get("/cards/calendar-summary", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/calendar-summary");
+    if (!userId) return;
+    const query = req.query as { fromDateKey?: unknown; toDateKey?: unknown };
+    try {
+      const data = await deps.cardService.calendarSummary(
         userId,
         String(query.fromDateKey ?? ""),
         String(query.toDateKey ?? ""),
@@ -584,12 +672,13 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:cardId/practice/dictation");
     if (!userId) return;
     const params = req.params as { cardId?: unknown };
-    const body = req.body as { result?: unknown } | null;
+    const body = req.body as { result?: unknown; contentType?: unknown; contentVersion?: unknown } | null;
     try {
       const data = await deps.cardService.updateDictation(
         userId,
         `card:${String(params.cardId ?? "")}`,
         String(body?.result ?? "") as "correct" | "incorrect" | "revealed",
+        { contentType: body?.contentType, contentVersion: body?.contentVersion },
       );
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -931,6 +1020,18 @@ async function resolveCardUser(
 }
 
 function handleCardError(reply: FastifyReply, requestId: string, error: unknown) {
+  if (error instanceof TokenQuotaExceededError) {
+    return failure(reply, 402, requestId, error.code, error.message);
+  }
+  if (error instanceof TokenRequestAlreadyExistsError) {
+    return failure(reply, 409, requestId, error.code, error.message);
+  }
+  if (error instanceof ImageStorageQuotaExceededError) {
+    return failure(reply, 413, requestId, error.code, error.message);
+  }
+  if (error instanceof DailyImageUploadLimitExceededError) {
+    return failure(reply, 429, requestId, error.code, error.message);
+  }
   if (error instanceof ResourceLimitedError) {
     return failure(reply, 429, requestId, error.code, "请求较多，请稍后重试");
   }
@@ -939,6 +1040,12 @@ function handleCardError(reply: FastifyReply, requestId: string, error: unknown)
   }
   if (error instanceof CardPracticeConflictError) {
     return failure(reply, 409, requestId, error.code, "练习内容已在其他设备更新，请刷新后重试");
+  }
+  if (error instanceof CardLearningAccessError) {
+    return failure(reply, 403, requestId, error.code, error.message);
+  }
+  if (error instanceof CardContentConflictError) {
+    return failure(reply, 409, requestId, error.code, "记录已发生变化，请刷新后重试");
   }
   if (error instanceof CardTaskInProgressError) {
     return failure(reply, 409, requestId, error.code, "上一条还在整理，请稍候");

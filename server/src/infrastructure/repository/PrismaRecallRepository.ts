@@ -4,6 +4,8 @@ import type { CardImageAssetEntity } from "@lf/core/ports/repository/CardReposit
 
 export interface RecallCandidate {
   recordId: string;
+  title: string | null;
+  displayTitle: string;
   topic: string | null;
   originalText: string;
   rewrittenText: string;
@@ -14,7 +16,7 @@ export interface RecallCandidate {
 }
 
 export interface LexicalSearchMatch {
-  field: "topic" | "original" | "ai_expression";
+  field: "title" | "topic" | "original" | "ai_expression" | "organization" | "reply";
   matchType: "exact" | "variant";
   sentence: string;
   surfaceText: string;
@@ -57,6 +59,7 @@ export class PrismaRecallRepository {
       },
       select: {
         id: true,
+        title: true,
         topic: true,
         originalText: true,
         rewrittenText: true,
@@ -73,6 +76,8 @@ export class PrismaRecallRepository {
       ]);
       return {
         recordId: cardRecordId("card", card.id),
+        title: card.title,
+        displayTitle: effectiveTitle(card),
         topic: card.topic,
         originalText: card.originalText ?? "",
         rewrittenText: card.rewrittenText ?? "",
@@ -132,18 +137,24 @@ export class PrismaRecallRepository {
         ...(input.collectionId !== undefined ? { collectionId: input.collectionId } : {}),
         ...(input.query ? {
           OR: [
+            { title: { contains: input.query, mode: "insensitive" } },
             { topic: { contains: input.query, mode: "insensitive" } },
             { originalText: { contains: input.query, mode: "insensitive" } },
             { rewrittenText: { contains: input.query, mode: "insensitive" } },
+            { translationText: { contains: input.query, mode: "insensitive" } },
+            { replyText: { contains: input.query, mode: "insensitive" } },
             { id: { in: phraseCardIds } },
           ],
         } : {}),
       },
       select: {
         id: true,
+        title: true,
         topic: true,
         originalText: true,
         rewrittenText: true,
+        translationText: true,
+        replyText: true,
         createdAt: true,
         segments: { orderBy: { ordinal: "asc" }, select: { id: true, text: true } },
       },
@@ -177,6 +188,8 @@ export class PrismaRecallRepository {
     }
     return cards.map((card) => ({
       recordId: cardRecordId("card", card.id),
+      title: card.title,
+      displayTitle: effectiveTitle(card),
       topic: card.topic,
       originalText: card.originalText ?? "",
       rewrittenText: card.rewrittenText ?? "",
@@ -184,9 +197,12 @@ export class PrismaRecallRepository {
       reason: "search",
       matches: buildLexicalMatches({
         query: input.query,
+        title: card.title,
         topic: card.topic,
         originalText: card.originalText ?? "",
         rewrittenText: card.rewrittenText ?? "",
+        translationText: card.translationText ?? "",
+        replyText: card.replyText ?? "",
         segments: card.segments,
         occurrences: occurrencesByCard.get(card.id) ?? [],
       }),
@@ -219,6 +235,7 @@ export class PrismaRecallRepository {
         : "collection";
     const rows = await this.prisma.$queryRawUnsafe<Array<{
       id: string;
+      title: string | null;
       topic: string | null;
       originalText: string | null;
       rewrittenText: string | null;
@@ -226,6 +243,7 @@ export class PrismaRecallRepository {
       score: number;
     }>>(
       `SELECT card."id",
+              card."title",
               card."topic",
               card."originalText",
               card."rewrittenText",
@@ -261,6 +279,8 @@ export class PrismaRecallRepository {
     );
     return rows.map((row) => ({
       recordId: cardRecordId("card", row.id),
+      title: row.title,
+      displayTitle: effectiveTitle(row),
       topic: row.topic,
       originalText: row.originalText ?? "",
       rewrittenText: row.rewrittenText ?? "",
@@ -301,6 +321,106 @@ export class PrismaRecallRepository {
       }
     }
     throw recallError("RECALL_SESSION_CONFLICT");
+  }
+
+  async createDateSession(userId: string, dateKey: string, launchContext: unknown): Promise<{ sessionId: string; recordIds: string[] }> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const accessible = await tx.card.findMany({
+            where: { userId, dateKey, status: "completed", deletedAt: null, isSample: false },
+            select: { id: true },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          });
+          const cardIds = accessible.map((card) => card.id);
+          if (!cardIds.length) throw recallError("RECALL_SEED_NOT_FOUND");
+          await tx.recallSession.updateMany({
+            where: { userId, status: "active" },
+            data: { status: "abandoned", completedAt: new Date() },
+          });
+          const session = await tx.recallSession.create({
+            data: { userId, seedCardId: cardIds[0]!, launchMode: "time", launchContext: jsonValue(launchContext) },
+          });
+          const nodes = [];
+          for (let ordinal = 0; ordinal < cardIds.length; ordinal += 1) {
+            nodes.push(await tx.recallSessionNode.create({
+              data: {
+                sessionId: session.id,
+                cardId: cardIds[ordinal]!,
+                ordinal,
+                state: ordinal === 0 ? "current" : "unvisited",
+                openedAt: ordinal === 0 ? new Date() : undefined,
+              },
+            }));
+          }
+          for (let index = 1; index < nodes.length; index += 1) {
+            await tx.recallSessionEdge.create({
+              data: {
+                sessionId: session.id,
+                fromNodeId: nodes[index - 1]!.id,
+                toNodeId: nodes[index]!.id,
+                relationKey: "timeline",
+                relationType: "timeline",
+                reasons: jsonValue([]),
+                isDirected: true,
+              },
+            });
+          }
+          return { sessionId: session.id, recordIds: cardIds.map((cardId) => cardRecordId("card", cardId)) };
+        }, { isolationLevel: "Serializable" });
+      } catch (error) {
+        if (attempt === 2 || !isRecallWriteConflict(error)) throw error;
+      }
+    }
+    throw recallError("RECALL_SESSION_CONFLICT");
+  }
+
+  async persistTimelineRelations(userId: string, sessionId: string, relations: Array<{
+    fromRecordId: string;
+    toRecordId: string;
+    reasons: RecallReason[];
+  }>): Promise<void> {
+    if (!relations.length) return;
+    await this.prisma.$transaction(async (tx) => {
+      const session = await tx.recallSession.findFirst({
+        where: { id: sessionId, userId, status: "active", launchMode: "time" },
+        include: { nodes: true },
+      });
+      if (!session) throw recallError("RECALL_SESSION_NOT_FOUND");
+      const nodes = new Map(session.nodes.map((node) => [cardRecordId("card", node.cardId), node]));
+      for (const relation of relations) {
+        const source = nodes.get(relation.fromRecordId);
+        const target = nodes.get(relation.toRecordId);
+        if (!source || !target || source.id === target.id) continue;
+        for (const reason of relation.reasons) {
+          const endpoints = reason.type === "progress"
+            ? { fromNodeId: target.id, toNodeId: source.id }
+            : canonicalEndpoints(source.id, target.id);
+          const relationKey = reason.type === "topic" ? "topic" : `${reason.type}:${reason.phraseId ?? "unknown"}`;
+          await tx.recallSessionEdge.upsert({
+            where: {
+              sessionId_fromNodeId_toNodeId_relationKey: {
+                sessionId,
+                fromNodeId: endpoints.fromNodeId,
+                toNodeId: endpoints.toNodeId,
+                relationKey,
+              },
+            },
+            create: {
+              sessionId,
+              fromNodeId: endpoints.fromNodeId,
+              toNodeId: endpoints.toNodeId,
+              relationKey,
+              relationType: reason.type,
+              phraseId: reason.phraseId,
+              reasons: jsonValue([reason]),
+              isDirected: reason.type === "progress",
+            },
+            update: { reasons: jsonValue([reason]) },
+          });
+        }
+      }
+    });
   }
 
   async getSession(userId: string, sessionId: string): Promise<ReturnType<typeof mapSession> | null> {
@@ -472,9 +592,12 @@ function vectorLiteral(values: number[]): string {
 
 export function buildLexicalMatches(input: {
   query: string;
+  title: string | null;
   topic: string | null;
   originalText: string;
   rewrittenText: string;
+  translationText: string;
+  replyText: string;
   segments: Array<{ id: string; text: string }>;
   occurrences: Array<{
     phraseId: string;
@@ -492,6 +615,15 @@ export function buildLexicalMatches(input: {
       `${item.field}:${item.phraseId ?? ""}:${item.startUtf16 ?? ""}:${item.surfaceText.toLocaleLowerCase()}` === key
     ))) matches.push(match);
   };
+  const titleMatch = findDirectMatch(input.title ?? "", input.query);
+  if (titleMatch) append({
+    field: "title",
+    matchType: "exact",
+    sentence: input.title ?? "",
+    surfaceText: titleMatch.surfaceText,
+    startUtf16: titleMatch.startUtf16,
+    endUtf16: titleMatch.endUtf16,
+  });
   const topicMatch = findDirectMatch(input.topic ?? "", input.query);
   if (topicMatch) append({
     field: "topic",
@@ -518,6 +650,20 @@ export function buildLexicalMatches(input: {
       ...rewrittenMatch,
     });
   }
+  const translationMatch = findDirectMatch(input.translationText, input.query);
+  if (translationMatch) append({
+    field: "organization",
+    matchType: "exact",
+    sentence: sentenceAround(input.translationText, translationMatch.startUtf16, translationMatch.endUtf16),
+    ...translationMatch,
+  });
+  const replyMatch = findDirectMatch(input.replyText, input.query);
+  if (replyMatch) append({
+    field: "reply",
+    matchType: "exact",
+    sentence: sentenceAround(input.replyText, replyMatch.startUtf16, replyMatch.endUtf16),
+    ...replyMatch,
+  });
   const segmentById = new Map(input.segments.map((segment) => [segment.id, segment.text]));
   for (const occurrence of input.occurrences) {
     const field = occurrence.sourceField === "original" ? "original" as const : "ai_expression" as const;
@@ -536,6 +682,16 @@ export function buildLexicalMatches(input: {
     });
   }
   return matches.slice(0, 5);
+}
+
+function effectiveTitle(card: { title?: string | null; topic?: string | null; originalText?: string | null; rewrittenText?: string | null }): string {
+  return card.title?.trim()
+    || card.topic?.trim()
+    || firstNonEmptyLine(card.originalText ?? card.rewrittenText ?? "");
+}
+
+function firstNonEmptyLine(text: string): string {
+  return text.split(/\r?\n/u).map((line) => line.trim()).find(Boolean) ?? "";
 }
 
 function findDirectMatch(text: string, query: string): {

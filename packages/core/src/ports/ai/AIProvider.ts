@@ -27,7 +27,15 @@ export interface ChatTextGenerationOutput{
 export type ChatTextGenerationStreamEvent =
   | { type: "start" }
   | { type: "delta"; text: string }
-  | { type: "done" };
+  | {
+      type: "done";
+      usage?: {
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+        source: "provider";
+      };
+    };
 
 export interface AIProviderConfig{
     apiKey: string;

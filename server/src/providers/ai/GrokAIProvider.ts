@@ -93,6 +93,7 @@ export class GrokAIProvider implements AIProvider {
           frequency_penalty: 0,
           presence_penalty: 0,
           stream: true,
+          stream_options: { include_usage: true },
           messages: [
             {
               role: "system",
@@ -154,6 +155,7 @@ export class GrokAIProvider implements AIProvider {
                 code?: string;
                 message?: string;
               };
+              usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
             };
 
             if (json.error) {
@@ -161,6 +163,13 @@ export class GrokAIProvider implements AIProvider {
               (err as Error & { code?: string; upstreamCode?: string }).code = "UPSTREAM_AI_ERROR";
               (err as Error & { code?: string; upstreamCode?: string }).upstreamCode = json.error.code;
               throw err;
+            }
+
+            if (json.usage) {
+              const inputTokens = json.usage.prompt_tokens ?? 0;
+              const outputTokens = json.usage.completion_tokens ?? 0;
+              await onEvent({ type: "done", usage: { inputTokens, outputTokens, totalTokens: json.usage.total_tokens ?? inputTokens + outputTokens, source: "provider" } });
+              return;
             }
 
             const deltaText = json.choices?.[0]?.delta?.content ?? "";

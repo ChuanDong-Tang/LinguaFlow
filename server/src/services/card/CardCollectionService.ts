@@ -1,4 +1,5 @@
 import { parseCardRecordId } from "@lf/core/types/cardRecord.js";
+import { countGraphemes } from "@lf/core/text/grapheme.js";
 import type { PrismaCardCollectionRepository } from "../../infrastructure/repository/PrismaCardCollectionRepository.js";
 import { CardNotFoundError, CardValidationError } from "./CardService.js";
 
@@ -87,18 +88,18 @@ export class CardCollectionService {
     }
   }
 
-  async updateTopic(userId: string, recordId: string, rawTopic: string): Promise<{ topic: string }> {
+  async updateTitle(userId: string, recordId: string, rawTitle: string | null): Promise<{ title: string | null }> {
     const ref = parseCardRecordId(recordId);
     if (!ref || ref.source !== "card") throw new CardValidationError("Invalid card id");
-    const topic = rawTopic.normalize("NFKC").trim().replace(/\s+/gu, " ");
-    if (!topic || Array.from(topic).length > 100) throw new CardValidationError("Topic must contain 1 to 100 characters");
-    const updated = await this.repository.updateTopic({
+    const title = rawTitle?.normalize("NFKC").trim().replace(/\s+/gu, " ") || null;
+    if (title && countGraphemes(title) > 100) throw new CardValidationError("Title must not exceed 100 characters");
+    const updated = await this.repository.updateTitle({
       userId,
       cardId: ref.sourceId,
-      topic,
+      title,
     });
     if (!updated) throw new CardNotFoundError();
-    return { topic };
+    return { title };
   }
 }
 

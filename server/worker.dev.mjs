@@ -40,6 +40,7 @@ import { CardRewriteWorker } from "./src/workers/card/CardRewriteWorker.ts";
 import { SerialCardJobWorker } from "./src/workers/card/SerialCardJobWorker.ts";
 import { RedisCardWorkerConcurrencyGuard } from "./src/workers/card/CardWorkerConcurrencyGuard.ts";
 import { CardEnrichmentWorkerService } from "./src/services/card/CardEnrichmentWorkerService.ts";
+import { CardTopicWorkerService } from "./src/services/card/CardTopicWorkerService.ts";
 import { AzureEmbeddingProvider } from "./src/providers/ai/AzureEmbeddingProvider.ts";
 import { PhraseNormalizationWorkerService } from "./src/services/card/PhraseNormalizationWorkerService.ts";
 import { PhraseHistoryIndexWorkerService } from "./src/services/card/PhraseHistoryIndexWorkerService.ts";
@@ -59,6 +60,7 @@ import {
 import { ContentSafetyService } from "./src/services/contentSafety/ContentSafetyService.ts";
 import { TencentTmsClient } from "./src/services/contentSafety/TencentTmsClient.ts";
 import { ResourceGovernor } from "./src/services/resource/ResourceGovernor.ts";
+import { UsageV2Service } from "./src/services/usage/UsageV2Service.ts";
 
 const prisma = new PrismaClient();
 const runtime = getRuntimeConfig();
@@ -72,6 +74,7 @@ const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
 const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
 const paymentProvider = new WeChatPaymentProvider();
 const subscriptionService = new SubscriptionService(subscriptionRepository);
+const usageV2Service = new UsageV2Service(prisma, subscriptionService);
 const paymentOrderService = new PaymentOrderService(
   paymentOrderRepository,
   paymentProvider,
@@ -189,6 +192,23 @@ const cardRewriteWorker = new CardRewriteWorker(cardRewriteService, {
   concurrencyGuard: undefined,
   concurrencyLimit: runtime.cardRewriteGlobalConcurrency,
 });
+const cardTopicWorker = new SerialCardJobWorker(
+  new CardTopicWorkerService(
+    cardEnrichmentRepository,
+    cardAiProvider,
+    systemEventLogRepository,
+    {},
+    resourceGovernor,
+    cardContentSafetyService,
+  ),
+  {
+    workerIdPrefix: "card-topic",
+    errorLabel: "card-topic-worker",
+    concurrencyGuard: undefined,
+    concurrencyScope: "topic",
+    concurrencyLimit: runtime.cardTopicGlobalConcurrency,
+  },
+);
 const phraseNormalizationWorker = new SerialCardJobWorker(
   new PhraseNormalizationWorkerService(cardEnrichmentRepository, cardAiProvider, {}, resourceGovernor),
   {
@@ -274,6 +294,8 @@ const cardEnrichmentWorker = hasCompleteEmbeddingConfig
 const cardImageCleanupWorker = new CardImageCleanupWorker(
   cardRepository,
   cardImageStorageProvider,
+  {},
+  usageV2Service,
 );
 const cardSpeechCleanupWorker = new CardSpeechCleanupWorker(
   cardRepository,
@@ -313,6 +335,7 @@ try {
   googlePlayAcknowledgeWorker.start();
   googlePlaySubscriptionReconcileWorker.start();
   cardRewriteWorker.start();
+  cardTopicWorker.start();
   cardEnrichmentWorker?.start();
   phraseNormalizationWorker.start();
   phraseHistoryIndexWorker.start();
@@ -351,6 +374,7 @@ async function shutdown() {
   googlePlayAcknowledgeWorker.stop();
   googlePlaySubscriptionReconcileWorker.stop();
   cardRewriteWorker.stop();
+  cardTopicWorker.stop();
   cardEnrichmentWorker?.stop();
   phraseNormalizationWorker.stop();
   phraseHistoryIndexWorker.stop();

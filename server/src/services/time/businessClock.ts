@@ -25,13 +25,17 @@ export function formatDateKeyInTimeZone(date: Date, timeZone = getRuntimeConfig(
 }
 
 export function dateKeyRangeInBusinessTimeZone(dateKey: string): { start: Date; end: Date } {
+  return dateKeyRangeInTimeZone(dateKey, getRuntimeConfig().quotaTimeZone);
+}
+
+export function dateKeyRangeInTimeZone(dateKey: string, timeZone: string): { start: Date; end: Date } {
   return {
-    start: dateKeyToUtcDate(dateKey, 0, 0, 0, 0),
-    end: dateKeyToUtcDate(dateKey, 23, 59, 59, 999),
+    start: dateKeyToUtcDate(dateKey, 0, 0, 0, 0, timeZone),
+    end: dateKeyToUtcDate(dateKey, 23, 59, 59, 999, timeZone),
   };
 }
 
-function dateKeyToUtcDate(dateKey: string, hour: number, minute: number, second: number, millisecond: number): Date {
+function dateKeyToUtcDate(dateKey: string, hour: number, minute: number, second: number, millisecond: number, timeZone: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
   if (!match) {
     throw new Error(`Invalid dateKey: ${dateKey}`);
@@ -41,7 +45,7 @@ function dateKeyToUtcDate(dateKey: string, hour: number, minute: number, second:
   const month = Number(monthText);
   const day = Number(dayText);
   const utc = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millisecond));
-  const offsetMs = getTimeZoneOffsetMs(utc, getRuntimeConfig().quotaTimeZone);
+  const offsetMs = getTimeZoneOffsetMs(utc, timeZone);
   return new Date(utc.getTime() - offsetMs);
 }
 

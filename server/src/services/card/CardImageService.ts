@@ -6,6 +6,7 @@ import { CardNotFoundError, CardValidationError } from "./CardService.js";
 import sharp from "sharp";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
+import type { UsageV2Service } from "../usage/UsageV2Service.js";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2_200;
@@ -30,6 +31,7 @@ export class CardImageService {
     private readonly imsClient?: TencentImsClient,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly entitlementService?: EntitlementService,
+    private readonly usageV2Service?: UsageV2Service,
   ) {}
 
   async createUpload(input: {
@@ -38,6 +40,7 @@ export class CardImageService {
     fileSize: number;
     width: number;
     height: number;
+    usageApiVersion?: "v2";
   }) {
     if (!['image/jpeg', 'image/png'].includes(input.mimeType)) throw new CardValidationError("只支持 JPEG 或 PNG 图片");
     if (!Number.isInteger(input.fileSize) || input.fileSize < 1 || input.fileSize > MAX_IMAGE_BYTES) throw new CardValidationError("图片大小不符合要求");
@@ -50,37 +53,52 @@ export class CardImageService {
     const extension = input.mimeType === "image/png" ? "png" : "jpg";
     const objectKey = `card-isolated/${input.userId}/${id}/original.${extension}`;
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1_000);
-    const entitlement = await this.entitlementService?.getCurrentEntitlement(input.userId);
-    if (!entitlement) throw new CardImageQuotaExceededError("Image entitlement is unavailable");
-    const reserved = await this.repository.createImageUploadWithinQuota({
-      id,
-      userId: input.userId,
-      quotaDateKey: entitlement.dateKey,
-      objectKey,
-      mimeType: input.mimeType,
-      fileSize: input.fileSize,
-      width: input.width,
-      height: input.height,
-      expiresAt,
-    });
-    if (!reserved) throw new CardImageQuotaExceededError("Cloud image quota exceeded");
+    if (input.usageApiVersion === "v2") {
+      if (!this.usageV2Service) throw new CardImageQuotaExceededError("V2 image usage is unavailable");
+      await this.usageV2Service.reserveImageBytes({
+        userId: input.userId,
+        requestId: id,
+        estimatedBytes: input.fileSize,
+        imageId: id,
+        objectKey,
+      });
+      try {
+        await this.repository.createImageUpload({ id, userId: input.userId, objectKey, mimeType: input.mimeType, fileSize: input.fileSize, width: input.width, height: input.height, expiresAt });
+      } catch (error) {
+        await this.usageV2Service.releaseImageReservation(input.userId, id).catch(() => undefined);
+        throw error;
+      }
+    } else {
+      const entitlement = await this.entitlementService?.getCurrentEntitlement(input.userId);
+      if (!entitlement) throw new CardImageQuotaExceededError("Image entitlement is unavailable");
+      const reserved = await this.repository.createImageUploadWithinQuota({
+        id, userId: input.userId, quotaDateKey: entitlement.dateKey, objectKey,
+        mimeType: input.mimeType, fileSize: input.fileSize, width: input.width, height: input.height, expiresAt,
+      });
+      if (!reserved) throw new CardImageQuotaExceededError("Cloud image quota exceeded");
+    }
     let upload: Awaited<ReturnType<CardImageStorageProvider["createUploadAuthorization"]>>;
     try {
       upload = await this.storage.createUploadAuthorization(objectKey);
     } catch (error) {
       await this.repository.markImageUploadCleanup(id, input.userId).catch(() => null);
+      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseImageReservation(input.userId, id).catch(() => undefined);
       throw error;
     }
     return { uploadId: id, uploadUrl: upload.uploadUrl, headers: { ...upload.headers, "Content-Type": input.mimeType }, expiresAt: expiresAt.toISOString() };
   }
 
-  async complete(userId: string, uploadId: string) {
+  async complete(userId: string, uploadId: string, usageApiVersion?: "v2") {
     const asset = await this.repository.findImageUpload(uploadId, userId);
     if (!asset || asset.entryId || asset.expiresAt.getTime() <= Date.now()) throw new CardNotFoundError();
     if (asset.status === "approved" || asset.status === "approved_with_review") {
+      await this.usageV2Service?.commitImageBytes({ userId, requestId: uploadId, actualBytes: asset.fileSize });
       return toStatus(await this.ensureThumbnail(asset));
     }
-    if (asset.status === "rejected") return toStatus(asset);
+    if (asset.status === "rejected") {
+      await this.usageV2Service?.releaseImageReservation(userId, uploadId);
+      return toStatus(asset);
+    }
     let bytes: Buffer;
     try { bytes = await this.storage.download(asset.originalObjectKey); }
     catch { throw new CardValidationError("没有找到已上传的图片"); }
@@ -141,6 +159,8 @@ export class CardImageService {
       originalObjectKey: status === "rejected" ? undefined : promotedObjectKey,
     });
     if (!updated) throw new CardNotFoundError();
+    if (status === "rejected") await this.usageV2Service?.releaseImageReservation(userId, uploadId);
+    else await this.usageV2Service?.commitImageBytes({ userId, requestId: uploadId, actualBytes: bytes.length });
     if (status !== "rejected") void this.storage.delete(asset.originalObjectKey).catch(() => undefined);
     return toStatus(status === "rejected" ? updated : await this.ensureThumbnail(updated, bytes));
   }
@@ -157,7 +177,20 @@ export class CardImageService {
   async remove(userId: string, uploadId: string): Promise<void> {
     const asset = await this.repository.markImageUploadCleanup(uploadId, userId);
     if (!asset) return;
-    try { await this.storage.delete(asset.originalObjectKey); } catch { /* cleanup worker retries later */ }
+    try {
+      await this.storage.delete(asset.originalObjectKey);
+      if (asset.status === "approved" || asset.status === "approved_with_review") {
+        await this.usageV2Service?.releaseCommittedImage({
+          userId,
+          requestId: `remove:${uploadId}`,
+          bytes: asset.fileSize,
+          imageId: uploadId,
+          objectKey: asset.originalObjectKey,
+        });
+      } else {
+        await this.usageV2Service?.releaseImageReservation(userId, uploadId);
+      }
+    } catch { /* cleanup worker retries later */ }
   }
 
   async views(asset: NonNullable<Awaited<ReturnType<CardRepository["findImageUpload"]>>>) {

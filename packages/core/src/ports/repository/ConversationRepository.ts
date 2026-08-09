@@ -22,7 +22,13 @@ export interface ConversationRepository {
   create(input: CreateConversationInput): Promise<ConversationEntity>;
   findById(conversationId: string): Promise<ConversationEntity | null>;
   listByUser(userId: string, limit: number): Promise<ConversationEntity[]>;
+  listPageByUser(input: {
+    userId: string;
+    limit: number;
+    cursor?: { updatedAt: Date; id: string };
+  }): Promise<ConversationEntity[]>;
   touch(conversationId: string): Promise<void>;
+  setTitleIfEmpty(conversationId: string, title: string): Promise<void>;
   findByUserContactDate(
     userId: string,
     contactId: string,

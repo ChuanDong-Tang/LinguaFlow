@@ -91,6 +91,7 @@ export class DeepSeekAIProvider implements AIProvider {
           temperature: 0.3,
           ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
           stream: true,
+          stream_options: { include_usage: true },
           messages: [
             {
               role: "system",
@@ -150,7 +151,15 @@ export class DeepSeekAIProvider implements AIProvider {
                 content?: string;
               };
             }>;
+            usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
           };
+
+          if (json.usage) {
+            const inputTokens = json.usage.prompt_tokens ?? 0;
+            const outputTokens = json.usage.completion_tokens ?? 0;
+            await onEvent({ type: "done", usage: { inputTokens, outputTokens, totalTokens: json.usage.total_tokens ?? inputTokens + outputTokens, source: "provider" } });
+            return;
+          }
 
           const deltaText = json.choices?.[0]?.delta?.content ?? "";
           if (deltaText) {

@@ -8,10 +8,15 @@ import type {
   CardSpeechAssetEntity,
   CardImageAssetEntity,
   CardSegmentEntity,
+  CardContentSegmentEntity,
+  CardContentSegmentWrite,
+  CardContentPracticeStateEntity,
+  CardLearningContentType,
 } from "@lf/core/ports/repository/CardRepository.js";
 import type { AppLocale } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import type { CardEntryStatus } from "@lf/core/types/cardRecord.js";
 import { countGraphemes } from "@lf/core/text/grapheme.js";
+import { countCardCharacters } from "@lf/core/text/cardText.js";
 import { isTargetLanguageCode, type TargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 
 type PrismaCardClient = {
@@ -31,6 +36,19 @@ type PrismaCardClient = {
   cardRewriteSegment: {
     deleteMany: (args: any) => Promise<any>;
     createMany: (args: any) => Promise<any>;
+  };
+  cardContentSegment: {
+    findFirst: (args: any) => Promise<any>;
+    findMany: (args: any) => Promise<any[]>;
+    deleteMany: (args: any) => Promise<any>;
+    createMany: (args: any) => Promise<any>;
+  };
+  cardContentPracticeState: {
+    findUnique: (args: any) => Promise<any>;
+    create: (args: any) => Promise<any>;
+    updateMany: (args: any) => Promise<{ count: number }>;
+    upsert: (args: any) => Promise<any>;
+    deleteMany: (args: any) => Promise<any>;
   };
   cardImageAsset: {
     create: (args: any) => Promise<any>;
@@ -64,6 +82,7 @@ type PrismaCardClient = {
 
 const includeSegments = {
   segments: { orderBy: { ordinal: "asc" } },
+  contentSegments: { orderBy: [{ contentType: "asc" }, { ordinal: "asc" }] },
   images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }] },
 } as const;
 
@@ -120,6 +139,56 @@ export class PrismaCardRepository implements CardRepository {
     });
   }
 
+  async listPageByUser(input: {
+    userId: string;
+    collectionId: string | null | undefined;
+    dateKey?: string;
+    fromDateKey?: string;
+    limit: number;
+    cursor?: { createdAt: Date; id: string };
+  }): Promise<CardEntryEntity[]> {
+    let collectionWhere: { collectionId: null | { in: string[] } } | Record<string, never> = {};
+    if (input.collectionId === null) {
+      collectionWhere = { collectionId: null };
+    } else if (typeof input.collectionId === "string") {
+      const collections = await this.prisma.cardCollection.findMany({
+        where: { userId: input.userId },
+        select: { id: true, parentId: true },
+      });
+      const included = new Set([input.collectionId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const collection of collections) {
+          if (collection.parentId && included.has(collection.parentId) && !included.has(collection.id)) {
+            included.add(collection.id);
+            changed = true;
+          }
+        }
+      }
+      collectionWhere = { collectionId: { in: [...included] } };
+    }
+    const rows = await this.prisma.card.findMany({
+      where: {
+        userId: input.userId,
+        deletedAt: null,
+        status: { notIn: ["failed", "deleted"] },
+        ...collectionWhere,
+        ...(input.dateKey ? { dateKey: input.dateKey } : input.fromDateKey ? { dateKey: { gte: input.fromDateKey } } : {}),
+        ...(input.cursor ? {
+          OR: [
+            { createdAt: { lt: input.cursor.createdAt } },
+            { createdAt: input.cursor.createdAt, id: { lt: input.cursor.id } },
+          ],
+        } : {}),
+      },
+      include: includeSegments,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit,
+    });
+    return rows.map(toEntry);
+  }
+
   async createSamples(input: {
     userId: string;
     dateKey: string;
@@ -135,14 +204,17 @@ export class PrismaCardRepository implements CardRepository {
           userId: input.userId,
           dateKey: input.dateKey,
           originalText: sample.originalText,
+          originalContentHash: sampleContentHash(sample.originalText),
           rewrittenText: sample.rewrittenText,
+          rewrittenLanguageCode: input.languageCode,
+          rewrittenSourceHash: sampleContentHash(sample.originalText),
           topic: sample.topic,
           languageCode: input.languageCode,
           appLocaleSnapshot: input.appLocaleSnapshot,
           promptDifficultySnapshot: input.promptDifficultySnapshot,
           promptVersion: input.promptVersion,
           clientId: `sample:v1:${index + 1}`,
-          inputChars: countGraphemes(sample.originalText),
+          inputChars: countCardCharacters(sample.originalText),
           outputChars: countGraphemes(sample.rewrittenText),
           status: "completed",
           isSample: true,
@@ -168,6 +240,18 @@ export class PrismaCardRepository implements CardRepository {
           }],
           skipDuplicates: true,
         });
+        await syncContentSegments(tx, row.id, [
+          {
+            contentType: "original",
+            contentVersion: `sample:v1:original:${row.clientId}`,
+            segments: [{ ordinal: 0, text: sample.originalText, startUtf16: 0, endUtf16: sample.originalText.length }],
+          },
+          {
+            contentType: "rewrite",
+            contentVersion: `sample:v1:rewrite:${row.clientId}`,
+            segments: [{ ordinal: 0, text: sample.rewrittenText, startUtf16: 0, endUtf16: sample.rewrittenText.length }],
+          },
+        ]);
       }
       const completed = await tx.card.findMany({
         where: { userId: input.userId, clientId: { in: ["sample:v1:1", "sample:v1:2"] }, status: "completed" },
@@ -186,7 +270,9 @@ export class PrismaCardRepository implements CardRepository {
           userId: input.userId,
           collectionId: input.collectionId,
           dateKey: input.dateKey,
+          title: input.title,
           originalText: input.originalText,
+          originalContentHash: input.originalContentHash,
           languageCode: input.languageCode,
           appLocaleSnapshot: input.appLocaleSnapshot,
           promptDifficultySnapshot: input.promptDifficultySnapshot,
@@ -232,25 +318,42 @@ export class PrismaCardRepository implements CardRepository {
           userId: input.userId,
           collectionId: input.collectionId,
           dateKey: input.dateKey,
+          title: input.title,
           originalText: input.originalText,
+          originalContentHash: input.originalContentHash,
           rewrittenText: input.rewrittenText,
+          rewrittenLanguageCode: input.rewrittenLanguageCode,
+          rewrittenSourceHash: input.rewrittenSourceHash,
           translationText: input.translationText,
+          translationLanguageCode: input.translationLanguageCode,
+          translationSourceHash: input.translationSourceHash,
           replyText: input.replyText,
+          replyLanguageCode: input.replyLanguageCode,
+          replySourceHash: input.replySourceHash,
           languageCode: input.languageCode,
           appLocaleSnapshot: input.appLocaleSnapshot,
           promptDifficultySnapshot: input.promptDifficultySnapshot,
           promptVersion: input.promptVersion,
           clientId: input.clientId,
-          inputChars: countGraphemes(input.originalText ?? input.rewrittenText ?? ""),
+          inputChars: countCardCharacters(input.originalText ?? input.rewrittenText ?? ""),
           outputChars: countGraphemes(input.rewrittenText ?? ""),
           status: "completed",
-          publishedAt: new Date(),
+          publishedAt: input.createdAt ?? new Date(),
+          ...(input.createdAt ? { createdAt: input.createdAt, updatedAt: input.createdAt } : {}),
         },
         include: includeSegments,
       });
       if (input.segments.length) {
         await tx.cardRewriteSegment.createMany({
           data: input.segments.map((segment) => ({ entryId: row.id, ...segment })),
+        });
+      }
+      await syncContentSegments(tx, row.id, input.contentSegments);
+      if (input.originalText && input.originalContentHash) {
+        await enqueueTopicGeneration(tx, {
+          userId: input.userId,
+          cardId: row.id,
+          inputHash: input.originalContentHash,
         });
       }
       for (const [ordinal, imageUploadId] of input.imageUploadIds.entries()) {
@@ -277,24 +380,50 @@ export class PrismaCardRepository implements CardRepository {
     entryId: string;
     userId: string;
     collectionId: string | null;
+    expectedOriginalContentHash: string | null;
+    title: string | null;
     originalText: string | null;
+    originalContentHash: string | null;
     rewrittenText: string | null;
+    rewrittenLanguageCode: string | null;
+    rewrittenSourceHash: string | null;
     translationText: string | null;
+    translationLanguageCode: string | null;
+    translationSourceHash: string | null;
     replyText: string | null;
+    replyLanguageCode: string | null;
+    replySourceHash: string | null;
     segments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
+    contentSegments: CardContentSegmentWrite[];
     clearPractice: boolean;
   }): Promise<CardEntryEntity | null> {
     return this.prisma.$transaction(async (tx) => {
       if (input.collectionId && !await tx.cardCollection.findFirst({ where: { id: input.collectionId, userId: input.userId }, select: { id: true } })) throw new Error("CARD_COLLECTION_NOT_FOUND");
       const changed = await tx.card.updateMany({
-        where: { id: input.entryId, userId: input.userId, status: "completed", deletedAt: null },
+        where: {
+          id: input.entryId,
+          userId: input.userId,
+          status: "completed",
+          deletedAt: null,
+          originalContentHash: input.expectedOriginalContentHash,
+        },
         data: {
           collectionId: input.collectionId,
+          title: input.title,
           originalText: input.originalText,
+          originalContentHash: input.originalContentHash,
           rewrittenText: input.rewrittenText,
+          rewrittenLanguageCode: input.rewrittenLanguageCode,
+          rewrittenSourceHash: input.rewrittenSourceHash,
           translationText: input.translationText,
+          translationLanguageCode: input.translationLanguageCode,
+          translationSourceHash: input.translationSourceHash,
           replyText: input.replyText,
-          inputChars: countGraphemes(input.originalText ?? input.rewrittenText ?? ""),
+          replyLanguageCode: input.replyLanguageCode,
+          replySourceHash: input.replySourceHash,
+          topic: input.originalContentHash !== input.expectedOriginalContentHash ? null : undefined,
+          topicEditedAt: input.originalContentHash !== input.expectedOriginalContentHash ? null : undefined,
+          inputChars: countCardCharacters(input.originalText ?? input.rewrittenText ?? ""),
           outputChars: countGraphemes(input.rewrittenText ?? ""),
         },
       });
@@ -303,6 +432,18 @@ export class PrismaCardRepository implements CardRepository {
       if (input.segments.length) {
         await tx.cardRewriteSegment.createMany({
           data: input.segments.map((segment) => ({ entryId: input.entryId, ...segment })),
+        });
+      }
+      await syncContentSegments(tx, input.entryId, input.contentSegments);
+      if (
+        input.originalText
+        && input.originalContentHash
+        && input.originalContentHash !== input.expectedOriginalContentHash
+      ) {
+        await enqueueTopicGeneration(tx, {
+          userId: input.userId,
+          cardId: input.entryId,
+          inputHash: input.originalContentHash,
         });
       }
       if (input.clearPractice) {
@@ -366,6 +507,39 @@ export class PrismaCardRepository implements CardRepository {
     return rows.map((row: { dateKey: string }) => row.dateKey);
   }
 
+  async aggregateCalendarByDate(userId: string, fromDateKey: string, toDateKey: string): Promise<Array<{
+    dateKey: string;
+    cardCount: number;
+    originalChars: number;
+  }>> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{
+      dateKey: string;
+      cardCount: number | bigint;
+      originalChars: number | bigint;
+    }>>(
+      `SELECT "dateKey",
+              COUNT(*)::int AS "cardCount",
+              COALESCE(SUM(CASE WHEN "originalText" IS NOT NULL THEN "inputChars" ELSE 0 END), 0)::bigint AS "originalChars"
+         FROM "cards"
+        WHERE "userId" = $1
+          AND "dateKey" >= $2
+          AND "dateKey" <= $3
+          AND "status" = 'completed'
+          AND "deletedAt" IS NULL
+          AND "isSample" = false
+        GROUP BY "dateKey"
+        ORDER BY "dateKey" ASC`,
+      userId,
+      fromDateKey,
+      toDateKey,
+    );
+    return rows.map((row) => ({
+      dateKey: row.dateKey,
+      cardCount: Number(row.cardCount),
+      originalChars: Number(row.originalChars),
+    }));
+  }
+
   async listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<CardEntryEntity[]> {
     const rows = await this.prisma.card.findMany({
       where: {
@@ -421,6 +595,8 @@ export class PrismaCardRepository implements CardRepository {
         where: { id: input.entryId, workerId: input.workerId, status: "processing" },
         data: {
           rewrittenText: input.rewrittenText,
+          rewrittenLanguageCode: input.rewrittenLanguageCode,
+          rewrittenSourceHash: input.rewrittenSourceHash,
           topic: input.topic,
           topicEditedAt: null,
           outputChars: input.outputChars,
@@ -437,6 +613,7 @@ export class PrismaCardRepository implements CardRepository {
           data: input.segments.map((segment) => ({ entryId: input.entryId, ...segment })),
         });
       }
+      await syncContentSegments(tx, input.entryId, input.contentSegments);
       const completedEntry = await tx.card.findFirst({
         where: { id: input.entryId },
         select: { userId: true, isSample: true },
@@ -590,6 +767,7 @@ export class PrismaCardRepository implements CardRepository {
       });
       if (changed.count !== 1) return null;
       await tx.cardRewriteSegment.deleteMany({ where: { entryId } });
+      await tx.cardContentSegment.deleteMany({ where: { entryId } });
       await tx.cardImageAsset.updateMany({
         where: { entryId },
         data: { entryId: null, status: "cleanup_pending" },
@@ -665,6 +843,9 @@ export class PrismaCardRepository implements CardRepository {
       await tx.cardPracticeState.deleteMany({
         where: { userId, cardId: entryId },
       });
+      await tx.cardContentPracticeState.deleteMany({
+        where: { userId, cardId: entryId },
+      });
       await tx.cardSpeechAsset.updateMany({
         where: {
           entryId,
@@ -681,6 +862,109 @@ export class PrismaCardRepository implements CardRepository {
       where: { cardId },
     });
     return row?.userId === userId ? toPracticeState(row) : null;
+  }
+
+  async findContentPracticeState(
+    userId: string,
+    cardId: string,
+    contentType: CardLearningContentType,
+  ): Promise<CardContentPracticeStateEntity | null> {
+    const row = await this.prisma.cardContentPracticeState.findUnique({
+      where: { cardId_contentType: { cardId, contentType } },
+    });
+    return row?.userId === userId ? toContentPracticeState(row) : null;
+  }
+
+  async saveContentDictationResult(input: {
+    userId: string;
+    cardId: string;
+    contentType: CardLearningContentType;
+    contentVersion: string;
+    result: "correct" | "incorrect" | "revealed";
+    practicedAt: Date;
+    nextReviewAt: Date;
+    correctStreak: number;
+  }): Promise<CardContentPracticeStateEntity> {
+    const row = await this.prisma.cardContentPracticeState.upsert({
+      where: { cardId_contentType: { cardId: input.cardId, contentType: input.contentType } },
+      create: {
+        userId: input.userId,
+        cardId: input.cardId,
+        contentType: input.contentType,
+        contentVersion: input.contentVersion,
+        dictationLastResult: input.result,
+        dictationCorrectStreak: input.correctStreak,
+        dictationNextReviewAt: input.nextReviewAt,
+      },
+      update: {
+        contentVersion: input.contentVersion,
+        dictationLastResult: input.result,
+        dictationCorrectStreak: input.correctStreak,
+        dictationNextReviewAt: input.nextReviewAt,
+      },
+    });
+    return toContentPracticeState(row);
+  }
+
+  async saveContentClozeState(input: {
+    userId: string;
+    cardId: string;
+    contentType: CardLearningContentType;
+    contentVersion: string;
+    expectedVersion: number;
+    state: unknown;
+    result: "correct" | "incorrect" | "revealed" | null;
+    practicedAt: Date | null;
+    nextReviewAt: Date | null;
+    correctStreak: number;
+    phraseMutation?: Parameters<CardRepository["saveClozeState"]>[0]["phraseMutation"];
+  }): Promise<CardContentPracticeStateEntity | null> {
+    const key = {
+      cardId: input.cardId,
+      userId: input.userId,
+      contentType: input.contentType,
+      contentVersion: input.contentVersion,
+    };
+    const practiceData = input.result ? {
+      clozeLastResult: input.result,
+      clozeCorrectStreak: input.correctStreak,
+      clozeNextReviewAt: input.nextReviewAt,
+    } : {};
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        let row: any;
+        if (input.expectedVersion === 0) {
+          const changed = await tx.cardContentPracticeState.updateMany({
+            where: { ...key, clozeVersion: 0 },
+            data: { clozeState: input.state, clozeVersion: { increment: 1 }, ...practiceData },
+          });
+          if (changed.count === 1) {
+            row = await tx.cardContentPracticeState.findUnique({
+              where: { cardId_contentType: { cardId: input.cardId, contentType: input.contentType } },
+            });
+          } else {
+            row = await tx.cardContentPracticeState.create({
+              data: { ...key, clozeState: input.state, clozeVersion: 1, ...practiceData },
+            });
+          }
+        } else {
+          const changed = await tx.cardContentPracticeState.updateMany({
+            where: { ...key, clozeVersion: input.expectedVersion },
+            data: { clozeState: input.state, clozeVersion: { increment: 1 }, ...practiceData },
+          });
+          if (changed.count !== 1) return null;
+          row = await tx.cardContentPracticeState.findUnique({
+            where: { cardId_contentType: { cardId: input.cardId, contentType: input.contentType } },
+          });
+        }
+        if (!row) return null;
+        await applyPhraseMutation(tx, input);
+        return toContentPracticeState(row);
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) return null;
+      throw error;
+    }
   }
 
   async saveDictationResult(input: {
@@ -915,6 +1199,33 @@ export class PrismaCardRepository implements CardRepository {
     });
   }
 
+  async createImageUpload(input: {
+    id: string;
+    userId: string;
+    objectKey: string;
+    mimeType: string;
+    fileSize: number;
+    width: number;
+    height: number;
+    expiresAt: Date;
+  }): Promise<CardImageAssetEntity> {
+    const row = await this.prisma.cardImageAsset.create({
+      data: {
+        id: input.id,
+        userId: input.userId,
+        status: "uploading",
+        originalObjectKey: input.objectKey,
+        uploadObjectKey: input.objectKey,
+        mimeType: input.mimeType,
+        fileSize: input.fileSize,
+        width: input.width,
+        height: input.height,
+        expiresAt: input.expiresAt,
+      },
+    });
+    return toImageAsset(row);
+  }
+
   async findImageUpload(id: string, userId: string): Promise<CardImageAssetEntity | null> {
     const row = await this.prisma.cardImageAsset.findFirst({ where: { id, userId } });
     return row ? toImageAsset(row) : null;
@@ -1089,6 +1400,96 @@ export class PrismaCardRepository implements CardRepository {
   }
 }
 
+async function syncContentSegments(tx: any, entryId: string, writes: CardContentSegmentWrite[]): Promise<void> {
+  const wantedTypes = writes.map((write) => write.contentType);
+  const obsolete = await tx.cardContentSegment.findMany({
+    where: { entryId, ...(wantedTypes.length ? { contentType: { notIn: wantedTypes } } : {}) },
+    select: { contentType: true },
+    distinct: ["contentType"],
+  });
+  if (obsolete.length) {
+    const obsoleteTypes = obsolete.map((row: { contentType: string }) => row.contentType);
+    await tx.cardContentSegment.deleteMany({ where: { entryId, contentType: { in: obsoleteTypes } } });
+    await tx.cardContentPracticeState.deleteMany({ where: { cardId: entryId, contentType: { in: obsoleteTypes } } });
+  }
+  for (const write of writes) {
+    const existing = await tx.cardContentSegment.findFirst({
+      where: { entryId, contentType: write.contentType },
+      select: { contentVersion: true },
+    });
+    if (existing?.contentVersion === write.contentVersion) continue;
+    if (existing) {
+      const existingSegments = await tx.cardContentSegment.findMany({
+        where: { entryId, contentType: write.contentType },
+        orderBy: { ordinal: "asc" },
+        select: { ordinal: true, text: true, startUtf16: true, endUtf16: true },
+      });
+      const sameContent = existingSegments.length === write.segments.length && existingSegments.every((segment: any, index: number) => {
+        const next = write.segments[index];
+        return next && segment.ordinal === next.ordinal && segment.text === next.text &&
+          segment.startUtf16 === next.startUtf16 && segment.endUtf16 === next.endUtf16;
+      });
+      // Migrated rows intentionally retain their legacy version so existing
+      // practice JSON keeps referring to the same segment ids.
+      if (sameContent) continue;
+    }
+    await tx.cardContentSegment.deleteMany({ where: { entryId, contentType: write.contentType } });
+    if (write.segments.length) {
+      await tx.cardContentSegment.createMany({
+        data: write.segments.map((segment) => ({
+          entryId,
+          contentType: write.contentType,
+          contentVersion: write.contentVersion,
+          ...segment,
+        })),
+      });
+    }
+    await tx.cardContentPracticeState.deleteMany({
+      where: { cardId: entryId, contentType: write.contentType, contentVersion: { not: write.contentVersion } },
+    });
+  }
+}
+
+async function enqueueTopicGeneration(
+  tx: any,
+  input: { userId: string; cardId: string; inputHash: string },
+): Promise<void> {
+  const inputVersion = `card_topic_v1:${input.inputHash}`;
+  await tx.cardEnrichmentJob.upsert({
+    where: {
+      userId_sourceKind_sourceId_jobType_inputVersion: {
+        userId: input.userId,
+        sourceKind: "card",
+        sourceId: input.cardId,
+        jobType: "generate_topic",
+        inputVersion,
+      },
+    },
+    create: {
+      userId: input.userId,
+      sourceKind: "card",
+      sourceId: input.cardId,
+      jobType: "generate_topic",
+      inputHash: input.inputHash,
+      inputVersion,
+      payload: { schemaVersion: 1, platformFunded: true },
+    },
+    update: {
+      status: "queued",
+      availableAt: new Date(),
+      inputHash: input.inputHash,
+      payload: { schemaVersion: 1, platformFunded: true },
+      attempts: 0,
+      processingAt: null,
+      leaseExpiresAt: null,
+      workerId: null,
+      lastError: null,
+      completedAt: null,
+      failedAt: null,
+    },
+  });
+}
+
 async function applyPhraseMutation(tx: any, input: {
   userId: string;
   cardId: string;
@@ -1218,10 +1619,18 @@ function toEntry(row: any): CardEntryEntity {
     id: row.id,
     userId: row.userId,
     dateKey: row.dateKey,
+    title: row.title ?? null,
     originalText: row.originalText ?? null,
+    originalContentHash: row.originalContentHash ?? null,
     rewrittenText: row.rewrittenText ?? null,
+    rewrittenLanguageCode: row.rewrittenLanguageCode ?? null,
+    rewrittenSourceHash: row.rewrittenSourceHash ?? null,
     translationText: row.translationText ?? null,
+    translationLanguageCode: row.translationLanguageCode ?? null,
+    translationSourceHash: row.translationSourceHash ?? null,
     replyText: row.replyText ?? null,
+    replyLanguageCode: row.replyLanguageCode ?? null,
+    replySourceHash: row.replySourceHash ?? null,
     languageCode: row.languageCode,
     appLocaleSnapshot: normalizeAppLocale(row.appLocaleSnapshot),
     promptDifficultySnapshot: row.promptDifficultySnapshot,
@@ -1243,6 +1652,7 @@ function toEntry(row: any): CardEntryEntity {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     segments: Array.isArray(row.segments) ? row.segments.map(toSegment) : [],
+    contentSegments: Array.isArray(row.contentSegments) ? row.contentSegments.map(toContentSegment) : [],
     images: Array.isArray(row.images) ? row.images.map(toImageAsset) : [],
   };
 }
@@ -1259,6 +1669,15 @@ function toSegment(row: any): CardSegmentEntity {
   };
 }
 
+function toContentSegment(row: any): CardContentSegmentEntity {
+  return {
+    ...toSegment(row),
+    contentType: row.contentType,
+    contentVersion: row.contentVersion,
+    updatedAt: row.updatedAt,
+  };
+}
+
 function normalizeAppLocale(value: unknown): AppLocale {
   return value === "zh-TW" || value === "en-US" || value === "ja-JP" ? value : "zh-CN";
 }
@@ -1271,6 +1690,10 @@ function sampleRows(languageCode: string, appLocale: AppLocale): Array<{ origina
       ? ["A relaxing walk home", "A surprisingly good dinner"]
       : ["下班后的散步", "意外好吃的晚饭"];
   return CARD_SAMPLE_ROWS[languageCode].map((row, index) => ({ ...row, topic: topics[index]! }));
+}
+
+function sampleContentHash(text: string): string {
+  return `sample:v1:${Buffer.from(text.normalize("NFKC")).toString("base64url").slice(0, 64)}`;
 }
 
 const CARD_SAMPLE_ROWS: Record<TargetLanguageCode, Array<{ originalText: string; rewrittenText: string }>> = {
@@ -1298,6 +1721,14 @@ function toPracticeState(row: any): CardPracticeStateEntity {
     dictationLastResult: row.dictationLastResult ?? null,
     dictationCorrectStreak: row.dictationCorrectStreak ?? 0,
     dictationNextReviewAt: row.dictationNextReviewAt ?? null,
+  };
+}
+
+function toContentPracticeState(row: any): CardContentPracticeStateEntity {
+  return {
+    ...toPracticeState(row),
+    contentType: row.contentType,
+    contentVersion: row.contentVersion,
   };
 }
 
