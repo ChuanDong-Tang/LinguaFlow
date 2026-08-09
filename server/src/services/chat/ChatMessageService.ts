@@ -96,6 +96,28 @@ export interface DiscardClozePracticeResult {
   clozePracticeDiscardedAt: string;
 }
 
+export type ConversationHistoryItem = {
+  id: string;
+  kind: "assistant" | "legacy";
+  readOnly: boolean;
+  title: string;
+  dateKey: string;
+  updatedAt: string;
+};
+
+export type ConversationHistoryPage = {
+  items: ConversationHistoryItem[];
+  nextCursor: string | null;
+};
+
+export type ChatCardSource = {
+  userMessageId: string;
+  originalText: string;
+  assistantText: string | null;
+  dateKey: string;
+  createdAt: Date;
+};
+
 export interface ImportLocalMessageInput {
   clientId: string;
   role: "user" | "assistant";
@@ -166,6 +188,62 @@ export class ChatMessageService {
     private readonly messageRepository: MessageRepository
   ) {}
 
+  async listConversationHistory(input: {
+    userId: string;
+    limit: number;
+    cursor?: string;
+  }): Promise<ConversationHistoryPage> {
+    const cursor = decodeConversationCursor(input.cursor);
+    const rows = await this.conversationRepository.listPageByUser({
+      userId: input.userId,
+      limit: input.limit + 1,
+      cursor,
+    });
+    const hasMore = rows.length > input.limit;
+    const pageRows = rows.slice(0, input.limit);
+    return {
+      items: pageRows.map((row) => {
+        const assistant = row.contactId === "curious_companion";
+        return {
+          id: row.id,
+          kind: assistant ? "assistant" : "legacy",
+          readOnly: !assistant,
+          title: row.title?.trim() || row.dateKey,
+          dateKey: row.dateKey,
+          updatedAt: row.updatedAt.toISOString(),
+        };
+      }),
+      nextCursor: hasMore && pageRows.length
+        ? encodeConversationCursor(pageRows[pageRows.length - 1])
+        : null,
+    };
+  }
+
+  async resolveCardSource(userId: string, messageId: string): Promise<ChatCardSource> {
+    const selected = await this.messageRepository.findById(messageId);
+    if (!selected || selected.userId !== userId || selected.status !== "success") {
+      throw new MessageAccessDeniedError();
+    }
+    const userMessage = selected.role === "user"
+      ? selected
+      : selected.sourceMessageId
+        ? await this.messageRepository.findById(selected.sourceMessageId)
+        : null;
+    if (!userMessage || userMessage.userId !== userId || userMessage.role !== "user" || userMessage.status !== "success") {
+      throw new MessageAccessDeniedError();
+    }
+    const assistant = selected.role === "assistant"
+      ? selected
+      : await this.messageRepository.findAssistantBySourceMessageId(userMessage.id);
+    return {
+      userMessageId: userMessage.id,
+      originalText: userMessage.content,
+      assistantText: assistant?.status === "success" ? assistant.content : null,
+      dateKey: userMessage.conversationDateKey || formatDateKeyInTimeZone(userMessage.createdAt),
+      createdAt: userMessage.createdAt,
+    };
+  }
+
   async sendUserMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const dateKey = formatDateKeyInTimeZone(new Date());
 
@@ -179,9 +257,11 @@ export class ChatMessageService {
       conversation = await this.conversationRepository.create({
         userId: input.userId,
         contactId: input.contactId,
-        title: null,
+        title: conversationTitle(input.text),
         dateKey,
       });
+    } else if (!conversation.title?.trim()) {
+      await this.conversationRepository.setTitleIfEmpty(conversation.id, conversationTitle(input.text));
     }
 
     const userMessage = await this.messageRepository.create({
@@ -662,4 +742,27 @@ function createKnownTagPattern(tags: readonly string[], flags = "i"): RegExp {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function conversationTitle(text: string): string {
+  const normalized = text.trim().replace(/\s+/gu, " ");
+  const characters = Array.from(normalized);
+  return characters.length <= 48 ? normalized : `${characters.slice(0, 48).join("")}…`;
+}
+
+function encodeConversationCursor(row: { updatedAt: Date; id: string }): string {
+  return Buffer.from(JSON.stringify({ updatedAt: row.updatedAt.toISOString(), id: row.id }), "utf8").toString("base64url");
+}
+
+function decodeConversationCursor(value?: string): { updatedAt: Date; id: string } | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
+    const updatedAt = typeof parsed.updatedAt === "string" ? new Date(parsed.updatedAt) : null;
+    const id = typeof parsed.id === "string" ? parsed.id : "";
+    if (!updatedAt || !Number.isFinite(updatedAt.getTime()) || !id) return undefined;
+    return { updatedAt, id };
+  } catch {
+    return undefined;
+  }
 }

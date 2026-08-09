@@ -11,14 +11,36 @@ export interface CardSegmentEntity {
   createdAt: Date;
 }
 
+export type CardLearningContentType = "original" | "rewrite" | "reply";
+
+export interface CardContentSegmentEntity extends CardSegmentEntity {
+  contentType: CardLearningContentType;
+  contentVersion: string;
+  updatedAt: Date;
+}
+
+export interface CardContentSegmentWrite {
+  contentType: CardLearningContentType;
+  contentVersion: string;
+  segments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
+}
+
 export interface CardEntryEntity {
   id: string;
   userId: string;
   dateKey: string;
+  title: string | null;
   originalText: string | null;
+  originalContentHash: string | null;
   rewrittenText: string | null;
+  rewrittenLanguageCode: string | null;
+  rewrittenSourceHash: string | null;
   translationText: string | null;
+  translationLanguageCode: string | null;
+  translationSourceHash: string | null;
   replyText: string | null;
+  replyLanguageCode: string | null;
+  replySourceHash: string | null;
   languageCode: string;
   appLocaleSnapshot: AppLocale;
   promptDifficultySnapshot: string;
@@ -40,6 +62,7 @@ export interface CardEntryEntity {
   createdAt: Date;
   updatedAt: Date;
   segments: CardSegmentEntity[];
+  contentSegments: CardContentSegmentEntity[];
   images: CardImageAssetEntity[];
 }
 
@@ -56,6 +79,11 @@ export interface CardPracticeStateEntity {
   dictationLastResult: CardPracticeResult | null;
   dictationCorrectStreak: number;
   dictationNextReviewAt: Date | null;
+}
+
+export interface CardContentPracticeStateEntity extends CardPracticeStateEntity {
+  contentType: CardLearningContentType;
+  contentVersion: string;
 }
 
 export interface CardSpeechAssetEntity {
@@ -105,7 +133,9 @@ export interface CreateQueuedCardEntryInput {
   userId: string;
   collectionId: string | null;
   dateKey: string;
+  title: string | null;
   originalText: string;
+  originalContentHash: string;
   languageCode: string;
   appLocaleSnapshot: AppLocale;
   promptDifficultySnapshot: string;
@@ -119,10 +149,18 @@ export interface CreateDirectCardEntryInput {
   userId: string;
   collectionId: string | null;
   dateKey: string;
+  title: string | null;
   originalText: string | null;
+  originalContentHash: string | null;
   rewrittenText: string | null;
+  rewrittenLanguageCode: string | null;
+  rewrittenSourceHash: string | null;
   translationText: string | null;
+  translationLanguageCode: string | null;
+  translationSourceHash: string | null;
   replyText: string | null;
+  replyLanguageCode: string | null;
+  replySourceHash: string | null;
   languageCode: string;
   appLocaleSnapshot: AppLocale;
   promptDifficultySnapshot: string;
@@ -130,12 +168,16 @@ export interface CreateDirectCardEntryInput {
   clientId: string;
   imageUploadIds: string[];
   segments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
+  contentSegments: CardContentSegmentWrite[];
+  createdAt?: Date;
 }
 
 export interface CompleteCardEntryInput {
   entryId: string;
   workerId: string;
   rewrittenText: string;
+  rewrittenLanguageCode: string;
+  rewrittenSourceHash: string;
   topic: string;
   embeddingInputHash: string;
   embeddingInputVersion: string;
@@ -147,6 +189,7 @@ export interface CompleteCardEntryInput {
     startUtf16: number;
     endUtf16: number;
   }>;
+  contentSegments: CardContentSegmentWrite[];
 }
 
 export interface CardRepository {
@@ -165,11 +208,21 @@ export interface CardRepository {
     entryId: string;
     userId: string;
     collectionId: string | null;
+    expectedOriginalContentHash: string | null;
+    title: string | null;
     originalText: string | null;
+    originalContentHash: string | null;
     rewrittenText: string | null;
+    rewrittenLanguageCode: string | null;
+    rewrittenSourceHash: string | null;
     translationText: string | null;
+    translationLanguageCode: string | null;
+    translationSourceHash: string | null;
     replyText: string | null;
+    replyLanguageCode: string | null;
+    replySourceHash: string | null;
     segments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
+    contentSegments: CardContentSegmentWrite[];
     clearPractice: boolean;
   }): Promise<CardEntryEntity | null>;
   findByUserClientId(userId: string, clientId: string): Promise<CardEntryEntity | null>;
@@ -183,7 +236,20 @@ export interface CardRepository {
     offset?: number,
     fromDateKey?: string,
   ): Promise<CardEntryEntity[]>;
+  listPageByUser(input: {
+    userId: string;
+    collectionId: string | null | undefined;
+    dateKey?: string;
+    fromDateKey?: string;
+    limit: number;
+    cursor?: { createdAt: Date; id: string };
+  }): Promise<CardEntryEntity[]>;
   listDateKeysByUser(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]>;
+  aggregateCalendarByDate(userId: string, fromDateKey: string, toDateKey: string): Promise<Array<{
+    dateKey: string;
+    cardCount: number;
+    originalChars: number;
+  }>>;
   listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<CardEntryEntity[]>;
   claimNextQueued(workerId: string, leaseExpiresAt: Date): Promise<CardEntryEntity | null>;
   renewLease(entryId: string, workerId: string, leaseExpiresAt: Date): Promise<boolean>;
@@ -197,6 +263,34 @@ export interface CardRepository {
   listExpiredProcessing(now: Date, limit: number): Promise<CardEntryEntity[]>;
   markDeleted(entryId: string, userId: string, deletedAt: Date): Promise<boolean>;
   findPracticeState(userId: string, cardId: string): Promise<CardPracticeStateEntity | null>;
+  findContentPracticeState(
+    userId: string,
+    cardId: string,
+    contentType: CardLearningContentType,
+  ): Promise<CardContentPracticeStateEntity | null>;
+  saveContentDictationResult(input: {
+    userId: string;
+    cardId: string;
+    contentType: CardLearningContentType;
+    contentVersion: string;
+    result: CardPracticeResult;
+    practicedAt: Date;
+    nextReviewAt: Date;
+    correctStreak: number;
+  }): Promise<CardContentPracticeStateEntity>;
+  saveContentClozeState(input: {
+    userId: string;
+    cardId: string;
+    contentType: CardLearningContentType;
+    contentVersion: string;
+    expectedVersion: number;
+    state: unknown;
+    result: CardPracticeResult | null;
+    practicedAt: Date | null;
+    nextReviewAt: Date | null;
+    correctStreak: number;
+    phraseMutation?: Parameters<CardRepository["saveClozeState"]>[0]["phraseMutation"];
+  }): Promise<CardContentPracticeStateEntity | null>;
   saveDictationResult(input: {
     userId: string;
     cardId: string;
@@ -252,6 +346,16 @@ export interface CardRepository {
     height: number;
     expiresAt: Date;
   }): Promise<CardImageAssetEntity | null>;
+  createImageUpload(input: {
+    id: string;
+    userId: string;
+    objectKey: string;
+    mimeType: string;
+    fileSize: number;
+    width: number;
+    height: number;
+    expiresAt: Date;
+  }): Promise<CardImageAssetEntity>;
   findImageUpload(id: string, userId: string): Promise<CardImageAssetEntity | null>;
   updateImageUploadModeration(input: {
     id: string;

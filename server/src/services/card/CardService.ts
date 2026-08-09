@@ -1,7 +1,16 @@
 import { countGraphemes, isUtf16GraphemeBoundary, truncateGraphemes } from "@lf/core/text/grapheme.js";
+import {
+  countCardCharacters,
+  DEFAULT_CARD_CONTENT_MAX_CHARS,
+  DEFAULT_CARD_IMAGES_MAX_PER_CARD,
+  DEFAULT_CARD_TITLE_MAX_CHARS,
+  normalizeCardBodyText,
+  normalizeCardLineEndings,
+  normalizeCardTitleText,
+} from "@lf/core/text/cardText.js";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
-import type { CardRepository, CardEntryEntity } from "@lf/core/ports/repository/CardRepository.js";
+import type { CardRepository, CardEntryEntity, CardLearningContentType } from "@lf/core/ports/repository/CardRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import type {
   CreateCardEntryInput,
@@ -26,10 +35,24 @@ import { segmentLearningSentences } from "@lf/core/text/learningText.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { buildCardContentGenerationPrompt, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
+import { buildCardContentSegments } from "./cardContentSegments.js";
+import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
+import type { UsageV2Service } from "../usage/UsageV2Service.js";
 
-const MAX_ORIGINAL_GRAPHEMES = 3_000;
 const PREVIEW_GRAPHEMES = 240;
 export const CARD_PROMPT_VERSION = CARD_EXPRESSION_PROMPT_VERSION;
+
+export type CardServiceLimits = {
+  titleMaxChars: number;
+  contentMaxChars: number;
+  imagesMaxPerCard: number;
+};
+
+const DEFAULT_CARD_SERVICE_LIMITS: CardServiceLimits = {
+  titleMaxChars: DEFAULT_CARD_TITLE_MAX_CHARS,
+  contentMaxChars: DEFAULT_CARD_CONTENT_MAX_CHARS,
+  imagesMaxPerCard: DEFAULT_CARD_IMAGES_MAX_PER_CARD,
+};
 
 export class CardValidationError extends Error {
   readonly code = "CARD_VALIDATION_FAILED";
@@ -51,12 +74,20 @@ export class CardClientIdConsumedError extends Error {
   readonly code = "CARD_CLIENT_ID_CONSUMED";
 }
 
+export class CardContentConflictError extends Error {
+  readonly code = "CARD_CONTENT_CONFLICT";
+}
+
 export class CardNotFoundError extends Error {
   readonly code = "CARD_NOT_FOUND";
 }
 
 export class CardPracticeConflictError extends Error {
   readonly code = "CARD_PRACTICE_CONFLICT";
+}
+
+export class CardLearningAccessError extends Error {
+  readonly code = "CARD_LEARNING_ACCESS_DENIED";
 }
 
 export class CardService {
@@ -70,6 +101,9 @@ export class CardService {
     private readonly imageService?: CardImageService,
     private readonly aiProvider?: AIProvider,
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly listPageSizeMax = 50,
+    private readonly limits: CardServiceLimits = DEFAULT_CARD_SERVICE_LIMITS,
+    private readonly usageV2Service?: UsageV2Service,
   ) {}
 
   async bootstrap(userId: string): Promise<CardRecordSummaryView[]> {
@@ -90,26 +124,31 @@ export class CardService {
     userId: string;
     requestId: string;
     body: CreateCardEntryInput;
+    trustedSource?: { dateKey: string; createdAt: Date };
   }): Promise<CardRecordSummaryView> {
     const clientId = input.body.clientId.trim();
-    const originalText = input.body.originalText?.trim() ?? "";
-    const rewrittenText = input.body.rewrittenText?.trim() ?? "";
-    const translationText = input.body.translationText?.trim() ?? "";
-    const replyText = input.body.replyText?.trim() ?? "";
+    const title = normalizeTitle(input.body.title, this.limits.titleMaxChars);
+    const originalText = normalizeCardBodyText(input.body.originalText);
+    const rewrittenText = normalizeCardBodyText(input.body.rewrittenText);
+    const translationText = normalizeCardBodyText(input.body.translationText);
+    const replyText = normalizeCardBodyText(input.body.replyText);
     const collectionId = input.body.collectionId?.trim() || null;
     const generateRewrite = input.body.generateRewrite !== false;
     if (!clientId || clientId.length > 128) throw new CardValidationError("Invalid client id");
     const primaryText = rewrittenText || originalText;
-    const inputChars = countGraphemes(originalText || rewrittenText);
-    if (inputChars < 1 || inputChars > MAX_ORIGINAL_GRAPHEMES) {
-      throw new CardValidationError("A Card must contain a record or expression of 1 to 3000 characters");
+    const inputChars = countCardCharacters(originalText || rewrittenText);
+    if (inputChars < 1 || inputChars > this.limits.contentMaxChars) {
+      throw new CardValidationError(`A Card must contain a record or expression of 1 to ${this.limits.contentMaxChars} characters`);
     }
     if (generateRewrite && !originalText) throw new CardValidationError("Original text is required for AI rewrite");
     const imageUploadId = input.body.imageUploadId?.trim() || null;
     const imageUploadIds = Array.from(new Set([
       ...(Array.isArray(input.body.imageUploadIds) ? input.body.imageUploadIds : []),
       ...(imageUploadId ? [imageUploadId] : []),
-    ].map((value) => value.trim()).filter(Boolean))).slice(0, 12);
+    ].map((value) => value.trim()).filter(Boolean)));
+    if (imageUploadIds.length > this.limits.imagesMaxPerCard) {
+      throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);
+    }
 
     const duplicate = await this.repository.findByUserClientId(input.userId, clientId);
     if (duplicate) {
@@ -129,17 +168,26 @@ export class CardService {
     });
 
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
-    const dateKey = formatDateKeyInTimeZone(new Date());
+    const dateKey = input.trustedSource?.dateKey ?? formatDateKeyInTimeZone(new Date());
+    const originalContentHash = originalText ? cardContentHash(originalText) : null;
     if (!generateRewrite) {
       let created;
       try { created = await this.repository.createDirect({
         userId: input.userId,
         collectionId,
         dateKey,
+        title,
         originalText: originalText || null,
+        originalContentHash,
         rewrittenText: rewrittenText || null,
+        rewrittenLanguageCode: rewrittenText ? preference.learningLanguage : null,
+        rewrittenSourceHash: rewrittenText ? originalContentHash : null,
         translationText: translationText || null,
+        translationLanguageCode: translationText ? preference.appLocale : null,
+        translationSourceHash: translationText ? originalContentHash : null,
         replyText: replyText || null,
+        replyLanguageCode: replyText ? preference.learningLanguage : null,
+        replySourceHash: replyText ? originalContentHash : null,
         languageCode: preference.learningLanguage,
         appLocaleSnapshot: preference.appLocale,
         promptDifficultySnapshot: preference.promptDifficulty,
@@ -147,6 +195,12 @@ export class CardService {
         clientId,
         imageUploadIds,
         segments: buildSegments(primaryText, preference.learningLanguage),
+        contentSegments: buildCardContentSegments([
+          { contentType: "original", text: originalText || null, languageCode: preference.appLocale, sourceHash: originalContentHash },
+          { contentType: "rewrite", text: rewrittenText || null, languageCode: preference.learningLanguage, sourceHash: originalContentHash },
+          { contentType: "reply", text: replyText || null, languageCode: preference.learningLanguage, sourceHash: originalContentHash },
+        ]),
+        createdAt: input.trustedSource?.createdAt,
       }); } catch (error) {
         if (error instanceof Error && error.message === "CARD_COLLECTION_NOT_FOUND") throw new CardNotFoundError();
         throw error;
@@ -167,7 +221,9 @@ export class CardService {
         userId: input.userId,
         collectionId,
         dateKey,
+        title,
         originalText,
+        originalContentHash: originalContentHash!,
         languageCode: preference.learningLanguage,
         appLocaleSnapshot: preference.appLocale,
         promptDifficultySnapshot: preference.promptDifficulty,
@@ -200,37 +256,119 @@ export class CardService {
     }
   }
 
-  async updateContent(userId: string, recordId: string, patch: UpdateCardContentInput): Promise<CardRecordDetailView> {
+  async updateContent(
+    userId: string,
+    recordId: string,
+    patch: UpdateCardContentInput,
+    generated?: { target: CardGeneratedContentTarget; languageCode: string; sourceHash: string },
+  ): Promise<CardRecordDetailView> {
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, userId);
     if (!current || current.status !== "completed") throw new CardNotFoundError();
-    const originalText = normalizePatchedText(patch, "originalText", current.originalText);
-    const rewrittenText = normalizePatchedText(patch, "rewrittenText", current.rewrittenText);
-    const translationText = normalizePatchedText(patch, "translationText", current.translationText);
-    const replyText = normalizePatchedText(patch, "replyText", current.replyText);
+    const currentOriginalContentHash = current.originalContentHash ?? (current.originalText ? cardContentHash(current.originalText) : null);
+    if (generated && generated.sourceHash !== currentOriginalContentHash) {
+      throw new CardContentConflictError("The original Card content changed while AI generation was running");
+    }
+    const title = Object.prototype.hasOwnProperty.call(patch, "title") ? normalizeTitle(patch.title, this.limits.titleMaxChars) : current.title;
+    const originalText = normalizePatchedText(patch, "originalText", current.originalText, this.limits.contentMaxChars);
+    const originalChanged = normalizeCardContent(originalText) !== normalizeCardContent(current.originalText);
+    const originalContentHash = originalChanged
+      ? (originalText ? cardContentHash(originalText) : null)
+      : currentOriginalContentHash;
+    const rewrittenText = originalChanged ? null : normalizePatchedText(patch, "rewrittenText", current.rewrittenText, this.limits.contentMaxChars);
+    const translationText = originalChanged ? null : normalizePatchedText(patch, "translationText", current.translationText, this.limits.contentMaxChars);
+    const replyText = originalChanged ? null : normalizePatchedText(patch, "replyText", current.replyText, this.limits.contentMaxChars);
     const collectionId = Object.prototype.hasOwnProperty.call(patch, "collectionId") ? patch.collectionId?.trim() || null : current.collectionId;
+    const rewrittenLanguageCode = resolveContentLanguage({
+      patch,
+      key: "rewrittenText",
+      nextText: rewrittenText,
+      currentText: current.rewrittenText,
+      currentLanguageCode: current.rewrittenLanguageCode,
+      defaultLanguageCode: current.languageCode,
+      generated,
+      target: "expression",
+    });
+    const translationLanguageCode = resolveContentLanguage({
+      patch,
+      key: "translationText",
+      nextText: translationText,
+      currentText: current.translationText,
+      currentLanguageCode: current.translationLanguageCode,
+      defaultLanguageCode: current.appLocaleSnapshot,
+      generated,
+      target: "translation",
+    });
+    const replyLanguageCode = resolveContentLanguage({
+      patch,
+      key: "replyText",
+      nextText: replyText,
+      currentText: current.replyText,
+      currentLanguageCode: current.replyLanguageCode,
+      defaultLanguageCode: current.languageCode,
+      generated,
+      target: "reply",
+    });
+    const rewrittenSourceHash = resolveSourceHash({
+      patch,
+      key: "rewrittenText",
+      nextText: rewrittenText,
+      currentSourceHash: current.rewrittenSourceHash,
+      sourceHash: originalContentHash,
+      originalChanged,
+    });
+    const translationSourceHash = resolveSourceHash({
+      patch,
+      key: "translationText",
+      nextText: translationText,
+      currentSourceHash: current.translationSourceHash,
+      sourceHash: originalContentHash,
+      originalChanged,
+    });
+    const replySourceHash = resolveSourceHash({
+      patch,
+      key: "replyText",
+      nextText: replyText,
+      currentSourceHash: current.replySourceHash,
+      sourceHash: originalContentHash,
+      originalChanged,
+    });
     const primaryText = rewrittenText || originalText;
     if (!primaryText) throw new CardValidationError("A Card must contain a record or expression");
     const allContent = [originalText, rewrittenText, translationText, replyText].filter(Boolean).join("\n");
     this.contentSafetyService?.assertAllowed(allContent, "input");
-    const clearPractice = current.rewrittenText !== rewrittenText || (!rewrittenText && current.originalText !== originalText);
+    const clearPractice = originalChanged || current.rewrittenText !== rewrittenText;
     let updated;
     try { updated = await this.repository.updateContent({
       entryId: parsed.sourceId,
       userId,
       collectionId,
+      expectedOriginalContentHash: current.originalContentHash,
+      title,
       originalText,
+      originalContentHash,
       rewrittenText,
+      rewrittenLanguageCode,
+      rewrittenSourceHash,
       translationText,
+      translationLanguageCode,
+      translationSourceHash,
       replyText,
+      replyLanguageCode,
+      replySourceHash,
       segments: buildSegments(primaryText, current.languageCode),
+      contentSegments: buildCardContentSegments([
+        { contentType: "original", text: originalText, languageCode: current.appLocaleSnapshot, sourceHash: originalContentHash },
+        { contentType: "rewrite", text: rewrittenText, languageCode: rewrittenLanguageCode ?? current.languageCode, sourceHash: rewrittenSourceHash },
+        { contentType: "reply", text: replyText, languageCode: replyLanguageCode ?? current.languageCode, sourceHash: replySourceHash },
+      ]),
       clearPractice,
     }); } catch (error) {
       if (error instanceof Error && error.message === "CARD_COLLECTION_NOT_FOUND") throw new CardNotFoundError();
       throw error;
     }
-    if (!updated) throw new CardNotFoundError();
+    if (!updated) throw new CardContentConflictError("The Card was changed by another request");
     return this.detail(userId, recordId);
   }
 
@@ -239,6 +377,7 @@ export class CardService {
     requestId: string;
     recordId: string;
     target: CardGeneratedContentTarget;
+    usageApiVersion?: "v2";
   }): Promise<CardRecordDetailView> {
     if (!this.aiProvider) throw new CardValidationError("Card generation is unavailable");
     const parsed = parseCardRecordId(input.recordId);
@@ -249,49 +388,92 @@ export class CardService {
       ? current.rewrittenText || current.originalText
       : current.originalText;
     if (!sourceText) throw new CardValidationError("No source content to generate from");
-    await this.entitlementService.assertCanUse(input.userId, countGraphemes(sourceText), { dateKey: current.dateKey });
+    const sourceHash = current.originalContentHash ?? (current.originalText ? cardContentHash(current.originalText) : null);
+    if (!sourceHash) throw new CardValidationError("No original content version is available");
+    if (input.usageApiVersion !== "v2") {
+      await this.entitlementService.assertCanUse(input.userId, countCardCharacters(sourceText), { dateKey: current.dateKey });
+    }
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
+    const generationLanguageCode = input.target === "translation"
+      ? preference.appLocale
+      : preference.learningLanguage;
     const prompt = buildCardContentGenerationPrompt({
       target: input.target,
       sourceText,
-      languageCode: current.languageCode,
+      languageCode: preference.learningLanguage,
       appLocale: preference.appLocale,
       difficulty: current.promptDifficultySnapshot,
     });
     let output = "";
+    let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
+    if (input.usageApiVersion === "v2") {
+      if (!this.usageV2Service) throw new CardValidationError("V2 usage is unavailable");
+      await this.usageV2Service.reserveTokens({
+        userId: input.userId,
+        requestId: input.requestId,
+        feature: cardUsageFeature(input.target),
+        estimatedTokens: estimateTokenReservation(prompt.userPrompt, 1_000),
+        provider: this.aiProvider.providerName,
+        model: this.aiProvider.modelName,
+      });
+    }
     const generate = () => this.aiProvider!.generateChatTextStream({
         userId: input.userId,
         text: prompt.userPrompt,
-        languageCode: current.languageCode,
+        languageCode: generationLanguageCode,
         appLocale: preference.appLocale,
         promptDifficulty: current.promptDifficultySnapshot,
         companionMode: "rewrite_only",
         systemPrompt: prompt.systemPrompt,
         rawUserPrompt: true,
         maxOutputTokens: 1_000,
-      }, (event) => { if (event.type === "delta") output += event.text; });
-    if (this.resourceGovernor) await this.resourceGovernor.execute("llm", input.userId, generate);
-    else await generate();
+      }, (event) => {
+        if (event.type === "delta") output += event.text;
+        if (event.type === "done") usage = event.usage;
+      });
+    try {
+      if (this.resourceGovernor) await this.resourceGovernor.execute("llm", input.userId, generate);
+      else await generate();
+    } catch (error) {
+      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      throw error;
+    }
     output = output.trim();
-    if (!output) throw new CardValidationError("Generated content is empty");
-    this.contentSafetyService?.assertAllowed(output, "output");
-    await this.contentSafetyService?.assertAllowedRemote({
-      text: output,
-      stage: "output",
-      requestId: input.requestId,
-      userId: input.userId,
-    });
-    await this.entitlementService.consumeUpToLimit(
-      input.userId,
-      countGraphemes(sourceText) + countGraphemes(output),
-      { dateKey: current.dateKey },
-    );
+    if (!output) {
+      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      throw new CardValidationError("Generated content is empty");
+    }
+    try {
+      this.contentSafetyService?.assertAllowed(output, "output");
+      await this.contentSafetyService?.assertAllowedRemote({
+        text: output,
+        stage: "output",
+        requestId: input.requestId,
+        userId: input.userId,
+      });
+    } catch (error) {
+      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      throw error;
+    }
+    if (input.usageApiVersion === "v2") {
+      await settleGeneratedUsage(this.usageV2Service!, input.userId, input.requestId, usage, prompt.userPrompt, output, this.aiProvider);
+    } else {
+      await this.entitlementService.consumeUpToLimit(
+        input.userId,
+        countCardCharacters(sourceText) + countCardCharacters(output),
+        { dateKey: current.dateKey },
+      );
+    }
     const patch: UpdateCardContentInput = input.target === "expression"
       ? { rewrittenText: output }
       : input.target === "translation"
         ? { translationText: output }
         : { replyText: output };
-    return this.updateContent(input.userId, input.recordId, patch);
+    return this.updateContent(input.userId, input.recordId, patch, {
+      target: input.target,
+      languageCode: generationLanguageCode,
+      sourceHash,
+    });
   }
 
   async generateDraftContent(input: {
@@ -299,15 +481,18 @@ export class CardService {
     requestId: string;
     target: CardGeneratedContentTarget;
     sourceText: string;
+    usageApiVersion?: "v2";
   }): Promise<{ text: string }> {
     if (!this.aiProvider) throw new CardValidationError("Card generation is unavailable");
-    const sourceText = input.sourceText.trim();
-    if (!sourceText || countGraphemes(sourceText) > MAX_ORIGINAL_GRAPHEMES) {
+    const sourceText = normalizeCardBodyText(input.sourceText);
+    if (!sourceText || countCardCharacters(sourceText) > this.limits.contentMaxChars) {
       throw new CardValidationError("Invalid generation source");
     }
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
     const dateKey = formatDateKeyInTimeZone(new Date());
-    await this.entitlementService.assertCanUse(input.userId, countGraphemes(sourceText), { dateKey });
+    if (input.usageApiVersion !== "v2") {
+      await this.entitlementService.assertCanUse(input.userId, countCardCharacters(sourceText), { dateKey });
+    }
     const prompt = buildCardContentGenerationPrompt({
       target: input.target,
       sourceText,
@@ -316,6 +501,18 @@ export class CardService {
       difficulty: preference.promptDifficulty,
     });
     let output = "";
+    let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
+    if (input.usageApiVersion === "v2") {
+      if (!this.usageV2Service) throw new CardValidationError("V2 usage is unavailable");
+      await this.usageV2Service.reserveTokens({
+        userId: input.userId,
+        requestId: input.requestId,
+        feature: cardUsageFeature(input.target),
+        estimatedTokens: estimateTokenReservation(prompt.userPrompt, 1_000),
+        provider: this.aiProvider.providerName,
+        model: this.aiProvider.modelName,
+      });
+    }
     const generate = () => this.aiProvider!.generateChatTextStream({
         userId: input.userId,
         text: prompt.userPrompt,
@@ -326,14 +523,34 @@ export class CardService {
         systemPrompt: prompt.systemPrompt,
         rawUserPrompt: true,
         maxOutputTokens: 1_000,
-      }, (event) => { if (event.type === "delta") output += event.text; });
-    if (this.resourceGovernor) await this.resourceGovernor.execute("llm", input.userId, generate);
-    else await generate();
+      }, (event) => {
+        if (event.type === "delta") output += event.text;
+        if (event.type === "done") usage = event.usage;
+      });
+    try {
+      if (this.resourceGovernor) await this.resourceGovernor.execute("llm", input.userId, generate);
+      else await generate();
+    } catch (error) {
+      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      throw error;
+    }
     output = output.trim();
-    if (!output) throw new CardValidationError("Generated content is empty");
-    this.contentSafetyService?.assertAllowed(output, "output");
-    await this.contentSafetyService?.assertAllowedRemote({ text: output, stage: "output", requestId: input.requestId, userId: input.userId });
-    await this.entitlementService.consumeUpToLimit(input.userId, countGraphemes(sourceText) + countGraphemes(output), { dateKey });
+    if (!output) {
+      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      throw new CardValidationError("Generated content is empty");
+    }
+    try {
+      this.contentSafetyService?.assertAllowed(output, "output");
+      await this.contentSafetyService?.assertAllowedRemote({ text: output, stage: "output", requestId: input.requestId, userId: input.userId });
+    } catch (error) {
+      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      throw error;
+    }
+    if (input.usageApiVersion === "v2") {
+      await settleGeneratedUsage(this.usageV2Service!, input.userId, input.requestId, usage, prompt.userPrompt, output, this.aiProvider);
+    } else {
+      await this.entitlementService.consumeUpToLimit(input.userId, countCardCharacters(sourceText) + countCardCharacters(output), { dateKey });
+    }
     return { text: output };
   }
 
@@ -357,11 +574,58 @@ export class CardService {
     return Promise.all(entries.map((entry) => this.summaryWithImage(entry)));
   }
 
+  async listLibraryPage(userId: string, input: {
+    collectionId: string | null | undefined;
+    dateKey?: string;
+    fromDateKey?: string;
+    limit?: number;
+    cursor?: string;
+  }) {
+    if (input.dateKey) assertDateKey(input.dateKey);
+    if (input.fromDateKey) assertDateKey(input.fromDateKey);
+    if (input.dateKey && input.fromDateKey) throw new CardValidationError("Conflicting Card date filters");
+    const configuredMax = Math.max(1, Math.min(50, Math.floor(this.listPageSizeMax)));
+    const requestedLimit = Number.isFinite(input.limit) ? Math.floor(input.limit!) : configuredMax;
+    const limit = Math.max(1, Math.min(configuredMax, requestedLimit));
+    const cursor = input.cursor ? decodeCardCursor(input.cursor) : undefined;
+    const entries = await this.repository.listPageByUser({
+      userId,
+      collectionId: input.collectionId,
+      dateKey: input.dateKey,
+      fromDateKey: input.fromDateKey,
+      limit: limit + 1,
+      cursor,
+    });
+    const hasMore = entries.length > limit;
+    const pageEntries = entries.slice(0, limit);
+    const items = await Promise.all(pageEntries.map((entry) => this.summaryWithImage(entry)));
+    const last = hasMore ? pageEntries[pageEntries.length - 1] : undefined;
+    return { items, nextCursor: last ? encodeCardCursor(last.createdAt, last.id) : null };
+  }
+
   async listDateKeys(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]> {
     assertDateKey(fromDateKey);
     assertDateKey(toDateKey);
     if (fromDateKey > toDateKey) throw new CardValidationError("Invalid date range");
     return this.repository.listDateKeysByUser(userId, fromDateKey, toDateKey);
+  }
+
+  async calendarSummary(userId: string, fromDateKey: string, toDateKey: string) {
+    assertDateKey(fromDateKey);
+    assertDateKey(toDateKey);
+    if (fromDateKey > toDateKey) throw new CardValidationError("Invalid calendar range");
+    if (dateRangeDays(fromDateKey, toDateKey) > 370) throw new CardValidationError("Calendar range is too large");
+    const days = await this.repository.aggregateCalendarByDate(userId, fromDateKey, toDateKey);
+    return {
+      fromDateKey,
+      toDateKey,
+      totals: {
+        cardCount: days.reduce((sum, day) => sum + day.cardCount, 0),
+        originalChars: days.reduce((sum, day) => sum + day.originalChars, 0),
+        recordedDays: days.length,
+      },
+      days,
+    };
   }
 
   async listRecent(userId: string, beforeDateKey: string, limit: number): Promise<CardRecordSummaryView[]> {
@@ -385,6 +649,28 @@ export class CardService {
       throw new CardNotFoundError();
     }
     const practiceState = await this.repository.findPracticeState(userId, entry.id);
+    const contentBlocks = await Promise.all(["original", "rewrite", "reply"].flatMap((contentType) => {
+      const typedContentType = contentType as CardLearningContentType;
+      const segments = entry.contentSegments.filter((segment) => segment.contentType === typedContentType);
+      if (!segments.length) return [];
+      const contentVersion = segments[0]!.contentVersion;
+      const text = contentText(entry, typedContentType);
+      if (!text) return [];
+      return [this.repository.findContentPracticeState(userId, entry.id, typedContentType).then((state) => ({
+        contentType: typedContentType,
+        contentVersion,
+        text,
+        languageCode: contentLanguageCode(entry, typedContentType),
+        segments: segments.map((segment) => ({
+          id: segment.id,
+          ordinal: segment.ordinal,
+          text: segment.text,
+          startUtf16: segment.startUtf16,
+          endUtf16: segment.endUtf16,
+        })),
+        practice: state?.contentVersion === contentVersion ? toPracticeView(state) : null,
+      }))];
+    }));
     const imageViews = this.imageService
       ? await Promise.all(entry.images.map((image) => this.imageService!.views(image)))
       : [];
@@ -394,8 +680,11 @@ export class CardService {
       status: "completed",
       originalText: entry.originalText ?? "",
       rewrittenText: entry.rewrittenText,
+      rewrittenLanguageCode: entry.rewrittenLanguageCode,
       translationText: entry.translationText,
+      translationLanguageCode: entry.translationLanguageCode,
       replyText: entry.replyText,
+      replyLanguageCode: entry.replyLanguageCode,
       rewriteSegments: entry.segments.map((segment) => ({
         id: segment.id,
         ordinal: segment.ordinal,
@@ -403,6 +692,7 @@ export class CardService {
         startUtf16: segment.startUtf16,
         endUtf16: segment.endUtf16,
       })),
+      contentBlocks,
       images: imageViews.map((views) => views.image),
       image: imageViews[0]?.image ?? null,
       practice: toPracticeView(practiceState),
@@ -456,11 +746,17 @@ export class CardService {
   async appendImage(userId: string, recordId: string, imageUploadId: string): Promise<CardRecordDetailView> {
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card" || !imageUploadId.trim()) throw new CardValidationError("Invalid image");
+    const current = await this.repository.findByIdForUser(parsed.sourceId, userId);
+    if (!current || current.status !== "completed") throw new CardNotFoundError();
+    const trimmedImageUploadId = imageUploadId.trim();
+    if (!current.images.some((image) => image.id === trimmedImageUploadId) && current.images.length >= this.limits.imagesMaxPerCard) {
+      throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);
+    }
     try {
       const updated = await this.repository.appendEntryImage({
         entryId: parsed.sourceId,
         userId,
-        imageUploadId: imageUploadId.trim(),
+        imageUploadId: trimmedImageUploadId,
       });
       if (!updated) throw new CardNotFoundError();
       return this.detail(userId, recordId);
@@ -486,6 +782,7 @@ export class CardService {
     userId: string,
     recordId: string,
     result: CardPracticeResult,
+    binding?: { contentType?: unknown; contentVersion?: unknown },
   ): Promise<CardRecordDetailView["practice"]> {
     if (result !== "correct" && result !== "incorrect" && result !== "revealed") {
       throw new CardValidationError("Invalid dictation result");
@@ -494,6 +791,25 @@ export class CardService {
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const entry = await this.repository.findByIdForUser(parsed.sourceId, userId);
     if (!entry || entry.status !== "completed") throw new CardNotFoundError();
+    const contentBinding = resolveContentBinding(entry, binding);
+    const entitlement = await this.entitlementService.getCurrentEntitlement(userId);
+    if (!entitlement.isPro) throw new CardLearningAccessError("Dictation requires Pro");
+    if (contentBinding) {
+      const current = await this.repository.findContentPracticeState(userId, parsed.sourceId, contentBinding.contentType);
+      if (current && current.contentVersion !== contentBinding.contentVersion) throw new CardPracticeConflictError();
+      const correctStreak = result === "correct" ? (current?.dictationCorrectStreak ?? 0) + 1 : 0;
+      const practicedAt = new Date();
+      const nextReviewAt = new Date(practicedAt.getTime() + reviewDelayDays(result, correctStreak) * 86_400_000);
+      return toPracticeView(await this.repository.saveContentDictationResult({
+        userId,
+        cardId: parsed.sourceId,
+        ...contentBinding,
+        result,
+        practicedAt,
+        nextReviewAt,
+        correctStreak,
+      }));
+    }
     const current = await this.repository.findPracticeState(userId, parsed.sourceId);
     const correctStreak = result === "correct" ? (current?.dictationCorrectStreak ?? 0) + 1 : 0;
     const practicedAt = new Date();
@@ -523,6 +839,16 @@ export class CardService {
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const detail = await this.detail(userId, recordId);
+    const entry = await this.repository.findByIdForUser(parsed.sourceId, userId);
+    if (!entry) throw new CardNotFoundError();
+    const contentBinding = resolveContentBinding(entry, input);
+    const effectiveContentType = contentBinding?.contentType ?? (entry.rewrittenText ? "rewrite" : "original");
+    if (effectiveContentType === "original" && !(await this.entitlementService.getCurrentEntitlement(userId)).isPro) {
+      throw new CardLearningAccessError("Original text practice requires Pro");
+    }
+    if (contentBinding) {
+      return this.updateContentCloze(userId, parsed.sourceId, detail, input, contentBinding);
+    }
     const current = await this.repository.findPracticeState(userId, parsed.sourceId);
     if ((current?.clozeVersion ?? 0) !== input.baseVersion) throw new CardPracticeConflictError();
     const state = normalizeClozeState(current?.clozeState);
@@ -588,6 +914,83 @@ export class CardService {
     return toPracticeView(saved);
   }
 
+  private async updateContentCloze(
+    userId: string,
+    cardId: string,
+    detail: CardRecordDetailView,
+    input: UpdateCardClozeInput,
+    binding: { contentType: CardLearningContentType; contentVersion: string },
+  ): Promise<CardRecordDetailView["practice"]> {
+    const block = detail.contentBlocks.find((candidate) =>
+      candidate.contentType === binding.contentType && candidate.contentVersion === binding.contentVersion,
+    );
+    if (!block) throw new CardPracticeConflictError();
+    const current = await this.repository.findContentPracticeState(userId, cardId, binding.contentType);
+    if (current && current.contentVersion !== binding.contentVersion) throw new CardPracticeConflictError();
+    if ((current?.clozeVersion ?? 0) !== input.baseVersion) throw new CardPracticeConflictError();
+    const state = normalizeClozeState(current?.clozeState);
+    const operation = input.operation;
+    let phraseMutation: Parameters<CardRepository["saveContentClozeState"]>[0]["phraseMutation"];
+    if (operation.type === "add") {
+      const segment = block.segments.find((candidate) => candidate.id === operation.segmentId);
+      if (!segment) throw new CardValidationError("Cloze segment does not exist");
+      const { startUtf16, endUtf16 } = operation;
+      if (startUtf16 >= endUtf16 || !isUtf16GraphemeBoundary(segment.text, startUtf16) || !isUtf16GraphemeBoundary(segment.text, endUtf16)) {
+        throw new CardValidationError("Invalid cloze range");
+      }
+      const answer = segment.text.slice(startUtf16, endUtf16);
+      if (countGraphemes(answer) > 100 || !answer.trim()) throw new CardValidationError("Invalid cloze range");
+      if (state.blanks.some((blank) => blank.segmentId === segment.id && startUtf16 < blank.endUtf16 && endUtf16 > blank.startUtf16)) {
+        throw new CardValidationError("Cloze ranges cannot overlap");
+      }
+      const blank = { id: randomUUID(), segmentId: segment.id, startUtf16, endUtf16, answer };
+      state.blanks.push(blank);
+      const normalizedText = normalizePhraseSurface(answer, block.languageCode);
+      if (!normalizedText) throw new CardValidationError("Invalid phrase content");
+      phraseMutation = {
+        type: "add",
+        languageCode: block.languageCode,
+        cardCreatedAt: new Date(detail.createdAt),
+        segmentId: segment.id,
+        startUtf16,
+        endUtf16,
+        surfaceText: answer,
+        normalizedText,
+        clozeBlankId: blank.id,
+        normalizerVersion: PHRASE_NORMALIZER_VERSION,
+        inputHash: createHash("sha256").update(`${block.languageCode}\n${normalizedText}`).digest("hex"),
+      };
+    } else if (operation.type === "remove") {
+      const index = state.blanks.findIndex((blank) => blank.id === operation.blankId);
+      if (index < 0) throw new CardValidationError("Cloze blank does not exist");
+      state.blanks.splice(index, 1);
+      phraseMutation = { type: "remove", clozeBlankId: operation.blankId };
+    } else if (operation.type === "master") {
+      const blank = state.blanks.find((candidate) => candidate.id === operation.blankId);
+      if (!blank) throw new CardValidationError("Cloze blank does not exist");
+      blank.mastered = true;
+    }
+    const practicedAt = input.result ? new Date() : null;
+    const correctStreak = input.result === "correct" ? (current?.clozeCorrectStreak ?? 0) + 1 : 0;
+    const nextReviewAt = input.result && practicedAt
+      ? new Date(practicedAt.getTime() + reviewDelayDays(input.result, correctStreak) * 86_400_000)
+      : null;
+    const saved = await this.repository.saveContentClozeState({
+      userId,
+      cardId,
+      ...binding,
+      expectedVersion: input.baseVersion,
+      state,
+      result: input.result ?? null,
+      practicedAt,
+      nextReviewAt,
+      correctStreak,
+      phraseMutation,
+    });
+    if (!saved) throw new CardPracticeConflictError();
+    return toPracticeView(saved);
+  }
+
   async practiceQueue(userId: string, limit: number): Promise<CardPracticeQueueItemView[]> {
     const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(50, Math.floor(limit))) : 20;
     const cardEntries = await this.repository.listRecentCompleted(userId, "9999-12-31", 100);
@@ -596,7 +999,11 @@ export class CardService {
     const now = Date.now();
     const items = await Promise.all(records.map(async (record) => {
       const parsed = parseCardRecordId(record.id)!;
-      const state = await this.repository.findPracticeState(userId, parsed.sourceId);
+      const entry = cardEntries.find((candidate) => candidate.id === parsed.sourceId);
+      const contentType = entry ? defaultLearningContentType(entry) : null;
+      const state = contentType
+        ? await this.repository.findContentPracticeState(userId, parsed.sourceId, contentType)
+        : await this.repository.findPracticeState(userId, parsed.sourceId);
       if (!state?.dictationCompleted) {
         return { record, initialTab: "dictation", reason: "try_dictation" } as const;
       }
@@ -631,13 +1038,14 @@ function normalizePatchedText(
   patch: UpdateCardContentInput,
   key: keyof UpdateCardContentInput,
   current: string | null,
+  maxChars: number,
 ): string | null {
   if (!(key in patch)) return current;
   const value = patch[key];
   if (value == null) return null;
-  const trimmed = value.trim();
-  if (countGraphemes(trimmed) > MAX_ORIGINAL_GRAPHEMES) {
-    throw new CardValidationError("Card content must not exceed 3000 characters");
+  const trimmed = normalizeCardBodyText(value);
+  if (countCardCharacters(trimmed) > maxChars) {
+    throw new CardValidationError(`Card content must not exceed ${maxChars} characters`);
   }
   return trimmed || null;
 }
@@ -659,6 +1067,44 @@ function buildSegments(text: string, languageCode: string): Array<{
     startUtf16: segment.textStart,
     endUtf16: segment.textEnd,
   }));
+}
+
+function contentText(entry: CardEntryEntity, contentType: CardLearningContentType): string | null {
+  if (contentType === "original") return entry.originalText;
+  if (contentType === "rewrite") return entry.rewrittenText;
+  return entry.replyText;
+}
+
+function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningContentType): string {
+  if (contentType === "original") return entry.appLocaleSnapshot;
+  if (contentType === "rewrite") return entry.rewrittenLanguageCode ?? entry.languageCode;
+  return entry.replyLanguageCode ?? entry.languageCode;
+}
+
+function defaultLearningContentType(entry: CardEntryEntity): CardLearningContentType | null {
+  for (const contentType of ["rewrite", "reply", "original"] as const) {
+    if (entry.contentSegments.some((segment) => segment.contentType === contentType)) return contentType;
+  }
+  return null;
+}
+
+function resolveContentBinding(
+  entry: CardEntryEntity,
+  value?: { contentType?: unknown; contentVersion?: unknown },
+): { contentType: CardLearningContentType; contentVersion: string } | null {
+  const hasType = value?.contentType !== undefined;
+  const hasVersion = value?.contentVersion !== undefined;
+  if (!hasType && !hasVersion) return null;
+  if (!hasType || !hasVersion ||
+    (value?.contentType !== "original" && value?.contentType !== "rewrite" && value?.contentType !== "reply") ||
+    typeof value.contentVersion !== "string" || !value.contentVersion) {
+    throw new CardValidationError("Invalid content binding");
+  }
+  const exists = entry.contentSegments.some((segment) =>
+    segment.contentType === value.contentType && segment.contentVersion === value.contentVersion,
+  );
+  if (!exists) throw new CardPracticeConflictError();
+  return { contentType: value.contentType, contentVersion: value.contentVersion };
 }
 
 function isPracticeResult(value: unknown): value is CardPracticeResult {
@@ -715,6 +1161,8 @@ export function toSummary(entry: CardEntryEntity): CardRecordSummaryView {
   }
   return {
     id: cardRecordId("card", entry.id),
+    title: entry.title,
+    displayTitle: effectiveCardTitle(entry),
     topic: entry.topic,
     collectionId: entry.collectionId,
     source: "card",
@@ -730,6 +1178,65 @@ export function toSummary(entry: CardEntryEntity): CardRecordSummaryView {
     isSample: entry.isSample,
     createdAt: entry.createdAt.toISOString(),
   };
+}
+
+function normalizeTitle(value: string | null | undefined, maxChars = DEFAULT_CARD_TITLE_MAX_CHARS): string | null {
+  const normalized = normalizeCardTitleText(value);
+  if (!normalized) return null;
+  if (countCardCharacters(normalized) > maxChars) {
+    throw new CardValidationError(`Card title must not exceed ${maxChars} characters`);
+  }
+  return normalized;
+}
+
+function effectiveCardTitle(entry: CardEntryEntity): string {
+  const title = entry.title?.trim();
+  if (title) return title;
+  const topic = entry.topic?.trim();
+  if (topic) return topic;
+  const firstLine = (entry.originalText ?? entry.rewrittenText ?? "")
+    .split(/\n/u)
+    .map((line) => line.trim())
+    .find(Boolean) ?? "";
+  return truncateGraphemes(firstLine, DEFAULT_CARD_TITLE_MAX_CHARS);
+}
+
+function resolveContentLanguage(input: {
+  patch: UpdateCardContentInput;
+  key: "rewrittenText" | "translationText" | "replyText";
+  nextText: string | null;
+  currentText: string | null;
+  currentLanguageCode: string | null;
+  defaultLanguageCode: string;
+  generated?: { target: CardGeneratedContentTarget; languageCode: string; sourceHash: string };
+  target: CardGeneratedContentTarget;
+}): string | null {
+  if (!input.nextText) return null;
+  if (!Object.prototype.hasOwnProperty.call(input.patch, input.key)) return input.currentLanguageCode;
+  if (input.generated?.target === input.target) return input.generated.languageCode;
+  if (input.nextText === input.currentText && input.currentLanguageCode) return input.currentLanguageCode;
+  return input.currentLanguageCode ?? input.defaultLanguageCode;
+}
+
+function resolveSourceHash(input: {
+  patch: UpdateCardContentInput;
+  key: "rewrittenText" | "translationText" | "replyText";
+  nextText: string | null;
+  currentSourceHash: string | null;
+  sourceHash: string | null;
+  originalChanged: boolean;
+}): string | null {
+  if (input.originalChanged || !input.nextText) return null;
+  if (!Object.prototype.hasOwnProperty.call(input.patch, input.key)) return input.currentSourceHash;
+  return input.sourceHash;
+}
+
+function cardContentHash(text: string): string {
+  return `sha256:${createHash("sha256").update(normalizeCardContent(text)).digest("hex")}`;
+}
+
+function normalizeCardContent(text: string | null): string {
+  return normalizeCardLineEndings(text ?? "").normalize("NFKC").trim();
 }
 
 export function taskGuardId(clientId: string): string {
@@ -749,5 +1256,59 @@ function assertDateKey(value: string): void {
     normalized.getUTCDate() !== day
   ) {
     throw new CardValidationError("Invalid date key");
+  }
+}
+
+function cardUsageFeature(target: CardGeneratedContentTarget): "rewrite" | "organization" | "reply" {
+  if (target === "expression") return "rewrite";
+  if (target === "translation") return "organization";
+  return "reply";
+}
+
+function estimateTokenReservation(prompt: string, maxOutputTokens: number): number {
+  return Math.max(1, Array.from(prompt).length + maxOutputTokens);
+}
+
+async function settleGeneratedUsage(
+  service: UsageV2Service,
+  userId: string,
+  requestId: string,
+  usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"],
+  prompt: string,
+  output: string,
+  provider: AIProvider,
+): Promise<void> {
+  const inputTokens = usage?.inputTokens ?? Math.ceil(Array.from(prompt).length / 2);
+  const outputTokens = usage?.outputTokens ?? Math.ceil(Array.from(output).length / 2);
+  await service.settleTokens({
+    userId,
+    requestId,
+    inputTokens,
+    outputTokens,
+    meteringSource: usage ? "provider" : "tokenizer",
+    provider: provider.providerName,
+    model: provider.modelName,
+  });
+}
+
+function dateRangeDays(fromDateKey: string, toDateKey: string): number {
+  const from = Date.parse(`${fromDateKey}T00:00:00.000Z`);
+  const to = Date.parse(`${toDateKey}T00:00:00.000Z`);
+  return Math.floor((to - from) / 86_400_000) + 1;
+}
+
+function encodeCardCursor(createdAt: Date, id: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, createdAt: createdAt.toISOString(), id }), "utf8").toString("base64url");
+}
+
+function decodeCardCursor(value: string): { createdAt: Date; id: string } {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
+    const createdAt = new Date(String(parsed.createdAt ?? ""));
+    const id = typeof parsed.id === "string" ? parsed.id : "";
+    if (parsed.v !== 1 || !id || !Number.isFinite(createdAt.getTime())) throw new Error("invalid");
+    return { createdAt, id };
+  } catch {
+    throw new CardValidationError("Invalid Card cursor");
   }
 }

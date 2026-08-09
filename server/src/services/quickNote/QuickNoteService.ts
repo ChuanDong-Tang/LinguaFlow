@@ -212,3 +212,7 @@ function parseLegacyAssistantContent(content: string, contactCode: string) {
     ? { expressionText: null, translationText: null, replyText: content.trim() || null }
     : { expressionText: content.trim() || null, translationText: null, replyText: null };
 }
+/**
+ * @deprecated Compatibility service for legacy QuickNote clients.
+ * Keep data readable during the observation window; do not add new product flows here.
+ */

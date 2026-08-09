@@ -31,6 +31,7 @@ import {
   ProfileNicknameBlockedError,
 } from "@lf/server/services/auth/UserProfileService.js";
 import type { UserAvatarService } from "@lf/server/services/auth/UserAvatarService.js";
+import type { UsageV2Service } from "@lf/server/services/usage/UsageV2Service.js";
 import {
   AvatarModerationRejectedError,
   AvatarModerationUnavailableError,
@@ -41,6 +42,7 @@ import {
 export interface MeRouteDeps {
   subscriptionService: SubscriptionService;
   entitlementService: EntitlementService;
+  usageV2Service: UsageV2Service;
   paymentEntitlementRefreshService: PaymentEntitlementRefreshService;
   userPreferenceRepository: UserPreferenceRepository;
   userProfileService: UserProfileService;
@@ -75,6 +77,18 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
 }
 
 export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void {
+  app.get("/me/usage/v2", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/usage/v2");
+    if (!userContext) return;
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: await deps.usageV2Service.getCurrentUsage(userContext.userId),
+    });
+  });
+
   app.get("/me/profile", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);

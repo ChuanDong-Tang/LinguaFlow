@@ -15,6 +15,7 @@ import type { ChatMessageService } from "@lf/server/services/chat/ChatMessageSer
 type AuthenticatedChatGenerationStreamInput = ChatGenerationStreamRequestBody & {
   userId: string;
   requestId: string;
+  usageApiVersion?: "v2";
   signal?: AbortSignalLike;
 };
 
@@ -96,6 +97,12 @@ function mapChatGenerationErrorToHttp(code: string | undefined): {
   }
   if (code === "DAILY_QUOTA_EXCEEDED") {
     return { status: 429, code: "DAILY_QUOTA_EXCEEDED", message: "You've reached your character quota." };
+  }
+  if (code === "TOKEN_QUOTA_EXCEEDED") {
+    return { status: 402, code: "TOKEN_QUOTA_EXCEEDED", message: "AI usage for this period has been exhausted." };
+  }
+  if (code === "TOKEN_REQUEST_ALREADY_EXISTS") {
+    return { status: 409, code: "TOKEN_REQUEST_ALREADY_EXISTS", message: "This AI request has already been processed." };
   }
   if (code === "TASK_IN_PROGRESS") {
     return {
@@ -195,6 +202,7 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
           conversationId: body.conversationId,
           userMessageId: body.userMessageId,
           requestId,
+          usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
           signal: abortController.signal,
         },
         writeEvent

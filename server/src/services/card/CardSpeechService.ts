@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { CardRepository, CardSpeechAssetEntity } from "@lf/core/ports/repository/CardRepository.js";
+import type { CardRepository, CardSpeechAssetEntity, CardLearningContentType, CardEntryEntity } from "@lf/core/ports/repository/CardRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import { normalizeLearningText } from "@lf/core/text/learningText.js";
 import { countGraphemes, isUtf16GraphemeBoundary } from "@lf/core/text/grapheme.js";
@@ -62,13 +62,21 @@ export class CardSpeechService {
     sourceKind?: "review_segment" | "dictation_sentence";
     startUtf16?: number;
     endUtf16?: number;
+    contentType?: CardLearningContentType;
+    contentVersion?: string;
   }): Promise<CardSpeechAssetView> {
-    const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
-    if (!entitlement.features.highQualityTts) throw new CardSpeechProRequiredError();
     const entry = await this.repository.findByIdForUser(input.entryId, input.userId);
     if (!entry || entry.status !== "completed") throw new CardNotFoundError();
-    const segment = entry.segments.find((candidate) => candidate.id === input.segmentId);
+    const binding = resolveSpeechBinding(input.contentType, input.contentVersion);
+    const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
+    const effectiveContentType = binding?.contentType ?? (entry.rewrittenText ? "rewrite" : "original");
+    if (input.sourceKind === "dictation_sentence" && !entitlement.isPro) throw new CardSpeechProRequiredError();
+    if (effectiveContentType === "original" && !entitlement.isPro) throw new CardSpeechProRequiredError();
+    const segment = binding
+      ? entry.contentSegments.find((candidate) => candidate.id === input.segmentId && candidate.contentType === binding.contentType && candidate.contentVersion === binding.contentVersion)
+      : entry.segments.find((candidate) => candidate.id === input.segmentId);
     if (!segment) throw new CardNotFoundError();
+    const languageCode = binding ? contentLanguageCode(entry, binding.contentType) : entry.languageCode;
     const hasRange = input.startUtf16 !== undefined || input.endUtf16 !== undefined;
     if (hasRange && (input.startUtf16 === undefined || input.endUtf16 === undefined)) throw new CardValidationError("Invalid speech range");
     const selectedText = hasRange
@@ -81,22 +89,24 @@ export class CardSpeechService {
           return segment.text.slice(input.startUtf16, input.endUtf16);
         })()
       : segment.text;
-    const sourceText = normalizeLearningText({ text: selectedText, languageCode: entry.languageCode });
+    const sourceText = normalizeLearningText({ text: selectedText, languageCode });
     const sourceKind = input.sourceKind ?? "review_segment";
     const maxChars = sourceKind === "dictation_sentence" ? 300 : 800;
     if (!sourceText || countGraphemes(sourceText) > maxChars) throw new CardValidationError("Invalid speech segment");
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
-    const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(entry.languageCode, provider);
+    const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(languageCode, provider);
     const sourceTextHash = sha256(`card-tts-v1\n${sourceText}`);
     const cacheKey = sha256([
       input.userId,
       input.entryId,
       input.segmentId,
+      binding?.contentType ?? "legacy",
+      binding?.contentVersion ?? "legacy",
       sourceKind,
       provider,
       voiceCode,
-      entry.languageCode,
+      languageCode,
       sourceTextHash,
     ].join("\n"));
     const cached = await this.repository.findReadySpeechAsset(cacheKey);
@@ -111,7 +121,7 @@ export class CardSpeechService {
       cacheKey,
       provider,
       voiceCode,
-      languageCode: entry.languageCode,
+      languageCode,
       sourceText,
       sourceTextHash,
     });
@@ -126,13 +136,19 @@ export class CardSpeechService {
     segmentId: string;
     startUtf16: number;
     endUtf16: number;
+    contentType?: CardLearningContentType;
+    contentVersion?: string;
   }): Promise<CardSpeechAssetView> {
     const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
     if (!entitlement.features.highQualityTts) throw new CardSpeechProRequiredError();
     const entry = await this.repository.findByIdForUser(input.entryId, input.userId);
     if (!entry || entry.status !== "completed") throw new CardNotFoundError();
-    const segment = entry.segments.find((candidate) => candidate.id === input.segmentId);
+    const binding = resolveSpeechBinding(input.contentType, input.contentVersion);
+    const segment = binding
+      ? entry.contentSegments.find((candidate) => candidate.id === input.segmentId && candidate.contentType === binding.contentType && candidate.contentVersion === binding.contentVersion)
+      : entry.segments.find((candidate) => candidate.id === input.segmentId);
     if (!segment) throw new CardNotFoundError();
+    const languageCode = binding ? contentLanguageCode(entry, binding.contentType) : entry.languageCode;
     if (
       input.startUtf16 >= input.endUtf16 ||
       !isUtf16GraphemeBoundary(segment.text, input.startUtf16) ||
@@ -140,17 +156,17 @@ export class CardSpeechService {
     ) throw new CardValidationError("Invalid speech selection");
     const selected = segment.text.slice(input.startUtf16, input.endUtf16);
     if (!selected.trim() || countGraphemes(selected) > 100) throw new CardValidationError("选区需要包含 1 到 100 个字符");
-    const sourceText = normalizeLearningText({ text: selected, languageCode: entry.languageCode });
+    const sourceText = normalizeLearningText({ text: selected, languageCode });
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
-    const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(entry.languageCode, provider);
+    const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(languageCode, provider);
     const sourceTextHash = sha256(`card-selection-tts-v1\n${sourceText}`);
     const cacheKey = sha256([
       input.userId,
       "selection",
       provider,
       voiceCode,
-      entry.languageCode,
+      languageCode,
       sourceTextHash,
     ].join("\n"));
     const context = { entryId: input.entryId, segmentId: input.segmentId };
@@ -166,7 +182,7 @@ export class CardSpeechService {
       cacheKey,
       provider,
       voiceCode,
-      languageCode: entry.languageCode,
+      languageCode,
       sourceText,
       sourceTextHash,
     });
@@ -292,6 +308,23 @@ export class CardSpeechService {
       cached,
     };
   }
+}
+
+function resolveSpeechBinding(
+  contentType: CardLearningContentType | undefined,
+  contentVersion: string | undefined,
+): { contentType: CardLearningContentType; contentVersion: string } | null {
+  if (contentType === undefined && contentVersion === undefined) return null;
+  if ((contentType !== "original" && contentType !== "rewrite" && contentType !== "reply") || !contentVersion) {
+    throw new CardValidationError("Invalid content binding");
+  }
+  return { contentType, contentVersion };
+}
+
+function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningContentType): string {
+  if (contentType === "original") return entry.appLocaleSnapshot;
+  if (contentType === "rewrite") return entry.rewrittenLanguageCode ?? entry.languageCode;
+  return entry.replyLanguageCode ?? entry.languageCode;
 }
 
 function isShortDictionaryExpression(text: string): boolean {

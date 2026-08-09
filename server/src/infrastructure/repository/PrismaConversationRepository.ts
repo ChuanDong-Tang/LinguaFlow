@@ -68,12 +68,43 @@ export class PrismaConversationRepository implements ConversationRepository {
     return rows.map((row) => this.toEntity(row));
   }
 
+  async listPageByUser(input: {
+    userId: string;
+    limit: number;
+    cursor?: { updatedAt: Date; id: string };
+  }): Promise<ConversationEntity[]> {
+    const rows = await this.prisma.conversation.findMany({
+      where: {
+        userId: input.userId,
+        archivedAt: null,
+        ...(input.cursor ? {
+          OR: [
+            { updatedAt: { lt: input.cursor.updatedAt } },
+            { updatedAt: input.cursor.updatedAt, id: { lt: input.cursor.id } },
+          ],
+        } : {}),
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: input.limit,
+    });
+    return rows.map((row) => this.toEntity(row));
+  }
+
   async touch(conversationId: string): Promise<void> {
     await this.prisma.conversation.update({
       where: { id: conversationId },
       data: {
         updatedAt: new Date(),
       },
+    });
+  }
+
+  async setTitleIfEmpty(conversationId: string, title: string): Promise<void> {
+    const current = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
+    if (!current || current.title?.trim()) return;
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { title },
     });
   }
 

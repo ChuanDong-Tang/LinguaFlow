@@ -5,6 +5,7 @@ import { PrismaUserRepository } from "@lf/server/infrastructure/repository/Prism
 import { PrismaUserProfileRepository } from "@lf/server/infrastructure/repository/PrismaUserProfileRepository.js";
 import { PrismaCardRepository } from "@lf/server/infrastructure/repository/PrismaCardRepository.js";
 import { PrismaUserPreferenceRepository } from "@lf/server/infrastructure/repository/PrismaUserPreferenceRepository.js";
+import { PrismaDictionaryLookupCacheRepository } from "@lf/server/infrastructure/repository/PrismaDictionaryLookupCacheRepository.js";
 import { PrismaUserSessionRepository } from "@lf/server/infrastructure/repository/PrismaUserSessionRepository.js";
 import { PrismaTtsAssetRepository } from "@lf/server/infrastructure/repository/PrismaTtsAssetRepository.js";
 import { PrismaTtsRequestLogRepository } from "@lf/server/infrastructure/repository/PrismaTtsRequestLogRepository.js";
@@ -47,6 +48,7 @@ import { PrismaPaymentOrderRepository } from "@lf/server/infrastructure/reposito
 import { PrismaPaymentEventRepository } from "@lf/server/infrastructure/repository/PrismaPaymentEventRepository.js";
 import { PrismaBenefitGrantRepository } from "@lf/server/infrastructure/repository/PrismaBenefitGrantRepository.js";
 import { EntitlementService } from "@lf/server/services/entitlement/EntitlementService.js";
+import { UsageV2Service } from "@lf/server/services/usage/UsageV2Service.js";
 import { SubscriptionService } from "@lf/server/services/subscription/SubscriptionService.js";
 import { PaymentOrderService } from "@lf/server/services/payment/PaymentOrderService.js";
 import { PaymentNotifyService } from "@lf/server/services/payment/PaymentNotifyService.js";
@@ -112,7 +114,7 @@ export function createApp() {
     if (allowOrigin) {
       reply.header("Access-Control-Allow-Origin", allowOrigin);
       reply.header("Vary", "Origin");
-      reply.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-request-id");
+      reply.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-request-id, x-lf-usage-api");
       reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     }
 
@@ -143,6 +145,7 @@ export function createApp() {
   const cardRepository = new PrismaCardRepository(prisma);
   const quickNoteService = new QuickNoteService(new PrismaQuickNoteRepository(prisma));
   const userPreferenceRepository = new PrismaUserPreferenceRepository(prisma);
+  const dictionaryLookupCacheRepository = new PrismaDictionaryLookupCacheRepository(prisma);
   const userSessionRepository = new PrismaUserSessionRepository(prisma);
   const ttsAssetRepository = new PrismaTtsAssetRepository(prisma);
   const ttsRequestLogRepository = new PrismaTtsRequestLogRepository(prisma);
@@ -196,6 +199,7 @@ export function createApp() {
   const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
   const subscriptionService = new SubscriptionService(subscriptionRepository);
   const entitlementService = new EntitlementService(entitlementRepository, subscriptionService);
+  const usageV2Service = new UsageV2Service(prisma, subscriptionService);
   const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
   const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
   const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
@@ -247,6 +251,7 @@ export function createApp() {
     tencentImsClient,
     systemEventLogRepository,
     entitlementService,
+    usageV2Service,
   );
   const cardRelationService = new CardRelationService(
     cardRelationRepository,
@@ -331,6 +336,7 @@ export function createApp() {
     contentSafetyService,
     cardRepository,
     resourceGovernor,
+    usageV2Service,
   );
   const cardService = new CardService(
     cardRepository,
@@ -342,9 +348,16 @@ export function createApp() {
     cardImageService,
     aiProvider,
     resourceGovernor,
+    runtimeConfig.cardListPageSizeMax,
+    {
+      titleMaxChars: runtimeConfig.cardTitleMaxChars,
+      contentMaxChars: runtimeConfig.cardContentMaxChars,
+      imagesMaxPerCard: runtimeConfig.cardImagesMaxPerCard,
+    },
+    usageV2Service,
   );
   const cardCollectionService = new CardCollectionService(new PrismaCardCollectionRepository(prisma));
-  const recallService = new RecallService(new PrismaRecallRepository(prisma), cardRelationService, embeddingProvider, cardImageService, resourceGovernor);
+  const recallService = new RecallService(new PrismaRecallRepository(prisma), cardRelationService, embeddingProvider, cardImageService, resourceGovernor, runtimeConfig.recallExplorationNodeLimit);
   const ttsProvider = new AzureGlobalTtsProvider();
   const ttsStorageProvider = new CosStorageProvider();
   const ttsService = new TtsService(
@@ -388,6 +401,7 @@ export function createApp() {
     });
     registerChatRoutes(app, {
       chatMessageService,
+      cardService,
       userRepository,
       systemEventLogRepository,
       contentSafetyService,
@@ -409,6 +423,7 @@ export function createApp() {
     registerMeRoutes(app, {
       subscriptionService,
       entitlementService,
+      usageV2Service,
       paymentEntitlementRefreshService,
       userPreferenceRepository,
       userProfileService,
@@ -436,6 +451,9 @@ export function createApp() {
     });
     registerDictionaryRoutes(app, {
       aiProvider,
+      userPreferenceRepository,
+      cacheRepository: dictionaryLookupCacheRepository,
+      usageV2Service,
       rateLimiter: chatGenerationRateLimiter,
       userRepository,
       systemEventLogRepository,

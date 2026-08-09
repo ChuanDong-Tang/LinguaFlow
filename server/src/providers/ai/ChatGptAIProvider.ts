@@ -140,6 +140,7 @@ export class ChatGPTAIProvider implements AIProvider {
           const json = JSON.parse(raw) as {
             type?: string;
             delta?: string;
+            response?: { usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } };
             error?: {
               code?: string;
               message?: string;
@@ -152,7 +153,13 @@ export class ChatGPTAIProvider implements AIProvider {
           }
 
           if (json.type === "response.completed") {
-            await onEvent({ type: "done" });
+            const usage = json.response?.usage;
+            const inputTokens = usage?.input_tokens ?? 0;
+            const outputTokens = usage?.output_tokens ?? 0;
+            await onEvent({
+              type: "done",
+              ...(usage ? { usage: { inputTokens, outputTokens, totalTokens: usage.total_tokens ?? inputTokens + outputTokens, source: "provider" as const } } : {}),
+            });
             return;
           }
 

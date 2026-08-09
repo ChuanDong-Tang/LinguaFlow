@@ -22,6 +22,13 @@ export interface CardEmbeddingSource {
   rewrittenText: string;
 }
 
+export interface CardTopicSource {
+  userId: string;
+  sourceId: string;
+  originalText: string;
+  appLocale: string;
+}
+
 export interface PhraseIndexSource {
   phraseId: string;
   userId: string;
@@ -79,6 +86,9 @@ export interface ProgressPhraseDetectionResult {
 }
 
 export interface CardEnrichmentRepository {
+  claimNextTopicJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  loadTopicSource(job: CardEnrichmentJobEntity): Promise<CardTopicSource | null>;
+  completeTopicJob(job: CardEnrichmentJobEntity, topic: string): Promise<boolean>;
   claimNextEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadEmbeddingSource(job: CardEnrichmentJobEntity): Promise<CardEmbeddingSource | null>;
   completeEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;

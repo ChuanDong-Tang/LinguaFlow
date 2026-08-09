@@ -19,11 +19,14 @@ import {
   type ContentSafetyService,
 } from "../contentSafety/ContentSafetyService.js";
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
+import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
+import type { UsageV2Service } from "../usage/UsageV2Service.js";
 
 type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
   userId: string;
   signal?: AbortSignalLike;
   requestId: string;
+  usageApiVersion?: "v2";
 };
 
 type AppErrorCode =
@@ -48,6 +51,7 @@ export class ChatGenerationService {
     private readonly contentSafetyService?: ContentSafetyService,
     private readonly activeCardLookup?: { findActiveByUser(userId: string): Promise<unknown | null> },
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly usageV2Service?: UsageV2Service,
   ) {}
   
   async generateChatStream(
@@ -60,6 +64,7 @@ export class ChatGenerationService {
     let quotaDateKey: string | undefined;
     let effectiveProvider = this.aiProvider.providerName;
     let effectiveModel = this.aiProvider.modelName;
+    let tokenUsage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     const userPreference = await this.resolveUserPreference(input.userId);
     try {
       effectiveProvider = this.aiProvider.resolveProviderName?.(input.provider) ?? this.aiProvider.providerName;
@@ -262,7 +267,19 @@ export class ChatGenerationService {
     }, Math.max(1_000, Math.floor(taskTtlMs / 3)));
 
     try {
-      await this.entitlementService.assertCanStartGeneration(input.userId, { dateKey: quotaDateKey });
+      if (input.usageApiVersion === "v2") {
+        if (!this.usageV2Service) throw new Error("V2 usage is unavailable");
+        await this.usageV2Service.reserveTokens({
+          userId: input.userId,
+          requestId: input.requestId,
+          feature: "rewrite",
+          estimatedTokens: Array.from(input.text).length + 4_000,
+          provider: effectiveProvider,
+          model: effectiveModel,
+        });
+      } else {
+        await this.entitlementService.assertCanStartGeneration(input.userId, { dateKey: quotaDateKey });
+      }
 
       const generate = () => this.aiProvider.generateChatTextStream(
         {
@@ -308,6 +325,7 @@ export class ChatGenerationService {
             return;
           }
           if (event.type === "done") {
+            tokenUsage = event.usage;
             return;
           }
           await onEvent(event);
@@ -350,12 +368,21 @@ export class ChatGenerationService {
         outputBuffer = "";
       }
       const totalChars = input.text.length + assistantText.length;
-      const assistantMessage = shouldPersist
-        ? await this.createPersistedAssistantMessage(input, assistantText, userPreference.learningLanguage)
-        : undefined;
       try {
+        if (input.usageApiVersion === "v2") {
+          await this.usageV2Service!.settleTokens({
+            userId: input.userId,
+            requestId: input.requestId,
+            inputTokens: tokenUsage?.inputTokens ?? Math.ceil(Array.from(input.text).length / 2),
+            outputTokens: tokenUsage?.outputTokens ?? Math.ceil(Array.from(assistantText).length / 2),
+            meteringSource: tokenUsage ? "provider" : "tokenizer",
+            provider: effectiveProvider,
+            model: effectiveModel,
+          });
+        } else {
         // 输出长度由模型决定；用户只要有额度发起本轮，就让回复完整返回，最终扣费最多扣到当日上限。
         await this.entitlementService.consumeUpToLimit(input.userId, totalChars, { dateKey: quotaDateKey });
+        }
       } catch (settlementError) {
         await this.logSettlementFailure(input, {
           error: settlementError,
@@ -366,13 +393,23 @@ export class ChatGenerationService {
           provider: effectiveProvider,
           model: effectiveModel,
         });
+        if (input.usageApiVersion === "v2") {
+          await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+          throw settlementError;
+        }
       }
+      const assistantMessage = shouldPersist
+        ? await this.createPersistedAssistantMessage(input, assistantText, userPreference.learningLanguage)
+        : undefined;
       await onEvent({ type: "done", assistantMessage });
     }catch(error){
+      if (input.usageApiVersion === "v2") {
+        await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      }
       const failureStatus = this.resolveFailureStatus(error);
-      if (failureStatus === "cancelled") {
+      if (input.usageApiVersion !== "v2" && failureStatus === "cancelled") {
         await this.consumeCancelledUsage(input, assistantText, quotaDateKey);
-      } else if (error instanceof ContentSafetyBlockedError && error.stage === "output") {
+      } else if (input.usageApiVersion !== "v2" && error instanceof ContentSafetyBlockedError && error.stage === "output") {
         await this.consumeBlockedOutputUsage(input, assistantText, quotaDateKey);
       }
       if (shouldPersist) await this.chatMessageService.markUserMessageFailed(input.userMessageId!);

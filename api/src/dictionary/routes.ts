@@ -1,5 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
+import { buildDictionarySystemPrompt, buildDictionaryUserPrompt } from "@lf/core/Prompts/dictionaryLookupPrompt.js";
+import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
+import type { PrismaDictionaryLookupCacheRepository } from "@lf/server/infrastructure/repository/PrismaDictionaryLookupCacheRepository.js";
+import { createHash } from "node:crypto";
 import type { ChatGenerationRateLimiter } from "@lf/server/services/chat/ChatGenerationRateLimiter.js";
 import {
   AccountDisabledError,
@@ -11,12 +15,19 @@ import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
+import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
+import { TokenQuotaExceededError, TokenRequestAlreadyExistsError, type UsageV2Service } from "@lf/server/services/usage/UsageV2Service.js";
 
 const FAILED_MODEL_OUTPUT_LOG_MAX_CHARS = 12_000;
 const DATAMUSE_TIMEOUT_MS = 4_000;
+const DICTIONARY_PROMPT_VERSION = "dictionary-context-v2";
+const DICTIONARY_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1_000;
 
 export interface DictionaryRouteDeps {
   aiProvider: AIProvider;
+  userPreferenceRepository: UserPreferenceRepository;
+  cacheRepository: PrismaDictionaryLookupCacheRepository;
+  usageV2Service: UsageV2Service;
   rateLimiter?: ChatGenerationRateLimiter;
   userRepository: {
     findById: (userId: string) => Promise<{
@@ -39,6 +50,7 @@ type DictionaryLookupBody = {
 };
 
 type DictionaryLookupResult = {
+  queryType: "word" | "phrase" | "sentence";
   term: string;
   phonetic: string | null;
   audioUrl: string | null;
@@ -46,10 +58,12 @@ type DictionaryLookupResult = {
     partOfSpeech: string;
     definitions: Array<{ definition: string; example: string | null }>;
   }>;
-  source: null;
-  target: { meaning: string; example: string; sourceNote: null; scenario: string };
-  ui: { meaning: string; example: string; sourceNote: null; scenario: string };
+  source: { type: string; title: string } | null;
+  target: DictionaryExplanation;
+  ui: DictionaryExplanation;
 };
+
+type DictionaryExplanation = { meaning: string; example: string; sourceNote: string | null; scenario: string };
 
 export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryRouteDeps): void {
   const runtimeConfig = getRuntimeConfig();
@@ -137,12 +151,78 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
     };
     reply.raw.on("close", abortOnClientClose);
     try {
-      if (body.targetLanguage !== "en-US") {
-        return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "DICTIONARY_NOT_FOUND", message: "词典中没有找到这个词或短语" } });
+      const preference = await deps.userPreferenceRepository.getByUserId(userContext.userId);
+      const targetLanguage = preference.learningLanguage;
+      const uiLanguage = preference.appLocale;
+      const normalizedTerm = normalizeLookupTerm(body.term, targetLanguage);
+      const context = extractSelectionSentence(body.context, body.selectionStart, body.selectionEnd) ?? body.context.slice(0, 1_400);
+      const contextHash = sha256(context);
+      const provider = deps.aiProvider.resolveProviderName?.() ?? deps.aiProvider.providerName;
+      const model = deps.aiProvider.resolveModelName?.() ?? deps.aiProvider.modelName;
+      const cacheKey = sha256([DICTIONARY_PROMPT_VERSION, userContext.userId, provider, model, targetLanguage, uiLanguage, normalizedTerm, contextHash].join("\u0000"));
+      const cached = await deps.cacheRepository.find(cacheKey).catch((error) => {
+        req.log.warn({ requestId, error }, "dictionary cache read failed");
+        return null;
+      });
+      let data = cached && cached.expiresAt.getTime() > Date.now() ? parseDictionaryResult(cached.result) : null;
+      let cacheStatus: "hit" | "miss" | "stale" | "fallback" = data ? "hit" : "miss";
+
+      if (!data) {
+        const useV2 = req.headers["x-lf-usage-api"] === "v2";
+        if (useV2) {
+          await deps.usageV2Service.reserveTokens({
+            userId: userContext.userId,
+            requestId,
+            feature: "dictionary",
+            estimatedTokens: Array.from(body.context + body.term).length + runtimeConfig.dictionaryLookupMaxOutputTokens,
+            provider,
+            model,
+          });
+        }
+        try {
+          const generated = await generateDictionaryLookup(deps.aiProvider, {
+            userId: userContext.userId,
+            term: body.term,
+            context: body.context,
+            selectionStart: body.selectionStart,
+            selectionEnd: body.selectionEnd,
+            targetLanguage,
+            uiLanguage,
+            signal: abortController.signal,
+          });
+          data = parseDictionaryResult(parseModelJson(generated.text));
+          if (!data) throw Object.assign(new Error("DICTIONARY_MODEL_OUTPUT_INVALID"), { modelOutput: generated.text });
+          if (useV2) {
+            await deps.usageV2Service.settleTokens({
+              userId: userContext.userId,
+              requestId,
+              inputTokens: generated.usage?.inputTokens ?? Math.ceil((body.context.length + body.term.length) / 2),
+              outputTokens: generated.usage?.outputTokens ?? Math.ceil(Array.from(generated.text).length / 2),
+              meteringSource: generated.usage ? "provider" : "tokenizer",
+              provider,
+              model,
+            });
+          }
+          await deps.cacheRepository.put({
+            cacheKey, userId: userContext.userId, term: normalizedTerm, contextHash, targetLanguage, uiLanguage,
+            promptVersion: DICTIONARY_PROMPT_VERSION, provider, model, result: data,
+            expiresAt: new Date(Date.now() + DICTIONARY_CACHE_TTL_MS),
+          }).catch((error) => req.log.warn({ requestId, error }, "dictionary cache write failed"));
+        } catch (modelError) {
+          if (useV2) await deps.usageV2Service.releaseTokens(userContext.userId, requestId).catch(() => undefined);
+          if (abortController.signal.aborted) throw modelError;
+          data = cached ? parseDictionaryResult(cached.result) : null;
+          if (data) {
+            cacheStatus = "stale";
+          } else if (targetLanguage === "en-US" && isSingleWord(normalizedTerm)) {
+            const fallback = await lookupEnglishDictionary(normalizedTerm, abortController.signal);
+            data = fallback ? attachContextExample(fallback, body) : null;
+            cacheStatus = "fallback";
+          } else {
+            throw modelError;
+          }
+        }
       }
-      const normalizedTerm = normalizeLookupTerm(body.term);
-      const dictionaryResult = await lookupEnglishDictionary(normalizedTerm, abortController.signal);
-      const data = dictionaryResult ? attachContextExample(dictionaryResult, body) : null;
       if (!data) {
         return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "DICTIONARY_NOT_FOUND", message: "词典中没有找到这个词或短语" } });
       }
@@ -155,6 +235,8 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
         inputChars: body.context.length + body.term.length,
         outputChars,
         body,
+        effectiveLanguages: { targetLanguage, uiLanguage },
+        cacheStatus,
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -173,6 +255,12 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
         error,
       });
       req.log.warn({ requestId, error }, "dictionary lookup failed");
+      if (error instanceof TokenQuotaExceededError) {
+        return reply.status(402).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
+      if (error instanceof TokenRequestAlreadyExistsError) {
+        return reply.status(409).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      }
       return reply.status(502).send({
         ok: false,
         request_id: requestId,
@@ -222,6 +310,98 @@ async function lookupEnglishDictionary(term: string, clientSignal: AbortSignal):
   return datamuseBody === null ? null : normalizeDatamuseResult(datamuseBody, term);
 }
 
+async function generateDictionaryLookup(
+  aiProvider: AIProvider,
+  input: {
+    userId: string;
+    term: string;
+    context: string;
+    selectionStart: number;
+    selectionEnd: number;
+    targetLanguage: "en-US" | "ja-JP";
+    uiLanguage: "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
+    signal: AbortSignal;
+  },
+): Promise<{ text: string; usage?: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"] }> {
+  let output = "";
+  let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
+  await aiProvider.generateChatTextStream({
+    userId: input.userId,
+    text: buildDictionaryUserPrompt(input),
+    contactId: "dictionary_lookup",
+    languageCode: input.targetLanguage,
+    appLocale: input.uiLanguage,
+    systemPrompt: buildDictionarySystemPrompt(input),
+    rawUserPrompt: true,
+    maxOutputTokens: 1_200,
+    signal: input.signal,
+  }, (event) => {
+    if (event.type === "delta") output += event.text;
+    if (event.type === "done") usage = event.usage;
+  });
+  return { text: output, usage };
+}
+
+function parseModelJson(value: string): unknown {
+  const trimmed = value.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "");
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start < 0 || end <= start) return null;
+    try {
+      return JSON.parse(trimmed.slice(start, end + 1)) as unknown;
+    } catch {
+      return null;
+    }
+  }
+}
+
+export function parseDictionaryResult(value: unknown): DictionaryLookupResult | null {
+  if (!isRecord(value)) return null;
+  const queryType = value.queryType === "word" || value.queryType === "phrase" || value.queryType === "sentence"
+    ? value.queryType
+    : null;
+  const term = readString(value.term);
+  const target = parseExplanation(value.target);
+  const ui = parseExplanation(value.ui);
+  const meanings = Array.isArray(value.meanings) ? value.meanings.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const definitions = Array.isArray(entry.definitions) ? entry.definitions.flatMap((definition) => {
+      if (!isRecord(definition)) return [];
+      const text = readString(definition.definition);
+      if (!text) return [];
+      const example = readString(definition.example);
+      return [{ definition: text, example: example || null }];
+    }).slice(0, 4) : [];
+    return definitions.length ? [{ partOfSpeech: readString(entry.partOfSpeech), definitions }] : [];
+  }).slice(0, 4) : [];
+  if (!queryType || !term || !target || !ui || !meanings.length) return null;
+  const source = isRecord(value.source) && readString(value.source.type) && readString(value.source.title)
+    ? { type: readString(value.source.type), title: readString(value.source.title) }
+    : null;
+  const phonetic = queryType === "word" ? readString(value.phonetic) || null : null;
+  return { queryType, term, phonetic, audioUrl: null, meanings, source, target, ui };
+}
+
+function parseExplanation(value: unknown): DictionaryExplanation | null {
+  if (!isRecord(value)) return null;
+  const meaning = readString(value.meaning);
+  const example = readString(value.example);
+  const scenario = readString(value.scenario);
+  if (!meaning || !example || !scenario) return null;
+  return { meaning, example, scenario, sourceNote: readString(value.sourceNote) || null };
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function isSingleWord(value: string): boolean {
+  return /^[a-z0-9]+(?:['’-][a-z0-9]+)*$/iu.test(value);
+}
+
 async function fetchJsonWithTimeout(url: string, timeoutMs: number, clientSignal: AbortSignal): Promise<unknown | null> {
   const controller = new AbortController();
   const abortFromClient = () => controller.abort(clientSignal.reason);
@@ -238,8 +418,11 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number, clientSignal
   }
 }
 
-function normalizeLookupTerm(value: string): string {
-  return value.trim().toLocaleLowerCase("en-US").replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, "");
+function normalizeLookupTerm(value: string, languageCode = "en-US"): string {
+  const trimmed = value.trim().replace(/\s+/gu, " ");
+  return languageCode === "en-US"
+    ? trimmed.toLocaleLowerCase("en-US").replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, "")
+    : trimmed;
 }
 
 function normalizeDatamuseResult(value: unknown, fallbackTerm: string): DictionaryLookupResult | null {
@@ -272,6 +455,7 @@ function normalizeDatamuseResult(value: unknown, fallbackTerm: string): Dictiona
     scenario: meanings.map((meaning) => meaning.partOfSpeech).filter(Boolean).join(", ") || "Dictionary entry",
   };
   return {
+    queryType: "word",
     term: readString(entry.defHeadword) || readString(entry.word) || fallbackTerm,
     phonetic,
     audioUrl: null,
@@ -373,6 +557,8 @@ async function writeDictionaryLog(
     outputChars: number;
     modelOutput?: string;
     body: DictionaryLookupBody;
+    effectiveLanguages?: { targetLanguage: string; uiLanguage: string };
+    cacheStatus?: "hit" | "miss" | "stale" | "fallback";
     error?: unknown;
   }
 ): Promise<void> {
@@ -394,6 +580,9 @@ async function writeDictionaryLog(
       selectionEnd: input.body.selectionEnd,
       targetLanguage: input.body.targetLanguage,
       uiLanguage: input.body.uiLanguage,
+      effectiveTargetLanguage: input.effectiveLanguages?.targetLanguage,
+      effectiveUiLanguage: input.effectiveLanguages?.uiLanguage,
+      cacheStatus: input.cacheStatus,
       inputChars: input.inputChars,
       outputChars: input.outputChars,
       durationMs: input.durationMs,

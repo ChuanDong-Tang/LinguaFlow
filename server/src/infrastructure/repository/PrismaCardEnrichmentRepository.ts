@@ -16,6 +16,46 @@ import type { EmbeddingResult } from "@lf/core/ports/ai/EmbeddingProvider.js";
 export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
+  async claimNextTopicJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob("generate_topic", workerId, leaseExpiresAt);
+  }
+
+  async loadTopicSource(job: CardEnrichmentJobEntity) {
+    if (job.sourceKind !== "card") return null;
+    const card = await this.prisma.card.findFirst({
+      where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
+      select: { originalText: true, originalContentHash: true, appLocaleSnapshot: true },
+    });
+    if (!card?.originalText || card.originalContentHash !== job.inputHash) return null;
+    return {
+      userId: job.userId,
+      sourceId: job.sourceId,
+      originalText: card.originalText,
+      appLocale: card.appLocaleSnapshot,
+    };
+  }
+
+  async completeTopicJob(job: CardEnrichmentJobEntity, topic: string): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.cardEnrichmentJob.updateMany({
+        where: { id: job.id, status: "processing", workerId: job.workerId },
+        data: { status: "completed", completedAt: new Date(), leaseExpiresAt: null, workerId: null, lastError: null },
+      });
+      if (claimed.count !== 1) return false;
+      const updated = await tx.card.updateMany({
+        where: {
+          id: job.sourceId,
+          userId: job.userId,
+          status: "completed",
+          deletedAt: null,
+          originalContentHash: job.inputHash,
+        },
+        data: { topic, topicEditedAt: null },
+      });
+      return updated.count === 1;
+    });
+  }
+
   async claimNextEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
     return this.claimNextJob("generate_embedding", workerId, leaseExpiresAt);
   }
