@@ -315,7 +315,7 @@ export class UsageV2Service {
       });
       if (existing) return;
       await tx.$queryRawUnsafe(
-        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
         `image-daily:${input.userId}:${dateKey}`,
       );
       const activeUploads = await tx.imageStorageTransaction.count({
@@ -551,7 +551,7 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 async function lockUsageRequest(tx: any, userId: string, requestId: string): Promise<void> {
   await tx.$queryRawUnsafe(
-    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+    'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
     `usage-v2:${userId}:${requestId}`,
   );
 }
