@@ -194,22 +194,21 @@ export class UsageV2Service {
         where: { userId_requestId: { userId: input.userId, requestId: input.requestId } },
       });
       if (existing) throw new TokenRequestAlreadyExistsError(input.requestId);
+      const cycle = await tx.aiTokenCycle.findUnique({
+        where: { userId_apiVersion_periodStart: { userId: input.userId, apiVersion: USAGE_API_VERSION, periodStart } },
+      });
+      if (!cycle) throw new Error("TOKEN_CYCLE_NOT_FOUND");
       const changed = await tx.$executeRawUnsafe(
         `UPDATE "ai_token_cycles"
             SET "reservedTokens" = "reservedTokens" + $1, "updatedAt" = NOW()
-          WHERE "userId" = $2 AND "apiVersion" = $3 AND "periodStart" = $4
+          WHERE "id" = $2
             AND "usedTokens" + "reservedTokens" + $1 <= "quotaTokens"`,
         input.estimatedTokens,
-        input.userId,
-        USAGE_API_VERSION,
-        periodStart,
+        cycle.id,
       );
       if (changed === 0) {
         throw new TokenQuotaExceededError(usage.token.remaining, new Date(usage.token.periodEnd));
       }
-      const cycle = await tx.aiTokenCycle.findUnique({
-        where: { userId_apiVersion_periodStart: { userId: input.userId, apiVersion: USAGE_API_VERSION, periodStart } },
-      });
       const created = await tx.aiTokenTransaction.create({
         data: {
           userId: input.userId,
