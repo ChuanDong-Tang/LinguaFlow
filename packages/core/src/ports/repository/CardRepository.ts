@@ -250,6 +250,7 @@ export interface CardRepository {
     cardCount: number;
     originalChars: number;
   }>>;
+  findEarliestCompletedDateKey(userId: string): Promise<string | null>;
   listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<CardEntryEntity[]>;
   claimNextQueued(workerId: string, leaseExpiresAt: Date): Promise<CardEntryEntity | null>;
   renewLease(entryId: string, workerId: string, leaseExpiresAt: Date): Promise<boolean>;
