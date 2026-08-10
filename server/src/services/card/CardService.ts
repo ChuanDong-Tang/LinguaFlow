@@ -615,10 +615,14 @@ export class CardService {
     assertDateKey(toDateKey);
     if (fromDateKey > toDateKey) throw new CardValidationError("Invalid calendar range");
     if (dateRangeDays(fromDateKey, toDateKey) > 370) throw new CardValidationError("Calendar range is too large");
-    const days = await this.repository.aggregateCalendarByDate(userId, fromDateKey, toDateKey);
+    const [days, firstRecordDateKey] = await Promise.all([
+      this.repository.aggregateCalendarByDate(userId, fromDateKey, toDateKey),
+      this.repository.findEarliestCompletedDateKey(userId),
+    ]);
     return {
       fromDateKey,
       toDateKey,
+      firstRecordDateKey,
       totals: {
         cardCount: days.reduce((sum, day) => sum + day.cardCount, 0),
         originalChars: days.reduce((sum, day) => sum + day.originalChars, 0),

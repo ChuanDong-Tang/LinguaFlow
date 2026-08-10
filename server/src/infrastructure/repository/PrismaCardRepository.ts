@@ -540,6 +540,20 @@ export class PrismaCardRepository implements CardRepository {
     }));
   }
 
+  async findEarliestCompletedDateKey(userId: string): Promise<string | null> {
+    const row = await this.prisma.card.findFirst({
+      where: {
+        userId,
+        status: "completed",
+        deletedAt: null,
+        isSample: false,
+      },
+      orderBy: [{ dateKey: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: { dateKey: true },
+    });
+    return row?.dateKey ?? null;
+  }
+
   async listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<CardEntryEntity[]> {
     const rows = await this.prisma.card.findMany({
       where: {
