@@ -5,6 +5,7 @@ import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemE
 import { buildCardExpressionPrompt, CARD_TOPIC_MAX_CHARS, parseCardExpressionOutput } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import { inferLearningTextLanguage, segmentLearningSentences } from "@lf/core/text/learningText.js";
 import { countGraphemes } from "@lf/core/text/grapheme.js";
+import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
 import { createHash } from "node:crypto";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
@@ -234,9 +235,7 @@ export class CardRewriteWorkerService {
   }
 }
 
-export function buildCardEmbeddingInput(originalText: string, rewrittenText: string): string {
-  return `Original: ${originalText.trim()}\nExpression: ${rewrittenText.trim()}`;
-}
+export { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
 
 function cardContentHash(text: string): string {
   const normalized = text.normalize("NFKC").replace(/\r\n?/gu, "\n").trim();

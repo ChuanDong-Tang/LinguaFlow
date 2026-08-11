@@ -17,7 +17,6 @@ export interface CardEmbeddingSource {
   userId: string;
   sourceKind: string;
   sourceId: string;
-  topic: string;
   originalText: string;
   rewrittenText: string;
 }

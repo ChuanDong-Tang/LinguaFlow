@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
+import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
 import type {
   CardEmbeddingSource,
   CardEnrichmentJobEntity,
@@ -52,7 +53,22 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         },
         data: { topic, topicEditedAt: null },
       });
-      return updated.count === 1;
+      if (updated.count !== 1) return false;
+      const card = await tx.card.findFirst({
+        where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
+        select: { originalText: true, rewrittenText: true },
+      });
+      if (card?.originalText && card.rewrittenText) {
+        const embeddingInput = buildCardEmbeddingInput(card.originalText, card.rewrittenText);
+        const inputHash = createHash("sha256").update(embeddingInput).digest("hex");
+        await enqueueEmbeddingGeneration(tx, {
+          userId: job.userId,
+          cardId: job.sourceId,
+          inputHash,
+          inputVersion: `card_embedding_input_v1:${inputHash}`,
+        });
+      }
+      return true;
     });
   }
 
@@ -593,14 +609,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     if (job.sourceKind !== "card") return null;
     const card = await this.prisma.card.findFirst({
       where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-      select: { originalText: true, rewrittenText: true, topic: true },
+      select: { originalText: true, rewrittenText: true },
     });
-    if (!card?.originalText || !card.rewrittenText || !card.topic) return null;
+    if (!card?.originalText || !card.rewrittenText) return null;
     return {
       userId: job.userId,
       sourceKind: job.sourceKind,
       sourceId: job.sourceId,
-      topic: card.topic,
       originalText: card.originalText,
       rewrittenText: card.rewrittenText,
     };
@@ -697,6 +712,45 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     });
     return result.count === 1;
   }
+}
+
+async function enqueueEmbeddingGeneration(
+  tx: any,
+  input: { userId: string; cardId: string; inputHash: string; inputVersion: string },
+): Promise<void> {
+  await tx.cardEnrichmentJob.upsert({
+    where: {
+      userId_sourceKind_sourceId_jobType_inputVersion: {
+        userId: input.userId,
+        sourceKind: "card",
+        sourceId: input.cardId,
+        jobType: "generate_embedding",
+        inputVersion: input.inputVersion,
+      },
+    },
+    create: {
+      userId: input.userId,
+      sourceKind: "card",
+      sourceId: input.cardId,
+      jobType: "generate_embedding",
+      inputHash: input.inputHash,
+      inputVersion: input.inputVersion,
+      payload: { schemaVersion: 1 },
+    },
+    update: {
+      status: "queued",
+      availableAt: new Date(),
+      inputHash: input.inputHash,
+      payload: { schemaVersion: 1 },
+      attempts: 0,
+      processingAt: null,
+      leaseExpiresAt: null,
+      workerId: null,
+      lastError: null,
+      completedAt: null,
+      failedAt: null,
+    },
+  });
 }
 
 function toJob(row: {
