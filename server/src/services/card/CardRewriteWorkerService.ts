@@ -3,7 +3,7 @@ import type { CardEntryEntity, CardRepository } from "@lf/core/ports/repository/
 import type { AiRequestLogRepository } from "@lf/core/ports/repository/AiRequestLogRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { buildCardExpressionPrompt, CARD_TOPIC_MAX_CHARS, parseCardExpressionOutput } from "@lf/core/Prompts/cardExpressionPrompt.js";
-import { segmentLearningSentences } from "@lf/core/text/learningText.js";
+import { inferLearningTextLanguage, segmentLearningSentences } from "@lf/core/text/learningText.js";
 import { countGraphemes } from "@lf/core/text/grapheme.js";
 import { createHash } from "node:crypto";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
@@ -143,7 +143,7 @@ export class CardRewriteWorkerService {
           {
             contentType: "original",
             text: originalText,
-            languageCode: entry.appLocaleSnapshot,
+            languageCode: inferLearningTextLanguage(originalText, entry.appLocaleSnapshot),
             sourceHash: entry.originalContentHash ?? cardContentHash(originalText),
           },
           {

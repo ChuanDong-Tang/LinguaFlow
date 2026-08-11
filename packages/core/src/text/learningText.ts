@@ -2,9 +2,29 @@ import {
   getTargetLanguageProfile,
   targetLanguageOrDefault,
   type TargetLanguageCode,
+  type TargetLanguageProfile,
 } from "../language/targetLanguages.js";
 
-export type LearningTextLanguage = TargetLanguageCode;
+export type LearningTextLanguage = TargetLanguageCode | "zh-CN" | "zh-TW";
+
+const CHINESE_TEXT_PROFILES: Record<"zh-CN" | "zh-TW", TargetLanguageProfile["text"]> = {
+  "zh-CN": {
+    compactLineBreaks: true,
+    minSegmentChars: 10,
+    maxSegmentChars: 120,
+    primaryBoundary: /[。！？!?；;]+/g,
+    secondaryBoundary: /[，,、：:]/g,
+    preferSpaceSplit: false,
+  },
+  "zh-TW": {
+    compactLineBreaks: true,
+    minSegmentChars: 10,
+    maxSegmentChars: 120,
+    primaryBoundary: /[。！？!?；;]+/g,
+    secondaryBoundary: /[，,、：:]/g,
+    preferSpaceSplit: false,
+  },
+};
 
 export type NormalizeLearningTextInput = {
   text: string;
@@ -26,9 +46,9 @@ export type SegmentLearningSentencesInput = {
 
 export function normalizeLearningText(input: NormalizeLearningTextInput): string {
   const language = normalizeLearningLanguage(input.languageCode);
-  const profile = getTargetLanguageProfile(language);
+  const profile = learningTextProfile(language);
   let text = stripLearningMarkup(input.text);
-  if (profile.text.compactLineBreaks) {
+  if (profile.compactLineBreaks) {
     text = text.replace(/\r?\n+/g, "");
     text = text.replace(/[ \t\f\v]+/g, " ");
     return text.trim();
@@ -40,9 +60,9 @@ export function normalizeLearningText(input: NormalizeLearningTextInput): string
 
 export function segmentLearningSentences(input: SegmentLearningSentencesInput): LearningSentenceSegment[] {
   const language = normalizeLearningLanguage(input.languageCode);
-  const profile = getTargetLanguageProfile(language);
-  const minSegmentChars = Math.max(1, Math.floor(input.minSegmentChars ?? profile.text.minSegmentChars));
-  const maxSegmentChars = Math.max(minSegmentChars, Math.floor(input.maxSegmentChars ?? profile.text.maxSegmentChars));
+  const profile = learningTextProfile(language);
+  const minSegmentChars = Math.max(1, Math.floor(input.minSegmentChars ?? profile.minSegmentChars));
+  const maxSegmentChars = Math.max(minSegmentChars, Math.floor(input.maxSegmentChars ?? profile.maxSegmentChars));
   const sourceText = input.text;
   const natural = splitByNaturalBoundaries(sourceText, language, maxSegmentChars);
   const merged = mergeShortSegments(natural, minSegmentChars, maxSegmentChars);
@@ -50,7 +70,21 @@ export function segmentLearningSentences(input: SegmentLearningSentencesInput): 
 }
 
 export function normalizeLearningLanguage(languageCode?: string | null): LearningTextLanguage {
+  if (languageCode === "zh-CN" || languageCode === "zh-TW") return languageCode;
   return targetLanguageOrDefault(languageCode);
+}
+
+export function inferLearningTextLanguage(text: string, fallbackLanguageCode?: string | null): LearningTextLanguage {
+  if (/\p{Script=Hiragana}|\p{Script=Katakana}/u.test(text)) return "ja-JP";
+  if (/\p{Script=Han}/u.test(text)) return fallbackLanguageCode === "zh-TW" ? "zh-TW" : "zh-CN";
+  if (/\p{Script=Latin}/u.test(text)) return "en-US";
+  return normalizeLearningLanguage(fallbackLanguageCode);
+}
+
+function learningTextProfile(language: LearningTextLanguage): TargetLanguageProfile["text"] {
+  return language === "zh-CN" || language === "zh-TW"
+    ? CHINESE_TEXT_PROFILES[language]
+    : getTargetLanguageProfile(language).text;
 }
 
 function stripLearningMarkup(text: string): string {
@@ -70,7 +104,7 @@ function splitByNaturalBoundaries(
   language: LearningTextLanguage,
   maxSegmentChars: number
 ): LearningSentenceSegment[] {
-  const primary = cloneGlobalRegExp(getTargetLanguageProfile(language).text.primaryBoundary);
+  const primary = cloneGlobalRegExp(learningTextProfile(language).primaryBoundary);
   const segments: LearningSentenceSegment[] = [];
   let start = 0;
   for (const match of text.matchAll(primary)) {
@@ -114,8 +148,8 @@ function findSplitIndex(
   maxSegmentChars: number
 ): number {
   const target = Math.min(end, start + maxSegmentChars);
-  const profile = getTargetLanguageProfile(language);
-  const secondary = cloneGlobalRegExp(profile.text.secondaryBoundary);
+  const profile = learningTextProfile(language);
+  const secondary = cloneGlobalRegExp(profile.secondaryBoundary);
   let best = -1;
   const slice = text.slice(start, target);
   for (const match of slice.matchAll(secondary)) {
@@ -123,7 +157,7 @@ function findSplitIndex(
   }
   if (best > start) return best;
 
-  if (profile.text.preferSpaceSplit) {
+  if (profile.preferSpaceSplit) {
     const space = text.lastIndexOf(" ", target);
     if (space > start) return space + 1;
   }
