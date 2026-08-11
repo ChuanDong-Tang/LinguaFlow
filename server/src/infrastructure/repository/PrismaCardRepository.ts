@@ -18,6 +18,7 @@ import type { CardEntryStatus } from "@lf/core/types/cardRecord.js";
 import { countGraphemes } from "@lf/core/text/grapheme.js";
 import { countCardCharacters } from "@lf/core/text/cardText.js";
 import { isTargetLanguageCode, type TargetLanguageCode } from "@lf/core/language/targetLanguages.js";
+import { CARD_TOPIC_PROMPT_VERSION } from "@lf/core/Prompts/cardTopicPrompt.js";
 
 type PrismaCardClient = {
   card: {
@@ -1468,7 +1469,7 @@ async function enqueueTopicGeneration(
   tx: any,
   input: { userId: string; cardId: string; inputHash: string },
 ): Promise<void> {
-  const inputVersion = `card_topic_v1:${input.inputHash}`;
+  const inputVersion = `${CARD_TOPIC_PROMPT_VERSION}:${input.inputHash}`;
   await tx.cardEnrichmentJob.upsert({
     where: {
       userId_sourceKind_sourceId_jobType_inputVersion: {

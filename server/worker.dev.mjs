@@ -185,7 +185,7 @@ const cardRewriteService = new CardRewriteWorkerService(
   aiRequestLogRepository,
   systemEventLogRepository,
   cardContentSafetyService,
-  {},
+  { topicMaxChars: runtime.cardTopicMaxChars },
   resourceGovernor,
 );
 const cardRewriteWorker = new CardRewriteWorker(cardRewriteService, {
@@ -197,7 +197,7 @@ const cardTopicWorker = new SerialCardJobWorker(
     cardEnrichmentRepository,
     cardAiProvider,
     systemEventLogRepository,
-    {},
+    { topicMaxChars: runtime.cardTopicMaxChars },
     resourceGovernor,
     cardContentSafetyService,
   ),

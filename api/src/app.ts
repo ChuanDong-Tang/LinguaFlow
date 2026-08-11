@@ -351,6 +351,7 @@ export function createApp() {
     runtimeConfig.cardListPageSizeMax,
     {
       titleMaxChars: runtimeConfig.cardTitleMaxChars,
+      topicMaxChars: runtimeConfig.cardTopicMaxChars,
       contentMaxChars: runtimeConfig.cardContentMaxChars,
       imagesMaxPerCard: runtimeConfig.cardImagesMaxPerCard,
     },

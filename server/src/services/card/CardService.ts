@@ -29,7 +29,7 @@ import type { ContentSafetyService } from "../contentSafety/ContentSafetyService
 import type { ChatGenerationTaskGuard } from "../chat/ChatGenerationTaskGuard.js";
 import { formatDateKeyInTimeZone } from "../time/businessClock.js";
 import type { CardImageService } from "./CardImageService.js";
-import { CARD_EXPRESSION_PROMPT_VERSION } from "@lf/core/Prompts/cardExpressionPrompt.js";
+import { CARD_EXPRESSION_PROMPT_VERSION, CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
 import { segmentLearningSentences } from "@lf/core/text/learningText.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
@@ -44,12 +44,14 @@ export const CARD_PROMPT_VERSION = CARD_EXPRESSION_PROMPT_VERSION;
 
 export type CardServiceLimits = {
   titleMaxChars: number;
+  topicMaxChars?: number;
   contentMaxChars: number;
   imagesMaxPerCard: number;
 };
 
 const DEFAULT_CARD_SERVICE_LIMITS: CardServiceLimits = {
   titleMaxChars: DEFAULT_CARD_TITLE_MAX_CHARS,
+  topicMaxChars: CARD_TOPIC_MAX_CHARS,
   contentMaxChars: DEFAULT_CARD_CONTENT_MAX_CHARS,
   imagesMaxPerCard: DEFAULT_CARD_IMAGES_MAX_PER_CARD,
 };
@@ -117,7 +119,7 @@ export class CardService {
       promptDifficultySnapshot: preference.promptDifficulty,
       promptVersion: CARD_PROMPT_VERSION,
     });
-    return entries.map(toSummary);
+    return entries.map((entry) => toSummary(entry, this.limits.topicMaxChars));
   }
 
   async create(input: {
@@ -679,7 +681,7 @@ export class CardService {
       ? await Promise.all(entry.images.map((image) => this.imageService!.views(image)))
       : [];
     return {
-      ...toSummary(entry),
+      ...toSummary(entry, this.limits.topicMaxChars),
       thumbnail: imageViews[0]?.thumbnail ?? null,
       status: "completed",
       originalText: entry.originalText ?? "",
@@ -1023,7 +1025,7 @@ export class CardService {
   }
 
   private async summaryWithImage(entry: CardEntryEntity): Promise<CardRecordSummaryView> {
-    const summary = toSummary(entry);
+    const summary = toSummary(entry, this.limits.topicMaxChars);
     const firstImage = entry.images[0];
     if (!firstImage || !this.imageService) return summary;
     const views = await this.imageService.views(firstImage);
@@ -1159,14 +1161,14 @@ function toPracticeView(
   };
 }
 
-export function toSummary(entry: CardEntryEntity): CardRecordSummaryView {
+export function toSummary(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_MAX_CHARS): CardRecordSummaryView {
   if (entry.status !== "queued" && entry.status !== "processing" && entry.status !== "completed") {
     throw new CardNotFoundError();
   }
   return {
     id: cardRecordId("card", entry.id),
     title: entry.title,
-    displayTitle: effectiveCardTitle(entry),
+    displayTitle: effectiveCardTitle(entry, topicMaxChars),
     topic: entry.topic,
     collectionId: entry.collectionId,
     source: "card",
@@ -1193,11 +1195,11 @@ function normalizeTitle(value: string | null | undefined, maxChars = DEFAULT_CAR
   return normalized;
 }
 
-function effectiveCardTitle(entry: CardEntryEntity): string {
+function effectiveCardTitle(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_MAX_CHARS): string {
   const title = entry.title?.trim();
   if (title) return title;
   const topic = entry.topic?.trim();
-  if (topic) return topic;
+  if (topic) return truncateGraphemes(topic, topicMaxChars);
   const firstLine = (entry.originalText ?? entry.rewrittenText ?? "")
     .split(/\n/u)
     .map((line) => line.trim())

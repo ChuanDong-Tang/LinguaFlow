@@ -2,6 +2,7 @@ import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { buildCardTopicPrompt, parseCardTopicOutput } from "@lf/core/Prompts/cardTopicPrompt.js";
+import { CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
 
@@ -10,7 +11,7 @@ export class CardTopicWorkerService {
     private readonly repository: CardEnrichmentRepository,
     private readonly aiProvider: AIProvider,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
-    private readonly options: { leaseMs?: number; maxAttempts?: number } = {},
+    private readonly options: { leaseMs?: number; maxAttempts?: number; topicMaxChars?: number } = {},
     private readonly resourceGovernor?: ResourceGovernor,
     private readonly contentSafetyService?: ContentSafetyService,
   ) {}
@@ -34,7 +35,8 @@ export class CardTopicWorkerService {
         await this.repository.completeWithoutResult(job, "CARD_TOPIC_SOURCE_MISSING_OR_STALE");
         return;
       }
-      const prompt = buildCardTopicPrompt({ text: source.originalText, appLocale: source.appLocale });
+      const topicMaxChars = this.options.topicMaxChars ?? CARD_TOPIC_MAX_CHARS;
+      const prompt = buildCardTopicPrompt({ text: source.originalText, appLocale: source.appLocale, topicMaxChars });
       const generate = () => this.aiProvider.generateChatTextStream({
         userId: source.userId,
         text: prompt.userPrompt,
@@ -46,7 +48,7 @@ export class CardTopicWorkerService {
       }, (event) => { if (event.type === "delta") output += event.text; });
       if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, generate);
       else await generate();
-      const topic = parseCardTopicOutput(output);
+      const topic = parseCardTopicOutput(output, topicMaxChars);
       this.contentSafetyService?.assertAllowed(topic, "output");
       await this.contentSafetyService?.assertAllowedRemote({
         text: topic,

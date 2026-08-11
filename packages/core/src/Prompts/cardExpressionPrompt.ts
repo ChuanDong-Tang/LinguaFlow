@@ -1,8 +1,10 @@
 import { isTargetLanguageCode, type TargetLanguageCode } from "../language/targetLanguages.js";
+import { truncateGraphemes } from "../text/grapheme.js";
 
 export type CardExpressionLanguage = TargetLanguageCode;
 export type CardTopicLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
-export const CARD_EXPRESSION_PROMPT_VERSION = "card_expression_v1" as const;
+export const CARD_EXPRESSION_PROMPT_VERSION = "card_expression_v2" as const;
+export const CARD_TOPIC_MAX_CHARS = 20;
 
 export interface CardExpressionPrompt {
   systemPrompt: string;
@@ -36,6 +38,7 @@ export function buildCardExpressionPrompt(input: {
   languageCode?: string | null;
   appLocale?: string | null;
   difficulty?: string | null;
+  topicMaxChars?: number;
 }): CardExpressionPrompt {
   const language = resolveCardLanguage(input.languageCode);
   const languageProfile = CARD_LANGUAGE_PROFILES[language];
@@ -45,6 +48,7 @@ export function buildCardExpressionPrompt(input: {
   const difficultyRule = input.difficulty === "simple"
     ? "Use common beginner-friendly vocabulary and simple natural grammar without sounding childish."
     : "Choose vocabulary and sentence structure based on the user's actual meaning and tone.";
+  const topicMaxChars = normalizeTopicMaxChars(input.topicMaxChars);
 
   return {
     version: CARD_EXPRESSION_PROMPT_VERSION,
@@ -66,6 +70,7 @@ Topic rules:
 - Summarize the specific event or realization, not a broad category.
 - Do not output tags such as “创业”, “旅行”, or “生活”.
 - Prefer a concise title without ending punctuation.
+- Keep the title within ${topicMaxChars} characters.
 - Use ${topicLanguage} only.
 
 Hard restrictions:
@@ -83,12 +88,20 @@ Return exactly:
   };
 }
 
-export function parseCardExpressionOutput(text: string): CardExpressionOutput {
+export function parseCardExpressionOutput(text: string, topicMaxChars = CARD_TOPIC_MAX_CHARS): CardExpressionOutput {
   const expression = extractRequiredTag(text, "expression");
-  const topic = extractRequiredTag(text, "topic");
+  const topic = normalizeGeneratedCardTopic(extractRequiredTag(text, "topic"), topicMaxChars);
   if (!expression) throw new Error("CARD_EXPRESSION_EMPTY");
   if (!topic) throw new Error("CARD_TOPIC_EMPTY");
   return { expression, topic };
+}
+
+export function normalizeGeneratedCardTopic(value: string, maxChars = CARD_TOPIC_MAX_CHARS): string {
+  return truncateGraphemes(value.trim().replace(/\s+/gu, " "), normalizeTopicMaxChars(maxChars));
+}
+
+function normalizeTopicMaxChars(value?: number): number {
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value!)) : CARD_TOPIC_MAX_CHARS;
 }
 
 function extractRequiredTag(text: string, tag: "expression" | "topic"): string {
