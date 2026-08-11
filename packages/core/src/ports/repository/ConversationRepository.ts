@@ -28,6 +28,7 @@ export interface ConversationRepository {
     cursor?: { updatedAt: Date; id: string };
   }): Promise<ConversationEntity[]>;
   touch(conversationId: string): Promise<void>;
+  setTitle(conversationId: string, title: string): Promise<void>;
   setTitleIfEmpty(conversationId: string, title: string): Promise<void>;
   findByUserContactDate(
     userId: string,

@@ -99,6 +99,13 @@ export class PrismaConversationRepository implements ConversationRepository {
     });
   }
 
+  async setTitle(conversationId: string, title: string): Promise<void> {
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { title },
+    });
+  }
+
   async setTitleIfEmpty(conversationId: string, title: string): Promise<void> {
     const current = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!current || current.title?.trim()) return;
