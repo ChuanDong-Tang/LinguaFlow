@@ -25,7 +25,7 @@ export interface ConversationRepository {
   listPageByUser(input: {
     userId: string;
     limit: number;
-    cursor?: { updatedAt: Date; id: string };
+    cursor?: { dateKey: string; id: string };
   }): Promise<ConversationEntity[]>;
   touch(conversationId: string): Promise<void>;
   setTitle(conversationId: string, title: string): Promise<void>;

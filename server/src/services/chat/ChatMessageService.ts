@@ -763,18 +763,18 @@ function conversationTitle(text: string): string {
   return characters.length <= 20 ? firstPhrase : `${characters.slice(0, 20).join("")}…`;
 }
 
-function encodeConversationCursor(row: { updatedAt: Date; id: string }): string {
-  return Buffer.from(JSON.stringify({ updatedAt: row.updatedAt.toISOString(), id: row.id }), "utf8").toString("base64url");
+function encodeConversationCursor(row: { dateKey: string; id: string }): string {
+  return Buffer.from(JSON.stringify({ dateKey: row.dateKey, id: row.id }), "utf8").toString("base64url");
 }
 
-function decodeConversationCursor(value?: string): { updatedAt: Date; id: string } | undefined {
+function decodeConversationCursor(value?: string): { dateKey: string; id: string } | undefined {
   if (!value) return undefined;
   try {
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
-    const updatedAt = typeof parsed.updatedAt === "string" ? new Date(parsed.updatedAt) : null;
+    const dateKey = typeof parsed.dateKey === "string" ? parsed.dateKey : "";
     const id = typeof parsed.id === "string" ? parsed.id : "";
-    if (!updatedAt || !Number.isFinite(updatedAt.getTime()) || !id) return undefined;
-    return { updatedAt, id };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !id) return undefined;
+    return { dateKey, id };
   } catch {
     return undefined;
   }
