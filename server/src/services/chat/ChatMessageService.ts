@@ -202,17 +202,25 @@ export class ChatMessageService {
     const hasMore = rows.length > input.limit;
     const pageRows = rows.slice(0, input.limit);
     return {
-      items: pageRows.map((row) => {
+      items: await Promise.all(pageRows.map(async (row) => {
         const assistant = row.contactId === "curious_companion";
+        let title = row.title?.trim() || "";
+        const firstUserMessage = (await this.messageRepository.listByConversation(row.id, 100))
+          .find((message) => message.role === "user" && message.content.trim());
+        if (firstUserMessage) {
+          const currentTitle = conversationTitle(firstUserMessage.content);
+          if (currentTitle !== title) await this.conversationRepository.setTitle(row.id, currentTitle);
+          title = currentTitle;
+        }
         return {
           id: row.id,
           kind: assistant ? "assistant" : "legacy",
           readOnly: !assistant,
-          title: row.title?.trim() || row.dateKey,
+          title: title || row.dateKey,
           dateKey: row.dateKey,
           updatedAt: row.updatedAt.toISOString(),
         };
-      }),
+      })),
       nextCursor: hasMore && pageRows.length
         ? encodeConversationCursor(pageRows[pageRows.length - 1])
         : null,
@@ -371,6 +379,10 @@ export class ChatMessageService {
       pendingSourceUserId = message.role === "user" ? message.id : null;
       imported.push(this.toView(message));
     }
+
+    const firstUserMessage = (await this.messageRepository.listByConversation(conversation.id, 100))
+      .find((message) => message.role === "user" && message.content.trim());
+    if (firstUserMessage) await this.conversationRepository.setTitle(conversation.id, conversationTitle(firstUserMessage.content));
 
     return {
       conversationId: conversation.id,
@@ -746,8 +758,9 @@ function escapeRegExp(value: string): string {
 
 function conversationTitle(text: string): string {
   const normalized = text.trim().replace(/\s+/gu, " ");
-  const characters = Array.from(normalized);
-  return characters.length <= 48 ? normalized : `${characters.slice(0, 48).join("")}…`;
+  const firstPhrase = normalized.split(/[。！？!?；;\n]/u)[0]?.trim() || normalized;
+  const characters = Array.from(firstPhrase);
+  return characters.length <= 20 ? firstPhrase : `${characters.slice(0, 20).join("")}…`;
 }
 
 function encodeConversationCursor(row: { updatedAt: Date; id: string }): string {
