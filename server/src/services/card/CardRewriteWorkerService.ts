@@ -2,7 +2,7 @@ import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEntryEntity, CardRepository } from "@lf/core/ports/repository/CardRepository.js";
 import type { AiRequestLogRepository } from "@lf/core/ports/repository/AiRequestLogRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
-import { buildCardExpressionPrompt, parseCardExpressionOutput } from "@lf/core/Prompts/cardExpressionPrompt.js";
+import { buildCardExpressionPrompt, CARD_TOPIC_MAX_CHARS, parseCardExpressionOutput } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import { segmentLearningSentences } from "@lf/core/text/learningText.js";
 import { countGraphemes } from "@lf/core/text/grapheme.js";
 import { createHash } from "node:crypto";
@@ -22,7 +22,7 @@ export class CardRewriteWorkerService {
     private readonly aiRequestLogRepository: AiRequestLogRepository,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly contentSafetyService?: ContentSafetyService,
-    private readonly options: { leaseMs?: number; leaseRenewMs?: number } = {},
+    private readonly options: { leaseMs?: number; leaseRenewMs?: number; topicMaxChars?: number } = {},
     private readonly resourceGovernor?: ResourceGovernor,
   ) {}
 
@@ -82,6 +82,7 @@ export class CardRewriteWorkerService {
         languageCode: entry.languageCode,
         appLocale: entry.appLocaleSnapshot,
         difficulty: entry.promptDifficultySnapshot,
+        topicMaxChars: this.options.topicMaxChars ?? CARD_TOPIC_MAX_CHARS,
       });
       const generate = () => this.aiProvider.generateChatTextStream(
         {
@@ -100,7 +101,7 @@ export class CardRewriteWorkerService {
       );
       if (this.resourceGovernor) await this.resourceGovernor.execute("llm", entry.userId, generate);
       else await generate();
-      const parsedOutput = parseCardExpressionOutput(rawOutput);
+      const parsedOutput = parseCardExpressionOutput(rawOutput, this.options.topicMaxChars ?? CARD_TOPIC_MAX_CHARS);
       const rewrittenText = parsedOutput.expression.trim();
       const topic = parsedOutput.topic.trim();
       if (!rewrittenText) throw new Error("CARD_REWRITE_EMPTY");

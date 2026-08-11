@@ -100,6 +100,7 @@ export interface RuntimeConfig {
   cardRelationIpRateLimit: number;
   cardListPageSizeMax: number;
   cardTitleMaxChars: number;
+  cardTopicMaxChars: number;
   cardContentMaxChars: number;
   cardImagesMaxPerCard: number;
   cardImageUploadUserRateLimit: number;
@@ -287,6 +288,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardRelationIpRateLimit: readPositiveInt(env.CARD_RELATION_IP_RATE_LIMIT, 600),
     cardListPageSizeMax: readPositiveInt(env.CARD_LIST_PAGE_SIZE_MAX, 50),
     cardTitleMaxChars: readPositiveInt(env.CARD_TITLE_MAX_CHARS, 100),
+    cardTopicMaxChars: readPositiveInt(env.CARD_TOPIC_MAX_CHARS, 20),
     cardContentMaxChars: readPositiveInt(env.CARD_CONTENT_MAX_CHARS, 10_000),
     cardImagesMaxPerCard: readPositiveInt(env.CARD_IMAGES_MAX_PER_CARD, 10),
     cardImageUploadUserRateLimit: readPositiveInt(env.CARD_IMAGE_UPLOAD_USER_RATE_LIMIT, 20),
