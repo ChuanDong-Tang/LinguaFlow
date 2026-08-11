@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { CardRepository, CardSpeechAssetEntity, CardLearningContentType, CardEntryEntity } from "@lf/core/ports/repository/CardRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
-import { normalizeLearningText } from "@lf/core/text/learningText.js";
+import { inferLearningTextLanguage, normalizeLearningText } from "@lf/core/text/learningText.js";
 import { countGraphemes, isUtf16GraphemeBoundary } from "@lf/core/text/grapheme.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { TtsProvider } from "../tts/TtsProvider.js";
 import type { TtsStorageProvider } from "../tts/TtsStorageProvider.js";
-import { resolveDefaultTtsVoice } from "../tts/TtsVoiceCatalog.js";
+import { isConfiguredTtsVoice, resolveDefaultTtsVoice } from "../tts/TtsVoiceCatalog.js";
 import { CardNotFoundError, CardValidationError } from "./CardService.js";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
@@ -95,7 +95,9 @@ export class CardSpeechService {
     if (!sourceText || countGraphemes(sourceText) > maxChars) throw new CardValidationError("Invalid speech segment");
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
-    const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(languageCode, provider);
+    const voiceCode = preference.ttsVoiceCode && isConfiguredTtsVoice({ provider, languageCode, voiceCode: preference.ttsVoiceCode })
+      ? preference.ttsVoiceCode
+      : resolveDefaultTtsVoice(languageCode, provider);
     const sourceTextHash = sha256(`card-tts-v1\n${sourceText}`);
     const cacheKey = sha256([
       input.userId,
@@ -159,7 +161,9 @@ export class CardSpeechService {
     const sourceText = normalizeLearningText({ text: selected, languageCode });
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
-    const voiceCode = preference.ttsVoiceCode || resolveDefaultTtsVoice(languageCode, provider);
+    const voiceCode = preference.ttsVoiceCode && isConfiguredTtsVoice({ provider, languageCode, voiceCode: preference.ttsVoiceCode })
+      ? preference.ttsVoiceCode
+      : resolveDefaultTtsVoice(languageCode, provider);
     const sourceTextHash = sha256(`card-selection-tts-v1\n${sourceText}`);
     const cacheKey = sha256([
       input.userId,
@@ -322,7 +326,7 @@ function resolveSpeechBinding(
 }
 
 function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningContentType): string {
-  if (contentType === "original") return entry.appLocaleSnapshot;
+  if (contentType === "original") return inferLearningTextLanguage(entry.originalText ?? "", entry.appLocaleSnapshot);
   if (contentType === "rewrite") return entry.rewrittenLanguageCode ?? entry.languageCode;
   return entry.replyLanguageCode ?? entry.languageCode;
 }

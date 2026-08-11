@@ -31,13 +31,14 @@ import { formatDateKeyInTimeZone } from "../time/businessClock.js";
 import type { CardImageService } from "./CardImageService.js";
 import { CARD_EXPRESSION_PROMPT_VERSION, CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
-import { segmentLearningSentences } from "@lf/core/text/learningText.js";
+import { inferLearningTextLanguage, segmentLearningSentences } from "@lf/core/text/learningText.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { buildCardContentGenerationPrompt, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
 import { buildCardContentSegments } from "./cardContentSegments.js";
 import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
+import { isTargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 
 const PREVIEW_GRAPHEMES = 240;
 export const CARD_PROMPT_VERSION = CARD_EXPRESSION_PROMPT_VERSION;
@@ -170,6 +171,9 @@ export class CardService {
     });
 
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
+    const originalLanguageCode = originalText
+      ? inferLearningTextLanguage(originalText, preference.appLocale)
+      : preference.appLocale;
     const dateKey = input.trustedSource?.dateKey ?? formatDateKeyInTimeZone(new Date());
     const originalContentHash = originalText ? cardContentHash(originalText) : null;
     if (!generateRewrite) {
@@ -196,9 +200,9 @@ export class CardService {
         promptVersion: CARD_PROMPT_VERSION,
         clientId,
         imageUploadIds,
-        segments: buildSegments(primaryText, preference.learningLanguage),
+        segments: buildSegments(primaryText, rewrittenText ? preference.learningLanguage : originalLanguageCode),
         contentSegments: buildCardContentSegments([
-          { contentType: "original", text: originalText || null, languageCode: preference.appLocale, sourceHash: originalContentHash },
+          { contentType: "original", text: originalText || null, languageCode: originalLanguageCode, sourceHash: originalContentHash },
           { contentType: "rewrite", text: rewrittenText || null, languageCode: preference.learningLanguage, sourceHash: originalContentHash },
           { contentType: "reply", text: replyText || null, languageCode: preference.learningLanguage, sourceHash: originalContentHash },
         ]),
@@ -337,6 +341,9 @@ export class CardService {
       originalChanged,
     });
     const primaryText = rewrittenText || originalText;
+    const originalLanguageCode = originalText
+      ? inferLearningTextLanguage(originalText, current.appLocaleSnapshot)
+      : current.appLocaleSnapshot;
     if (!primaryText) throw new CardValidationError("A Card must contain a record or expression");
     const allContent = [originalText, rewrittenText, translationText, replyText].filter(Boolean).join("\n");
     this.contentSafetyService?.assertAllowed(allContent, "input");
@@ -359,9 +366,9 @@ export class CardService {
       replyText,
       replyLanguageCode,
       replySourceHash,
-      segments: buildSegments(primaryText, current.languageCode),
+      segments: buildSegments(primaryText, rewrittenText ? current.languageCode : originalLanguageCode),
       contentSegments: buildCardContentSegments([
-        { contentType: "original", text: originalText, languageCode: current.appLocaleSnapshot, sourceHash: originalContentHash },
+        { contentType: "original", text: originalText, languageCode: originalLanguageCode, sourceHash: originalContentHash },
         { contentType: "rewrite", text: rewrittenText, languageCode: rewrittenLanguageCode ?? current.languageCode, sourceHash: rewrittenSourceHash },
         { contentType: "reply", text: replyText, languageCode: replyLanguageCode ?? current.languageCode, sourceHash: replySourceHash },
       ]),
@@ -877,19 +884,21 @@ export class CardService {
       state.blanks.push(blank);
       const normalizedText = normalizePhraseSurface(answer, detail.languageCode);
       if (!normalizedText) throw new CardValidationError("Invalid phrase content");
-      phraseMutation = {
-        type: "add",
-        languageCode: detail.languageCode,
-        cardCreatedAt: new Date(detail.createdAt),
-        segmentId: segment.id,
-        startUtf16,
-        endUtf16,
-        surfaceText: answer,
-        normalizedText,
-        clozeBlankId: blank.id,
-        normalizerVersion: PHRASE_NORMALIZER_VERSION,
-        inputHash: createHash("sha256").update(`${detail.languageCode}\n${normalizedText}`).digest("hex"),
-      };
+      if (isTargetLanguageCode(detail.languageCode)) {
+        phraseMutation = {
+          type: "add",
+          languageCode: detail.languageCode,
+          cardCreatedAt: new Date(detail.createdAt),
+          segmentId: segment.id,
+          startUtf16,
+          endUtf16,
+          surfaceText: answer,
+          normalizedText,
+          clozeBlankId: blank.id,
+          normalizerVersion: PHRASE_NORMALIZER_VERSION,
+          inputHash: createHash("sha256").update(`${detail.languageCode}\n${normalizedText}`).digest("hex"),
+        };
+      }
     } else if (operation.type === "remove") {
       const index = state.blanks.findIndex((blank) => blank.id === operation.blankId);
       if (index < 0) throw new CardValidationError("Cloze blank does not exist");
@@ -953,19 +962,21 @@ export class CardService {
       state.blanks.push(blank);
       const normalizedText = normalizePhraseSurface(answer, block.languageCode);
       if (!normalizedText) throw new CardValidationError("Invalid phrase content");
-      phraseMutation = {
-        type: "add",
-        languageCode: block.languageCode,
-        cardCreatedAt: new Date(detail.createdAt),
-        segmentId: segment.id,
-        startUtf16,
-        endUtf16,
-        surfaceText: answer,
-        normalizedText,
-        clozeBlankId: blank.id,
-        normalizerVersion: PHRASE_NORMALIZER_VERSION,
-        inputHash: createHash("sha256").update(`${block.languageCode}\n${normalizedText}`).digest("hex"),
-      };
+      if (isTargetLanguageCode(block.languageCode)) {
+        phraseMutation = {
+          type: "add",
+          languageCode: block.languageCode,
+          cardCreatedAt: new Date(detail.createdAt),
+          segmentId: segment.id,
+          startUtf16,
+          endUtf16,
+          surfaceText: answer,
+          normalizedText,
+          clozeBlankId: blank.id,
+          normalizerVersion: PHRASE_NORMALIZER_VERSION,
+          inputHash: createHash("sha256").update(`${block.languageCode}\n${normalizedText}`).digest("hex"),
+        };
+      }
     } else if (operation.type === "remove") {
       const index = state.blanks.findIndex((blank) => blank.id === operation.blankId);
       if (index < 0) throw new CardValidationError("Cloze blank does not exist");
@@ -1082,7 +1093,7 @@ function contentText(entry: CardEntryEntity, contentType: CardLearningContentTyp
 }
 
 function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningContentType): string {
-  if (contentType === "original") return entry.appLocaleSnapshot;
+  if (contentType === "original") return inferLearningTextLanguage(entry.originalText ?? "", entry.appLocaleSnapshot);
   if (contentType === "rewrite") return entry.rewrittenLanguageCode ?? entry.languageCode;
   return entry.replyLanguageCode ?? entry.languageCode;
 }
@@ -1204,7 +1215,7 @@ function effectiveCardTitle(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_M
     .split(/\n/u)
     .map((line) => line.trim())
     .find(Boolean) ?? "";
-  return truncateGraphemes(firstLine, DEFAULT_CARD_TITLE_MAX_CHARS);
+  return truncateGraphemes(firstLine, topicMaxChars);
 }
 
 function resolveContentLanguage(input: {

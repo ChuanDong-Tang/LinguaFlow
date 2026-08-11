@@ -1,5 +1,7 @@
 import type { TargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 
+type SpeechLanguageCode = TargetLanguageCode | "zh-CN" | "zh-TW";
+
 export interface TtsVoiceOption {
   provider: string;
   languageCode: string;
@@ -10,7 +12,7 @@ export interface TtsVoiceOption {
 
 const AZURE_GLOBAL_PROVIDER = "azure_global";
 
-const VOICES_BY_LANGUAGE: Record<TargetLanguageCode, TtsVoiceOption[]> = {
+const VOICES_BY_LANGUAGE: Record<SpeechLanguageCode, TtsVoiceOption[]> = {
   "en-US": [{
     provider: AZURE_GLOBAL_PROVIDER,
     languageCode: "en-US",
@@ -35,6 +37,20 @@ const VOICES_BY_LANGUAGE: Record<TargetLanguageCode, TtsVoiceOption[]> = {
     languageCode: "ja-JP",
     voiceCode: "ja-JP-MayuNeural",
     label: "Mayu (Japanese)",
+    isDefault: true,
+  }],
+  "zh-CN": [{
+    provider: AZURE_GLOBAL_PROVIDER,
+    languageCode: "zh-CN",
+    voiceCode: "zh-CN-XiaoxiaoNeural",
+    label: "Xiaoxiao (简体中文)",
+    isDefault: true,
+  }],
+  "zh-TW": [{
+    provider: AZURE_GLOBAL_PROVIDER,
+    languageCode: "zh-TW",
+    voiceCode: "zh-TW-HsiaoChenNeural",
+    label: "HsiaoChen (繁體中文)",
     isDefault: true,
   }],
 };
