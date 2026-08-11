@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
+import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
 import type { EmbeddingProvider } from "@lf/core/ports/ai/EmbeddingProvider.js";
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
-import { buildCardEmbeddingInput } from "./CardRewriteWorkerService.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 export class CardEnrichmentWorkerService {

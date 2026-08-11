@@ -15,10 +15,12 @@ import type {
 } from "@lf/core/ports/repository/CardRepository.js";
 import type { AppLocale } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import type { CardEntryStatus } from "@lf/core/types/cardRecord.js";
+import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
 import { countGraphemes } from "@lf/core/text/grapheme.js";
 import { countCardCharacters } from "@lf/core/text/cardText.js";
 import { isTargetLanguageCode, type TargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 import { CARD_TOPIC_PROMPT_VERSION } from "@lf/core/Prompts/cardTopicPrompt.js";
+import { createHash } from "node:crypto";
 
 type PrismaCardClient = {
   card: {
@@ -400,6 +402,24 @@ export class PrismaCardRepository implements CardRepository {
   }): Promise<CardEntryEntity | null> {
     return this.prisma.$transaction(async (tx) => {
       if (input.collectionId && !await tx.cardCollection.findFirst({ where: { id: input.collectionId, userId: input.userId }, select: { id: true } })) throw new Error("CARD_COLLECTION_NOT_FOUND");
+      const current = await tx.card.findFirst({
+        where: {
+          id: input.entryId,
+          userId: input.userId,
+          status: "completed",
+          deletedAt: null,
+          originalContentHash: input.expectedOriginalContentHash,
+        },
+        select: { originalText: true, rewrittenText: true, topic: true },
+      });
+      if (!current) return null;
+      const embeddingContentChanged = current.originalText !== input.originalText
+        || current.rewrittenText !== input.rewrittenText;
+      const topicNeedsRefresh = Boolean(
+        input.originalText
+        && input.originalContentHash
+        && (input.originalContentHash !== input.expectedOriginalContentHash || !current.topic),
+      );
       const changed = await tx.card.updateMany({
         where: {
           id: input.entryId,
@@ -436,15 +456,23 @@ export class PrismaCardRepository implements CardRepository {
         });
       }
       await syncContentSegments(tx, input.entryId, input.contentSegments);
-      if (
-        input.originalText
-        && input.originalContentHash
-        && input.originalContentHash !== input.expectedOriginalContentHash
-      ) {
+      if (embeddingContentChanged) {
+        await tx.cardEmbedding.deleteMany({ where: { cardId: input.entryId, userId: input.userId } });
+      }
+      if (topicNeedsRefresh) {
         await enqueueTopicGeneration(tx, {
           userId: input.userId,
           cardId: input.entryId,
-          inputHash: input.originalContentHash,
+          inputHash: input.originalContentHash!,
+        });
+      } else if (embeddingContentChanged && input.originalText && input.rewrittenText) {
+        const embeddingInput = buildCardEmbeddingInput(input.originalText, input.rewrittenText);
+        const inputHash = createHash("sha256").update(embeddingInput).digest("hex");
+        await enqueueEmbeddingGeneration(tx, {
+          userId: input.userId,
+          cardId: input.entryId,
+          inputHash,
+          inputVersion: `card_embedding_input_v1:${inputHash}`,
         });
       }
       if (input.clearPractice) {
@@ -1494,6 +1522,45 @@ async function enqueueTopicGeneration(
       availableAt: new Date(),
       inputHash: input.inputHash,
       payload: { schemaVersion: 1, platformFunded: true },
+      attempts: 0,
+      processingAt: null,
+      leaseExpiresAt: null,
+      workerId: null,
+      lastError: null,
+      completedAt: null,
+      failedAt: null,
+    },
+  });
+}
+
+async function enqueueEmbeddingGeneration(
+  tx: any,
+  input: { userId: string; cardId: string; inputHash: string; inputVersion: string },
+): Promise<void> {
+  await tx.cardEnrichmentJob.upsert({
+    where: {
+      userId_sourceKind_sourceId_jobType_inputVersion: {
+        userId: input.userId,
+        sourceKind: "card",
+        sourceId: input.cardId,
+        jobType: "generate_embedding",
+        inputVersion: input.inputVersion,
+      },
+    },
+    create: {
+      userId: input.userId,
+      sourceKind: "card",
+      sourceId: input.cardId,
+      jobType: "generate_embedding",
+      inputHash: input.inputHash,
+      inputVersion: input.inputVersion,
+      payload: { schemaVersion: 1 },
+    },
+    update: {
+      status: "queued",
+      availableAt: new Date(),
+      inputHash: input.inputHash,
+      payload: { schemaVersion: 1 },
       attempts: 0,
       processingAt: null,
       leaseExpiresAt: null,
