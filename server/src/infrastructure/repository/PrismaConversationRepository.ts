@@ -61,7 +61,7 @@ export class PrismaConversationRepository implements ConversationRepository {
   async listByUser(userId: string, limit: number): Promise<ConversationEntity[]> {
     const rows = await this.prisma.conversation.findMany({
       where: { userId, archivedAt: null },
-      orderBy: [{ updatedAt: "desc" }],
+      orderBy: [{ dateKey: "desc" }, { id: "desc" }],
       take: limit,
     });
 
@@ -71,7 +71,7 @@ export class PrismaConversationRepository implements ConversationRepository {
   async listPageByUser(input: {
     userId: string;
     limit: number;
-    cursor?: { updatedAt: Date; id: string };
+    cursor?: { dateKey: string; id: string };
   }): Promise<ConversationEntity[]> {
     const rows = await this.prisma.conversation.findMany({
       where: {
@@ -79,12 +79,12 @@ export class PrismaConversationRepository implements ConversationRepository {
         archivedAt: null,
         ...(input.cursor ? {
           OR: [
-            { updatedAt: { lt: input.cursor.updatedAt } },
-            { updatedAt: input.cursor.updatedAt, id: { lt: input.cursor.id } },
+            { dateKey: { lt: input.cursor.dateKey } },
+            { dateKey: input.cursor.dateKey, id: { lt: input.cursor.id } },
           ],
         } : {}),
       },
-      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      orderBy: [{ dateKey: "desc" }, { id: "desc" }],
       take: input.limit,
     });
     return rows.map((row) => this.toEntity(row));
