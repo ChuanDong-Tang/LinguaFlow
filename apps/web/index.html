@@ -949,6 +949,20 @@
                 </table>
               </div>
             </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">近 24 小时限流记录</h2>
+                  <p class="section-subtitle">持久记录 LLM、STT、TTS、Embedding 与图片上传的限流及图片额度耗尽。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>资源</th><th>类型</th><th>范围</th><th>次数</th><th>最近发生</th></tr></thead>
+                  <tbody id="resourceLimitTbody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -2152,7 +2166,16 @@
 
       function renderResources(data) {
         const rows = Array.isArray(data.resources) ? data.resources : [];
-        const labels = { llm: "LLM", stt: "STT", tts: "TTS", embedding: "Embedding" };
+        const limitRows = Array.isArray(data.limitEvents24h) ? data.limitEvents24h : [];
+        const labels = { llm: "LLM", stt: "STT", tts: "TTS", embedding: "Embedding", image_upload: "图片上传" };
+        const scopeLabels = {
+          user_rate: "单用户频率",
+          global_rate: "全局频率",
+          user_concurrency: "单用户并发",
+          global_concurrency: "全局并发",
+          user_quota: "用户额度",
+          unknown: "未知",
+        };
         const evaluated = rows.map((row) => {
           const rpmRatio = Number(row.requestLimit) > 0 ? Number(row.requestsLastMinute) / Number(row.requestLimit) : 0;
           const concurrencyRatio = Number(row.concurrencyLimit) > 0 ? Number(row.currentConcurrency) / Number(row.concurrencyLimit) : 0;
@@ -2163,11 +2186,13 @@
         });
         const warningCount = evaluated.filter((row) => row.status !== "正常").length;
         const limitedCount = evaluated.reduce((sum, row) => sum + Number(row.limitedLastMinute || 0), 0);
+        const limited24h = limitRows.reduce((sum, row) => sum + Number(row.count || 0), 0);
         $("resourceMeta").textContent = `${data.redisShared ? "Redis 跨实例统计" : "单实例内存统计"} · 刷新于 ${fmtDate(data.generatedAt)}`;
         $("resourceAlerts").innerHTML = [
           ["资源池", evaluated.length, "LLM / STT / TTS / Embedding"],
           ["需要关注", warningCount, warningCount ? "达到阈值或发生限流" : "当前负载正常"],
           ["一分钟限流", limitedCount, "请求或并发被拒绝"],
+          ["24 小时限流", limited24h, "含图片上传与额度"],
           ["统计方式", data.redisShared ? "跨实例" : "单实例", data.redisShared ? "所有服务共享" : "仅当前进程"],
         ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
         $("resourceTbody").innerHTML = evaluated.map((row) => {
@@ -2183,6 +2208,13 @@
             <td><span class="pill ${statusClass}">${escapeHtml(row.status)}</span></td>
           </tr>`;
         }).join("") || rowEmpty(8, "暂无资源数据");
+        $("resourceLimitTbody").innerHTML = limitRows.map((row) => `<tr>
+          <td><strong>${escapeHtml(labels[row.resource] || row.resource)}</strong></td>
+          <td>${escapeHtml(row.event === "resource.quota_exceeded" ? "额度耗尽" : "限流")}</td>
+          <td>${escapeHtml(scopeLabels[row.scope] || row.scope)}</td>
+          <td>${escapeHtml(row.count)}</td>
+          <td>${escapeHtml(fmtDate(row.lastOccurredAt))}</td>
+        </tr>`).join("") || rowEmpty(5, "近 24 小时没有限流记录");
       }
 
       function toggleResourceAutoRefresh() {

@@ -34,7 +34,7 @@ import { CARD_EXPRESSION_PROMPT_VERSION, CARD_TOPIC_MAX_CHARS } from "@lf/core/P
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
 import { inferLearningTextLanguage, segmentLearningSentences } from "@lf/core/text/learningText.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
-import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
+import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { buildCardContentGenerationPrompt, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
 import { buildCardContentSegments } from "./cardContentSegments.js";
 import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
@@ -42,6 +42,7 @@ import type { UsageV2Service } from "../usage/UsageV2Service.js";
 import { isTargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 
 const PREVIEW_GRAPHEMES = 240;
+const FOREGROUND_LLM_RETRY_DELAYS_MS = [750, 1_500, 3_000] as const;
 export const CARD_PROMPT_VERSION = CARD_EXPRESSION_PROMPT_VERSION;
 
 export type CardServiceLimits = {
@@ -442,7 +443,9 @@ export class CardService {
         if (event.type === "done") usage = event.usage;
       });
     try {
-      if (this.resourceGovernor) await this.resourceGovernor.execute("llm", input.userId, generate);
+      if (this.resourceGovernor) {
+        await this.executeForegroundLlm(input.userId, input.requestId, `card.generate.${input.target}`, generate);
+      }
       else await generate();
     } catch (error) {
       if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
@@ -586,7 +589,9 @@ export class CardService {
         if (event.type === "done") usage = event.usage;
       });
     try {
-      if (this.resourceGovernor) await this.resourceGovernor.execute("llm", input.userId, generate);
+      if (this.resourceGovernor) {
+        await this.executeForegroundLlm(input.userId, input.requestId, `card.preview.${input.target}`, generate);
+      }
       else await generate();
     } catch (error) {
       if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
@@ -610,6 +615,26 @@ export class CardService {
       await this.entitlementService.consumeUpToLimit(input.userId, countCardCharacters(sourceText) + countCardCharacters(output), { dateKey });
     }
     return { text: output };
+  }
+
+  private async executeForegroundLlm<T>(
+    userId: string,
+    requestId: string,
+    operation: string,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.resourceGovernor) return task();
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.resourceGovernor.execute("llm", userId, task, { requestId, operation });
+      } catch (error) {
+        const retryDelayMs = FOREGROUND_LLM_RETRY_DELAYS_MS[attempt];
+        const concurrencyLimited = error instanceof ResourceLimitedError
+          && (error.scope === "user_concurrency" || error.scope === "global_concurrency");
+        if (!concurrencyLimited || retryDelayMs === undefined) throw error;
+        await delay(retryDelayMs);
+      }
+    }
   }
 
   async listDate(userId: string, dateKey: string): Promise<CardRecordSummaryView[]> {
@@ -1333,6 +1358,10 @@ function cardUsageFeature(target: CardGeneratedContentTarget): "rewrite" | "orga
 
 function estimateTokenReservation(prompt: string, maxOutputTokens: number): number {
   return Math.max(1, Array.from(prompt).length + maxOutputTokens);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function settleGeneratedUsage(

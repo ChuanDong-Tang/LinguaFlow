@@ -581,6 +581,23 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       rateConfig.cardImageUploadUserRateLimit,
       rateConfig.cardImageUploadRateWindowMs,
     ]])) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId,
+        module: "resource",
+        event: "resource.rate_limited",
+        level: "warn",
+        status: "failed",
+        errorCode: "RATE_LIMITED",
+        errorMessage: "image upload rate limit exceeded",
+        metadata: {
+          resource: "image_upload",
+          scope: "user_rate",
+          path: "/cards/image-uploads",
+          limit: rateConfig.cardImageUploadUserRateLimit,
+          windowMs: rateConfig.cardImageUploadRateWindowMs,
+        },
+      });
       return failure(reply, 429, requestId, "RATE_LIMITED", "图片处理过于频繁，请稍后再试");
     }
     const body = req.body as { mimeType?: unknown; fileSize?: unknown; width?: unknown; height?: unknown } | null;
@@ -594,7 +611,28 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
       });
       return reply.status(201).send({ ok: true, request_id: requestId, data });
-    } catch (error) { return handleCardError(reply, requestId, error); }
+    } catch (error) {
+      if (error instanceof ImageStorageQuotaExceededError
+        || error instanceof DailyImageUploadLimitExceededError
+        || error instanceof CardImageQuotaExceededError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId,
+          module: "resource",
+          event: "resource.quota_exceeded",
+          level: "warn",
+          status: "failed",
+          errorCode: error.code,
+          errorMessage: error.message,
+          metadata: {
+            resource: "image_upload",
+            scope: "user_quota",
+            path: "/cards/image-uploads",
+          },
+        });
+      }
+      return handleCardError(reply, requestId, error);
+    }
   });
 
   app.post("/cards/image-uploads/:uploadId/complete", async (req, reply) => {

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { countGraphemes, truncateGraphemes } from "@lf/core/text/grapheme.js";
@@ -6,7 +6,8 @@ import { segmentLearningSentences } from "@lf/core/text/learningText.js";
 import { parseTaggedRewriteOutput } from "@lf/core/Prompts/rewriteAssistantPrompt.js";
 
 type Args = {
-  email: string;
+  email: string | null;
+  all: boolean;
   apply: boolean;
   databaseLine: number | null;
 };
@@ -15,14 +16,25 @@ type Candidate = {
   userMessageId: string;
   originalText: string;
   rewrittenText: string;
+  translationText: string;
+  replyText: string;
   topic: string;
   dateKey: string;
   languageCode: string;
   createdAt: Date;
   publishedAt: Date;
+  clozeState: MessageClozeState | null;
+  clozeVersion: number;
 };
 
-const MIGRATION_VERSION = "legacy_chat_to_card_v1";
+type MessageClozeState = {
+  groups: Array<{ tokenIndexes: number[]; blankTokenIndexes: number[] }>;
+  correctTokenIndexes: number[];
+};
+
+const CARD_CLIENT_VERSION = "chat-message:v1";
+const LEGACY_MIGRATION_VERSION = "legacy_chat_to_card_v1";
+const MIGRATION_CONTENT_VERSION = "legacy_chat_to_card_v2";
 
 const args = parseArgs(process.argv.slice(2));
 loadDatabaseUrl(args.databaseLine);
@@ -32,7 +44,9 @@ const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
   const users = await prisma.user.findMany({
-    where: { email: { equals: args.email, mode: "insensitive" } },
+    where: args.all
+      ? {}
+      : { email: { equals: args.email!, mode: "insensitive" } },
     select: {
       id: true,
       status: true,
@@ -45,11 +59,12 @@ async function main(): Promise<void> {
       },
     },
   });
-  if (users.length !== 1) {
+  if (!args.all && users.length !== 1) {
     throw new Error(`Expected one user for email, found ${users.length}`);
   }
-  const user = users[0];
-  if (user.status !== "active") throw new Error("User is not active");
+  if (!users.length) throw new Error(args.all ? "No users found" : "User not found");
+  for (const user of users) {
+    if (!args.all && user.status !== "active") throw new Error("User is not active");
 
   const assistantMessages = await prisma.message.findMany({
     where: {
@@ -62,6 +77,9 @@ async function main(): Promise<void> {
       content: true,
       createdAt: true,
       sourceMessageId: true,
+      clozeState: true,
+      clozeVersion: true,
+      languageCode: true,
       conversation: {
         select: {
           dateKey: true,
@@ -89,7 +107,7 @@ async function main(): Promise<void> {
     },
   });
   const userMessagesById = new Map(userMessages.map((message) => [message.id, message]));
-  const candidates: Candidate[] = [];
+  const candidatesBySourceId = new Map<string, Candidate>();
   let skippedMissingSource = 0;
   let skippedEmpty = 0;
 
@@ -108,27 +126,35 @@ async function main(): Promise<void> {
       skippedEmpty += 1;
       continue;
     }
-    candidates.push({
+    // Messages are ordered oldest first. If the same user message was regenerated,
+    // keep only its latest successful assistant result.
+    candidatesBySourceId.set(source.id, {
       userMessageId: source.id,
       originalText,
       rewrittenText,
+      translationText: (tagged.note || tagged.zh).trim(),
+      replyText: tagged.reply.trim(),
       topic: buildNaturalTopic(originalText),
       dateKey: source.conversationDateKey || assistant.conversation.dateKey,
-      languageCode: source.languageCode || user.preference?.learningLanguage || "en-US",
+      languageCode: assistant.languageCode || user.preference?.learningLanguage || "en-US",
       createdAt: source.createdAt,
       publishedAt: assistant.createdAt,
+      clozeState: normalizeMessageClozeState(assistant.clozeState),
+      clozeVersion: Math.max(0, assistant.clozeVersion),
     });
   }
+  const candidates = Array.from(candidatesBySourceId.values());
 
-  const clientIds = candidates.map((candidate) => migrationClientId(candidate.userMessageId));
+  const clientIds = candidates.flatMap((candidate) => migrationClientIds(candidate.userMessageId));
   const existing = await prisma.card.findMany({
     where: { userId: user.id, clientId: { in: clientIds } },
     select: { clientId: true },
   });
   const existingClientIds = new Set(existing.map((card) => card.clientId));
   const pending = candidates.filter(
-    (candidate) => !existingClientIds.has(migrationClientId(candidate.userMessageId)),
+    (candidate) => !migrationClientIds(candidate.userMessageId).some((clientId) => existingClientIds.has(clientId)),
   );
+  const withCloze = candidates.filter((candidate) => countMessageBlanks(candidate.clozeState) > 0);
 
   console.log(JSON.stringify({
     mode: args.apply ? "apply" : "dry-run",
@@ -137,6 +163,7 @@ async function main(): Promise<void> {
     candidates: candidates.length,
     alreadyMigrated: existing.length,
     pending: pending.length,
+    withCloze: withCloze.length,
     skippedMissingSource,
     skippedEmpty,
     dateRange: candidates.length
@@ -147,33 +174,42 @@ async function main(): Promise<void> {
       : null,
   }, null, 2));
 
-  if (!args.apply || pending.length === 0) return;
+  if (!args.apply || pending.length === 0) continue;
 
   const appLocale = user.preference?.appLocale || "zh-CN";
   const promptDifficulty = user.preference?.promptDifficulty || "native";
   let created = 0;
+  let migratedCloze = 0;
   for (const candidate of pending) {
     await prisma.$transaction(async (tx) => {
-      const clientId = migrationClientId(candidate.userMessageId);
+      const clientIds = migrationClientIds(candidate.userMessageId);
       const duplicate = await tx.card.findFirst({
-        where: { userId: user.id, clientId },
+        where: { userId: user.id, clientId: { in: clientIds } },
         select: { id: true },
       });
       if (duplicate) return;
 
+      const clientId = currentMigrationClientId(candidate.userMessageId);
+      const sourceHash = cardContentHash(candidate.originalText);
       const card = await tx.card.create({
         data: {
           userId: user.id,
           dateKey: candidate.dateKey,
           originalText: candidate.originalText,
-          originalContentHash: cardContentHash(candidate.originalText),
+          originalContentHash: sourceHash,
           rewrittenText: candidate.rewrittenText,
           rewrittenLanguageCode: candidate.languageCode,
-          rewrittenSourceHash: cardContentHash(candidate.originalText),
+          rewrittenSourceHash: sourceHash,
+          translationText: candidate.translationText || null,
+          translationLanguageCode: candidate.translationText ? appLocale : null,
+          translationSourceHash: candidate.translationText ? sourceHash : null,
+          replyText: candidate.replyText || null,
+          replyLanguageCode: candidate.replyText ? candidate.languageCode : null,
+          replySourceHash: candidate.replyText ? sourceHash : null,
           languageCode: candidate.languageCode,
           appLocaleSnapshot: appLocale,
           promptDifficultySnapshot: promptDifficulty,
-          promptVersion: MIGRATION_VERSION,
+          promptVersion: MIGRATION_CONTENT_VERSION,
           status: "completed",
           clientId,
           inputChars: countGraphemes(candidate.originalText),
@@ -183,23 +219,66 @@ async function main(): Promise<void> {
           createdAt: candidate.createdAt,
           updatedAt: candidate.publishedAt,
         },
+        select: {
+          id: true,
+          originalText: true,
+          originalContentHash: true,
+          rewrittenText: true,
+          rewrittenSourceHash: true,
+          translationText: true,
+          replyText: true,
+          promptVersion: true,
+        },
       });
-      const segments = segmentLearningSentences({
-        text: candidate.rewrittenText,
-        languageCode: candidate.languageCode,
-        minSegmentChars: 1,
-        maxSegmentChars: 800,
-      });
-      if (segments.length) {
-        await tx.cardRewriteSegment.createMany({
-          data: segments.map((segment, ordinal) => ({
-            entryId: card.id,
-            ordinal,
-            text: segment.text,
-            startUtf16: segment.textStart,
-            endUtf16: segment.textEnd,
-          })),
+      created += 1;
+
+      const blocks = [
+        { contentType: "original", text: card.originalText, languageCode: appLocale, sourceHash: card.originalContentHash },
+        { contentType: "rewrite", text: card.rewrittenText, languageCode: candidate.languageCode, sourceHash: card.rewrittenSourceHash || card.originalContentHash },
+        { contentType: "reply", text: card.replyText, languageCode: candidate.languageCode, sourceHash: card.originalContentHash },
+      ] as const;
+      for (const block of blocks) {
+        if (!block.text?.trim()) continue;
+        const contentVersion = cardContentVersion(block.contentType, block.text, block.sourceHash);
+        if (!await tx.cardContentSegment.count({ where: { entryId: card.id, contentType: block.contentType } })) {
+          const segments = segmentLearningSentences({ text: block.text, languageCode: block.languageCode, minSegmentChars: 1, maxSegmentChars: 800 });
+          if (segments.length) {
+            await tx.cardContentSegment.createMany({
+              data: segments.map((segment, ordinal) => ({ entryId: card.id, contentType: block.contentType, contentVersion, ordinal, text: segment.text, startUtf16: segment.textStart, endUtf16: segment.textEnd })),
+            });
+          }
+        }
+      }
+
+      if (!await tx.cardRewriteSegment.count({ where: { entryId: card.id } }) && card.rewrittenText?.trim()) {
+        const segments = segmentLearningSentences({ text: card.rewrittenText, languageCode: candidate.languageCode, minSegmentChars: 1, maxSegmentChars: 800 });
+        if (segments.length) await tx.cardRewriteSegment.createMany({
+          data: segments.map((segment, ordinal) => ({ entryId: card.id, ordinal, text: segment.text, startUtf16: segment.textStart, endUtf16: segment.textEnd })),
         });
+      }
+
+      if (card.rewrittenText?.trim() === candidate.rewrittenText && countMessageBlanks(candidate.clozeState) > 0) {
+        const practiceExists = await tx.cardContentPracticeState.findUnique({ where: { cardId_contentType: { cardId: card.id, contentType: "rewrite" } }, select: { id: true } });
+        if (!practiceExists) {
+          const rewriteSegments = await tx.cardContentSegment.findMany({ where: { entryId: card.id, contentType: "rewrite" }, orderBy: { ordinal: "asc" } });
+          const clozeState = buildCardClozeState(candidate.rewrittenText, candidate.clozeState, rewriteSegments);
+          if (clozeState.blanks.length) {
+            const mastered = clozeState.blanks.filter((blank) => blank.mastered).length;
+            await tx.cardContentPracticeState.create({
+              data: {
+                userId: user.id,
+                cardId: card.id,
+                contentType: "rewrite",
+                contentVersion: rewriteSegments[0]!.contentVersion,
+                clozeState,
+                clozeVersion: Math.max(1, candidate.clozeVersion),
+                clozeLastResult: mastered === clozeState.blanks.length ? "correct" : mastered > 0 ? "incorrect" : null,
+                clozeCorrectStreak: mastered === clozeState.blanks.length ? 1 : 0,
+              },
+            });
+            migratedCloze += 1;
+          }
+        }
       }
 
       const inputHash = createHash("sha256")
@@ -235,11 +314,83 @@ async function main(): Promise<void> {
             payload: { schemaVersion: 1 },
           },
         ],
+        skipDuplicates: true,
       });
-      created += 1;
     });
   }
-  console.log(JSON.stringify({ created, skippedAsDuplicate: pending.length - created }, null, 2));
+  console.log(JSON.stringify({ created, migratedCloze, skippedAsAlreadyMigrated: candidates.length - created }, null, 2));
+  }
+}
+
+function normalizeMessageClozeState(value: unknown): MessageClozeState | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as { groups?: unknown; correctTokenIndexes?: unknown };
+  if (!Array.isArray(row.groups)) return null;
+  const groups = row.groups.flatMap((group) => {
+    if (!group || typeof group !== "object") return [];
+    const item = group as { tokenIndexes?: unknown; blankTokenIndexes?: unknown };
+    const tokenIndexes = Array.isArray(item.tokenIndexes) ? uniqueIndexes(item.tokenIndexes) : [];
+    const tokenSet = new Set(tokenIndexes);
+    const blankTokenIndexes = Array.isArray(item.blankTokenIndexes)
+      ? uniqueIndexes(item.blankTokenIndexes).filter((index) => tokenSet.has(index))
+      : [];
+    return tokenIndexes.length ? [{ tokenIndexes, blankTokenIndexes }] : [];
+  });
+  if (!groups.length) return null;
+  const blankIndexes = new Set(groups.flatMap((group) => group.blankTokenIndexes));
+  const correctTokenIndexes = Array.isArray(row.correctTokenIndexes)
+    ? uniqueIndexes(row.correctTokenIndexes).filter((index) => blankIndexes.has(index))
+    : [];
+  return { groups, correctTokenIndexes };
+}
+
+function uniqueIndexes(values: unknown[]): number[] {
+  return Array.from(new Set(values.filter((value): value is number => Number.isInteger(value) && Number(value) >= 0).map(Number))).sort((left, right) => left - right);
+}
+
+function countMessageBlanks(state: MessageClozeState | null): number {
+  return new Set(state?.groups.flatMap((group) => group.blankTokenIndexes) ?? []).size;
+}
+
+function tokenizeClozeText(text: string): Array<{ index: number; text: string; start: number; end: number; isWord: boolean }> {
+  const tokens: Array<{ index: number; text: string; start: number; end: number; isWord: boolean }> = [];
+  const tokenPattern = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+|[\p{L}\p{N}'’-]+|[^\s\p{L}\p{N}'’-]/gu;
+  const wordPattern = /[\p{L}\p{N}'’-]/u;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(text))) {
+    const token = match[0];
+    if (!token) continue;
+    tokens.push({ index: tokens.length, text: token, start: match.index, end: match.index + token.length, isWord: wordPattern.test(token) });
+  }
+  return tokens;
+}
+
+function buildCardClozeState(
+  text: string,
+  source: MessageClozeState | null,
+  segments: Array<{ id: string; startUtf16: number; endUtf16: number }>,
+): { schemaVersion: 1; blanks: Array<{ id: string; segmentId: string; startUtf16: number; endUtf16: number; answer: string; mastered: boolean }> } {
+  const blankIndexes = new Set(source?.groups.flatMap((group) => group.blankTokenIndexes) ?? []);
+  const correctIndexes = new Set(source?.correctTokenIndexes ?? []);
+  const blanks = tokenizeClozeText(text).flatMap((token) => {
+    if (!token.isWord || !blankIndexes.has(token.index)) return [];
+    const segment = segments.find((candidate) => token.start >= candidate.startUtf16 && token.end <= candidate.endUtf16);
+    if (!segment) return [];
+    return [{
+      id: randomUUID(),
+      segmentId: segment.id,
+      startUtf16: token.start - segment.startUtf16,
+      endUtf16: token.end - segment.startUtf16,
+      answer: token.text,
+      mastered: correctIndexes.has(token.index),
+    }];
+  });
+  return { schemaVersion: 1, blanks };
+}
+
+function cardContentVersion(contentType: string, text: string, sourceHash: string | null): string {
+  const normalized = text.normalize("NFKC").replace(/\r\n?/gu, "\n").trim();
+  return `sha256:${createHash("sha256").update(`${contentType}\n${sourceHash ?? ""}\n${normalized}`).digest("hex")}`;
 }
 
 function buildNaturalTopic(text: string): string {
@@ -251,22 +402,31 @@ function buildNaturalTopic(text: string): string {
   return countGraphemes(firstLine) > 30 ? `${topic}…` : topic;
 }
 
-function migrationClientId(messageId: string): string {
-  return `${MIGRATION_VERSION}:${messageId}`;
+function currentMigrationClientId(messageId: string): string {
+  return `${CARD_CLIENT_VERSION}:${messageId}`;
+}
+
+function migrationClientIds(messageId: string): string[] {
+  return [
+    currentMigrationClientId(messageId),
+    `${LEGACY_MIGRATION_VERSION}:${messageId}`,
+  ];
 }
 
 function parseArgs(argv: string[]): Args {
   const email = argv.find((arg) => arg.startsWith("--email="))?.slice("--email=".length).trim() || "";
+  const all = argv.includes("--all");
   const databaseLineRaw = argv
     .find((arg) => arg.startsWith("--database-line="))
     ?.slice("--database-line=".length);
   const databaseLine = databaseLineRaw ? Number(databaseLineRaw) : null;
-  if (!email) throw new Error("--email is required");
+  if ((!email && !all) || (email && all)) throw new Error("Use exactly one of --email=<address> or --all");
   if (databaseLine !== null && (!Number.isInteger(databaseLine) || databaseLine < 1)) {
     throw new Error("--database-line must be a positive integer");
   }
   return {
-    email,
+    email: email || null,
+    all,
     apply: argv.includes("--apply"),
     databaseLine,
   };

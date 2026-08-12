@@ -64,11 +64,43 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
     const requestId = resolveRequestId(req.headers["x-request-id"]);
-    const resources = await deps.resourceGovernor?.snapshots() ?? [];
+    const [resources, rawLimitEvents24h] = await Promise.all([
+      deps.resourceGovernor?.snapshots() ?? [],
+      deps.prisma.$queryRawUnsafe(
+        `SELECT
+           COALESCE("metadata"->>'resource', 'unknown') AS "resource",
+           COALESCE("metadata"->>'scope', 'unknown') AS "scope",
+           "event",
+           COUNT(*)::int AS "count",
+           MAX("createdAt") AS "lastOccurredAt"
+         FROM "system_event_logs"
+         WHERE "module" = 'resource'
+           AND "status" = 'failed'
+           AND "createdAt" >= NOW() - INTERVAL '24 hours'
+         GROUP BY 1, 2, 3
+         ORDER BY "count" DESC, "lastOccurredAt" DESC`,
+      ) as Promise<Array<{
+        resource: string;
+        scope: string;
+        event: string;
+        count: number | bigint;
+        lastOccurredAt: Date;
+      }>>,
+    ]);
+    const limitEvents24h = rawLimitEvents24h.map((row) => ({
+      ...row,
+      count: Number(row.count),
+      lastOccurredAt: row.lastOccurredAt.toISOString(),
+    }));
     return reply.status(200).send({
       ok: true,
       request_id: requestId,
-      data: { generatedAt: new Date().toISOString(), redisShared: Boolean(getRuntimeConfig().redisUrl), resources },
+      data: {
+        generatedAt: new Date().toISOString(),
+        redisShared: Boolean(getRuntimeConfig().redisUrl),
+        resources,
+        limitEvents24h,
+      },
     });
   });
 

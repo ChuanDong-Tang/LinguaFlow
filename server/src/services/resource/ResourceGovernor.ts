@@ -7,6 +7,17 @@ type RedisLike = {
 
 export type ResourceLimitScope = "user_rate" | "global_rate" | "user_concurrency" | "global_concurrency";
 
+export type ResourceLimitEvent = {
+  resource: ResourceKind;
+  userId: string;
+  scope: ResourceLimitScope;
+  retryAfterMs: number;
+  requestId?: string;
+  operation?: string;
+};
+
+export type ResourceRequestContext = { requestId?: string; operation?: string };
+
 export class ResourceLimitedError extends Error {
   readonly code = "RESOURCE_LIMITED";
   constructor(readonly resource: ResourceKind, readonly scope: ResourceLimitScope, readonly retryAfterMs: number) {
@@ -40,41 +51,50 @@ export class ResourceGovernor {
   private readonly memoryLeases = new Map<string, Map<string, number>>();
   private readonly memoryMetrics = new Map<ResourceKind, MemoryMetric>();
 
-  constructor(private readonly policies: ResourcePolicies, private readonly redis?: RedisLike | null) {}
+  constructor(
+    private readonly policies: ResourcePolicies,
+    private readonly redis?: RedisLike | null,
+    private readonly onLimited?: (event: ResourceLimitEvent) => Promise<void> | void,
+  ) {}
 
   policy(resource: ResourceKind) {
     return this.policies[resource];
   }
 
-  async enter(resource: ResourceKind, userId: string): Promise<ResourceLease> {
+  async enter(resource: ResourceKind, userId: string, context?: ResourceRequestContext): Promise<ResourceLease> {
     const policy = this.policies[resource];
     const rateScope = await this.consumeRate(resource, userId);
     if (rateScope) {
-      await this.recordLimited(resource).catch(() => undefined);
+      await this.reportLimited(resource, userId, rateScope, 60_000, context);
       throw new ResourceLimitedError(resource, rateScope, 60_000);
     }
-    const lease = await this.acquireConcurrency(resource, userId);
-    if (!lease) {
-      await this.recordLimited(resource).catch(() => undefined);
-      throw new ResourceLimitedError(resource, "global_concurrency", Math.min(5_000, policy.leaseMs));
+    const acquired = await this.tryAcquireLease(resource, userId);
+    if (!acquired.lease) {
+      const retryAfterMs = Math.min(5_000, policy.leaseMs);
+      await this.reportLimited(resource, userId, acquired.scope, retryAfterMs, context);
+      throw new ResourceLimitedError(resource, acquired.scope, retryAfterMs);
     }
-    return lease;
+    return acquired.lease;
   }
 
-  async consumeRequest(resource: ResourceKind, userId: string): Promise<void> {
+  async consumeRequest(resource: ResourceKind, userId: string, context?: ResourceRequestContext): Promise<void> {
     const scope = await this.consumeRate(resource, userId);
     if (scope) {
-      await this.recordLimited(resource).catch(() => undefined);
+      await this.reportLimited(resource, userId, scope, 60_000, context);
       throw new ResourceLimitedError(resource, scope, 60_000);
     }
   }
 
-  async acquireConcurrency(resource: ResourceKind, userId: string): Promise<ResourceLease | null> {
-    return this.acquireLease(resource, userId);
+  async acquireConcurrency(resource: ResourceKind, userId: string, context?: ResourceRequestContext): Promise<ResourceLease | null> {
+    const acquired = await this.tryAcquireLease(resource, userId);
+    if (!acquired.lease) {
+      await this.reportLimited(resource, userId, acquired.scope, Math.min(5_000, this.policies[resource].leaseMs), context);
+    }
+    return acquired.lease;
   }
 
-  async execute<T>(resource: ResourceKind, userId: string, task: () => Promise<T>): Promise<T> {
-    const lease = await this.enter(resource, userId);
+  async execute<T>(resource: ResourceKind, userId: string, task: () => Promise<T>, context?: ResourceRequestContext): Promise<T> {
+    const lease = await this.enter(resource, userId, context);
     const renewTimer = setInterval(() => void lease.renew().catch(() => undefined), Math.max(1_000, Math.floor(this.policies[resource].leaseMs / 3)));
     const startedAt = Date.now();
     try {
@@ -91,12 +111,14 @@ export class ResourceGovernor {
     }
   }
 
-  async executeConcurrency<T>(resource: ResourceKind, userId: string, task: () => Promise<T>): Promise<T> {
-    const lease = await this.acquireConcurrency(resource, userId);
-    if (!lease) {
-      await this.recordLimited(resource).catch(() => undefined);
-      throw new ResourceLimitedError(resource, "global_concurrency", Math.min(5_000, this.policies[resource].leaseMs));
+  async executeConcurrency<T>(resource: ResourceKind, userId: string, task: () => Promise<T>, context?: ResourceRequestContext): Promise<T> {
+    const acquired = await this.tryAcquireLease(resource, userId);
+    if (!acquired.lease) {
+      const retryAfterMs = Math.min(5_000, this.policies[resource].leaseMs);
+      await this.reportLimited(resource, userId, acquired.scope, retryAfterMs, context);
+      throw new ResourceLimitedError(resource, acquired.scope, retryAfterMs);
     }
+    const lease = acquired.lease;
     const renewTimer = setInterval(() => void lease.renew().catch(() => undefined), Math.max(1_000, Math.floor(this.policies[resource].leaseMs / 3)));
     const startedAt = Date.now();
     try {
@@ -176,6 +198,17 @@ export class ResourceGovernor {
     this.currentMemoryMetric(resource).limited += 1;
   }
 
+  private async reportLimited(
+    resource: ResourceKind,
+    userId: string,
+    scope: ResourceLimitScope,
+    retryAfterMs: number,
+    context?: ResourceRequestContext,
+  ): Promise<void> {
+    await this.recordLimited(resource).catch(() => undefined);
+    await Promise.resolve(this.onLimited?.({ resource, userId, scope, retryAfterMs, ...context })).catch(() => undefined);
+  }
+
   private async recordPeak(resource: ResourceKind, active: number): Promise<void> {
     if (this.redis) {
       await this.redis.eval(PEAK_SCRIPT, 1, this.metricKey(resource), active);
@@ -232,36 +265,42 @@ export class ResourceGovernor {
     return next;
   }
 
-  private async acquireLease(resource: ResourceKind, userId: string): Promise<ResourceLease | null> {
+  private async tryAcquireLease(
+    resource: ResourceKind,
+    userId: string,
+  ): Promise<{ lease: ResourceLease | null; scope: "user_concurrency" | "global_concurrency" }> {
     const policy = this.policies[resource];
     const token = randomUUID();
     const globalKey = `resource:{${resource}}:active:global`;
     const userKey = `resource:{${resource}}:active:user:${userId}`;
     if (this.redis) {
       const result = Number(await this.redis.eval(ACQUIRE_SCRIPT, 2, globalKey, userKey, token, policy.leaseMs, policy.globalConcurrency, policy.userConcurrency));
-      if (result !== 0) return null;
+      if (result !== 0) {
+        return { lease: null, scope: result === 2 ? "user_concurrency" : "global_concurrency" };
+      }
       const active = Number(await this.redis.eval(ACTIVE_COUNT_SCRIPT, 1, globalKey));
       await this.recordPeak(resource, active).catch(() => undefined);
-      return {
+      return { lease: {
         renew: async () => { await this.redis!.eval(RENEW_SCRIPT, 2, globalKey, userKey, token, policy.leaseMs); },
         release: async () => { await this.redis!.eval(RELEASE_SCRIPT, 2, globalKey, userKey, token); },
-      };
+      }, scope: "global_concurrency" };
     }
     const now = Date.now();
     const global = this.currentMemoryLeases(globalKey, now);
     const user = this.currentMemoryLeases(userKey, now);
-    if (global.size >= policy.globalConcurrency || user.size >= policy.userConcurrency) return null;
+    if (global.size >= policy.globalConcurrency) return { lease: null, scope: "global_concurrency" };
+    if (user.size >= policy.userConcurrency) return { lease: null, scope: "user_concurrency" };
     global.set(token, now + policy.leaseMs);
     user.set(token, now + policy.leaseMs);
     await this.recordPeak(resource, global.size).catch(() => undefined);
-    return {
+    return { lease: {
       renew: async () => {
         const expiresAt = Date.now() + policy.leaseMs;
         global.set(token, expiresAt);
         user.set(token, expiresAt);
       },
       release: async () => { global.delete(token); user.delete(token); },
-    };
+    }, scope: "global_concurrency" };
   }
 
   private currentMemoryLeases(key: string, now: number): Map<string, number> {
