@@ -869,6 +869,8 @@ model ImageStorageAccount {
   id            String   @id @default(cuid())
   userId        String   @unique
   tier          String
+  periodStart   DateTime?
+  periodEnd     DateTime?
   capacityBytes BigInt
   reservedBytes BigInt   @default(0)
   usedBytes     BigInt   @default(0)

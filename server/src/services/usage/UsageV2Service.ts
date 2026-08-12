@@ -20,7 +20,7 @@ export class TokenRequestAlreadyExistsError extends Error {
 
 export class ImageStorageQuotaExceededError extends Error {
   readonly code = "IMAGE_STORAGE_QUOTA_EXCEEDED";
-  constructor() { super("Image storage capacity has been exhausted"); }
+  constructor() { super("Image upload allowance for the current period has been exhausted"); }
 }
 
 export class DailyImageUploadLimitExceededError extends Error {
@@ -42,6 +42,13 @@ export type UsageV2View = {
     remainingPercent: number;
   };
   images: {
+    periodStart: string;
+    periodEnd: string;
+    quotaBytes: string;
+    uploadedBytes: string;
+    reservedUploadBytes: string;
+    remainingUploadBytes: string;
+    // Compatibility aliases for clients released before monthly upload metering.
     capacityBytes: string;
     usedBytes: string;
     reservedBytes: string;
@@ -65,6 +72,9 @@ type TokenCycleRow = {
 };
 
 type ImageAccountRow = {
+  id: string;
+  periodStart: Date | null;
+  periodEnd: Date | null;
   capacityBytes: bigint;
   reservedBytes: bigint;
   usedBytes: bigint;
@@ -78,6 +88,9 @@ type UsagePrismaClient = {
   };
   imageStorageAccount: {
     upsert(args: any): Promise<ImageAccountRow>;
+    findUnique(args: any): Promise<ImageAccountRow | null>;
+    create(args: any): Promise<ImageAccountRow>;
+    update(args: any): Promise<ImageAccountRow>;
   };
   usageV2SystemState: {
     findUnique(args: any): Promise<{ launchedAt: Date } | null>;
@@ -131,20 +144,14 @@ export class UsageV2Service {
       // A paid cycle keeps the grant snapshot it was created with.
       update: {},
     });
-    const capacityBytes = BigInt(imageCapacity(subscription.tier));
-    const imageAccount = await this.prisma.imageStorageAccount.upsert({
-      where: { userId },
-      create: {
-        userId,
-        tier: subscription.tier,
-        capacityBytes,
-        configVersion: config.usageV2ConfigVersion,
-      },
-      update: {
-        tier: subscription.tier,
-        capacityBytes,
-        configVersion: config.usageV2ConfigVersion,
-      },
+    const capacityBytes = BigInt(monthlyImageUploadLimit(subscription.tier));
+    const imageAccount = await this.ensureImageUploadCycle({
+      userId,
+      tier: subscription.tier,
+      periodStart: subscriptionPeriod.start,
+      periodEnd: subscriptionPeriod.end,
+      capacityBytes,
+      configVersion: config.usageV2ConfigVersion,
     });
     const remainingTokens = Math.max(0, cycle.quotaTokens - cycle.usedTokens - cycle.reservedTokens);
     const remainingBytes = maxBigInt(0n, imageAccount.capacityBytes - imageAccount.usedBytes - imageAccount.reservedBytes);
@@ -162,6 +169,12 @@ export class UsageV2Service {
         remainingPercent: cycle.quotaTokens > 0 ? Math.floor(remainingTokens * 100 / cycle.quotaTokens) : 0,
       },
       images: {
+        periodStart: imageAccount.periodStart!.toISOString(),
+        periodEnd: imageAccount.periodEnd!.toISOString(),
+        quotaBytes: imageAccount.capacityBytes.toString(),
+        uploadedBytes: imageAccount.usedBytes.toString(),
+        reservedUploadBytes: imageAccount.reservedBytes.toString(),
+        remainingUploadBytes: remainingBytes.toString(),
         capacityBytes: imageAccount.capacityBytes.toString(),
         usedBytes: imageAccount.usedBytes.toString(),
         reservedBytes: imageAccount.reservedBytes.toString(),
@@ -174,6 +187,48 @@ export class UsageV2Service {
         originalLearning: subscription.tier === "pro",
       },
     };
+  }
+
+  private async ensureImageUploadCycle(input: {
+    userId: string;
+    tier: MembershipTier;
+    periodStart: Date;
+    periodEnd: Date;
+    capacityBytes: bigint;
+    configVersion: string;
+  }): Promise<ImageAccountRow> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
+        `image-cycle:${input.userId}`,
+      );
+      const existing = await tx.imageStorageAccount.findUnique({ where: { userId: input.userId } });
+      if (!existing) {
+        return tx.imageStorageAccount.create({
+          data: {
+            userId: input.userId,
+            tier: input.tier,
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            capacityBytes: input.capacityBytes,
+            configVersion: input.configVersion,
+          },
+        });
+      }
+      const periodChanged = existing.periodStart?.getTime() !== input.periodStart.getTime()
+        || existing.periodEnd?.getTime() !== input.periodEnd.getTime();
+      return tx.imageStorageAccount.update({
+        where: { id: existing.id },
+        data: {
+          tier: input.tier,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          capacityBytes: input.capacityBytes,
+          configVersion: input.configVersion,
+          ...(periodChanged ? { usedBytes: 0n, reservedBytes: 0n } : {}),
+        },
+      });
+    });
   }
 
   async reserveTokens(input: {
@@ -357,6 +412,15 @@ export class UsageV2Service {
       });
       if (!transaction) return;
       if (transaction.status !== "reserved") return;
+      const account = await tx.imageStorageAccount.findUnique({ where: { id: transaction.accountId } });
+      if (!account) return;
+      if (account.periodStart && transaction.createdAt < account.periodStart) {
+        await tx.imageStorageTransaction.update({
+          where: { id: transaction.id },
+          data: { status: "committed", bytes: BigInt(input.actualBytes), metadata: { committedOutsideCurrentPeriod: true } },
+        });
+        return;
+      }
       const changed = await tx.$executeRawUnsafe(
         `UPDATE "image_storage_accounts"
             SET "reservedBytes" = "reservedBytes" - $1,
@@ -382,10 +446,13 @@ export class UsageV2Service {
         where: { userId_requestId_kind: { userId, requestId, kind: "upload" } },
       });
       if (!transaction || transaction.status !== "reserved") return;
-      await tx.imageStorageAccount.update({
-        where: { id: transaction.accountId },
-        data: { reservedBytes: { decrement: transaction.bytes } },
-      });
+      const account = await tx.imageStorageAccount.findUnique({ where: { id: transaction.accountId } });
+      if (account && (!account.periodStart || transaction.createdAt >= account.periodStart)) {
+        await tx.imageStorageAccount.update({
+          where: { id: transaction.accountId },
+          data: { reservedBytes: { decrement: transaction.bytes } },
+        });
+      }
       await tx.imageStorageTransaction.update({
         where: { id: transaction.id },
         data: { status: "released" },
@@ -410,18 +477,10 @@ export class UsageV2Service {
         where: { userId_requestId_kind: { userId: input.userId, requestId: input.imageId, kind: "upload" } },
       }) : null;
       if (!upload || upload.status !== "committed") return;
-      const account = await tx.imageStorageAccount.findUnique({ where: { id: upload.accountId } });
-      await tx.$executeRawUnsafe(
-        `UPDATE "image_storage_accounts"
-            SET "usedBytes" = GREATEST(0, "usedBytes" - $1), "updatedAt" = NOW()
-          WHERE "id" = $2`,
-        upload.bytes,
-        account.id,
-      );
       await tx.imageStorageTransaction.create({
         data: {
           userId: input.userId,
-          accountId: account.id,
+          accountId: upload.accountId,
           requestId: input.requestId,
           kind: "delete",
           status: "committed",
@@ -509,7 +568,7 @@ function tokenLimit(tier: MembershipTier): number {
   return config.freeMonthlyTokenLimit;
 }
 
-function imageCapacity(tier: MembershipTier): number {
+function monthlyImageUploadLimit(tier: MembershipTier): number {
   const config = getRuntimeConfig();
   if (tier === "pro") return config.proImageStorageBytes;
   if (tier === "plus") return config.plusImageStorageBytes;

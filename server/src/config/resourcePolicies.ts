@@ -28,9 +28,9 @@ export function resolveResourcePolicies(env: NodeJS.ProcessEnv, legacy: LegacyRe
     llm: {
       userRequestsPerMinute: positiveInt(env.RESOURCE_LLM_USER_RPM, legacy.llmUserRpm),
       globalRequestsPerMinute: positiveInt(env.RESOURCE_LLM_GLOBAL_RPM, legacy.llmGlobalRpm),
-      userConcurrency: positiveInt(env.RESOURCE_LLM_USER_CONCURRENCY, 1),
+      userConcurrency: positiveInt(env.RESOURCE_LLM_USER_CONCURRENCY, 4),
       globalConcurrency: positiveInt(env.RESOURCE_LLM_GLOBAL_CONCURRENCY, legacy.llmGlobalConcurrency),
-      leaseMs: positiveInt(env.RESOURCE_LLM_LEASE_MS, 300_000),
+      leaseMs: positiveInt(env.RESOURCE_LLM_LEASE_MS, 120_000),
     },
     stt: {
       userRequestsPerMinute: positiveInt(env.RESOURCE_STT_USER_RPM, legacy.sttUserRpm),

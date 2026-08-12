@@ -79,6 +79,7 @@ import { PrismaQuickNoteRepository } from "@lf/server/infrastructure/repository/
 import { QuickNoteService } from "@lf/server/services/quickNote/QuickNoteService.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
+import { writeSystemEventLog } from "./lib/systemEventLog.js";
 import { PaymentCertSyncService } from "@lf/server/services/payment/PaymentCertSyncService.js";
 import { AutoRenewService } from "@lf/server/services/payment/AutoRenewService.js";
 import { PaymentEntitlementRefreshService } from "@lf/server/services/payment/PaymentEntitlementRefreshService.js";
@@ -188,7 +189,25 @@ export function createApp() {
   const chatGenerationRateLimiter = redisClient
     ? new RedisChatGenerationRateLimiter(redisClient)
     : new InMemoryChatGenerationRateLimiter();
-  const resourceGovernor = new ResourceGovernor(runtimeConfig.resourcePolicies, redisClient);
+  const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
+  const resourceGovernor = new ResourceGovernor(runtimeConfig.resourcePolicies, redisClient, async (event) => {
+    await writeSystemEventLog(systemEventLogRepository, {
+      requestId: event.requestId ?? null,
+      userId: event.userId,
+      module: "resource",
+      event: "resource.rate_limited",
+      level: "warn",
+      status: "failed",
+      errorCode: "RESOURCE_LIMITED",
+      errorMessage: `${event.resource} resource is temporarily limited`,
+      metadata: {
+        resource: event.resource,
+        scope: event.scope,
+        retryAfterMs: event.retryAfterMs,
+        operation: event.operation ?? null,
+      },
+    });
+  });
   if (runtimeConfig.requireRedis) {
     app.addHook("onReady", async () => {
       const pong = await redisClient!.ping();
@@ -203,7 +222,6 @@ export function createApp() {
   const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
   const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
   const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
-  const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
   const tencentTmsClient =
     runtimeConfig.contentSafetyTencentTmsEnabled &&
     runtimeConfig.contentSafetyTencentSecretId &&

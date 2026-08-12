@@ -250,9 +250,9 @@ export interface RuntimeConfig {
 export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   const mode = normalizeMode(env.NODE_ENV);
   const resourcePolicies = resolveResourcePolicies(env, {
-    llmUserRpm: readPositiveInt(env.CHAT_GENERATION_USER_RATE_LIMIT, 20),
-    llmGlobalRpm: readPositiveInt(env.CHAT_GENERATION_GLOBAL_RATE_LIMIT, 30),
-    llmGlobalConcurrency: readPositiveInt(env.CARD_REWRITE_GLOBAL_CONCURRENCY, 4),
+    llmUserRpm: readPositiveInt(env.CHAT_GENERATION_USER_RATE_LIMIT, 60),
+    llmGlobalRpm: readPositiveInt(env.CHAT_GENERATION_GLOBAL_RATE_LIMIT, 1_200),
+    llmGlobalConcurrency: readPositiveInt(env.CARD_REWRITE_GLOBAL_CONCURRENCY, 80),
     sttUserRpm: readPositiveInt(env.STT_REALTIME_USER_RATE_LIMIT, 20),
     sttGlobalRpm: readPositiveInt(env.STT_REALTIME_GLOBAL_RATE_LIMIT, 80),
     sttMaxSessionMs: readPositiveInt(env.STT_REALTIME_MAX_SESSION_MS, 60_000),
@@ -347,7 +347,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     ),
     grokTimeoutMs: readPositiveInt(env.GROK_TIMEOUT_MS ?? env.OPENAI_TIMEOUT_MS ?? env.ChatGPT_TIMEOUT_MS, 20_000),
     quotaTimeZone: env.LF_QUOTA_TIME_ZONE?.trim() || "Asia/Shanghai",
-    usageV2ConfigVersion: env.LF_USAGE_V2_CONFIG_VERSION?.trim() || "usage-v2.1",
+    usageV2ConfigVersion: env.LF_USAGE_V2_CONFIG_VERSION?.trim() || "usage-v2.2",
     freeMonthlyTokenLimit: readPositiveInt(env.LF_V2_FREE_MONTHLY_TOKEN_LIMIT, 10_000),
     plusMonthlyTokenLimit: readPositiveInt(env.LF_V2_PLUS_MONTHLY_TOKEN_LIMIT, 250_000),
     proMonthlyTokenLimit: readPositiveInt(env.LF_V2_PRO_MONTHLY_TOKEN_LIMIT, 500_000),
