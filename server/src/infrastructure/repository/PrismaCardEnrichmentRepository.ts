@@ -611,13 +611,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
       select: { originalText: true, rewrittenText: true },
     });
-    if (!card?.originalText || !card.rewrittenText) return null;
+    if (!card?.originalText) return null;
     return {
       userId: job.userId,
       sourceKind: job.sourceKind,
       sourceId: job.sourceId,
       originalText: card.originalText,
-      rewrittenText: card.rewrittenText,
+      rewrittenText: card.rewrittenText ?? "",
     };
   }
 

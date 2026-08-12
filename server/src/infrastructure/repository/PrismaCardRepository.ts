@@ -358,6 +358,14 @@ export class PrismaCardRepository implements CardRepository {
           cardId: row.id,
           inputHash: input.originalContentHash,
         });
+        const embeddingInput = buildCardEmbeddingInput(input.originalText, input.rewrittenText ?? "");
+        const embeddingHash = createHash("sha256").update(embeddingInput).digest("hex");
+        await enqueueEmbeddingGeneration(tx, {
+          userId: input.userId,
+          cardId: row.id,
+          inputHash: embeddingHash,
+          inputVersion: `card_embedding_input_v1:${embeddingHash}`,
+        });
       }
       for (const [ordinal, imageUploadId] of input.imageUploadIds.entries()) {
         const claimed = await tx.cardImageAsset.updateMany({
@@ -465,8 +473,9 @@ export class PrismaCardRepository implements CardRepository {
           cardId: input.entryId,
           inputHash: input.originalContentHash!,
         });
-      } else if (embeddingContentChanged && input.originalText && input.rewrittenText) {
-        const embeddingInput = buildCardEmbeddingInput(input.originalText, input.rewrittenText);
+      }
+      if (embeddingContentChanged && input.originalText) {
+        const embeddingInput = buildCardEmbeddingInput(input.originalText, input.rewrittenText ?? "");
         const inputHash = createHash("sha256").update(embeddingInput).digest("hex");
         await enqueueEmbeddingGeneration(tx, {
           userId: input.userId,

@@ -25,7 +25,7 @@ import {
   TokenRequestAlreadyExistsError,
   TokenQuotaExceededError,
 } from "@lf/server/services/usage/UsageV2Service.js";
-import type { CreateCardEntryInput, UpdateCardClozeInput, UpdateCardContentInput } from "@lf/core/types/cardRecord.js";
+import type { CreateCardEntryInput, SaveCardContentInput, UpdateCardClozeInput, UpdateCardContentInput } from "@lf/core/types/cardRecord.js";
 import {
   AccountDisabledError,
   AccountPendingDeleteError,
@@ -476,6 +476,46 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const body = (req.body ?? {}) as UpdateCardContentInput;
     try {
       const data = await deps.cardService.updateContent(userId, `card:${recordId}`, body);
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
+  app.post("/cards/:recordId/save", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/save");
+    if (!userId) return;
+    const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
+    const body = req.body as Partial<SaveCardContentInput> | null;
+    const selectedTargets = body?.selectedTargets;
+    const hasTitle = Boolean(body && Object.prototype.hasOwnProperty.call(body, "title"));
+    const hasCollectionId = Boolean(body && Object.prototype.hasOwnProperty.call(body, "collectionId"));
+    if (typeof body?.originalText !== "string" || !Array.isArray(selectedTargets)
+      || selectedTargets.some((target) => target !== "expression" && target !== "translation" && target !== "reply")
+      || (hasTitle && body?.title !== null && typeof body?.title !== "string")
+      || (hasCollectionId && body?.collectionId !== null && typeof body?.collectionId !== "string")) {
+      return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid card save request");
+    }
+    try {
+      const data = await deps.cardService.saveContent({
+        userId,
+        requestId,
+        recordId: `card:${recordId}`,
+        body: {
+          originalText: body.originalText,
+          selectedTargets,
+          ...(hasTitle
+            ? { title: body.title as string | null }
+            : {}),
+          ...(hasCollectionId
+            ? { collectionId: body.collectionId as string | null }
+            : {}),
+        },
+        usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
+      });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       return handleCardError(reply, requestId, error);
