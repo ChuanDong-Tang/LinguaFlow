@@ -549,24 +549,52 @@ export class PrismaCardRepository implements CardRepository {
     dateKey: string;
     cardCount: number;
     originalChars: number;
+    clozeBlankCount: number;
+    clozeAttemptedBlankCount: number;
+    clozeCorrectBlankCount: number;
   }>> {
     const rows = await this.prisma.$queryRawUnsafe<Array<{
       dateKey: string;
       cardCount: number | bigint;
       originalChars: number | bigint;
+      clozeBlankCount: number | bigint;
+      clozeAttemptedBlankCount: number | bigint;
+      clozeCorrectBlankCount: number | bigint;
     }>>(
-      `SELECT "dateKey",
+      `SELECT card."dateKey",
               COUNT(*)::int AS "cardCount",
-              COALESCE(SUM(CASE WHEN "originalText" IS NOT NULL THEN "inputChars" ELSE 0 END), 0)::bigint AS "originalChars"
-         FROM "cards"
-        WHERE "userId" = $1
-          AND "dateKey" >= $2
-          AND "dateKey" <= $3
-          AND "status" = 'completed'
-          AND "deletedAt" IS NULL
-          AND "isSample" = false
-        GROUP BY "dateKey"
-        ORDER BY "dateKey" ASC`,
+              COALESCE(SUM(CASE WHEN card."originalText" IS NOT NULL THEN card."inputChars" ELSE 0 END), 0)::bigint AS "originalChars",
+              COALESCE(SUM(practice."blankCount"), 0)::bigint AS "clozeBlankCount",
+              COALESCE(SUM(practice."attemptedBlankCount"), 0)::bigint AS "clozeAttemptedBlankCount",
+              COALESCE(SUM(practice."correctBlankCount"), 0)::bigint AS "clozeCorrectBlankCount"
+         FROM "cards" AS card
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(row."blankCount"), 0)::bigint AS "blankCount",
+                  COALESCE(SUM(CASE WHEN row."lastResult" IS NOT NULL THEN row."blankCount" ELSE 0 END), 0)::bigint AS "attemptedBlankCount",
+                  COALESCE(SUM(CASE WHEN row."lastResult" = 'correct' THEN row."blankCount" ELSE 0 END), 0)::bigint AS "correctBlankCount"
+             FROM (
+               SELECT CASE WHEN jsonb_typeof(state."clozeState"->'blanks') = 'array'
+                           THEN jsonb_array_length(state."clozeState"->'blanks') ELSE 0 END AS "blankCount",
+                      state."clozeLastResult" AS "lastResult"
+                 FROM "card_content_practice_states" AS state
+                WHERE state."cardId" = card."id" AND state."userId" = card."userId"
+               UNION ALL
+               SELECT CASE WHEN jsonb_typeof(legacy."clozeState"->'blanks') = 'array'
+                           THEN jsonb_array_length(legacy."clozeState"->'blanks') ELSE 0 END AS "blankCount",
+                      legacy."clozeLastResult" AS "lastResult"
+                 FROM "card_practice_states" AS legacy
+                WHERE legacy."cardId" = card."id" AND legacy."userId" = card."userId"
+                  AND NOT EXISTS (SELECT 1 FROM "card_content_practice_states" AS content WHERE content."cardId" = card."id" AND content."userId" = card."userId")
+             ) AS row
+         ) AS practice ON TRUE
+        WHERE card."userId" = $1
+          AND card."dateKey" >= $2
+          AND card."dateKey" <= $3
+          AND card."status" = 'completed'
+          AND card."deletedAt" IS NULL
+          AND card."isSample" = false
+        GROUP BY card."dateKey"
+        ORDER BY card."dateKey" ASC`,
       userId,
       fromDateKey,
       toDateKey,
@@ -575,6 +603,9 @@ export class PrismaCardRepository implements CardRepository {
       dateKey: row.dateKey,
       cardCount: Number(row.cardCount),
       originalChars: Number(row.originalChars),
+      clozeBlankCount: Number(row.clozeBlankCount),
+      clozeAttemptedBlankCount: Number(row.clozeAttemptedBlankCount),
+      clozeCorrectBlankCount: Number(row.clozeCorrectBlankCount),
     }));
   }
 
