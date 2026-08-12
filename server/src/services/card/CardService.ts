@@ -21,6 +21,7 @@ import type {
   CardClozeState,
   UpdateCardClozeInput,
   UpdateCardContentInput,
+  SaveCardContentInput,
   CardTaskStatusView,
 } from "@lf/core/types/cardRecord.js";
 import { cardRecordId, parseCardRecordId } from "@lf/core/types/cardRecord.js";
@@ -483,6 +484,54 @@ export class CardService {
       languageCode: generationLanguageCode,
       sourceHash,
     });
+  }
+
+  async saveContent(input: {
+    userId: string;
+    requestId: string;
+    recordId: string;
+    body: SaveCardContentInput;
+    usageApiVersion?: "v2";
+  }): Promise<CardRecordDetailView> {
+    const parsed = parseCardRecordId(input.recordId);
+    if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
+    const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
+    if (!current || current.status !== "completed") throw new CardNotFoundError();
+
+    const originalText = normalizeCardBodyText(input.body.originalText);
+    if (!originalText || countCardCharacters(originalText) > this.limits.contentMaxChars) {
+      throw new CardValidationError("Invalid original content");
+    }
+    const selectedTargets = Array.from(new Set(input.body.selectedTargets));
+    if (selectedTargets.some((target) => target !== "expression" && target !== "translation" && target !== "reply")) {
+      throw new CardValidationError("Invalid generation target");
+    }
+    const originalChanged = normalizeCardContent(originalText) !== normalizeCardContent(current.originalText);
+    const patch: UpdateCardContentInput = {
+      ...(Object.prototype.hasOwnProperty.call(input.body, "title") ? { title: input.body.title } : {}),
+      ...(Object.prototype.hasOwnProperty.call(input.body, "collectionId") ? { collectionId: input.body.collectionId } : {}),
+      originalText,
+      ...(!selectedTargets.includes("expression") ? { rewrittenText: null } : {}),
+      ...(!selectedTargets.includes("translation") ? { translationText: null } : {}),
+      ...(!selectedTargets.includes("reply") ? { replyText: null } : {}),
+    };
+    let detail = await this.updateContent(input.userId, input.recordId, patch);
+    const existing = {
+      expression: current.rewrittenText,
+      translation: current.translationText,
+      reply: current.replyText,
+    };
+    for (const target of selectedTargets) {
+      if (!originalChanged && existing[target]) continue;
+      detail = await this.generateContent({
+        userId: input.userId,
+        requestId: `${input.requestId}:${target}`,
+        recordId: input.recordId,
+        target,
+        usageApiVersion: input.usageApiVersion,
+      });
+    }
+    return detail;
   }
 
   async generateDraftContent(input: {

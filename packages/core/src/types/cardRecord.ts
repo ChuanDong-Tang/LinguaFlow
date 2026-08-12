@@ -154,6 +154,13 @@ export interface UpdateCardContentInput {
   replyText?: string | null;
 }
 
+export interface SaveCardContentInput {
+  collectionId?: string | null;
+  title?: string | null;
+  originalText: string;
+  selectedTargets: Array<"expression" | "translation" | "reply">;
+}
+
 export interface RecordDetailOpenOptions {
   recordId: CardRecordId;
   initialTab: "review" | "cloze" | "dictation";
