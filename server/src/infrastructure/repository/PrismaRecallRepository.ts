@@ -348,8 +348,7 @@ export class PrismaRecallRepository {
                 sessionId: session.id,
                 cardId: cardIds[ordinal]!,
                 ordinal,
-                state: ordinal === 0 ? "current" : "unvisited",
-                openedAt: ordinal === 0 ? new Date() : undefined,
+                state: "unvisited",
               },
             }));
           }
@@ -373,6 +372,31 @@ export class PrismaRecallRepository {
       }
     }
     throw recallError("RECALL_SESSION_CONFLICT");
+  }
+
+  async createRecordSetSession(userId: string, recordIds: string[], launchContext: unknown): Promise<string> {
+    const sourceIds = Array.from(new Set(recordIds.flatMap((recordId) => {
+      const ref = parseCardRecordId(recordId);
+      return ref?.source === "card" ? [ref.sourceId] : [];
+    }))).slice(0, 50);
+    if (!sourceIds.length) throw recallError("RECALL_SEED_NOT_FOUND");
+    return this.prisma.$transaction(async (tx) => {
+      const accessible = await tx.card.findMany({
+        where: { id: { in: sourceIds }, userId, status: "completed", deletedAt: null, isSample: false },
+        select: { id: true },
+      });
+      const allowed = new Set(accessible.map((card) => card.id));
+      const cardIds = sourceIds.filter((id) => allowed.has(id));
+      if (!cardIds.length) throw recallError("RECALL_SEED_NOT_FOUND");
+      await tx.recallSession.updateMany({ where: { userId, status: "active" }, data: { status: "abandoned", completedAt: new Date() } });
+      const session = await tx.recallSession.create({
+        data: { userId, seedCardId: cardIds[0]!, launchMode: "search", launchContext: jsonValue(launchContext) },
+      });
+      await tx.recallSessionNode.createMany({
+        data: cardIds.map((cardId, ordinal) => ({ sessionId: session.id, cardId, ordinal, state: "unvisited" })),
+      });
+      return session.id;
+    });
   }
 
   async persistTimelineRelations(userId: string, sessionId: string, relations: Array<{

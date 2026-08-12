@@ -249,6 +249,9 @@ export interface CardRepository {
     dateKey: string;
     cardCount: number;
     originalChars: number;
+    clozeBlankCount: number;
+    clozeAttemptedBlankCount: number;
+    clozeCorrectBlankCount: number;
   }>>;
   findEarliestCompletedDateKey(userId: string): Promise<string | null>;
   listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<CardEntryEntity[]>;

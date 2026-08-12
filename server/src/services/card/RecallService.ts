@@ -107,19 +107,16 @@ export class RecallService {
       : null;
     const sessionId = dateSession?.sessionId
       ?? await this.repository.createSession(userId, input.seedRecordId, input.launchMode, launchContext);
-    const timelineRecordIds = dateSession?.recordIds ?? [];
-    if (timelineRecordIds.length) {
-      const allowed = new Set(timelineRecordIds);
-      const relatedWithinDate = (await Promise.all(timelineRecordIds.map(async (fromRecordId) =>
-        (await this.relations.relations(userId, fromRecordId, 20))
-          .filter((item) => item.recordId !== fromRecordId && allowed.has(item.recordId))
-          .map((item) => ({ fromRecordId, toRecordId: item.recordId, reasons: item.reasons as RecallReason[] }))
-      ))).flat();
-      await this.repository.persistTimelineRelations(userId, sessionId, relatedWithinDate);
-    }
     const session = await this.requireSession(userId, sessionId);
     const seed = session.nodes[0];
     if (seed && input.launchMode !== "time") await this.expand(userId, sessionId, seed.id, 2);
+    return this.requireSession(userId, sessionId);
+  }
+
+  async createFromRecords(userId: string, input: { recordIds: string[]; query?: string }) {
+    const recordIds = input.recordIds.filter((value): value is string => typeof value === "string").slice(0, 50);
+    const query = input.query?.trim().slice(0, 200) || undefined;
+    const sessionId = await this.repository.createRecordSetSession(userId, recordIds, query ? { query } : undefined);
     return this.requireSession(userId, sessionId);
   }
 

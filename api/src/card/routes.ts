@@ -187,6 +187,29 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     } catch (error) { return handleCardError(reply, requestId, error); }
   });
 
+  app.post("/cards/recall/sessions/from-records", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/recall/sessions/from-records");
+    if (!userId) return;
+    const body = req.body as { recordIds?: unknown; query?: unknown } | null;
+    if (!Array.isArray(body?.recordIds) || body.recordIds.some((value) => typeof value !== "string")) {
+      return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid recall records");
+    }
+    try {
+      if (!await consumeLimits(deps.rateLimiter, [
+        [`recall:create:user:${userId}`, rateConfig.recallCreateUserRateLimit, rateConfig.recallRateWindowMs],
+      ])) {
+        return failure(reply, 429, requestId, "RATE_LIMITED", "Too many requests");
+      }
+      const data = await deps.recallService.createFromRecords(userId, {
+        recordIds: body.recordIds,
+        query: typeof body.query === "string" ? body.query : undefined,
+      });
+      return reply.status(201).send({ ok: true, request_id: requestId, data });
+    } catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
   app.get("/cards/recall/sessions/active", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
