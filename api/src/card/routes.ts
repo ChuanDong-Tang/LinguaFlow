@@ -149,15 +149,13 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         return failure(reply, 429, requestId, "RATE_LIMITED", "Too many requests");
       }
       const rawQuery = typeof query.q === "string" ? query.q : undefined;
-      const semanticEnabled = rawQuery?.trim()
-        ? await consumeRecallSemanticSearchAllowance(deps.rateLimiter, userId, rateConfig)
-        : false;
       const data = await deps.recallService.search(userId, {
         query: rawQuery,
         collectionId: typeof query.collectionId === "string" ? query.collectionId : undefined,
         timeRange: typeof query.timeRange === "string" ? query.timeRange : undefined,
         limit: Number(query.limit),
-        semanticEnabled,
+        semanticEnabled: Boolean(rawQuery?.trim()),
+        consumeSemanticAllowance: () => consumeRecallSemanticSearchAllowance(deps.rateLimiter, userId, rateConfig),
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) { return handleCardError(reply, requestId, error); }

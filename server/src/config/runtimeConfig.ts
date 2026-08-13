@@ -112,6 +112,8 @@ export interface RuntimeConfig {
   recallCreateUserRateLimit: number;
   recallExpandUserRateLimit: number;
   recallExplorationNodeLimit: number;
+  recallSearchResultLimit: number;
+  recallSemanticMinScore: number;
   recallRateWindowMs: number;
   recallSearchIpRateLimit: number;
   cardRewriteGlobalConcurrency: number;
@@ -300,6 +302,8 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     recallCreateUserRateLimit: readPositiveInt(env.RECALL_CREATE_USER_RATE_LIMIT, 10),
     recallExpandUserRateLimit: readPositiveInt(env.RECALL_EXPAND_USER_RATE_LIMIT, 60),
     recallExplorationNodeLimit: readPositiveInt(env.RECALL_EXPLORATION_NODE_LIMIT, 12),
+    recallSearchResultLimit: readPositiveInt(env.RECALL_SEARCH_RESULT_LIMIT, 10),
+    recallSemanticMinScore: readUnitFloat(env.RECALL_SEMANTIC_MIN_SCORE, 0.60),
     recallRateWindowMs: readPositiveInt(env.RECALL_RATE_WINDOW_MS, 60_000),
     recallSearchIpRateLimit: readPositiveInt(env.RECALL_SEARCH_IP_RATE_LIMIT, 120),
     cardRewriteGlobalConcurrency: resourcePolicies.llm.globalConcurrency,
