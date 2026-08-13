@@ -366,6 +366,11 @@ export class PrismaCardRepository implements CardRepository {
           inputHash: embeddingHash,
           inputVersion: `card_embedding_input_v1:${embeddingHash}`,
         });
+        await enqueuePhraseEnrichment(tx, {
+          userId: input.userId,
+          cardId: row.id,
+          inputHash: embeddingHash,
+        });
       }
       for (const [ordinal, imageUploadId] of input.imageUploadIds.entries()) {
         const claimed = await tx.cardImageAsset.updateMany({
@@ -466,6 +471,10 @@ export class PrismaCardRepository implements CardRepository {
       await syncContentSegments(tx, input.entryId, input.contentSegments);
       if (embeddingContentChanged) {
         await tx.cardEmbedding.deleteMany({ where: { cardId: input.entryId, userId: input.userId } });
+        // Every indexed occurrence addresses the previous original/rewrite text.
+        // Cloze practice is invalidated by the same content change, so rebuild the
+        // complete phrase view from the new source instead of keeping stale rows.
+        await tx.phraseOccurrence.deleteMany({ where: { cardId: input.entryId, userId: input.userId } });
       }
       if (topicNeedsRefresh) {
         await enqueueTopicGeneration(tx, {
@@ -482,6 +491,11 @@ export class PrismaCardRepository implements CardRepository {
           cardId: input.entryId,
           inputHash,
           inputVersion: `card_embedding_input_v1:${inputHash}`,
+        });
+        await enqueuePhraseEnrichment(tx, {
+          userId: input.userId,
+          cardId: input.entryId,
+          inputHash,
         });
       }
       if (input.clearPractice) {
@@ -735,67 +749,10 @@ export class PrismaCardRepository implements CardRepository {
           failedAt: null,
         },
       });
-      await tx.cardEnrichmentJob.upsert({
-        where: {
-          userId_sourceKind_sourceId_jobType_inputVersion: {
-            userId: completedEntry.userId,
-            sourceKind: "card",
-            sourceId: input.entryId,
-            jobType: "index_card_phrases",
-            inputVersion: `card_phrase_index_v1:${input.embeddingInputHash}`,
-          },
-        },
-        create: {
-          userId: completedEntry.userId,
-          sourceKind: "card",
-          sourceId: input.entryId,
-          jobType: "index_card_phrases",
-          inputHash: input.embeddingInputHash,
-          inputVersion: `card_phrase_index_v1:${input.embeddingInputHash}`,
-          payload: { schemaVersion: 1 },
-        },
-        update: {
-          status: "queued",
-          availableAt: new Date(),
-          attempts: 0,
-          processingAt: null,
-          leaseExpiresAt: null,
-          workerId: null,
-          lastError: null,
-          completedAt: null,
-          failedAt: null,
-        },
-      });
-      await tx.cardEnrichmentJob.upsert({
-        where: {
-          userId_sourceKind_sourceId_jobType_inputVersion: {
-            userId: completedEntry.userId,
-            sourceKind: "card",
-            sourceId: input.entryId,
-            jobType: "detect_progress_phrases",
-            inputVersion: `progress_phrase_detection_v1:${input.embeddingInputHash}`,
-          },
-        },
-        create: {
-          userId: completedEntry.userId,
-          sourceKind: "card",
-          sourceId: input.entryId,
-          jobType: "detect_progress_phrases",
-          inputHash: input.embeddingInputHash,
-          inputVersion: `progress_phrase_detection_v1:${input.embeddingInputHash}`,
-          payload: { schemaVersion: 1 },
-        },
-        update: {
-          status: "queued",
-          availableAt: new Date(),
-          attempts: 0,
-          processingAt: null,
-          leaseExpiresAt: null,
-          workerId: null,
-          lastError: null,
-          completedAt: null,
-          failedAt: null,
-        },
+      await enqueuePhraseEnrichment(tx, {
+        userId: completedEntry.userId,
+        cardId: input.entryId,
+        inputHash: input.embeddingInputHash,
       });
       if (completedEntry && !completedEntry.isSample) {
         const visibleSamples = await tx.card.findMany({
@@ -1610,6 +1567,50 @@ async function enqueueEmbeddingGeneration(
       failedAt: null,
     },
   });
+}
+
+async function enqueuePhraseEnrichment(
+  tx: any,
+  input: { userId: string; cardId: string; inputHash: string },
+): Promise<void> {
+  for (const job of [
+    { jobType: "index_card_phrases", inputVersion: `card_phrase_index_v1:${input.inputHash}` },
+    { jobType: "detect_progress_phrases", inputVersion: `progress_phrase_detection_v1:${input.inputHash}` },
+  ] as const) {
+    await tx.cardEnrichmentJob.upsert({
+      where: {
+        userId_sourceKind_sourceId_jobType_inputVersion: {
+          userId: input.userId,
+          sourceKind: "card",
+          sourceId: input.cardId,
+          jobType: job.jobType,
+          inputVersion: job.inputVersion,
+        },
+      },
+      create: {
+        userId: input.userId,
+        sourceKind: "card",
+        sourceId: input.cardId,
+        jobType: job.jobType,
+        inputHash: input.inputHash,
+        inputVersion: job.inputVersion,
+        payload: { schemaVersion: 1 },
+      },
+      update: {
+        status: "queued",
+        availableAt: new Date(),
+        inputHash: input.inputHash,
+        payload: { schemaVersion: 1 },
+        attempts: 0,
+        processingAt: null,
+        leaseExpiresAt: null,
+        workerId: null,
+        lastError: null,
+        completedAt: null,
+        failedAt: null,
+      },
+    });
+  }
 }
 
 async function applyPhraseMutation(tx: any, input: {

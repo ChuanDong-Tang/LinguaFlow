@@ -16,6 +16,7 @@ export class CardPhraseIndexWorkerService {
     try {
       let cursor: string | undefined;
       let loaded = false;
+      const allOccurrences = [] as Array<Parameters<CardEnrichmentRepository["completeCardPhraseIndexJob"]>[1][number]>;
       do {
         const source = await this.repository.loadCardPhraseIndexSource(job, cursor, 500);
         if (!source) {
@@ -45,13 +46,13 @@ export class CardPhraseIndexWorkerService {
             })),
           ),
         ]);
-        await this.repository.upsertCardPhraseIndexOccurrences(job, occurrences);
+        allOccurrences.push(...occurrences);
         cursor = source.nextCursor ?? undefined;
         if (cursor && !await this.repository.renewJobLease(job, new Date(Date.now() + (this.options.leaseMs ?? 60_000)))) {
           throw new Error("CARD_PHRASE_JOB_LEASE_LOST");
         }
       } while (cursor);
-      await this.repository.completeCardPhraseIndexJob(job, []);
+      await this.repository.completeCardPhraseIndexJob(job, allOccurrences);
     } catch (error) {
       const maxAttempts = this.options.maxAttempts ?? 3;
       const retryAt = job.attempts >= maxAttempts
