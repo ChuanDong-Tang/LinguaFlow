@@ -159,7 +159,7 @@ export class PrismaRecallRepository {
         segments: { orderBy: { ordinal: "asc" }, select: { id: true, text: true } },
       },
       orderBy: { createdAt: "desc" },
-      take: input.limit,
+      take: Math.min(100, Math.max(input.limit, input.limit * 5)),
     });
     const occurrences = matchingPhraseIds.length && cards.length
       ? await this.prisma.phraseOccurrence.findMany({
@@ -186,7 +186,7 @@ export class PrismaRecallRepository {
       list.push(occurrence);
       occurrencesByCard.set(occurrence.cardId, list);
     }
-    return cards.map((card) => ({
+    const candidates: RecallCandidate[] = cards.map((card): RecallCandidate => ({
       recordId: cardRecordId("card", card.id),
       title: card.title,
       displayTitle: effectiveTitle(card),
@@ -207,12 +207,16 @@ export class PrismaRecallRepository {
         occurrences: occurrencesByCard.get(card.id) ?? [],
       }),
     }));
+    return candidates.sort((left, right) => lexicalPriority(left) - lexicalPriority(right)
+      || right.createdAt.getTime() - left.createdAt.getTime())
+      .slice(0, input.limit);
   }
 
   async semanticSearchCandidates(input: {
     userId: string;
     embedding: number[];
     modelVersion: string;
+    minScore: number;
     collectionId?: string | null;
     timeRange?: "recent" | "this_year" | "last_year" | "earlier";
     limit: number;
@@ -265,9 +269,10 @@ export class PrismaRecallRepository {
           )
           AND ($6::timestamptz IS NULL OR card."createdAt" >= $6)
           AND ($7::timestamptz IS NULL OR card."createdAt" < $7)
+          AND (1 - (embedding."embedding" <=> $2::vector)) >= $8
         ORDER BY embedding."embedding" <=> $2::vector ASC,
                  card."id" ASC
-        LIMIT $8`,
+        LIMIT $9`,
       input.userId,
       vectorLiteral(input.embedding),
       input.modelVersion,
@@ -275,6 +280,7 @@ export class PrismaRecallRepository {
       typeof input.collectionId === "string" ? input.collectionId : null,
       createdAfter,
       createdBefore,
+      input.minScore,
       input.limit,
     );
     return rows.map((row) => ({
@@ -706,6 +712,13 @@ export function buildLexicalMatches(input: {
     });
   }
   return matches.slice(0, 5);
+}
+
+function lexicalPriority(candidate: RecallCandidate): number {
+  const matches = candidate.matches ?? [];
+  if (matches.some((match) => match.matchType === "exact" && (match.field === "title" || match.field === "topic"))) return 0;
+  if (matches.some((match) => match.matchType === "exact")) return 1;
+  return 2;
 }
 
 function effectiveTitle(card: { title?: string | null; topic?: string | null; originalText?: string | null; rewrittenText?: string | null }): string {

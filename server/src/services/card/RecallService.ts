@@ -15,6 +15,8 @@ export class RecallService {
     private readonly imageService?: CardImageService,
     private readonly resourceGovernor?: ResourceGovernor,
     private readonly explorationNodeLimit = 12,
+    private readonly searchResultLimit = 10,
+    private readonly semanticMinScore = 0.60,
   ) {}
 
   async seedCandidates(userId: string, mode: string, excludedRecordIds: string[], requestedLimit?: number) {
@@ -32,36 +34,54 @@ export class RecallService {
     timeRange?: string;
     limit?: number;
     semanticEnabled?: boolean;
+    consumeSemanticAllowance?: () => Promise<boolean>;
   }) {
     const query = input.query?.trim() ?? "";
     if (query.length > 200) throw recallError("RECALL_SEARCH_INVALID");
     const timeRange = ["recent", "this_year", "last_year", "earlier"].includes(input.timeRange ?? "")
       ? input.timeRange as "recent" | "this_year" | "last_year" | "earlier"
       : undefined;
+    const resultLimit = clamp(input.limit, 1, this.searchResultLimit, this.searchResultLimit);
     const searchInput = {
       userId,
       query,
       collectionId: input.collectionId === "unclassified" ? null : input.collectionId?.trim() || undefined,
       timeRange,
-      limit: clamp(input.limit, 1, 50, 20),
+      limit: resultLimit,
     };
-    if (query && this.embeddingProvider && input.semanticEnabled !== false) {
-      try {
-        const embed = () => this.embeddingProvider!.embed(query);
-        const result = this.resourceGovernor
-          ? await this.resourceGovernor.execute("embedding", userId, embed)
-          : await embed();
-        const semantic = await this.repository.semanticSearchCandidates({
-          ...searchInput,
-          embedding: result.embedding,
-          modelVersion: result.modelVersion,
-        });
-        if (semantic.length) return this.withThumbnails(userId, semantic);
-      } catch {
-        // Exploration search remains usable through lexical matching when vector search is unavailable.
-      }
+    const lexical = query
+      ? await this.repository.searchCandidates(searchInput)
+      : [];
+    if (lexical.length >= resultLimit || !query || !this.embeddingProvider || input.semanticEnabled === false) {
+      return this.withThumbnails(userId, lexical.slice(0, resultLimit));
     }
-    return this.withThumbnails(userId, await this.repository.searchCandidates(searchInput));
+    if (input.consumeSemanticAllowance && !await input.consumeSemanticAllowance()) {
+      return this.withThumbnails(userId, lexical.slice(0, resultLimit));
+    }
+    let semantic = [] as Awaited<ReturnType<PrismaRecallRepository["semanticSearchCandidates"]>>;
+    try {
+      const embed = () => this.embeddingProvider!.embed(query);
+      const result = this.resourceGovernor
+        ? await this.resourceGovernor.execute("embedding", userId, embed)
+        : await embed();
+      semantic = await this.repository.semanticSearchCandidates({
+        ...searchInput,
+        embedding: result.embedding,
+        modelVersion: result.modelVersion,
+        minScore: this.semanticMinScore,
+      });
+    } catch {
+      // Keyword results remain usable when vector search is unavailable.
+    }
+    const seen = new Set(lexical.map((candidate) => candidate.recordId));
+    const merged = [...lexical];
+    for (const candidate of semantic) {
+      if (seen.has(candidate.recordId)) continue;
+      seen.add(candidate.recordId);
+      merged.push(candidate);
+      if (merged.length >= resultLimit) break;
+    }
+    return this.withThumbnails(userId, merged);
   }
 
   async lexicalSearch(userId: string, input: {
