@@ -53,6 +53,8 @@ export interface CardImageThumbnailView {
 
 export interface CardImageDetailView extends CardImageThumbnailView {
   aspect: "3:2" | "4:5" | null;
+  /** Smaller rendition for inline Card galleries; use `url` for full-screen viewing. */
+  thumbnail?: CardImageThumbnailView | null;
 }
 
 export interface CardPracticeSummaryView {

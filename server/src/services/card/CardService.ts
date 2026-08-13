@@ -780,8 +780,8 @@ export class CardService {
         endUtf16: segment.endUtf16,
       })),
       contentBlocks,
-      images: imageViews.map((views) => views.image),
-      image: imageViews[0]?.image ?? null,
+      images: imageViews.map((views) => ({ ...views.image, thumbnail: views.thumbnail })),
+      image: imageViews[0] ? { ...imageViews[0].image, thumbnail: imageViews[0].thumbnail } : null,
       practice: toPracticeView(practiceState),
     };
   }
