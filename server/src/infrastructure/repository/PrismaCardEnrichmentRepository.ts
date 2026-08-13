@@ -220,6 +220,27 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         });
       }
       if (targetId !== temporary.id) {
+        // The target occurrence may have been created earlier by generic phrase indexing.
+        // Preserve the stronger cloze evidence before removing the temporary duplicate.
+        await tx.$executeRawUnsafe(
+          `UPDATE "phrase_occurrences" AS target
+              SET "clozeBlankId" = COALESCE(target."clozeBlankId", duplicate."clozeBlankId"),
+                  "matchType" = CASE
+                    WHEN duplicate."clozeBlankId" IS NOT NULL THEN duplicate."matchType"
+                    ELSE target."matchType"
+                  END,
+                  "updatedAt" = CURRENT_TIMESTAMP
+             FROM "phrase_occurrences" AS duplicate
+            WHERE duplicate."phraseId" = $1
+              AND target."phraseId" = $2
+              AND target."cardId" = duplicate."cardId"
+              AND target."sourceField" = duplicate."sourceField"
+              AND target."segmentKey" = duplicate."segmentKey"
+              AND target."startUtf16" = duplicate."startUtf16"
+              AND target."endUtf16" = duplicate."endUtf16"`,
+          temporary.id,
+          targetId,
+        );
         await tx.$executeRawUnsafe(
           `DELETE FROM "phrase_occurrences" AS duplicate
             WHERE duplicate."phraseId" = $1
@@ -363,6 +384,72 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           update: { surfaceText: occurrence.surfaceText },
         });
       }
+    });
+  }
+
+  async completePhraseHistoryJob(job: CardEnrichmentJobEntity, affectedCardIds: string[]): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.cardEnrichmentJob.updateMany({
+        where: { id: job.id, status: "processing", workerId: job.workerId },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+          leaseExpiresAt: null,
+          workerId: null,
+          lastError: null,
+        },
+      });
+      if (claimed.count !== 1) return false;
+      if (!affectedCardIds.length) return true;
+      const cards = await tx.card.findMany({
+        where: {
+          id: { in: Array.from(new Set(affectedCardIds)) },
+          userId: job.userId,
+          status: "completed",
+          deletedAt: null,
+        },
+        select: { id: true, originalText: true, rewrittenText: true },
+      });
+      for (const card of cards) {
+        if (!card.originalText) continue;
+        const inputHash = createHash("sha256")
+          .update(buildCardEmbeddingInput(card.originalText, card.rewrittenText ?? ""))
+          .digest("hex");
+        await tx.cardEnrichmentJob.upsert({
+          where: {
+            userId_sourceKind_sourceId_jobType_inputVersion: {
+              userId: job.userId,
+              sourceKind: "card",
+              sourceId: card.id,
+              jobType: "detect_progress_phrases",
+              inputVersion: `progress_phrase_detection_v1:${inputHash}`,
+            },
+          },
+          create: {
+            userId: job.userId,
+            sourceKind: "card",
+            sourceId: card.id,
+            jobType: "detect_progress_phrases",
+            inputHash,
+            inputVersion: `progress_phrase_detection_v1:${inputHash}`,
+            payload: { schemaVersion: 1 },
+          },
+          update: {
+            status: "queued",
+            availableAt: new Date(),
+            inputHash,
+            payload: { schemaVersion: 1 },
+            attempts: 0,
+            processingAt: null,
+            leaseExpiresAt: null,
+            workerId: null,
+            lastError: null,
+            completedAt: null,
+            failedAt: null,
+          },
+        });
+      }
+      return true;
     });
   }
 
