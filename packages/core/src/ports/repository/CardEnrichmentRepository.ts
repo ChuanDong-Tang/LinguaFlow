@@ -111,6 +111,7 @@ export interface CardEnrichmentRepository {
   }): Promise<string | null>;
   loadPhraseIndexSource(phraseId: string, userId: string, cursor?: string, limit?: number): Promise<PhraseIndexSource | null>;
   upsertPhraseOccurrences(phraseId: string, userId: string, occurrences: PhraseIndexOccurrence[]): Promise<void>;
+  completePhraseHistoryJob(job: CardEnrichmentJobEntity, affectedCardIds: string[]): Promise<boolean>;
   claimNextPhraseHistoryIndexJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   claimNextCardPhraseIndexJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadCardPhraseIndexSource(job: CardEnrichmentJobEntity, cursor?: string, limit?: number): Promise<CardPhraseIndexSource | null>;

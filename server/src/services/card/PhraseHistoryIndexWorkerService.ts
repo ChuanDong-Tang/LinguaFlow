@@ -15,6 +15,7 @@ export class PhraseHistoryIndexWorkerService {
       const phraseId = phraseIdFromPayload(job.payload) ?? job.sourceId;
       let cursor: string | undefined;
       let loaded = false;
+      const affectedCardIds = new Set<string>();
       do {
         const source = await this.repository.loadPhraseIndexSource(
           phraseId,
@@ -47,13 +48,16 @@ export class PhraseHistoryIndexWorkerService {
             ...match,
           })),
         ]);
+        for (const occurrence of occurrences) {
+          if (occurrence.sourceField === "original") affectedCardIds.add(occurrence.sourceId);
+        }
         await this.repository.upsertPhraseOccurrences(phraseId, job.userId, occurrences);
         cursor = source.nextCursor ?? undefined;
         if (cursor && !await this.repository.renewJobLease(job, new Date(Date.now() + leaseMs))) {
           throw new Error("PHRASE_HISTORY_JOB_LEASE_LOST");
         }
       } while (cursor);
-      await this.repository.completeJob(job);
+      await this.repository.completePhraseHistoryJob(job, Array.from(affectedCardIds));
     } catch (error) {
       const maxAttempts = this.options.maxAttempts ?? 3;
       const retryAt = job.attempts >= maxAttempts
