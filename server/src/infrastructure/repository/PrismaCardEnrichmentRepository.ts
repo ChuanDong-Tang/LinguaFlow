@@ -376,10 +376,15 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         languageCode: true,
         createdAt: true,
         originalText: true,
+        rewrittenText: true,
         segments: { orderBy: { ordinal: "asc" }, select: { id: true, text: true } },
       },
     });
     if (!card?.originalText) return null;
+    const currentInputHash = createHash("sha256")
+      .update(buildCardEmbeddingInput(card.originalText, card.rewrittenText ?? ""))
+      .digest("hex");
+    if (currentInputHash !== job.inputHash) return null;
     const phrases = await this.prisma.phrase.findMany({
       where: { userId: job.userId, languageCode: card.languageCode, status: "normalized" },
       select: {
@@ -436,6 +441,15 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         },
       });
       if (claimed.count !== 1) return false;
+      const card = await tx.card.findFirst({
+        where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
+        select: { originalText: true, rewrittenText: true },
+      });
+      if (!card?.originalText) return false;
+      const currentInputHash = createHash("sha256")
+        .update(buildCardEmbeddingInput(card.originalText, card.rewrittenText ?? ""))
+        .digest("hex");
+      if (currentInputHash !== job.inputHash) return false;
       await this.upsertCardOccurrences(job.userId, occurrences, tx);
       return true;
     });
@@ -481,9 +495,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     if (job.sourceKind !== "card") return null;
     const card = await this.prisma.card.findFirst({
       where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-      select: { id: true, userId: true, languageCode: true, createdAt: true, originalText: true },
+      select: { id: true, userId: true, languageCode: true, createdAt: true, originalText: true, rewrittenText: true },
     });
     if (!card?.originalText) return null;
+    const currentInputHash = createHash("sha256")
+      .update(buildCardEmbeddingInput(card.originalText, card.rewrittenText ?? ""))
+      .digest("hex");
+    if (currentInputHash !== job.inputHash) return null;
     return {
       userId: card.userId,
       sourceKind: "card",
@@ -513,9 +531,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       if (claimed.count !== 1) return false;
       const card = await tx.card.findFirst({
         where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-        select: { createdAt: true, languageCode: true },
+        select: { createdAt: true, languageCode: true, originalText: true, rewrittenText: true },
       });
-      if (!card) return true;
+      if (!card?.originalText) return false;
+      const currentInputHash = createHash("sha256")
+        .update(buildCardEmbeddingInput(card.originalText, card.rewrittenText ?? ""))
+        .digest("hex");
+      if (currentInputHash !== job.inputHash) return false;
       for (const detected of phrases) {
         const phrase = await tx.phrase.upsert({
           where: {
