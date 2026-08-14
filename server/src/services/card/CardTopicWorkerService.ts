@@ -5,6 +5,7 @@ import { buildCardTopicPrompt, parseCardTopicOutput } from "@lf/core/Prompts/car
 import { CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
 
 export class CardTopicWorkerService {
   constructor(
@@ -64,11 +65,14 @@ export class CardTopicWorkerService {
         platformFunded: true,
       });
     } catch (error) {
-      const retryAt = job.attempts >= (this.options.maxAttempts ?? 3)
-        ? null
-        : new Date(Date.now() + retryDelayMs(job.attempts));
-      await this.repository.rescheduleOrFail(job, safeErrorMessage(error), retryAt);
-      if (!retryAt) await this.log(job, "failed", error, { outputChars: output.length, platformFunded: true });
+      const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
+      await this.repository.rescheduleOrFail(
+        job,
+        safeEnrichmentErrorMessage(error),
+        retry.retryAt,
+        { preserveAttempt: retry.preserveAttempt },
+      );
+      if (!retry.retryAt) await this.log(job, "failed", error, { outputChars: output.length, platformFunded: true });
     }
   }
 
@@ -99,10 +103,6 @@ export class CardTopicWorkerService {
       // Audit persistence must not change the terminal job state.
     }
   }
-}
-
-function retryDelayMs(attempts: number): number {
-  return Math.min(60_000, 1_000 * (2 ** Math.max(0, attempts - 1)));
 }
 
 function resolveErrorCode(error: unknown): string {

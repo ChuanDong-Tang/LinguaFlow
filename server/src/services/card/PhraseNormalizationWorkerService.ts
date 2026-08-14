@@ -5,7 +5,8 @@ import {
   parsePhraseNormalizationOutput,
 } from "@lf/core/Prompts/phraseNormalizationPrompt.js";
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
-import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
+import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
 
 export class PhraseNormalizationWorkerService {
   constructor(
@@ -63,6 +64,16 @@ export class PhraseNormalizationWorkerService {
       });
     } catch (error) {
       const maxAttempts = this.options.maxAttempts ?? 3;
+      if (error instanceof ResourceLimitedError) {
+        const retry = resolveEnrichmentRetry(error, job.attempts, maxAttempts);
+        await this.repository.rescheduleOrFail(
+          job,
+          safeEnrichmentErrorMessage(error),
+          retry.retryAt,
+          { preserveAttempt: retry.preserveAttempt },
+        );
+        return true;
+      }
       if (job.attempts >= maxAttempts && source) {
         try {
           const normalizedText = normalizePhraseSurface(source.surfaceText, source.languageCode);
@@ -83,10 +94,8 @@ export class PhraseNormalizationWorkerService {
           return true;
         }
       }
-      const retryAt = job.attempts >= maxAttempts
-        ? null
-        : new Date(Date.now() + Math.min(60_000, 1_000 * (2 ** Math.max(0, job.attempts - 1))));
-      await this.repository.rescheduleOrFail(job, safeErrorMessage(error), retryAt);
+      const retry = resolveEnrichmentRetry(error, job.attempts, maxAttempts);
+      await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt);
     }
     return true;
   }

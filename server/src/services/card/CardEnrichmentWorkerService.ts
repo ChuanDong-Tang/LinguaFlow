@@ -4,6 +4,7 @@ import type { EmbeddingProvider } from "@lf/core/ports/ai/EmbeddingProvider.js";
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
 
 export class CardEnrichmentWorkerService {
   constructor(
@@ -37,12 +38,14 @@ export class CardEnrichmentWorkerService {
         : await embed();
       await this.repository.completeEmbeddingJob(job, result);
     } catch (error) {
-      const maxAttempts = this.options.maxAttempts ?? 3;
-      const retryAt = job.attempts >= maxAttempts
-        ? null
-        : new Date(Date.now() + retryDelayMs(job.attempts));
-      await this.repository.rescheduleOrFail(job, safeErrorMessage(error), retryAt);
-      if (!retryAt) await this.logTerminalFailure(job.userId, job.sourceId, error);
+      const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
+      await this.repository.rescheduleOrFail(
+        job,
+        safeEnrichmentErrorMessage(error),
+        retry.retryAt,
+        { preserveAttempt: retry.preserveAttempt },
+      );
+      if (!retry.retryAt) await this.logTerminalFailure(job.userId, job.sourceId, error);
     }
     return true;
   }
@@ -67,10 +70,6 @@ export class CardEnrichmentWorkerService {
       // Observability must not requeue a terminal job.
     }
   }
-}
-
-function retryDelayMs(attempts: number): number {
-  return Math.min(60_000, 1_000 * (2 ** Math.max(0, attempts - 1)));
 }
 
 function resolveErrorCode(error: unknown): string {

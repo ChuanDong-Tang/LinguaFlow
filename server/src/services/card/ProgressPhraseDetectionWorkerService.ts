@@ -1,5 +1,6 @@
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { ProgressPhraseDetectionService } from "./ProgressPhraseDetectionService.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
 
 export class ProgressPhraseDetectionWorkerService {
   constructor(
@@ -31,16 +32,14 @@ export class ProgressPhraseDetectionWorkerService {
         detected.normalizerVersion,
       );
     } catch (error) {
-      const maxAttempts = this.options.maxAttempts ?? 3;
-      const retryAt = job.attempts >= maxAttempts
-        ? null
-        : new Date(Date.now() + Math.min(60_000, 1_000 * (2 ** Math.max(0, job.attempts - 1))));
-      await this.repository.rescheduleOrFail(job, safeErrorMessage(error), retryAt);
+      const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
+      await this.repository.rescheduleOrFail(
+        job,
+        safeEnrichmentErrorMessage(error),
+        retry.retryAt,
+        { preserveAttempt: retry.preserveAttempt },
+      );
     }
     return true;
   }
-}
-
-function safeErrorMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error ?? "unknown")).slice(0, 500);
 }
