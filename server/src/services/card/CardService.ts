@@ -431,7 +431,10 @@ export class CardService {
     const generate = () => this.aiProvider!.generateChatTextStream({
         userId: input.userId,
         text: prompt.userPrompt,
-        languageCode: generationLanguageCode,
+        // The provider prompt profile only accepts learning-language codes.
+        // The explicit system prompt above controls the generated language;
+        // translation/organization output is still stored with appLocale.
+        languageCode: preference.learningLanguage,
         appLocale: preference.appLocale,
         promptDifficulty: current.promptDifficultySnapshot,
         companionMode: "rewrite_only",
