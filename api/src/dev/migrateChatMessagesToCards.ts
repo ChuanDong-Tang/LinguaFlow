@@ -13,6 +13,7 @@ type Args = {
   phone: string | null;
   all: boolean;
   apply: boolean;
+  rollback: boolean;
   databaseLine: number | null;
 };
 
@@ -66,6 +67,7 @@ const CARD_CLIENT_VERSION = "chat-message:v1";
 const LEGACY_MIGRATION_VERSION = "legacy_chat_to_card_v1";
 const MIGRATION_CONTENT_VERSION = "legacy_chat_to_card_v3";
 const APPLY_CONFIRMATION = "chat-to-card-migration";
+const ROLLBACK_CONFIRMATION = "rollback-chat-to-card-migration";
 
 const args = parseArgs(process.argv.slice(2));
 loadDatabaseUrl(args.databaseLine);
@@ -186,6 +188,8 @@ async function main(): Promise<void> {
       clientId: true,
       originalText: true,
       rewrittenText: true,
+      translationText: true,
+      replyText: true,
       promptVersion: true,
       status: true,
       deletedAt: true,
@@ -210,6 +214,58 @@ async function main(): Promise<void> {
   });
   const duplicateSourceCards = candidates.filter((candidate) => existingCardsFor(candidate).length > 1);
   const withCloze = candidates.filter((candidate) => countMessageBlanks(candidate.clozeState) > 0);
+
+  if (args.rollback) {
+    const rollbackSafe = candidates.flatMap((candidate) => {
+      const cards = existingCardsFor(candidate);
+      const card = cards[0];
+      return cards.length === 1 && card && card.status === "completed" && !card.deletedAt && sameRollbackContent(card, candidate)
+        ? [card]
+        : [];
+    });
+    const rollbackUnsafe = candidates.filter((candidate) => {
+      const cards = existingCardsFor(candidate);
+      const card = cards[0];
+      return cards.length === 1 && card &&
+        (card.status !== "completed" || Boolean(card.deletedAt) || !sameRollbackContent(card, candidate));
+    });
+    const rollbackCardIds = rollbackSafe.map((card) => card.id);
+    const rollbackJobCount = rollbackCardIds.length
+      ? await prisma.cardEnrichmentJob.count({
+          where: {
+            userId: user.id,
+            sourceKind: "card",
+            sourceId: { in: rollbackCardIds },
+          },
+        })
+      : 0;
+    console.log(JSON.stringify({
+      mode: args.apply ? "rollback-apply" : "rollback-dry-run",
+      userId: user.id,
+      migratedCardsFound: existing.length,
+      rollbackSafe: rollbackSafe.length,
+      skippedChangedOrInvalid: rollbackUnsafe.length,
+      skippedDuplicateSources: duplicateSourceCards.length,
+      enrichmentJobs: rollbackJobCount,
+    }, null, 2));
+    if (args.apply && rollbackCardIds.length) {
+      const result = await prisma.$transaction(async (tx) => {
+        const jobs = await tx.cardEnrichmentJob.deleteMany({
+          where: {
+            userId: user.id,
+            sourceKind: "card",
+            sourceId: { in: rollbackCardIds },
+          },
+        });
+        const cards = await tx.card.deleteMany({
+          where: { userId: user.id, id: { in: rollbackCardIds } },
+        });
+        return { deletedCards: cards.count, deletedEnrichmentJobs: jobs.count };
+      });
+      console.log(JSON.stringify(result, null, 2));
+    }
+    continue;
+  }
 
   console.log(JSON.stringify({
     mode: args.apply ? "apply" : "dry-run",
@@ -754,6 +810,20 @@ function sameMigratedContent(
   return card.originalText?.trim() === candidate.originalText && card.rewrittenText?.trim() === candidate.rewrittenText;
 }
 
+function sameRollbackContent(
+  card: {
+    originalText: string | null;
+    rewrittenText: string | null;
+    translationText: string | null;
+    replyText: string | null;
+  },
+  candidate: Candidate,
+): boolean {
+  return sameMigratedContent(card, candidate) &&
+    (card.translationText || "").trim() === candidate.translationText &&
+    (card.replyText || "").trim() === candidate.replyText;
+}
+
 function cardContentVersion(contentType: string, text: string, sourceHash: string | null): string {
   const normalized = text.normalize("NFKC").replace(/\r\n?/gu, "\n").trim();
   return `sha256:${createHash("sha256").update(`${contentType}\n${sourceHash ?? ""}\n${normalized}`).digest("hex")}`;
@@ -783,6 +853,7 @@ function parseArgs(argv: string[]): Args {
   const allowed = argv.every((arg) =>
     arg === "--all" ||
     arg === "--apply" ||
+    arg === "--rollback" ||
     arg.startsWith("--email=") ||
     arg.startsWith("--phone=") ||
     arg.startsWith("--database-line=") ||
@@ -793,6 +864,7 @@ function parseArgs(argv: string[]): Args {
   const phone = argv.find((arg) => arg.startsWith("--phone="))?.slice("--phone=".length).trim() || "";
   const all = argv.includes("--all");
   const apply = argv.includes("--apply");
+  const rollback = argv.includes("--rollback");
   const confirmation = argv.find((arg) => arg.startsWith("--confirm="))?.slice("--confirm=".length) ?? "";
   const databaseLineRaw = argv
     .find((arg) => arg.startsWith("--database-line="))
@@ -800,11 +872,13 @@ function parseArgs(argv: string[]): Args {
   const databaseLine = databaseLineRaw ? Number(databaseLineRaw) : null;
   const selectorCount = Number(Boolean(email)) + Number(Boolean(phone)) + Number(all);
   if (selectorCount !== 1) throw new Error("Use exactly one of --email=<address>, --phone=<number>, or --all");
+  if (rollback && all) throw new Error("Rollback only supports one user selected by --email or --phone");
   if (databaseLine !== null && (!Number.isInteger(databaseLine) || databaseLine < 1)) {
     throw new Error("--database-line must be a positive integer");
   }
-  if (apply && confirmation !== APPLY_CONFIRMATION) {
-    throw new Error(`--apply requires --confirm=${APPLY_CONFIRMATION}`);
+  const expectedConfirmation = rollback ? ROLLBACK_CONFIRMATION : APPLY_CONFIRMATION;
+  if (apply && confirmation !== expectedConfirmation) {
+    throw new Error(`--apply requires --confirm=${expectedConfirmation}`);
   }
   if (!apply && confirmation) throw new Error("--confirm is only valid together with --apply");
   return {
@@ -812,6 +886,7 @@ function parseArgs(argv: string[]): Args {
     phone: phone || null,
     all,
     apply,
+    rollback,
     databaseLine,
   };
 }
