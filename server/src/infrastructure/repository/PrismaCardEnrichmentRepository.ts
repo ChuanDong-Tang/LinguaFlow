@@ -387,7 +387,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     });
   }
 
-  async completePhraseHistoryJob(job: CardEnrichmentJobEntity, affectedCardIds: string[]): Promise<boolean> {
+  async completePhraseHistoryJob(job: CardEnrichmentJobEntity): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const claimed = await tx.cardEnrichmentJob.updateMany({
         where: { id: job.id, status: "processing", workerId: job.workerId },
@@ -399,57 +399,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           lastError: null,
         },
       });
-      if (claimed.count !== 1) return false;
-      if (!affectedCardIds.length) return true;
-      const cards = await tx.card.findMany({
-        where: {
-          id: { in: Array.from(new Set(affectedCardIds)) },
-          userId: job.userId,
-          status: "completed",
-          deletedAt: null,
-        },
-        select: { id: true, originalText: true, rewrittenText: true },
-      });
-      for (const card of cards) {
-        if (!card.originalText) continue;
-        const inputHash = createHash("sha256")
-          .update(buildCardEmbeddingInput(card.originalText, card.rewrittenText ?? ""))
-          .digest("hex");
-        await tx.cardEnrichmentJob.upsert({
-          where: {
-            userId_sourceKind_sourceId_jobType_inputVersion: {
-              userId: job.userId,
-              sourceKind: "card",
-              sourceId: card.id,
-              jobType: "detect_progress_phrases",
-              inputVersion: `progress_phrase_detection_v1:${inputHash}`,
-            },
-          },
-          create: {
-            userId: job.userId,
-            sourceKind: "card",
-            sourceId: card.id,
-            jobType: "detect_progress_phrases",
-            inputHash,
-            inputVersion: `progress_phrase_detection_v1:${inputHash}`,
-            payload: { schemaVersion: 1 },
-          },
-          update: {
-            status: "queued",
-            availableAt: new Date(),
-            inputHash,
-            payload: { schemaVersion: 1 },
-            attempts: 0,
-            processingAt: null,
-            leaseExpiresAt: null,
-            workerId: null,
-            lastError: null,
-            completedAt: null,
-            failedAt: null,
-          },
-        });
-      }
-      return true;
+      return claimed.count === 1;
     });
   }
 
