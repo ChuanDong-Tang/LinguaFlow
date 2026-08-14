@@ -798,7 +798,12 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     return result.count === 1;
   }
 
-  async rescheduleOrFail(job: CardEnrichmentJobEntity, errorMessage: string, availableAt: Date | null): Promise<boolean> {
+  async rescheduleOrFail(
+    job: CardEnrichmentJobEntity,
+    errorMessage: string,
+    availableAt: Date | null,
+    options: { preserveAttempt?: boolean } = {},
+  ): Promise<boolean> {
     const terminal = availableAt === null;
     const result = await this.prisma.cardEnrichmentJob.updateMany({
       where: { id: job.id, status: "processing", workerId: job.workerId },
@@ -809,6 +814,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         workerId: null,
         lastError: errorMessage.slice(0, 500),
         failedAt: terminal ? new Date() : null,
+        ...(options.preserveAttempt ? { attempts: { decrement: 1 } } : {}),
       },
     });
     return result.count === 1;

@@ -93,7 +93,12 @@ export interface CardEnrichmentRepository {
   completeEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;
   completeWithoutResult(job: CardEnrichmentJobEntity, reason: string): Promise<boolean>;
   completeJob(job: CardEnrichmentJobEntity): Promise<boolean>;
-  rescheduleOrFail(job: CardEnrichmentJobEntity, errorMessage: string, availableAt: Date | null): Promise<boolean>;
+  rescheduleOrFail(
+    job: CardEnrichmentJobEntity,
+    errorMessage: string,
+    availableAt: Date | null,
+    options?: { preserveAttempt?: boolean },
+  ): Promise<boolean>;
   renewJobLease(job: CardEnrichmentJobEntity, leaseExpiresAt: Date): Promise<boolean>;
   claimNextPhraseNormalizationJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadPhraseNormalizationSource(job: CardEnrichmentJobEntity): Promise<{
