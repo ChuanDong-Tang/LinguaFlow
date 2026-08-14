@@ -10,6 +10,7 @@ import { parseTaggedRewriteOutput } from "@lf/core/Prompts/rewriteAssistantPromp
 
 type Args = {
   email: string | null;
+  phone: string | null;
   all: boolean;
   apply: boolean;
   databaseLine: number | null;
@@ -76,7 +77,9 @@ async function main(): Promise<void> {
   const users = await prisma.user.findMany({
     where: args.all
       ? { status: "active" }
-      : { email: { equals: args.email!, mode: "insensitive" } },
+      : args.email
+        ? { email: { equals: args.email, mode: "insensitive" } }
+        : { phone: args.phone! },
     select: {
       id: true,
       status: true,
@@ -90,7 +93,7 @@ async function main(): Promise<void> {
     },
   });
   if (!args.all && users.length !== 1) {
-    throw new Error(`Expected one user for email, found ${users.length}`);
+    throw new Error(`Expected one user for ${args.email ? "email" : "phone"}, found ${users.length}`);
   }
   if (!users.length) throw new Error(args.all ? "No users found" : "User not found");
   for (const user of users) {
@@ -781,11 +784,13 @@ function parseArgs(argv: string[]): Args {
     arg === "--all" ||
     arg === "--apply" ||
     arg.startsWith("--email=") ||
+    arg.startsWith("--phone=") ||
     arg.startsWith("--database-line=") ||
     arg.startsWith("--confirm="),
   );
   if (!allowed) throw new Error("Unknown argument");
   const email = argv.find((arg) => arg.startsWith("--email="))?.slice("--email=".length).trim() || "";
+  const phone = argv.find((arg) => arg.startsWith("--phone="))?.slice("--phone=".length).trim() || "";
   const all = argv.includes("--all");
   const apply = argv.includes("--apply");
   const confirmation = argv.find((arg) => arg.startsWith("--confirm="))?.slice("--confirm=".length) ?? "";
@@ -793,7 +798,8 @@ function parseArgs(argv: string[]): Args {
     .find((arg) => arg.startsWith("--database-line="))
     ?.slice("--database-line=".length);
   const databaseLine = databaseLineRaw ? Number(databaseLineRaw) : null;
-  if ((!email && !all) || (email && all)) throw new Error("Use exactly one of --email=<address> or --all");
+  const selectorCount = Number(Boolean(email)) + Number(Boolean(phone)) + Number(all);
+  if (selectorCount !== 1) throw new Error("Use exactly one of --email=<address>, --phone=<number>, or --all");
   if (databaseLine !== null && (!Number.isInteger(databaseLine) || databaseLine < 1)) {
     throw new Error("--database-line must be a positive integer");
   }
@@ -803,6 +809,7 @@ function parseArgs(argv: string[]): Args {
   if (!apply && confirmation) throw new Error("--confirm is only valid together with --apply");
   return {
     email: email || null,
+    phone: phone || null,
     all,
     apply,
     databaseLine,
