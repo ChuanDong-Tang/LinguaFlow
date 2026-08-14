@@ -214,6 +214,7 @@ async function main(): Promise<void> {
   });
   const duplicateSourceCards = candidates.filter((candidate) => existingCardsFor(candidate).length > 1);
   const withCloze = candidates.filter((candidate) => countMessageBlanks(candidate.clozeState) > 0);
+  const invalidClozeMappings = candidates.filter((candidate) => !canMapCandidateCloze(candidate));
 
   if (args.rollback) {
     const rollbackSafe = candidates.flatMap((candidate) => {
@@ -278,6 +279,7 @@ async function main(): Promise<void> {
     skippedDivergedExisting: divergentExisting.length,
     duplicateSourceCards: duplicateSourceCards.length,
     withCloze: withCloze.length,
+    invalidClozeMappings: invalidClozeMappings.length,
     skippedMissingSource,
     skippedEmpty,
     dateRange: candidates.length
@@ -288,6 +290,9 @@ async function main(): Promise<void> {
       : null,
   }, null, 2));
 
+  if (args.apply && invalidClozeMappings.length) {
+    throw new Error(`Refusing to apply: ${invalidClozeMappings.length} candidate(s) have incomplete cloze mappings`);
+  }
   if (!args.apply || candidates.length === 0) continue;
 
   const appLocale = user.preference?.appLocale || "zh-CN";
@@ -421,9 +426,11 @@ async function main(): Promise<void> {
           select: { id: true, contentVersion: true, startUtf16: true, endUtf16: true },
         });
         const expected = buildCardClozeState(candidate.rewrittenText, candidate.clozeState, rewriteSegments);
+        const mappingCounts = inspectMessageClozeMapping(candidate.rewrittenText, candidate.clozeState);
         if (
-          expected.state.blanks.length !== countMessageBlanks(candidate.clozeState) ||
-          expected.anchors.length !== countMessagePhraseGroups(candidate.clozeState)
+          mappingCounts.invalidBlankIndexes > 0 ||
+          expected.state.blanks.length !== mappingCounts.mappableBlanks ||
+          expected.anchors.length !== mappingCounts.mappablePhraseGroups
         ) {
           throw new Error(`Cloze migration mapping is incomplete for message ${candidate.userMessageId}`);
         }
@@ -507,6 +514,9 @@ async function main(): Promise<void> {
         });
       }
       return { kind: wasCreated ? "created" as const : "reconciled" as const, clozeResult, phraseCount };
+    }, {
+      maxWait: 10_000,
+      timeout: 60_000,
     });
     if (outcome.kind === "diverged") {
       skippedDiverged += 1;
@@ -564,8 +574,40 @@ function countMessageBlanks(state: MessageClozeState | null): number {
   return new Set(state?.groups.flatMap((group) => group.blankTokenIndexes) ?? []).size;
 }
 
-function countMessagePhraseGroups(state: MessageClozeState | null): number {
-  return state?.groups.filter((group) => group.blankTokenIndexes.length > 0).length ?? 0;
+function inspectMessageClozeMapping(text: string, state: MessageClozeState | null): {
+  invalidBlankIndexes: number;
+  mappableBlanks: number;
+  mappablePhraseGroups: number;
+} {
+  const tokens = tokenizeClozeText(text);
+  const blankIndexes = new Set(state?.groups.flatMap((group) => group.blankTokenIndexes) ?? []);
+  const invalidBlankIndexes = Array.from(blankIndexes).filter((index) => !tokens[index]).length;
+  const mappableBlanks = Array.from(blankIndexes).filter((index) => tokens[index]?.isWord).length;
+  const mappablePhraseGroups = state?.groups.filter((group) =>
+    group.tokenIndexes.some((index) => Boolean(tokens[index])) &&
+    group.blankTokenIndexes.some((index) => tokens[index]?.isWord),
+  ).length ?? 0;
+  return { invalidBlankIndexes, mappableBlanks, mappablePhraseGroups };
+}
+
+function canMapCandidateCloze(candidate: Candidate): boolean {
+  if (!candidate.clozeState || countMessageBlanks(candidate.clozeState) === 0) return true;
+  const segments = segmentLearningSentences({
+    text: candidate.rewrittenText,
+    languageCode: candidate.languageCode,
+    minSegmentChars: 1,
+    maxSegmentChars: 800,
+  }).map((segment, ordinal) => ({
+    id: `preview:${ordinal}`,
+    contentVersion: "preview",
+    startUtf16: segment.textStart,
+    endUtf16: segment.textEnd,
+  }));
+  const expected = buildCardClozeState(candidate.rewrittenText, candidate.clozeState, segments);
+  const counts = inspectMessageClozeMapping(candidate.rewrittenText, candidate.clozeState);
+  return counts.invalidBlankIndexes === 0 &&
+    expected.state.blanks.length === counts.mappableBlanks &&
+    expected.anchors.length === counts.mappablePhraseGroups;
 }
 
 function tokenizeClozeText(text: string): Array<{ index: number; text: string; start: number; end: number; isWord: boolean }> {
@@ -610,15 +652,31 @@ function buildCardClozeState(
     const groupTokens = group.tokenIndexes.map((index) => tokens[index]).filter(Boolean);
     const representative = group.blankTokenIndexes.map((index) => blankByTokenIndex.get(index)).find(Boolean);
     if (!groupTokens.length || !representative) return [];
-    const absoluteStart = Math.min(...groupTokens.map((token) => token.start));
-    const absoluteEnd = Math.max(...groupTokens.map((token) => token.end));
-    const segment = segments.find((candidate) => absoluteStart >= candidate.startUtf16 && absoluteEnd <= candidate.endUtf16);
+    let anchorTokens = groupTokens;
+    let absoluteStart = Math.min(...anchorTokens.map((token) => token.start));
+    let absoluteEnd = Math.max(...anchorTokens.map((token) => token.end));
+    let segment = segments.find((candidate) => absoluteStart >= candidate.startUtf16 && absoluteEnd <= candidate.endUtf16);
+    if (segment?.id !== representative.segmentId) {
+      // Some legacy selections span sentence boundaries. A phrase occurrence must
+      // belong to one rewrite segment, so preserve the actual blanked expression
+      // inside the representative blank's sentence instead of indexing a huge
+      // cross-sentence phrase or dropping the cloze entirely.
+      anchorTokens = group.blankTokenIndexes
+        .map((index) => ({ token: tokens[index], blank: blankByTokenIndex.get(index) }))
+        .filter((item) => item.token && item.blank?.segmentId === representative.segmentId)
+        .map((item) => item.token!);
+      if (!anchorTokens.length) return [];
+      absoluteStart = Math.min(...anchorTokens.map((token) => token.start));
+      absoluteEnd = Math.max(...anchorTokens.map((token) => token.end));
+      segment = segments.find((candidate) => candidate.id === representative.segmentId);
+    }
+    if (!segment || segment.id !== representative.segmentId) return [];
     const surfaceText = text.slice(absoluteStart, absoluteEnd);
     if (!surfaceText.trim()) return [];
     return [{
-      segmentId: segment?.id === representative.segmentId ? segment.id : null,
-      startUtf16: segment?.id === representative.segmentId ? absoluteStart - segment.startUtf16 : absoluteStart,
-      endUtf16: segment?.id === representative.segmentId ? absoluteEnd - segment.startUtf16 : absoluteEnd,
+      segmentId: segment.id,
+      startUtf16: absoluteStart - segment.startUtf16,
+      endUtf16: absoluteEnd - segment.startUtf16,
       surfaceText,
       representativeBlankId: representative.id,
     }];
