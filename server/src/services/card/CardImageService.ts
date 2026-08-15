@@ -10,7 +10,9 @@ import type { UsageV2Service } from "../usage/UsageV2Service.js";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2_200;
-const THUMBNAIL_VERSION = 2;
+const THUMBNAIL_VERSION = 4;
+const LANDSCAPE_THUMBNAIL_SIZE = { width: 1_440, height: 960 } as const;
+const PORTRAIT_THUMBNAIL_SIZE = { width: 1_152, height: 1_440 } as const;
 
 export class CardImageModerationUnavailableError extends Error {
   readonly code = "CARD_IMAGE_MODERATION_UNAVAILABLE";
@@ -202,14 +204,15 @@ export class CardImageService {
       ? await this.storage.getSignedUrl(resolved.thumbnailObjectKey, 3_600)
       : original;
     const landscape = resolved.width >= resolved.height;
-    const hasV2Thumbnail = Boolean(resolved.thumbnailObjectKey) && resolved.thumbnailVersion >= THUMBNAIL_VERSION;
+    const hasCurrentThumbnail = Boolean(resolved.thumbnailObjectKey) && resolved.thumbnailVersion >= THUMBNAIL_VERSION;
+    const thumbnailSize = landscape ? LANDSCAPE_THUMBNAIL_SIZE : PORTRAIT_THUMBNAIL_SIZE;
     return {
       thumbnail: {
         id: resolved.id,
         url: thumbnail.url,
         urlExpiresAt: thumbnail.expiresAt.toISOString(),
-        width: hasV2Thumbnail ? (landscape ? 360 : 288) : resolved.thumbnailObjectKey ? 360 : resolved.width,
-        height: hasV2Thumbnail ? (landscape ? 240 : 360) : resolved.thumbnailObjectKey ? 360 : resolved.height,
+        width: hasCurrentThumbnail ? thumbnailSize.width : resolved.thumbnailObjectKey ? 360 : resolved.width,
+        height: hasCurrentThumbnail ? thumbnailSize.height : resolved.thumbnailObjectKey ? 360 : resolved.height,
       },
       image: {
         id: resolved.id,
@@ -230,12 +233,11 @@ export class CardImageService {
     try {
       const bytes = existingBytes ?? await this.storage.download(asset.originalObjectKey);
       const landscape = asset.width >= asset.height;
-      const thumbnailWidth = landscape ? 360 : 288;
-      const thumbnailHeight = landscape ? 240 : 360;
+      const thumbnailSize = landscape ? LANDSCAPE_THUMBNAIL_SIZE : PORTRAIT_THUMBNAIL_SIZE;
       const thumbnail = await sharp(bytes)
         .rotate()
-        .resize(thumbnailWidth, thumbnailHeight, { fit: "cover", position: "centre" })
-        .jpeg({ quality: 84, mozjpeg: true })
+        .resize(thumbnailSize.width, thumbnailSize.height, { fit: "cover", position: "centre" })
+        .jpeg({ quality: 92, mozjpeg: true })
         .toBuffer();
       const thumbnailObjectKey = asset.originalObjectKey.replace(/\/original\.[^.]+$/u, `/thumbnail-v${THUMBNAIL_VERSION}.jpg`);
       await this.storage.upload(thumbnailObjectKey, thumbnail, "image/jpeg");

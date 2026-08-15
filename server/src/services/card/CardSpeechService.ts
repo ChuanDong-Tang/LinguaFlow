@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { CardRepository, CardSpeechAssetEntity, CardLearningContentType, CardEntryEntity } from "@lf/core/ports/repository/CardRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
-import { inferLearningTextLanguage, normalizeLearningText } from "@lf/core/text/learningText.js";
+import { inferLearningTextLanguage, normalizeLearningText, segmentLearningSentences } from "@lf/core/text/learningText.js";
 import { countGraphemes, isUtf16GraphemeBoundary } from "@lf/core/text/grapheme.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { TtsProvider } from "../tts/TtsProvider.js";
@@ -35,13 +35,14 @@ type GenerateInput = {
   userId: string;
   entryId: string | null;
   segmentId: string | null;
-  sourceKind: "review_segment" | "dictation_sentence" | "dictionary_term";
+  sourceKind: "review_segment" | "review_article" | "dictation_sentence" | "dictionary_term";
   cacheKey: string;
   provider: string;
   voiceCode: string;
   languageCode: string;
   sourceText: string;
   sourceTextHash: string;
+  sentenceSegments?: Array<{ text: string; textStart: number; textEnd: number }>;
 };
 
 export class CardSpeechService {
@@ -129,6 +130,38 @@ export class CardSpeechService {
     });
     generations.set(cacheKey, generation);
     try { return this.toView(await generation, false); }
+    finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
+  }
+
+  async getOrCreateArticle(input: { userId: string; entryId: string; contentType: CardLearningContentType; contentVersion: string }): Promise<CardSpeechAssetView> {
+    const entry = await this.repository.findByIdForUser(input.entryId, input.userId);
+    if (!entry || entry.status !== "completed") throw new CardNotFoundError();
+    const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
+    if (input.contentType === "original" && !entitlement.isPro) throw new CardSpeechProRequiredError();
+    const segments = entry.contentSegments
+      .filter((segment) => segment.contentType === input.contentType && segment.contentVersion === input.contentVersion)
+      .sort((left, right) => left.ordinal - right.ordinal);
+    if (!segments.length) throw new CardNotFoundError();
+    const languageCode = contentLanguageCode(entry, input.contentType);
+    const learningText = segments.map((segment) => segment.text.trim()).filter(Boolean).join(" ");
+    const replyText = input.contentType !== "reply" && entry.replyLanguageCode === languageCode ? entry.replyText?.trim() ?? "" : "";
+    const sourceText = normalizeLearningText({ text: [learningText, replyText].filter(Boolean).join("\n\n"), languageCode });
+    if (!sourceText || countGraphemes(sourceText) > 3_000) throw new CardValidationError("Article speech is too long");
+    const preference = await this.preferenceRepository.getByUserId(input.userId);
+    const provider = this.provider.providerName;
+    const voiceCode = preference.ttsVoiceCode && isConfiguredTtsVoice({ provider, languageCode, voiceCode: preference.ttsVoiceCode })
+      ? preference.ttsVoiceCode
+      : resolveDefaultTtsVoice(languageCode, provider);
+    const sourceTextHash = sha256(`card-article-tts-v1\n${sourceText}`);
+    const cacheKey = sha256([input.userId, input.entryId, input.contentType, input.contentVersion, "review_article", provider, voiceCode, languageCode, sourceTextHash].join("\n"));
+    const context = { entryId: input.entryId, segmentId: "__article__" };
+    const cached = await this.repository.findReadySpeechAsset(cacheKey);
+    if (cached) return this.toView(await this.refreshUrlIfNeeded(cached), true, context);
+    const existing = generations.get(cacheKey);
+    if (existing) return this.toView(await existing, true, context);
+    const generation = this.generateWithLock({ userId: input.userId, entryId: input.entryId, segmentId: null, sourceKind: "review_article", cacheKey, provider, voiceCode, languageCode, sourceText, sourceTextHash, sentenceSegments: segmentLearningSentences({ text: sourceText, languageCode, minSegmentChars: 1 }) });
+    generations.set(cacheKey, generation);
+    try { return this.toView(await generation, false, context); }
     finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
   }
 
@@ -256,7 +289,7 @@ export class CardSpeechService {
       text: input.sourceText,
       languageCode: input.languageCode,
       voiceCode: input.voiceCode,
-      sentenceSegments: [{ text: input.sourceText, textStart: 0, textEnd: input.sourceText.length }],
+      sentenceSegments: input.sentenceSegments ?? [{ text: input.sourceText, textStart: 0, textEnd: input.sourceText.length }],
     });
     const synthesized = this.resourceGovernor
       ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)

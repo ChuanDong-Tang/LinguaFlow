@@ -703,6 +703,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       limit?: unknown;
       cursor?: unknown;
       fromDateKey?: unknown;
+      sort?: unknown;
     };
     try {
       const data = await deps.cardService.listLibraryPage(userId, {
@@ -711,6 +712,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         fromDateKey: typeof query.fromDateKey === "string" && query.fromDateKey ? query.fromDateKey : undefined,
         limit: Number(query.limit),
         cursor: typeof query.cursor === "string" && query.cursor ? query.cursor : undefined,
+        sort: query.sort === "oldest" ? "oldest" : "newest",
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {

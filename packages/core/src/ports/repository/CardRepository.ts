@@ -91,7 +91,7 @@ export interface CardSpeechAssetEntity {
   userId: string;
   entryId: string | null;
   segmentId: string | null;
-  sourceKind: "review_segment" | "dictation_sentence" | "dictionary_term";
+  sourceKind: "review_segment" | "review_article" | "dictation_sentence" | "dictionary_term";
   cacheKey: string;
   provider: string;
   voiceCode: string;
@@ -241,6 +241,7 @@ export interface CardRepository {
     collectionId: string | null | undefined;
     dateKey?: string;
     fromDateKey?: string;
+    sortDirection?: "asc" | "desc";
     limit: number;
     cursor?: { createdAt: Date; id: string };
   }): Promise<CardEntryEntity[]>;

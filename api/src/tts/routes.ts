@@ -312,16 +312,26 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       return reply.status(429).send({ ok: false, request_id: requestId, error: { code: rateLimitResult.code, message: "发音请求过于频繁，请稍后再试" } });
     }
     try {
-      const data = await deps.cardSpeechService.getOrCreateSegment({
-        userId,
-        entryId: String(params.entryId ?? ""),
-        segmentId: String(params.segmentId ?? ""),
-        sourceKind: query.sourceKind === "dictation_sentence" ? "dictation_sentence" : "review_segment",
-        startUtf16: query.start === undefined ? undefined : Number(query.start),
-        endUtf16: query.end === undefined ? undefined : Number(query.end),
-        contentType: query.contentType as "original" | "rewrite" | "reply" | undefined,
-        contentVersion: typeof query.contentVersion === "string" ? query.contentVersion : undefined,
-      });
+      const segmentId = String(params.segmentId ?? "");
+      const contentType = query.contentType as "original" | "rewrite" | "reply" | undefined;
+      const contentVersion = typeof query.contentVersion === "string" ? query.contentVersion : undefined;
+      const data = segmentId === "__article__"
+        ? await deps.cardSpeechService.getOrCreateArticle({
+            userId,
+            entryId: String(params.entryId ?? ""),
+            contentType: contentType ?? "rewrite",
+            contentVersion: contentVersion ?? "",
+          })
+        : await deps.cardSpeechService.getOrCreateSegment({
+            userId,
+            entryId: String(params.entryId ?? ""),
+            segmentId,
+            sourceKind: query.sourceKind === "dictation_sentence" ? "dictation_sentence" : "review_segment",
+            startUtf16: query.start === undefined ? undefined : Number(query.start),
+            endUtf16: query.end === undefined ? undefined : Number(query.end),
+            contentType,
+            contentVersion,
+          });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       if (error instanceof ResourceLimitedError) return resourceLimitedReply(reply, requestId);
