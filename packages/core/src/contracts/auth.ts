@@ -41,6 +41,36 @@ export interface AuthingLoginResponse {
   isNewUser: boolean;
 }
 
+export type AuthingPasscodeChannel = "phone" | "email";
+
+export interface SendAuthingPasscodeRequestBody {
+  channel: AuthingPasscodeChannel;
+  phone?: string;
+  phoneCountryCode?: string;
+  email?: string;
+}
+
+export interface SendAuthingPasscodeResponse {
+  sent: true;
+}
+
+export interface AuthingPasscodeLoginRequestBody extends SendAuthingPasscodeRequestBody {
+  passCode: string;
+}
+
+export interface AuthingPasscodeLoginResponse extends AuthingLoginResponse {
+  authingToken: string;
+}
+
+export interface AuthingPasswordLoginRequestBody {
+  account: string;
+  password: string;
+}
+
+export interface AuthingPasswordLoginResponse extends AuthingLoginResponse {
+  authingToken: string;
+}
+
 export interface RefreshTokenRequestBody {
   refreshToken: string;
 }

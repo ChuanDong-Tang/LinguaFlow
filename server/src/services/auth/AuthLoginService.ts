@@ -2,8 +2,15 @@
 
 import type { UserEntity, UserRepository } from "@lf/core/ports/repository/UserRepository.js";
 import type { UserSessionRepository } from "@lf/core/ports/repository/UserSessionRepository.js";
-import type { AuthingLoginResponse, RefreshTokenResponse } from "@lf/core/contracts/auth.js";
+import type {
+  AuthingLoginResponse,
+  AuthingPasscodeChannel,
+  AuthingPasscodeLoginResponse,
+  AuthingPasswordLoginResponse,
+  RefreshTokenResponse,
+} from "@lf/core/contracts/auth.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import { AuthenticationClient, Models } from "authing-node-sdk";
 import {
   signAccessTokenWithSession,
   signRefreshTokenWithSession,
@@ -17,6 +24,17 @@ export interface AuthingLoginInput {
 export interface AuthingPasswordLoginInput {
   account: string;
   password: string;
+}
+
+export interface AuthingPasscodeInput {
+  channel: AuthingPasscodeChannel;
+  phone?: string;
+  phoneCountryCode?: string;
+  email?: string;
+}
+
+export interface AuthingPasscodeLoginInput extends AuthingPasscodeInput {
+  passCode: string;
 }
 
 export interface SessionContextInput {
@@ -67,9 +85,60 @@ export class AuthLoginService {
   async loginWithAuthingPassword(
     input: AuthingPasswordLoginInput,
     sessionContext: SessionContextInput = {}
-  ): Promise<AuthingLoginResponse> {
+  ): Promise<AuthingPasswordLoginResponse> {
     const authingToken = await this.resolveAuthingTokenByPassword(input);
-    return this.loginWithAuthing({ authingToken }, sessionContext);
+    const result = await this.loginWithAuthing({ authingToken }, sessionContext);
+    return { ...result, authingToken };
+  }
+
+  async sendAuthingPasscode(input: AuthingPasscodeInput): Promise<void> {
+    const client = this.createAuthingClient();
+    const response = input.channel === "phone"
+      ? await client.sendSms({
+          channel: Models.SendSMSDto.channel.CHANNEL_LOGIN,
+          phoneNumber: requireAuthingValue(input.phone, "Phone is required"),
+          phoneCountryCode: input.phoneCountryCode ?? "+86",
+        })
+      : await client.sendEmail({
+          channel: Models.SendEmailDto.channel.CHANNEL_LOGIN,
+          email: requireAuthingValue(input.email, "Email is required").toLowerCase(),
+        });
+
+    if (response.statusCode !== 200) {
+      throw new AuthingPasscodeError(response.message || "Send passcode failed", response.apiCode);
+    }
+  }
+
+  async loginWithAuthingPasscode(
+    input: AuthingPasscodeLoginInput,
+    sessionContext: SessionContextInput = {}
+  ): Promise<AuthingPasscodeLoginResponse> {
+    const client = this.createAuthingClient();
+    const options = {
+      scope: "openid profile email phone",
+      autoRegister: true,
+      ...(sessionContext.ip ? { clientIp: sessionContext.ip } : {}),
+    };
+    const response = input.channel === "phone"
+      ? await client.signInByPhonePassCode({
+          phone: requireAuthingValue(input.phone, "Phone is required"),
+          phoneCountryCode: input.phoneCountryCode ?? "+86",
+          passCode: input.passCode.trim(),
+          options,
+        })
+      : await client.signInByEmailPassCode({
+          email: requireAuthingValue(input.email, "Email is required").toLowerCase(),
+          passCode: input.passCode.trim(),
+          options,
+        });
+
+    const authingToken = response.data?.access_token?.trim() ?? "";
+    if (response.statusCode !== 200 || !authingToken) {
+      throw new AuthingPasscodeError(response.message || "Passcode login failed", response.apiCode);
+    }
+
+    const result = await this.loginWithAuthing({ authingToken }, sessionContext);
+    return { ...result, authingToken };
   }
 
   async refreshSession(
@@ -281,6 +350,24 @@ export class AuthLoginService {
     }
     return accessToken;
   }
+
+  private createAuthingClient(): AuthenticationClient {
+    const config = getRuntimeConfig();
+    if (!config.authingDomain || !config.authingAppId || !config.authingAppSecret) {
+      throw new Error("AUTHING_DOMAIN / AUTHING_APP_ID / AUTHING_APP_SECRET is required");
+    }
+    return new AuthenticationClient({
+      appId: config.authingAppId,
+      appSecret: config.authingAppSecret,
+      appHost: config.authingDomain.replace(/\/+$/, ""),
+    });
+  }
+}
+
+export class AuthingPasscodeError extends Error {
+  constructor(message: string, readonly apiCode?: number) {
+    super(message);
+  }
 }
 
 function isEmail(value: string): boolean {
@@ -289,6 +376,12 @@ function isEmail(value: string): boolean {
 
 function isPhone(value: string): boolean {
   return /^\+?\d{6,20}$/.test(value);
+}
+
+function requireAuthingValue(value: string | undefined, message: string): string {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) throw new Error(message);
+  return normalized;
 }
 
 function getStringPayloadValue(payload: Record<string, unknown>, key: string): string | null {

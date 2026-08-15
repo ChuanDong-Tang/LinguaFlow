@@ -1,6 +1,15 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { AuthingLoginResponse, LoginCredential, LoginResponse, RefreshTokenResponse } from "@lf/core/contracts/auth.js";
+import type {
+  AuthingLoginResponse,
+  AuthingPasscodeLoginResponse,
+  AuthingPasswordLoginResponse,
+  LoginCredential,
+  LoginResponse,
+  RefreshTokenResponse,
+} from "@lf/core/contracts/auth.js";
 import {
+  isAuthingPasscodeLoginBody,
+  isAuthingPasswordLoginBody,
   isAuthingLoginBody,
   isConfirmBindEmailBody,
   isConfirmDeleteAccountBody,
@@ -8,6 +17,7 @@ import {
   isPrepareBindEmailBody,
   isPrepareDeleteAccountBody,
   isRefreshTokenBody,
+  isSendAuthingPasscodeBody,
 } from "./validators.js";
 import {
   isAllowedMockUserId,
@@ -43,7 +53,23 @@ export interface AuthRouteDeps {
     }, sessionContext?: {
       userAgent?: string | null;
       ip?: string | null;
-    }) => Promise<AuthingLoginResponse>;
+    }) => Promise<AuthingPasswordLoginResponse>;
+    sendAuthingPasscode: (input: {
+      channel: "phone" | "email";
+      phone?: string;
+      phoneCountryCode?: string;
+      email?: string;
+    }) => Promise<void>;
+    loginWithAuthingPasscode: (input: {
+      channel: "phone" | "email";
+      phone?: string;
+      phoneCountryCode?: string;
+      email?: string;
+      passCode: string;
+    }, sessionContext?: {
+      userAgent?: string | null;
+      ip?: string | null;
+    }) => Promise<AuthingPasscodeLoginResponse>;
     createSessionTokens: (input: { userId: string }, sessionContext?: {
       userAgent?: string | null;
       ip?: string | null;
@@ -267,6 +293,166 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       ok: true,
       data: result,
     });
+  });
+
+  app.post("/auth/authing-passcode/send", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "authing_passcode_send", limit: 5, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
+    if (!isSendAuthingPasscodeBody(body)) {
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "REQUEST_INVALID", message: "Invalid login account" },
+      });
+    }
+
+    try {
+      await deps.authLoginService.sendAuthingPasscode(body);
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.passcode.sent",
+        level: "info",
+        status: "success",
+        metadata: { channel: body.channel },
+      });
+      return reply.status(200).send({ ok: true, data: { sent: true } });
+    } catch (error) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.passcode.send_failed",
+        level: "warn",
+        status: "failed",
+        errorCode: "PASSCODE_SEND_FAILED",
+        errorMessage: error instanceof Error ? error.message : String(error),
+        metadata: { channel: body.channel },
+      });
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "PASSCODE_SEND_FAILED", message: "Verification code could not be sent" },
+      });
+    }
+  });
+
+  app.post("/auth/authing-passcode/login", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "authing_passcode_login", limit: 12, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
+    if (!isAuthingPasscodeLoginBody(body)) {
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "REQUEST_INVALID", message: "Invalid verification code" },
+      });
+    }
+
+    try {
+      const result = await deps.authLoginService.loginWithAuthingPasscode(body, resolveSessionContext(req));
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: result.user.id,
+        module: "auth",
+        event: "auth.passcode.login_success",
+        level: "info",
+        status: "success",
+        metadata: { channel: body.channel },
+      });
+      return reply.status(200).send({ ok: true, data: result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unauthorized";
+      const isPendingDelete = message === "Account deletion is in progress";
+      const isDisabled = message === "Account is disabled";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.passcode.login_failed",
+        level: "warn",
+        status: "failed",
+        errorCode: isPendingDelete ? "ACCOUNT_PENDING_DELETE" : isDisabled ? "ACCOUNT_DISABLED" : "PASSCODE_INVALID",
+        errorMessage: message,
+        metadata: { channel: body.channel },
+      });
+      if (isPendingDelete) return sendAccountPendingDeleteError(reply);
+      if (isDisabled) return sendAccountDisabledError(reply);
+      return reply.status(401).send({
+        ok: false,
+        error: { code: "PASSCODE_INVALID", message: "Verification code is invalid or expired" },
+      });
+    }
+  });
+
+  app.post("/auth/authing-password/login", async (req, reply) => {
+    const body = req.body as unknown;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+
+    const allowed = await checkAuthRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: { routeKey: "authing_password_login", limit: 8, windowSec: 60 },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+
+    if (!isAuthingPasswordLoginBody(body)) {
+      return reply.status(400).send({
+        ok: false,
+        error: { code: "REQUEST_INVALID", message: "Invalid account or password" },
+      });
+    }
+
+    try {
+      const result = await deps.authLoginService.loginWithAuthingPassword(body, resolveSessionContext(req));
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: result.user.id,
+        module: "auth",
+        event: "auth.password.login_success",
+        level: "info",
+        status: "success",
+      });
+      return reply.status(200).send({ ok: true, data: result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unauthorized";
+      const isPendingDelete = message === "Account deletion is in progress";
+      const isDisabled = message === "Account is disabled";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        module: "auth",
+        event: "auth.password.login_failed",
+        level: "warn",
+        status: "failed",
+        errorCode: isPendingDelete ? "ACCOUNT_PENDING_DELETE" : isDisabled ? "ACCOUNT_DISABLED" : "PASSWORD_INVALID",
+        errorMessage: message,
+      });
+      if (isPendingDelete) return sendAccountPendingDeleteError(reply);
+      if (isDisabled) return sendAccountDisabledError(reply);
+      return reply.status(401).send({
+        ok: false,
+        error: { code: "PASSWORD_INVALID", message: "Account or password is incorrect" },
+      });
+    }
   });
 
   app.post("/auth/admin-password-login", async (req, reply) => {
@@ -752,6 +938,9 @@ function resolveSessionContext(req: FastifyRequest) {
 type AuthRateLimitRule = {
   routeKey:
     | "authing_login"
+    | "authing_passcode_send"
+    | "authing_passcode_login"
+    | "authing_password_login"
     | "admin_password_login"
     | "refresh"
     | "logout"
