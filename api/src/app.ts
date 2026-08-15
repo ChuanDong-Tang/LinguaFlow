@@ -74,9 +74,6 @@ import { registerAdminRoutes } from "./admin/routes.js";
 import { registerTtsRoutes } from "./tts/routes.js";
 import { registerDictionaryRoutes } from "./dictionary/routes.js";
 import { registerSttRoutes } from "./stt/routes.js";
-import { registerQuickNoteRoutes } from "./quickNote/routes.js";
-import { PrismaQuickNoteRepository } from "@lf/server/infrastructure/repository/PrismaQuickNoteRepository.js";
-import { QuickNoteService } from "@lf/server/services/quickNote/QuickNoteService.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 import { writeSystemEventLog } from "./lib/systemEventLog.js";
@@ -144,7 +141,6 @@ export function createApp() {
   const userRepository = new PrismaUserRepository(prisma);
   const userProfileRepository = new PrismaUserProfileRepository(prisma);
   const cardRepository = new PrismaCardRepository(prisma);
-  const quickNoteService = new QuickNoteService(new PrismaQuickNoteRepository(prisma));
   const userPreferenceRepository = new PrismaUserPreferenceRepository(prisma);
   const dictionaryLookupCacheRepository = new PrismaDictionaryLookupCacheRepository(prisma);
   const userSessionRepository = new PrismaUserSessionRepository(prisma);
@@ -447,7 +443,6 @@ export function createApp() {
       userRepository,
       systemEventLogRepository,
     });
-    registerQuickNoteRoutes(app, { quickNoteService, cardService, userRepository });
     registerMeRoutes(app, {
       subscriptionService,
       entitlementService,

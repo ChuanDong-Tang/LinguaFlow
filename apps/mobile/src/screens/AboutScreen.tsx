@@ -32,7 +32,7 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
         <View style={styles.backButton} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator alwaysBounceVertical={false}>
         <View style={styles.brandBlock}>
           <Image source={require("../../assets/app/logo.png")} style={styles.logoImage} resizeMode="contain" />
         </View>
@@ -86,7 +86,7 @@ function InfoRow({
       <Ionicons name={icon} size={19} color="#111111" />
       <Text style={styles.rowLabel}>{label}</Text>
       {!!value && <Text style={styles.rowValue}>{value}</Text>}
-      <Ionicons name="chevron-forward" size={17} color="#3C3F48" />
+      <Ionicons name="chevron-forward" size={17} color="#555555" />
     </Pressable>
   );
 }
@@ -96,7 +96,7 @@ function openUrl(url: string): void {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FCFCFD" },
+  container: { flex: 1, backgroundColor: "#FAFAFA" },
   header: {
     height: 60,
     paddingHorizontal: 16,
@@ -111,14 +111,14 @@ const styles = StyleSheet.create({
   brandBlock: { alignItems: "center", marginTop: 14, marginBottom: 18 },
   logo: { fontSize: 30, color: "#111111", letterSpacing: 1 },
   brand: { marginTop: 4, fontSize: 14, color: "#111111", fontWeight: "500" },
-  tagline: { marginTop: 8, fontSize: 12, color: "#656B78" },
-  slogan: { marginTop: 12, fontSize: 13, color: "#656B78" },
+  tagline: { marginTop: 8, fontSize: 12, color: "#707070" },
+  slogan: { marginTop: 12, fontSize: 13, color: "#707070" },
   section: { marginBottom: 14 },
   sectionTitle: { marginBottom: 8, fontSize: 14, color: "#111111", fontWeight: "500" },
   card: {
-    borderRadius: 14,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#E2E5EB",
+    borderColor: "#DEDEDE",
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
@@ -128,10 +128,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
   },
-  rowBorder: { borderBottomWidth: 1, borderBottomColor: "#ECEEF2" },
+  rowBorder: { borderBottomWidth: 1, borderBottomColor: "#E8E8E8" },
   rowLabel: { flex: 1, marginLeft: 12, color: "#111111", fontSize: 14 },
-  rowValue: { marginRight: 8, color: "#575E6E", fontSize: 13 },
-  footer: { marginTop: 12, textAlign: "center", color: "#767C89", fontSize: 12 },
+  rowValue: { marginRight: 8, color: "#666666", fontSize: 13 },
+  footer: { marginTop: 12, textAlign: "center", color: "#808080", fontSize: 12 },
 
   logoImage: {
     width: 180,

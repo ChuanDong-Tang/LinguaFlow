@@ -69,6 +69,7 @@ export class ReactNativeSseStreamClient implements StreamClient {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              "x-lf-usage-api": "v2",
               ...headers,
             },
             body: JSON.stringify({

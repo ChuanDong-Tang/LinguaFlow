@@ -3,6 +3,8 @@ import { Directory, File, Paths } from "expo-file-system";
 
 let activePlayer: AudioPlayer | null = null;
 let activeStopTimer: ReturnType<typeof setInterval> | null = null;
+let activeLoadTimer: ReturnType<typeof setTimeout> | null = null;
+let activePlaybackSubscription: { remove: () => void } | null = null;
 let audioModeReady = false;
 let cacheDirectoryReady = false;
 let playbackRequestId = 0;
@@ -12,6 +14,8 @@ let playbackState: TtsPlaybackState = {
   status: "idle",
   playbackRate: 1,
   loopEnabled: false,
+  loopMode: "off",
+  loopScope: "one",
   activeNavigationKey: null,
   canNavigatePrevious: false,
   canNavigateNext: false,
@@ -23,6 +27,7 @@ const TTS_AUDIO_CACHE_MAX_BYTES = 50 * 1024 * 1024;
 const TTS_AUDIO_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const TTS_AUDIO_CACHE_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
 const TTS_RANGE_STOP_GUARD_MS = 80;
+const TTS_AUDIO_LOAD_TIMEOUT_MS = 15_000;
 const TTS_PLAYBACK_RATES = [0.5, 0.8, 1, 1.2, 1.5] as const;
 
 export type TtsPlaybackRange = {
@@ -35,13 +40,18 @@ export type TtsAudioSource = {
   cacheKey?: string | null;
   playbackRange?: TtsPlaybackRange;
   navigationKey?: string | null;
+  loopScope?: "all" | "one";
+  onFinished?: () => void;
+  onError?: () => void;
 };
 
 export type TtsPlaybackState = {
   hasActiveAudio: boolean;
-  status: "idle" | "playing" | "paused";
+  status: "idle" | "loading" | "playing" | "paused";
   playbackRate: number;
   loopEnabled: boolean;
+  loopMode: "off" | "all" | "one";
+  loopScope: "all" | "one";
   activeNavigationKey: string | null;
   canNavigatePrevious: boolean;
   canNavigateNext: boolean;
@@ -53,6 +63,11 @@ export type TtsNavigationControls = {
   onNavigatePrevious: () => void;
   onNavigateNext: () => void;
 };
+
+export async function preloadTtsAudio(source: string | TtsAudioSource): Promise<string> {
+  const resolvedSource = typeof source === "string" ? { url: source } : source;
+  return resolveCachedTtsAudioUri(resolvedSource);
+}
 
 export async function playTtsAudio(source: string | TtsAudioSource, playbackRange?: TtsPlaybackRange): Promise<void> {
   const requestId = playbackRequestId + 1;
@@ -71,13 +86,57 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
   const resolvedSource = typeof source === "string"
     ? { url: source, playbackRange }
     : source;
-  const audioUri = await resolveCachedTtsAudioUri(resolvedSource);
+  const nextLoopScope = resolvedSource.loopScope ?? "one";
+  setPlaybackState({
+    hasActiveAudio: true,
+    status: "loading",
+    activeNavigationKey: resolvedSource.navigationKey ?? null,
+    loopScope: nextLoopScope,
+    loopEnabled: playbackState.loopMode !== "off",
+  });
+  let audioUri: string;
+  try {
+    audioUri = await resolveCachedTtsAudioUri(resolvedSource);
+  } catch (error) {
+    if (requestId === playbackRequestId) {
+      setPlaybackState({ hasActiveAudio: false, status: "idle", activeNavigationKey: null });
+    }
+    throw error;
+  }
   if (requestId !== playbackRequestId) return;
 
   const effectivePlaybackRange = resolvedSource.playbackRange ?? playbackRange;
 
   const player = createAudioPlayer({ uri: audioUri }, { updateInterval: 30 });
   activePlayer = player;
+  const finishPlayback = () => {
+    if (activePlayer !== player) return;
+    const onFinished = resolvedSource.onFinished;
+    stopTtsAudio();
+    onFinished?.();
+  };
+  activePlaybackSubscription = player.addListener("playbackStatusUpdate", (status) => {
+    if (status.isLoaded || status.playbackState === "ready" || status.playbackState === "readyToPlay") {
+      if (activeLoadTimer) {
+        clearTimeout(activeLoadTimer);
+        activeLoadTimer = null;
+      }
+    }
+    if (status.playbackState === "failed") {
+      if (activePlayer !== player) return;
+      const onError = resolvedSource.onError;
+      stopTtsAudio();
+      onError?.();
+      return;
+    }
+    if (status.didJustFinish && playbackState.loopMode !== "one") finishPlayback();
+  });
+  activeLoadTimer = setTimeout(() => {
+    if (activePlayer !== player || player.currentStatus.isLoaded) return;
+    const onError = resolvedSource.onError;
+    stopTtsAudio();
+    onError?.();
+  }, TTS_AUDIO_LOAD_TIMEOUT_MS);
   applyPlayerControls(player);
   setPlaybackState({
     hasActiveAudio: true,
@@ -99,23 +158,15 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
       if (activePlayer !== player) return;
       const currentMs = player.currentStatus.currentTime * 1000;
       if (currentMs >= stopAtMs) {
-        if (playbackState.loopEnabled) {
+        if (playbackState.loopMode === "one") {
           void player.seekTo(startSeconds, 0, 0).then(() => {
             if (activePlayer === player && playbackState.status === "playing") player.play();
           });
           return;
         }
-        stopTtsAudio();
+        finishPlayback();
       }
     }, 30);
-  } else {
-    activeStopTimer = setInterval(() => {
-      if (activePlayer !== player) return;
-      const status = player.currentStatus;
-      if (status.didJustFinish && !playbackState.loopEnabled) {
-        stopTtsAudio();
-      }
-    }, 120);
   }
   player.play();
 }
@@ -127,13 +178,14 @@ export function stopTtsAudio(options: { resetControls?: boolean } = {}): void {
     setPlaybackState({
       playbackRate: 1,
       loopEnabled: false,
+      loopMode: "off",
       activeNavigationKey: null,
     });
   }
 }
 
 export function toggleTtsPlayback(): void {
-  if (!activePlayer) return;
+  if (!activePlayer || playbackState.status === "loading") return;
   if (playbackState.status === "playing") {
     activePlayer.pause();
     setPlaybackState({ status: "paused" });
@@ -169,9 +221,13 @@ export function setTtsNavigationControls(controls: TtsNavigationControls | null)
 }
 
 export function toggleTtsLoop(): void {
-  const loopEnabled = !playbackState.loopEnabled;
-  if (activePlayer) activePlayer.loop = loopEnabled;
-  setPlaybackState({ loopEnabled });
+  const loopMode = playbackState.loopMode === "off"
+    ? "one"
+    : playbackState.loopMode === "one"
+      ? "all"
+      : "off";
+  if (activePlayer) activePlayer.loop = loopMode === "one";
+  setPlaybackState({ loopMode, loopEnabled: loopMode !== "off" });
 }
 
 export function getTtsPlaybackState(): TtsPlaybackState {
@@ -188,6 +244,14 @@ function stopActivePlayer(): void {
     clearInterval(activeStopTimer);
     activeStopTimer = null;
   }
+  if (activeLoadTimer) {
+    clearTimeout(activeLoadTimer);
+    activeLoadTimer = null;
+  }
+  if (activePlaybackSubscription) {
+    activePlaybackSubscription.remove();
+    activePlaybackSubscription = null;
+  }
   if (activePlayer) {
     activePlayer.pause();
     activePlayer.remove();
@@ -201,7 +265,7 @@ function stopActivePlayer(): void {
 }
 
 function applyPlayerControls(player: AudioPlayer): void {
-  player.loop = playbackState.loopEnabled;
+  player.loop = playbackState.loopMode === "one";
   player.setPlaybackRate(playbackState.playbackRate, "medium");
 }
 
@@ -212,6 +276,8 @@ function setPlaybackState(next: Partial<TtsPlaybackState>): void {
     merged.status === playbackState.status &&
     merged.playbackRate === playbackState.playbackRate &&
     merged.loopEnabled === playbackState.loopEnabled &&
+    merged.loopMode === playbackState.loopMode &&
+    merged.loopScope === playbackState.loopScope &&
     merged.activeNavigationKey === playbackState.activeNavigationKey &&
     merged.canNavigatePrevious === playbackState.canNavigatePrevious &&
     merged.canNavigateNext === playbackState.canNavigateNext

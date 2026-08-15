@@ -1,6 +1,6 @@
 import { setAudioModeAsync } from "expo-audio";
 import { VoiceProcessor, type VoiceProcessorError } from "@picovoice/react-native-voice-processor";
-import type { PcmAudioFrame, RealtimeAudioSource, StartRealtimeAudioInput } from "./realtimeAudioSource";
+import type { RealtimeAudioSource, StartRealtimeAudioInput } from "./realtimeAudioSource";
 
 export function createPicovoiceRealtimeAudioSource(): RealtimeAudioSource {
   const voiceProcessor = VoiceProcessor.instance;

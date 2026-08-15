@@ -1,4 +1,5 @@
 import { getAuthHeaders } from "../auth/authHeaders";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -89,7 +90,7 @@ export type MobileGooglePlayVerifyPurchaseResult = {
 };
 
 export async function createMembershipMonthlyOrder(productCode: MobilePaymentProductCode): Promise<MobileCreatePaymentOrderResult> {
-  const res = await fetch(`${BASE_URL}/payment/orders`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/orders`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -109,7 +110,7 @@ export async function createProMonthlyOrder(): Promise<MobileCreatePaymentOrderR
 }
 
 export async function getProMonthlyProductQuote(): Promise<MobilePaymentProductQuote> {
-  const res = await fetch(`${BASE_URL}/payment/products/pro-monthly`);
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/products/pro-monthly`);
   const json = (await res.json()) as ApiResult<MobilePaymentProductQuote>;
   if (!json.ok) {
     throw new MobileApiError(json.error.code, json.error.message);
@@ -118,7 +119,7 @@ export async function getProMonthlyProductQuote(): Promise<MobilePaymentProductQ
 }
 
 export async function getPlusMonthlyProductQuote(): Promise<MobilePaymentProductQuote> {
-  const res = await fetch(`${BASE_URL}/payment/products/plus-monthly`);
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/products/plus-monthly`);
   const json = (await res.json()) as ApiResult<MobilePaymentProductQuote>;
   if (!json.ok) {
     throw new MobileApiError(json.error.code, json.error.message);
@@ -127,7 +128,7 @@ export async function getPlusMonthlyProductQuote(): Promise<MobilePaymentProduct
 }
 
 export async function queryPaymentOrder(orderId: string): Promise<MobilePaymentOrderResult> {
-  const res = await fetch(`${BASE_URL}/payment/orders/${encodeURIComponent(orderId)}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/orders/${encodeURIComponent(orderId)}`, {
     headers: await getAuthHeaders(),
   });
   const json = (await res.json()) as ApiResult<MobilePaymentOrderResult>;
@@ -138,7 +139,7 @@ export async function queryPaymentOrder(orderId: string): Promise<MobilePaymentO
 }
 
 export async function getCurrentAutoRenewSubscription(): Promise<MobileAutoRenewSubscription | null> {
-  const res = await fetch(`${BASE_URL}/payment/autorenew/current`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/current`, {
     headers: await getAuthHeaders(),
   });
   const json = (await res.json()) as ApiResult<{ subscription: MobileAutoRenewSubscription | null }>;
@@ -151,7 +152,7 @@ export async function getCurrentAutoRenewSubscription(): Promise<MobileAutoRenew
 export async function createWeChatAutoRenewPreSign(
   productCode: MobilePaymentProductCode
 ): Promise<MobileWeChatAutoRenewPreSignResult> {
-  const res = await fetch(`${BASE_URL}/payment/autorenew/wechat/pre-sign`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/wechat/pre-sign`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -169,7 +170,7 @@ export async function createWeChatAutoRenewPreSign(
 export async function cancelAutoRenewSubscription(
   autoRenewSubscriptionId: string
 ): Promise<Pick<MobileAutoRenewSubscription, "id" | "provider" | "status" | "cancelledAt">> {
-  const res = await fetch(`${BASE_URL}/payment/autorenew/cancel`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/cancel`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -190,7 +191,7 @@ export async function cancelAutoRenewSubscription(
 export async function verifyAppleProMonthlyTransaction(
   transactionId: string
 ): Promise<MobileAppleVerifyTransactionResult> {
-  const res = await fetch(`${BASE_URL}/payment/ios/verify-transaction`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/ios/verify-transaction`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -210,7 +211,7 @@ export async function verifyGooglePlaySubscriptionPurchase(input: {
   purchaseToken: string;
   obfuscatedAccountId?: string | null;
 }): Promise<MobileGooglePlayVerifyPurchaseResult> {
-  const res = await fetch(`${BASE_URL}/payment/google-play/verify-purchase`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/google-play/verify-purchase`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -226,7 +227,7 @@ export async function verifyGooglePlaySubscriptionPurchase(input: {
 }
 
 export async function registerGooglePlayObfuscatedAccountId(obfuscatedAccountId: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/payment/google-play/account-link`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/google-play/account-link`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -241,7 +242,7 @@ export async function registerGooglePlayObfuscatedAccountId(obfuscatedAccountId:
 }
 
 export async function registerAppleAppAccountToken(appAccountToken: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/payment/ios/app-account-token`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/ios/app-account-token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

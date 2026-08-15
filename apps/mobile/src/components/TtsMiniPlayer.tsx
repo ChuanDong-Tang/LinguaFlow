@@ -1,5 +1,5 @@
 import React from "react";
-import { PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Animated, Easing, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -30,6 +30,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
   const [expanded, setExpanded] = React.useState(false);
   const [dockSide, setDockSide] = React.useState<DockSide>("left");
   const [dragging, setDragging] = React.useState(false);
+  const loopRotation = React.useRef(new Animated.Value(0)).current;
   const [position, setPosition] = React.useState(() => ({
     x: getDockedX("left", false, window.width),
     y: Math.max(PLAYER_MARGIN, window.height * 0.28),
@@ -48,6 +49,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
     getTtsPlaybackState,
   );
   const active = playback.hasActiveAudio;
+  const isLoading = playback.status === "loading";
   const isPlaying = playback.status === "playing";
   const canNavigatePrevious = playback.canNavigatePrevious;
   const canNavigateNext = playback.canNavigateNext;
@@ -68,6 +70,21 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
   const visualDockSide: DockSide =
     dragging && clampedPosition.x + playerWidth / 2 > window.width / 2 ? "right" : dockSide;
   const opensLeft = visualDockSide === "right";
+  React.useEffect(() => {
+    if (!active || !isPlaying || playback.loopMode === "off") {
+      loopRotation.stopAnimation();
+      loopRotation.setValue(0);
+      return;
+    }
+    const animation = Animated.loop(Animated.timing(loopRotation, {
+      toValue: 1,
+      duration: 1200,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }));
+    animation.start();
+    return () => animation.stop();
+  }, [active, isPlaying, loopRotation, playback.loopMode]);
   React.useEffect(() => {
     positionRef.current = clampedPosition;
   }, [clampedPosition]);
@@ -179,11 +196,13 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
         <Pressable
           key="toggle"
           accessibilityRole="button"
-          style={[styles.primaryButton, !active && styles.disabled]}
-          disabled={!active}
+          style={[styles.primaryButton, (!active || isLoading) && styles.disabled]}
+          disabled={!active || isLoading}
           onPress={toggleTtsPlayback}
         >
-          <Ionicons name={isPlaying ? "pause" : "play"} size={18} color="#FFFFFF" />
+          {isLoading
+            ? <ActivityIndicator size="small" color="#FFFFFF" />
+            : <Ionicons name={isPlaying ? "pause" : "play"} size={18} color="#FFFFFF" />}
         </Pressable>
       );
     }
@@ -207,17 +226,21 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           accessibilityRole="button"
           style={[
             styles.iconButton,
-            playback.loopEnabled && styles.loopButtonActive,
+            styles.loopButton,
+            playback.loopMode !== "off" && styles.loopButtonActive,
             !active && styles.disabled,
           ]}
           disabled={!active}
           onPress={toggleTtsLoop}
         >
-          <Ionicons
-            name="repeat-outline"
-            size={18}
-            color={playback.loopEnabled && active ? "#FFFFFF" : active ? "#4D5361" : "#AEB4C0"}
-          />
+          <Animated.View style={{ transform: [{ rotate: loopRotation.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }] }}>
+            <Ionicons
+              name="sync-outline"
+              size={28}
+              color={playback.loopMode !== "off" && active ? "#FFFFFF" : active ? "#4D5361" : "#AEB4C0"}
+            />
+          </Animated.View>
+          {playback.loopMode === "one" ? <Text style={styles.loopOne}>1</Text> : null}
         </Pressable>
       );
     }
@@ -331,9 +354,9 @@ const styles = StyleSheet.create({
   collapsedHandleButton: {
     width: COLLAPSED_HANDLE_WIDTH,
     height: 42,
-    backgroundColor: "#2477E8",
-    shadowColor: "#0E54B6",
-    shadowOpacity: 0.24,
+    backgroundColor: "#2C2C2E",
+    shadowColor: "#111111",
+    shadowOpacity: 0.16,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     elevation: 5,
@@ -398,6 +421,8 @@ const styles = StyleSheet.create({
     borderColor: "#111111",
     backgroundColor: "#111111",
   },
+  loopButton: { width: 40, height: 40, borderRadius: 20 },
+  loopOne: { position: "absolute", color: "#FFFFFF", fontSize: 10, lineHeight: 12, fontWeight: "800", textAlign: "center" },
   disabled: {
     opacity: 0.58,
   },

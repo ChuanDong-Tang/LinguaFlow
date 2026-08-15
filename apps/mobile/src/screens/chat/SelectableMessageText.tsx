@@ -50,6 +50,7 @@ type Props = {
   style?: StyleProp<TextStyle>;
   highlightRanges?: NativeClozeHighlightRange[];
   blankRanges?: NativeClozeBlankRange[];
+  answersVisible?: boolean;
   correctRanges?: NativeClozeBlankRange[];
   trailingElement?: React.ReactNode;
   enableClozeMenu?: boolean;
@@ -124,6 +125,18 @@ function normalizeBlankRanges(text: string, ranges?: NativeClozeBlankRange[]): N
     .sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
+function splitBlankRangesIntoWordRuns(text: string, ranges: NativeClozeBlankRange[]): NativeClozeBlankRange[] {
+  return ranges.flatMap((range) => {
+    const runs: NativeClozeBlankRange[] = [];
+    const selectedText = text.slice(range.start, range.end);
+    for (const match of selectedText.matchAll(/\S+/gu)) {
+      const start = range.start + (match.index ?? 0);
+      runs.push({ start, end: start + match[0].length });
+    }
+    return runs.length ? runs : [range];
+  });
+}
+
 function rangeContains(range: NativeClozeBlankRange, start: number, end: number): boolean {
   return range.start <= start && range.end >= end;
 }
@@ -134,19 +147,6 @@ function rangesOverlap(left: NativeClozeBlankRange, right: NativeClozeBlankRange
 
 function rangesToJson(ranges?: Array<NativeClozeHighlightRange | NativeClozeBlankRange>): string {
   return JSON.stringify(ranges ?? []);
-}
-
-function visibleTextForBlanks(text: string, blankRanges: NativeClozeBlankRange[]): string {
-  if (blankRanges.length === 0) return text;
-  const chars = text.split("");
-  for (const range of blankRanges) {
-    const start = Math.max(0, Math.min(range.start, chars.length));
-    const end = Math.max(start, Math.min(range.end, chars.length));
-    for (let index = start; index < end; index += 1) {
-      if (!/\s/.test(chars[index])) chars[index] = "_";
-    }
-  }
-  return chars.join("");
 }
 
 function normalizeLayoutHeight(value: number): number {
@@ -213,6 +213,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     style,
     highlightRanges,
     blankRanges,
+    answersVisible = false,
     correctRanges,
     trailingElement,
     enableClozeMenu = true,
@@ -244,9 +245,12 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       const trailingText = typeof trailingElement === "string" ? trailingElement : "";
       return trailingText ? `${text}${trailingText}` : text;
     }, [text, trailingElement]);
-    const layoutText = React.useMemo(() => visibleTextForBlanks(nativeText, blanks), [blanks, nativeText]);
+    const layoutText = nativeText;
     const nativeHighlightRangesJson = React.useMemo(() => rangesToJson(highlights), [highlights]);
-    const nativeBlankRangesJson = React.useMemo(() => rangesToJson(blanks), [blanks]);
+    const nativeBlankRangesJson = React.useMemo(
+      () => rangesToJson(splitBlankRangesIntoWordRuns(text, blanks)),
+      [blanks, text],
+    );
     const nativeCorrectRangesJson = React.useMemo(() => rangesToJson(correct), [correct]);
     const flattenedTextStyle = React.useMemo(() => StyleSheet.flatten(style) ?? {}, [style]);
     const nativeTextRef = React.useRef<React.ElementRef<typeof ChatSelectableTextView> | null>(null);
@@ -376,7 +380,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           highlightRangesJson={nativeHighlightRangesJson}
           blankRangesJson={nativeBlankRangesJson}
           correctRangesJson={nativeCorrectRangesJson}
-          answersVisible={false}
+          answersVisible={answersVisible}
           textColor={typeof flattenedTextStyle.color === "string" ? flattenedTextStyle.color : "#111111"}
           fontSize={typeof flattenedTextStyle.fontSize === "number" ? flattenedTextStyle.fontSize : 17}
           lineHeight={typeof flattenedTextStyle.lineHeight === "number" ? flattenedTextStyle.lineHeight : 25}

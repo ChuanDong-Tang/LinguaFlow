@@ -3,6 +3,7 @@ import { Alert, Animated, Image, Modal, Pressable, StyleSheet, Text, TextInput, 
 import * as AuthSession from "expo-auth-session";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { LoginScreen } from "./screens/LoginScreen";
 import { getLanguage, getSavedLanguage, initI18n, setLanguage, t, tf } from "./i18n";
 import {
@@ -27,26 +28,22 @@ import {
 } from "./services/api/meApi";
 import { MainScreen } from "./screens/MainScreen";
 import { MeScreen } from "./screens/MeScreen";
-import { ProScreen } from "./screens/ProScreen";
 import { ChatScreen } from "./screens/ChatScreen";
 import { RecallScreen } from "./screens/RecallScreen";
 import {
   CardDetailNavigator,
   type CardDetailRequest,
 } from "./screens/CardDetailNavigator";
-import { PracticeSessionScreen } from "./screens/PracticeSessionScreen";
 import { AboutScreen } from "./screens/AboutScreen";
 import { FloatingNoticeProvider } from "./screens/shared/FloatingNotice";
-import { LearningFlowHelpModal, LearningPreferenceModal, UiLocaleSetupModal } from "./screens/shared/OnboardingModals";
+import { LearningPreferenceModal, UiLocaleSetupModal } from "./screens/shared/OnboardingModals";
 import {
   completeGuide,
   GUIDE_FIRST_LEARNING_SETUP,
   GUIDE_INITIAL_UI_LOCALE,
-  GUIDE_LEARNING_FLOW_HELP,
   isGuideCompleted,
   loadLocalGuideState,
   markLocalGuideCompleted,
-  mergeGuideState,
   saveLocalGuideState,
   type GuideState,
 } from "./services/preferences/guideState";
@@ -57,15 +54,14 @@ import {
   isAuthingConfigured,
 } from "./services/auth/authingAuth";
 import { onSessionInvalid } from "./services/auth/authSessionEvents";
-import type { ChatMessage } from "./domain/chat/types";
 import type { User } from "@lf/core/types";
-import type { PracticeCard } from "./domain/practice/practiceService";
 import {
   DEFAULT_CHAT_CONTACT,
   type ChatContact,
 } from "./domain/chat/contacts";
 import { fetchChatContacts, loadCachedChatContacts } from "./services/api/chatContactsApi";
 import { theme } from "./theme";
+import type { CardDraft } from "./services/card/cardDraftStorage";
 
 type Screen =
   | "booting"
@@ -73,9 +69,7 @@ type Screen =
   | "main"
   | "chat"
   | "practice"
-  | "practiceSession"
   | "me"
-  | "pro"
   | "about";
 
 const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
@@ -83,14 +77,8 @@ const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
 export default function App() {
   const [screen, setScreen] = useState<Screen>("booting");
   const [selectedTab, setSelectedTab] = useState<"main" | "practice" | "me">("main");
-  const [practiceSession, setPracticeSession] = useState<{
-    cards: PracticeCard[];
-    messages: ChatMessage[];
-  } | null>(null);
   const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
   const [chatContacts, setChatContacts] = useState<ChatContact[]>([]);
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [contactsError, setContactsError] = useState(false);
   const [, bumpLanguageRevision] = useState(0);
   const [uiLocaleSetupVisible, setUiLocaleSetupVisible] = useState(false);
   const [uiLocaleDraft, setUiLocaleDraft] = useState<AppLocale>("zh-CN");
@@ -104,10 +92,11 @@ export default function App() {
   const [cardDataRevision, setCardDataRevision] = useState(0);
   const [cardDetailRequest, setCardDetailRequest] = useState<CardDetailRequest | null>(null);
   const cardDetailRequestKeyRef = useRef(0);
-  const [onboardingHelpVisible, setOnboardingHelpVisible] = useState(false);
-  const [manualHelpVisible, setManualHelpVisible] = useState(false);
+  const [incomingCardDraft, setIncomingCardDraft] = useState<{ id: number; draft: CardDraft } | null>(null);
+  const incomingCardDraftIdRef = useRef(0);
   const [accountSheetVisible, setAccountSheetVisible] = useState(false);
   const [recallVisible, setRecallVisible] = useState(false);
+  const [recallLaunchRequest, setRecallLaunchRequest] = useState<{ key: number; mode: "today" | "yesterday" | "blind" } | null>(null);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteAccountAuthingToken, setDeleteAccountAuthingToken] = useState("");
   const [deleteAccountMethod, setDeleteAccountMethod] = useState<"PHONE_PASSCODE" | "EMAIL_PASSCODE" | null>(null);
@@ -236,12 +225,16 @@ export default function App() {
   function openCardDetail(
     recordId: string,
     initialTab: CardDetailRequest["initialTab"] = "review",
+    origin?: CardDetailRequest["origin"],
+    returnLabel?: string,
   ): void {
     cardDetailRequestKeyRef.current += 1;
     setCardDetailRequest({
       key: cardDetailRequestKeyRef.current,
       recordId,
       initialTab,
+      origin,
+      returnLabel,
     });
   }
 
@@ -253,8 +246,6 @@ export default function App() {
   }
 
   async function loadChatContacts(): Promise<void> {
-    setContactsLoading(true);
-    setContactsError(false);
     const cached = await loadCachedChatContacts();
     if (cached?.contacts.length) {
       setChatContacts(cached.contacts);
@@ -267,11 +258,7 @@ export default function App() {
         return remote.contacts;
       });
       setActiveContact((current) => remote.contacts.find((item) => item.id === current.id) ?? remote.contacts[0]);
-    } catch {
-      if (!cached?.contacts.length) setContactsError(true);
-    } finally {
-      setContactsLoading(false);
-    }
+    } catch {}
   }
 
   async function runPostLoginGuideFlow(preloadedPreference?: UserPreference | null): Promise<void> {
@@ -294,9 +281,6 @@ export default function App() {
     if (!isGuideCompleted(mergedGuideState, GUIDE_FIRST_LEARNING_SETUP)) {
       setLearningPreferenceVisible(true);
       return;
-    }
-    if (!isGuideCompleted(mergedGuideState, GUIDE_LEARNING_FLOW_HELP)) {
-      setOnboardingHelpVisible(true);
     }
   }
 
@@ -328,22 +312,11 @@ export default function App() {
       setGuideState(saved.guideState);
       await saveLocalGuideState(saved.guideState, await resolveCurrentGuideUserId());
       setLearningPreferenceVisible(false);
-      if (!isGuideCompleted(saved.guideState, GUIDE_LEARNING_FLOW_HELP)) {
-        setOnboardingHelpVisible(true);
-      }
     } catch {
       Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
     } finally {
       setLearningPreferenceSaving(false);
     }
-  }
-
-  async function completeOnboardingHelp(): Promise<void> {
-    const nextGuideState = completeGuide(guideState, GUIDE_LEARNING_FLOW_HELP);
-    setGuideState(nextGuideState);
-    await saveLocalGuideState(nextGuideState, await resolveCurrentGuideUserId());
-    await updateUserPreference({ guideState: nextGuideState }).catch(() => null);
-    setOnboardingHelpVisible(false);
   }
 
   async function resolveCurrentGuideUserId(): Promise<string | null> {
@@ -695,23 +668,19 @@ export default function App() {
     if (screen === "chat") {
       overlay = (
         <FadingScreen>
-          <ChatScreen contact={activeContact} onBack={() => setScreen("main")} />
-        </FadingScreen>
-      );
-    } else if (screen === "practiceSession" && practiceSession) {
-      overlay = (
-        <FadingScreen>
-          <PracticeSessionScreen
-            initialCards={practiceSession.cards}
-            allMessages={practiceSession.messages}
-            onBack={() => setScreen("practice")}
+          <ChatScreen
+            contact={activeContact}
+            onBack={() => setScreen("main")}
+            onOpenCard={(recordId) => {
+              setScreen("main");
+              openCardDetail(recordId, "review");
+            }}
+            onConvertMessageToCard={(draft) => {
+              incomingCardDraftIdRef.current += 1;
+              setIncomingCardDraft({ id: incomingCardDraftIdRef.current, draft });
+              setScreen("main");
+            }}
           />
-        </FadingScreen>
-      );
-    } else if (screen === "pro") {
-      overlay = (
-        <FadingScreen>
-          <ProScreen onBack={() => { setScreen("main"); setAccountSheetVisible(true); }} />
         </FadingScreen>
       );
     } else if (screen === "about") {
@@ -728,29 +697,25 @@ export default function App() {
           <TabScreens
             activeTab={activeTab}
             contacts={chatContacts}
-            contactsLoading={contactsLoading}
-            contactsError={contactsError}
-            onReloadContacts={() => void loadChatContacts()}
             onOpenChat={(contact) => {
               setActiveContact(contact);
               setScreen("chat");
             }}
-            onOpenPracticeSession={(cards, messages) => {
-              setPracticeSession({ cards, messages });
-              setScreen("practiceSession");
-            }}
-            onOpenPro={() => setScreen("pro")}
             onOpenAbout={() => setScreen("about")}
-            onOpenHelp={() => setManualHelpVisible(true)}
             onApplyAppLocale={applyAppLocale}
             sessionRevision={sessionRevision}
             onBindEmail={handleBindEmail}
             onLogout={handleLogout}
             onDeleteAccount={handleDeleteAccount}
             cardDataRevision={cardDataRevision}
+            incomingCardDraft={incomingCardDraft}
+            onIncomingCardDraftHandled={(id) => setIncomingCardDraft((current) => current?.id === id ? null : current)}
             onOpenCard={openCardDetail}
             onOpenLibrary={() => setScreen("main")}
-            onOpenRecall={() => setRecallVisible(true)}
+            onOpenRecall={(mode) => {
+              setRecallLaunchRequest(mode ? { key: Date.now(), mode } : null);
+              setRecallVisible(true);
+            }}
             onOpenAccount={() => setAccountSheetVisible(true)}
           />
         </FadingScreen>
@@ -758,8 +723,11 @@ export default function App() {
           <View style={styles.overlayScreen}>
             <RecallScreen
               isActive
-              onOpenCard={openCardDetail}
-              onOpenLibrary={() => setRecallVisible(false)}
+              launchRequest={recallLaunchRequest}
+              onOpenLibrary={() => {
+                setRecallVisible(false);
+                setRecallLaunchRequest(null);
+              }}
             />
           </View>
         ) : null}
@@ -774,6 +742,7 @@ export default function App() {
   }
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <KeyboardProvider>
         <FloatingNoticeProvider>
@@ -814,15 +783,10 @@ export default function App() {
               <MeScreen
                 isActive={accountSheetVisible}
                 onClose={() => setAccountSheetVisible(false)}
-                onOpenPro={() => {
-                  setAccountSheetVisible(false);
-                  setScreen("pro");
-                }}
                 onOpenAbout={() => {
                   setAccountSheetVisible(false);
                   setScreen("about");
                 }}
-                onOpenHelp={() => setManualHelpVisible(true)}
                 onApplyAppLocale={applyAppLocale}
                 sessionRevision={sessionRevision}
                 onBindEmail={handleBindEmail}
@@ -848,21 +812,11 @@ export default function App() {
               onChangePromptDifficulty={setPromptDifficultyDraft}
               onContinue={() => void completeLearningPreferenceSetup()}
             />
-            <LearningFlowHelpModal
-              visible={onboardingHelpVisible}
-              mode="onboarding"
-              onDone={() => void completeOnboardingHelp()}
-            />
-            <LearningFlowHelpModal
-              visible={manualHelpVisible}
-              mode="manual"
-              onClose={() => setManualHelpVisible(false)}
-              onDone={() => setManualHelpVisible(false)}
-            />
           </View>
         </FloatingNoticeProvider>
       </KeyboardProvider>
     </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -1046,20 +1000,16 @@ function toSessionUser(user: {
 function TabScreens({
   activeTab,
   contacts,
-  contactsLoading,
-  contactsError,
-  onReloadContacts,
   onOpenChat,
-  onOpenPracticeSession,
-  onOpenPro,
   onOpenAbout,
-  onOpenHelp,
   onApplyAppLocale,
   sessionRevision,
   onBindEmail,
   onLogout,
   onDeleteAccount,
   cardDataRevision,
+  incomingCardDraft,
+  onIncomingCardDraftHandled,
   onOpenCard,
   onOpenLibrary,
   onOpenRecall,
@@ -1067,23 +1017,19 @@ function TabScreens({
 }: {
   activeTab: "main" | "practice" | "me";
   contacts: ChatContact[];
-  contactsLoading: boolean;
-  contactsError: boolean;
-  onReloadContacts: () => void;
   onOpenChat: (contact: ChatContact) => void;
-  onOpenPracticeSession: (cards: PracticeCard[], allMessages: ChatMessage[]) => void;
-  onOpenPro: () => void;
   onOpenAbout: () => void;
-  onOpenHelp: () => void;
   onApplyAppLocale: (value: AppLocale) => void;
   sessionRevision: number;
   onBindEmail: () => Promise<void>;
   onLogout: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
   cardDataRevision: number;
-  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"]) => void;
+  incomingCardDraft: { id: number; draft: CardDraft } | null;
+  onIncomingCardDraftHandled: (id: number) => void;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], returnLabel?: string) => void;
   onOpenLibrary: () => void;
-  onOpenRecall: () => void;
+  onOpenRecall: (mode?: "today" | "yesterday" | "blind") => void;
   onOpenAccount: () => void;
 }) {
   return (
@@ -1092,24 +1038,24 @@ function TabScreens({
         <MainScreen
           isActive={activeTab === "main"}
           refreshRevision={cardDataRevision}
+          incomingCardDraft={incomingCardDraft}
+          onIncomingCardDraftHandled={onIncomingCardDraftHandled}
           onOpenCard={onOpenCard}
           onOpenRecall={onOpenRecall}
+          onOpenAssistant={() => onOpenChat(contacts[0] ?? DEFAULT_CHAT_CONTACT)}
           onOpenAccount={onOpenAccount}
         />
       </View>
       <View style={[styles.tabPage, activeTab !== "practice" && styles.tabPageHidden]}>
         <RecallScreen
           isActive={activeTab === "practice"}
-          onOpenCard={onOpenCard}
           onOpenLibrary={onOpenLibrary}
         />
       </View>
       <View style={[styles.tabPage, activeTab !== "me" && styles.tabPageHidden]}>
         <MeScreen
           isActive={activeTab === "me"}
-          onOpenPro={onOpenPro}
           onOpenAbout={onOpenAbout}
-          onOpenHelp={onOpenHelp}
           onApplyAppLocale={onApplyAppLocale}
           sessionRevision={sessionRevision}
           onBindEmail={onBindEmail}

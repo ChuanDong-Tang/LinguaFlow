@@ -1396,15 +1396,6 @@ async function assertProCloudAccess(
   throw error;
 }
 
-async function assertClozeCloudAccess(deps: ChatRouteDeps, userId: string): Promise<void> {
-  const entitlement = await deps.entitlementService.getCurrentEntitlement(userId);
-  if (entitlement.features?.conversationHistorySync ?? entitlement.features?.cloudSync ?? entitlement.isPro) return;
-  const error = new Error("Pro access required") as Error & { code: string; statusCode: number };
-  error.code = "PRO_REQUIRED";
-  error.statusCode = 403;
-  throw error;
-}
-
 function isProRequiredError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && String(error.code) === "PRO_REQUIRED";
 }

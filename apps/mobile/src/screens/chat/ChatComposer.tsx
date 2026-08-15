@@ -14,12 +14,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
+import { RealtimeSttButton } from "../../components/RealtimeSttButton";
 
 type ChatComposerProps = {
   value: string;
   onChangeText: (text: string) => void;
   onSend: () => void;
-  onStop: () => void;
   onSttPress?: (context: ChatComposerSttPressContext) => void;
   onFocus: () => void;
   onBlur?: () => void;
@@ -27,6 +27,7 @@ type ChatComposerProps = {
   disabled: boolean;
   isSending: boolean;
   sttStatus?: "idle" | "connecting" | "recording" | "stopping";
+  sttAudioLevel?: number;
   inputEditable?: boolean;
   selectionOverride?: { start: number; end: number } | null;
 };
@@ -50,7 +51,6 @@ export function ChatComposer({
   value,
   onChangeText,
   onSend,
-  onStop,
   onSttPress,
   onFocus,
   onBlur,
@@ -58,6 +58,7 @@ export function ChatComposer({
   disabled,
   isSending,
   sttStatus = "idle",
+  sttAudioLevel = 0,
   inputEditable = true,
   selectionOverride = null,
 }: ChatComposerProps) {
@@ -158,7 +159,7 @@ export function ChatComposer({
             expanded ? styles.inputExpanded : styles.inputCollapsed,
             { height: textInputHeight },
           ]}
-          placeholder=""
+          placeholder={t("chat.assistant.placeholder")}
           placeholderTextColor="#A0A4AF"
           value={value}
           onChangeText={onChangeText}
@@ -193,31 +194,27 @@ export function ChatComposer({
             <Ionicons name={expanded ? "contract-outline" : "expand-outline"} size={14} color="#8E84FF" />
           </Pressable>
         ) : null}
+        {onSttPress ? (
+          <RealtimeSttButton status={sttStatus} audioLevel={sttAudioLevel} disabled={isSending} style={styles.micButtonInside} iconSize={22} onPress={handleMicPress} />
+        ) : (
+          <Pressable
+            style={[styles.sendButton, (disabled || isSending) && styles.sendButtonDisabled]}
+            onPress={isSending ? undefined : (disabled ? onDisabledPress : onSend)}
+            disabled={isSending ? true : false}
+            hitSlop={6}
+          >
+            <Ionicons name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
+          </Pressable>
+        )}
+      </Pressable>
+      {onSttPress ? (
         <Pressable
-          style={[styles.sendButton, (disabled || isSending) && styles.sendButtonDisabled]}
+          style={[styles.sendButtonOutside, (disabled || isSending) && styles.sendButtonDisabled]}
           onPress={isSending ? undefined : (disabled ? onDisabledPress : onSend)}
           disabled={isSending ? true : false}
           hitSlop={6}
         >
-          <Ionicons name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
-        </Pressable>
-      </Pressable>
-      {onSttPress ? (
-        <Pressable
-          style={[
-            styles.micButton,
-            sttStatus !== "idle" && styles.micButtonActive,
-            isSending && styles.micButtonDisabled,
-          ]}
-          onPress={handleMicPress}
-          disabled={isSending}
-          hitSlop={6}
-        >
-          <Ionicons
-            name={sttStatus === "recording" || sttStatus === "connecting" ? "stop" : "mic"}
-            size={24}
-            color={sttStatus === "idle" ? "#7F77F9" : "#FFFFFF"}
-          />
+          <Ionicons name={"arrow-up"} size={19} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
         </Pressable>
       ) : null}
     </View>
@@ -317,7 +314,16 @@ const styles = StyleSheet.create({
   sendButtonDisabled: {
     opacity: 0.6,
   },
-  micButton: {
+  micButtonInside: {
+    position: "absolute",
+    right: 12,
+    bottom: 5,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.accentSoft,
+  },
+  sendButtonOutside: {
     width: 50,
     height: 50,
     borderRadius: 25,

@@ -130,7 +130,7 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
   useEffect(() => {
     spinAnimationRef.current?.stop();
     spin.setValue(0);
-    if (notice?.type !== "info") return;
+    if (notice?.type !== "info" || notice.durationMs > 0) return;
 
     const animation = Animated.loop(
       Animated.timing(spin, {
@@ -148,7 +148,7 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
         spinAnimationRef.current = null;
       }
     };
-  }, [notice?.id, notice?.type, spin]);
+  }, [notice?.durationMs, notice?.id, notice?.type, spin]);
 
   const value = useMemo(() => ({ showNotice }), [showNotice]);
   const placement = notice ? getPlacementStyle(notice, insets.top, insets.bottom, window.height) : null;
@@ -158,7 +158,7 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
     <FloatingNoticeContext.Provider value={value}>
       {children}
       {notice && placement ? (
-        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+        <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, styles.overlay]}>
           <Animated.View
             pointerEvents="box-none"
             style={[
@@ -176,7 +176,7 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
               onPress={() => hideById(notice.id)}
               style={[styles.notice, { borderColor: palette.border, backgroundColor: palette.background }]}
             >
-              {notice.type === "info" ? (
+              {notice.type === "info" && notice.durationMs <= 0 ? (
                 <Animated.View
                   style={{
                     transform: [
@@ -189,7 +189,7 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
                     ],
                   }}
                 >
-                  <Ionicons name={palette.icon} size={17} color={palette.iconColor} />
+                  <Ionicons name="sync-outline" size={17} color={palette.iconColor} />
                 </Animated.View>
               ) : (
                 <Ionicons name={palette.icon} size={17} color={palette.iconColor} />
@@ -239,7 +239,7 @@ const NOTICE_PALETTE: Record<
     background: "#FFFFFF",
     border: "#DEE4F2",
     iconColor: "#4965D8",
-    icon: "sync-outline",
+    icon: "information-circle-outline",
   },
   success: {
     background: "#FFFFFF",
@@ -262,9 +262,15 @@ const NOTICE_PALETTE: Record<
 };
 
 const styles = StyleSheet.create({
+  overlay: {
+    zIndex: 1000,
+    elevation: 1000,
+  },
   host: {
     position: "absolute",
     maxWidth: "86%",
+    zIndex: 1000,
+    elevation: 1000,
   },
   notice: {
     minHeight: 34,

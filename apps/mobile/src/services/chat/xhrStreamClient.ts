@@ -30,6 +30,7 @@ export class XhrStreamClient implements StreamClient {
 
       xhr.open("POST", `${BASE_URL}/chat/generation/stream`);
       xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("x-lf-usage-api", "v2");
 
       const abortRequest = () => xhr.abort();
       if (input.signal?.aborted) {

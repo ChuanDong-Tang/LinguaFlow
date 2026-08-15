@@ -6,9 +6,10 @@ import {
   getCardImageUpload,
   CardApiError,
 } from "../api/cardApi";
-import type { CardDraft } from "./cardDraftStorage";
+import type { CardDraftImage } from "./cardDraftStorage";
+import { fetchWithTimeout } from "../api/fetchWithTimeout";
 
-export async function prepareCardDraftImage(input: { uri: string; width: number; height: number }): Promise<NonNullable<CardDraft["image"]>> {
+export async function prepareCardDraftImage(input: { uri: string; width: number; height: number }): Promise<CardDraftImage> {
   const normalized = await ImageManipulator.manipulateAsync(
     input.uri,
     [],
@@ -55,9 +56,9 @@ export async function prepareCardDraftImage(input: { uri: string; width: number;
 }
 
 export async function uploadCardDraftImage(
-  image: NonNullable<CardDraft["image"]>,
-  onState: (image: NonNullable<CardDraft["image"]>) => void,
-): Promise<NonNullable<CardDraft["image"]>> {
+  image: CardDraftImage,
+  onState: (image: CardDraftImage) => void,
+): Promise<CardDraftImage> {
   if (image.uploadId) {
     try {
       const remote = await getCardImageUpload(image.uploadId);
@@ -66,15 +67,15 @@ export async function uploadCardDraftImage(
       if (!(error instanceof CardApiError) || error.status !== 404) throw error;
     }
   }
-  let current: NonNullable<CardDraft["image"]> = { ...image, status: "uploading" };
+  let current: CardDraftImage = { ...image, status: "uploading" };
   onState(current);
   const session = await createCardImageUpload({ mimeType: image.mimeType, fileSize: image.fileSize, width: image.width, height: image.height });
   current = { ...current, uploadId: session.uploadId };
   onState(current);
-  const response = await fetch(session.uploadUrl, {
+  const response = await fetchWithTimeout(session.uploadUrl, {
     method: "PUT",
     headers: session.headers,
-    body: await (await fetch(image.localUri)).blob(),
+    body: await (await fetchWithTimeout(image.localUri)).blob(),
   });
   if (!response.ok) throw new Error(`图片上传失败 (${response.status})`);
   current = { ...current, status: "moderating" };

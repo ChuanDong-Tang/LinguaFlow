@@ -14,10 +14,10 @@ import type {
   PrepareDeleteAccountResponse,
   RefreshTokenRequestBody,
   RefreshTokenResponse,
-  TestPasswordLoginRequestBody,
 } from "@lf/core/contracts/auth";
 import { logEvent } from "../logger";
 import { getAuthHeaders } from "../auth/authHeaders";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 // 登录接口返回外层结构
 type ApiOk<T> = { ok: true; data: T };
@@ -41,7 +41,7 @@ export async function login(input: LoginCredential): Promise<LoginResponse> {
   await logEvent("login_request", "info", undefined, { type: input.type });
 
   try {
-    const res = await fetch(`${BASE_URL}/auth/login`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
@@ -81,7 +81,7 @@ export async function loginWithAuthing(input: AuthingLoginRequestBody): Promise<
   await logEvent("authing_login_request", "info");
 
   try {
-    const res = await fetch(`${BASE_URL}/auth/authing-login`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/auth/authing-login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -110,43 +110,8 @@ export async function loginWithAuthing(input: AuthingLoginRequestBody): Promise<
   }
 }
 
-export async function loginWithTestPassword(input: TestPasswordLoginRequestBody): Promise<AuthingLoginResponse> {
-  await logEvent("test_password_login_request", "info", undefined, { account: input.account });
-
-  try {
-    const res = await fetch(`${BASE_URL}/auth/test-password-login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
-    const apiResult = await readApiResult<AuthingLoginResponse>(res);
-
-    if (!apiResult.ok) {
-      await logEvent("test_password_login_failed", "warn", apiResult.error.message, {
-        code: apiResult.error.code,
-        account: input.account,
-      });
-      throw new ApiError(apiResult.error.code, apiResult.error.message);
-    }
-
-    await logEvent("test_password_login_success", "info", undefined, {
-      userId: apiResult.data.user.id,
-    });
-
-    return apiResult.data;
-  } catch (err) {
-    await logEvent(
-      "test_password_login_exception",
-      "error",
-      err instanceof Error ? err.message : "unknown error",
-      { account: input.account }
-    );
-    throw err;
-  }
-}
-
 export async function refreshAccessToken(input: RefreshTokenRequestBody): Promise<RefreshTokenResponse> {
-  const res = await fetch(`${BASE_URL}/auth/refresh`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -160,7 +125,7 @@ export async function refreshAccessToken(input: RefreshTokenRequestBody): Promis
 }
 
 export async function logout(input: LogoutRequestBody): Promise<void> {
-  const res = await fetch(`${BASE_URL}/auth/logout`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/auth/logout`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -173,7 +138,7 @@ export async function logout(input: LogoutRequestBody): Promise<void> {
 }
 
 export async function prepareDeleteAccount(input: PrepareDeleteAccountRequestBody): Promise<PrepareDeleteAccountResponse> {
-  const res = await fetch(`${BASE_URL}/auth/delete-account/prepare`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/auth/delete-account/prepare`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -190,7 +155,7 @@ export async function prepareDeleteAccount(input: PrepareDeleteAccountRequestBod
 }
 
 export async function confirmDeleteAccount(input: ConfirmDeleteAccountRequestBody): Promise<DeleteAccountResponse> {
-  const res = await fetch(`${BASE_URL}/auth/delete-account/confirm`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/auth/delete-account/confirm`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -207,7 +172,7 @@ export async function confirmDeleteAccount(input: ConfirmDeleteAccountRequestBod
 }
 
 export async function prepareBindEmail(input: PrepareBindEmailRequestBody): Promise<PrepareBindEmailResponse> {
-  const res = await fetch(`${BASE_URL}/auth/bind-email/prepare`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/auth/bind-email/prepare`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -224,7 +189,7 @@ export async function prepareBindEmail(input: PrepareBindEmailRequestBody): Prom
 }
 
 export async function confirmBindEmail(input: ConfirmBindEmailRequestBody): Promise<BindEmailResponse> {
-  const res = await fetch(`${BASE_URL}/auth/bind-email/confirm`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/auth/bind-email/confirm`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

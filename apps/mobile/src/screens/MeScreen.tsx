@@ -9,6 +9,7 @@ import {
   getUserPreference,
   getUserBindings,
   getUserProfile,
+  getUsageV2,
   updateProfileNickname,
   removeProfileAvatar,
   updateUserPreference,
@@ -19,6 +20,7 @@ import {
   type UserPreference,
   type UserBindings,
   type UserProfile,
+  type UsageV2,
 } from "../services/api/meApi";
 import { getCachedEntitlementForUser, isSameEntitlement } from "../services/entitlement/entitlementCache";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
@@ -31,12 +33,11 @@ import { getLogs, type AppLog } from "../services/logger";
 import { theme } from "../theme";
 import { prepareAndUploadAvatar } from "../services/profile/avatarUpload";
 import { TARGET_LANGUAGE_CODES } from "@lf/core/language/targetLanguages";
+import { ProScreen } from "./ProScreen";
 
 type MeScreenProps = {
   isActive: boolean;
-  onOpenPro: () => void;
   onOpenAbout: () => void;
-  onOpenHelp: () => void;
   onApplyAppLocale: (value: AppLocale) => void;
   sessionRevision: number;
   onBindEmail: () => Promise<void> | void;
@@ -49,11 +50,12 @@ const OTA_DEBUG_JS_LABEL = "Dictionary overlay close fix";
 const UPDATE_LOG_KEYWORDS = ["error", "fail", "exception", "crash", "rollback", "emergency", "launch", "reset", "delete"];
 const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
-export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApplyAppLocale, sessionRevision, onBindEmail, onLogout, onDeleteAccount, onClose }: MeScreenProps) {
+export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevision, onBindEmail, onLogout, onDeleteAccount, onClose }: MeScreenProps) {
   const { isMounted } = useMountedGuard();
   const appLocaleSyncSeqRef = useRef(0);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [entitlement, setEntitlement] = useState<CurrentEntitlement | null>(null);
+  const [usageV2, setUsageV2] = useState<UsageV2 | null>(null);
   const [preference, setPreference] = useState<UserPreference | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [bindings, setBindings] = useState<UserBindings | null>(null);
@@ -65,7 +67,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
   const [isLoadingEntitlement, setIsLoadingEntitlement] = useState(true);
   const [updatesDebugVisible, setUpdatesDebugVisible] = useState(false);
   const [updatesAction, setUpdatesAction] = useState<string | null>(null);
-  const [updatesResult, setUpdatesResult] = useState("尚未执行操作");
+  const [updatesResult, setUpdatesResult] = useState(() => t("me.debug.not_run"));
 
   useEffect(() => {
     if (!isActive) return;
@@ -75,11 +77,12 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
       if (isMounted()) setIsLoadingEntitlement(true);
       await recoverPendingPaymentIfAny();
       const localSession = await getSession();
-      const [cached, localPreference, remoteProfile, remoteBindings] = await Promise.all([
+      const [cached, localPreference, remoteProfile, remoteBindings, remoteUsage] = await Promise.all([
         localSession?.user.id ? getCachedEntitlementForUser(localSession.user.id) : Promise.resolve(null),
         localSession ? getUserPreference().catch(() => null) : Promise.resolve(null),
         localSession ? getUserProfile().catch(() => null) : Promise.resolve(null),
         localSession ? getUserBindings().catch(() => null) : Promise.resolve(null),
+        localSession ? getUsageV2().catch(() => null) : Promise.resolve(null),
       ]);
       if (cancelled || !isMounted()) return;
       setSession(localSession);
@@ -87,6 +90,7 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
       if (localPreference) setPreference(localPreference);
       if (remoteProfile) setProfile(remoteProfile);
       if (remoteBindings) setBindings(remoteBindings);
+      if (remoteUsage) setUsageV2(remoteUsage);
       setIsLoadingEntitlement(!cached);
       try {
         const refreshed = await refreshEntitlementAndSessionSafe();
@@ -106,49 +110,83 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
   }, [isActive, isMounted, sessionRevision]);
 
   const quota = useMemo(() => {
+    if (usageV2) {
+      const remainingRatio = Math.max(0, Math.min(1, usageV2.token.remainingPercent / 100));
+      const usedRatio = usageV2.token.quota > 0
+        ? Math.max(0, Math.min(1, usageV2.token.used / usageV2.token.quota))
+        : 0;
+      const usedPercent = Math.round(usedRatio * 1000) / 10;
+      return {
+        dailyTotalLimit: usageV2.token.quota,
+        remainingChars: usageV2.token.remaining,
+        remainingPercent: usageV2.token.remainingPercent,
+        ratio: remainingRatio,
+        usedPercent,
+        usedRatio,
+      };
+    }
     const dailyTotalLimit = entitlement?.dailyTotalLimit ?? (session?.sessionFlags?.isPro ? 10000 : 10000);
     const remainingChars = entitlement?.remainingChars ?? null;
     const ratio = remainingChars === null || dailyTotalLimit <= 0 ? 0 : remainingChars / dailyTotalLimit;
 
     // 进度条只接受 0-1，避免异常数据把布局撑出容器。
-    return { dailyTotalLimit, remainingChars, ratio: Math.max(0, Math.min(1, ratio)) };
-  }, [entitlement, session?.sessionFlags?.isPro]);
+    const normalizedRatio = Math.max(0, Math.min(1, ratio));
+    return {
+      dailyTotalLimit,
+      remainingChars,
+      remainingPercent: Math.round(normalizedRatio * 100),
+      ratio: normalizedRatio,
+      usedPercent: Math.round((1 - normalizedRatio) * 100),
+      usedRatio: 1 - normalizedRatio,
+    };
+  }, [entitlement, session?.sessionFlags?.isPro, usageV2]);
+  const imageQuota = useMemo(() => {
+    if (!usageV2) return null;
+    const capacity = Number(usageV2.images.quotaBytes ?? usageV2.images.capacityBytes);
+    const used = Number(usageV2.images.uploadedBytes ?? usageV2.images.usedBytes);
+    const ratio = Number.isFinite(capacity) && capacity > 0 && Number.isFinite(used)
+      ? Math.max(0, Math.min(1, used / capacity))
+      : 0;
+    return { ratio };
+  }, [usageV2]);
 
   // Never fall back to raw auth email/phone while the privacy-safe profile is loading.
   const userName = profile?.nickname || "OIO";
   const isAdmin = session?.user.role === "admin";
   const isMember = entitlement ? (entitlement.isMember ?? entitlement.isPro) : session?.sessionFlags?.isPro === true;
   const planLabel = resolvePlanLabel(entitlement, session);
-  const quotaTitle = isMember ? t("me.quota.pro_title") : t("me.quota.free_title");
+  const quotaTitle = usageV2 ? t("me.quota.v2_title") : isMember ? t("me.quota.pro_title") : t("me.quota.free_title");
   const quotaLabel = isMember ? t("me.quota.pro_label") : t("me.quota.free_label");
-  const quotaResetText = isMember
+  const quotaResetText = usageV2
+    ? tf("me.quota.v2_refresh", { time: formatDateTime(usageV2.token.periodEnd) })
+    : isMember
     ? t("me.quota.reset_daily")
     : entitlement?.validUntil
       ? tf("me.quota.valid_until", { time: formatDateTime(entitlement.validUntil) })
       : t("me.quota.free_valid");
   const bindingSummary = bindings?.email.bound
-    ? bindings.email.maskedValue ?? "已绑定"
-    : bindings?.phone.maskedValue ?? "查看";
+    ? bindings.email.maskedValue ?? t("me.bindings.bound")
+    : bindings?.phone.maskedValue ?? t("me.bindings.view");
 
   return (
     <SafeAreaView style={styles.container}>
       {onClose ? (
         <View style={styles.sheetHeader}>
-          <Pressable accessibilityLabel="关闭我的页面" style={styles.sheetClose} onPress={onClose}>
+          <Pressable accessibilityLabel={t("me.a11y.close")} style={styles.sheetClose} onPress={onClose}>
             <Ionicons name="chevron-down" size={24} color={theme.colors.text} />
           </Pressable>
-          <Text style={styles.sheetTitle}>我的</Text>
+          <Text style={styles.sheetTitle}>{t("me.title")}</Text>
           <View style={styles.sheetClose} />
         </View>
       ) : null}
-      <ScrollView style={styles.scroller} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroller} contentContainerStyle={styles.content} showsVerticalScrollIndicator alwaysBounceVertical={false}>
         <Pressable
           style={styles.profileRow}
           onPress={() => setProfileVisible(true)}
           onLongPress={() => { if (isAdmin) setDevDebugVisible(true); }}
         >
           <View style={styles.profileAvatar}>
-            {profile?.avatar ? <Image source={{ uri: profile.avatar.thumbnailUrl }} style={styles.profileAvatarImage} /> : <Text style={styles.profileAvatarText}>OIO</Text>}
+            {profile?.avatar ? <Image source={{ uri: profile.avatar.thumbnailUrl }} style={styles.profileAvatarImage} /> : <Ionicons name="person-outline" size={24} color={theme.colors.textSecondary} />}
           </View>
           <View style={styles.profileBody}>
             <Text style={styles.profileName}>{userName}</Text>
@@ -158,43 +196,57 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
 
         <View style={styles.quotaCard}>
           <Text style={styles.cardTitle}>{quotaTitle}</Text>
-          <View style={styles.quotaRow}>
-            <Text style={styles.quotaLabel}>{quotaLabel}</Text>
-            <Text style={styles.quotaNumber}>{quota.remainingChars === null ? "--" : formatNumber(quota.remainingChars)}</Text>
-            <Text style={styles.quotaUnit}>{t("me.quota.unit")}</Text>
-            {isLoadingEntitlement ? <ActivityIndicator size="small" color={theme.colors.accentStrong} style={styles.quotaLoading} /> : null}
-          </View>
-          <View style={styles.progressRow}>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${quota.ratio * 100}%` }]} />
-            </View>
-            <Text style={styles.progressText}>
-              {quota.remainingChars === null ? "--" : formatNumber(quota.remainingChars)} /{" "}
-              {formatNumber(quota.dailyTotalLimit)}
-            </Text>
-          </View>
-          <Text style={styles.resetText}>{quotaResetText}</Text>
+          {usageV2 ? (
+            <>
+              <UsageMeter
+                label={t("me.quota.v2_ai")}
+                value={tf("me.quota.v2_used_percent", { percent: quota.usedPercent })}
+                ratio={quota.usedRatio}
+                loading={isLoadingEntitlement}
+              />
+              <UsageMeter
+                label={t("me.quota.v2_images")}
+                value={tf("me.quota.v2_used_amount", {
+                  used: formatStorageBytes(usageV2.images.uploadedBytes ?? usageV2.images.usedBytes),
+                  total: formatStorageBytes(usageV2.images.quotaBytes ?? usageV2.images.capacityBytes),
+                })}
+                ratio={imageQuota?.ratio ?? 0}
+              />
+              <Text style={styles.usageRefreshText}>{quotaResetText}</Text>
+            </>
+          ) : (
+            <>
+              <View style={styles.quotaRow}>
+                <Text style={styles.quotaLabel}>{quotaLabel}</Text>
+                <Text style={styles.quotaNumber}>{quota.remainingChars === null ? "--" : formatNumber(quota.remainingChars)}</Text>
+                <Text style={styles.quotaUnit}>{t("me.quota.unit")}</Text>
+                {isLoadingEntitlement ? <ActivityIndicator size="small" color={theme.colors.accentStrong} style={styles.quotaLoading} /> : null}
+              </View>
+              <View style={styles.progressRow}>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${quota.ratio * 100}%` }]} />
+                </View>
+                <Text style={styles.progressText}>{quota.remainingPercent}%</Text>
+              </View>
+              <Text style={styles.resetText}>{quotaResetText}</Text>
+            </>
+          )}
         </View>
 
         <View style={styles.proCard}>
           <Text style={styles.proTitle}>{t("me.pro.title")}</Text>
-          {([t("me.pro.benefit.quota"), t("me.pro.benefit.cloud"), t("me.pro.benefit.tts")]).map((item) => (
-            <View key={item} style={styles.benefitRow}>
-              <Ionicons name="checkmark-circle-outline" size={18} color={theme.colors.accentStrong} />
-              <Text style={styles.benefitText}>{item}</Text>
-            </View>
-          ))}
-          <Pressable style={styles.proButton} onPress={onOpenPro}>
-            <Text style={styles.proButtonText}>{t("me.pro.learn_more")}</Text>
-            <Ionicons name="chevron-forward" size={20} color="#111111" />
-          </Pressable>
+          {isActive ? (
+            isLoadingEntitlement
+              ? <ActivityIndicator size="small" color={theme.colors.accentStrong} style={styles.membershipLoading} />
+              : <ProScreen compact initialEntitlement={entitlement} />
+          ) : null}
         </View>
 
         <Text style={styles.sectionTitle}>{t("me.section.more")}</Text>
         <View style={styles.settingsCard}>
           <SettingsRow
             icon="link-outline"
-            label="绑定信息"
+            label={t("me.bindings.title")}
             value={bindingSummary}
             onPress={() => setBindingsVisible(true)}
           />
@@ -208,7 +260,6 @@ export function MeScreen({ isActive, onOpenPro, onOpenAbout, onOpenHelp, onApply
             ].join(" · ") : undefined}
             onPress={() => setLanguageSettingsVisible(true)}
           />
-          <SettingsRow icon="help-circle-outline" label={t("me.help")} onPress={onOpenHelp} />
           <SettingsRow icon="information-circle-outline" label={t("me.about")} onPress={onOpenAbout} />
           <SettingsRow icon="log-out-outline" label={t("me.logout")} onPress={onLogout} />
           <SettingsRow icon="person-remove-outline" label={t("me.delete_account")} onPress={onDeleteAccount} tone="danger" isLast />
@@ -318,7 +369,7 @@ function ProfileEditModal({ visible, profile, onClose, onSaved }: {
     try {
       onSaved(await updateProfileNickname(nickname));
     } catch (error) {
-      Alert.alert("无法保存昵称", error instanceof Error ? error.message : "请稍后再试");
+      Alert.alert(t("me.profile.nickname_save_failed"), error instanceof Error ? error.message : t("me.profile.try_again"));
     } finally {
       setSaving(false);
     }
@@ -326,10 +377,10 @@ function ProfileEditModal({ visible, profile, onClose, onSaved }: {
 
   function chooseAvatar(): void {
     if (avatarSaving) return;
-    Alert.alert("更换头像", undefined, [
-      { text: "拍照", onPress: () => void pickAvatar("camera") },
-      { text: "从相册选择", onPress: () => void pickAvatar("library") },
-      { text: "取消", style: "cancel" },
+    Alert.alert(t("me.profile.change_avatar"), undefined, [
+      { text: t("me.profile.take_photo"), onPress: () => void pickAvatar("camera") },
+      { text: t("me.profile.choose_photo"), onPress: () => void pickAvatar("library") },
+      { text: t("common.cancel"), style: "cancel" },
     ]);
   }
 
@@ -338,7 +389,7 @@ function ProfileEditModal({ visible, profile, onClose, onSaved }: {
       ? await ImagePicker.requestCameraPermissionsAsync()
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("需要图片权限", source === "camera" ? "请允许使用相机后再拍照" : "请允许访问相册后再选择图片");
+      Alert.alert(t("me.profile.photo_permission"), source === "camera" ? t("me.profile.camera_permission_message") : t("me.profile.library_permission_message"));
       return;
     }
     const result = source === "camera"
@@ -350,7 +401,7 @@ function ProfileEditModal({ visible, profile, onClose, onSaved }: {
     try {
       onSaved(await prepareAndUploadAvatar({ uri: asset.uri }));
     } catch (error) {
-      Alert.alert("无法保存头像", error instanceof Error ? error.message : "请稍后再试");
+      Alert.alert(t("me.profile.avatar_save_failed"), error instanceof Error ? error.message : t("me.profile.try_again"));
     } finally {
       setAvatarSaving(false);
     }
@@ -360,7 +411,7 @@ function ProfileEditModal({ visible, profile, onClose, onSaved }: {
     if (avatarSaving || !profile?.avatar) return;
     setAvatarSaving(true);
     try { onSaved(await removeProfileAvatar()); }
-    catch (error) { Alert.alert("无法移除头像", error instanceof Error ? error.message : "请稍后再试"); }
+    catch (error) { Alert.alert(t("me.profile.avatar_remove_failed"), error instanceof Error ? error.message : t("me.profile.try_again")); }
     finally { setAvatarSaving(false); }
   }
 
@@ -369,32 +420,32 @@ function ProfileEditModal({ visible, profile, onClose, onSaved }: {
       <View style={styles.profileModalBackdrop}>
         <View style={styles.profileModalPanel}>
           <View style={styles.profileModalHeader}>
-            <Text style={styles.profileModalTitle}>编辑资料</Text>
+            <Text style={styles.profileModalTitle}>{t("me.profile.edit")}</Text>
             <Pressable hitSlop={10} onPress={onClose} disabled={saving || avatarSaving}>
               <Ionicons name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
           <View style={styles.profileEditAvatar}>
-            {profile?.avatar ? <Image source={{ uri: profile.avatar.url }} style={styles.profileEditAvatarImage} /> : <Text style={styles.profileEditAvatarText}>OIO</Text>}
+            {profile?.avatar ? <Image source={{ uri: profile.avatar.url }} style={styles.profileEditAvatarImage} /> : <Ionicons name="person-outline" size={31} color={theme.colors.textSecondary} />}
             {avatarSaving ? <View style={styles.profileAvatarBusy}><ActivityIndicator color={theme.colors.surface} /></View> : null}
           </View>
           <View style={styles.profileAvatarActions}>
-            <Pressable disabled={avatarSaving} onPress={chooseAvatar}><Text style={styles.profileAvatarActionText}>{profile?.avatar ? "更换头像" : "设置头像"}</Text></Pressable>
-            {profile?.avatar ? <Pressable disabled={avatarSaving} onPress={() => void removeAvatar()}><Text style={styles.profileAvatarRemoveText}>移除头像</Text></Pressable> : null}
+            <Pressable disabled={avatarSaving} onPress={chooseAvatar}><Text style={styles.profileAvatarActionText}>{profile?.avatar ? t("me.profile.change_avatar") : t("me.profile.set_avatar")}</Text></Pressable>
+            {profile?.avatar ? <Pressable disabled={avatarSaving} onPress={() => void removeAvatar()}><Text style={styles.profileAvatarRemoveText}>{t("me.profile.remove_avatar")}</Text></Pressable> : null}
           </View>
-          <Text style={styles.profileFieldLabel}>用户名</Text>
+          <Text style={styles.profileFieldLabel}>{t("me.profile.username")}</Text>
           <TextInput
             value={nickname}
             onChangeText={setNickname}
             editable={!saving}
             maxLength={64}
-            placeholder="输入用户名"
+            placeholder={t("me.profile.username_placeholder")}
             placeholderTextColor={theme.colors.textMuted}
             style={styles.profileNicknameInput}
           />
-          <Text style={styles.profileFieldHint}>1–24 个字符；保存后会进行内容审核。用户名可以与其他人重复。</Text>
+          <Text style={styles.profileFieldHint}>{t("me.profile.username_hint")}</Text>
           <Pressable style={[styles.profileSaveButton, saving && styles.profileSaveButtonDisabled]} disabled={saving} onPress={() => void save()}>
-            {saving ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.profileSaveButtonText}>保存用户名</Text>}
+            {saving ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.profileSaveButtonText}>{t("me.profile.save_username")}</Text>}
           </Pressable>
         </View>
       </View>
@@ -408,17 +459,20 @@ function BindingsModal({ visible, bindings, onClose, onBindEmail }: {
   onClose: () => void;
   onBindEmail: () => void;
 }) {
+  const isPhoneRegistration = bindings?.registrationMethod === "phone";
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.profileModalBackdrop}>
         <View style={styles.profileModalPanel}>
           <View style={styles.profileModalHeader}>
-            <Text style={styles.profileModalTitle}>绑定信息</Text>
+            <Text style={styles.profileModalTitle}>{t("me.bindings.title")}</Text>
             <Pressable hitSlop={10} onPress={onClose}><Ionicons name="close" size={22} color={theme.colors.text} /></Pressable>
           </View>
-          <BindingRow label="手机号" item={bindings?.phone ?? null} />
-          <BindingRow label="邮箱" item={bindings?.email ?? null} onBind={onBindEmail} />
-          <Text style={styles.bindingPrivacy}>为保护隐私，这里只显示脱敏后的绑定信息。</Text>
+          {!bindings ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.bindingsLoading} /> : <>
+            {isPhoneRegistration ? <BindingRow label={t("me.bindings.phone")} item={bindings.phone} /> : null}
+            <BindingRow label={t("me.bindings.email")} item={bindings.email} onBind={onBindEmail} />
+          </>}
+          <Text style={styles.bindingPrivacy}>{t("me.bindings.privacy")}</Text>
         </View>
       </View>
     </Modal>
@@ -430,20 +484,24 @@ function BindingRow({ label, item, onBind }: {
   item: UserBindings["phone"] | null;
   onBind?: () => void;
 }) {
-  let value = "正在加载";
-  if (item?.bound) value = item.maskedValue ?? "已绑定";
-  else if (item?.action === "unsupported") value = "暂不支持绑定";
-  else if (item) value = "未绑定";
+  let value = t("me.bindings.loading");
+  if (item?.bound) value = item.maskedValue ?? t("me.bindings.bound");
+  else if (item?.action === "unsupported") value = t("me.bindings.unsupported");
+  else if (item) value = t("me.bindings.unbound");
+  const canBind = item?.action === "bind" && Boolean(onBind);
   return (
-    <View style={styles.bindingRow}>
+    <Pressable disabled={!canBind} accessibilityRole={canBind ? "button" : undefined} style={({ pressed }) => [styles.bindingRow, pressed && canBind && styles.bindingRowPressed]} onPress={canBind ? onBind : undefined}>
       <View style={styles.bindingRowBody}>
         <Text style={styles.bindingLabel}>{label}</Text>
         <Text style={styles.bindingValue}>{value}</Text>
       </View>
-      {item?.action === "bind" && onBind ? (
-        <Pressable style={styles.bindingButton} onPress={onBind}><Text style={styles.bindingButtonText}>绑定邮箱</Text></Pressable>
+      {canBind ? (
+        <View style={styles.bindingButton}>
+          <Text style={styles.bindingButtonText}>{t("me.bind_email")}</Text>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.accentStrong} />
+        </View>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -546,7 +604,7 @@ function LanguageSettingsModal({
               <Ionicons name="close" size={22} color="#111111" />
             </Pressable>
           </View>
-          <ScrollView style={styles.languageForm} contentContainerStyle={styles.languageFormContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.languageForm} contentContainerStyle={styles.languageFormContent} showsVerticalScrollIndicator alwaysBounceVertical={false}>
             <SelectField
               id="appLocale"
               title={t("me.language.app_locale")}
@@ -611,7 +669,7 @@ function LanguageSettingsModal({
               onToggle={() => setOpenSelect((current) => current === "ttsVoice" ? null : "ttsVoice")}
               onClose={() => setOpenSelect(null)}
             />
-            {voiceLoading ? <ActivityIndicator style={styles.languageInlineStatus} size="small" color="#1F6FEB" /> : null}
+            {voiceLoading ? <ActivityIndicator style={styles.languageInlineStatus} size="small" color="#171717" /> : null}
             {voiceError ? <Text style={styles.languageHint}>{t("tts.error.failed")}</Text> : null}
             <View style={styles.languageAdvancedBlock}>
               <Text style={styles.languageFieldTitle}>{t("me.language.stt_advanced")}</Text>
@@ -724,14 +782,14 @@ function DeveloperDebugModal({
       <View style={styles.languageBackdrop}>
         <View style={styles.devDebugPanel}>
           <View style={styles.languageHeader}>
-            <Text style={styles.languageTitle}>开发调试</Text>
+            <Text style={styles.languageTitle}>{t("me.debug.title")}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
               <Ionicons name="close" size={22} color="#111111" />
             </Pressable>
           </View>
           <View style={styles.settingsCard}>
-            <SettingsRow icon="sparkles-outline" label="AI 调试设置" onPress={onOpenAiDebug} />
-            <SettingsRow icon="cloud-download-outline" label="EAS Update 诊断" onPress={onOpenUpdatesDebug} isLast />
+            <SettingsRow icon="code-slash-outline" label={t("me.debug.ai")} onPress={onOpenAiDebug} />
+            <SettingsRow icon="cloud-download-outline" label={t("me.debug.updates")} onPress={onOpenUpdatesDebug} isLast />
           </View>
         </View>
       </View>
@@ -771,12 +829,12 @@ function UpdatesDebugModal({
       <View style={styles.updatesDebugBackdrop}>
         <View style={styles.updatesDebugPanel}>
           <View style={styles.updatesDebugHeader}>
-            <Text style={styles.updatesDebugTitle}>EAS Update 诊断</Text>
+            <Text style={styles.updatesDebugTitle}>{t("me.debug.updates")}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
               <Ionicons name="close" size={22} color="#111111" />
             </Pressable>
           </View>
-          <ScrollView style={styles.updatesDebugBody} contentContainerStyle={styles.updatesDebugContent}>
+          <ScrollView style={styles.updatesDebugBody} contentContainerStyle={styles.updatesDebugContent} alwaysBounceVertical={false}>
             {statusRows.map(([label, value]) => (
               <View key={label} style={styles.updatesDebugRow}>
                 <Text style={styles.updatesDebugLabel}>{label}</Text>
@@ -784,13 +842,13 @@ function UpdatesDebugModal({
               </View>
             ))}
             <View style={styles.updatesDebugActions}>
-              <DebugButton label="检查更新" disabled={!!runningAction} onPress={() => onRun("check", Updates.checkForUpdateAsync)} />
-              <DebugButton label="下载更新" disabled={!!runningAction} onPress={() => onRun("fetch", Updates.fetchUpdateAsync)} />
-              <DebugButton label="重载(谨慎)" disabled={!!runningAction} onPress={() => onRun("reload", Updates.reloadAsync)} />
-              <DebugButton label="读取日志" disabled={!!runningAction} onPress={() => onRun("logs", readCombinedDiagnostics)} />
+              <DebugButton label={t("me.debug.check_update")} disabled={!!runningAction} onPress={() => onRun("check", Updates.checkForUpdateAsync)} />
+              <DebugButton label={t("me.debug.download_update")} disabled={!!runningAction} onPress={() => onRun("fetch", Updates.fetchUpdateAsync)} />
+              <DebugButton label={t("me.debug.reload")} disabled={!!runningAction} onPress={() => onRun("reload", Updates.reloadAsync)} />
+              <DebugButton label={t("me.debug.read_logs")} disabled={!!runningAction} onPress={() => onRun("logs", readCombinedDiagnostics)} />
             </View>
-            <Text style={styles.updatesDebugHint}>下载后优先从系统后台划掉 App 再手动打开；只有需要验证 reloadAsync 时再点重载。</Text>
-            <Text style={styles.updatesDebugResultTitle}>结果</Text>
+            <Text style={styles.updatesDebugHint}>{t("me.debug.update_hint")}</Text>
+            <Text style={styles.updatesDebugResultTitle}>{t("me.debug.result")}</Text>
             <Text selectable style={styles.updatesDebugResult}>{runningAction ? `${runningAction} running...\n\n` : ""}{result}</Text>
           </ScrollView>
         </View>
@@ -1019,6 +1077,28 @@ function promptDifficultyLabel(value: PromptDifficulty): string {
   return t(option.labelKey);
 }
 
+function UsageMeter({ label, value, ratio, loading = false }: {
+  label: string;
+  value: string;
+  ratio: number;
+  loading?: boolean;
+}) {
+  return (
+    <View style={styles.usageMeter}>
+      <View style={styles.usageMeterHeader}>
+        <Text style={styles.usageMeterLabel}>{label}</Text>
+        <View style={styles.usageMeterValueRow}>
+          {loading ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
+          <Text style={styles.usageMeterValue}>{value}</Text>
+        </View>
+      </View>
+      <View style={styles.usageProgressTrack}>
+        <View style={[styles.progressFill, { width: `${Math.max(0, Math.min(1, ratio)) * 100}%` }]} />
+      </View>
+    </View>
+  );
+}
+
 function resolvePlanLabel(entitlement: CurrentEntitlement | null, session: AuthSession | null): string {
   if (entitlement?.tier === "plus") return t("me.plan.plus");
   if (entitlement?.tier === "pro") return t("me.plan.pro");
@@ -1031,10 +1111,11 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
-function resolveUserName(session: AuthSession | null): string {
-  if (!session) return "";
-  const user = session.user as AuthSession["user"] & { username?: string | null };
-  return user.displayName?.trim() || user.username?.trim() || user.email?.trim() || user.phone?.trim() || "";
+function formatStorageBytes(value: string): string {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "--";
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(bytes % (1024 ** 3) === 0 ? 0 : 1)} GB`;
+  return `${(bytes / 1024 ** 2).toFixed(bytes % (1024 ** 2) === 0 ? 0 : 1)} MB`;
 }
 
 function formatDateTime(value: string): string {
@@ -1101,7 +1182,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F7F8FA",
+    backgroundColor: "#FFFFFF",
   },
   sheetHeader: {
     minHeight: 54,
@@ -1143,15 +1224,9 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.accentSoft,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-  },
-  profileAvatarText: {
-    color: "#343041",
-    fontSize: 13,
-    fontWeight: "500",
-    letterSpacing: 0.5,
   },
   profileAvatarImage: {
     width: 54,
@@ -1168,16 +1243,17 @@ const styles = StyleSheet.create({
   },
   profilePlan: {
     marginTop: 4,
-    color: "#606780",
+    color: "#707070",
     fontSize: 13,
   },
 
   quotaCard: {
     marginTop: 18,
-    padding: 15,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#E5E4DD",
+    paddingVertical: 16,
+    borderRadius: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E5E5E5",
     backgroundColor: "#FFFFFF",
   },
   cardTitle: {
@@ -1185,13 +1261,47 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "500",
   },
+  usageMeter: {
+    marginTop: 14,
+  },
+  usageMeterHeader: {
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  usageMeterLabel: {
+    color: "#333333",
+    fontSize: 13,
+  },
+  usageMeterValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  usageMeterValue: {
+    color: "#555555",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  usageProgressTrack: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: "#E8E8E8",
+    overflow: "hidden",
+  },
+  usageRefreshText: {
+    marginTop: 6,
+    color: "#888888",
+    fontSize: 11,
+  },
   quotaRow: {
     marginTop: 12,
     flexDirection: "row",
     alignItems: "baseline",
   },
   quotaLabel: {
-    color: "#5F6675",
+    color: "#666666",
     fontSize: 12,
   },
   quotaNumber: {
@@ -1218,7 +1328,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 8,
     borderRadius: 999,
-    backgroundColor: "#ECEFF5",
+    backgroundColor: "#E8E8E8",
     overflow: "hidden",
   },
   progressFill: {
@@ -1228,23 +1338,26 @@ const styles = StyleSheet.create({
   },
   progressText: {
     minWidth: 92,
-    color: "#5F6675",
+    color: "#666666",
     fontSize: 11,
     textAlign: "right",
   },
   resetText: {
     marginTop: 8,
-    color: "#5F6675",
+    color: "#666666",
     fontSize: 12,
   },
 
   proCard: {
     marginTop: 12,
-    padding: 15,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.accentSoft,
+    paddingVertical: 16,
+    borderRadius: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E5E5",
+    backgroundColor: "#FFFFFF",
+  },
+  membershipLoading: {
+    marginVertical: 28,
   },
   proTitle: {
     color: "#111111",
@@ -1258,14 +1371,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   benefitText: {
-    color: "#5E6573",
+    color: "#666666",
     fontSize: 13,
   },
   proButton: {
     marginTop: 10,
     height: 42,
     paddingHorizontal: 14,
-    borderRadius: 12,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: "rgba(255,255,255,0.72)",
@@ -1282,13 +1395,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginTop: 12,
     marginBottom: 8,
-    color: "#5E6573",
+    color: "#666666",
     fontSize: 13,
   },
   settingsCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E5E4DD",
+    borderRadius: 0,
+    borderWidth: 0,
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
@@ -1300,7 +1412,7 @@ const styles = StyleSheet.create({
   },
   settingsRowBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: "#ECEEF2",
+    borderBottomColor: "#E8E8E8",
   },
   settingsLabel: {
     flex: 1,
@@ -1311,7 +1423,7 @@ const styles = StyleSheet.create({
   settingsValue: {
     maxWidth: 160,
     marginRight: 8,
-    color: "#7E8491",
+    color: "#808080",
     fontSize: 13,
   },
   settingsLabelDanger: {
@@ -1403,7 +1515,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: "#EEF0F4",
+    borderBottomColor: "#E5E5E5",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -1539,7 +1651,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   updatesDebugLabel: {
-    color: "#606780",
+    color: "#707070",
     fontSize: 11,
   },
   updatesDebugValue: {
@@ -1576,7 +1688,7 @@ const styles = StyleSheet.create({
   },
   updatesDebugResultTitle: {
     marginTop: 14,
-    color: "#606780",
+    color: "#707070",
     fontSize: 12,
     fontWeight: "600",
   },
@@ -1584,7 +1696,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     padding: 10,
     borderRadius: 10,
-    backgroundColor: "#F7F8FB",
+    backgroundColor: "#F5F5F5",
     color: "#111111",
     fontSize: 11,
   },
@@ -1626,11 +1738,6 @@ const styles = StyleSheet.create({
     width: 76,
     height: 76,
     borderRadius: 38,
-  },
-  profileEditAvatarText: {
-    color: theme.colors.accentStrong,
-    fontSize: 16,
-    fontWeight: "600",
   },
   profileAvatarBusy: {
     ...StyleSheet.absoluteFillObject,
@@ -1689,10 +1796,12 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.control,
     backgroundColor: theme.colors.canvas,
   },
+  bindingRowPressed: { opacity: 0.55 },
   bindingRowBody: { flex: 1 },
   bindingLabel: { color: theme.colors.text, fontSize: 14, fontWeight: "500" },
   bindingValue: { marginTop: 4, color: theme.colors.textSecondary, fontSize: 12 },
-  bindingButton: { minHeight: 36, paddingHorizontal: 11, borderRadius: theme.radius.pill, justifyContent: "center", backgroundColor: theme.colors.accentSoft },
-  bindingButtonText: { color: theme.colors.accentStrong, fontSize: 12, fontWeight: "600" },
+  bindingButton: { minHeight: 36, paddingLeft: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
+  bindingButtonText: { color: theme.colors.accentStrong, fontSize: 13, fontWeight: "600" },
+  bindingsLoading: { marginVertical: 24 },
   bindingPrivacy: { marginTop: 12, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16 },
 });

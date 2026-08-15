@@ -26,16 +26,17 @@ export function buildClozeFlowSegments(input: {
   });
 }
 
-export function ClozeTokenFlow({ segments, answers, checkedAnswers, onChangeAnswer, onBlankFocus }: {
+export function ClozeTokenFlow({ segments, answers, checkedAnswers, onChangeAnswer, onBlankFocus, onLookup }: {
   segments: ClozeFlowSegment[];
   answers: Record<number, string>;
   checkedAnswers: Record<number, "correct" | "incorrect">;
   onChangeAnswer: (tokenIndex: number, value: string) => void;
   onBlankFocus: (inputRef: TextInput | null) => void;
+  onLookup?: (term: string, start: number, end: number) => void;
 }) {
   return <>{segments.map((segment) => {
     const spacer = segment.spacer ? <Text style={segment.spacerHighlighted ? styles.phraseText : styles.text}> </Text> : null;
-    if (segment.type === "text") return <React.Fragment key={segment.key}>{spacer}<Text style={[styles.text, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}>{segment.text}</Text></React.Fragment>;
+    if (segment.type === "text") return <React.Fragment key={segment.key}>{spacer}<Text onLongPress={onLookup ? (event) => { event.stopPropagation(); onLookup(segment.text, segment.textStart, segment.textEnd); } : undefined} style={[styles.text, segment.highlighted && styles.phraseText, segment.correct && styles.correctText]}>{segment.text}</Text></React.Fragment>;
     const checked = checkedAnswers[segment.tokenIndex];
     const answer = answers[segment.tokenIndex] ?? "";
     return <React.Fragment key={segment.key}>{spacer}{checked === "correct"

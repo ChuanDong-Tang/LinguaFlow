@@ -44,7 +44,6 @@ model User {
   phraseOccurrences      PhraseOccurrence[]
   cardEnrichmentJobs     CardEnrichmentJob[]
   recallSessions         RecallSession[]
-  quickNotes             QuickNote[]
   dictionaryLookupCaches DictionaryLookupCache[]
   aiTokenCycles          AiTokenCycle[]
   aiTokenTransactions    AiTokenTransaction[]
@@ -665,32 +664,6 @@ model Message {
   @@index([userId, createdAt])
   @@index([userId, status, createdAt])
   @@map("messages")
-}
-
-model QuickNote {
-  id               String   @id @default(cuid())
-  userId           String
-  clientId         String
-  legacyMessageId  String?
-  dateKey          String
-  originalText     String
-  expressionText   String?
-  translationText  String?
-  replyText        String?
-  expressionStatus String   @default("idle")
-  translationStatus String  @default("idle")
-  replyStatus       String  @default("idle")
-  convertedCardId  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, clientId])
-  @@unique([userId, legacyMessageId])
-  @@index([userId, dateKey, createdAt])
-  @@index([userId, createdAt(sort: Desc)])
-  @@map("quick_notes")
 }
 
 model TtsAsset {

@@ -1,9 +1,7 @@
 import React from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import type { AppLocale, LearningLanguage, PromptDifficulty } from "../../services/api/meApi";
 import { t } from "../../i18n";
-import { theme } from "../../theme";
 
 export function UiLocaleSetupModal({
   visible,
@@ -99,60 +97,6 @@ export function LearningPreferenceModal({
   );
 }
 
-export function LearningFlowHelpModal({
-  visible,
-  mode,
-  onClose,
-  onDone,
-}: {
-  visible: boolean;
-  mode: "onboarding" | "manual";
-  onClose?: () => void;
-  onDone: () => void;
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={mode === "manual" ? onClose : undefined}>
-      <View style={styles.backdrop}>
-        <View style={styles.helpPanel}>
-          <View style={styles.helpHeader}>
-            <Text style={styles.title}>{t("help.learning_flow.title")}</Text>
-            {mode === "manual" && onClose ? (
-              <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} style={styles.iconButton} onPress={onClose}>
-                <Ionicons name="close" size={22} color="#111111" />
-              </Pressable>
-            ) : null}
-          </View>
-          <Text style={styles.subtitle}>{t("help.learning_flow.subtitle")}</Text>
-          <ScrollView style={styles.helpBody} contentContainerStyle={styles.helpContent} showsVerticalScrollIndicator={false}>
-            <HelpStep index="O" title={t("help.learning_flow.input.title")} body={t("help.learning_flow.input.body")} />
-            <HelpStep index="I" title={t("help.learning_flow.mark.title")} body={t("help.learning_flow.mark.body")} />
-            <HelpStep index="O" title={t("help.learning_flow.flip.title")} body={t("help.learning_flow.flip.body")} />
-          </ScrollView>
-          <Pressable style={styles.primaryButton} onPress={onDone}>
-            <Text style={styles.primaryButtonText}>
-              {mode === "onboarding" ? t("help.learning_flow.start") : t("common.got_it")}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function HelpStep({ index, title, body }: { index: string; title: string; body: string }) {
-  return (
-    <View style={styles.helpStep}>
-      <View style={styles.stepIndex}>
-        <Text style={styles.stepIndexText}>{index}</Text>
-      </View>
-      <View style={styles.stepBody}>
-        <Text style={styles.stepTitle}>{title}</Text>
-        <Text style={styles.stepText}>{body}</Text>
-      </View>
-    </View>
-  );
-}
-
 function OptionChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable style={[styles.optionChip, active && styles.optionChipActive]} onPress={onPress}>
@@ -189,17 +133,6 @@ const styles = StyleSheet.create({
     padding: 18,
     borderRadius: 18,
     backgroundColor: "#FFFFFF",
-  },
-  helpPanel: {
-    maxHeight: "82%",
-    padding: 18,
-    borderRadius: 18,
-    backgroundColor: "#FFFFFF",
-  },
-  helpHeader: {
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
   },
   title: {
     flex: 1,
@@ -271,49 +204,5 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "700",
-  },
-  iconButton: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  helpBody: {
-    marginTop: 12,
-  },
-  helpContent: {
-    paddingBottom: 2,
-  },
-  helpStep: {
-    marginTop: 12,
-    flexDirection: "row",
-    gap: 12,
-  },
-  stepIndex: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: theme.colors.accentSoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepIndexText: {
-    color: theme.colors.accentStrong,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  stepBody: {
-    flex: 1,
-  },
-  stepTitle: {
-    color: "#111111",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  stepText: {
-    marginTop: 4,
-    color: "#5E6573",
-    fontSize: 13,
-    lineHeight: 19,
   },
 });

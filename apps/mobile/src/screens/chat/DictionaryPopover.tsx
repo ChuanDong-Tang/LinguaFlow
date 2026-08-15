@@ -1,9 +1,10 @@
 import React from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
-import type { DictionaryLookupResult } from "../../services/api/dictionaryApi";
+import { getDictionaryTermAudio, type DictionaryLookupResult } from "../../services/api/dictionaryApi";
 import { t } from "../../i18n";
+import { playTtsAudio } from "../../services/tts/ttsPlayback";
 
 export type DictionaryPopoverAnchor = {
   pageX: number;
@@ -29,6 +30,8 @@ type DictionaryPopoverProps = {
 const POPOVER_WIDTH = 312;
 const POPOVER_MARGIN = 12;
 const POPOVER_BODY_HEIGHT = 260;
+const POPOVER_ESTIMATED_HEIGHT = 340;
+const BOTTOM_CHROME_HEIGHT = 96;
 
 export function DictionaryPopover({
   visible,
@@ -44,24 +47,53 @@ export function DictionaryPopover({
   onClose,
 }: DictionaryPopoverProps) {
   const window = useWindowDimensions();
-  const [uiVisible, setUiVisible] = React.useState(false);
+  const [playingDictionaryAudio, setPlayingDictionaryAudio] = React.useState(false);
+  const audioRequestRef = React.useRef<AbortController | null>(null);
 
   React.useEffect(() => {
-    if (visible) setUiVisible(false);
+    audioRequestRef.current?.abort();
+    audioRequestRef.current = null;
+    setPlayingDictionaryAudio(false);
   }, [visible, term]);
 
+  React.useEffect(() => () => audioRequestRef.current?.abort(), []);
+
+  async function playDictionaryAudio(): Promise<void> {
+    if (playingDictionaryAudio) return;
+    const controller = new AbortController();
+    audioRequestRef.current = controller;
+    let didTimeout = false;
+    const timeout = setTimeout(() => {
+      didTimeout = true;
+      controller.abort();
+    }, 25_000);
+    setPlayingDictionaryAudio(true);
+    try {
+      const audioUrl = result?.audioUrl || (canUseTts ? (await getDictionaryTermAudio(term, controller.signal)).audioUrl : null);
+      if (audioUrl) await playTtsAudio({ url: audioUrl });
+    } catch (error) {
+      if (didTimeout) {
+        Alert.alert(t("card_detail.error.play"), t("tts.error.failed"));
+      } else if (!controller.signal.aborted) {
+        Alert.alert(t("card_detail.error.play"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (audioRequestRef.current === controller) audioRequestRef.current = null;
+      setPlayingDictionaryAudio(false);
+    }
+  }
+
   const position = React.useMemo(() => {
-    const fallbackTop = Math.max(POPOVER_MARGIN, window.height * 0.22);
+    const maximumTop = Math.max(POPOVER_MARGIN, window.height - BOTTOM_CHROME_HEIGHT - POPOVER_ESTIMATED_HEIGHT);
+    const fixedTop = clamp(window.height * 0.12, POPOVER_MARGIN, maximumTop);
     const fallbackLeft = Math.max(POPOVER_MARGIN, (window.width - POPOVER_WIDTH) / 2);
-    if (!anchor) return { left: fallbackLeft, top: fallbackTop };
+    if (!anchor) return { left: fallbackLeft, top: fixedTop };
     const left = clamp(anchor.pageX + anchor.width / 2 - POPOVER_WIDTH / 2, POPOVER_MARGIN, window.width - POPOVER_WIDTH - POPOVER_MARGIN);
-    const preferredTop = anchor.pageY + anchor.height + 10;
-    const top = preferredTop + 238 < window.height
-      ? preferredTop
-      : Math.max(POPOVER_MARGIN, anchor.pageY - 252);
-    return { left, top };
+    return { left, top: fixedTop };
   }, [anchor, window.height, window.width]);
   const bodyHeight = clamp(POPOVER_BODY_HEIGHT, 120, window.height - position.top - POPOVER_MARGIN - 92);
+  const useExistingMessageAudio = !isShortDictionaryExpression(term) && Boolean(messageId) && textStart !== undefined && textEnd !== undefined;
 
   if (!visible) return null;
 
@@ -72,7 +104,7 @@ export function DictionaryPopover({
         <View style={styles.headerRow}>
           <Text style={styles.term} numberOfLines={2}>{term}</Text>
           <View style={styles.headerActions}>
-            {canUseTts ? (
+            {useExistingMessageAudio ? (
               <TtsPlayButton
                 messageId={messageId}
                 textStart={textStart}
@@ -81,6 +113,10 @@ export function DictionaryPopover({
                 color="#4D5361"
                 style={styles.ttsButton}
               />
+            ) : result?.audioUrl || canUseTts ? (
+              <Pressable accessibilityLabel={t("dictionary.a11y.play_pronunciation")} style={styles.ttsButton} onPress={() => void playDictionaryAudio()} disabled={playingDictionaryAudio}>
+                {playingDictionaryAudio ? <ActivityIndicator size="small" color="#4D5361" /> : <Ionicons name="volume-high-outline" size={18} color="#4D5361" />}
+              </Pressable>
             ) : null}
             <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} style={styles.iconButton} onPress={onClose}>
               <Ionicons name="close" size={22} color="#111111" />
@@ -91,6 +127,7 @@ export function DictionaryPopover({
         <ScrollView
           style={[styles.bodyScroll, { height: bodyHeight }]}
           contentContainerStyle={styles.bodyContent}
+          alwaysBounceVertical={false}
           showsVerticalScrollIndicator
           persistentScrollbar
         >
@@ -103,17 +140,24 @@ export function DictionaryPopover({
             <Text style={styles.errorText}>{error}</Text>
           ) : result ? (
             <>
-              <DictionarySections content={result.target} />
+              {result.phonetic ? <Text style={styles.phonetic}>{result.phonetic}</Text> : null}
+              <Text style={styles.sectionLabel}>{t("dictionary.meaning_here")}</Text>
+              <Text style={styles.primaryMeaning}>{result.target.meaning}</Text>
+              {result.ui.meaning !== result.target.meaning ? <Text style={styles.uiMeaning}>{result.ui.meaning}</Text> : null}
 
-              <Pressable style={styles.uiToggle} onPress={() => setUiVisible((value) => !value)}>
-                <Text style={styles.uiToggleText}>{t("dictionary.view_ui_language")}</Text>
-                <Ionicons name={uiVisible ? "chevron-up" : "chevron-down"} size={18} color="#111111" />
-              </Pressable>
-              {uiVisible ? (
-                <View style={styles.uiContent}>
-                  <DictionarySections content={result.ui} />
-                </View>
-              ) : null}
+              <Text style={styles.sectionLabel}>{t("dictionary.section.example")}</Text>
+              <Text style={styles.exampleText}>{result.target.example}</Text>
+              {result.ui.example !== result.target.example ? <Text style={styles.uiExample}>{result.ui.example}</Text> : null}
+
+              <Text style={styles.sectionLabel}>{t("dictionary.section.scenario")}</Text>
+              <Text style={styles.bodyText}>{result.target.scenario}</Text>
+              {result.ui.scenario !== result.target.scenario ? <Text style={styles.uiMeaning}>{result.ui.scenario}</Text> : null}
+
+              {result.source?.title || result.target.sourceNote || result.ui.sourceNote ? <>
+                <Text style={styles.sectionLabel}>{t("dictionary.section.source")}</Text>
+                <Text style={styles.bodyText}>{result.target.sourceNote || result.source?.title}</Text>
+                {result.ui.sourceNote && result.ui.sourceNote !== result.target.sourceNote ? <Text style={styles.uiMeaning}>{result.ui.sourceNote}</Text> : null}
+              </> : null}
             </>
           ) : null}
         </ScrollView>
@@ -122,26 +166,8 @@ export function DictionaryPopover({
   );
 }
 
-function DictionarySections({ content }: { content: DictionaryLookupResult["target"] }) {
-  return (
-    <>
-      <Text style={styles.label}>{t("dictionary.section.meaning")}</Text>
-      <Text style={styles.bodyText}>{content.meaning}</Text>
-
-      <Text style={styles.label}>{t("dictionary.section.example")}</Text>
-      <Text style={styles.exampleText}>{content.example}</Text>
-
-      <Text style={styles.label}>{t("dictionary.section.scenario")}</Text>
-      <Text style={styles.scenarioText}>{content.scenario}</Text>
-
-      {content.sourceNote ? (
-        <>
-          <Text style={styles.label}>{t("dictionary.section.source")}</Text>
-          <Text style={styles.sourceText}>{content.sourceNote}</Text>
-        </>
-      ) : null}
-    </>
-  );
+function isShortDictionaryExpression(text: string): boolean {
+  return text.trim().length <= 60 && text.trim().split(/\s+/u).filter(Boolean).length <= 5;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -176,7 +202,7 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
   },
@@ -194,8 +220,10 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   ttsButton: {
-    minWidth: 32,
-    minHeight: 32,
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
   },
   iconButton: {
     width: 32,
@@ -219,6 +247,17 @@ const styles = StyleSheet.create({
   bodyContent: {
     paddingBottom: 2,
   },
+  phonetic: { marginTop: 2, color: "#727988", fontSize: 14, lineHeight: 20 },
+  sectionLabel: { marginTop: 14, color: "#767D8B", fontSize: 11, lineHeight: 16, fontWeight: "600" },
+  primaryMeaning: { marginTop: 5, color: "#17191D", fontSize: 15, lineHeight: 22, fontWeight: "500" },
+  uiMeaning: { marginTop: 4, color: "#686F7D", fontSize: 13, lineHeight: 20 },
+  exampleText: { marginTop: 5, color: "#272B32", fontSize: 14, lineHeight: 21, fontStyle: "italic" },
+  uiExample: { marginTop: 4, color: "#777E8B", fontSize: 12, lineHeight: 19 },
+  meaningGroup: { marginTop: 14 },
+  partOfSpeech: { color: "#5E6573", fontSize: 12, lineHeight: 18, fontStyle: "italic", fontWeight: "600" },
+  definitionRow: { marginTop: 8, flexDirection: "row", alignItems: "flex-start", gap: 7 },
+  definitionIndex: { width: 16, color: "#8F95A1", fontSize: 13, lineHeight: 21 },
+  definitionContent: { flex: 1 },
   errorText: {
     marginTop: 12,
     color: "#B42318",
@@ -242,11 +281,6 @@ const styles = StyleSheet.create({
     color: "#111111",
     fontSize: 14,
     lineHeight: 21,
-  },
-  exampleText: {
-    color: "#4D5361",
-    fontSize: 13,
-    lineHeight: 20,
   },
   scenarioText: {
     color: "#727988",

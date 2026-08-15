@@ -29,6 +29,8 @@
 - (void)handleFillBlankAction;
 - (void)handleMenuActionAtIndex:(NSUInteger)index;
 - (void)handleCopyAction;
+- (void)drawHighlightBackgroundsInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect;
+- (void)drawBlankUnderlinesInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect;
 @end
 
 @interface ChatSelectableTextInnerTextView : UITextView
@@ -88,7 +90,9 @@
 
 - (void)drawRect:(CGRect)rect
 {
+  [self.owner drawHighlightBackgroundsInTextView:self dirtyRect:rect];
   [super drawRect:rect];
+  [self.owner drawBlankUnderlinesInTextView:self dirtyRect:rect];
 }
 
 @end
@@ -172,6 +176,7 @@
 {
   [super layoutSubviews];
   self.textView.frame = self.bounds;
+  [self.textView setNeedsDisplay];
   [self emitContentHeightIfNeeded];
 }
 
@@ -318,22 +323,15 @@
   for (NSDictionary *range in [self parseRanges:self.highlightRangesJson]) {
     NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
     if (safe.length == 0) continue;
-    [attributed addAttribute:NSBackgroundColorAttributeName value:[self colorFromString:@"#FFF0B8" fallback:UIColor.yellowColor] range:safe];
     [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#3D3420" fallback:self.currentTextColor] range:safe];
   }
 
-  UIFont *boldFont = [UIFont boldSystemFontOfSize:self.currentFontSize.floatValue];
-  for (NSDictionary *range in blankRanges) {
-    NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
-    if (safe.length == 0) continue;
-    [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#8C6D1F" fallback:self.currentTextColor] range:safe];
-    [attributed addAttribute:NSFontAttributeName value:boldFont range:safe];
-  }
-
-  for (NSDictionary *range in [self parseRanges:self.correctRangesJson]) {
-    NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
-    if (safe.length == 0) continue;
-    [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#6FAE78" fallback:self.currentTextColor] range:safe];
+  if (!self.answersVisible) {
+    for (NSDictionary *range in blankRanges) {
+      NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
+      if (safe.length == 0) continue;
+      [attributed addAttribute:NSForegroundColorAttributeName value:UIColor.clearColor range:safe];
+    }
   }
 
   NSRange previousSelection = self.textView.selectedRange;
@@ -341,8 +339,85 @@
   if (previousSelection.location != NSNotFound && NSMaxRange(previousSelection) <= attributed.length) {
     self.textView.selectedRange = previousSelection;
   }
+  [self.textView setNeedsDisplay];
   [self updateMenuItems];
   [self emitContentHeightIfNeeded];
+}
+
+- (void)drawHighlightBackgroundsInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect
+{
+  if (textView.textStorage.length == 0 || textView.bounds.size.width <= 0) return;
+
+  NSLayoutManager *layoutManager = textView.layoutManager;
+  NSTextContainer *textContainer = textView.textContainer;
+  [layoutManager ensureLayoutForTextContainer:textContainer];
+  UIColor *highlightColor = [self colorFromString:@"#FFF0B8" fallback:UIColor.yellowColor];
+  UIColor *correctHighlightColor = [self colorFromString:@"#DDEFE2" fallback:highlightColor];
+  NSArray<NSDictionary *> *correctRanges = [self parseRanges:self.correctRangesJson];
+  CGFloat fixedHeight = MIN(self.currentLineHeight.floatValue, MAX(8.0, self.currentFontSize.floatValue + 2.0));
+
+  for (NSDictionary *range in [self parseRanges:self.highlightRangesJson]) {
+    NSRange characterRange = [self safeRangeFromDictionary:range length:textView.textStorage.length];
+    if (characterRange.length == 0) continue;
+    __block BOOL isCorrect = NO;
+    for (NSDictionary *correctRange in correctRanges) {
+      NSRange safeCorrectRange = [self safeRangeFromDictionary:correctRange length:textView.textStorage.length];
+      if (NSEqualRanges(characterRange, safeCorrectRange)) {
+        isCorrect = YES;
+        break;
+      }
+    }
+    UIColor *rangeHighlightColor = isCorrect ? correctHighlightColor : highlightColor;
+    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:characterRange actualCharacterRange:nil];
+    [layoutManager enumerateEnclosingRectsForGlyphRange:glyphRange
+                              withinSelectedGlyphRange:NSMakeRange(NSNotFound, 0)
+                                       inTextContainer:textContainer
+                                            usingBlock:^(CGRect rect, BOOL *stop) {
+      CGRect layerFrame = CGRectMake(
+        rect.origin.x + textView.textContainerInset.left,
+        CGRectGetMidY(rect) - fixedHeight / 2.0 + textView.textContainerInset.top,
+        rect.size.width,
+        fixedHeight
+      );
+      CGRect highlightRect = CGRectIntegral(layerFrame);
+      if (CGRectIntersectsRect(highlightRect, dirtyRect)) {
+        [rangeHighlightColor setFill];
+        UIRectFill(highlightRect);
+      }
+    }];
+  }
+
+}
+
+- (void)drawBlankUnderlinesInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect
+{
+  if (textView.textStorage.length == 0 || textView.bounds.size.width <= 0) return;
+
+  NSLayoutManager *layoutManager = textView.layoutManager;
+  NSTextContainer *textContainer = textView.textContainer;
+  [layoutManager ensureLayoutForTextContainer:textContainer];
+  UIColor *blankLineColor = [self colorFromString:@"#8C6D1F" fallback:self.currentTextColor];
+
+  for (NSDictionary *range in [self parseRanges:self.blankRangesJson]) {
+    NSRange characterRange = [self safeRangeFromDictionary:range length:textView.textStorage.length];
+    if (characterRange.length == 0) continue;
+    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:characterRange actualCharacterRange:nil];
+    [layoutManager enumerateEnclosingRectsForGlyphRange:glyphRange
+                              withinSelectedGlyphRange:NSMakeRange(NSNotFound, 0)
+                                       inTextContainer:textContainer
+                                            usingBlock:^(CGRect rect, BOOL *stop) {
+      CGRect lineRect = CGRectMake(
+        rect.origin.x + textView.textContainerInset.left,
+        CGRectGetMaxY(rect) + textView.textContainerInset.top - 2.0,
+        rect.size.width,
+        1.5
+      );
+      if (CGRectIntersectsRect(lineRect, dirtyRect)) {
+        [blankLineColor setFill];
+        UIRectFill(lineRect);
+      }
+    }];
+  }
 }
 
 - (void)emitContentHeightIfNeeded
@@ -642,18 +717,7 @@
 
 - (NSString *)visibleTextForText:(NSString *)text blankRanges:(NSArray<NSDictionary *> *)blankRanges answersVisible:(BOOL)answersVisible
 {
-  if (answersVisible || blankRanges.count == 0) return text ?: @"";
-  NSMutableString *mutable = [(text ?: @"") mutableCopy];
-  for (NSDictionary *range in blankRanges) {
-    NSRange safe = [self safeRangeFromDictionary:range length:mutable.length];
-    for (NSUInteger index = safe.location; index < NSMaxRange(safe); index += 1) {
-      unichar ch = [mutable characterAtIndex:index];
-      if (![[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:ch]) {
-        [mutable replaceCharactersInRange:NSMakeRange(index, 1) withString:@"_"];
-      }
-    }
-  }
-  return mutable;
+  return text ?: @"";
 }
 
 - (UIColor *)colorFromString:(NSString *)value fallback:(UIColor *)fallback

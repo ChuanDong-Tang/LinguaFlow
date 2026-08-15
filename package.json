@@ -9,6 +9,9 @@
         "dev:api": "npm --prefix api run dev",
         "dev:worker": "node --env-file-if-exists=.env --import tsx server/worker.dev.mjs",
         "start:worker": "node --env-file-if-exists=.env --import tsx server/worker.dev.mjs",
+        "start:worker:payment": "LF_WORKER_GROUP=payment node --env-file-if-exists=.env --import tsx server/worker.dev.mjs",
+        "start:worker:card": "LF_WORKER_GROUP=card node --env-file-if-exists=.env --import tsx server/worker.dev.mjs",
+        "start:worker:maintenance": "LF_WORKER_GROUP=maintenance node --env-file-if-exists=.env --import tsx server/worker.dev.mjs",
         "seed:dev-users": "npm --prefix api run seed:dev-users",
         "cleanup:fake-conversations": "npm --prefix api run cleanup:fake-conversations"
     },

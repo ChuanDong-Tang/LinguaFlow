@@ -7,14 +7,12 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
-  View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession } from "../services/auth/authStorage";
-import { getCurrentEntitlement, getUserPreference } from "../services/api/meApi";
+import { getCurrentEntitlement, getUsageV2, getUserPreference } from "../services/api/meApi";
 import { hasLocalProAccess } from "../services/entitlement/proAccess";
 import {
   findConversationIdByDateFromCloud,
@@ -35,6 +33,10 @@ import {
   subscribeChatSession,
 } from "../services/chat/chatSessionService";
 import { copyAssistantTaggedText } from "../services/chat/assistantCopyService";
+import { parseTaggedRewrite } from "../domain/rewrite/taggedRewrite";
+import { getBlankTokenSet, tokenizeForCloze } from "../domain/cloze/clozeUtils";
+import { getAssistantClozeText } from "../domain/cloze/clozeText";
+import type { CardDraft } from "../services/card/cardDraftStorage";
 import {
   clearChatInputDraft,
   loadChatInputDraft,
@@ -58,14 +60,13 @@ import { ClozeControls } from "./chat/ClozeControls";
 import { TtsMiniPlayer } from "../components/TtsMiniPlayer";
 import type { ChatMessage } from "../domain/chat/types";
 import { useChatClozeEditing } from "../hooks/useChatClozeEditing";
-import { consumeChatDateDirty } from "../services/chat/chatPracticeSyncState";
 import {
   compareChatMessagesByCreatedAt,
   INACTIVE_ASSISTANT_PLACEHOLDER_GRACE_MS,
   removeInactiveAssistantPlaceholders,
   toDateKey,
 } from "../domain/chat/messageState";
-import type { ChatContact } from "../domain/chat/contacts";
+import { getChatContact, type ChatContact } from "../domain/chat/contacts";
 import type { AutoCopyMode } from "../services/preferences/assistantPreferences";
 import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
 import { getLanguage, t, tf } from "../i18n";
@@ -73,6 +74,7 @@ import { stopTtsAudio } from "../services/tts/ttsPlayback";
 import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api/sttRealtimeApi";
 import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
+import { calculatePcmAudioLevel } from "../services/stt/pcmAudioLevel";
 import type { PcmAudioFrame, RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
 
 const STT_PREBUFFER_MAX_FRAMES = 180;
@@ -80,6 +82,8 @@ const STT_PREBUFFER_MAX_FRAMES = 180;
 type ChatScreenProps = {
   contact: ChatContact;
   onBack: () => void;
+  onOpenCard?: (recordId: string) => void;
+  onConvertMessageToCard?: (draft: CardDraft) => void;
 };
 
 type DictionaryLookupState = {
@@ -100,11 +104,12 @@ type SttRecognitionPlan = {
 
 const MULTILINGUAL_STT_LANGUAGES = ["zh-CN", "ja-JP", "ko-KR", "en-US"];
 
-export function ChatScreen({ contact, onBack }: ChatScreenProps) {
+export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
   const contactId = contact.id;
   const [inputText, setInputText] = useState("");
   const [sttStatus, setSttStatus] = useState<"idle" | "connecting" | "recording" | "stopping">("idle");
+  const [sttAudioLevel, setSttAudioLevel] = useState(0);
   const [composerSelectionOverride, setComposerSelectionOverride] = useState<{ start: number; end: number } | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [activeGenerationContactId, setActiveGenerationContactId] = useState<string | null>(null);
@@ -128,6 +133,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const canConfigureCompanionMode = contact.capabilities?.companionMode === true;
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
+  const [quotaRefreshAt, setQuotaRefreshAt] = useState<string | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const [isTodaySyncing, setIsTodaySyncing] = useState(false);
   const [syncingDateKey, setSyncingDateKey] = useState<string | null>(null);
@@ -159,6 +165,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   const sttFinalTextRef = useRef("");
   const sttPartialTextRef = useRef("");
   const sttStatusRef = useRef<"idle" | "connecting" | "recording" | "stopping">("idle");
+  const sttLastAudioLevelAtRef = useRef(0);
   const sttMultilingualRecognitionEnabledRef = useRef(false);
   const dictionaryRequestSeqRef = useRef(0);
   const isProEntitledRef = useRef(false);
@@ -212,22 +219,26 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
     setShowScrollToBottomButton(distanceFromBottom > 160);
   }, [scrollToBottomNow]);
+  const isViewingBusinessToday = businessTodayKey === null || toDateKey(selectedDate) === businessTodayKey;
   const canSend = useMemo(() => {
     const hasQuota = remainingChars === null ? true : remainingChars > 0;
     const { min: minInputChars, max: maxInputChars } = getChatGenerationInputLimits();
     const inputLength = countChatGenerationInputChars(inputText);
     return (
       !activeGenerationContactId &&
+      isViewingBusinessToday &&
       !isTodaySyncing &&
       sttStatus === "idle" &&
       hasQuota &&
       inputLength >= minInputChars &&
       inputLength <= maxInputChars
     );
-  }, [activeGenerationContactId, inputText, isTodaySyncing, remainingChars, sttStatus]);
+  }, [activeGenerationContactId, inputText, isTodaySyncing, isViewingBusinessToday, remainingChars, sttStatus]);
   const showChatSendFailureAlert = React.useCallback((error?: { code?: string; stage?: "input" | "output" }) => {
-    if (error?.code === "DAILY_QUOTA_EXCEEDED") {
-      Alert.alert(isProEntitledRef.current ? t("chat.error.quota_member_empty") : t("chat.error.quota_free_empty"));
+    if (error?.code === "DAILY_QUOTA_EXCEEDED" || error?.code === "TOKEN_QUOTA_EXCEEDED") {
+      Alert.alert(isProEntitledRef.current
+        ? tf("chat.error.quota_member_empty", { time: formatQuotaRefreshTime(quotaRefreshAt) })
+        : t("chat.error.quota_free_empty"));
       return;
     }
     if (error?.code === "CONTENT_BLOCKED") {
@@ -235,7 +246,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       return;
     }
     Alert.alert(t("chat.error.send_failed_retry"));
-  }, []);
+  }, [quotaRefreshAt]);
   const selectedDateKey = toDateKey(selectedDate);
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
@@ -244,7 +255,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     () => Array.from(new Set((contact.historyContactIds?.length ? contact.historyContactIds : [contactId]).filter(Boolean))),
     [contact.historyContactIds, contactId],
   );
-  const cancelActiveStt = React.useCallback((lastEvent: string): boolean => {
+  const cancelActiveStt = React.useCallback((_lastEvent: string): boolean => {
     if (sttStatusRef.current === "idle" && !sttSessionRef.current && !sttAudioSourceRef.current) {
       return false;
     }
@@ -368,13 +379,18 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       if (!isMountedRef.current) return;
       setRemainingChars(null);
       setIsProEntitled(false);
+      setQuotaRefreshAt(null);
       return;
     }
 
-    const entitlement = await getCurrentEntitlement().catch(() => null);
+    const [entitlement, usage] = await Promise.all([
+      getCurrentEntitlement().catch(() => null),
+      getUsageV2().catch(() => null),
+    ]);
     if (!isMountedRef.current) return;
-    setRemainingChars(entitlement?.remainingChars ?? null);
+    setRemainingChars(usage?.token.remaining ?? entitlement?.remainingChars ?? null);
     setIsProEntitled((entitlement?.features?.highQualityTts ?? entitlement?.isMember ?? entitlement?.isPro) === true);
+    setQuotaRefreshAt(usage?.token.periodEnd ?? null);
   }, []);
 
   // 启动初始化：加载本地权益快照，用于额度和 Pro 历史同步开关。
@@ -474,10 +490,55 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
 
   const handleCopyMessage = React.useCallback(
     (message: ChatMessage, mode: AutoCopyMode) => {
-      void copyAssistantTaggedText(message.text, mode, false);
+      void copyAssistantTaggedText(message.text, mode, false).then((copied) => {
+        if (copied) showNotice({ message: t("common.copy.success"), type: "success", durationMs: 1200 });
+      });
     },
-    [contact.id]
+    [contact.id, showNotice]
   );
+
+  const handleConvertMessageToCard = React.useCallback((message: ChatMessage) => {
+    if (!onConvertMessageToCard) return;
+    const tagged = parseTaggedRewrite(message.text);
+    const messageIndex = dayMessages.findIndex((candidate) =>
+      candidate.localId === message.localId
+      || Boolean(message.id && candidate.id === message.id)
+      || Boolean(message.serverId && candidate.serverId === message.serverId),
+    );
+    let originalText = "";
+    for (let index = messageIndex - 1; index >= 0; index -= 1) {
+      const candidate = dayMessages[index];
+      if (candidate?.role === "user") {
+        originalText = candidate.text.trim();
+        break;
+      }
+    }
+    const rewrittenText = (tagged.rewrite || tagged.en || tagged.ja).trim();
+    const translationText = (tagged.note || tagged.zh).trim();
+    const replyText = tagged.reply.trim();
+    const practicedText = getAssistantClozeText(message, getChatContact(message.contactId, [contact])).text.trim();
+    const blankTokenIndexes = getBlankTokenSet(message.clozeState);
+    const clozeRanges = practicedText === rewrittenText
+      ? tokenizeForCloze(practicedText)
+        .filter((token) => token.kind === "word" && blankTokenIndexes.has(token.index))
+        .map((token) => ({ startUtf16: token.start, endUtf16: token.end }))
+      : [];
+    onConvertMessageToCard({
+      collectionId: null,
+      title: "",
+      text: originalText,
+      rewrittenText,
+      translationText,
+      replyText,
+      derivedFromText: originalText,
+      clientId: null,
+      recordId: null,
+      submitted: false,
+      clozeRanges,
+      enabledLayers: { expression: Boolean(rewrittenText), translation: Boolean(translationText), reply: Boolean(replyText) },
+      images: [],
+    });
+  }, [contact, dayMessages, onConvertMessageToCard]);
 
   const handleSelectionRefChange = React.useCallback((ref: SelectableMessageTextRef | null) => {
     activeSelectionRef.current = ref;
@@ -538,6 +599,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     sttGenerationRef.current = generation;
     sttStatusRef.current = "stopping";
     setSttStatus("stopping");
+    setSttAudioLevel(0);
     const source = sttAudioSourceRef.current;
     sttAudioSourceRef.current = null;
     await source?.stop().catch((error) => {
@@ -609,6 +671,11 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const bufferedFrames: PcmAudioFrame[] = [];
     const sendOrBufferFrame = (frame: PcmAudioFrame) => {
       if (sttGenerationRef.current !== generation) return;
+      const now = Date.now();
+      if (now - sttLastAudioLevelAtRef.current >= 90) {
+        sttLastAudioLevelAtRef.current = now;
+        setSttAudioLevel(calculatePcmAudioLevel(frame.pcm));
+      }
       const session = sttSessionRef.current;
       if (session) {
         session.sendFrame(frame);
@@ -639,6 +706,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         await source.stop().catch(() => {});
         return;
       }
+      sttStatusRef.current = "recording";
+      setSttStatus("recording");
 
       const session = await openRealtimeSttSession({
         frameLength,
@@ -652,6 +721,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             return;
           }
           if (event.type === "partial") {
+            sttStatusRef.current = "recording";
+            setSttStatus("recording");
             const finalText = event.finalText ?? sttFinalTextRef.current;
             sttPartialTextRef.current = event.text;
             const merged = mergeSttDraftResult(sttDraftBaseRef.current, finalText, event.text, sttInsertRangeRef.current);
@@ -660,6 +731,8 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             return;
           }
           if (event.type === "final") {
+            sttStatusRef.current = "recording";
+            setSttStatus("recording");
             sttFinalTextRef.current = event.finalText ?? mergeSttDraft("", sttFinalTextRef.current, event.text);
             sttPartialTextRef.current = "";
             const merged = mergeSttDraftResult(sttDraftBaseRef.current, sttFinalTextRef.current, "", sttInsertRangeRef.current);
@@ -681,6 +754,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
             sttSessionRef.current = null;
             sttStatusRef.current = "idle";
             setSttStatus("idle");
+            setSttAudioLevel(0);
             return;
           }
           if (event.type === "error" || event.type === "canceled") {
@@ -710,6 +784,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           sttSessionRef.current = null;
           sttStatusRef.current = "idle";
           setSttStatus("idle");
+          setSttAudioLevel(0);
         },
       });
       if (sttGenerationRef.current !== generation || isSttInactive(sttStatusRef.current)) {
@@ -792,7 +867,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         if (!isMountedRef.current || controller.signal.aborted || dictionaryRequestSeqRef.current !== requestSeq) return;
         console.warn("dictionary lookup failed", error);
         setDictionaryLookup((current) => current
-          ? { ...current, loading: false, error: t("dictionary.error.failed") }
+          ? { ...current, loading: false, error: (error as { code?: string }).code === "DICTIONARY_NOT_FOUND" ? t("dictionary.error.not_found") : t("dictionary.error.failed") }
           : current);
       }).finally(() => {
         if (dictionaryAbortRef.current === controller) {
@@ -866,9 +941,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     const businessTodayDate = dateKeyToDate(businessTodayKey);
 
     if (!isViewingToday) {
-      setSelectedDate(businessTodayDate);
-      setMonthCursor(new Date(businessTodayDate.getFullYear(), businessTodayDate.getMonth(), 1));
-      void syncDateQuietly(businessTodayDate, { force: true });
+      return;
     }
 
     applyInputText("", { source: "system" });
@@ -965,8 +1038,6 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }
 
   async function preloadCloudMonthDateKeys(cursor: Date): Promise<void> {
-    if (!(await hasLocalProAccess())) return;
-
     const { monthKey, fromDateKey, toDateKey: monthEndDateKey } = getMonthRange(cursor);
     if (loadedCloudMonthKeysRef.current.has(monthKey)) {
       return;
@@ -1136,20 +1207,17 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
       localPro ? getCurrentEntitlement().catch(() => null) : Promise.resolve(null),
     ]);
     const userId = entitlement?.userId ?? session?.user?.id ?? "mock_user_001";
-    const canCloudSync = (entitlement?.features?.conversationHistorySync ?? entitlement?.isMember ?? entitlement?.isPro) === true;
+    const canImportLegacyLocalHistory = (entitlement?.features?.conversationHistorySync ?? entitlement?.isMember ?? entitlement?.isPro) === true;
     if (!isMountedRef.current) return { synced: false, changed: false };
     setIsProEntitled((entitlement?.features?.highQualityTts ?? entitlement?.isMember ?? entitlement?.isPro) === true);
     const dateKey = toDateKey(d);
     const reqId = ++syncSeqRef.current;
     latestSyncReqByDateRef.current[dateKey] = reqId;
     // 同一天 5 分钟内只允许命中一次拉取，避免进出页面时反复打云端。
-    const dirty = consumeChatDateDirty(contactId, dateKey);
     const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
-    if (!options?.force && !dirty && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
+    if (!options?.force && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
       return { synced: true, changed: false };
     }
-
-    if (!canCloudSync) return { synced: false, changed: false };
 
     // 这里只推进 day 业务状态，不负责弹什么提示；提示逻辑在 syncDateQuietly 里统一做。
     if (options?.syncToken) {
@@ -1194,7 +1262,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         !cloudClientIds.has(row.clientId) &&
         row.text.trim().length > 0
     );
-    if (unsyncedLocalRows.length > 0) {
+    if (canImportLegacyLocalHistory && unsyncedLocalRows.length > 0) {
       if (options?.syncToken) {
         daySyncMachine.setPhase(options.syncToken, "merging");
       }
@@ -1263,13 +1331,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
   }
 
   async function syncDateQuietly(d: Date, options?: { force?: boolean }): Promise<void> {
-    //---test cost----
-    //const start = performance.now();
-
     const dateKey = toDateKey(d);
-    const dirty = consumeChatDateDirty(contactId, dateKey);
     const lastSyncedAt = lastCloudSyncAtByDateRef.current[dateKey] ?? 0;
-    if (!options?.force && !dirty && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
+    if (!options?.force && Date.now() - lastSyncedAt <= 5 * 60 * 1000) {
       return;
     }
 
@@ -1299,7 +1363,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
     syncNoticeRef.current = notice;
     try {
       daySyncMachine.setPhase(token, "fetching");
-      const result = await syncDayFromCloud(d, { ...options, force: options?.force || dirty, signal: controller.signal, syncToken: token });
+      const result = await syncDayFromCloud(d, { ...options, signal: controller.signal, syncToken: token });
       if (!isMountedRef.current) {
         notice.hide();
         return;
@@ -1377,6 +1441,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onBack={onBack}
           onOpenCalendar={() => {
             prepareForCommand();
+            setMonthCursor(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
             setIsDateSheetOpen(true);
           }}
           onOpenMenu={canConfigureCompanionMode
@@ -1403,9 +1468,9 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           onCopyMenuStateChange={handleCopyMenuStateChange}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
+          onConvertMessageToCard={handleConvertMessageToCard}
           onTextSelection={handleTextSelection}
           onDictionarySelection={handleDictionarySelection}
-          onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
         />
 
@@ -1423,11 +1488,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           </Pressable>
         ) : null}
 
-        <ChatComposer
+        {isViewingBusinessToday ? <ChatComposer
           value={inputText}
           onChangeText={handleComposerTextChange}
           onSend={handleSend}
-          onStop={() => {}}
           onSttPress={handleSttPress}
           onFocus={handleComposerFocus}
           onBlur={handleComposerBlur}
@@ -1457,9 +1521,10 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
           disabled={!canSend}
           isSending={isSending}
           sttStatus={sttStatus}
+          sttAudioLevel={sttAudioLevel}
           inputEditable
           selectionOverride={composerSelectionOverride}
-        />
+        /> : null}
       </ChatContentFrame>
 
       <DatePickerSheet
@@ -1467,6 +1532,7 @@ export function ChatScreen({ contact, onBack }: ChatScreenProps) {
         monthCursor={monthCursor}
         selectedDate={selectedDate}
         hasRecordDateKeys={recordDateKeys}
+        maximumDate={businessTodayKey ? dateKeyToDate(businessTodayKey) : new Date()}
         onClose={() => setIsDateSheetOpen(false)}
         onPrevMonth={() =>
           setMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
@@ -1592,10 +1658,17 @@ function isSttInactive(status: "idle" | "connecting" | "recording" | "stopping")
   return status === "idle" || status === "stopping";
 }
 
+function formatQuotaRefreshTime(value: string | null): string {
+  if (!value) return t("me.quota.next_period");
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return t("me.quota.next_period");
+  return date.toLocaleString(getLanguage(), { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: "#FAFAFA",
   },
   content: {
     flex: 1,
@@ -1608,7 +1681,7 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 19,
     borderWidth: 1,
-    borderColor: "#DBDFE7",
+    borderColor: "#DEDEDE",
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",

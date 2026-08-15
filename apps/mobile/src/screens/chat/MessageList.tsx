@@ -85,6 +85,7 @@ type MessageListProps = {
   onCopyMenuStateChange?: (state: { isOpen: boolean; close: () => void }) => void;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage, mode: AutoCopyMode) => void;
+  onConvertMessageToCard: (message: ChatMessage) => void;
   onTextSelection: (
     message: ChatMessage,
     payload: NativeTextSelectionPayload,
@@ -95,7 +96,6 @@ type MessageListProps = {
     payload: NativeTextSelectionPayload,
     clearSelection: () => void,
   ) => void;
-  onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
 };
 
@@ -202,9 +202,9 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onSelectionRefChange,
   onRetryMessage,
   onCopyMessage,
+  onConvertMessageToCard,
   onTextSelection,
   onDictionarySelection,
-  onEditClozeGroup,
   onDeleteClozeGroup,
   isCopyMenuOpen,
   interactionsDisabled,
@@ -219,6 +219,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onSelectionRefChange: (ref: SelectableMessageTextRef | null) => void;
   onRetryMessage: (message: ChatMessage) => void;
   onCopyMessage: (message: ChatMessage, mode: AutoCopyMode) => void;
+  onConvertMessageToCard: (message: ChatMessage) => void;
   onTextSelection: (
     message: ChatMessage,
     payload: NativeTextSelectionPayload,
@@ -229,7 +230,6 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
     payload: NativeTextSelectionPayload,
     clearSelection: () => void,
   ) => void;
-  onEditClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   onDeleteClozeGroup: (message: ChatMessage, groupIndex: number) => void;
   isCopyMenuOpen: boolean;
   interactionsDisabled: boolean;
@@ -242,6 +242,10 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
   const [answersVisible, setAnswersVisible] = React.useState(false);
   const copyOptions = React.useMemo(() => getCopyOptions(message.text), [message.text]);
+  const ttsSourceKeys = React.useMemo(() => {
+    const tagged = parseTaggedRewrite(message.text);
+    return tagged.reply.trim() ? (["rewrite", "reply"] as const) : (["rewrite"] as const);
+  }, [message.text]);
   const messageContact = React.useMemo(() => getChatContact(message.contactId, [contact]), [contact, message.contactId]);
   const clozeText = React.useMemo(() => {
     const startedAt = perfNow();
@@ -444,9 +448,18 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               )}
 
               <View style={styles.actionControlGroup}>
+                <Pressable
+                  accessibilityLabel={t("chat.save_card")}
+                  style={styles.convertCardButton}
+                  onPress={() => onConvertMessageToCard(message)}
+                >
+                  <Ionicons name="document-text-outline" size={16} color="#111111" />
+                  <Text style={styles.convertCardText}>{t("chat.save_card")}</Text>
+                </Pressable>
                 {canUseTts ? (
                   <TtsPlayButton
                     messageId={message.id ?? message.serverId}
+                    sourceKeys={[...ttsSourceKeys]}
                     disabled={!message.text.trim()}
                     size={18}
                     style={styles.ttsButton}
@@ -478,7 +491,19 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                 <Pressable
                   style={styles.copyButton}
                   hitSlop={8}
-                  onPress={onToggleCopyMenu}
+                  onPress={() => {
+                    if (interactionsDisabled) {
+                      Keyboard.dismiss();
+                      return;
+                    }
+                    if (copyOptions.length <= 1) {
+                      onPrepareForCommand();
+                      onCloseCopyMenu();
+                      onCopyMessage(message, copyOptions[0]?.mode ?? "all");
+                      return;
+                    }
+                    onToggleCopyMenu();
+                  }}
                   disabled={!message.text.trim()}
                 >
                   <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
@@ -511,17 +536,17 @@ export function MessageList({
   onCopyMenuStateChange,
   onRetryMessage,
   onCopyMessage,
+  onConvertMessageToCard,
   onTextSelection,
   onDictionarySelection,
-  onEditClozeGroup,
   onDeleteClozeGroup,
 }: MessageListProps) {
   const renderStart = perfNow();
   const retryMessageRef = useLatestRef(onRetryMessage);
   const copyMessageRef = useLatestRef(onCopyMessage);
+  const convertMessageRef = useLatestRef(onConvertMessageToCard);
   const textSelectionRef = useLatestRef(onTextSelection);
   const dictionarySelectionRef = useLatestRef(onDictionarySelection);
-  const editClozeGroupRef = useLatestRef(onEditClozeGroup);
   const deleteClozeGroupRef = useLatestRef(onDeleteClozeGroup);
   const isDraggingRef = React.useRef(false);
   const scrollMetricsRef = React.useRef({ y: 0, contentHeight: 0, layoutHeight: 0 });
@@ -605,12 +630,6 @@ export function MessageList({
   // Disabling it while the Android composer is focused makes long-press selection
   // impossible after the keyboard is hidden but the TextInput retains focus.
   const messageTextInteractionsDisabled = false;
-  const handleEditClozeGroup = React.useCallback(
-    (message: ChatMessage, groupIndex: number) => {
-      editClozeGroupRef.current(message, groupIndex);
-    },
-    [editClozeGroupRef],
-  );
   const handleDeleteClozeGroup = React.useCallback(
     (message: ChatMessage, groupIndex: number) => {
       deleteClozeGroupRef.current(message, groupIndex);
@@ -642,9 +661,9 @@ export function MessageList({
           onSelectionRefChange={handleSelectionRefChange}
           onRetryMessage={handleRetryMessage}
           onCopyMessage={handleCopyMessage}
+          onConvertMessageToCard={(message) => convertMessageRef.current(message)}
           onTextSelection={handleTextSelection}
           onDictionarySelection={handleDictionarySelection}
-          onEditClozeGroup={handleEditClozeGroup}
           onDeleteClozeGroup={handleDeleteClozeGroup}
           isCopyMenuOpen={activeCopyMenuId === item.id}
           interactionsDisabled={messageTextInteractionsDisabled}
@@ -669,7 +688,6 @@ export function MessageList({
       handleCopyMessage,
       handleCloseCopyMenu,
       handleDeleteClozeGroup,
-      handleEditClozeGroup,
       handleMessageTextInteractionStart,
       handlePrepareForCommand,
       handleSelectionRefChange,
@@ -695,6 +713,7 @@ export function MessageList({
       maxToRenderPerBatch={16}
       updateCellsBatchingPeriod={50}
       removeClippedSubviews
+      alwaysBounceVertical={false}
       keyboardDismissMode="none"
       onTouchEnd={Platform.OS === "android" ? handleListTouchEnd : undefined}
       onScrollBeginDrag={handleScrollStart}
@@ -852,6 +871,16 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 2,
   },
+  convertCardButton: {
+    minHeight: 32,
+    paddingHorizontal: 9,
+    borderRadius: 16,
+    backgroundColor: "#F3F3F4",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  convertCardText: { color: "#111111", fontSize: 12, fontWeight: "500" },
   ttsButton: {
     minWidth: 32,
     minHeight: 36,
