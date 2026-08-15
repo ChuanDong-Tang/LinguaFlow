@@ -666,6 +666,7 @@ export class CardService {
     fromDateKey?: string;
     limit?: number;
     cursor?: string;
+    sort?: "newest" | "oldest";
   }) {
     if (input.dateKey) assertDateKey(input.dateKey);
     if (input.fromDateKey) assertDateKey(input.fromDateKey);
@@ -679,6 +680,7 @@ export class CardService {
       collectionId: input.collectionId,
       dateKey: input.dateKey,
       fromDateKey: input.fromDateKey,
+      sortDirection: input.sort === "oldest" ? "asc" : "desc",
       limit: limit + 1,
       cursor,
     });

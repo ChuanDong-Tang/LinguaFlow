@@ -147,6 +147,7 @@ export class PrismaCardRepository implements CardRepository {
     collectionId: string | null | undefined;
     dateKey?: string;
     fromDateKey?: string;
+    sortDirection?: "asc" | "desc";
     limit: number;
     cursor?: { createdAt: Date; id: string };
   }): Promise<CardEntryEntity[]> {
@@ -180,13 +181,13 @@ export class PrismaCardRepository implements CardRepository {
         ...(input.dateKey ? { dateKey: input.dateKey } : input.fromDateKey ? { dateKey: { gte: input.fromDateKey } } : {}),
         ...(input.cursor ? {
           OR: [
-            { createdAt: { lt: input.cursor.createdAt } },
-            { createdAt: input.cursor.createdAt, id: { lt: input.cursor.id } },
+            { createdAt: { [input.sortDirection === "asc" ? "gt" : "lt"]: input.cursor.createdAt } },
+            { createdAt: input.cursor.createdAt, id: { [input.sortDirection === "asc" ? "gt" : "lt"]: input.cursor.id } },
           ],
         } : {}),
       },
       include: includeSegments,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: input.sortDirection ?? "desc" }, { id: input.sortDirection ?? "desc" }],
       take: input.limit,
     });
     return rows.map(toEntry);
@@ -889,7 +890,7 @@ export class PrismaCardRepository implements CardRepository {
       await tx.cardSpeechAsset.updateMany({
         where: {
           entryId,
-          sourceKind: { in: ["review_segment", "dictation_sentence"] },
+          sourceKind: { in: ["review_segment", "review_article", "dictation_sentence"] },
         },
         data: { status: "cleanup_pending", objectUrl: null, objectUrlExpiresAt: null },
       });
@@ -1163,7 +1164,7 @@ export class PrismaCardRepository implements CardRepository {
     const rows = await this.prisma.cardSpeechAsset.findMany({
       where: {
         OR: [
-          { status: "cleanup_pending", sourceKind: { in: ["review_segment", "dictation_sentence"] } },
+          { status: "cleanup_pending", sourceKind: { in: ["review_segment", "review_article", "dictation_sentence"] } },
           { status: "ready", sourceKind: "dictionary_term", lastAccessedAt: { lt: staleDictionaryBefore } },
         ],
       },
