@@ -90,7 +90,7 @@ export class CardImageService {
     return { uploadId: id, uploadUrl: upload.uploadUrl, headers: { ...upload.headers, "Content-Type": input.mimeType }, expiresAt: expiresAt.toISOString() };
   }
 
-  async complete(userId: string, uploadId: string, usageApiVersion?: "v2") {
+  async complete(userId: string, uploadId: string) {
     const asset = await this.repository.findImageUpload(uploadId, userId);
     if (!asset || asset.entryId || asset.expiresAt.getTime() <= Date.now()) throw new CardNotFoundError();
     if (asset.status === "approved" || asset.status === "approved_with_review") {

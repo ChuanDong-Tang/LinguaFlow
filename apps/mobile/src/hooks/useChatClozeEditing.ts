@@ -19,7 +19,6 @@ import {
   replaceChatMessagesByDate,
 } from "../services/chat/chatSessionService";
 import { isSameChatMessage } from "../services/chat/chatMessageView";
-import { markPracticeStatsDirty } from "../services/chat/chatPracticeSyncState";
 import type { ClozeDeleteState, ClozeEditorState } from "../screens/chat/ClozeControls";
 import type { InfoDialogConfig } from "../screens/shared/InfoDialog";
 import { t } from "../i18n";
@@ -104,7 +103,6 @@ export function useChatClozeEditing({
       const currentDay = await loadChatMessagesByDate(contactId, dayKey);
       const nextDayFromStorage = replace(currentDay);
       await replaceChatMessagesByDate(contactId, dayKey, nextDayFromStorage);
-      markPracticeStatsDirty(dayKey);
       const nextDay = replace(dayMessages);
       setDayMessages(nextDay);
       setMessages(nextDay);

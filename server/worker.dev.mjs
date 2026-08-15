@@ -306,6 +306,44 @@ const userAvatarCleanupWorker = new UserAvatarCleanupWorker(
   cardImageStorageProvider,
 );
 
+const workerGroup = (process.env.LF_WORKER_GROUP || "all").trim().toLowerCase();
+const workerGroups = {
+  payment: [
+    worker,
+    benefitGrantWorker,
+    paymentCertSyncWorker,
+    weChatAutoRenewBillingWorker,
+    googlePlayAcknowledgeWorker,
+    googlePlaySubscriptionReconcileWorker,
+  ],
+  card: [
+    cardRewriteWorker,
+    cardTopicWorker,
+    cardEnrichmentWorker,
+    phraseNormalizationWorker,
+    phraseHistoryIndexWorker,
+    cardPhraseIndexWorker,
+    progressPhraseDetectionWorker,
+  ].filter(Boolean),
+  maintenance: [
+    sessionCleanupWorker,
+    accountDeletionCleanupWorker,
+    systemEventLogCleanupWorker,
+    aiRequestLogCleanupWorker,
+    ttsAssetCleanupWorker,
+    ttsRequestLogCleanupWorker,
+    cardImageCleanupWorker,
+    cardSpeechCleanupWorker,
+    userAvatarCleanupWorker,
+  ],
+};
+if (workerGroup !== "all" && !Object.prototype.hasOwnProperty.call(workerGroups, workerGroup)) {
+  throw new Error(`LF_WORKER_GROUP must be one of all, payment, card, maintenance; received ${workerGroup}`);
+}
+const activeWorkers = workerGroup === "all"
+  ? Object.values(workerGroups).flat()
+  : workerGroups[workerGroup];
+
 let shuttingDown = false;
 
 if (runtime.requireRedis) {
@@ -320,39 +358,19 @@ if (runtime.requireRedis) {
   }
 }
 
-console.log("[worker] payment/grant/session/account-delete/log/ai/tts/cert/card workers running");
+console.log(`[worker] group=${workerGroup} starting ${activeWorkers.length} workers`);
 try {
-  worker.start();
-  benefitGrantWorker.start();
-  sessionCleanupWorker.start();
-  accountDeletionCleanupWorker.start();
-  systemEventLogCleanupWorker.start();
-  aiRequestLogCleanupWorker.start();
-  ttsAssetCleanupWorker.start();
-  ttsRequestLogCleanupWorker.start();
-  paymentCertSyncWorker.start();
-  weChatAutoRenewBillingWorker.start();
-  googlePlayAcknowledgeWorker.start();
-  googlePlaySubscriptionReconcileWorker.start();
-  cardRewriteWorker.start();
-  cardTopicWorker.start();
-  cardEnrichmentWorker?.start();
-  phraseNormalizationWorker.start();
-  phraseHistoryIndexWorker.start();
-  cardPhraseIndexWorker.start();
-  progressPhraseDetectionWorker.start();
-  cardImageCleanupWorker.start();
-  cardSpeechCleanupWorker.start();
-  userAvatarCleanupWorker.start();
+  activeWorkers.forEach((activeWorker) => activeWorker.start());
 } catch (error) {
   console.error("[worker] start failed", error);
   await systemEventLogRepository.create({
-    module: "payment",
-    event: "payment.worker.start_failed",
+    module: "infra",
+    event: "infra.worker.start_failed",
     level: "error",
     status: "failed",
     errorCode: "WORKER_START_FAILED",
     errorMessage: error instanceof Error ? error.message : String(error),
+    metadata: { workerGroup },
   });
   await prisma.$disconnect();
   process.exit(1);
@@ -361,28 +379,7 @@ try {
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  worker.stop();
-  benefitGrantWorker.stop();
-  sessionCleanupWorker.stop();
-  accountDeletionCleanupWorker.stop();
-  systemEventLogCleanupWorker.stop();
-  aiRequestLogCleanupWorker.stop();
-  ttsAssetCleanupWorker.stop();
-  ttsRequestLogCleanupWorker.stop();
-  paymentCertSyncWorker.stop();
-  weChatAutoRenewBillingWorker.stop();
-  googlePlayAcknowledgeWorker.stop();
-  googlePlaySubscriptionReconcileWorker.stop();
-  cardRewriteWorker.stop();
-  cardTopicWorker.stop();
-  cardEnrichmentWorker?.stop();
-  phraseNormalizationWorker.stop();
-  phraseHistoryIndexWorker.stop();
-  cardPhraseIndexWorker.stop();
-  progressPhraseDetectionWorker.stop();
-  cardImageCleanupWorker.stop();
-  cardSpeechCleanupWorker.stop();
-  userAvatarCleanupWorker.stop();
+  [...activeWorkers].reverse().forEach((activeWorker) => activeWorker.stop());
   await prisma.$disconnect();
 }
 
@@ -416,6 +413,7 @@ async function handleFatal(kind, error) {
       errorMessage,
       metadata: {
         kind,
+        workerGroup,
         at: new Date().toISOString(),
       },
     });

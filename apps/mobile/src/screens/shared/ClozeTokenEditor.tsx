@@ -29,7 +29,7 @@ export function ClozeTokenEditor({
       <View style={styles.scrim}>
         <View style={styles.card}>
           <Text style={styles.title}>{t("cloze.edit")}</Text>
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.tokens}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.tokens} alwaysBounceVertical={false}>
             {visibleValue?.tokens.map((token) => {
               const active = selected.has(token.index);
               return (

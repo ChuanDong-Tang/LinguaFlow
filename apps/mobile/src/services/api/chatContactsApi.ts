@@ -3,6 +3,7 @@ import type { ChatContact, CompanionMode } from "../../domain/chat/contacts";
 import { DEFAULT_CHAT_CONTACT } from "../../domain/chat/contacts";
 import type { TranslationKey } from "../../i18n";
 import { getAuthHeaders } from "../auth/authHeaders";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const CONTACTS_CACHE_KEY = "linguaflow.chat.contacts.cache.v1";
@@ -42,7 +43,7 @@ export async function loadCachedChatContacts(): Promise<ChatContactsPayload | nu
 }
 
 export async function fetchChatContacts(): Promise<ChatContactsPayload> {
-  const res = await fetch(`${BASE_URL}/chat/contacts`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/contacts`, {
     headers: await getAuthHeaders(),
   });
   const json = (await res.json()) as ApiResult<{ version: string; contacts: ContactDto[] }>;

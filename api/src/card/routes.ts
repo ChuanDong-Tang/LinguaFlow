@@ -643,7 +643,6 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       const data = await deps.cardImageService.complete(
         userId,
         String((req.params as { uploadId?: unknown }).uploadId ?? ""),
-        req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
       );
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) { return handleCardError(reply, requestId, error); }

@@ -4,135 +4,327 @@ import {
   Alert,
   ActionSheetIOS,
   Animated,
+  Easing,
+  FlatList,
   Image,
   Keyboard,
+  LayoutAnimation,
+  Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as MediaLibrary from "expo-media-library";
-import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAvoidingView, KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import {
-  saveCardDictationResult,
   saveCardClozeUpdate,
+  getCardArticleAudio,
+  getCardRecord,
   getCardSegmentAudio,
-  getCardSelectionAudio,
   getCardRelations,
+  getCardCollections,
+  getCardCapabilities,
+  DEFAULT_CARD_CAPABILITIES,
   type CardClozeState,
   type CardRelationReason,
+  type CardRelationPreview,
   type CardRecordDetail,
+  type CardLearningContentType,
+  type CardCollection,
+  type CardCapabilities,
+  CardApiError,
 } from "../services/api/cardApi";
 import type { CardDraft } from "../services/card/cardDraftStorage";
 import { theme } from "../theme";
-import { playTtsAudio, stopTtsAudio } from "../services/tts/ttsPlayback";
+import { TtsMiniPlayer } from "../components/TtsMiniPlayer";
+import { RealtimeSttButton } from "../components/RealtimeSttButton";
+import { getTtsPlaybackState, playTtsAudio, preloadTtsAudio, setTtsNavigationControls, stopTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
 import {
   SelectableMessageText,
   type NativeTextSelectionPayload,
 } from "./chat/SelectableMessageText";
 import { DictionaryPopover } from "./chat/DictionaryPopover";
 import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
-import { getLanguage } from "../i18n";
-import { expandSelectionToTokenRange, tokenizeForCloze, type ClozeToken } from "../domain/cloze/clozeUtils";
-import { ClozeTokenEditor } from "./shared/ClozeTokenEditor";
-import { buildClozeFlowSegments, ClozeTokenFlow } from "./shared/ClozeTokenFlow";
+import { getLanguage, t, tf } from "../i18n";
+import { expandSelectionToCardBlankRange, getCardClozeActualUnitMatches, splitCardClozeAnswerUnits } from "../domain/cloze/clozeUtils";
+import { segmentLearningSentences } from "../domain/learning/learningText";
+import { useRealtimeSttInput, type RealtimeSttInputStatus } from "../hooks/useRealtimeSttInput";
+import { CollectionPickerModal, collectionPathName } from "./shared/CollectionPickerModal";
+import { normalizeCardBodyText } from "@lf/core/text/cardText";
+import { hasLocalStrictProAccess } from "../services/entitlement/proAccess";
+import { copyTextToClipboard } from "../services/device/clipboardService";
+import { useFloatingNotice } from "./shared/FloatingNotice";
+import type { CardGenerationTarget } from "../services/card/cardContentGeneration";
 
 type DetailTab = "review" | "cloze" | "dictation";
+type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
+const CARD_CLOZE_ONBOARDING_KEY = "linguaflow.card_detail.cloze_onboarding.v2";
 
-export function CardDetailModal({ detail, loading, draft, initialTab = "review", onClose, onDelete, onReplaceImage, onRemoveImage, onDraftChange, onDraftGenerate, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt }: {
   detail: CardRecordDetail | null;
   loading: boolean;
+  imageAdding?: boolean;
+  transitionOrigin?: { x: number; y: number; width: number; height: number };
   draft?: {
     value: CardDraft;
     sending: boolean;
+    imageAdding?: boolean;
   };
+  draftSafeArea?: { top: number; bottom: number };
+  draftLimits?: CardCapabilities["limits"];
+  draftCollections?: CardCollection[];
   initialTab?: DetailTab;
   onClose: () => void;
-  onDelete?: () => void;
-  onReplaceImage?: () => void;
-  onRemoveImage?: () => void;
+  returnLabel?: string;
+  onReplaceImage?: (source: "camera" | "library", asset?: { uri: string; width: number; height: number }) => void;
+  onRemoveImage?: (imageId?: string) => void;
   onDraftChange?: (text: string) => void;
-  onDraftGenerate?: () => void;
+  onDraftFieldChange?: (field: "title" | "rewrittenText" | "translationText" | "replyText", value: string) => void;
+  onDraftEnabledLayersChange?: (layers: CardDraft["enabledLayers"]) => void;
+  onDraftCollectionChange?: (collectionId: string | null) => void;
+  onDraftSave?: (initialTab?: DetailTab) => void;
   onDraftChooseImage?: () => void;
   onDraftTakePhoto?: () => void;
   onDraftSelectImage?: (asset: { uri: string; width: number; height: number }) => void;
-  onDraftRemoveImage?: () => void;
+  onDraftRemoveImage?: (localUri?: string) => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
   onBack?: () => void;
   onForward?: () => void;
   onOpenRelated?: (recordId: string, reasons: CardRelationReason[]) => void;
+  hideRelations?: boolean;
+  onUpdateContent?: (input: { title: string | null; originalText: string; collectionId: string | null; selectedTargets: Array<"expression" | "translation" | "reply"> }) => Promise<boolean | void>;
+  pendingGenerationTargets?: CardGenerationTarget[];
+  failedGenerationTargets?: CardGenerationTarget[];
+  retryingGenerationTarget?: CardGenerationTarget | null;
+  onRetryGeneration?: (target: CardGenerationTarget) => void;
+  recallPosition?: { index: number; total: number };
+  recallPreviousDetail?: CardRecordDetail | null;
+  recallNextDetail?: CardRecordDetail | null;
+  onRecallPrevious?: () => void;
+  onRecallNext?: () => void;
+  onRecallFinish?: () => void;
+  onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
 }) {
-  const [tab, setTab] = useState<DetailTab>(initialTab);
-  const practiceMode = initialTab !== "review";
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const exitProgress = useRef(new Animated.Value(transitionOrigin ? 1 : 0)).current;
+  const exitingRef = useRef(false);
+  const enteredRef = useRef(false);
+  const recallTranslateX = useRef(new Animated.Value(0)).current;
+  const recallNavigatingRef = useRef(false);
+  const [tab, setTab] = useState<DetailTab>(initialTab === "cloze" ? "review" : initialTab);
+  const [editing, setEditing] = useState(false);
+  const practiceMode = tab === "dictation";
   const [clozeState, setClozeState] = useState<CardClozeState>({ schemaVersion: 1, blanks: [] });
   const [clozeVersion, setClozeVersion] = useState(0);
+  const [clozeOwnerKey, setClozeOwnerKey] = useState<string | null>(null);
+  const [hasProAccess, setHasProAccess] = useState<boolean | null>(null);
+  const [showClozeTipButton, setShowClozeTipButton] = useState(false);
+  const [clozeTipVisible, setClozeTipVisible] = useState(false);
+  const [recallHandoff, setRecallHandoff] = useState<{
+    direction: "next" | "previous";
+    detail: CardRecordDetail;
+    position: { index: number; total: number };
+  } | null>(null);
+  const recallPanResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponderCapture: (_, gesture) => Boolean(
+      recallPosition
+      && Math.abs(gesture.dx) > 24
+      && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
+    ),
+    onPanResponderMove: (_, gesture) => {
+      if (recallNavigatingRef.current) return;
+      const atUnavailableEdge = gesture.dx > 0 ? !recallPreviousDetail : !recallNextDetail;
+      recallTranslateX.setValue(gesture.dx * (atUnavailableEdge ? 0.16 : 0.72));
+    },
+    onPanResponderRelease: (_, gesture) => {
+      const direction = gesture.dx < 0 ? "next" : "previous";
+      const action = direction === "next" ? onRecallNext : onRecallPrevious;
+      if (Math.abs(gesture.dx) < 72 || !action) {
+        Animated.spring(recallTranslateX, { toValue: 0, useNativeDriver: true, speed: 24, bounciness: 4 }).start();
+        return;
+      }
+      recallNavigatingRef.current = true;
+      const handoffDetail = direction === "next" ? recallNextDetail : recallPreviousDetail;
+      if (handoffDetail && recallPosition) setRecallHandoff({
+        direction,
+        detail: handoffDetail,
+        position: {
+          index: recallPosition.index + (direction === "next" ? 1 : -1),
+          total: recallPosition.total,
+        },
+      });
+      Animated.timing(recallTranslateX, {
+        toValue: direction === "next" ? -windowWidth : windowWidth,
+        duration: 170,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(() => {
+        Keyboard.dismiss();
+        action();
+        requestAnimationFrame(() => {
+          recallTranslateX.setValue(0);
+          setRecallHandoff(null);
+          requestAnimationFrame(() => { recallNavigatingRef.current = false; });
+        });
+      });
+    },
+    onPanResponderTerminate: () => {
+      Animated.spring(recallTranslateX, { toValue: 0, useNativeDriver: true }).start();
+    },
+  }), [onRecallNext, onRecallPrevious, recallNextDetail, recallPosition, recallPreviousDetail, recallTranslateX, windowWidth]);
+  const contentBlocks = useMemo(() => detail ? learningContentBlocks(detail) : [], [detail]);
+  const activeBlock = contentBlocks.find((block) => block.contentType === "rewrite")
+    ?? contentBlocks.find((block) => block.contentType === "original")
+    ?? contentBlocks[0]
+    ?? null;
+  const contentBinding = activeBlock ? { contentType: activeBlock.contentType, contentVersion: activeBlock.contentVersion } : null;
+  const activeClozeOwnerKey = detail && activeBlock ? `${detail.id}:${activeBlock.contentType}:${activeBlock.contentVersion}` : null;
+  const resolvedClozeState = activeClozeOwnerKey && clozeOwnerKey === activeClozeOwnerKey
+    ? clozeState
+    : asCardClozeState(activeBlock?.practice?.clozeState);
+  const resolvedClozeVersion = activeClozeOwnerKey && clozeOwnerKey === activeClozeOwnerKey
+    ? clozeVersion
+    : activeBlock?.practice?.clozeVersion ?? 0;
+  const canPracticeActiveBlock = activeBlock?.contentType !== "original" || hasProAccess === true;
+  const practiceDetail = detail && activeBlock ? {
+    ...detail,
+    languageCode: activeBlock.languageCode,
+    rewriteSegments: activeBlock.segments,
+    practice: activeBlock.practice,
+  } : detail;
+  useEffect(() => () => stopTtsAudio({ resetControls: true }), []);
+  useEffect(() => {
+    if (recallPosition) stopTtsAudio({ resetControls: true });
+  }, [detail?.id]);
+  useEffect(() => {
+    let active = true;
+    void hasLocalStrictProAccess()
+      .then((value) => { if (active) setHasProAccess(value); })
+      .catch(() => { if (active) setHasProAccess(false); });
+    return () => { active = false; };
+  }, [detail?.id]);
+  useEffect(() => {
+    if (hasProAccess === false && tab === "dictation") setTab("review");
+  }, [hasProAccess, tab]);
+  useEffect(() => {
+    let active = true;
+    void AsyncStorage.getItem(CARD_CLOZE_ONBOARDING_KEY)
+      .then((seen) => { if (active) setShowClozeTipButton(!seen); })
+      .catch(() => { if (active) setShowClozeTipButton(true); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!detail || enteredRef.current) return;
+    enteredRef.current = true;
+    if (!transitionOrigin) return;
+    exitProgress.setValue(1);
+    const frame = requestAnimationFrame(() => {
+      Animated.timing(exitProgress, {
+        toValue: 0,
+        duration: 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      exitProgress.stopAnimation();
+    };
+  }, [detail?.id, transitionOrigin?.x, transitionOrigin?.y, transitionOrigin?.width, transitionOrigin?.height]);
   useEffect(() => {
     if (detail) {
-      setTab(initialTab);
-      setClozeState(asCardClozeState(detail.practice?.clozeState));
-      setClozeVersion(detail.practice?.clozeVersion ?? 0);
+      setEditing(false);
+      setTab(initialTab === "cloze" ? "review" : initialTab);
     }
   }, [detail?.id, initialTab]);
+  useEffect(() => {
+    if (detail) {
+      setClozeState(asCardClozeState(activeBlock?.practice?.clozeState));
+      setClozeVersion(activeBlock?.practice?.clozeVersion ?? 0);
+      setClozeOwnerKey(activeClozeOwnerKey);
+    }
+  }, [
+    detail?.id,
+    activeBlock?.contentType,
+    activeBlock?.contentVersion,
+    activeBlock?.practice?.clozeVersion,
+    activeClozeOwnerKey,
+  ]);
   const updateCloze = (state: CardClozeState, version: number) => {
     setClozeState(state);
     setClozeVersion(version);
+    setClozeOwnerKey(activeClozeOwnerKey);
   };
-  const [relations, setRelations] = useState<Array<{ recordId: string; topic: string | null; reasons: CardRelationReason[] }>>([]);
-  const [relationsLoading, setRelationsLoading] = useState(false);
+  function animateExit(action: () => void, staysMounted: boolean): void {
+    if (exitingRef.current) return;
+    exitingRef.current = true;
+    Animated.timing(exitProgress, {
+      toValue: 1,
+      duration: transitionOrigin ? 230 : 210,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) {
+        exitingRef.current = false;
+        return;
+      }
+      exitingRef.current = false;
+      action();
+      if (staysMounted) {
+        Animated.timing(exitProgress, {
+          toValue: 0,
+          duration: 160,
+          useNativeDriver: true,
+        }).start();
+      }
+    });
+  }
+  const [relations, setRelations] = useState<Array<{ recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] }>>([]);
+  const [cardCapabilities, setCardCapabilities] = useState<CardCapabilities>(DEFAULT_CARD_CAPABILITIES);
+  const cardLimits = draftLimits ?? cardCapabilities.limits;
   useEffect(() => {
-    if (!detail) {
+    let active = true;
+    void getCardCapabilities()
+      .then((value) => { if (active) setCardCapabilities(value); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!detail || hideRelations) {
       setRelations([]);
       return;
     }
     let cancelled = false;
-    setRelationsLoading(true);
     const request = getCardRelations(detail.id, 50);
     void request.then((items) => { if (!cancelled) setRelations(items); })
-      .catch(() => { if (!cancelled) setRelations([]); })
-      .finally(() => { if (!cancelled) setRelationsLoading(false); });
+      .catch(() => { if (!cancelled) setRelations([]); });
     return () => { cancelled = true; };
-  }, [detail?.id]);
-  function openMore(): void {
-    const options = [
-      ...(onReplaceImage ? [detail?.image ? "更换图片" : "添加图片"] : []),
-      ...(onRemoveImage ? ["移除图片"] : []),
-      ...(onDelete ? ["删除记录"] : []),
-      "取消",
-    ];
-    const cancelButtonIndex = options.length - 1;
-    const deleteIndex = onDelete ? options.indexOf("删除记录") : -1;
-    const run = (index: number) => {
-      const action = options[index];
-      if (action === "更换图片" || action === "添加图片") onReplaceImage?.();
-      else if (action === "移除图片") onRemoveImage?.();
-      else if (action === "删除记录") onDelete?.();
-    };
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex, destructiveButtonIndex: deleteIndex >= 0 ? deleteIndex : undefined },
-        run,
-      );
-    } else {
-      Alert.alert("", undefined, options.map((text, index) => ({
-        text,
-        style: text === "取消" ? "cancel" as const : text.includes("删除") || text.includes("移除") ? "destructive" as const : "default" as const,
-        onPress: () => run(index),
-      })));
-    }
-  }
+  }, [detail?.id, hideRelations]);
   if (draft) {
     return (
       <DraftCard
         draft={draft.value}
         sending={draft.sending}
+        imageAdding={draft.imageAdding === true}
+        safeArea={draftSafeArea}
+        limits={cardLimits}
+        collections={draftCollections}
         onClose={onClose}
         onChangeText={onDraftChange}
-        onGenerate={onDraftGenerate}
+        onChangeField={onDraftFieldChange}
+        onEnabledLayersChange={onDraftEnabledLayersChange}
+        onCollectionChange={onDraftCollectionChange}
+        onSave={onDraftSave}
         onChooseImage={onDraftChooseImage}
         onTakePhoto={onDraftTakePhoto}
         onSelectImage={onDraftSelectImage}
@@ -140,59 +332,335 @@ export function CardDetailModal({ detail, loading, draft, initialTab = "review",
       />
     );
   }
+  if (detail && editing) {
+    return <ExistingCardEditor
+      detail={detail}
+      limits={cardLimits}
+      imageAdding={imageAdding}
+      onAddImage={onReplaceImage}
+      onRemoveImage={onRemoveImage}
+      onCancel={() => setEditing(false)}
+      onSave={async (input) => {
+        const accepted = await onUpdateContent?.(input);
+        if (accepted === false) return;
+        setEditing(false);
+      }}
+    />;
+  }
   if (!detail && !loading) return null;
   return (
-    <View style={styles.fullscreen}>
+    <Animated.View style={[
+      styles.fullscreen,
+      {
+        opacity: transitionOrigin
+          ? exitProgress.interpolate({ inputRange: [0, 0.68, 0.92, 1], outputRange: [1, 1, 0.18, 0] })
+          : 1,
+        transform: [
+          { translateX: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [0, transitionOrigin ? transitionOrigin.x + transitionOrigin.width / 2 - windowWidth / 2 : -windowWidth] }) },
+          { translateY: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [0, transitionOrigin ? transitionOrigin.y + transitionOrigin.height / 2 - windowHeight / 2 : 0] }) },
+          { scale: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [1, transitionOrigin ? Math.max(0.1, transitionOrigin.width / windowWidth) : 1] }) },
+        ],
+      },
+    ]}>
+      <Animated.View style={[styles.recallDetailPage, recallPosition && { transform: [{ translateX: recallTranslateX }] }]} {...(recallPosition ? recallPanResponder.panHandlers : {})}>
+      {recallPosition && (recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: -windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail)!} position={recallHandoff?.direction === "previous" ? recallHandoff.position : { index: recallPosition.index - 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
       <SafeAreaView style={styles.page}>
         <View style={styles.header}>
           <View style={styles.historyButtons}>
-            <Pressable accessibilityLabel={canGoBack ? "后退" : "关闭"} style={styles.historyButton} onPress={canGoBack ? onBack : onClose}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>
-            {practiceMode && canGoForward ? <Pressable accessibilityLabel="前进" style={styles.historyButton} onPress={onForward}><Ionicons name="chevron-forward" size={22} color={theme.colors.text} /></Pressable> : null}
+            {recallPosition && tab === "review" ? <View style={styles.historyButton} /> : returnLabel && tab === "review" ? <View style={styles.historyButton} /> : <Pressable accessibilityLabel={tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close")} style={styles.historyButton} onPress={tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? onBack : () => animateExit(onClose, false)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>}
+            {practiceMode && canGoForward && onForward ? <Pressable accessibilityLabel={t("card_detail.a11y.forward")} style={styles.historyButton} onPress={onForward}><Ionicons name="chevron-forward" size={22} color={theme.colors.text} /></Pressable> : null}
           </View>
-          <Text numberOfLines={1} style={styles.title}>{practiceMode ? "练习" : ""}</Text>
+          <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>
           <View style={styles.headerEnd}>
-            {practiceMode
-              ? <Pressable accessibilityLabel="退出" style={styles.iconHeaderButton} onPress={onClose}><Ionicons name="close" size={23} color={theme.colors.text} /></Pressable>
-              : <Pressable accessibilityLabel="更多操作" style={styles.iconHeaderButton} onPress={openMore} disabled={!detail}><Ionicons name="ellipsis-horizontal" size={22} color={theme.colors.text} /></Pressable>}
+            {recallPosition && tab === "review" ? <Pressable accessibilityLabel={t("recall.exit")} style={styles.iconHeaderButton} onPress={onClose}><Ionicons name="close" size={23} color={theme.colors.text} /></Pressable> : null}
+            {tab === "review" && canPracticeActiveBlock && showClozeTipButton ? <Pressable accessibilityLabel={t("card_detail.cloze.tip_button")} style={styles.iconHeaderButton} onPress={() => setClozeTipVisible(true)}><Ionicons name="bulb-outline" size={21} color="#B98516" /></Pressable> : null}
+            {tab === "review" && onUpdateContent ? <Pressable accessibilityLabel={t("card_detail.a11y.edit_card")} style={styles.iconHeaderButton} onPress={() => setEditing(true)}><Ionicons name="pencil-outline" size={21} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
+        <TtsMiniPlayer storageKey="linguaflow.tts_mini_player.card.v1" />
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {detail && tab === "review" ? <Review detail={detail} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={updateCloze} onReplaceImage={onReplaceImage} onRemoveImage={onRemoveImage} relations={relations} relationsLoading={relationsLoading} onOpenRelated={onOpenRelated} /> : null}
-        {detail && tab === "cloze" ? <Cloze detail={detail} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={updateCloze} /> : null}
-        {detail && tab === "dictation" ? <Dictation detail={detail} /> : null}
-        {detail ? <CardPracticeToolbar value={tab} onChange={setTab} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} initialFillMode={initialTab === "cloze"} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} /> : null}
+        {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
+        {clozeTipVisible ? <View pointerEvents="box-none" style={styles.clozeTipOverlay}>
+          <View style={styles.clozeTipCard}>
+            <View style={styles.clozeTipIcon}><Ionicons name="bulb-outline" size={20} color="#9A6B08" /></View>
+            <Text style={styles.clozeTipText}>{t("card_detail.cloze.onboarding")}</Text>
+            <Pressable style={styles.clozeTipDone} onPress={() => {
+              setClozeTipVisible(false);
+              setShowClozeTipButton(false);
+              void AsyncStorage.setItem(CARD_CLOZE_ONBOARDING_KEY, "1");
+            }}><Text style={styles.clozeTipDoneText}>{t("common.got_it")}</Text></Pressable>
+          </View>
+        </View> : null}
+        {returnLabel ? <Pressable accessibilityLabel={t("card_detail.a11y.back_to_map")} style={styles.recallMapReturnButton} onPress={() => animateExit(onClose, false)}><Ionicons name="map-outline" size={22} color="#fff" /></Pressable> : null}
       </SafeAreaView>
-    </View>
+      {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
+      </Animated.View>
+    </Animated.View>
   );
 }
 
-function DraftCard({ draft, sending, onClose, onChangeText, onGenerate, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage }: {
+function RecallAdjacentCard({ detail, position, canUseDictation }: { detail: CardRecordDetail; position: { index: number; total: number }; canUseDictation: boolean }) {
+  const blocks = learningContentBlocks(detail);
+  const learningBlock = blocks.find((block) => block.contentType === "rewrite")
+    ?? blocks.find((block) => block.contentType === "original")
+    ?? blocks[0];
+  if (!learningBlock) return null;
+  const previewDetail = { ...detail, languageCode: learningBlock.languageCode, rewriteSegments: learningBlock.segments, practice: learningBlock.practice };
+  const previewClozeState = asCardClozeState(learningBlock?.practice?.clozeState);
+  const contentBinding = { contentType: learningBlock.contentType, contentVersion: learningBlock.contentVersion };
+  const practiceEnabled = learningBlock.contentType !== "original" || canUseDictation;
+  return <SafeAreaView style={styles.recallAdjacentSafeArea}>
+    <View style={styles.header}><View style={styles.historyButtons}><View style={styles.historyButton} /></View><Text style={styles.title}>{position.index + 1} / {position.total}</Text><View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Ionicons name="close" size={23} color={theme.colors.text} /></View></View></View>
+    <Review
+      detail={previewDetail}
+      imageAdding={false}
+      contentBinding={contentBinding}
+      practiceEnabled={practiceEnabled}
+      canUseDictation={canUseDictation}
+      initialFillMode
+      clozeState={previewClozeState}
+      clozeVersion={learningBlock.practice?.clozeVersion ?? 0}
+      onClozeChange={() => undefined}
+      relations={[]}
+      onOpenDictation={() => undefined}
+      onRecallFinish={position.index === position.total - 1 ? () => undefined : undefined}
+    />
+  </SafeAreaView>;
+}
+
+function learningContentBlocks(detail: CardRecordDetail): CardRecordDetail["contentBlocks"] {
+  if (detail.contentBlocks?.length) return detail.contentBlocks;
+  if (!detail.rewriteSegments.length) return [];
+  return [{
+    contentType: detail.rewrittenText ? "rewrite" : "original",
+    contentVersion: "legacy",
+    text: detail.rewrittenText ?? detail.originalText,
+    languageCode: detail.languageCode,
+    segments: detail.rewriteSegments,
+    practice: detail.practice,
+  }];
+}
+
+function contentPractice(detail: CardRecordDetail, binding: CardContentBinding): CardRecordDetail["practice"] {
+  return detail.contentBlocks?.find((block) =>
+    block.contentType === binding.contentType && block.contentVersion === binding.contentVersion,
+  )?.practice ?? null;
+}
+
+function CardEditorHeader({ title, disabled, onClose }: { title: string; disabled: boolean; onClose: () => void }) {
+  return <View style={styles.header}>
+    <View style={styles.draftHeaderSide}>
+      <Pressable accessibilityLabel={t("card_detail.a11y.close")} style={styles.draftCloseButton} disabled={disabled} onPress={onClose}>
+        <Ionicons name="close-outline" size={30} color={theme.colors.text} />
+      </Pressable>
+    </View>
+    <Text style={styles.draftCreateTitle}>{title}</Text>
+    <View style={styles.draftHeaderSide} />
+  </View>;
+}
+
+function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveImage, onCancel, onSave }: {
+  detail: CardRecordDetail;
+  limits: CardCapabilities["limits"];
+  imageAdding: boolean;
+  onAddImage?: (source: "camera" | "library", asset?: { uri: string; width: number; height: number }) => void;
+  onRemoveImage?: (imageId?: string) => void;
+  onCancel: () => void;
+  onSave: (input: { title: string | null; originalText: string; collectionId: string | null; selectedTargets: Array<"expression" | "translation" | "reply"> }) => Promise<void>;
+}) {
+  const [title, setTitle] = useState(detail.title ?? "");
+  const [originalText, setOriginalText] = useState(detail.originalText);
+  const rewrittenText = detail.rewrittenText ?? "";
+  const [collectionId, setCollectionId] = useState<string | null>(detail.collectionId ?? null);
+  const [collections, setCollections] = useState<CardCollection[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [selectedTargets, setSelectedTargets] = useState<Record<"expression" | "translation" | "reply", boolean>>({
+    expression: Boolean(detail.rewrittenText),
+    translation: Boolean(detail.translationText),
+    reply: Boolean(detail.replyText),
+  });
+  const [photoRailVisible, setPhotoRailVisible] = useState(false);
+  const [aiMenuVisible, setAiMenuVisible] = useState(false);
+  const [recentPhotos, setRecentPhotos] = useState<MediaLibrary.Asset[]>([]);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const images = useMemo(
+    () => detail.images?.length ? detail.images : detail.image ? [detail.image] : [],
+    [detail.images, detail.image],
+  );
+  const originalStt = useRealtimeSttInput({ value: originalText, onChangeText: setOriginalText, disabled: saving });
+  useEffect(() => { void getCardCollections().then((value) => setCollections(value.collections)).catch(() => undefined); }, []);
+  const dirty = title !== (detail.title ?? "")
+    || originalText !== detail.originalText
+    || selectedTargets.expression !== Boolean(detail.rewrittenText)
+    || selectedTargets.translation !== Boolean(detail.translationText)
+    || selectedTargets.reply !== Boolean(detail.replyText)
+    || collectionId !== (detail.collectionId ?? null);
+  const originalChanged = normalizeCardBodyText(originalText) !== normalizeCardBodyText(detail.originalText);
+  const primary = (rewrittenText || originalText).trim();
+  const canSave = primary.length > 0 && countGraphemes(primary) <= limits.contentChars && !saving;
+  async function save(): Promise<void> {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await onSave({
+        title: title.trim() || null,
+        originalText: originalText.trim(),
+        collectionId,
+        selectedTargets: (["expression", "translation", "reply"] as const).filter((target) => selectedTargets[target]),
+      });
+    } catch (error) {
+      Alert.alert(t("card_detail.error.save"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+    } finally {
+      setSaving(false);
+    }
+  }
+  function cancel(): void {
+    if (!dirty) { onCancel(); return; }
+    Alert.alert(t("card_detail.unsaved_title"), t("card_detail.unsaved_message"), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("card_detail.discard_changes"), style: "destructive", onPress: onCancel },
+    ]);
+  }
+  async function togglePhotoRail(): Promise<void> {
+    if (photoRailVisible) { setPhotoRailVisible(false); return; }
+    Keyboard.dismiss();
+    setPhotoRailVisible(true);
+    setPhotosLoading(true);
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync(false, ["photo"]);
+      if (!permission.granted) {
+        Alert.alert(t("card_detail.photo.permission_title"), t("card_detail.photo.permission_message"));
+        return;
+      }
+      const page = await MediaLibrary.getAssetsAsync({ first: 20, mediaType: MediaLibrary.MediaType.photo, sortBy: [[MediaLibrary.SortBy.creationTime, false]] });
+      setRecentPhotos(page.assets);
+    } catch {
+      Alert.alert(t("card_detail.photo.read_failed_title"), t("card_detail.photo.read_failed_message"));
+    } finally { setPhotosLoading(false); }
+  }
+  function openImageActions(): void {
+    if (images.length >= limits.imagesPerCard) {
+      Alert.alert(t("card_detail.photo.limit_title"), t("card_detail.photo.limit_message"));
+      return;
+    }
+    void togglePhotoRail();
+  }
+  async function selectRecentPhoto(asset: MediaLibrary.Asset): Promise<void> {
+    try {
+      const info = await MediaLibrary.getAssetInfoAsync(asset);
+      onAddImage?.("library", { uri: info.localUri || info.uri, width: info.width, height: info.height });
+      setPhotoRailVisible(false);
+    } catch {
+      Alert.alert(t("card_detail.photo.asset_failed_title"), t("card_detail.photo.asset_failed_message"));
+    }
+  }
+  return <View style={styles.fullscreen}>
+    <SafeAreaView style={styles.page}>
+      <CardEditorHeader title={t("card_detail.edit_card")} disabled={saving} onClose={cancel} />
+      <KeyboardAvoidingView style={styles.draftContentPage} behavior="height">
+        <>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.draftEditorContent} showsVerticalScrollIndicator={false} alwaysBounceVertical={false} bounces={false}>
+            <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={(imageId) => onRemoveImage?.(imageId)} />
+            <CollectionPickerRow collections={collections} value={collectionId} onChange={setCollectionId} />
+            <TextInput value={title} editable={!saving} maxLength={limits.titleChars} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.draftTitleInput} onChangeText={setTitle} />
+            <View style={styles.draftOriginalEditor}>
+              <TextInput multiline scrollEnabled={false} value={originalText} editable={!saving} onChangeText={originalStt.onChangeText} onSelectionChange={(event) => originalStt.onSelectionChange(event.nativeEvent.selection)} maxLength={limits.contentChars} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={[styles.draftBlockInput, styles.draftBlockInputFeatured]} textAlignVertical="top" />
+            </View>
+            {originalChanged && Object.values(selectedTargets).some(Boolean) ? <View style={styles.staleContentNotice}><Ionicons name="sparkles-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.staleContentNoticeText}>{t("card_detail.stale_content_notice")}</Text></View> : null}
+          </ScrollView>
+          {photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} onDismiss={() => setPhotoRailVisible(false)} onSelect={(asset) => void selectRecentPhoto(asset)} onTakePhoto={() => { setPhotoRailVisible(false); onAddImage?.("camera"); }} onOpenAll={() => { setPhotoRailVisible(false); onAddImage?.("library"); }} /> : null}
+        </>
+        {aiMenuVisible ? <Pressable accessibilityLabel={t("card_detail.a11y.close_ai_menu")} style={styles.draftAiDismissLayer} onPress={() => setAiMenuVisible(false)} /> : null}
+        {aiMenuVisible ? <DraftAiMenu
+          selected={selectedTargets}
+          onChoose={(target) => {
+            setSelectedTargets((current) => ({ ...current, [target]: !current[target] }));
+          }}
+          onRemove={(target) => {
+            setSelectedTargets((current) => ({ ...current, [target]: false }));
+          }}
+        /> : null}
+        <DraftComposerToolbar
+          imageCount={images.length}
+          aiModuleCount={Object.values(selectedTargets).filter(Boolean).length}
+          sttStatus={originalStt.status}
+          sttAudioLevel={originalStt.audioLevel}
+          disabled={saving}
+          onCamera={() => onAddImage?.("camera")}
+          onRecentPhotos={openImageActions}
+          onAi={() => setAiMenuVisible((visible) => !visible)}
+          onStt={() => void originalStt.toggle()}
+          canSave={canSave}
+          onSave={() => void save()}
+        />
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  </View>;
+}
+
+function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onCollectionChange, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage }: {
   draft: CardDraft;
   sending: boolean;
+  imageAdding: boolean;
+  safeArea?: { top: number; bottom: number };
+  limits: CardCapabilities["limits"];
+  collections: CardCollection[];
   onClose: () => void;
   onChangeText?: (text: string) => void;
-  onGenerate?: () => void;
+  onChangeField?: (field: "title" | "rewrittenText" | "translationText" | "replyText", value: string) => void;
+  onEnabledLayersChange?: (layers: CardDraft["enabledLayers"]) => void;
+  onCollectionChange?: (collectionId: string | null) => void;
+  onSave?: (initialTab?: DetailTab) => void;
   onChooseImage?: () => void;
   onTakePhoto?: () => void;
   onSelectImage?: (asset: { uri: string; width: number; height: number }) => void;
-  onRemoveImage?: () => void;
+  onRemoveImage?: (localUri?: string) => void;
 }) {
   const processing = draft.submitted;
   const count = countGraphemes(draft.text);
-  const canGenerate = count > 0 && count <= 3_000 && (!draft.image || draft.image.status === "ready");
+  const imagesReady = draft.images.every((image) => image.status === "ready");
+  const canSave = count > 0 && count <= limits.contentChars && imagesReady;
   const [photoRailVisible, setPhotoRailVisible] = useState(false);
   const [recentPhotos, setRecentPhotos] = useState<MediaLibrary.Asset[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
+  const [aiMenuVisible, setAiMenuVisible] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [editingOriginal, setEditingOriginal] = useState(true);
+  const originalInputRef = useRef<TextInput>(null);
+  const originalStt = useRealtimeSttInput({ value: draft.text, onChangeText, disabled: sending });
+  useEffect(() => {
+    const timer = setTimeout(() => originalInputRef.current?.focus(), 320);
+    return () => clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    const shown = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
+    const hidden = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+      setAiMenuVisible(false);
+      if (originalStt.status === "idle") setEditingOriginal(false);
+    });
+    return () => { shown.remove(); hidden.remove(); };
+  }, [originalStt.status]);
+  useEffect(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+  }, [editingOriginal, keyboardVisible]);
+  function beginEditingOriginal(): void {
+    setEditingOriginal(true);
+    setTimeout(() => originalInputRef.current?.focus(), 0);
+  }
   async function togglePhotoRail(): Promise<void> {
     if (photoRailVisible) {
       setPhotoRailVisible(false);
       return;
     }
+    Keyboard.dismiss();
+    setPhotoRailVisible(true);
     setPhotosLoading(true);
     try {
       const permission = await MediaLibrary.requestPermissionsAsync(false, ["photo"]);
       if (!permission.granted) {
-        Alert.alert("需要照片权限", "允许访问照片后，才能在这里显示最近照片。");
+        Alert.alert(t("card_detail.photo.permission_title"), t("card_detail.photo.permission_message"));
         return;
       }
       const page = await MediaLibrary.getAssetsAsync({
@@ -201,153 +669,440 @@ function DraftCard({ draft, sending, onClose, onChangeText, onGenerate, onChoose
         sortBy: [[MediaLibrary.SortBy.creationTime, false]],
       });
       setRecentPhotos(page.assets);
-      setPhotoRailVisible(true);
     } catch {
-      Alert.alert("暂时无法读取照片", "可以使用“全部照片”从系统相册选择。");
+      Alert.alert(t("card_detail.photo.read_failed_title"), t("card_detail.photo.read_failed_message"));
     } finally {
       setPhotosLoading(false);
     }
   }
+  function openImageActions(): void {
+    if (draft.images.length >= limits.imagesPerCard) {
+      Alert.alert(t("card_detail.photo.limit_title"), t("card_detail.photo.limit_message"));
+      return;
+    }
+    void togglePhotoRail();
+  }
+  function openDraftAdditions(): void {
+    setAiMenuVisible((visible) => !visible);
+  }
+  function confirmRemoveDraftImage(localUri: string): void {
+    Alert.alert(t("card_detail.photo.remove_title"), undefined, [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("common.delete"), style: "destructive", onPress: () => onRemoveImage?.(localUri) },
+    ]);
+  }
   async function selectRecentPhoto(asset: MediaLibrary.Asset): Promise<void> {
+    if (draft.images.length >= limits.imagesPerCard) {
+      Alert.alert(t("card_detail.photo.limit_title"), t("card_detail.photo.limit_message"));
+      return;
+    }
     try {
       const info = await MediaLibrary.getAssetInfoAsync(asset);
       onSelectImage?.({ uri: info.localUri || info.uri, width: info.width, height: info.height });
       setPhotoRailVisible(false);
     } catch {
-      Alert.alert("无法读取这张照片", "请从系统相册重新选择。");
+      Alert.alert(t("card_detail.photo.asset_failed_title"), t("card_detail.photo.asset_failed_message"));
     }
   }
   return (
     <View style={styles.fullscreen}>
-      <SafeAreaView style={styles.page}>
-        <View style={styles.header}>
-          <View style={styles.draftHeaderSide}>
-            <Pressable style={styles.draftHeaderButton} disabled={sending} onPress={onClose}>
-              <Text style={styles.draftHeaderText}>{processing ? "完成" : "取消"}</Text>
-            </Pressable>
-          </View>
-          <View style={styles.draftHeaderCenter} />
-          <View style={styles.draftHeaderSide} />
-        </View>
+      <SafeAreaView edges={safeArea ? [] : undefined} style={[styles.page, safeArea ? { paddingTop: safeArea.top, paddingBottom: safeArea.bottom } : null]}>
+        <CardEditorHeader title={t("card_detail.create_card")} disabled={sending} onClose={onClose} />
         {processing ? (
-          <ScrollView contentContainerStyle={styles.draftContent}>
+          <ScrollView contentContainerStyle={styles.draftContent} showsVerticalScrollIndicator={false} alwaysBounceVertical={false} bounces={false}>
             <Text style={styles.date}>{formatDraftDate()}</Text>
-            {draft.image ? <Image source={{ uri: draft.image.localUri }} style={styles.draftImage} resizeMode="cover" /> : null}
+            {draft.images[0] ? <Image source={{ uri: draft.images[0].localUri }} style={styles.draftImage} resizeMode="cover" /> : null}
             <Text style={styles.original}>{draft.text}</Text>
             <View style={styles.divider} />
             <DraftProcessingLines />
           </ScrollView>
         ) : (
-          <View style={styles.draftContentPage}>
+          <KeyboardAvoidingView style={styles.draftContentPage} behavior="height">
+            <>
             <ScrollView
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.draftEditorContent}
               showsVerticalScrollIndicator={false}
+              alwaysBounceVertical={false}
+              bounces={false}
             >
-              <Text style={styles.date}>{formatDraftDate()}</Text>
-              {draft.image ? (
-                <View style={[styles.draftImageWrap, { aspectRatio: Math.max(0.8, Math.min(1.8, draft.image.width / draft.image.height)) }]}>
-                  <Image source={{ uri: draft.image.localUri }} style={styles.draftImageFill} resizeMode="cover" />
-                  {draft.image.status === "uploading" || draft.image.status === "moderating" ? <View style={styles.draftImageOverlay}><ActivityIndicator color={theme.colors.surface} /></View> : null}
-                  {draft.image.status === "failed" ? <View style={styles.draftImageOverlay}><Ionicons name="alert-circle-outline" size={24} color={theme.colors.surface} /></View> : null}
-                  <Pressable accessibilityLabel="移除图片" style={styles.draftImageRemove} onPress={onRemoveImage}><Ionicons name="close" size={16} color={theme.colors.surface} /></Pressable>
-                </View>
-              ) : null}
+              <CollectionPickerRow collections={collections} value={draft.collectionId} onChange={(collectionId) => onCollectionChange?.(collectionId)} />
               <TextInput
-                autoFocus
-                multiline
-                scrollEnabled={false}
-                value={draft.text}
+                value={draft.title}
                 editable={!sending}
-                maxLength={10_000}
-                placeholder="写下这一刻……"
+                maxLength={limits.titleChars}
+                placeholder={t("card_detail.title_optional")}
                 placeholderTextColor={theme.colors.textMuted}
-                style={styles.draftInput}
-                textAlignVertical="top"
-                onChangeText={onChangeText}
+                style={styles.draftTitleInput}
+                onChangeText={(value) => onChangeField?.("title", value)}
               />
-              <View style={styles.draftExpressionDivider} />
-              <View style={styles.draftExpressionPlaceholder}>
-                <Pressable
-                  accessibilityLabel="生成更自然的表达"
-                  disabled={sending || !canGenerate}
-                  style={[styles.draftRewriteButton, !canGenerate && styles.draftRewriteButtonDisabled]}
-                  onPress={onGenerate}
-                >
-                  {sending
-                    ? <ActivityIndicator size="small" color={theme.colors.accentStrong} />
-                    : <Text style={styles.draftRewriteButtonText}>生成表达</Text>}
-                </Pressable>
+              <CardImageGallery
+                images={draft.images.map((image) => ({
+                  key: image.localUri,
+                  url: image.localUri,
+                  thumbnailUrl: image.localUri,
+                  width: image.width,
+                  height: image.height,
+                  status: image.status === "pending" ? "uploading" : image.status === "uploading" || image.status === "moderating" || image.status === "failed" ? image.status : undefined,
+                }))}
+                loading={imageAdding}
+                dateLabel={formatDraftDate()}
+                onRemove={confirmRemoveDraftImage}
+              />
+              <View style={styles.draftOriginalEditor}>
+                <TextInput
+                  ref={originalInputRef}
+                  multiline
+                  scrollEnabled={false}
+                  showSoftInputOnFocus
+                  value={draft.text}
+                  editable={!sending}
+                  maxLength={limits.contentChars}
+                  placeholder={t("card_detail.original_placeholder")}
+                  placeholderTextColor={theme.colors.textMuted}
+                  style={[styles.draftBlockInput, styles.draftBlockInputFeatured]}
+                  textAlignVertical="top"
+                  onChangeText={originalStt.onChangeText}
+                  onSelectionChange={(event) => originalStt.onSelectionChange(event.nativeEvent.selection)}
+                />
               </View>
             </ScrollView>
-            {photoRailVisible ? (
-              <ScrollView horizontal style={styles.photoRail} contentContainerStyle={styles.photoRailContent} showsHorizontalScrollIndicator={false}>
-                {recentPhotos.map((asset) => (
-                  <Pressable key={asset.id} accessibilityLabel={`选择照片 ${asset.filename}`} style={styles.photoRailItem} onPress={() => void selectRecentPhoto(asset)}>
-                    <Image source={{ uri: asset.uri }} style={styles.photoRailImage} />
-                  </Pressable>
-                ))}
-                <Pressable accessibilityLabel="打开全部照片" style={styles.photoRailAll} onPress={() => {
-                  setPhotoRailVisible(false);
-                  onChooseImage?.();
-                }}>
-                  <Ionicons name="images-outline" size={22} color={theme.colors.textSecondary} />
-                  <Text style={styles.photoRailAllText}>全部照片</Text>
-                </Pressable>
-              </ScrollView>
-            ) : null}
-            <CardPageToolbar>
-              <Pressable accessibilityLabel={photoRailVisible ? "收起照片栏" : draft.image ? "更换图片" : "添加图片"} style={styles.draftToolButton} onPress={() => void togglePhotoRail()}>
-                <Ionicons name={draft.image ? "images-outline" : "image-outline"} size={22} color={theme.colors.textSecondary} />
-              </Pressable>
-              <Pressable accessibilityLabel="拍照" style={styles.draftToolButton} disabled={sending} onPress={onTakePhoto}>
-                <Ionicons name="camera-outline" size={23} color={theme.colors.textSecondary} />
-              </Pressable>
-              {photosLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : null}
-              {draft.image?.status === "failed" ? <Text style={styles.draftImageError}>图片处理失败</Text> : null}
-              <View style={styles.draftToolbarSpacer} />
-              {count > 2_700 ? <Text style={[styles.draftCounter, count > 3_000 && styles.draftCounterError]}>{count} / 3000</Text> : null}
-            </CardPageToolbar>
-          </View>
+            {photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} onDismiss={() => setPhotoRailVisible(false)} onSelect={(asset) => void selectRecentPhoto(asset)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
+            </>
+            {aiMenuVisible ? <Pressable accessibilityLabel={t("card_detail.a11y.close_ai_menu")} style={styles.draftAiDismissLayer} onPress={() => setAiMenuVisible(false)} /> : null}
+            {aiMenuVisible ? <DraftAiMenu
+              selected={draft.enabledLayers}
+              onChoose={(target) => onEnabledLayersChange?.({ ...draft.enabledLayers, [target]: !draft.enabledLayers[target] })}
+              onRemove={(target) => onEnabledLayersChange?.({ ...draft.enabledLayers, [target]: false })}
+            /> : null}
+            <DraftComposerToolbar
+              imageCount={draft.images.length}
+              aiModuleCount={Object.values(draft.enabledLayers).filter(Boolean).length}
+              sttStatus={originalStt.status}
+              sttAudioLevel={originalStt.audioLevel}
+              disabled={sending}
+              onCamera={() => onTakePhoto?.()}
+              onRecentPhotos={openImageActions}
+              onAi={openDraftAdditions}
+              onStt={() => { beginEditingOriginal(); setTimeout(() => void originalStt.toggle(), 0); }}
+              canSave={canSave}
+              onSave={() => onSave?.("review")}
+            />
+          </KeyboardAvoidingView>
         )}
       </SafeAreaView>
     </View>
   );
 }
 
-function CardPageToolbar({ children }: { children: React.ReactNode }) {
-  return <View style={styles.cardPageToolbar}>{children}</View>;
+function RecentPhotoLayer({ assets, loading, onDismiss, onSelect, onTakePhoto, onOpenAll }: {
+  assets: MediaLibrary.Asset[];
+  loading: boolean;
+  onDismiss: () => void;
+  onSelect: (asset: MediaLibrary.Asset) => void;
+  onTakePhoto: () => void;
+  onOpenAll: () => void;
+}) {
+  const { height } = useWindowDimensions();
+  const progress = useRef(new Animated.Value(0)).current;
+  const dismissingRef = useRef(false);
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 240,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [progress]);
+  function dismiss(afterDismiss?: () => void): void {
+    if (dismissingRef.current) return;
+    dismissingRef.current = true;
+    Animated.timing(progress, {
+      toValue: 0,
+      duration: 190,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        onDismiss();
+        afterDismiss?.();
+      }
+      else dismissingRef.current = false;
+    });
+  }
+  return <View style={styles.photoLayer}>
+    <Animated.View style={[styles.photoLayerDismiss, { opacity: progress }]}>
+      <Pressable accessibilityLabel={t("card_detail.a11y.close_recent_photos")} style={StyleSheet.absoluteFill} onPress={() => dismiss()} />
+    </Animated.View>
+    <Animated.View style={[styles.photoLayerPanel, { transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [Math.max(330, height * 0.58), 0] }) }] }]}>
+      <View style={styles.photoLayerHeader}>
+        <Text style={styles.photoLayerTitle}>{t("card_detail.photo.recent")}</Text>
+        <Pressable accessibilityLabel={t("card_detail.a11y.close_recent_photos")} hitSlop={8} style={styles.photoLayerClose} onPress={() => dismiss()}>
+          <Ionicons name="close" size={21} color={theme.colors.text} />
+        </Pressable>
+      </View>
+      <ScrollView style={styles.photoGridScroll} contentContainerStyle={styles.photoGrid} showsVerticalScrollIndicator={false}>
+        {loading ? <View style={styles.photoGridLoading}><ActivityIndicator color={theme.colors.textMuted} /></View> : null}
+        {assets.map((asset) => (
+          <Pressable key={asset.id} accessibilityLabel={tf("card_detail.a11y.choose_photo", { filename: asset.filename })} style={styles.photoGridItem} onPress={() => dismiss(() => onSelect(asset))}>
+            <Image source={{ uri: asset.uri }} style={styles.photoRailImage} />
+          </Pressable>
+        ))}
+      </ScrollView>
+      <View style={styles.photoLayerActions}>
+        <Pressable accessibilityLabel={t("card_detail.a11y.take_photo")} style={styles.photoLayerAction} onPress={() => dismiss(onTakePhoto)}>
+          <Ionicons name="camera-outline" size={20} color={theme.colors.text} />
+          <Text style={styles.photoLayerActionText}>{t("card_detail.photo.camera")}</Text>
+        </Pressable>
+        <Pressable accessibilityLabel={t("card_detail.a11y.open_all_photos")} style={styles.photoLayerAction} onPress={() => dismiss(onOpenAll)}>
+          <Ionicons name="images-outline" size={20} color={theme.colors.text} />
+          <Text style={styles.photoLayerActionText}>{t("card_detail.photo.library")}</Text>
+        </Pressable>
+      </View>
+    </Animated.View>
+  </View>;
 }
 
-function CardPracticeToolbar({ value, onChange }: {
-  value: DetailTab;
-  onChange: (value: DetailTab) => void;
+type DictationSentence = { key: string; text: string };
+
+type DictationWord = {
+  index: number;
+  start: number;
+  end: number;
+  normalized: string;
+};
+
+type DictationWordComparison = {
+  actualWords: DictationWord[];
+  expectedWords: DictationWord[];
+  matchedActual: Set<number>;
+  matchedExpected: Set<number>;
+  correct: boolean;
+};
+
+function segmentDictationWords(value: string): DictationWord[] {
+  const Segmenter = (Intl as unknown as {
+    Segmenter?: new (
+      locale?: string,
+      options?: { granularity: "word" },
+    ) => { segment(text: string): Iterable<{ segment: string; index: number; isWordLike?: boolean }> };
+  }).Segmenter;
+  if (Segmenter) {
+    return Array.from(new Segmenter(getLanguage(), { granularity: "word" }).segment(value))
+      .filter(({ segment, isWordLike }) => isWordLike ?? /[\p{L}\p{M}\p{N}]/u.test(segment))
+      .map(({ segment, index }, wordIndex) => ({
+        index: wordIndex,
+        start: index,
+        end: index + segment.length,
+        normalized: normalizeDictationWord(segment),
+      }));
+  }
+  const words: DictationWord[] = [];
+  const pattern = /[\p{Script=Han}]|[\p{Script=Hiragana}\p{Script=Katakana}]+|[\p{L}\p{M}\p{N}]+(?:['’\-][\p{L}\p{M}\p{N}]+)*/gu;
+  for (const match of value.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    words.push({
+      index: words.length,
+      start,
+      end: start + match[0].length,
+      normalized: normalizeDictationWord(match[0]),
+    });
+  }
+  return words;
+}
+
+function normalizeDictationWord(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/’/g, "'");
+}
+
+function compareDictationWords(actualText: string, expectedText: string): DictationWordComparison {
+  const actualWords = segmentDictationWords(actualText);
+  const expectedWords = segmentDictationWords(expectedText);
+  const rows = actualWords.length + 1;
+  const columns = expectedWords.length + 1;
+  const table = Array.from({ length: rows }, () => Array<number>(columns).fill(0));
+  for (let actualIndex = 1; actualIndex < rows; actualIndex += 1) {
+    for (let expectedIndex = 1; expectedIndex < columns; expectedIndex += 1) {
+      table[actualIndex][expectedIndex] = actualWords[actualIndex - 1].normalized === expectedWords[expectedIndex - 1].normalized
+        ? table[actualIndex - 1][expectedIndex - 1] + 1
+        : Math.max(table[actualIndex - 1][expectedIndex], table[actualIndex][expectedIndex - 1]);
+    }
+  }
+  const matchedActual = new Set<number>();
+  const matchedExpected = new Set<number>();
+  let actualIndex = actualWords.length;
+  let expectedIndex = expectedWords.length;
+  while (actualIndex > 0 && expectedIndex > 0) {
+    if (actualWords[actualIndex - 1].normalized === expectedWords[expectedIndex - 1].normalized) {
+      matchedActual.add(actualIndex - 1);
+      matchedExpected.add(expectedIndex - 1);
+      actualIndex -= 1;
+      expectedIndex -= 1;
+    } else if (table[actualIndex - 1][expectedIndex] >= table[actualIndex][expectedIndex - 1]) {
+      actualIndex -= 1;
+    } else {
+      expectedIndex -= 1;
+    }
+  }
+  const correct = actualWords.length > 0
+    && actualWords.length === expectedWords.length
+    && matchedActual.size === actualWords.length;
+  return { actualWords, expectedWords, matchedActual, matchedExpected, correct };
+}
+
+function renderDictationWordResult(text: string, words: DictationWord[], matched: Set<number>): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  words.forEach((word) => {
+    if (cursor < word.start) nodes.push(<Text key={`plain-${cursor}`}>{text.slice(cursor, word.start)}</Text>);
+    nodes.push(
+      <Text key={`word-${word.index}-${word.start}`} style={matched.has(word.index) ? styles.correct : styles.incorrect}>
+        {text.slice(word.start, word.end)}
+      </Text>,
+    );
+    cursor = word.end;
+  });
+  if (cursor < text.length) nodes.push(<Text key={`plain-${cursor}`}>{text.slice(cursor)}</Text>);
+  return nodes;
+}
+
+function DictationPracticeView({ sentences, onPlay }: {
+  sentences: DictationSentence[];
+  onPlay: (sentence: DictationSentence) => Promise<void>;
 }) {
-  const items: Array<{ value: DetailTab; label: string; icon: React.ComponentProps<typeof Ionicons>["name"] }> = [
-    { value: "review", label: "回看", icon: "book-outline" },
-    { value: "cloze", label: "填空", icon: "create-outline" },
-    { value: "dictation", label: "听写", icon: "headset-outline" },
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [checked, setChecked] = useState<Record<string, "correct" | "incorrect">>({});
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [speakingKey, setSpeakingKey] = useState<string | null>(null);
+  useEffect(() => { setAnswers({}); setChecked({}); setRevealed({}); }, [sentences.map((sentence) => sentence.key).join("|")]);
+  async function play(sentence: DictationSentence): Promise<void> {
+    if (speakingKey) return;
+    setSpeakingKey(sentence.key);
+    try { await onPlay(sentence); } finally { setSpeakingKey(null); }
+  }
+  function checkSentence(sentence: DictationSentence): void {
+    if (!answers[sentence.key]?.trim()) return;
+    const comparison = compareDictationWords(answers[sentence.key] ?? "", sentence.text);
+    setChecked((current) => ({ ...current, [sentence.key]: comparison.correct ? "correct" : "incorrect" }));
+  }
+  return <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.practiceContent} alwaysBounceVertical={false}>
+    <View style={styles.dictationSentenceList}>{sentences.map((sentence, index) => {
+      const result = checked[sentence.key];
+      const answer = answers[sentence.key] ?? "";
+      const comparison = result ? compareDictationWords(answer, sentence.text) : null;
+      return <View key={sentence.key} style={styles.dictationSentenceRow}>
+        <View style={styles.dictationSentenceBody}>
+          <Text style={styles.dictationSentenceNumber}>{index + 1}</Text>
+          <View style={styles.dictationSentenceInputStack}>
+            <View pointerEvents="none" style={styles.dictationSentenceTextOverlay}>
+              <Text style={styles.dictationSentenceDisplayText}>
+                {comparison
+                  ? renderDictationWordResult(answer, comparison.actualWords, comparison.matchedActual)
+                  : answer}
+              </Text>
+            </View>
+            <TextInput multiline scrollEnabled={false} value={answer} onChangeText={(value) => {
+              setAnswers((current) => ({ ...current, [sentence.key]: value }));
+              setChecked((current) => { const next = { ...current }; delete next[sentence.key]; return next; });
+              setRevealed((current) => { const next = { ...current }; delete next[sentence.key]; return next; });
+            }} style={styles.dictationSentenceInput} placeholder="" placeholderTextColor={theme.colors.textMuted} selectionColor={theme.colors.accentStrong} textAlignVertical="top" />
+          </View>
+          <View style={styles.dictationSentenceActions}>
+            <Pressable accessibilityLabel={tf("card_detail.a11y.check_sentence", { index: index + 1 })} disabled={!answer.trim()} style={[styles.dictationSentenceAction, !answer.trim() && styles.dictationSentenceActionDisabled]} onPress={() => checkSentence(sentence)}><Ionicons name={result === "correct" ? "checkmark-circle" : "checkmark-circle-outline"} size={21} color={result === "correct" ? theme.colors.success : theme.colors.textSecondary} /></Pressable>
+            <Pressable accessibilityLabel={tf("card_detail.a11y.show_sentence_answer", { index: index + 1 })} style={styles.dictationSentenceAction} onPress={() => setRevealed((current) => ({ ...current, [sentence.key]: !current[sentence.key] }))}><Ionicons name={revealed[sentence.key] ? "eye-off-outline" : "eye-outline"} size={21} color={theme.colors.textSecondary} /></Pressable>
+            <Pressable accessibilityLabel={tf("card_detail.a11y.play_sentence_number", { index: index + 1 })} style={styles.dictationSentenceAction} disabled={Boolean(speakingKey)} onPress={() => void play(sentence)}>{speakingKey === sentence.key ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Ionicons name="volume-high-outline" size={20} color={theme.colors.textSecondary} />}</Pressable>
+          </View>
+          {revealed[sentence.key] ? <Text selectable style={styles.dictationSentenceAnswer}>{sentence.text}</Text> : null}
+        </View>
+      </View>;
+    })}</View>
+  </ScrollView>;
+}
+
+function CollectionPickerRow({ collections, value, onChange }: {
+  collections: CardCollection[];
+  value: string | null;
+  onChange: (collectionId: string | null) => void;
+}) {
+  const [visible, setVisible] = useState(false);
+  const selected = collections.find((collection) => collection.id === value);
+  return <>
+    <Pressable accessibilityLabel={t("card_detail.a11y.choose_collection")} style={styles.collectionPickerRow} onPress={() => setVisible(true)}>
+      <View style={styles.collectionPickerLabel}><Ionicons name="folder-outline" size={17} color={theme.colors.textMuted} /><Text style={styles.collectionPickerLabelText}>{t("card_detail.collection")}</Text></View>
+      <Text numberOfLines={1} style={styles.collectionPickerValue}>{selected ? collectionPathName(selected, collections) : t("sidebar.unclassified")}</Text>
+      <Ionicons name="chevron-forward" size={17} color={theme.colors.textMuted} />
+    </Pressable>
+    <CollectionPickerModal visible={visible} title={t("card_detail.choose_collection")} collections={collections} value={value} onClose={() => setVisible(false)} onSelect={(collectionId) => onChange(collectionId ?? null)} />
+  </>;
+}
+
+function DraftAiMenu({ selected, onChoose, onRemove }: {
+  selected: Record<"expression" | "translation" | "reply", boolean>;
+  onChoose: (key: "expression" | "translation" | "reply") => void;
+  onRemove: (key: "expression" | "translation" | "reply") => void;
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(progress, { toValue: 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [progress]);
+  const items = [
+    { key: "translation" as const, label: t("card_detail.module.translation_description") },
+    { key: "reply" as const, label: t("card_detail.module.reply_description") },
+    { key: "expression" as const, label: t("card_detail.module.expression_description") },
   ];
-  return (
-    <CardPageToolbar>
-      {items.map((item) => {
-        const active = value === item.value;
-        return (
-          <Pressable
-            key={item.value}
-            accessibilityLabel={item.label}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            style={styles.practiceToolButton}
-            onPress={() => onChange(item.value)}
-          >
-            <Ionicons name={item.icon} size={21} color={active ? theme.colors.accentStrong : theme.colors.textMuted} />
-            <Text style={[styles.practiceToolText, active && styles.practiceToolTextActive]}>{item.label}</Text>
-          </Pressable>
-        );
-      })}
-    </CardPageToolbar>
-  );
+  return <Animated.View style={[styles.draftAiMenu, { bottom: 62, opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }] }>
+    {items.map((item) => <Pressable key={item.key} style={styles.draftAiMenuItem} onPress={() => selected[item.key] ? onRemove(item.key) : onChoose(item.key)}>
+      <View style={styles.draftAiMenuIcon}><Ionicons name={selected[item.key] ? "checkmark-circle" : "ellipse-outline"} size={19} color={selected[item.key] ? theme.colors.accentStrong : theme.colors.textMuted} /></View>
+      <Text style={styles.draftAiMenuLabel}>{item.label}</Text>
+    </Pressable>)}
+  </Animated.View>;
+}
+
+function DraftComposerToolbar({ imageCount, aiModuleCount, sttStatus, sttAudioLevel, disabled, onCamera, onRecentPhotos, onAi, onStt, canSave, onSave }: {
+  imageCount: number;
+  aiModuleCount: number;
+  sttStatus: RealtimeSttInputStatus;
+  sttAudioLevel: number;
+  disabled: boolean;
+  onCamera: () => void;
+  onRecentPhotos: () => void;
+  onAi: () => void;
+  onStt: () => void;
+  canSave?: boolean;
+  onSave?: () => void;
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(progress, { toValue: 1, duration: 170, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [progress]);
+  const tools: Array<{
+    key: string;
+    label: string;
+    icon: React.ComponentProps<typeof Ionicons>["name"];
+    count?: number;
+    onPress: () => void;
+  }> = [
+    { key: "camera", label: t("card_detail.photo.camera"), icon: "camera-outline", onPress: onCamera },
+    { key: "recent", label: t("card_detail.photo.recent"), icon: "images-outline", count: imageCount, onPress: onRecentPhotos },
+    { key: "ai", label: t("card_detail.ai_content"), icon: "sparkles-outline", count: aiModuleCount, onPress: onAi },
+  ];
+  return <Animated.View style={[styles.draftComposerToolbar, { opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }] }>
+    {tools.map((tool) => <Pressable
+      key={tool.key}
+      accessibilityLabel={tool.label}
+      disabled={disabled}
+      style={styles.draftComposerTool}
+      onPress={tool.onPress}
+    >
+      <Ionicons name={tool.icon} size={21} color={theme.colors.text} />
+      {tool.count ? <View style={styles.draftComposerBadge}><Text style={styles.draftComposerBadgeText}>{tool.count}</Text></View> : null}
+    </Pressable>)}
+    <RealtimeSttButton status={sttStatus} audioLevel={sttAudioLevel} disabled={disabled} style={styles.draftComposerTool} onPress={onStt} />
+    <View style={styles.draftComposerSpacer} />
+    {onSave ? <Pressable accessibilityLabel={t("card_detail.done")} disabled={disabled || !canSave} style={[styles.draftPublishButton, (disabled || !canSave) && styles.draftPublishButtonDisabled]} onPress={onSave}>
+      <Text style={[styles.draftPublishButtonText, (disabled || !canSave) && styles.draftPublishButtonTextDisabled]}>{t("card_detail.done")}</Text>
+    </Pressable> : null}
+  </Animated.View>;
 }
 
 function DraftProcessingLines() {
@@ -369,12 +1124,13 @@ function DraftProcessingLines() {
 }
 
 function formatDraftDate(): string {
-  return new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" });
+  return new Date().toLocaleDateString(getLanguage(), { month: "long", day: "numeric", weekday: "short" });
 }
 
 function countGraphemes(value: string): number {
+  const normalized = value.replace(/\r\n?/gu, "\n");
   const Segmenter = (Intl as unknown as { Segmenter?: new (...args: unknown[]) => { segment: (text: string) => Iterable<unknown> } }).Segmenter;
-  return Segmenter ? Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(value)).length : Array.from(value).length;
+  return Segmenter ? Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(normalized)).length : Array.from(normalized).length;
 }
 
 type DictionaryLookupState = {
@@ -388,86 +1144,737 @@ type DictionaryLookupState = {
   end: number;
 };
 
-type CardClozeEditorState = {
-  blank: CardClozeState["blanks"][number];
-  tokens: ClozeToken[];
-  selectedTokenIndexes: number[];
+type GalleryImage = {
+  key: string;
+  url: string;
+  thumbnailUrl: string;
+  width?: number;
+  height?: number;
+  status?: "uploading" | "moderating" | "failed";
+  placeholder?: boolean;
 };
+type ImagePreviewOrigin = { x: number; y: number; width: number; height: number };
+const CARD_IMAGE_ASPECT_RATIO = 16 / 9;
 
-function Review({ detail, clozeState, clozeVersion, onClozeChange, onReplaceImage, onRemoveImage, relations, relationsLoading, onOpenRelated }: {
+const CardImageGallery = React.memo(function CardImageGallery({ images, loading = false, dateLabel, onRemove }: {
+  images: GalleryImage[];
+  loading?: boolean;
+  dateLabel?: string;
+  onRemove?: (imageKey: string) => void;
+}) {
+  const { width: windowWidth } = useWindowDimensions();
+  const pageWidth = windowWidth - 44;
+  const displayImages = loading
+    ? [...images, { key: "__adding_image__", url: "", thumbnailUrl: "", placeholder: true }]
+    : images;
+  const galleryRef = useRef<FlatList<GalleryImage>>(null);
+  const [imageIndex, setImageIndex] = useState(0);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [previewOrigin, setPreviewOrigin] = useState<ImagePreviewOrigin | null>(null);
+  const thumbnailRefs = useRef(new Map<string, View>());
+
+  useEffect(() => {
+    setImageIndex((current) => Math.min(current, Math.max(displayImages.length - 1, 0)));
+    setPreviewIndex((current) => current === null ? null : images.length ? Math.min(current, images.length - 1) : null);
+  }, [displayImages.length, images.length]);
+  useEffect(() => {
+    if (!displayImages.length) return;
+    const targetIndex = loading ? displayImages.length - 1 : Math.min(imageIndex, displayImages.length - 1);
+    const frame = requestAnimationFrame(() => {
+      galleryRef.current?.scrollToOffset({ offset: targetIndex * pageWidth, animated: loading });
+      setImageIndex(targetIndex);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [displayImages.length, loading, pageWidth]);
+
+  if (!displayImages.length) return null;
+
+  return (
+    <View>
+      <FlatList
+        ref={galleryRef}
+        horizontal
+        data={displayImages}
+        keyExtractor={(image) => image.key}
+        renderItem={({ item: image, index }) => (
+          <Pressable
+            ref={(node) => {
+              if (node) thumbnailRefs.current.set(image.key, node);
+              else thumbnailRefs.current.delete(image.key);
+            }}
+            accessibilityRole="imagebutton"
+            accessibilityLabel={tf("card_detail.a11y.preview_image", { index: index + 1 })}
+            style={[styles.carouselImagePage, { width: pageWidth, aspectRatio: CARD_IMAGE_ASPECT_RATIO }]}
+            disabled={image.placeholder}
+            onPress={() => {
+              const node = thumbnailRefs.current.get(image.key);
+              if (!node) {
+                setPreviewOrigin(null);
+                setPreviewIndex(index);
+                return;
+              }
+              node.measureInWindow((x, y, width, height) => {
+                setPreviewOrigin({ x, y, width, height });
+                setPreviewIndex(index);
+              });
+            }}
+          >
+            {image.placeholder ? <View style={styles.imageAddingPlaceholder}><ActivityIndicator color={theme.colors.textMuted} /><Text style={styles.imageAddingText}>{t("card_detail.photo.adding")}</Text></View> : <Image
+              source={{ uri: image.thumbnailUrl }}
+              style={styles.carouselImageLayer}
+              resizeMode="cover"
+              fadeDuration={0}
+              progressiveRenderingEnabled
+            />}
+            {image.status === "uploading" || image.status === "moderating" ? <View style={styles.draftImageOverlay}><ActivityIndicator color={theme.colors.surface} /></View> : null}
+            {image.status === "failed" ? <View style={styles.draftImageOverlay}><Ionicons name="alert-circle-outline" size={24} color={theme.colors.surface} /></View> : null}
+          </Pressable>
+        )}
+        getItemLayout={(_, index) => ({ length: pageWidth, offset: pageWidth * index, index })}
+        initialNumToRender={1}
+        maxToRenderPerBatch={1}
+        windowSize={3}
+        directionalLockEnabled
+        nestedScrollEnabled
+        bounces={false}
+        decelerationRate="fast"
+        snapToInterval={pageWidth}
+        snapToAlignment="start"
+        disableIntervalMomentum
+        showsHorizontalScrollIndicator={false}
+        style={styles.imageCarousel}
+        onMomentumScrollEnd={(event) => {
+          const nextIndex = Math.max(0, Math.min(displayImages.length - 1, Math.round(event.nativeEvent.contentOffset.x / pageWidth)));
+          setImageIndex(nextIndex);
+        }}
+      />
+      {displayImages.length > 1 ? (
+        <View style={styles.imageDots}>
+          {displayImages.map((image, index) => (
+            <View key={`${image.key}:dot:${index}`} style={[styles.imageDot, index === imageIndex && styles.imageDotActive]} />
+          ))}
+        </View>
+      ) : null}
+      <CardImagePreview
+        images={images}
+        initialIndex={previewIndex ?? 0}
+        visible={previewIndex !== null}
+        origin={previewOrigin}
+        dateLabel={dateLabel}
+        onClose={() => { setPreviewIndex(null); setPreviewOrigin(null); }}
+        onRemove={onRemove}
+      />
+    </View>
+  );
+});
+
+function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, onClose, onRemove }: {
+  images: GalleryImage[];
+  initialIndex: number;
+  visible: boolean;
+  origin: ImagePreviewOrigin | null;
+  dateLabel?: string;
+  onClose: () => void;
+  onRemove?: (imageKey: string) => void;
+}) {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === "ios" ? 47 : 0);
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "ios" ? 20 : 0);
+  const imageAreaHeight = Math.max(240, height - topInset - bottomInset - 58 - 76);
+  const [index, setIndex] = useState(initialIndex);
+  const listRef = useRef<FlatList<GalleryImage>>(null);
+  const progress = useRef(new Animated.Value(0)).current;
+  const dismissOpacity = useRef(new Animated.Value(1)).current;
+  const handoffOpacity = useRef(new Animated.Value(1)).current;
+  const closingRef = useRef(false);
+  const openingAnimationFinishedRef = useRef(false);
+  const openingImageLoadedRef = useRef(false);
+  const openingImage = images[initialIndex];
+  const sourceWidth = openingImage?.width || width;
+  const sourceHeight = openingImage?.height || imageAreaHeight;
+  const naturalHeight = width * sourceHeight / sourceWidth;
+  const targetHeight = Math.min(imageAreaHeight, naturalHeight);
+  const targetWidth = naturalHeight <= imageAreaHeight ? width : imageAreaHeight * sourceWidth / sourceHeight;
+  const targetX = (width - targetWidth) / 2;
+  const targetY = topInset + 58;
+  const startFrame = origin ?? { x: targetX, y: targetY, width: targetWidth, height: targetHeight };
+  useEffect(() => {
+    if (!visible) return;
+    closingRef.current = false;
+    progress.stopAnimation();
+    progress.setValue(0);
+    dismissOpacity.setValue(1);
+    handoffOpacity.stopAnimation();
+    handoffOpacity.setValue(1);
+    openingAnimationFinishedRef.current = false;
+    openingImageLoadedRef.current = false;
+    setIndex(initialIndex);
+    requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: initialIndex * width, animated: false }));
+    Animated.timing(progress, { toValue: 1, duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start(({ finished }) => {
+      if (!finished) return;
+      openingAnimationFinishedRef.current = true;
+      if (openingImageLoadedRef.current) {
+        Animated.timing(handoffOpacity, { toValue: 0, duration: 100, useNativeDriver: false }).start();
+      }
+    });
+  }, [dismissOpacity, handoffOpacity, initialIndex, progress, visible, width]);
+  function close(afterClose?: () => void): void {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    const canShrinkToOrigin = Boolean(origin) && index === initialIndex;
+    if (canShrinkToOrigin) handoffOpacity.setValue(1);
+    const animation = canShrinkToOrigin
+      ? Animated.timing(progress, { toValue: 0, duration: 240, easing: Easing.inOut(Easing.cubic), useNativeDriver: false })
+      : Animated.timing(dismissOpacity, { toValue: 0, duration: 170, easing: Easing.out(Easing.quad), useNativeDriver: true });
+    animation.start(() => {
+      closingRef.current = false;
+      onClose();
+      afterClose?.();
+    });
+  }
+  const chromeOpacity = progress.interpolate({ inputRange: [0, 0.82, 1], outputRange: [0, 0, 1] });
+  const fullImageOpacity = progress.interpolate({ inputRange: [0, 0.9, 1], outputRange: [0, 0, 1] });
+  return <Modal visible={visible} transparent animationType="none" presentationStyle="overFullScreen" statusBarTranslucent onRequestClose={() => close()}>
+    <Animated.View style={[styles.imagePreviewPage, { paddingTop: topInset, paddingBottom: bottomInset, opacity: dismissOpacity }]}>
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.imagePreviewBackdrop, { opacity: progress }]} />
+      <Animated.View style={[styles.imagePreviewHeader, { opacity: chromeOpacity }]}>
+        <Pressable accessibilityLabel={t("card_detail.a11y.close_image_preview")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close()}><Ionicons name="close" size={27} color={theme.colors.text} /></Pressable>
+        <Text style={styles.imagePreviewCounter}>{images.length > 1 ? `${index + 1} / ${images.length}` : ""}</Text>
+        <View style={styles.imagePreviewHeaderEnd}>{onRemove && images[index] ? <Pressable accessibilityLabel={t("common.delete")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close(() => onRemove(images[index]!.key))}><Ionicons name="trash-outline" size={25} color={theme.colors.danger} /></Pressable> : null}</View>
+      </Animated.View>
+      <Animated.View style={{ height: imageAreaHeight, opacity: fullImageOpacity }}><FlatList
+        ref={listRef}
+        horizontal
+        pagingEnabled
+        data={images}
+        keyExtractor={(image) => image.key}
+        renderItem={({ item }) => {
+          const naturalHeight = item.width && item.height ? width * item.height / item.width : imageAreaHeight;
+          return <View style={[styles.imagePreviewPageItem, { width, height: imageAreaHeight }]}><Image
+            source={{ uri: item.url }}
+            resizeMode="contain"
+            style={[styles.imagePreviewImage, { width, height: Math.min(imageAreaHeight, naturalHeight) }]}
+            onLoad={item.key === openingImage?.key ? () => {
+              openingImageLoadedRef.current = true;
+              if (openingAnimationFinishedRef.current) {
+                Animated.timing(handoffOpacity, { toValue: 0, duration: 100, useNativeDriver: false }).start();
+              }
+            } : undefined}
+          /></View>;
+        }}
+        getItemLayout={(_, itemIndex) => ({ length: width, offset: width * itemIndex, index: itemIndex })}
+        initialScrollIndex={Math.min(initialIndex, Math.max(images.length - 1, 0))}
+        showsHorizontalScrollIndicator={false}
+        bounces={false}
+        onMomentumScrollEnd={(event) => {
+          const nextIndex = Math.max(0, Math.min(images.length - 1, Math.round(event.nativeEvent.contentOffset.x / width)));
+          setIndex(nextIndex);
+          if (nextIndex !== initialIndex) handoffOpacity.setValue(0);
+        }}
+      /></Animated.View>
+      <Animated.View style={[styles.imagePreviewFooter, { opacity: chromeOpacity }]}><Text style={styles.imagePreviewDate}>{dateLabel ?? ""}</Text></Animated.View>
+      {openingImage ? <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.imagePreviewTransitionImage,
+          {
+            opacity: handoffOpacity,
+            left: progress.interpolate({ inputRange: [0, 1], outputRange: [startFrame.x, targetX] }),
+            top: progress.interpolate({ inputRange: [0, 1], outputRange: [startFrame.y, targetY] }),
+            width: progress.interpolate({ inputRange: [0, 1], outputRange: [startFrame.width, targetWidth] }),
+            height: progress.interpolate({ inputRange: [0, 1], outputRange: [startFrame.height, targetHeight] }),
+            borderRadius: progress.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
+          },
+        ]}
+      ><Image source={{ uri: openingImage.thumbnailUrl }} resizeMode="cover" style={styles.imagePreviewTransitionFill} /></Animated.View> : null}
+    </Animated.View>
+  </Modal>;
+}
+
+function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, legacyThumbnailUrl?: string): GalleryImage[] {
+  return images.map((image, index) => ({
+    key: image.id,
+    url: image.url,
+    thumbnailUrl: image.thumbnail?.url || (index === 0 ? legacyThumbnailUrl : undefined) || image.url,
+    width: image.width,
+    height: image.height,
+  }));
+}
+
+function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, initialFillMode, clozeState, clozeVersion, onClozeChange, onRemoveImage, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt }: {
   detail: CardRecordDetail;
+  imageAdding: boolean;
+  contentBinding: CardContentBinding;
+  practiceEnabled: boolean;
+  canUseDictation: boolean;
+  initialFillMode: boolean;
   clozeState: CardClozeState;
   clozeVersion: number;
   onClozeChange: (state: CardClozeState, version: number) => void;
-  onReplaceImage?: () => void;
-  onRemoveImage?: () => void;
-  relations: Array<{ recordId: string; topic: string | null; reasons: CardRelationReason[] }>;
-  relationsLoading: boolean;
+  onRemoveImage?: (imageId?: string) => void;
+  relations: Array<{ recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] }>;
   onOpenRelated?: (recordId: string, reasons: CardRelationReason[]) => void;
+  onOpenDictation: () => void;
+  pendingGenerationTargets?: CardGenerationTarget[];
+  failedGenerationTargets?: CardGenerationTarget[];
+  retryingGenerationTarget?: CardGenerationTarget | null;
+  onRetryGeneration?: (target: CardGenerationTarget) => void;
+  onRecallFinish?: () => void;
+  onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
 }) {
-  const [playing, setPlaying] = useState(false);
+  const images = useMemo(
+    () => detail.images?.length ? detail.images : detail.image ? [detail.image] : [],
+    [detail.images, detail.image],
+  );
   const [savingCloze, setSavingCloze] = useState(false);
+  const [fillMode, setFillMode] = useState(initialFillMode);
+  const [cardFace, setCardFace] = useState<"front" | "back">("front");
+  const flipProgress = useRef(new Animated.Value(0)).current;
+  const flipAnimatingRef = useRef(false);
   const [answersVisible, setAnswersVisible] = useState(false);
-  const [showRelations, setShowRelations] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Record<"learning" | "reply" | "original" | "translation", boolean>>({ learning: false, reply: false, original: false, translation: false });
+  const [articleAudioLoading, setArticleAudioLoading] = useState(false);
+  const { showNotice } = useFloatingNotice();
+  const clozeSavingNoticeRef = useRef<ReturnType<typeof showNotice> | null>(null);
+  const articleAudioPromisesRef = useRef(new Map<string, Promise<string>>());
+  const toggleSection = (section: keyof typeof collapsedSections) => setCollapsedSections((current) => ({ ...current, [section]: !current[section] }));
+  const replySelectionRef = useRef(false);
+  const playback = React.useSyncExternalStore(subscribeTtsPlayback, getTtsPlaybackState, getTtsPlaybackState);
+  const articleNavigationPrefix = `card:${detail.id}:article:`;
+  const sentenceNavigationPrefix = `card:${detail.id}:sentence:`;
+  const replyNavigationPrefix = `card:${detail.id}:reply:`;
+  const articlePlaybackActive = Boolean(
+    playback.hasActiveAudio
+    && (playback.activeNavigationKey?.startsWith(articleNavigationPrefix)
+      || playback.activeNavigationKey?.startsWith(sentenceNavigationPrefix)
+      || playback.activeNavigationKey?.startsWith(replyNavigationPrefix)),
+  );
+  const articlePlaybackLoading = articleAudioLoading || (articlePlaybackActive && playback.status === "loading");
+  const articlePlaying = articlePlaybackActive && playback.status === "playing";
+  const replyPlaybackActive = Boolean(playback.hasActiveAudio && playback.activeNavigationKey?.startsWith(replyNavigationPrefix));
+  const hasBlanks = clozeState.blanks.length > 0;
+  const articleRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, true), [detail, clozeState]);
+  const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
+  const learningText = detail.contentBlocks.find((candidate) =>
+    candidate.contentType === contentBinding.contentType
+    && candidate.contentVersion === contentBinding.contentVersion,
+  )?.text ?? (contentBinding.contentType === "original" ? detail.originalText : detail.rewrittenText || detail.originalText);
+  const activeSentenceKey = (() => {
+    if (!playback.hasActiveAudio || !playback.activeNavigationKey) return null;
+    if (playback.activeNavigationKey.startsWith(sentenceNavigationPrefix)) {
+      return playback.activeNavigationKey.slice(sentenceNavigationPrefix.length);
+    }
+    if (playback.activeNavigationKey.startsWith(articleNavigationPrefix)) {
+      const index = Number(playback.activeNavigationKey.slice(articleNavigationPrefix.length));
+      return Number.isInteger(index) ? articleRows[index]?.key ?? null : null;
+    }
+    return null;
+  })();
   const [dictionary, setDictionary] = useState<DictionaryLookupState | null>(null);
-  const [clozeEditor, setClozeEditor] = useState<CardClozeEditorState | null>(null);
   const dictionaryRequestRef = useRef(0);
-  useEffect(() => setAnswersVisible(false), [detail.id]);
-  async function play(): Promise<void> {
-    if (playing) { await stopTtsAudio(); setPlaying(false); return; }
-    const segment = detail.rewriteSegments[0];
-    if (!segment) return;
-    setPlaying(true);
-    try {
-      const audio = await getCardSegmentAudio({
-        entryId: detail.id.slice("card:".length),
-        segmentId: segment.id,
-        sourceKind: "review_segment",
+  useEffect(() => {
+    setFillMode(initialFillMode);
+    setAnswersVisible(false);
+    setCardFace("front");
+    flipProgress.stopAnimation();
+    flipProgress.setValue(0);
+    flipAnimatingRef.current = false;
+  }, [detail.id, contentBinding.contentType, contentBinding.contentVersion, initialFillMode, flipProgress]);
+  useEffect(() => {
+    if (savingCloze) {
+      clozeSavingNoticeRef.current ??= showNotice({
+        message: t("card_detail.cloze.saving"),
+        type: "info",
+        position: "top-center",
+        durationMs: 0,
       });
-      await playTtsAudio({ url: audio.audioUrl });
-    } finally { setPlaying(false); }
+      return;
+    }
+    clozeSavingNoticeRef.current?.hide();
+    clozeSavingNoticeRef.current = null;
+  }, [savingCloze, showNotice]);
+  useEffect(() => () => {
+    clozeSavingNoticeRef.current?.hide();
+    clozeSavingNoticeRef.current = null;
+  }, []);
+
+  function flipCard(): void {
+    if (flipAnimatingRef.current) return;
+    flipAnimatingRef.current = true;
+    const nextFace = cardFace === "front" ? "back" : "front";
+    Keyboard.dismiss();
+    Animated.timing(flipProgress, {
+      toValue: 1,
+      duration: 150,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) {
+        flipProgress.setValue(0);
+        flipAnimatingRef.current = false;
+        return;
+      }
+      setCardFace(nextFace);
+      requestAnimationFrame(() => {
+        Animated.timing(flipProgress, {
+          toValue: 0,
+          duration: 170,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start(() => { flipAnimatingRef.current = false; });
+      });
+    });
+  }
+
+  async function copySection(text: string): Promise<void> {
+    if (!text.trim()) return;
+    try {
+      const copied = await copyTextToClipboard(text);
+      if (copied) showNotice({ message: t("common.copy.success"), type: "success", position: "top-center", durationMs: 1200 });
+    } catch {
+      Alert.alert(t("card_detail.copy_failed"));
+    }
   }
   async function addBlank(segment: CardRecordDetail["rewriteSegments"][number], payload: NativeTextSelectionPayload): Promise<void> {
     if (savingCloze) return;
-    const expanded = expandSelectionToTokenRange(segment.text, payload.start, payload.end, null);
+    const expanded = expandSelectionToCardBlankRange(segment.text, payload.start, payload.end);
     if (!expanded || !segment.text.slice(expanded.start, expanded.end).trim()) return;
     const { start, end } = expanded;
     const overlaps = clozeState.blanks.some((blank) => blank.segmentId === segment.id && blank.startUtf16 < end && blank.endUtf16 > start);
     if (overlaps) {
-      Alert.alert("这段内容已经设置过填空");
+      Alert.alert(t("card_detail.cloze.already_set"));
       return;
     }
     setSavingCloze(true);
     try {
       const practice = await saveCardClozeUpdate(detail.id, {
+        ...contentBinding,
         baseVersion: clozeVersion,
         operation: { type: "add", segmentId: segment.id, startUtf16: start, endUtf16: end },
       });
       onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
     } catch (error) {
-      Alert.alert("无法保存挖空", error instanceof Error ? error.message : "请刷新后重试");
+      if (error instanceof CardApiError && error.code === "CARD_PRACTICE_CONFLICT") {
+        try {
+          const latest = await getCardRecord(detail.id);
+          const latestPractice = contentPractice(latest, contentBinding);
+          const latestState = asCardClozeState(latestPractice?.clozeState);
+          const latestVersion = latestPractice?.clozeVersion ?? 0;
+          const alreadySaved = latestState.blanks.some((blank) =>
+            blank.segmentId === segment.id
+            && blank.startUtf16 === start
+            && blank.endUtf16 === end,
+          );
+          if (alreadySaved) {
+            onClozeChange(latestState, latestVersion);
+            return;
+          }
+          const practice = await saveCardClozeUpdate(detail.id, {
+            ...contentBinding,
+            baseVersion: latestVersion,
+            operation: { type: "add", segmentId: segment.id, startUtf16: start, endUtf16: end },
+          });
+          onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
+          return;
+        } catch (retryError) {
+          Alert.alert(t("card_detail.cloze.save_failed"), retryError instanceof Error ? retryError.message : t("card_detail.error.refresh_retry"));
+          return;
+        }
+      }
+      Alert.alert(t("card_detail.cloze.save_failed"), error instanceof Error ? error.message : t("card_detail.error.refresh_retry"));
     } finally {
       setSavingCloze(false);
     }
   }
+
+  function prepareReplyAudio(index: number): Promise<string> {
+    const block = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
+    const segment = block?.segments[index];
+    if (!block || !segment) return Promise.reject(new Error("Reply sentence is unavailable"));
+    const cacheKey = ["card-reply", detail.id.slice("card:".length), segment.id, block.contentVersion].join("-");
+    const existing = articleAudioPromisesRef.current.get(cacheKey);
+    if (existing) return existing;
+    const request = (async () => {
+      const audio = await getCardSegmentAudio({
+        entryId: detail.id.slice("card:".length),
+        segmentId: segment.id,
+        sourceKind: "review_segment",
+        contentType: block.contentType,
+        contentVersion: block.contentVersion,
+      });
+      return preloadTtsAudio({ url: audio.audioUrl, cacheKey });
+    })();
+    articleAudioPromisesRef.current.set(cacheKey, request);
+    void request.catch(() => articleAudioPromisesRef.current.delete(cacheKey));
+    return request;
+  }
+
+  async function playReplyFrom(index: number, onComplete?: () => void): Promise<void> {
+    const block = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
+    const segment = block?.segments[index];
+    if (!block || !segment) {
+      onComplete?.();
+      return;
+    }
+    try {
+      const audioUrl = await prepareReplyAudio(index);
+      if (index + 1 < block.segments.length) void prepareReplyAudio(index + 1).catch(() => undefined);
+      await playTtsAudio({
+        url: audioUrl,
+        loopScope: "all",
+        navigationKey: `card:${detail.id}:reply:${index}`,
+        onFinished: () => {
+          const nextIndex = index + 1;
+          if (nextIndex < block.segments.length) void playReplyFrom(nextIndex, onComplete);
+          else onComplete?.();
+        },
+      });
+    } catch (error) {
+      Alert.alert(t("card_detail.error.play"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+    }
+  }
+
+  function playReply(): void {
+    if (replyPlaybackActive) {
+      toggleTtsPlayback();
+      return;
+    }
+    void playReplyFrom(0, () => {
+      if (getTtsPlaybackState().loopMode === "all" && articleRows.length) void playArticleFrom(0, articleRows);
+    });
+  }
+
+  function prepareArticleAudio(index: number, rows: CardClozeSentenceRow[]): Promise<string> {
+    const row = rows[index];
+    if (!row || detail.source !== "card") return Promise.reject(new Error("Article sentence is unavailable"));
+    const cacheKey = [
+      "card-article",
+      detail.id.slice("card:".length),
+      contentBinding.contentType,
+      row.segmentId,
+      row.textStart,
+      row.textEnd,
+      contentBinding.contentVersion,
+    ].join("-");
+    const existing = articleAudioPromisesRef.current.get(cacheKey);
+    if (existing) return existing;
+    const request = (async () => {
+      const audio = await getCardSegmentAudio({
+        entryId: detail.id.slice("card:".length),
+        segmentId: row.segmentId,
+        sourceKind: "review_segment",
+        startUtf16: row.textStart,
+        endUtf16: row.textEnd,
+        ...contentBinding,
+      });
+      return preloadTtsAudio({ url: audio.audioUrl, cacheKey });
+    })();
+    articleAudioPromisesRef.current.set(cacheKey, request);
+    void request.catch(() => articleAudioPromisesRef.current.delete(cacheKey));
+    return request;
+  }
+
+  async function playArticleFrom(index: number, rows: CardClozeSentenceRow[]): Promise<void> {
+    const row = rows[index];
+    if (!row || detail.source !== "card") return;
+    try {
+      const audioUrl = await prepareArticleAudio(index, rows);
+      const lookAheadIndex = index + 2;
+      if (lookAheadIndex < rows.length) void prepareArticleAudio(lookAheadIndex, rows).catch(() => undefined);
+      await playTtsAudio({
+        url: audioUrl,
+        loopScope: "all",
+        navigationKey: `card:${detail.id}:article:${index}`,
+        onFinished: () => {
+          const nextIndex = index + 1;
+          if (nextIndex < rows.length) {
+            void playArticleFrom(nextIndex, rows);
+            return;
+          }
+          const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
+          if (replyBlock?.segments.length) {
+            void playReplyFrom(0, () => {
+              if (getTtsPlaybackState().loopMode === "all") void playArticleFrom(0, rows);
+            });
+            return;
+          }
+          if (getTtsPlaybackState().loopMode === "all") void playArticleFrom(0, rows);
+        },
+      });
+    } catch (error) {
+      Alert.alert(t("card_detail.error.play"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+    }
+  }
+
+  function prepareWholeArticleAudio(): Promise<string> {
+    if (detail.source !== "card") return Promise.reject(new Error("Article is unavailable"));
+    const entryId = detail.id.slice("card:".length);
+    const cacheKey = ["card-article-whole", entryId, contentBinding.contentType, contentBinding.contentVersion].join("-");
+    const existing = articleAudioPromisesRef.current.get(cacheKey);
+    if (existing) return existing;
+    const request = (async () => {
+      const audio = await getCardArticleAudio({ entryId, ...contentBinding });
+      return preloadTtsAudio({ url: audio.audioUrl, cacheKey });
+    })();
+    articleAudioPromisesRef.current.set(cacheKey, request);
+    void request.catch(() => articleAudioPromisesRef.current.delete(cacheKey));
+    return request;
+  }
+
+  async function playArticle(): Promise<void> {
+    if (articleAudioLoading || detail.source !== "card") return;
+    const rows = articleRows;
+    if (!rows.length) return;
+    setArticleAudioLoading(true);
+    try {
+      const audioUrl = await prepareWholeArticleAudio();
+      await playTtsAudio({
+        url: audioUrl,
+        loopScope: "all",
+        navigationKey: `${articleNavigationPrefix}0`,
+        onFinished: () => {
+          if (getTtsPlaybackState().loopMode === "all") void playArticle();
+        },
+      });
+    } catch {
+      // Older server versions do not expose article audio. Keep sentence playback as a safe fallback.
+      await Promise.all([
+        prepareArticleAudio(0, rows),
+        rows.length > 1 ? prepareArticleAudio(1, rows) : Promise.resolve(""),
+      ]);
+      await playArticleFrom(0, rows);
+    } finally {
+      setArticleAudioLoading(false);
+    }
+  }
+
+  async function playStandaloneSentence(row: CardClozeSentenceRow): Promise<void> {
+    const index = articleRows.findIndex((candidate) => candidate.key === row.key);
+    if (index < 0 || detail.source !== "card") return;
+    try {
+      const audioUrl = await prepareArticleAudio(index, articleRows);
+      await playTtsAudio({
+        url: audioUrl,
+        loopScope: "one",
+        navigationKey: `card:${detail.id}:sentence:${row.key}`,
+        onFinished: () => {
+          if (getTtsPlaybackState().loopMode !== "all") return;
+          const nextIndex = index + 1;
+          if (nextIndex < articleRows.length) {
+            void playArticleFrom(nextIndex, articleRows);
+            return;
+          }
+          if (replyBlock?.segments.length) {
+            void playReplyFrom(0, () => {
+              if (getTtsPlaybackState().loopMode === "all") void playArticleFrom(0, articleRows);
+            });
+            return;
+          }
+          void playArticleFrom(0, articleRows);
+        },
+      });
+    } catch (error) {
+      Alert.alert(t("card_detail.error.play"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+    }
+  }
+
+  useEffect(() => {
+    const key = playback.activeNavigationKey;
+    if (!playback.hasActiveAudio || !key) {
+      setTtsNavigationControls(null);
+      return;
+    }
+    let queueIndex = -1;
+    if (key.startsWith(articleNavigationPrefix)) {
+      queueIndex = Number(key.slice(articleNavigationPrefix.length));
+    } else if (key.startsWith(sentenceNavigationPrefix)) {
+      const sentenceKey = key.slice(sentenceNavigationPrefix.length);
+      queueIndex = articleRows.findIndex((row) => row.key === sentenceKey);
+    } else if (key.startsWith(replyNavigationPrefix)) {
+      const replyIndex = Number(key.slice(replyNavigationPrefix.length));
+      if (Number.isInteger(replyIndex)) queueIndex = articleRows.length + replyIndex;
+    } else {
+      return;
+    }
+    const queueLength = articleRows.length + (replyBlock?.segments.length ?? 0);
+    if (!Number.isInteger(queueIndex) || queueIndex < 0 || queueIndex >= queueLength) {
+      setTtsNavigationControls(null);
+      return;
+    }
+    const wraps = playback.loopMode === "all" && queueLength > 1;
+    const playQueueIndex = (nextQueueIndex: number) => {
+      const normalized = (nextQueueIndex + queueLength) % queueLength;
+      if (normalized < articleRows.length) {
+        void playArticleFrom(normalized, articleRows);
+      } else {
+        void playReplyFrom(normalized - articleRows.length, () => {
+          if (getTtsPlaybackState().loopMode === "all") void playArticleFrom(0, articleRows);
+        });
+      }
+    };
+    setTtsNavigationControls({
+      canNavigatePrevious: queueIndex > 0 || wraps,
+      canNavigateNext: queueIndex < queueLength - 1 || wraps,
+      onNavigatePrevious: () => playQueueIndex(queueIndex - 1),
+      onNavigateNext: () => playQueueIndex(queueIndex + 1),
+    });
+    return () => setTtsNavigationControls(null);
+  }, [
+    articleNavigationPrefix,
+    articleRows,
+    playback.activeNavigationKey,
+    playback.hasActiveAudio,
+    playback.loopMode,
+    replyBlock?.segments.length,
+    replyNavigationPrefix,
+    sentenceNavigationPrefix,
+  ]);
 
   async function removeBlank(blank: CardClozeState["blanks"][number]): Promise<void> {
     if (savingCloze) return;
     setSavingCloze(true);
     try {
       const practice = await saveCardClozeUpdate(detail.id, {
+        ...contentBinding,
         baseVersion: clozeVersion,
         operation: { type: "remove", blankId: blank.id },
       });
       onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
     } catch (error) {
-      Alert.alert("无法删除挖空", error instanceof Error ? error.message : "请刷新后重试");
+      if (error instanceof CardApiError && error.code === "CARD_PRACTICE_CONFLICT") {
+        try {
+          const latest = await getCardRecord(detail.id);
+          const latestPractice = contentPractice(latest, contentBinding);
+          const latestState = asCardClozeState(latestPractice?.clozeState);
+          const latestVersion = latestPractice?.clozeVersion ?? 0;
+          if (!latestState.blanks.some((candidate) => candidate.id === blank.id)) {
+            onClozeChange(latestState, latestVersion);
+            return;
+          }
+          const practice = await saveCardClozeUpdate(detail.id, {
+            ...contentBinding,
+            baseVersion: latestVersion,
+            operation: { type: "remove", blankId: blank.id },
+          });
+          onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
+          return;
+        } catch (retryError) {
+          Alert.alert(t("card_detail.cloze.delete_failed"), retryError instanceof Error ? retryError.message : t("card_detail.error.refresh_retry"));
+          return;
+        }
+      }
+      Alert.alert(t("card_detail.cloze.delete_failed"), error instanceof Error ? error.message : t("card_detail.error.refresh_retry"));
     } finally {
       setSavingCloze(false);
     }
   }
 
   function lookup(segment: CardRecordDetail["rewriteSegments"][number], payload: NativeTextSelectionPayload): void {
+    lookupText(segment.text, payload, segment.id);
+  }
+
+  function lookupText(context: string, payload: NativeTextSelectionPayload, segmentId = ""): void {
     const term = payload.selectedText.trim();
     if (!term) return;
     Keyboard.dismiss();
@@ -479,13 +1886,13 @@ function Review({ detail, clozeState, clozeVersion, onClozeChange, onReplaceImag
       error: null,
       result: null,
       anchor: payload.selectionRect,
-      segmentId: segment.id,
+      segmentId,
       start: payload.start,
       end: payload.end,
     });
     void lookupDictionary({
       term,
-      context: segment.text,
+      context,
       selectionStart: payload.start,
       selectionEnd: payload.end,
       targetLanguage: detail.languageCode,
@@ -498,7 +1905,7 @@ function Review({ detail, clozeState, clozeVersion, onClozeChange, onReplaceImag
     }).catch((error) => {
       if (dictionaryRequestRef.current !== sequence) return;
       console.warn("[card] dictionary lookup failed", error);
-      setDictionary((current) => current ? { ...current, loading: false, error: "暂时无法查词" } : null);
+      setDictionary((current) => current ? { ...current, loading: false, error: (error as { code?: string }).code === "DICTIONARY_NOT_FOUND" ? t("dictionary.error.not_found") : t("dictionary.error.failed") } : null);
     });
   }
 
@@ -510,119 +1917,112 @@ function Review({ detail, clozeState, clozeVersion, onClozeChange, onReplaceImag
       end: blank.endUtf16,
       selectedText: segment.text.slice(blank.startUtf16, blank.endUtf16),
     };
-    Alert.alert(payload.selectedText, undefined, [
-      { text: "查词", onPress: () => lookup(segment, payload) },
-      { text: "编辑填空", onPress: () => {
-        const tokens = tokenizeForCloze(segment.text).filter((token) => token.end > blank.startUtf16 && token.start < blank.endUtf16);
-        setClozeEditor({ blank, tokens, selectedTokenIndexes: tokens.map((token) => token.index) });
-      } },
-      { text: "删除挖空", style: "destructive", onPress: () => void removeBlank(blank) },
-      { text: "取消", style: "cancel" },
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: [t("card_detail.lookup"), t("cloze.delete"), t("common.cancel")], destructiveButtonIndex: 1, cancelButtonIndex: 2 },
+        (index) => {
+          if (index === 0) lookup(segment, payload);
+          if (index === 1) void removeBlank(blank);
+        },
+      );
+      return;
+    }
+    Alert.alert("", undefined, [
+      { text: t("card_detail.lookup"), onPress: () => lookup(segment, payload) },
+      { text: t("cloze.delete"), style: "destructive", onPress: () => void removeBlank(blank) },
+      { text: t("common.cancel"), style: "cancel" },
     ]);
   }
 
-  async function confirmClozeEditor(): Promise<void> {
-    if (!clozeEditor || savingCloze) return;
-    const segment = detail.rewriteSegments.find((candidate) => candidate.id === clozeEditor.blank.segmentId);
-    if (!segment) return;
-    const selected = new Set(clozeEditor.selectedTokenIndexes);
-    const selectedTokens = clozeEditor.tokens.filter((token) => selected.has(token.index));
-    const ranges: Array<{ startUtf16: number; endUtf16: number }> = [];
-    selectedTokens.forEach((token) => {
-      const previous = ranges[ranges.length - 1];
-      if (previous && segment.text.slice(previous.endUtf16, token.start).trim() === "") previous.endUtf16 = token.end;
-      else ranges.push({ startUtf16: token.start, endUtf16: token.end });
-    });
-    setClozeEditor(null);
-    setSavingCloze(true);
-    let version = clozeVersion;
-    let latestState = clozeState;
-    try {
-      let practice = await saveCardClozeUpdate(detail.id, {
-        baseVersion: version,
-        operation: { type: "remove", blankId: clozeEditor.blank.id },
-      });
-      version = practice.clozeVersion;
-      latestState = asCardClozeState(practice.clozeState);
-      onClozeChange(latestState, version);
-      for (const range of ranges) {
-        practice = await saveCardClozeUpdate(detail.id, {
-          baseVersion: version,
-          operation: { type: "add", segmentId: segment.id, ...range },
-        });
-        version = practice.clozeVersion;
-        latestState = asCardClozeState(practice.clozeState);
-        onClozeChange(latestState, version);
-      }
-    } catch (error) {
-      onClozeChange(latestState, version);
-      Alert.alert("无法保存挖空", error instanceof Error ? error.message : "请刷新后重试");
-    } finally {
-      setSavingCloze(false);
-    }
-  }
+  const flipCardTransformStyle = {
+    transform: [
+      { scaleX: flipProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.025] }) },
+      { scaleY: flipProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.985] }) },
+    ],
+  };
+  const relatedContent = relations.length ? (
+    <View style={styles.relationsSection}>
+      <View style={styles.relationsHeader}>
+        <Text style={styles.relationsSectionTitle}>{t("card_detail.related_records")}</Text>
+      </View>
+      {relations.map((relation) => {
+        const isGrowth = relation.reasons.some((reason) => reason.type === "progress" && reason.isFirstUserProduced);
+        const visibleReasons = relation.reasons.filter((reason) => reason.type !== "progress").slice(0, 2);
+        return <Pressable key={relation.recordId} style={[styles.relationRow, isGrowth && styles.relationRowGrowth]} onPress={() => onOpenRelated?.(relation.recordId, relation.reasons)}>
+          {relation.card?.thumbnail ? <Image source={{ uri: relation.card.thumbnail.url }} resizeMode="cover" style={styles.relationThumbnail} /> : null}
+          <View style={styles.relationContent}>
+            {isGrowth ? <Text style={styles.growthMomentLabel}>{t("card_detail.growth_moment")}</Text> : null}
+            <Text style={styles.relationDate}>{relation.card ? formatDate(relation.card.dateKey) : t("card_detail.past_record")}</Text>
+            <RelationFocusText relation={relation} currentOriginalText={detail.originalText} />
+            {visibleReasons.length ? <View style={styles.relationReasons}>{visibleReasons.map((reason, index) => <ReasonBadge key={`${reason.type}:${index}`} reason={reason} />)}</View> : null}
+          </View>
+          <Ionicons name="chevron-forward" size={17} color={theme.colors.textMuted} />
+        </Pressable>;
+      })}
+    </View>
+  ) : null;
 
   return (
-    <>
-    <ScrollView contentContainerStyle={styles.content}>
-      <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
-      {detail.image ? <Image source={{ uri: detail.image.url }} style={styles.image} resizeMode="cover" /> : null}
-      <View style={styles.expressionControls}>
-        {clozeState.blanks.length ? (
-          <Pressable accessibilityLabel={answersVisible ? "隐藏填空答案" : "查看填空答案"} style={styles.expressionAudio} onPress={() => setAnswersVisible((value) => !value)}>
-            <Ionicons name={answersVisible ? "eye-off-outline" : "eye-outline"} size={20} color={theme.colors.textSecondary} />
-          </Pressable>
-        ) : null}
-        <Pressable accessibilityLabel={playing ? "停止播放" : "播放表达"} style={styles.expressionAudio} onPress={() => void play()}>
-          <Ionicons name={playing ? "stop-circle-outline" : "volume-high-outline"} size={19} color={theme.colors.textSecondary} />
-        </Pressable>
-      </View>
-      <View style={styles.rewriteSegments}>
-        {detail.rewriteSegments.map((segment) => {
-          const segmentBlanks = clozeState.blanks
-            .map((blank, index) => blank.segmentId === segment.id ? { blank, index } : null)
-            .filter((value): value is { blank: CardClozeState["blanks"][number]; index: number } => Boolean(value));
-          return (
-            <SelectableMessageText
-              key={segment.id}
-              text={segment.text}
-              style={styles.rewrite}
-              enableDictionaryMenu
-              enableClozeMenu={!savingCloze}
-              highlightRanges={segmentBlanks.map(({ blank, index }) => ({ start: blank.startUtf16, end: blank.endUtf16, groupIndex: index }))}
-              blankRanges={answersVisible ? undefined : segmentBlanks.map(({ blank }) => ({ start: blank.startUtf16, end: blank.endUtf16 }))}
-              onDictionarySelection={(payload) => lookup(segment, payload)}
-              onSelectionChange={(payload) => void addBlank(segment, payload)}
-              onClozeRangePress={(index) => {
-                const blank = clozeState.blanks[index];
-                if (blank) openBlankActions(blank);
-              }}
-              onClozeRangeLongPress={(index) => {
-                const blank = clozeState.blanks[index];
-                if (blank) openBlankActions(blank);
-              }}
-            />
-          );
-        })}
-      </View>
-      {savingCloze ? <View style={styles.clozeSaving}><ActivityIndicator size="small" color={theme.colors.accentStrong} /><Text style={styles.selectionHint}>正在保存挖空…</Text></View> : null}
-      <View style={styles.divider} />
-      <Text selectable style={styles.original}>{detail.originalText}</Text>
-      {relations.length ? (
-        <View style={styles.relationsSection}>
-          <Pressable style={styles.relationsHeader} onPress={() => setShowRelations((value) => !value)}>
-            <Text style={styles.relationsSectionTitle}>与这段生活有关</Text>
-            <Ionicons name={showRelations ? "chevron-up" : "chevron-down"} size={17} color={theme.colors.textMuted} />
-          </Pressable>
-          {showRelations ? relations.map((relation) => (
-            <Pressable key={relation.recordId} style={styles.relationRow} onPress={() => onOpenRelated?.(relation.recordId, relation.reasons)}>
-              <Text numberOfLines={1} style={styles.relationTitle}>{relation.topic || "另一段生活记录"}</Text>
-              <Ionicons name="chevron-forward" size={17} color={theme.colors.textMuted} />
+    <View style={styles.reviewPage}>
+    <View style={styles.flipCardStage}>
+      <Animated.View style={[styles.flipCardShell, flipCardTransformStyle]}>
+      <View pointerEvents={cardFace === "front" ? "auto" : "none"} style={[styles.flipCardFace, cardFace !== "front" && styles.flipCardFaceHidden]}>
+        <KeyboardAwareScrollView style={styles.flipCardScroll} bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.flipCardContent} alwaysBounceVertical={false}>
+          <View style={styles.cardTitleRow}>
+            <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
+          </View>
+          <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
+          <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={(imageId) => onRemoveImage?.(imageId)} />
+          <View style={styles.flipCardTextBlock}>
+            <CollapsibleCardSection label={contentBinding.contentType === "rewrite" ? t("card_detail.module.expression_description") : t("card_detail.my_record")} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
+              {practiceEnabled
+                ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} onClozeAttempt={onClozeAttempt} />
+                : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
+              <CardSectionCopyButton onPress={() => void copySection(learningText)} />
+            </CollapsibleCardSection>
+          </View>
+          {pendingGenerationTargets.includes("expression") ? <PendingGenerationSection target="expression" /> : failedGenerationTargets.includes("expression") ? <FailedGenerationSection target="expression" retrying={retryingGenerationTarget === "expression"} onRetry={onRetryGeneration} /> : null}
+          {detail.replyText ? <CollapsibleCardSection label={t("card_detail.reply")} collapsed={collapsedSections.reply} onToggle={() => toggleSection("reply")}>
+            <Pressable accessibilityLabel={t("card_detail.a11y.play_reply")} style={[styles.replyPlaybackArea, replyPlaybackActive && styles.replyPlaybackAreaActive]} onPress={() => {
+              if (replySelectionRef.current) return;
+              playReply();
+            }}>
+              <SelectableMessageText text={detail.replyText} style={styles.secondaryContent} enableDictionaryMenu enableClozeMenu={false} onSelectionStart={() => {
+                replySelectionRef.current = true;
+                setTimeout(() => { replySelectionRef.current = false; }, 600);
+              }} onDictionarySelection={(payload) => lookupText(detail.replyText!, payload)} />
             </Pressable>
-          )) : null}
-        </View>
-      ) : null}
-    </ScrollView>
+            <CardSectionCopyButton onPress={() => void copySection(detail.replyText!)} />
+          </CollapsibleCardSection> : pendingGenerationTargets.includes("reply") ? <PendingGenerationSection target="reply" /> : failedGenerationTargets.includes("reply") ? <FailedGenerationSection target="reply" retrying={retryingGenerationTarget === "reply"} onRetry={onRetryGeneration} /> : null}
+          {relatedContent}
+        </KeyboardAwareScrollView>
+      </View>
+      <View pointerEvents={cardFace === "back" ? "auto" : "none"} style={[styles.flipCardFace, cardFace !== "back" && styles.flipCardFaceHidden]}>
+        <ScrollView style={styles.flipCardScroll} contentContainerStyle={styles.flipCardContent} keyboardShouldPersistTaps="handled" alwaysBounceVertical={false}>
+          <View style={styles.cardTitleRow}>
+            <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
+          </View>
+          <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
+          {detail.originalText.trim() ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => toggleSection("original")}>
+            <Text selectable style={styles.original}>{detail.originalText}</Text>
+            <CardSectionCopyButton onPress={() => void copySection(detail.originalText)} />
+          </CollapsibleCardSection> : null}
+          {detail.translationText ? <CollapsibleCardSection label={t("card_detail.translation")} collapsed={collapsedSections.translation} onToggle={() => toggleSection("translation")}>
+            <Text selectable style={styles.secondaryContent}>{detail.translationText}</Text>
+            <CardSectionCopyButton onPress={() => void copySection(detail.translationText!)} />
+          </CollapsibleCardSection> : pendingGenerationTargets.includes("translation") ? <PendingGenerationSection target="translation" /> : failedGenerationTargets.includes("translation") ? <FailedGenerationSection target="translation" retrying={retryingGenerationTarget === "translation"} onRetry={onRetryGeneration} /> : null}
+        </ScrollView>
+      </View>
+      </Animated.View>
+    </View>
+    {onRecallFinish ? <Pressable style={styles.recallFinishButton} onPress={onRecallFinish}><Text style={styles.recallFinishButtonText}>{t("recall.end_node")}</Text><Ionicons name="checkmark" size={18} color={theme.colors.surface} /></Pressable> : null}
+    <View style={styles.detailActionBar}>
+      <DetailActionButton label={t("card_detail.flip")} icon="swap-horizontal-outline" active={cardFace === "back"} onPress={flipCard} />
+      <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={cardFace !== "front" || !practiceEnabled || !canUseDictation} onPress={onOpenDictation} />
+      <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks} onPress={() => setAnswersVisible((current) => !current)} />
+      <DetailActionButton label={t("card_detail.tab.cloze")} clozeIcon active={fillMode && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks} onPress={() => { setFillMode((current) => !current); setAnswersVisible(false); }} />
+      <DetailActionButton label={t("card_detail.a11y.play_all")} icon={articlePlaying ? "pause" : "play"} loading={articlePlaybackLoading} disabled={cardFace !== "front" || detail.source !== "card"} onPress={() => articlePlaybackActive ? toggleTtsPlayback() : void playArticle()} />
+    </View>
     <DictionaryPopover
       visible={Boolean(dictionary)}
       anchor={dictionary?.anchor}
@@ -630,140 +2030,542 @@ function Review({ detail, clozeState, clozeVersion, onClozeChange, onReplaceImag
       loading={dictionary?.loading ?? false}
       error={dictionary?.error}
       result={dictionary?.result}
-      canUseTts={false}
+      canUseTts
       onClose={() => { dictionaryRequestRef.current += 1; setDictionary(null); }}
     />
-    <ClozeTokenEditor
-      value={clozeEditor}
-      onChange={(selectedTokenIndexes) => setClozeEditor((current) => current ? { ...current, selectedTokenIndexes } : null)}
-      onCancel={() => setClozeEditor(null)}
-      onConfirm={() => void confirmClozeEditor()}
-    />
-    </>
+    </View>
   );
+}
+
+function CollapsibleCardSection({ label, collapsed, onToggle, compact = false, children }: { label: string; collapsed: boolean; onToggle: () => void; compact?: boolean; children: React.ReactNode }) {
+  return <View style={!compact ? styles.flipCardSection : undefined}>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: !collapsed }} style={styles.collapsibleSectionHeader} onPress={onToggle}>
+      <Text style={styles.sectionLabelInline}>{label}</Text>
+      <Ionicons name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={theme.colors.textMuted} />
+    </Pressable>
+    {!collapsed ? children : null}
+  </View>;
+}
+
+function PendingGenerationSection({ target }: { target: CardGenerationTarget }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const animation = Animated.loop(Animated.timing(progress, { toValue: 1, duration: 1050, easing: Easing.linear, useNativeDriver: true }));
+    animation.start();
+    return () => animation.stop();
+  }, [progress]);
+  const label = generationTargetLabel(target);
+  return <View style={styles.pendingGenerationSection}>
+    <Text style={styles.sectionLabelInline}>{label}</Text>
+    <View style={styles.generatingDots}>{[0, 1, 2].map((index) => <Animated.View key={index} style={[styles.generatingDot, { opacity: progress.interpolate({ inputRange: [0, .33, .66, 1], outputRange: index === 0 ? [.25, 1, .25, .25] : index === 1 ? [.25, .25, 1, .25] : [.25, .25, .25, 1] }) }]} />)}</View>
+  </View>;
+}
+
+function generationTargetLabel(target: CardGenerationTarget): string {
+  return target === "translation"
+    ? t("card_detail.module.translation_description")
+    : target === "reply"
+      ? t("card_detail.module.reply_description")
+      : t("card_detail.module.expression_description");
+}
+
+function FailedGenerationSection({ target, retrying, onRetry }: {
+  target: CardGenerationTarget;
+  retrying: boolean;
+  onRetry?: (target: CardGenerationTarget) => void;
+}) {
+  const label = generationTargetLabel(target);
+  return <View style={styles.failedGenerationSection}>
+    <View style={styles.failedGenerationCopy}>
+      <Text style={styles.sectionLabelInline}>{label}</Text>
+      <Text style={styles.failedGenerationText}>{t("card_detail.not_generated")}</Text>
+    </View>
+    <Pressable disabled={retrying} style={styles.failedGenerationRetry} onPress={() => onRetry?.(target)}>
+      {retrying ? <ActivityIndicator size="small" color={theme.colors.text} /> : <Ionicons name="refresh" size={18} color={theme.colors.text} />}
+    </Pressable>
+  </View>;
+}
+
+function CardSectionCopyButton({ onPress }: { onPress: () => void }) {
+  return <Pressable accessibilityLabel={t("card_detail.copy")} hitSlop={8} style={styles.cardSectionCopyButton} onPress={onPress}>
+    <Ionicons name="copy-outline" size={17} color={theme.colors.textMuted} />
+  </Pressable>;
+}
+
+function DetailActionButton({ label, icon, clozeIcon = false, active = false, loading = false, disabled = false, onPress }: {
+  label: string;
+  icon?: React.ComponentProps<typeof Ionicons>["name"];
+  clozeIcon?: boolean;
+  active?: boolean;
+  loading?: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return <Pressable accessibilityLabel={label} disabled={disabled || loading} style={[styles.detailActionButton, active && styles.detailActionButtonActive, disabled && styles.detailActionButtonDisabled]} onPress={onPress}>
+    {loading
+      ? <ActivityIndicator size="small" color={theme.colors.text} />
+      : clozeIcon
+        ? <Text style={[styles.clozeToolbarText, active && styles.clozeToolbarTextActive]}>{t("card_detail.tab.cloze_short")}</Text>
+        : icon ? <Ionicons name={icon} size={21} color={active ? theme.colors.surface : theme.colors.textSecondary} /> : null}
+  </Pressable>;
+}
+
+function RelationFocusText({ relation, currentOriginalText }: {
+  relation: { recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] };
+  currentOriginalText: string;
+}) {
+  const progress = relation.reasons.find(
+    (reason): reason is Extract<CardRelationReason, { type: "progress" }> => reason.type === "progress",
+  );
+  const phrase = relation.reasons.find(
+    (reason): reason is Extract<CardRelationReason, { type: "phrase" }> => reason.type === "phrase",
+  );
+  // A progress relation represents the moment the user independently used an
+  // expression that had previously appeared in a cloze. Keep the focus on the
+  // user's current wording, rather than repeating the older AI expression.
+  const matchedExpression = progress?.currentExpression || phrase?.surfaceText || "";
+  const text = progress
+    ? sentenceContaining(currentOriginalText, progress.currentExpression) || progress.currentExpression
+    : phrase?.sentence || relation.card?.rewrittenText || relation.card?.originalText || t("card_detail.another_record");
+  if (!matchedExpression) return <Text numberOfLines={2} style={styles.relationTitle}>{text}</Text>;
+  const index = text.toLocaleLowerCase().indexOf(matchedExpression.toLocaleLowerCase());
+  if (index < 0) return <Text numberOfLines={2} style={styles.relationTitle}>{text}</Text>;
+  return (
+    <Text numberOfLines={3} style={styles.relationTitle}>
+      {text.slice(0, index)}
+      <Text style={styles.relationMatch}>{text.slice(index, index + matchedExpression.length)}</Text>
+      {text.slice(index + matchedExpression.length)}
+    </Text>
+  );
+}
+
+function sentenceContaining(text: string, expression: string): string {
+  const index = text.toLocaleLowerCase().indexOf(expression.toLocaleLowerCase());
+  if (index < 0) return "";
+  const boundaries = new Set([".", "!", "?", "。", "！", "？", "\n"]);
+  let start = index;
+  while (start > 0 && !boundaries.has(text[start - 1]!)) start -= 1;
+  let end = index + expression.length;
+  while (end < text.length && !boundaries.has(text[end]!)) end += 1;
+  if (end < text.length && text[end] !== "\n") end += 1;
+  return text.slice(start, end).trim();
 }
 
 function ReasonBadge({ reason }: { reason: CardRelationReason }) {
   const label = reason.type === "topic"
-    ? "内容相近"
+    ? t("card_detail.relation.content_related")
     : reason.type === "phrase"
-      ? `${reason.evidence === "clozed" ? "也挖过" : "也出现过"} ${reason.phrase}`
-      : `后来主动使用了 ${reason.phrase}`;
+      ? tf(reason.evidence === "clozed" ? "card_detail.relation.clozed_phrase" : "card_detail.relation.shared_phrase", { phrase: reason.phrase })
+      : tf("card_detail.relation.progress_phrase", { phrase: reason.phrase });
   return <View style={[styles.reasonBadge, reason.type === "progress" && styles.reasonProgress, reason.type === "phrase" && styles.reasonPhrase]}><Text style={styles.reasonText}>{label}</Text></View>;
 }
 
-function Cloze({ detail, clozeState, clozeVersion, onClozeChange }: {
+function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange, onAddBlank, onBlankLongPress, onPlaySentence, embedded = false, fillMode = false, answersVisible = false, activeSentenceKey = null, onClozeAttempt }: {
   detail: CardRecordDetail;
+  contentBinding: CardContentBinding;
   clozeState: CardClozeState;
   clozeVersion: number;
   onClozeChange: (state: CardClozeState, version: number) => void;
+  onAddBlank?: (segment: CardRecordDetail["rewriteSegments"][number], payload: NativeTextSelectionPayload) => void;
+  onBlankLongPress?: (blank: CardClozeState["blanks"][number]) => void;
+  onPlaySentence?: (row: CardClozeSentenceRow) => void;
+  embedded?: boolean;
+  fillMode?: boolean;
+  answersVisible?: boolean;
+  activeSentenceKey?: string | null;
+  onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
 }) {
-  const [activeBlankId, setActiveBlankId] = useState<string | null>(clozeState.blanks[0]?.id ?? null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [checkedAnswers, setCheckedAnswers] = useState<Record<number, "correct" | "incorrect">>({});
-  const [result, setResult] = useState<"correct" | "incorrect" | null>(null);
   const [saving, setSaving] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  const [dictionary, setDictionary] = useState<DictionaryLookupState | null>(null);
+  const dictionaryRequestRef = useRef(0);
+  const sentenceRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, embedded), [detail, clozeState, embedded]);
   useEffect(() => {
-    setActiveBlankId(clozeState.blanks[0]?.id ?? null);
     setAnswers({});
     setCheckedAnswers({});
-    setResult(null);
-  }, [detail.id]);
+  }, [detail.id, contentBinding.contentType, contentBinding.contentVersion]);
   useEffect(() => {
-    setActiveBlankId((current) => clozeState.blanks.some((blank) => blank.id === current) ? current : clozeState.blanks[0]?.id ?? null);
-  }, [clozeState.blanks]);
-  const activeBlank = clozeState.blanks.find((blank) => blank.id === activeBlankId) ?? null;
-  const activeSegment = activeBlank
-    ? detail.rewriteSegments.find((segment) => segment.id === activeBlank.segmentId) ?? null
-    : null;
-  const activeTokens = activeSegment && activeBlank
-    ? tokenizeForCloze(activeSegment.text)
-    : [];
-  const activeBlankTokenIndexes = activeBlank
-    ? activeTokens.filter((token) => token.end > activeBlank.startUtf16 && token.start < activeBlank.endUtf16).map((token) => token.index)
-    : [];
-  const flowSegments = buildClozeFlowSegments({
-    tokens: activeTokens,
-    phraseTokenIndexes: activeBlankTokenIndexes,
-    blankTokenIndexes: activeBlankTokenIndexes,
-    correctTokenIndexes: [],
-  });
+    if (!fillMode) Keyboard.dismiss();
+  }, [fillMode]);
 
-  async function check(): Promise<void> {
-    if (!activeBlank || saving) return;
-    const nextChecked: Record<number, "correct" | "incorrect"> = {};
-    activeTokens.forEach((token) => {
-      if (!activeBlankTokenIndexes.includes(token.index)) return;
-      nextChecked[token.index] = normalizeAnswer(answers[token.index] ?? "") === normalizeAnswer(token.text) ? "correct" : "incorrect";
-    });
+  async function check(blankIndex: number): Promise<void> {
+    const blank = clozeState.blanks[blankIndex];
+    if (!blank || !answers[blankIndex]?.trim() || saving) return;
+    const answerCorrect = normalizeAnswer(answers[blankIndex] ?? "") === normalizeAnswer(blank.answer);
+    onClozeAttempt?.({ recordId: detail.id, blankId: blank.id, correct: answerCorrect });
+    const nextChecked = {
+      ...checkedAnswers,
+      [blankIndex]: answerCorrect ? "correct" as const : "incorrect" as const,
+    };
     setCheckedAnswers(nextChecked);
-    const next = Object.values(nextChecked).length > 0 && Object.values(nextChecked).every((value) => value === "correct") ? "correct" : "incorrect";
-    setResult(next);
+    const revealedBlankIndexes = new Set(answersVisible ? clozeState.blanks.map((_, index) => index) : []);
+    const allChecked = clozeState.blanks.every((_, index) => nextChecked[index] || revealedBlankIndexes.has(index));
+    let effectiveVersion = clozeVersion;
+    if (answerCorrect && !blank.mastered) {
+      setSaving(true);
+      try {
+        let practice;
+        try {
+          practice = await saveCardClozeUpdate(detail.id, {
+            ...contentBinding,
+            baseVersion: effectiveVersion,
+            operation: { type: "master", blankId: blank.id },
+          });
+        } catch (error) {
+          if (!(error instanceof CardApiError) || error.code !== "CARD_PRACTICE_CONFLICT") throw error;
+          const latest = await getCardRecord(detail.id);
+          const latestPractice = contentPractice(latest, contentBinding);
+          const latestState = asCardClozeState(latestPractice?.clozeState);
+          const latestVersion = latestPractice?.clozeVersion ?? 0;
+          if (latestState.blanks.find((candidate) => candidate.id === blank.id)?.mastered) {
+            practice = latestPractice;
+          } else {
+            practice = await saveCardClozeUpdate(detail.id, {
+              ...contentBinding,
+              baseVersion: latestVersion,
+              operation: { type: "master", blankId: blank.id },
+            });
+          }
+        }
+        if (practice) {
+          effectiveVersion = practice.clozeVersion;
+          onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
+        }
+      } catch (error) {
+        setSaving(false);
+        Alert.alert(t("card_detail.practice_unsaved"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+        return;
+      } finally {
+        if (!allChecked) setSaving(false);
+      }
+    }
+    if (!allChecked) return;
+    const next = revealedBlankIndexes.size > 0
+      ? "revealed"
+      : clozeState.blanks.every((_, index) => nextChecked[index] === "correct") ? "correct" : "incorrect";
     setSaving(true);
     try {
-      const practice = await saveCardClozeUpdate(detail.id, {
-        baseVersion: clozeVersion,
+      let practice = await saveCardClozeUpdate(detail.id, {
+        ...contentBinding,
+        baseVersion: effectiveVersion,
         operation: { type: "result" },
         result: next,
       });
+      if (!practice) return;
       onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
     } catch (error) {
-      Alert.alert("练习结果未保存", error instanceof Error ? error.message : "请稍后重试");
+      if (error instanceof CardApiError && error.code === "CARD_PRACTICE_CONFLICT") {
+        try {
+          const latest = await getCardRecord(detail.id);
+          const latestVersion = contentPractice(latest, contentBinding)?.clozeVersion ?? 0;
+          const practice = await saveCardClozeUpdate(detail.id, {
+            ...contentBinding,
+            baseVersion: latestVersion,
+            operation: { type: "result" },
+            result: next,
+          });
+          onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
+          return;
+        } catch (retryError) {
+          Alert.alert(t("card_detail.practice_unsaved"), retryError instanceof Error ? retryError.message : t("card_detail.error.try_again"));
+          return;
+        }
+      }
+      Alert.alert(t("card_detail.practice_unsaved"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
     } finally { setSaving(false); }
   }
 
-  async function speakBlank(): Promise<void> {
-    if (!activeBlank || speaking || detail.source !== "card") return;
-    setSpeaking(true);
-    try {
-      const audio = await getCardSelectionAudio({
-        entryId: detail.id.slice("card:".length),
-        segmentId: activeBlank.segmentId,
-        startUtf16: activeBlank.startUtf16,
-        endUtf16: activeBlank.endUtf16,
+  function lookupInSentence(row: CardClozeSentenceRow, term: string, start: number, end: number): void {
+    Keyboard.dismiss();
+    const sequence = dictionaryRequestRef.current + 1;
+    dictionaryRequestRef.current = sequence;
+    setDictionary({ term, loading: true, error: null, result: null, segmentId: row.segmentId, start, end });
+    void lookupDictionary({ term, context: row.text, selectionStart: start, selectionEnd: end, targetLanguage: detail.languageCode, uiLanguage: getLanguage(), contactId: "curious_companion", messageId: null })
+      .then((lookupResult) => {
+        if (dictionaryRequestRef.current === sequence) setDictionary((current) => current ? { ...current, loading: false, result: lookupResult, error: null } : null);
+      })
+      .catch((error) => {
+        if (dictionaryRequestRef.current === sequence) setDictionary((current) => current ? { ...current, loading: false, error: (error as { code?: string }).code === "DICTIONARY_NOT_FOUND" ? t("dictionary.error.not_found") : t("dictionary.error.failed") } : null);
       });
-      await playTtsAudio({ url: audio.audioUrl });
-    } finally { setSpeaking(false); }
   }
-  return (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.practiceContent}>
-      {!clozeState.blanks.length ? (
+  const practice = !embedded && !clozeState.blanks.length ? (
         <View style={styles.emptyPracticeCard}>
           <Ionicons name="text-outline" size={28} color={theme.colors.accentStrong} />
-          <Text style={styles.emptyPracticeTitle}>还没有填空卡片</Text>
-          <Text style={styles.practiceHint}>先到“回看”的 OIO 整理中长按选择内容，再点“挖空”。</Text>
+          <Text style={styles.emptyPracticeTitle}>{t("card_detail.practice_empty")}</Text>
+          <Text style={styles.practiceHint}>{t("card_detail.practice_empty_hint")}</Text>
         </View>
       ) : (
-        <>
-          {clozeState.blanks.length > 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.blankPicker}>
-            {clozeState.blanks.map((blank, index) => <Pressable
-              key={blank.id}
-              style={[styles.blankPickerItem, blank.id === activeBlankId && styles.blankPickerItemActive]}
-              onPress={() => { setActiveBlankId(blank.id); setAnswers({}); setCheckedAnswers({}); setResult(null); }}
-            ><Text style={[styles.blankPickerText, blank.id === activeBlankId && styles.blankPickerTextActive]}>第 {index + 1} 题</Text></Pressable>)}
-          </ScrollView> : null}
-          {activeBlank && activeSegment ? <View style={styles.clozeCard}>
-            <View style={styles.clozeFlow}>
-              <ClozeTokenFlow
-                segments={flowSegments}
-                answers={answers}
-                checkedAnswers={checkedAnswers}
-                onChangeAnswer={(tokenIndex, value) => { setAnswers((current) => ({ ...current, [tokenIndex]: value })); setCheckedAnswers({}); setResult(null); }}
-                onBlankFocus={() => undefined}
-              />
-            </View>
-            <Pressable style={styles.clozeAudioButton} disabled={speaking || detail.source !== "card"} onPress={() => void speakBlank()}>
-              <Ionicons name="volume-high-outline" size={18} color={theme.colors.accentStrong} />
-              <Text style={styles.clozeActionText}>{speaking ? "播放中…" : "播放挖空内容"}</Text>
-            </Pressable>
-          </View> : null}
-          <Pressable style={styles.primaryButton} onPress={() => void check()} disabled={!activeBlankTokenIndexes.some((index) => answers[index]?.trim()) || !activeBlank || saving}><Text style={styles.primaryButtonText}>检查答案</Text></Pressable>
-          {result ? <Text style={[styles.result, result === "correct" ? styles.correct : styles.incorrect]}>{result === "correct" ? "答对了" : "再想想，红色部分可以重新练习"}</Text> : null}
-        </>
-      )}
-    </ScrollView>
-  );
+          <View style={[styles.clozeSentenceList, embedded && styles.inlineClozeSentenceList]}>{sentenceRows.map((row) => {
+            const segment = detail.rewriteSegments.find((candidate) => candidate.id === row.segmentId);
+            const rowFillMode = fillMode && row.blanks.length > 0;
+            return <View key={row.key} style={[styles.clozeSentenceRow, embedded && styles.inlineClozeSentenceRow]}>
+              <View style={styles.clozeSentenceBody}>
+                <StableCardSentence
+                  row={row}
+                  answers={answers}
+                  checkedAnswers={checkedAnswers}
+                  revealed={answersVisible}
+                  saving={saving}
+                  active={activeSentenceKey === row.key}
+                  speaking={activeSentenceKey === row.key}
+                  fillMode={rowFillMode}
+                  onLookup={(term, start, end) => lookupInSentence(row, term, start, end)}
+                  onAddBlank={segment && !saving ? (payload) => onAddBlank?.(segment, payload) : undefined}
+                  onBlankLongPress={onBlankLongPress}
+                  onPlay={() => onPlaySentence?.(row)}
+                  onCheckAnswer={(blankIndex) => void check(blankIndex)}
+                  onChangeAnswer={(blankIndex, value) => {
+                    setAnswers((current) => ({ ...current, [blankIndex]: value }));
+                    setCheckedAnswers((current) => { const next = { ...current }; delete next[blankIndex]; return next; });
+                  }}
+                />
+              </View>
+            </View>;
+          })}</View>
+      );
+  const dictionaryPopover = <DictionaryPopover visible={Boolean(dictionary)} term={dictionary?.term ?? ""} loading={dictionary?.loading ?? false} error={dictionary?.error} result={dictionary?.result} canUseTts onClose={() => { dictionaryRequestRef.current += 1; setDictionary(null); }} />;
+  if (embedded) return <View style={styles.inlineClozePractice}>{practice}{dictionaryPopover}</View>;
+  return <View style={styles.reviewPage}><KeyboardAwareScrollView bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.practiceContent} alwaysBounceVertical={false}>{practice}</KeyboardAwareScrollView>{dictionaryPopover}</View>;
+}
+
+function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, active, speaking, fillMode, onLookup, onAddBlank, onBlankLongPress, onPlay, onChangeAnswer, onCheckAnswer }: {
+  row: CardClozeSentenceRow;
+  answers: Record<number, string>;
+  checkedAnswers: Record<number, "correct" | "incorrect">;
+  revealed: boolean;
+  saving: boolean;
+  active: boolean;
+  speaking: boolean;
+  fillMode: boolean;
+  onLookup: (term: string, start: number, end: number) => void;
+  onAddBlank?: (payload: NativeTextSelectionPayload) => void;
+  onBlankLongPress?: (blank: CardClozeState["blanks"][number]) => void;
+  onPlay: () => void;
+  onChangeAnswer: (blankIndex: number, value: string) => void;
+  onCheckAnswer: (blankIndex: number) => void;
+}) {
+  const suppressPlayRef = useRef(false);
+  const [normalHeight, setNormalHeight] = useState(28);
+  const [practiceHeight, setPracticeHeight] = useState(28);
+  const showPractice = fillMode;
+  const sentenceText = row.text.slice(row.textStart, row.textEnd);
+  const stableHeight = Math.max(28, normalHeight, practiceHeight);
+  function suppressPlay(): void {
+    suppressPlayRef.current = true;
+    setTimeout(() => { suppressPlayRef.current = false; }, 600);
+  }
+  function playUnlessSelecting(): void {
+    if (!suppressPlayRef.current) onPlay();
+  }
+  return <View style={[styles.stableSentence, active && styles.stableSentenceActive, { height: stableHeight }]}>
+    <View
+      pointerEvents={showPractice ? "none" : "auto"}
+      style={[styles.stableSentenceLayer, showPractice && styles.stableSentenceLayerHidden]}
+      onLayout={(event) => setNormalHeight(Math.ceil(event.nativeEvent.layout.height))}
+    >
+      <Pressable accessibilityLabel={t("card_detail.a11y.play_sentence")} disabled={speaking} onPress={playUnlessSelecting}>
+        <SelectableMessageText
+          text={sentenceText}
+          style={[styles.rewrite, styles.inlineSelectableSentence]}
+          highlightRanges={row.blanks.map(({ blank }, index) => ({ start: blank.startUtf16 - row.textStart, end: blank.endUtf16 - row.textStart, groupIndex: index }))}
+          blankRanges={row.blanks.map(({ blank }) => ({ start: blank.startUtf16 - row.textStart, end: blank.endUtf16 - row.textStart }))}
+          correctRanges={row.blanks.filter(({ blank }) => blank.mastered).map(({ blank }) => ({ start: blank.startUtf16 - row.textStart, end: blank.endUtf16 - row.textStart }))}
+          answersVisible={revealed}
+          enableDictionaryMenu
+          enableClozeMenu={!saving}
+          interactionsDisabled={showPractice}
+          onSelectionStart={suppressPlay}
+          onDictionarySelection={(payload) => onLookup(payload.selectedText, row.textStart + payload.start, row.textStart + payload.end)}
+          onSelectionChange={(payload) => onAddBlank?.({ ...payload, start: row.textStart + payload.start, end: row.textStart + payload.end })}
+          onClozeRangeLongPress={(index) => {
+            suppressPlay();
+            const selected = row.blanks[index];
+            if (selected) onBlankLongPress?.(selected.blank);
+          }}
+        />
+      </Pressable>
+    </View>
+    <View
+      pointerEvents={showPractice ? "auto" : "none"}
+      style={[styles.stableSentenceLayer, !showPractice && styles.stableSentenceLayerHidden]}
+      onLayout={(event) => setPracticeHeight(Math.ceil(event.nativeEvent.layout.height))}
+    >
+      <Pressable accessibilityLabel={t("card_detail.a11y.play_sentence")} disabled={speaking} onPress={playUnlessSelecting}>
+        <CardBlankSentenceFlow
+          row={row}
+          answers={answers}
+          checkedAnswers={checkedAnswers}
+          revealed={revealed}
+          saving={saving}
+          fillMode={fillMode}
+          onLookup={() => onPlay()}
+          onBlankLongPress={onBlankLongPress}
+          onChangeAnswer={onChangeAnswer}
+          onCheckAnswer={onCheckAnswer}
+        />
+      </Pressable>
+    </View>
+  </View>;
+}
+
+type CardClozeSentenceRow = {
+  key: string;
+  segmentId: string;
+  text: string;
+  textStart: number;
+  textEnd: number;
+  blanks: Array<{ blank: CardClozeState["blanks"][number]; blankIndex: number }>;
+};
+
+function buildCardClozeSentenceRows(detail: CardRecordDetail, clozeState: CardClozeState, includeUnblanked = false): CardClozeSentenceRow[] {
+  return detail.rewriteSegments.flatMap((segment) => {
+    const segmentBlanks = clozeState.blanks
+      .map((blank, blankIndex) => ({ blank, blankIndex }))
+      .filter(({ blank }) => blank.segmentId === segment.id)
+      .sort((left, right) => left.blank.startUtf16 - right.blank.startUtf16);
+    if (!segmentBlanks.length && !includeUnblanked) return [];
+    const sentences = segmentLearningSentences({ text: segment.text, languageCode: detail.languageCode, minSegmentChars: 1 });
+    const rows = sentences.map((sentence, sentenceIndex) => ({
+      key: `${segment.id}:sentence-${sentenceIndex}-${sentence.textStart}-${sentence.textEnd}`,
+      segmentId: segment.id,
+      text: segment.text,
+      textStart: sentence.textStart,
+      textEnd: sentence.textEnd,
+      blanks: segmentBlanks.filter(({ blank }) => blank.startUtf16 >= sentence.textStart && blank.endUtf16 <= sentence.textEnd),
+    })).filter((row) => includeUnblanked || row.blanks.length > 0);
+    return rows.length ? rows : [{ key: `${segment.id}:sentence-fallback`, segmentId: segment.id, text: segment.text, textStart: 0, textEnd: segment.text.length, blanks: segmentBlanks }];
+  });
+}
+
+function ClozePracticeBlank({ expectedText, answer, checked, mastered = false, revealed = false, editing = false, fillEnabled = true, disabled = false, onLongPress, onChangeAnswer, onCheck }: {
+  expectedText: string;
+  answer: string;
+  checked?: "correct" | "incorrect";
+  mastered?: boolean;
+  revealed?: boolean;
+  editing?: boolean;
+  fillEnabled?: boolean;
+  disabled?: boolean;
+  onLongPress: () => void;
+  onChangeAnswer: (value: string) => void;
+  onCheck: () => void;
+}) {
+  const inputRef = useRef<TextInput>(null);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const fallbackWidth = Math.max(28, Math.min(240, Array.from(expectedText).length * 9));
+  const answerWidth = measuredWidth ?? fallbackWidth;
+  const underlineUnits = useMemo(() => splitCardClozeAnswerUnits(expectedText), [expectedText]);
+  const showInput = fillEnabled && editing && !revealed;
+  const coloredAnswer = !revealed && checked === "incorrect" ? renderCheckedClozeAnswer(expectedText, answer) : null;
+  return <View style={styles.cardBlankUnit}>
+    <Pressable delayLongPress={360} style={styles.cardBlankField} onPress={showInput ? () => inputRef.current?.focus() : undefined} onLongPress={onLongPress}>
+      <Text
+        pointerEvents="none"
+        style={styles.cardBlankMeasure}
+        onLayout={(event) => setMeasuredWidth((current) => current ?? Math.max(28, Math.min(240, Math.ceil(event.nativeEvent.layout.width))))}
+      >{expectedText || " "}</Text>
+      <View pointerEvents="none" style={[styles.cardBlankBackground, (mastered || checked === "correct") && styles.cardBlankBackgroundCorrect]} />
+      <View pointerEvents="none" style={styles.cardBlankUnderlineRow}>
+        {(underlineUnits.length ? underlineUnits : [expectedText || " "]).map((unit, index) => (
+          <View
+            key={`${index}-${unit}`}
+            style={[styles.cardBlankUnderlineSegment, { flex: Math.max(1, Array.from(unit).length) }]}
+          />
+        ))}
+      </View>
+      <View style={{ width: answerWidth, height: 28 }}>
+        {showInput ? <>
+          <TextInput ref={inputRef} accessibilityLabel={t("card_detail.tab.cloze")} value={answer} editable={!disabled && checked !== "correct"} onChangeText={onChangeAnswer} autoCapitalize="none" autoCorrect={false} style={[styles.cardBlankInput, { width: answerWidth }, checked === "correct" && styles.cardBlankInputCorrect, checked === "incorrect" && styles.cardBlankInputChecked]} />
+          {coloredAnswer ? <Text pointerEvents="none" style={[styles.cardBlankCheckedText, { width: answerWidth }]}>{coloredAnswer}</Text> : null}
+        </> : <Text pointerEvents="none" style={[styles.cardBlankStaticText, { width: answerWidth }]}>{revealed ? expectedText : ""}</Text>}
+      </View>
+    </Pressable>
+    <Pressable
+      accessibilityLabel={t("card_detail.dictation.check")}
+      disabled={!fillEnabled || !answer.trim() || disabled || revealed || checked === "correct"}
+      style={[styles.cardBlankCheckButton, !fillEnabled || revealed ? styles.cardBlankCheckButtonHidden : null, checked === "correct" && styles.cardBlankCheckButtonCorrect, fillEnabled && (!answer.trim() || disabled) && styles.cardBlankCheckButtonDisabled]}
+      onPress={onCheck}
+    >
+      <Ionicons name="checkmark" size={13} color={checked === "correct" ? theme.colors.surface : theme.colors.textMuted} />
+    </Pressable>
+  </View>;
+}
+
+function renderCheckedClozeAnswer(expectedText: string, answer: string): React.ReactNode[] {
+  const unitMatches = getCardClozeActualUnitMatches(expectedText, answer);
+  const parts = answer.split(/([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{N}'’-]+)/gu);
+  let unitIndex = 0;
+  return parts.filter(Boolean).map((part, index) => {
+    const isUnit = /^(?:[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{N}'’-]+)$/u.test(part);
+    const matched = isUnit ? unitMatches[unitIndex++] : false;
+    return <Text key={`${index}-${part}`} style={isUnit && matched ? styles.cardBlankCheckedWordCorrect : styles.cardBlankCheckedWordIncorrect}>{part}</Text>;
+  });
+}
+
+function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving, fillMode, onLookup, onAddBlank, onBlankLongPress, onChangeAnswer, onCheckAnswer }: {
+  row: CardClozeSentenceRow;
+  answers: Record<number, string>;
+  checkedAnswers: Record<number, "correct" | "incorrect">;
+  revealed: boolean;
+  saving: boolean;
+  fillMode: boolean;
+  onLookup: (term: string, start: number, end: number) => void;
+  onAddBlank?: (start: number, end: number, selectedText: string) => void;
+  onBlankLongPress?: (blank: CardClozeState["blanks"][number]) => void;
+  onChangeAnswer: (blankIndex: number, value: string) => void;
+  onCheckAnswer: (blankIndex: number) => void;
+}) {
+  const content: React.ReactNode[] = [];
+  let cursor = row.textStart;
+  row.blanks.forEach(({ blank, blankIndex }) => {
+    if (blank.startUtf16 > cursor) content.push(...renderClozeLookupText(row.text, cursor, blank.startUtf16, onLookup, onAddBlank));
+    const answer = answers[blankIndex] ?? "";
+    const checked = checkedAnswers[blankIndex];
+    content.push(<ClozePracticeBlank
+      key={blank.id}
+      expectedText={blank.answer}
+      answer={answer}
+      checked={checked}
+      mastered={blank.mastered}
+      revealed={revealed}
+      editing={fillMode}
+      fillEnabled={fillMode}
+      disabled={saving}
+      onLongPress={() => onBlankLongPress?.(blank)}
+      onChangeAnswer={(value) => onChangeAnswer(blankIndex, value)}
+      onCheck={() => onCheckAnswer(blankIndex)}
+    />);
+    cursor = blank.endUtf16;
+  });
+  if (cursor < row.textEnd) content.push(...renderClozeLookupText(row.text, cursor, row.textEnd, onLookup, onAddBlank));
+  return <View style={styles.clozeFlow}>{content}</View>;
+}
+
+function renderClozeLookupText(text: string, start: number, end: number, onLookup: (term: string, start: number, end: number) => void, onAddBlank?: (start: number, end: number, selectedText: string) => void): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const chunk = text.slice(start, end);
+  const pattern = /[A-Za-z][A-Za-z'’-]*/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(chunk))) {
+    if (match.index > cursor) nodes.push(<Text key={`plain-${start + cursor}`} style={styles.clozeSentence}>{chunk.slice(cursor, match.index)}</Text>);
+    const wordStart = start + match.index;
+    const word = match[0];
+    nodes.push(<Pressable
+      key={`word-${wordStart}`}
+      accessibilityLabel={tf("card_detail.a11y.lookup_word", { word })}
+      delayLongPress={320}
+      style={({ pressed }) => [styles.clozeLookupWord, pressed && styles.clozeLookupWordPressed]}
+      onPress={() => onLookup(word, wordStart, wordStart + word.length)}
+      onLongPress={onAddBlank ? () => onAddBlank(wordStart, wordStart + word.length, word) : undefined}
+    >
+      <Text style={styles.clozeSentence}>{word}</Text>
+    </Pressable>);
+    cursor = match.index + word.length;
+  }
+  if (cursor < chunk.length) nodes.push(<Text key={`plain-${start + cursor}`} style={styles.clozeSentence}>{chunk.slice(cursor)}</Text>);
+  return nodes;
 }
 
 function asCardClozeState(value: unknown): CardClozeState {
@@ -773,130 +2575,174 @@ function asCardClozeState(value: unknown): CardClozeState {
   return value as CardClozeState;
 }
 
-function Dictation({ detail }: { detail: CardRecordDetail }) {
-  const dictation = useMemo(() => selectDictationSentence(detail), [detail.id, detail.rewrittenText]);
-  const sentence = dictation.text;
-  const [answer, setAnswer] = useState("");
-  const [revealed, setRevealed] = useState(false);
-  const [result, setResult] = useState<"correct" | "incorrect" | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [audioLoading, setAudioLoading] = useState(false);
-  async function playSentence(): Promise<void> {
-    const segment = detail.rewriteSegments.find((candidate) => candidate.id === dictation.segmentId);
-    if (!segment) return;
-    setAudioLoading(true);
-    try {
+function Dictation({ detail, contentBinding }: { detail: CardRecordDetail; contentBinding: CardContentBinding }) {
+  const rows = useMemo(() => detail.rewriteSegments.flatMap((segment) => segmentLearningSentences({ text: segment.text, languageCode: detail.languageCode, minSegmentChars: 1 }).map((sentence, index) => ({
+    key: `${segment.id}-${index}-${sentence.textStart}`,
+    text: sentence.text.trim(),
+    segmentId: segment.id,
+    startUtf16: sentence.textStart,
+    endUtf16: sentence.textEnd,
+  }))).filter((sentence) => sentence.text), [detail.id, detail.rewrittenText, detail.rewriteSegments]);
+  const sentences = useMemo(() => rows.map(({ key, text }) => ({ key, text })), [rows]);
+  return <DictationPracticeView
+    sentences={sentences}
+    onPlay={async (sentence) => {
+      const row = rows.find((candidate) => candidate.key === sentence.key);
+      if (!row) return;
       const audio = await getCardSegmentAudio({
         entryId: detail.id.slice("card:".length),
-        segmentId: segment.id,
+        segmentId: row.segmentId,
         sourceKind: "dictation_sentence",
-        startUtf16: dictation.startUtf16,
-        endUtf16: dictation.endUtf16,
+        startUtf16: row.startUtf16,
+        endUtf16: row.endUtf16,
+        ...contentBinding,
       });
       await playTtsAudio({ url: audio.audioUrl });
-    } finally { setAudioLoading(false); }
-  }
-  async function commit(next: "correct" | "incorrect" | "revealed"): Promise<void> {
-    setSaving(true);
-    try { await saveCardDictationResult(detail.id, next); } finally { setSaving(false); }
-  }
-  async function check(): Promise<void> {
-    const next = normalizeAnswer(answer) === normalizeAnswer(sentence) ? "correct" : "incorrect";
-    setResult(next);
-    await commit(next);
-  }
-  return (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.practiceContent}>
-      <Pressable style={styles.audioPlaceholder} disabled={audioLoading} onPress={() => void playSentence()}>{audioLoading ? <ActivityIndicator color={theme.colors.accentStrong} /> : <Ionicons name="volume-high-outline" size={28} color={theme.colors.accentStrong} />}<Text style={styles.audioText}>播放听写句子</Text></Pressable>
-      <TextInput multiline value={answer} onChangeText={(value) => { setAnswer(value); setResult(null); }} style={[styles.answerInput, styles.dictationInput]} placeholder="写下你听到的句子" placeholderTextColor={theme.colors.textMuted} textAlignVertical="top" />
-      <Pressable style={styles.primaryButton} disabled={!answer.trim() || saving} onPress={() => void check()}>{saving ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.primaryButtonText}>检查听写</Text>}</Pressable>
-      <Pressable style={styles.secondaryButton} disabled={saving} onPress={() => { setRevealed(true); void commit("revealed"); }}><Text style={styles.secondaryButtonText}>显示答案</Text></Pressable>
-      {result ? <Text style={[styles.result, result === "correct" ? styles.correct : styles.incorrect]}>{result === "correct" ? "完全正确" : "还有一点不一样，可以对照答案再试一次"}</Text> : null}
-      {revealed || result === "incorrect" ? <Text selectable style={styles.answerReveal}>{sentence}</Text> : null}
-    </ScrollView>
-  );
-}
-
-function selectDictationSentence(detail: CardRecordDetail): {
-  segmentId: string;
-  text: string;
-  startUtf16: number;
-  endUtf16: number;
-} {
-  const segment = detail.rewriteSegments.find((candidate) => candidate.text.trim()) ?? {
-    id: "fallback", text: detail.rewrittenText,
-  };
-  const leading = segment.text.match(/^\s*/u)?.[0].length ?? 0;
-  const available = segment.text.slice(leading);
-  const boundaries = graphemeBoundaries(available, 300);
-  let end = boundaries[boundaries.length - 1] ?? 0;
-  for (const boundary of boundaries) {
-    if (boundary > 0 && /[.!?。！？]/u.test(available.slice(boundary - 1, boundary))) {
-      end = boundary;
-      break;
-    }
-  }
-  return {
-    segmentId: segment.id,
-    text: available.slice(0, end).trimEnd(),
-    startUtf16: leading,
-    endUtf16: leading + end,
-  };
-}
-
-function graphemeBoundaries(value: string, limit: number): number[] {
-  const Segmenter = (Intl as unknown as { Segmenter?: new (locale?: string, options?: { granularity: "grapheme" }) => { segment(text: string): Iterable<{ segment: string }> } }).Segmenter;
-  if (!Segmenter) {
-    let cursor = 0;
-    return Array.from(value).slice(0, limit).map((character) => (cursor += character.length));
-  }
-  let cursor = 0;
-  return Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(value))
-    .slice(0, limit)
-    .map(({ segment }) => (cursor += segment.length));
+    }}
+  />;
 }
 
 function normalizeAnswer(value: string): string {
-  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, "").toLocaleLowerCase();
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }
-function formatDate(value: string): string { const [y, m, d] = value.split("-"); return `${y}年${Number(m)}月${Number(d)}日`; }
-function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+function formatDate(value: string): string { const [year, month, day] = value.split("-").map(Number); return new Intl.DateTimeFormat(getLanguage(), { year: "numeric", month: "long", day: "numeric" }).format(new Date(year, month - 1, day)); }
+function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" }); }
 
 const styles = StyleSheet.create({
+  collapsibleSectionHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 8 },
+  pendingGenerationSection: { minHeight: 68, marginTop: 24, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, gap: 12 },
+  generatingDots: { height: 18, flexDirection: "row", alignItems: "center", gap: 5 },
+  generatingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.textSecondary },
+  failedGenerationSection: { minHeight: 64, marginTop: 24, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  failedGenerationCopy: { gap: 5 },
+  failedGenerationText: { color: theme.colors.textMuted, fontSize: 14 },
+  failedGenerationRetry: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   fullscreen: { ...StyleSheet.absoluteFillObject, zIndex: 50, backgroundColor: theme.colors.canvas },
   page: { flex: 1, backgroundColor: theme.colors.canvas },
   header: { height: 54, paddingHorizontal: 8, flexDirection: "row", alignItems: "center" },
   headerButton: { width: 64, minHeight: 44, justifyContent: "center" }, close: { color: theme.colors.textSecondary, fontSize: 15 }, title: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 16, fontWeight: "500" },
   historyButtons: { width: 82, flexDirection: "row", alignItems: "center" },
   historyButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
+  recallMapReturnButton: { position: "absolute", right: 22, bottom: 88, width: 48, height: 48, borderRadius: 24, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: .18, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   headerEnd: { width: 82, flexDirection: "row", justifyContent: "flex-end" },
   iconHeaderButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
+  clozeTipOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 80, justifyContent: "flex-start", alignItems: "flex-end", paddingTop: 48, paddingRight: 14 },
+  clozeTipCard: { width: 286, padding: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: "#E8D8A9", borderRadius: 14, backgroundColor: "#FFFDF7", flexDirection: "row", alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 12 },
+  clozeTipIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#FFF1C7", alignItems: "center", justifyContent: "center" },
+  clozeTipText: { flex: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  clozeTipDone: { alignSelf: "stretch", minWidth: 48, alignItems: "center", justifyContent: "center" },
+  clozeTipDoneText: { color: theme.colors.accentStrong, fontSize: 13, fontWeight: "600" },
   draftHeaderSide: { width: 82, minHeight: 44, justifyContent: "center" },
+  draftCloseButton: { width: 44, height: 44, alignItems: "flex-start", justifyContent: "center" },
+  draftCreateTitle: { flex: 1, color: theme.colors.text, fontSize: 18, fontWeight: "700", textAlign: "center" },
+  draftHeaderSideEnd: { alignItems: "flex-end" },
   draftHeaderCenter: { flex: 1 },
   draftHeaderButton: { minWidth: 58, minHeight: 44, alignItems: "center", justifyContent: "center" },
   draftHeaderText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "400" },
-  loader: { marginTop: 40 }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 52 }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, image: { width: "100%", aspectRatio: 1.38, borderRadius: 10, marginTop: 24, backgroundColor: theme.colors.surfaceMuted }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 16, color: theme.colors.textMuted, fontSize: 14, lineHeight: 23, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontFamily: Platform.select({ ios: "Georgia", default: undefined }), fontSize: 20, lineHeight: 32, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
+  draftDoneText: { color: theme.colors.accentStrong, fontSize: 15, fontWeight: "600" },
+  draftDoneTextDisabled: { color: theme.colors.textMuted },
+  cardTitleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  cardDisplayTitleInRow: { flex: 1 },
+  articlePlayButton: { width: 36, height: 32, marginTop: -1, alignItems: "flex-end", justifyContent: "center" },
+  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.surface }, flipCardFaceHidden: { opacity: 0 }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#D2D2D2" }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
+  recallFinishButton: { height: 42, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 18, borderRadius: 21, backgroundColor: theme.colors.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, recallFinishButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
+  imagePreviewPage: { flex: 1, backgroundColor: "transparent" },
+  imagePreviewBackdrop: { backgroundColor: theme.colors.canvas },
+  imagePreviewHeader: { height: 58, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
+  imagePreviewHeaderButton: { width: 46, height: 46, alignItems: "center", justifyContent: "center" },
+  imagePreviewHeaderEnd: { width: 46, height: 46, alignItems: "center", justifyContent: "center" },
+  imagePreviewCounter: { flex: 1, color: theme.colors.textSecondary, fontSize: 14, fontWeight: "500", textAlign: "center" },
+  imagePreviewPageItem: { alignItems: "center", justifyContent: "flex-start", backgroundColor: theme.colors.canvas },
+  imagePreviewImage: { backgroundColor: theme.colors.canvas },
+  imagePreviewTransitionImage: { position: "absolute", overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
+  imagePreviewTransitionFill: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  imagePreviewFooter: { minHeight: 76, paddingHorizontal: 24, paddingTop: 18, alignItems: "center" },
+  imagePreviewDate: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20, textAlign: "center" },
+  imageAddingPlaceholder: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 9, backgroundColor: theme.colors.surfaceMuted },
+  imageAddingText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18 },
+  detailActionBar: { minHeight: 54, paddingHorizontal: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  detailActionButton: { width: 48, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  detailActionButtonActive: { backgroundColor: theme.colors.text },
+  detailActionButtonDisabled: { opacity: 0.28 },
+  clozeToolbarText: { color: theme.colors.textSecondary, fontSize: 16, lineHeight: 21, fontWeight: "600" },
+  clozeToolbarTextActive: { color: theme.colors.surface },
   practiceContent: { padding: 20, paddingBottom: 44 }, practiceHint: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 }, answerInput: { marginTop: 18, minHeight: 50, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 16 }, dictationInput: { minHeight: 120, paddingTop: 13 }, primaryButton: { marginTop: 14, minHeight: 48, borderRadius: theme.radius.control, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.accentStrong }, primaryButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" }, secondaryButton: { marginTop: 10, minHeight: 44, alignItems: "center", justifyContent: "center" }, secondaryButtonText: { color: theme.colors.accentStrong, fontSize: 14 }, result: { marginTop: 16, fontSize: 14, textAlign: "center" }, correct: { color: theme.colors.success }, incorrect: { color: theme.colors.danger }, answerReveal: { marginTop: 16, padding: 14, borderRadius: theme.radius.control, backgroundColor: theme.colors.accentSoft, color: theme.colors.text, fontSize: 16, lineHeight: 24 }, audioPlaceholder: { minHeight: 88, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }, audioText: { marginTop: 7, color: theme.colors.textMuted, fontSize: 12 },
+  sectionHeading: { marginTop: 18, minHeight: 30, flexDirection: "row", alignItems: "center" },
+  sectionLabelInline: { flex: 1, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" },
+  replyPlaybackArea: { borderRadius: 7 },
+  replyPlaybackAreaActive: { backgroundColor: theme.colors.surfaceMuted },
+  dictationSentenceList: { gap: 12 },
+  dictationSentenceRow: { flexDirection: "row", alignItems: "flex-start" },
+  dictationSentenceBody: { flex: 1 },
+  dictationSentenceNumber: { marginBottom: 1, color: theme.colors.textMuted, fontSize: 14, lineHeight: 20 },
+  dictationSentenceInputStack: { position: "relative" },
+  dictationSentenceInput: { minHeight: 52, paddingHorizontal: 2, paddingTop: 7, paddingBottom: 7, borderBottomWidth: 1, borderBottomColor: theme.colors.textSecondary, backgroundColor: "transparent", color: "transparent", fontSize: 16, lineHeight: 24, fontWeight: "400", letterSpacing: 0, includeFontPadding: false },
+  dictationSentenceTextOverlay: { ...StyleSheet.absoluteFillObject, paddingHorizontal: 2, paddingTop: 7, paddingBottom: 7 },
+  dictationSentenceDisplayText: { color: theme.colors.text, fontSize: 16, lineHeight: 24, fontWeight: "400", letterSpacing: 0, includeFontPadding: false },
+  dictationSentenceActions: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 18 },
+  dictationSentenceAction: { width: 36, minHeight: 36, alignItems: "center", justifyContent: "center" },
+  dictationSentenceActionDisabled: { opacity: 0.35 },
+  dictationSentenceAnswer: { marginTop: 7, padding: 10, borderRadius: theme.radius.control, backgroundColor: theme.colors.accentSoft, color: theme.colors.text, fontSize: 15, lineHeight: 23 },
   selectionHint: { marginTop: 9, color: theme.colors.textMuted, fontSize: 12, lineHeight: 18 },
-  expressionControls: { minHeight: 34, paddingTop: 2, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4 },
-  expressionAudio: { width: 36, height: 36, alignItems: "flex-end", justifyContent: "center" },
   rewriteSegments: { marginTop: 0, gap: 2 },
   clozeSaving: { marginTop: 10, flexDirection: "row", alignItems: "center", gap: 8 },
   emptyPracticeCard: { minHeight: 210, padding: 24, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center", gap: 10 },
   emptyPracticeTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "600" },
-  blankPicker: { paddingBottom: 12, gap: 8 },
-  blankPickerItem: { minHeight: 34, paddingHorizontal: 13, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
-  blankPickerItemActive: { backgroundColor: theme.colors.accentSoft },
-  blankPickerText: { color: theme.colors.textMuted, fontSize: 12 },
-  blankPickerTextActive: { color: theme.colors.accentStrong, fontWeight: "600" },
-  clozeCard: { minHeight: 150, padding: 20, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, justifyContent: "center" },
+  clozeSentenceList: { paddingVertical: 8 },
+  clozeSentenceRow: { minHeight: 52, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 9, borderRadius: theme.radius.control, flexDirection: "row", alignItems: "flex-start" },
+  inlineClozePractice: { marginTop: 14 },
+  inlineClozeSentenceList: { paddingVertical: 0 },
+  inlineClozeSentenceRow: { minHeight: 0, marginHorizontal: 0, paddingHorizontal: 0, paddingVertical: 5 },
+  inlineSelectableSentence: { marginTop: 0 },
+  stableSentence: { alignSelf: "stretch", position: "relative", overflow: "visible" },
+  stableSentenceActive: { borderRadius: 7, backgroundColor: theme.colors.surfaceMuted },
+  stableSentenceLayer: { position: "absolute", left: 0, right: 0, top: 0 },
+  stableSentenceLayerHidden: { opacity: 0 },
+  inlineSentenceActions: { minHeight: 34, marginTop: 4, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
+  inlineSentencePlay: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  inlineSentenceActionSpacer: { flex: 1 },
+  inlineSentenceModeButton: { minHeight: 30, paddingHorizontal: 9, borderRadius: 15, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 4 },
+  inlineSentenceModeButtonActive: { backgroundColor: theme.colors.text },
+  inlineSentenceModeText: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "600" },
+  inlineSentenceModeTextActive: { color: theme.colors.surface },
+  clozeSentenceRowActive: { backgroundColor: theme.colors.accentSoft },
+  clozeSentencePlay: { width: 34, minHeight: 34, marginTop: -1, marginRight: -5, alignItems: "center", justifyContent: "center" },
+  clozeSentenceBody: { flex: 1, paddingTop: 1 },
   clozeFlow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
-  clozeSentence: { color: theme.colors.text, fontSize: 18, lineHeight: 30 },
+  clozeSentence: { color: theme.colors.text, fontSize: 17, lineHeight: 28 },
+  cardBlankInput: { height: 28, paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, borderBottomWidth: 0, backgroundColor: "transparent", color: theme.colors.text, fontSize: 17, lineHeight: 22, fontWeight: "400", letterSpacing: 0, textAlign: "left", textAlignVertical: "center", includeFontPadding: false, transform: [{ translateY: -1 }] },
+  cardBlankStaticText: { height: 28, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
+  cardBlankPreview: { height: 28, marginHorizontal: 0, paddingHorizontal: 0, paddingVertical: 0, borderBottomWidth: 1, borderBottomColor: "#8C6D1F", borderRadius: 0, backgroundColor: "#FFF0B8", alignSelf: "center", justifyContent: "center" },
+  cardBlankPreviewText: { color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0 },
+  cardBlankInputCorrect: { color: theme.colors.success },
+  cardBlankInputRevealed: { color: theme.colors.textSecondary },
+  clozeRevealButton: { alignSelf: "flex-end", minHeight: 34, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 5 },
+  cardBlankInputIncorrect: { borderBottomColor: theme.colors.danger, color: theme.colors.danger },
+  cardBlankInputChecked: { borderBottomColor: theme.colors.danger, color: "transparent" },
+  cardBlankCheckedText: { position: "absolute", left: 0, top: 0, height: 28, paddingHorizontal: 0, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
+  cardBlankCheckedWordCorrect: { color: theme.colors.success },
+  cardBlankCheckedWordIncorrect: { color: theme.colors.danger },
+  cardBlankUnit: { height: 28, maxWidth: "100%", flexShrink: 1, flexDirection: "row", alignItems: "center" },
+  cardBlankCheckButton: { width: 20, height: 20, marginLeft: 3, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  cardBlankCheckButtonCorrect: { borderColor: theme.colors.success, backgroundColor: theme.colors.success },
+  cardBlankCheckButtonDisabled: { opacity: 0.45 },
+  cardBlankCheckButtonHidden: { opacity: 0 },
+  cardBlankField: { height: 28, flexShrink: 1, position: "relative", alignItems: "center", justifyContent: "center" },
+  cardBlankMeasure: { position: "absolute", opacity: 0, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0 },
+  clozeLookupWord: { alignSelf: "center", borderRadius: 3 },
+  clozeLookupWordPressed: { backgroundColor: theme.colors.accentSoft },
+  cardBlankBackground: { position: "absolute", left: 0, right: 0, top: 4, bottom: 5, backgroundColor: "#FFF0B8" },
+  cardBlankBackgroundCorrect: { backgroundColor: "#DDF2DF" },
+  cardBlankUnderlineRow: { position: "absolute", left: 0, right: 0, bottom: 4, height: 1.5, flexDirection: "row", gap: 4 },
+  cardBlankUnderlineSegment: { height: 1.5, backgroundColor: "#8C6D1F" },
   clozeGap: { color: theme.colors.accentStrong, fontWeight: "700" },
-  clozeAudioButton: { marginTop: 16, alignSelf: "flex-start", minHeight: 36, paddingHorizontal: 11, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 6 },
   clozeActionText: { color: theme.colors.accentStrong, fontSize: 13 },
   inlineAudioButton: { marginTop: 10, alignSelf: "flex-start", minHeight: 36, paddingHorizontal: 11, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 6 }, inlineAudioText: { color: theme.colors.accentStrong, fontSize: 12, fontWeight: "600" },
+  dictationEntry: { alignSelf: "flex-end", minHeight: 36, marginTop: 24, paddingHorizontal: 2, flexDirection: "row", alignItems: "center", gap: 6 },
+  dictationEntryText: { color: theme.colors.textSecondary, fontSize: 12 },
   imageActions: { marginTop: 10, flexDirection: "row", justifyContent: "flex-end", gap: 18 },
+  detailAddImagePage: { aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderWidth: 1, borderStyle: "dashed", borderColor: theme.colors.border, borderRadius: 10, alignItems: "center", justifyContent: "center", gap: 5 },
+  detailAddImageText: { color: theme.colors.textMuted, fontSize: 12 },
   imageActionText: { color: theme.colors.accentStrong, fontSize: 13 },
   imageRemoveText: { color: theme.colors.danger, fontSize: 13 },
   relationsEntry: { marginTop: 14, minHeight: 48, paddingHorizontal: 13, borderRadius: theme.radius.control, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 10 },
@@ -905,40 +2751,92 @@ const styles = StyleSheet.create({
   relationsSection: { marginTop: 34, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
   relationsHeader: { minHeight: 40, flexDirection: "row", alignItems: "center" },
   relationsSectionTitle: { flex: 1, color: theme.colors.textSecondary, fontSize: 13, fontWeight: "400" },
-  relationRow: { minHeight: 46, flexDirection: "row", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
+  relationRow: { minHeight: 112, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
+  relationRowGrowth: { marginVertical: 7, paddingHorizontal: 11, borderWidth: 1, borderTopWidth: 1, borderColor: "#C4A044", borderTopColor: "#C4A044", borderRadius: 12, backgroundColor: "#FFFBEC" },
+  relationThumbnail: { width: 90, height: 60, flexShrink: 0, borderRadius: 8, backgroundColor: theme.colors.surfaceMuted },
+  relationContent: { flex: 1, minWidth: 0 },
+  relationDate: { marginBottom: 5, color: theme.colors.textMuted, fontSize: 11 },
+  growthMomentLabel: { marginBottom: 3, color: "#9A7417", fontSize: 12, fontWeight: "700" },
+  relationReasons: { marginTop: 8, flexDirection: "row", flexWrap: "wrap", gap: 5 },
   relationCard: { marginTop: 10, padding: 14, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
   relationTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   relationTitle: { flex: 1, color: theme.colors.text, fontSize: 15, fontWeight: "600" },
+  relationMatch: { color: "#8C6812", backgroundColor: "#F5E8B5", fontWeight: "700" },
   reasonList: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 7 },
   reasonBadge: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceMuted },
   reasonPhrase: { backgroundColor: theme.colors.accentSoft },
-  reasonProgress: { backgroundColor: "#FFF0C9" },
+  reasonProgress: { backgroundColor: "#EAEAEA" },
   reasonText: { color: theme.colors.textSecondary, fontSize: 11, fontWeight: "600" },
   draftContent: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 52 },
   draftContentPage: { flex: 1, paddingHorizontal: 22 },
-  draftEditorContent: { paddingTop: 10, paddingBottom: 14 },
-  draftImage: { width: "100%", aspectRatio: 1.38, marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted },
+  draftEditorContent: { paddingTop: 0, paddingBottom: 32 },
+  draftMetaRow: { flexDirection: "row", alignItems: "center" },
+  collectionPickerRow: { minHeight: 56, paddingHorizontal: 2, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 8 },
+  collectionPickerLabel: { flexDirection: "row", alignItems: "center", gap: 6 },
+  collectionPickerLabelText: { color: theme.colors.textMuted, fontSize: 13 },
+  collectionPickerValue: { flex: 1, color: theme.colors.text, fontSize: 14, textAlign: "right" },
+  draftTitleInput: { minHeight: 40, marginTop: 18, paddingHorizontal: 2, paddingVertical: 4, color: theme.colors.text, fontSize: 20, lineHeight: 28, fontWeight: "500" },
+  draftOriginalEditor: { minHeight: 108, marginTop: 12, paddingHorizontal: 2, paddingTop: 2 },
+  draftImageEmpty: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, marginTop: 18, borderWidth: 1, borderStyle: "dashed", borderColor: theme.colors.border, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  draftAddImage: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 2 },
+  draftAddImageText: { color: theme.colors.accentStrong, fontSize: 13 },
+  draftOriginalActions: { flexDirection: "row", alignItems: "center", gap: 2 },
+  draftOriginalEditButton: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
+  draftBlockInput: { minHeight: 86, padding: 0, color: theme.colors.text, fontSize: 17, lineHeight: 27, fontWeight: "400" },
+  draftBlockInputFeatured: { minHeight: 76, fontSize: 17, lineHeight: 27 },
+  draftOriginalPlaceholder: { color: theme.colors.textMuted },
+  draftBlockInputSecondary: { minHeight: 62, padding: 0, color: theme.colors.textSecondary, fontSize: 15, lineHeight: 24 },
+  draftBlockGenerate: { minHeight: 30, paddingHorizontal: 10, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 3 },
+  generatedBlockAction: { width: 32, height: 32, alignItems: "flex-end", justifyContent: "center" },
+  generatedSecondary: { paddingVertical: 8, color: theme.colors.textSecondary, fontSize: 15, lineHeight: 24 },
+  draftAddLayerButton: { minHeight: 44, marginTop: 12, borderWidth: 1, borderStyle: "dashed", borderColor: theme.colors.border, borderRadius: theme.radius.control, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
+  draftAddLayerText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "500" },
+  draftComposerToolbar: { minHeight: 50, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 8 },
+  draftComposerTool: { width: 42, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  draftComposerToolActive: { backgroundColor: "#FCEAE8" },
+  draftRecordingDot: { position: "absolute", top: 4, right: 5, width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.danger },
+  draftComposerSpacer: { flex: 1 },
+  draftComposerBadge: { position: "absolute", top: 2, right: 2, minWidth: 15, height: 15, paddingHorizontal: 3, borderRadius: 8, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  draftComposerBadgeText: { color: theme.colors.surface, fontSize: 9, fontWeight: "700" },
+  draftPublishButton: { minWidth: 78, height: 40, paddingHorizontal: 18, borderRadius: 20, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
+  draftPublishButtonDisabled: { backgroundColor: theme.colors.surfaceMuted },
+  draftPublishButtonText: { color: theme.colors.surface, fontSize: 14, fontWeight: "700" },
+  draftPublishButtonTextDisabled: { color: theme.colors.textMuted },
+  staleContentNotice: { marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: theme.radius.control, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 7 },
+  staleContentNoticeText: { flex: 1, color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
+  draftAiDismissLayer: { ...StyleSheet.absoluteFillObject, zIndex: 19, elevation: 19, backgroundColor: "transparent" },
+  draftAiMenu: { position: "absolute", left: 10, bottom: 50, width: 238, zIndex: 20, elevation: 20, paddingVertical: 6, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.14, shadowRadius: 16, shadowOffset: { width: 0, height: 6 } },
+  draftAiMenuItem: { minHeight: 48, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  draftAiMenuIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  draftAiMenuLabel: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "600" },
+  draftImage: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted },
   draftImageWrap: { width: "100%", maxHeight: 270, marginTop: 18, borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   draftImageFill: { width: "100%", height: "100%" },
   draftImageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(30,35,38,0.34)", alignItems: "center", justifyContent: "center" },
-  draftImageRemove: { position: "absolute", top: 6, right: 6, width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(30,35,38,0.62)", alignItems: "center", justifyContent: "center" },
   draftInput: { minHeight: 180, marginTop: 18, marginBottom: 24, padding: 0, color: theme.colors.text, fontSize: 18, lineHeight: 30, fontWeight: "400" },
   draftExpressionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
   draftExpressionPlaceholder: { minHeight: 116, alignItems: "center", justifyContent: "center" },
-  draftRewriteButton: { minWidth: 76, minHeight: 40, paddingHorizontal: 18, borderRadius: 10, backgroundColor: "#F2DFC3", alignItems: "center", justifyContent: "center" },
+  draftRewriteButton: { minWidth: 76, minHeight: 40, paddingHorizontal: 18, borderRadius: 8, backgroundColor: "#F1F1F1", alignItems: "center", justifyContent: "center" },
   draftRewriteButtonDisabled: { opacity: 0.35 },
   draftRewriteButtonText: { color: theme.colors.accentStrong, fontSize: 13, fontWeight: "500" },
-  cardPageToolbar: { minHeight: 52, paddingHorizontal: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.canvas, flexDirection: "row", alignItems: "center" },
   draftToolButton: { width: 42, height: 44, alignItems: "flex-start", justifyContent: "center" },
   draftToolbarSpacer: { flex: 1 },
-  practiceToolButton: { flex: 1, minHeight: 52, alignItems: "center", justifyContent: "center", gap: 3 },
-  practiceToolText: { color: theme.colors.textMuted, fontSize: 10, fontWeight: "400" },
-  practiceToolTextActive: { color: theme.colors.accentStrong, fontWeight: "500" },
   draftImageError: { color: theme.colors.danger, fontSize: 12 },
   draftCounter: { color: theme.colors.textMuted, fontSize: 12 },
   draftCounterError: { color: theme.colors.danger },
-  photoRail: { maxHeight: 92, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
-  photoRailContent: { paddingVertical: 10, gap: 8 },
+  photoLayer: { ...StyleSheet.absoluteFillObject, zIndex: 30, elevation: 30, justifyContent: "flex-end" },
+  photoLayerDismiss: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.28)" },
+  photoLayerPanel: { height: "58%", minHeight: 330, backgroundColor: theme.colors.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: -6 }, elevation: 31 },
+  photoLayerHeader: { height: 54, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
+  photoLayerTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "600" },
+  photoLayerClose: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surfaceMuted },
+  photoGridScroll: { flex: 1 },
+  photoGrid: { padding: 10, flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  photoGridItem: { width: "32%", aspectRatio: 1, borderRadius: 7, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
+  photoGridLoading: { width: "100%", height: 100, alignItems: "center", justifyContent: "center" },
+  photoLayerActions: { minHeight: 58, paddingHorizontal: 12, paddingVertical: 7, flexDirection: "row", gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },
+  photoLayerAction: { flex: 1, minHeight: 44, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: theme.colors.surfaceMuted },
+  photoLayerActionText: { color: theme.colors.text, fontSize: 14, fontWeight: "500" },
   photoRailItem: { width: 72, height: 72, borderRadius: 8, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   photoRailImage: { width: "100%", height: "100%" },
   photoRailAll: { width: 82, height: 72, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", gap: 5 },

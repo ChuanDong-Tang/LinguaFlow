@@ -77,9 +77,7 @@ module.exports = {
       "./plugins/with-android-release-signing",
     ],
     owner: "reedtang",
-    runtimeVersion: {
-      policy: "appVersion",
-    },
+    runtimeVersion: "1.0.7",
     updates: {
       url: "https://u.expo.dev/0a8b5bb4-bdb1-4950-b3e9-6e2530b9c836",
     },

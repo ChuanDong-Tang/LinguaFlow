@@ -1,215 +1,438 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import Svg, { Line, Polygon, Text as SvgText } from "react-native-svg";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Animated, Easing, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { t, tf } from "../i18n";
 import {
-  createRecallSession,
-  expandRecallNode,
+  createRecallSessionFromRecords,
   finishRecallSession,
   getActiveRecallSession,
-  getCardCollections,
+  getCardDateKeys,
   getCardRecord,
-  getRecallSeedCandidates,
+  getCardRecords,
   searchRecallCards,
   updateRecallNode,
-  type RecallCandidate,
+  type CardRecordDetail,
+  type CardRecordSummary,
   type RecallSession,
 } from "../services/api/cardApi";
 import { theme } from "../theme";
+import { CardCalendarScreen } from "./CardCalendarScreen";
+import { CardDetailModal } from "./CardDetailModal";
 
-type TimeRange = "" | "recent" | "this_year" | "last_year" | "earlier";
+type Stage = "home" | "deck" | "summary";
+type BlindPeriod = "week" | "month" | "quarter" | "year" | "all";
+const BLIND_BOX_SETTINGS_KEY = "linguaflow.recall.blind_box.settings.v1";
 
-export function RecallScreen({
-  isActive,
-  onOpenCard,
-  onOpenLibrary,
-}: {
-  isActive: boolean;
-  onOpenCard: (recordId: string) => void;
-  onOpenLibrary: () => void;
-}) {
-  const { width } = useWindowDimensions();
-  const [active, setActive] = useState<RecallSession | null>(null);
+export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: { isActive: boolean; onOpenLibrary: () => void; launchRequest?: { key: number; mode: "today" | "yesterday" | "blind" } | null }) {
+  const [stage, setStage] = useState<Stage>("home");
+  const [loading, setLoading] = useState(false);
+  const [todayCards, setTodayCards] = useState<CardRecordSummary[]>([]);
+  const [yesterdayCards, setYesterdayCards] = useState<CardRecordSummary[]>([]);
+  const [dateKeys, setDateKeys] = useState<string[]>([]);
+  const [activeSession, setActiveSession] = useState<RecallSession | null>(null);
   const [session, setSession] = useState<RecallSession | null>(null);
-  const [candidates, setCandidates] = useState<RecallCandidate[]>([]);
-  const [collections, setCollections] = useState<Array<{ id: string; name: string }>>([]);
-  const [query, setQuery] = useState("");
-  const [collectionId, setCollectionId] = useState("");
-  const [timeRange, setTimeRange] = useState<TimeRange>("");
-  const [loading, setLoading] = useState(true);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [titles, setTitles] = useState<Record<string, string>>({});
+  const [cards, setCards] = useState<Record<string, CardRecordDetail>>({});
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [attempts, setAttempts] = useState<Record<string, boolean>>({});
+  const [summary, setSummary] = useState({ cards: 0, attempted: 0, correct: 0 });
+  const [finishing, setFinishing] = useState(false);
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [topicVisible, setTopicVisible] = useState(false);
+  const [topic, setTopic] = useState("");
+  const [topicSearchState, setTopicSearchState] = useState<"idle" | "searching" | "empty">("idle");
+  const [blindVisible, setBlindVisible] = useState(false);
+  const [blindPeriod, setBlindPeriod] = useState<BlindPeriod>("quarter");
+  const [blindCount, setBlindCount] = useState(5);
+  const [directLaunchPending, setDirectLaunchPending] = useState(Boolean(launchRequest));
+  const handledLaunchRef = useRef<number | null>(null);
 
-  const loadHome = useCallback(async (shuffle = false) => {
-    setLoading(true);
-    try {
-      const [activeSession, rows, collectionResult] = await Promise.all([
-        getActiveRecallSession(),
-        getRecallSeedCandidates(shuffle ? "shuffle" : "recommended"),
-        getCardCollections(),
-      ]);
-      setActive(activeSession);
-      setCandidates(shuffle ? [...rows].reverse() : rows.slice(0, 6));
-      setCollections(collectionResult.collections);
-    } catch { Alert.alert("暂时无法加载回忆", "请稍后重试"); }
-    finally { setLoading(false); }
+  useEffect(() => {
+    void AsyncStorage.getItem(BLIND_BOX_SETTINGS_KEY).then((raw) => {
+      if (!raw) return;
+      try {
+        const saved = JSON.parse(raw) as { period?: BlindPeriod; count?: number };
+        if (["week", "month", "quarter", "year", "all"].includes(saved.period ?? "")) setBlindPeriod(saved.period!);
+        if (Number.isInteger(saved.count) && saved.count! >= 1 && saved.count! <= 10) setBlindCount(saved.count!);
+      } catch { /* Keep defaults when local settings are malformed. */ }
+    }).catch(() => undefined);
   }, []);
 
-  useEffect(() => { if (isActive && !session) void loadHome(); }, [isActive, session, loadHome]);
+  useEffect(() => {
+    if (!launchRequest || handledLaunchRef.current === launchRequest.key) return;
+    setDirectLaunchPending(true);
+  }, [launchRequest?.key]);
 
-  async function search(): Promise<void> {
+  const loadHome = useCallback(async () => {
     setLoading(true);
     try {
-      setCandidates(await searchRecallCards({
-        q: query.trim() || undefined,
-        collectionId: collectionId || undefined,
-        timeRange: timeRange || undefined,
-      }));
-    } catch { Alert.alert("搜索失败", "请稍后重试"); }
-    finally { setLoading(false); }
-  }
+      const today = localDateKey(new Date());
+      const yesterday = localDateKey(new Date(Date.now() - 86_400_000));
+      const [todayRows, yesterdayRows, keys, active] = await Promise.all([
+        getCardRecords({ dateKey: today, limit: 50 }),
+        getCardRecords({ dateKey: yesterday, limit: 50 }),
+        getCardDateKeys("2000-01-01", today),
+        getActiveRecallSession(),
+      ]);
+      const validKeys = [...keys].sort();
+      setTodayCards(completedCards(todayRows));
+      setYesterdayCards(completedCards(yesterdayRows));
+      setDateKeys(validKeys);
+      setActiveSession(active?.nodes.length ? active : null);
+      if (launchRequest && handledLaunchRef.current !== launchRequest.key) {
+        handledLaunchRef.current = launchRequest.key;
+        if (launchRequest.mode === "blind") {
+          setBlindVisible(true);
+          setDirectLaunchPending(false);
+        }
+        else {
+          const rows = launchRequest.mode === "today" ? completedCards(todayRows) : completedCards(yesterdayRows);
+          if (!rows.length) {
+            setDirectLaunchPending(false);
+            Alert.alert(t("recall.error.empty"));
+            onOpenLibrary();
+            return;
+          }
+          await beginRecords(rows.map((row) => row.id), launchRequest.mode === "today" ? today : yesterday);
+          setDirectLaunchPending(false);
+        }
+      }
+    } catch {
+      setDirectLaunchPending(false);
+      Alert.alert(t("recall.error.load"));
+    } finally {
+      setLoading(false);
+    }
+  }, [launchRequest?.key]);
 
-  async function begin(candidate: RecallCandidate): Promise<void> {
-    setLoading(true);
-    try {
-      const created = await createRecallSession(
-        candidate.recordId,
-        query || collectionId || timeRange ? "search" : "recommended",
-        collectionId || timeRange ? { ...(collectionId ? { collectionId } : {}), ...(timeRange ? { timeRange } : {}) } : undefined,
-      );
-      setSession(created);
-      setSelectedNodeId(created.nodes[0]?.id ?? null);
-      setTitles({ [candidate.recordId]: candidate.originalText });
-      void hydrateTitles(created);
-    } catch { Alert.alert("无法开始探索", "请稍后重试"); }
-    finally { setLoading(false); }
-  }
+  useEffect(() => { if (isActive && stage === "home") void loadHome(); }, [isActive, stage, loadHome]);
 
-  async function hydrateTitles(value: RecallSession): Promise<void> {
-    const pairs = await Promise.all(value.nodes.map(async (node) => {
-      try {
-        const card = await getCardRecord(node.recordId);
-        return [node.recordId, card?.originalText || "已失效记录"] as const;
-      } catch { return [node.recordId, "已失效 Card"] as const; }
+  async function hydrate(value: RecallSession): Promise<void> {
+    const rows = await Promise.all(value.nodes.map(async (node) => {
+      try { return [node.recordId, await getCardRecord(node.recordId)] as const; }
+      catch { return null; }
     }));
-    setTitles((current) => ({ ...current, ...Object.fromEntries(pairs) }));
+    setCards(Object.fromEntries(rows.filter((row): row is NonNullable<typeof row> => Boolean(row))));
+  }
+
+  async function openSession(value: RecallSession, resume = false): Promise<void> {
+    setSession(value);
+    setAttempts({});
+    const resumeIndex = resume ? Math.max(0, value.nodes.findIndex((node) => node.state !== "completed")) : 0;
+    setCurrentIndex(resumeIndex < 0 ? 0 : resumeIndex);
+    setStage("deck");
+    await hydrate(value);
+    const node = value.nodes[resumeIndex < 0 ? 0 : resumeIndex];
+    if (node) void markNode(value.id, node.id, "current", setSession);
+  }
+
+  async function beginRecords(recordIds: string[], query?: string): Promise<void> {
+    const uniqueIds = [...new Set(recordIds)].slice(0, 50);
+    if (!uniqueIds.length) {
+      Alert.alert(t("recall.error.empty"));
+      return;
+    }
+    setLoading(true);
+    try {
+      const created = await createRecallSessionFromRecords(uniqueIds, query);
+      await openSession(created);
+    } catch {
+      Alert.alert(t("recall.error.start_title"), t("recall.error.retry"));
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function resume(): Promise<void> {
-    if (!active) return;
-    setSession(active);
-    setSelectedNodeId(active.nodes.find((node) => node.state === "current")?.id ?? active.nodes[0]?.id ?? null);
-    void hydrateTitles(active);
-  }
-
-  async function selectNode(nodeId: string): Promise<void> {
-    if (!session) return;
-    setSelectedNodeId(nodeId);
-    try {
-      const next = await updateRecallNode(session.id, nodeId, "current");
-      setSession(next);
-    } catch {}
-  }
-
-  async function expandSelected(): Promise<void> {
-    if (!session || !selectedNodeId) return;
+    if (!activeSession) return;
     setLoading(true);
-    try {
-      const next = await expandRecallNode(session.id, selectedNodeId);
-      setSession(next);
-      void hydrateTitles(next);
-    } catch { Alert.alert("暂时无法展开", "这张 Card 的联系稍后再试"); }
+    try { await openSession(activeSession, true); }
     finally { setLoading(false); }
   }
 
-  async function openSelected(): Promise<void> {
-    const node = session?.nodes.find((item) => item.id === selectedNodeId);
-    if (!node) return;
-    onOpenCard(node.recordId);
+  async function beginSelectedDate(date: Date): Promise<void> {
+    const key = localDateKey(date);
+    setDatePickerVisible(false);
+    setLoading(true);
+    try {
+      const rows = completedCards(await getCardRecords({ dateKey: key, limit: 200 }));
+      await beginRecords(rows.map((row) => row.id), key);
+    } catch {
+      Alert.alert(t("recall.error.load"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function beginTopic(): Promise<void> {
+    const query = topic.trim();
+    if (!query) return;
+    setTopicSearchState("searching");
+    try {
+      const results = await searchRecallCards({ q: query });
+      if (!results.length) {
+        setTopicSearchState("empty");
+        return;
+      }
+      setTopicVisible(false);
+      setTopicSearchState("idle");
+      await beginRecords(results.map((item) => item.recordId), query);
+    } catch {
+      setTopicSearchState("idle");
+      Alert.alert(t("recall.error.search"));
+    }
+  }
+
+  async function beginBlindBox(): Promise<void> {
+    const { from, to } = resolveBlindPeriodRange(blindPeriod, dateKeys);
+    const eligibleKeys = shuffle(dateKeys.filter((key) => key >= from && key <= to));
+    if (!eligibleKeys.length) {
+      Alert.alert(t("recall.error.empty"));
+      return;
+    }
+    setLoading(true);
+    try {
+      const candidates: string[] = [];
+      for (const key of eligibleKeys) {
+        const rows = completedCards(await getCardRecords({ dateKey: key, limit: 200 }));
+        candidates.push(...shuffle(rows.map((row) => row.id)));
+        if (candidates.length >= blindCount * 2) break;
+      }
+      const selected = shuffle([...new Set(candidates)]).slice(0, blindCount);
+      if (!selected.length) {
+        Alert.alert(t("recall.error.empty"));
+        return;
+      }
+      await beginRecords(selected, `blind:${blindPeriod}:${from}:${to}`);
+      setBlindVisible(false);
+    } catch {
+      Alert.alert(t("recall.error.start_title"), t("recall.error.retry"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function updateBlindPeriod(period: BlindPeriod): void {
+    setBlindPeriod(period);
+    void saveBlindSettings(period, blindCount);
+  }
+
+  function updateBlindCount(count: number): void {
+    setBlindCount(count);
+    void saveBlindSettings(blindPeriod, count);
+  }
+
+  function navigateDeck(nextIndex: number): void {
+    if (!session || nextIndex < 0 || nextIndex >= session.nodes.length || nextIndex === currentIndex) return;
+    const current = session.nodes[currentIndex];
+    const next = session.nodes[nextIndex];
+    setCurrentIndex(nextIndex);
+    if (current && next) void (async () => {
+      try {
+        await updateRecallNode(session.id, current.id, "completed");
+        const latest = await updateRecallNode(session.id, next.id, "current");
+        setSession(latest);
+      } catch {
+        // Navigation remains available when a progress marker cannot be persisted.
+      }
+    })();
+  }
+
+  function leaveDeck(): void {
+    setSession(null);
+    setCards({});
+    if (launchRequest) {
+      onOpenLibrary();
+      return;
+    }
+    setStage("home");
+  }
+
+  function finishSummary(): void {
+    setSession(null);
+    setCards({});
+    if (launchRequest) {
+      onOpenLibrary();
+      return;
+    }
+    setStage("home");
   }
 
   async function finish(): Promise<void> {
-    if (!session) return;
+    if (!session || finishing) return;
+    setFinishing(true);
     try {
+      const current = session.nodes[currentIndex];
+      if (current) await markNode(session.id, current.id, "completed", setSession);
       await finishRecallSession(session.id);
-      setSession(null); setActive(null); setSelectedNodeId(null);
-      await loadHome();
-    } catch { Alert.alert("无法结束探索", "请稍后重试"); }
+      const values = Object.values(attempts);
+      setSummary({ cards: session.nodes.length, attempted: values.length, correct: values.filter(Boolean).length });
+      setActiveSession(null);
+      setStage("summary");
+    } catch {
+      Alert.alert(t("recall.error.finish"));
+    } finally {
+      setFinishing(false);
+    }
   }
 
-  if (session) return (
-    <SafeAreaView style={styles.page}>
-      <View style={styles.header}><View><Text style={styles.eyebrow}>回忆蓝图</Text><Text style={styles.title}>{session.nodes.length} / 12 个节点</Text></View><Pressable style={styles.finishButton} onPress={() => void finish()}><Text style={styles.finishText}>结束</Text></Pressable></View>
-      <Blueprint session={session} titles={titles} selectedNodeId={selectedNodeId} width={width} onSelect={(id) => void selectNode(id)} />
-      <View style={styles.legend}><Text style={styles.legendText}>┄ 内容相近</Text><Text style={styles.legendPhrase}>━ 相同表达</Text><Text style={styles.legendProgress}>➜ 表达成长</Text></View>
-      <View style={styles.nodeActions}>
-        <Pressable style={styles.secondaryButton} onPress={() => void openSelected()}><Ionicons name="document-text-outline" size={19} color={theme.colors.accentStrong} /><Text style={styles.secondaryText}>查看 Card</Text></Pressable>
-        <Pressable style={styles.primaryButton} disabled={loading} onPress={() => void expandSelected()}>{loading ? <ActivityIndicator color="#fff" /> : <><Ionicons name="git-network-outline" size={19} color="#fff" /><Text style={styles.primaryText}>展开真实联系</Text></>}</Pressable>
-      </View>
-    </SafeAreaView>
-  );
+  const currentNode = session?.nodes[currentIndex];
+  if (stage === "deck" && session && currentNode) return <View style={styles.deckPage}>
+    <CardDetailModal
+      detail={cards[currentNode.recordId] ?? null}
+      loading={!cards[currentNode.recordId]}
+      initialTab="cloze"
+      hideRelations
+      onClose={leaveDeck}
+      recallPosition={{ index: currentIndex, total: session.nodes.length }}
+      recallPreviousDetail={currentIndex > 0 ? cards[session.nodes[currentIndex - 1]!.recordId] ?? null : null}
+      recallNextDetail={currentIndex < session.nodes.length - 1 ? cards[session.nodes[currentIndex + 1]!.recordId] ?? null : null}
+      onRecallPrevious={currentIndex > 0 ? () => navigateDeck(currentIndex - 1) : undefined}
+      onRecallNext={currentIndex < session.nodes.length - 1 ? () => navigateDeck(currentIndex + 1) : undefined}
+      onRecallFinish={currentIndex === session.nodes.length - 1 ? () => void finish() : undefined}
+      onClozeAttempt={({ recordId, blankId, correct }) => setAttempts((current) => ({ ...current, [`${recordId}:${blankId}`]: current[`${recordId}:${blankId}`] || correct }))}
+    />
+    {finishing ? <View style={styles.busyOverlay}><ActivityIndicator size="large" color={theme.colors.text} /></View> : null}
+  </View>;
 
-  return (
-    <SafeAreaView style={styles.page}>
-      <View style={styles.header}>
-        <Pressable accessibilityLabel="返回生活" style={styles.menuButton} onPress={onOpenLibrary}><Ionicons name="chevron-back" size={27} color={theme.colors.text} /></Pressable>
-        <View style={styles.headerTitle}><Text style={styles.eyebrow}>生活会在不经意间互相照亮</Text><Text style={styles.title}>回忆</Text></View>
-        <Pressable accessibilityLabel="换一组" style={styles.shuffleButton} onPress={() => void loadHome(true)}><Ionicons name="shuffle" size={21} color={theme.colors.accentStrong} /></Pressable>
+  if (stage === "summary") return <RecallSummary summary={summary} onDone={finishSummary} />;
+
+  if (directLaunchPending) return <SafeAreaView style={styles.directLaunchPage}><ActivityIndicator size="large" color={theme.colors.text} /></SafeAreaView>;
+
+  if (launchRequest?.mode === "blind") return <SafeAreaView style={styles.directLaunchPage}>
+    <BlindBoxModal visible={blindVisible} period={blindPeriod} count={blindCount} loading={loading} onClose={onOpenLibrary} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onStart={() => void beginBlindBox()} />
+  </SafeAreaView>;
+
+  return <SafeAreaView style={styles.page}>
+    <View style={styles.header}><Pressable accessibilityLabel={t("recall.a11y.back")} style={styles.headerSide} onPress={onOpenLibrary}><Ionicons name="chevron-back" size={25} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{t("recall.title")}</Text><View style={styles.headerSide} /></View>
+    <ScrollView contentContainerStyle={styles.home} showsVerticalScrollIndicator={false}>
+      {activeSession ? <Pressable style={styles.resume} onPress={() => void resume()}><Text style={styles.resumeText}>{t("recall.resume")}</Text><Ionicons name="arrow-forward" size={18} color={theme.colors.text} /></Pressable> : null}
+      <View style={styles.dayRow}>
+        <DayCard title={t("recall.today")} count={todayCards.length} onPress={() => void beginRecords(todayCards.map((row) => row.id), localDateKey(new Date()))} />
+        <DayCard title={t("recall.yesterday")} count={yesterdayCards.length} onPress={() => void beginRecords(yesterdayCards.map((row) => row.id), localDateKey(new Date(Date.now() - 86_400_000)))} />
       </View>
-      <ScrollView contentContainerStyle={styles.homeContent} keyboardShouldPersistTaps="handled">
-        {active ? <Pressable style={styles.resumeCard} onPress={() => void resume()}><View><Text style={styles.resumeLabel}>继续上次探索</Text><Text style={styles.resumeMeta}>{active.nodes.length} 个节点 · {active.edges.length} 条真实联系</Text></View><Ionicons name="arrow-forward-circle" size={30} color={theme.colors.accentStrong} /></Pressable> : null}
-        <View style={styles.searchRow}><TextInput value={query} onChangeText={setQuery} onSubmitEditing={() => void search()} placeholder="搜索生活片段或表达" placeholderTextColor={theme.colors.textMuted} style={styles.searchInput} /><Pressable style={styles.searchButton} onPress={() => void search()}><Ionicons name="search" size={19} color="#fff" /></Pressable></View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-          <FilterChip label="全部 Collection" selected={!collectionId} onPress={() => setCollectionId("")} />
-          <FilterChip label="未分类" selected={collectionId === "unclassified"} onPress={() => setCollectionId("unclassified")} />
-          {collections.map((item) => <FilterChip key={item.id} label={item.name} selected={collectionId === item.id} onPress={() => setCollectionId(item.id)} />)}
-        </ScrollView>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-          {([['', '全部时间'], ['recent', '近 90 天'], ['this_year', '今年'], ['last_year', '去年'], ['earlier', '更早']] as Array<[TimeRange, string]>).map(([value, label]) => <FilterChip key={value} label={label} selected={timeRange === value} onPress={() => setTimeRange(value)} />)}
-        </ScrollView>
-        <Text style={styles.sectionTitle}>选择一张 seed Card</Text>
-        {loading ? <ActivityIndicator style={styles.loader} color={theme.colors.accentStrong} /> : candidates.map((candidate) => (
-          <View key={candidate.recordId} style={styles.candidateCard}>
-            <Text numberOfLines={3} style={styles.candidatePrimary}>{candidate.originalText}</Text>
-            <Text numberOfLines={2} style={styles.candidateRewrite}>{candidate.rewrittenText}</Text>
-            <Pressable style={styles.seedButton} onPress={() => void begin(candidate)}><Text style={styles.seedText}>从这里开始</Text><Ionicons name="arrow-forward" size={17} color="#fff" /></Pressable>
-          </View>
-        ))}
-        {!loading && !candidates.length ? <View style={styles.empty}><Text style={styles.emptyTitle}>没有找到 Card</Text><Text style={styles.emptyText}>换个关键词或筛选条件试试</Text></View> : null}
-      </ScrollView>
-    </SafeAreaView>
-  );
+      <RecallChoice icon="calendar-outline" title={t("recall.select_date")} disabled={!dateKeys.length} onPress={() => setDatePickerVisible(true)} />
+      <RecallChoice icon="search-outline" title={t("recall.explore")} disabled={!dateKeys.length} onPress={() => setTopicVisible(true)} />
+      <RecallChoice icon="cube-outline" title={t("recall.blind_box")} disabled={!dateKeys.length} onPress={() => setBlindVisible(true)} />
+      {!loading && !dateKeys.length ? <Pressable style={styles.createHint} onPress={onOpenLibrary}><Text style={styles.createHintText}>{t("recall.create_more")}</Text><Ionicons name="add" size={18} color={theme.colors.text} /></Pressable> : null}
+      {loading ? <ActivityIndicator style={styles.loader} color={theme.colors.text} /> : null}
+    </ScrollView>
+    <CardCalendarScreen visible={datePickerVisible} onClose={() => setDatePickerVisible(false)} onSelectDate={(value) => void beginSelectedDate(dateFromKey(value))} />
+    <TopicModal visible={topicVisible} value={topic} searchState={topicSearchState} onChange={(value) => { setTopic(value); setTopicSearchState("idle"); }} onClose={() => { if (topicSearchState !== "searching") { setTopicVisible(false); setTopicSearchState("idle"); } }} onSubmit={() => void beginTopic()} />
+    <BlindBoxModal visible={blindVisible} period={blindPeriod} count={blindCount} loading={loading} onClose={() => !loading && setBlindVisible(false)} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onStart={() => void beginBlindBox()} />
+  </SafeAreaView>;
 }
 
-function Blueprint({ session, titles, selectedNodeId, width, onSelect }: { session: RecallSession; titles: Record<string, string>; selectedNodeId: string | null; width: number; onSelect: (id: string) => void }) {
-  const canvasWidth = Math.max(320, width);
-  const height = 470;
-  const center = { x: canvasWidth / 2, y: height / 2 };
-  const positions = useMemo(() => new Map(session.nodes.map((node, index) => {
-    if (index === 0) return [node.id, center] as const;
-    const ring = index <= 6 ? 1 : 2;
-    const ringIndex = ring === 1 ? index - 1 : index - 7;
-    const count = ring === 1 ? Math.min(6, Math.max(1, session.nodes.length - 1)) : Math.max(1, session.nodes.length - 7);
-    const angle = -Math.PI / 2 + ringIndex * Math.PI * 2 / count;
-    const radius = ring === 1 ? Math.min(145, canvasWidth * .32) : Math.min(205, canvasWidth * .43);
-    return [node.id, { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius }] as const;
-  })), [session.nodes, canvasWidth]);
-  return <View style={styles.blueprint}>
-    <Svg width={canvasWidth} height={height} style={StyleSheet.absoluteFill}>
-      {session.edges.map((edge) => {
-        const from = positions.get(edge.fromNodeId); const to = positions.get(edge.toNodeId); if (!from || !to) return null;
-        const color = edge.relationType === "topic" ? "#8B9498" : edge.relationType === "phrase" ? "#4C86B6" : "#C58B20";
-        const phrase = edge.relationType === "phrase" ? edge.reasons.find((reason) => reason.type === "phrase") : null;
-        return <React.Fragment key={edge.id}><Line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={color} strokeWidth={edge.relationType === "topic" ? 1.5 : 2.5} strokeDasharray={edge.relationType === "topic" ? "6 6" : undefined} />{edge.relationType === "progress" ? <Polygon points={`${to.x},${to.y} ${to.x - 9},${to.y - 5} ${to.x - 9},${to.y + 5}`} fill={color} /> : null}{phrase && "phrase" in phrase ? <SvgText x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 5} fontSize="10" fill={color} textAnchor="middle">{phrase.phrase.slice(0, 12)}</SvgText> : null}</React.Fragment>;
-      })}
-    </Svg>
-    {session.nodes.map((node, index) => { const point = positions.get(node.id)!; const selected = node.id === selectedNodeId; return <Pressable key={node.id} accessibilityLabel={`Card 节点 ${titles[node.recordId] ?? index + 1}`} style={[styles.node, index === 0 && styles.seedNode, selected && styles.nodeSelected, { left: point.x - 43, top: point.y - 43 }]} onPress={() => onSelect(node.id)}><Text numberOfLines={3} style={[styles.nodeText, selected && styles.nodeTextSelected]}>{titles[node.recordId] || `Card ${index + 1}`}</Text></Pressable>; })}
+function RecallChoice({ icon, title, subtitle, disabled, onPress }: { icon: React.ComponentProps<typeof Ionicons>["name"]; title: string; subtitle?: string; disabled: boolean; onPress: () => void }) {
+  return <Pressable disabled={disabled} style={[styles.choice, disabled && styles.disabled]} onPress={onPress}><View style={styles.choiceIcon}><Ionicons name={icon} size={20} color={theme.colors.text} /></View><View style={styles.choiceBody}><Text style={styles.choiceText}>{title}</Text>{subtitle ? <Text style={styles.choiceSubtitle}>{subtitle}</Text> : null}</View><Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} /></Pressable>;
+}
+
+function TopicModal({ visible, value, searchState, onChange, onClose, onSubmit }: { visible: boolean; value: string; searchState: "idle" | "searching" | "empty"; onChange: (value: string) => void; onClose: () => void; onSubmit: () => void }) {
+  const searching = searchState === "searching";
+  const enabled = Boolean(value.trim()) && !searching;
+  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}><Pressable style={styles.scrim} onPress={onClose}><Pressable style={styles.panel} onPress={() => undefined}><Text style={styles.panelTitle}>{t("recall.explore")}</Text><View style={styles.topicInputRow}><TextInput autoFocus editable={!searching} value={value} onChangeText={onChange} placeholder={t("recall.topic_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.topicInput} returnKeyType="go" onSubmitEditing={() => enabled && onSubmit()} /><Pressable disabled={!enabled} style={[styles.topicGo, !enabled && styles.topicGoDisabled]} onPress={onSubmit}>{searching ? <ActivityIndicator size="small" color={theme.colors.textMuted} /> : <Ionicons name="arrow-forward" size={18} color={enabled ? "#fff" : theme.colors.textMuted} />}</Pressable></View>{searching ? <View style={styles.topicStatus}><ActivityIndicator size="small" color={theme.colors.textMuted} /><Text style={styles.topicStatusText}>{t("recall.searching")}</Text></View> : searchState === "empty" ? <Text style={styles.topicEmpty}>{t("recall.error.empty")}</Text> : null}</Pressable></Pressable></Modal>;
+}
+
+function BlindBoxModal({ visible, period, count, loading, onClose, onPeriodChange, onCountChange, onStart }: { visible: boolean; period: BlindPeriod; count: number; loading: boolean; onClose: () => void; onPeriodChange: (period: BlindPeriod) => void; onCountChange: (count: number) => void; onStart: () => void }) {
+  const periods: Array<{ value: BlindPeriod; label: string }> = [
+    { value: "week", label: t("recall.period.week") },
+    { value: "month", label: t("recall.period.month") },
+    { value: "quarter", label: t("recall.period.quarter") },
+    { value: "year", label: t("recall.period.year") },
+    { value: "all", label: t("recall.period.all") },
+  ];
+  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Pressable style={styles.scrim} onPress={onClose}>
+      <Pressable style={styles.panel} onPress={() => undefined}>
+        <View style={styles.panelHeader}>
+          <Text style={styles.panelTitle}>{t("recall.blind_settings")}</Text>
+          <Pressable onPress={onClose}><Ionicons name="close" size={22} color={theme.colors.text} /></Pressable>
+        </View>
+        <Text style={styles.blindOptionLabel}>{t("recall.period.title")}</Text>
+        <View style={styles.periodSegments}>
+          {periods.map((item) => <Pressable key={item.value} style={[styles.periodSegment, period === item.value && styles.periodSegmentActive]} onPress={() => onPeriodChange(item.value)}><Text numberOfLines={1} style={[styles.periodSegmentText, period === item.value && styles.periodSegmentTextActive]}>{item.label}</Text></Pressable>)}
+        </View>
+        <View style={styles.blindCountHeader}><Text style={styles.blindOptionLabel}>{t("recall.card_amount")}</Text><Text style={styles.blindCountValue}>{count}</Text></View>
+        <BlindCountSlider value={count} onChange={onCountChange} />
+        <View style={styles.countEndpoints}><Text style={styles.countEndpoint}>1</Text><Text style={styles.countEndpoint}>10</Text></View>
+        <Pressable disabled={loading} style={[styles.startButton, loading && styles.disabled]} onPress={onStart}>{loading ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.startButtonText}>{t("recall.start")}</Text>}</Pressable>
+      </Pressable>
+    </Pressable>
+  </Modal>;
+}
+
+function BlindCountSlider({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const widthRef = useRef(0);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const updateFromPosition = (x: number) => {
+    if (widthRef.current <= 0) return;
+    const next = Math.max(1, Math.min(10, Math.round((x / widthRef.current) * 9) + 1));
+    onChangeRef.current(next);
+  };
+  const responder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 2,
+    onPanResponderGrant: (event) => updateFromPosition(event.nativeEvent.locationX),
+    onPanResponderMove: (event) => updateFromPosition(event.nativeEvent.locationX),
+  }), []);
+  const progress = (value - 1) / 9;
+  return <View
+    accessibilityRole="adjustable"
+    accessibilityValue={{ min: 1, max: 10, now: value }}
+    style={styles.countSlider}
+    onLayout={(event) => { widthRef.current = event.nativeEvent.layout.width; }}
+    {...responder.panHandlers}
+  >
+    <View style={styles.countSliderTrack} />
+    <View pointerEvents="none" style={[styles.countSliderProgress, { width: `${progress * 100}%` }]} />
+    {Array.from({ length: 10 }, (_, index) => <View pointerEvents="none" key={index} style={[styles.countSliderTick, { left: `${(index / 9) * 100}%` }]} />)}
+    <View pointerEvents="none" style={[styles.countSliderThumb, { left: `${progress * 100}%` }]} />
   </View>;
 }
 
-function FilterChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) { return <Pressable style={[styles.filterChip, selected && styles.filterChipSelected]} onPress={onPress}><Text style={[styles.filterText, selected && styles.filterTextSelected]}>{label}</Text></Pressable>; }
+function RecallSummary({ summary, onDone }: { summary: { cards: number; attempted: number; correct: number }; onDone: () => void }) {
+  const scale = useRef(new Animated.Value(.88)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => { Animated.parallel([Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 15, bounciness: 7 }), Animated.timing(opacity, { toValue: 1, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true })]).start(); }, [opacity, scale]);
+  return <SafeAreaView style={styles.summaryPage}><Animated.View style={[styles.summaryCard, { opacity, transform: [{ scale }] }]}><View style={styles.summaryIcon}><Ionicons name="sparkles" size={30} color="#58916B" /></View><Text style={styles.summaryTitle}>{t("recall.summary_title")}</Text><View style={styles.summaryStats}><SummaryStat value={summary.cards} label={t("recall.summary_cards_short")} /><SummaryStat value={summary.attempted} label={t("recall.summary_blanks")} /><SummaryStat value={summary.correct} label={t("recall.summary_correct")} /></View><Pressable style={styles.startButton} onPress={onDone}><Text style={styles.startButtonText}>{t("recall.summary_done")}</Text></Pressable></Animated.View></SafeAreaView>;
+}
+
+function SummaryStat({ value, label }: { value: number; label: string }) { return <View style={styles.summaryStat}><Text style={styles.summaryValue}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text></View>; }
+function DayCard({ title, count, onPress }: { title: string; count: number; onPress: () => void }) { const disabled = count === 0; return <Pressable disabled={disabled} style={[styles.dayCard, disabled && styles.disabled]} onPress={onPress}><Text style={styles.dayTitle}>{title}</Text><Text style={styles.dayCount}>{count ? tf("recall.card_count", { count }) : t("recall.no_cards")}</Text><Ionicons name="arrow-forward" size={17} color={disabled ? theme.colors.border : theme.colors.text} /></Pressable>; }
+
+async function markNode(sessionId: string, nodeId: string, state: RecallSession["nodes"][number]["state"], update: React.Dispatch<React.SetStateAction<RecallSession | null>>): Promise<void> { try { const next = await updateRecallNode(sessionId, nodeId, state); update(next); } catch { /* A failed marker must not interrupt practice. */ } }
+function localDateKey(date: Date): string { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, "0"); const day = String(date.getDate()).padStart(2, "0"); return `${year}-${month}-${day}`; }
+function dateFromKey(value: string): Date { return new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, Number(value.slice(8, 10))); }
+function resolveBlindPeriodRange(period: BlindPeriod, dateKeys: string[]): { from: string; to: string } {
+  const now = new Date();
+  const to = localDateKey(now);
+  if (period === "all") return { from: dateKeys[0] ?? to, to };
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (period === "week") {
+    const weekday = from.getDay() || 7;
+    from.setDate(from.getDate() - weekday + 1);
+  } else if (period === "month") {
+    from.setDate(1);
+  } else if (period === "quarter") {
+    from.setMonth(Math.floor(from.getMonth() / 3) * 3, 1);
+  } else {
+    from.setMonth(0, 1);
+  }
+  return { from: localDateKey(from), to };
+}
+async function saveBlindSettings(period: BlindPeriod, count: number): Promise<void> {
+  await AsyncStorage.setItem(BLIND_BOX_SETTINGS_KEY, JSON.stringify({ period, count })).catch(() => undefined);
+}
+function completedCards(rows: CardRecordSummary[]): CardRecordSummary[] { return rows.filter((row) => row.status === "completed"); }
+function shuffle<T>(items: T[]): T[] { for (let index = items.length - 1; index > 0; index -= 1) { const target = Math.floor(Math.random() * (index + 1)); [items[index], items[target]] = [items[target]!, items[index]!]; } return items; }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: theme.colors.canvas }, header: { minHeight: 82, paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, menuButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" }, headerTitle: { flex: 1, paddingHorizontal: 8 }, eyebrow: { color: theme.colors.textMuted, fontSize: 12 }, title: { color: theme.colors.text, fontSize: 28, fontWeight: "800" }, shuffleButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }, finishButton: { height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }, finishText: { color: theme.colors.danger, fontSize: 14, fontWeight: "600" }, homeContent: { padding: 20, paddingTop: 6, paddingBottom: 110 }, resumeCard: { marginBottom: 16, padding: 17, borderRadius: theme.radius.card, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, resumeLabel: { color: theme.colors.text, fontSize: 16, fontWeight: "700" }, resumeMeta: { marginTop: 5, color: theme.colors.textSecondary, fontSize: 12 }, searchRow: { flexDirection: "row", gap: 8 }, searchInput: { flex: 1, height: 46, paddingHorizontal: 14, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, color: theme.colors.text }, searchButton: { width: 46, height: 46, borderRadius: theme.radius.control, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" }, filters: { paddingVertical: 10, gap: 8 }, filterChip: { height: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }, filterChipSelected: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accentStrong }, filterText: { color: theme.colors.textSecondary, fontSize: 12 }, filterTextSelected: { color: theme.colors.accentStrong, fontWeight: "600" }, sectionTitle: { marginTop: 12, marginBottom: 10, color: theme.colors.text, fontSize: 17, fontWeight: "700" }, loader: { marginVertical: 32 }, candidateCard: { marginBottom: 12, padding: 16, borderRadius: theme.radius.card, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface }, candidatePrimary: { color: theme.colors.text, fontSize: 16, lineHeight: 24 }, candidateOriginal: { marginTop: 9, color: theme.colors.text, fontSize: 14, lineHeight: 21 }, candidateRewrite: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 }, seedButton: { marginTop: 14, alignSelf: "flex-end", height: 38, paddingHorizontal: 14, borderRadius: 19, backgroundColor: theme.colors.accentStrong, flexDirection: "row", alignItems: "center", gap: 6 }, seedText: { color: "#fff", fontSize: 13, fontWeight: "600" }, empty: { padding: 36, alignItems: "center" }, emptyTitle: { color: theme.colors.text, fontSize: 16, fontWeight: "600" }, emptyText: { marginTop: 6, color: theme.colors.textMuted, fontSize: 13 }, blueprint: { flex: 1, minHeight: 470, overflow: "hidden" }, node: { position: "absolute", width: 86, height: 86, padding: 8, borderRadius: 43, borderWidth: 2, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: .08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } }, seedNode: { borderColor: theme.colors.accentStrong, backgroundColor: theme.colors.accentSoft }, nodeSelected: { borderWidth: 3, borderColor: theme.colors.accentStrong }, nodeText: { color: theme.colors.textSecondary, textAlign: "center", fontSize: 11, lineHeight: 15 }, nodeTextSelected: { color: theme.colors.text, fontWeight: "700" }, legend: { paddingHorizontal: 18, flexDirection: "row", justifyContent: "center", gap: 16 }, legendText: { color: "#717A7E", fontSize: 11 }, legendPhrase: { color: "#4C86B6", fontSize: 11 }, legendProgress: { color: "#A97518", fontSize: 11 }, nodeActions: { padding: 16, paddingBottom: 94, flexDirection: "row", gap: 10 }, secondaryButton: { flex: 1, height: 48, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.accentStrong, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, secondaryText: { color: theme.colors.accentStrong, fontSize: 14, fontWeight: "600" }, primaryButton: { flex: 1.25, height: 48, borderRadius: theme.radius.control, backgroundColor: theme.colors.accentStrong, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, primaryText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  page: { flex: 1, backgroundColor: theme.colors.canvas }, directLaunchPage: { flex: 1, backgroundColor: theme.colors.canvas, alignItems: "center", justifyContent: "center" }, deckPage: { flex: 1, backgroundColor: theme.colors.canvas }, header: { height: 60, paddingHorizontal: 8, flexDirection: "row", alignItems: "center" }, headerSide: { width: 46, height: 46, alignItems: "center", justifyContent: "center" }, headerTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 18, fontWeight: "600" },
+  home: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 100 }, dayRow: { flexDirection: "row", gap: 12 }, dayCard: { flex: 1, minHeight: 145, padding: 17, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: "flex-start" }, disabled: { opacity: .42 }, dayTitle: { color: theme.colors.text, fontSize: 20, fontWeight: "600" }, dayCount: { flex: 1, marginTop: 8, color: theme.colors.textMuted, fontSize: 12 },
+  choice: { minHeight: 58, marginTop: 11, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 11 }, choiceIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" }, choiceBody: { flex: 1, paddingVertical: 10 }, choiceText: { color: theme.colors.text, fontSize: 15, fontWeight: "500" }, choiceSubtitle: { marginTop: 2, color: theme.colors.textMuted, fontSize: 12 }, resume: { minHeight: 52, marginBottom: 14, paddingHorizontal: 16, borderRadius: 13, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center" }, resumeText: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "500" }, createHint: { marginTop: 20, minHeight: 46, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, createHintText: { color: theme.colors.text, fontSize: 14 }, loader: { marginTop: 28 },
+  scrim: { flex: 1, paddingHorizontal: 24, backgroundColor: "rgba(0,0,0,.28)", justifyContent: "center" }, panel: { paddingHorizontal: 18, paddingTop: 17, paddingBottom: 18, borderRadius: 18, backgroundColor: theme.colors.surface }, panelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, panelTitle: { marginBottom: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "600" }, topicInputRow: { height: 48, paddingLeft: 13, paddingRight: 4, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, flexDirection: "row", alignItems: "center" }, topicInput: { flex: 1, height: 46, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 15 }, topicGo: { width: 38, height: 38, borderRadius: 9, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" }, topicGoDisabled: { backgroundColor: theme.colors.surfaceMuted }, topicStatus: { minHeight: 34, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 }, topicStatusText: { color: theme.colors.textMuted, fontSize: 13 }, topicEmpty: { minHeight: 34, marginTop: 8, color: theme.colors.textSecondary, fontSize: 13 },
+  blindOptionLabel: { marginTop: 16, color: theme.colors.text, fontSize: 14, fontWeight: "500" }, periodSegments: { height: 44, marginTop: 10, padding: 3, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row" }, periodSegment: { flex: 1, borderRadius: 9, alignItems: "center", justifyContent: "center" }, periodSegmentActive: { backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: .08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }, periodSegmentText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, periodSegmentTextActive: { color: theme.colors.text }, blindCountHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, blindCountValue: { marginTop: 16, color: theme.colors.text, fontSize: 16, fontWeight: "600" }, countSlider: { height: 38, marginHorizontal: 10, marginTop: 7, justifyContent: "center" }, countSliderTrack: { position: "absolute", left: 0, right: 0, height: 4, borderRadius: 2, backgroundColor: theme.colors.border }, countSliderProgress: { position: "absolute", left: 0, height: 4, borderRadius: 2, backgroundColor: theme.colors.text }, countSliderTick: { position: "absolute", width: 2, height: 8, marginLeft: -1, borderRadius: 1, backgroundColor: theme.colors.border }, countSliderThumb: { position: "absolute", width: 22, height: 22, marginLeft: -11, borderWidth: 2, borderColor: theme.colors.surface, borderRadius: 11, backgroundColor: theme.colors.text, shadowColor: "#000", shadowOpacity: .18, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 3 }, countEndpoints: { marginTop: -3, paddingHorizontal: 9, flexDirection: "row", justifyContent: "space-between" }, countEndpoint: { color: theme.colors.textMuted, fontSize: 11 }, startButton: { height: 48, marginTop: 18, borderRadius: 14, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" }, startButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
+  busyOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,.55)", alignItems: "center", justifyContent: "center" }, summaryPage: { flex: 1, paddingHorizontal: 24, backgroundColor: "#F4F7F3", alignItems: "center", justifyContent: "center" }, summaryCard: { width: "100%", maxWidth: 430, padding: 24, borderRadius: 24, backgroundColor: theme.colors.surface, shadowColor: "#315D3F", shadowOpacity: .1, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 4 }, summaryIcon: { width: 58, height: 58, alignSelf: "center", borderRadius: 29, backgroundColor: "#E5F2E8", alignItems: "center", justifyContent: "center" }, summaryTitle: { marginTop: 15, textAlign: "center", color: theme.colors.text, fontSize: 23, fontWeight: "600" }, summaryStats: { marginTop: 25, flexDirection: "row" }, summaryStat: { flex: 1, alignItems: "center" }, summaryValue: { color: theme.colors.text, fontSize: 27, fontWeight: "600" }, summaryLabel: { marginTop: 5, color: theme.colors.textMuted, fontSize: 12 },
 });

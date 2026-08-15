@@ -40,8 +40,10 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
 
     const isSelected = isSameDate(cellDate, selectedDate);
     const hasRecord = hasRecordDateKeys.has(toDateKey(cellDate));
+    const isMaximumDate = maximumDate ? isSameDate(cellDate, maximumDate) : false;
     const afterMaximum = maximumDate ? startOfDay(cellDate).getTime() > startOfDay(maximumDate).getTime() : false;
-    const disabled = afterMaximum || (!allowEmptyDates && !hasRecord);
+    const disabled = afterMaximum || (!allowEmptyDates && !hasRecord && !isMaximumDate);
+    const isActiveSelected = isSelected && !disabled;
 
     return (
       <Pressable
@@ -50,11 +52,10 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
         onPress={() => onSelectDate(cellDate)}
         disabled={disabled}
       >
-        <View style={[styles.dayDot, isSelected && styles.dayDotSelected]}>
-          <Text style={[styles.dayText, disabled && styles.dayTextMuted, isSelected && styles.dayTextSelected]}>
+        <View style={[styles.dayDot, hasRecord && styles.dayDotRecorded, isActiveSelected && styles.dayDotSelected]}>
+          <Text style={[styles.dayText, disabled && styles.dayTextMuted, isActiveSelected && styles.dayTextSelected]}>
             {cellDate.getDate()}
           </Text>
-          {hasRecord ? <View style={[styles.recordDot, isSelected && styles.recordDotSelected]} /> : null}
         </View>
       </Pressable>
     );
@@ -243,7 +244,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   dayDotSelected: {
-    backgroundColor: "#E9E4FF",
+    backgroundColor: "#BFDCCB",
+  },
+  dayDotRecorded: {
+    backgroundColor: "#E7F1EB",
   },
   dayText: {
     color: "#1E222B",
@@ -256,16 +260,5 @@ const styles = StyleSheet.create({
   dayTextSelected: {
     color: "#111111",
     fontWeight: "700",
-  },
-  recordDot: {
-    position: "absolute",
-    bottom: 3,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#8A82C8",
-  },
-  recordDotSelected: {
-    backgroundColor: "#655CAD",
   },
 });

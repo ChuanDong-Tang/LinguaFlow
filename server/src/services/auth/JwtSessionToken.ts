@@ -9,9 +9,6 @@ export interface SessionTokenPayload {
   typ: "access" | "refresh";
 }
 
-const DEFAULT_ACCESS_TTL_SECONDS = 60 * 30; // 30 minutes
-const DEFAULT_REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
-
 export function signAccessToken(userId: string): string {
   return signTypedToken(userId, "access", getAccessTokenTtlSeconds());
 }

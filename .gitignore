@@ -23,7 +23,7 @@ agent.md
 
 .idea/
 
-scripts/
+/scripts/
 /apps/mobile/*.bat
 /start_api.bat
 /build_mobile_apk.bat
@@ -31,6 +31,11 @@ scripts/
 
 .tmp/
 
-/ecosystem.test.config.cjs
 /ecosystem.production.config.cjs
 /build_mobile_aab.bat
+
+# Local release configuration and generated artifacts. Keep the workflows and
+# runbooks versioned so a clean checkout can reproduce a release.
+/ci/cd/artifacts/
+/ci/cd/*.env
+/apps/mobile/*.ipa

@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { ChatMessage } from "../../domain/chat/types";
-import { compareChatMessagesByCreatedAt, getMessageDateKey, toDateKey } from "../../domain/chat/messageState";
+import { compareChatMessagesByCreatedAt, toDateKey } from "../../domain/chat/messageState";
 
 const CHAT_LOCAL_SCOPE_PREFIX = "lf_chat_local_messages_v3";
 const CHAT_LOCAL_DAYS_SCOPE_PREFIX = "lf_chat_local_days_v3";

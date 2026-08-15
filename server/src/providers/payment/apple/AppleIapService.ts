@@ -14,7 +14,6 @@ import { getExpectedCurrentStatusesForNextStatus } from "../../../services/payme
 import { APPLE_PROVIDER } from "./AppleIapConstants.js";
 import { isAppleIapConfigured, loadAppleIapConfig } from "./AppleIapConfig.js";
 import {
-  AppleIapConfigError,
   AppleIapSubscriptionAlreadyBoundError,
   AppleIapVerifyError,
 } from "./AppleIapErrors.js";

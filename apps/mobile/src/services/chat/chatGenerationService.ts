@@ -1,9 +1,7 @@
 import { loadDebugSettings } from "../preferences/debugSettingsStorage";
 import { ApiError, sendMessageToCloud } from "../api/chatHistoryApi";
-import { getCurrentEntitlement } from "../api/meApi";
 import { startChatGenerationStream } from "./chatGenerationStream";
 import type { ChatGenerationStreamEvent } from "./streamClient";
-import { hasLocalProAccess } from "../entitlement/proAccess";
 import type { ChatMessage } from "../../domain/chat/types";
 import { toDateKey } from "../../domain/chat/messageState";
 import { t, tf } from "../../i18n";
@@ -201,14 +199,12 @@ export async function runChatGeneration(input: RunChatGenerationInput): Promise<
     const explicitPrompt = input.systemPrompt?.trim() || undefined;
     requestSystemPrompt = explicitPrompt ?? contactPrompt ?? "";
 
-    const localPro = await hasLocalProAccess();
-    const entitlement = localPro ? await getCurrentEntitlement().catch(() => null) : null;
-    const cloud = (entitlement?.features?.conversationHistorySync ?? entitlement?.isMember ?? entitlement?.isPro) === true
-      ? await sendMessageToCloud({
-          text: input.text,
-          contactId: input.contactId,
-        })
-      : null;
+    // assistant-cloud-v1: every signed-in tier persists new assistant messages.
+    // Legacy local history is intentionally not imported here.
+    const cloud = await sendMessageToCloud({
+      text: input.text,
+      contactId: input.contactId,
+    });
     if (cloud) input.onConversationReady?.(cloud.conversationId);
     if (cloud?.userMessage?.id && userMessageClientId) {
       input.onUpdateMessage(userMessageClientId, (row) => ({

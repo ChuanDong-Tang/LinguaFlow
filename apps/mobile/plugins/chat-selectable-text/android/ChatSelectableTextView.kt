@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.text.TextPaint
 import android.text.SpannableString
 import android.text.Selection
 import android.text.Spannable
@@ -11,7 +12,8 @@ import android.text.Spanned
 import android.widget.TextView
 import android.text.style.ForegroundColorSpan
 import android.text.style.BackgroundColorSpan
-import android.text.style.StyleSpan
+import android.text.style.CharacterStyle
+import android.text.style.UpdateAppearance
 import android.util.TypedValue
 import android.util.Log
 import android.view.ActionMode
@@ -32,6 +34,14 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     private const val CUSTOM_MENU_ITEM_ID_BASE = 0x4F490000
   }
 
+  private class BlankUnderlineSpan(private val underlineColor: Int) : CharacterStyle(), UpdateAppearance {
+    override fun updateDrawState(textPaint: TextPaint) {
+      textPaint.color = Color.TRANSPARENT
+      textPaint.underlineColor = underlineColor
+      textPaint.underlineThickness = 1.5f
+    }
+  }
+
   private var rawText: String = ""
   private var highlightRangesJson: String = "[]"
   private var blankRangesJson: String = "[]"
@@ -47,6 +57,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   private var pendingTextApply: Boolean = false
   private var textApplyRequested: Boolean = false
   private var rangeLongPressed: Boolean = false
+  private var selectionMode: String = "range"
   private val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
   private val rangeLongPressRunnable = Runnable {
     val range = pendingRange ?: return@Runnable
@@ -98,7 +109,8 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     currentActionMode?.invalidate()
   }
 
-  fun setSelectionMode(@Suppress("UNUSED_PARAMETER") value: String?) {
+  fun setSelectionMode(value: String?) {
+    selectionMode = if (value == "all") "all" else "range"
   }
 
   fun setTextColorValue(value: String) {
@@ -184,7 +196,13 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       return false
     }
     return try {
-      super.performLongClick()
+      val handled = super.performLongClick()
+      if (handled && selectionMode == "all" && rawText.isNotEmpty()) {
+        val spannable = ensureSpannableTextBuffer()
+        Selection.setSelection(spannable, 0, spannable.length)
+        currentActionMode?.invalidate()
+      }
+      handled
     } catch (error: RuntimeException) {
       Log.e(TAG, "performLongClick failed; releasing selectable state", error)
       releaseSelectableIfIdle()
@@ -254,13 +272,14 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       applyRangeSpan(spannable, range.start, range.end, visibleText.length, ForegroundColorSpan(Color.parseColor("#3D3420")))
     }
 
-    blankRanges.forEach { range ->
-      applyRangeSpan(spannable, range.start, range.end, visibleText.length, ForegroundColorSpan(Color.parseColor("#8C6D1F")))
-      applyRangeSpan(spannable, range.start, range.end, visibleText.length, StyleSpan(Typeface.BOLD))
+    if (!answersVisible) {
+      blankRanges.forEach { range ->
+        applyRangeSpan(spannable, range.start, range.end, visibleText.length, BlankUnderlineSpan(Color.parseColor("#8C6D1F")))
+      }
     }
 
     parseRanges(correctRangesJson).forEach { range ->
-      applyRangeSpan(spannable, range.start, range.end, visibleText.length, ForegroundColorSpan(Color.parseColor("#6FAE78")))
+      applyRangeSpan(spannable, range.start, range.end, visibleText.length, BackgroundColorSpan(Color.parseColor("#DDEFE2")))
     }
 
     setText(spannable, TextView.BufferType.SPANNABLE)
@@ -484,16 +503,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   }
 
   private fun buildVisibleText(text: String, blankRanges: List<Range>, answersVisible: Boolean): String {
-    if (answersVisible || blankRanges.isEmpty()) return text
-    val chars = text.toCharArray()
-    blankRanges.forEach { range ->
-      val start = range.start.coerceIn(0, chars.size)
-      val end = range.end.coerceIn(start, chars.size)
-      for (index in start until end) {
-        if (!chars[index].isWhitespace()) chars[index] = '_'
-      }
-    }
-    return String(chars)
+    return text
   }
 
   private fun applyRangeSpan(spannable: SpannableString, start: Int, end: Int, length: Int, span: Any) {

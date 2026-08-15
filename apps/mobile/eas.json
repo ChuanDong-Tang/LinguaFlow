@@ -17,10 +17,10 @@
       }
     },
     "testflight": {
-      "environment": "preview",
+      "environment": "production",
       "autoIncrement": true,
       "distribution": "store",
-      "channel": "preview",
+      "channel": "production",
       "android": {
         "buildType": "app-bundle"
       },
@@ -38,6 +38,13 @@
       },
       "ios": {
         "simulator": false
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6776898160"
       }
     }
   }

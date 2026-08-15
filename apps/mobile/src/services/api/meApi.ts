@@ -1,5 +1,6 @@
 import { getAuthHeaders } from "../auth/authHeaders";
 import type { TargetLanguageCode } from "@lf/core/language/targetLanguages";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -49,6 +50,39 @@ export type RefreshEntitlementResult = {
   };
 };
 
+export type UsageV2 = {
+  apiVersion: "v2";
+  configVersion: string;
+  tier: "free" | "plus" | "pro";
+  token: {
+    periodStart: string;
+    periodEnd: string;
+    quota: number;
+    used: number;
+    reserved: number;
+    remaining: number;
+    remainingPercent: number;
+  };
+  images: {
+    periodStart: string;
+    periodEnd: string;
+    quotaBytes: string;
+    uploadedBytes: string;
+    reservedUploadBytes: string;
+    remainingUploadBytes: string;
+    capacityBytes: string;
+    usedBytes: string;
+    reservedBytes: string;
+    remainingBytes: string;
+    dailyUploadLimit: number;
+  };
+  features: {
+    community: boolean;
+    dictation: boolean;
+    originalLearning: boolean;
+  };
+};
+
 export type AppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
 export type LearningLanguage = TargetLanguageCode;
 export type TtsProviderCode = "azure_global";
@@ -94,7 +128,7 @@ export type UserBindings = {
 };
 
 export async function getCurrentEntitlement(): Promise<CurrentEntitlement> {
-  const res = await fetch(`${BASE_URL}/me/entitlement`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/me/entitlement`, {
     headers: await getAuthHeaders(),
   });
 
@@ -106,8 +140,17 @@ export async function getCurrentEntitlement(): Promise<CurrentEntitlement> {
   return json.data;
 }
 
+export async function getUsageV2(): Promise<UsageV2> {
+  const res = await fetchWithTimeout(`${BASE_URL}/me/usage/v2`, {
+    headers: await getAuthHeaders(),
+  });
+  const json = (await res.json()) as ApiResult<UsageV2>;
+  if (!json.ok) throw new Error(json.error.message);
+  return json.data;
+}
+
 export async function refreshCurrentEntitlement(): Promise<RefreshEntitlementResult> {
-  const res = await fetch(`${BASE_URL}/me/entitlement/refresh`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/me/entitlement/refresh`, {
     method: "POST",
     headers: await getAuthHeaders(),
   });
@@ -121,7 +164,7 @@ export async function refreshCurrentEntitlement(): Promise<RefreshEntitlementRes
 }
 
 export async function getUserPreference(): Promise<UserPreference> {
-  const res = await fetch(`${BASE_URL}/me/preferences`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/me/preferences`, {
     headers: await getAuthHeaders(),
   });
 
@@ -134,7 +177,7 @@ export async function getUserPreference(): Promise<UserPreference> {
 }
 
 export async function updateUserPreference(input: UpdateUserPreferenceInput): Promise<UserPreference> {
-  const res = await fetch(`${BASE_URL}/me/preferences`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/me/preferences`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -183,7 +226,7 @@ export async function removeProfileAvatar(): Promise<UserProfile> {
 }
 
 async function meRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}${path}`, {
     ...init,
     headers: {
       ...(init.body ? { "Content-Type": "application/json" } : {}),

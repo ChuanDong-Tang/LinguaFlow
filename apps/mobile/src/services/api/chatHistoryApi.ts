@@ -1,5 +1,6 @@
 import { getSession } from "../auth/authStorage";
 import { getAuthHeaders } from "../auth/authHeaders";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -65,7 +66,7 @@ export async function sendMessageToCloud(input: {
   const userId = session?.user?.id ?? "mock_user_001";
   //console.log("sendMessageToCloud userId =", userId);
 
-  const res = await fetch(`${BASE_URL}/chat/messages`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify({
@@ -97,7 +98,7 @@ export async function importLocalDayMessagesToCloud(input: {
     languageCode?: string | null;
   }>;
 }): Promise<ImportLocalDayMessagesResult> {
-  const res = await fetch(`${BASE_URL}/chat/messages/import-day`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/messages/import-day`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify(input),
@@ -119,7 +120,7 @@ export async function listMessagesByRangeFromCloud(
   if (input.fromDateKey) params.set("fromDateKey", input.fromDateKey);
   if (input.toDateKey) params.set("toDateKey", input.toDateKey);
 
-  const res = await fetch(`${BASE_URL}/chat/messages/range?${params.toString()}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/messages/range?${params.toString()}`, {
     headers: await getAuthHeaders(),
     signal: input.signal,
   });
@@ -156,7 +157,7 @@ export async function findConversationIdByDateFromCloud(input: {
   params.set("dateKey", input.dateKey);
   if (input.contactId) params.set("contactId", input.contactId);
 
-  const res = await fetch(`${BASE_URL}/chat/conversation/by-date?${params.toString()}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/conversation/by-date?${params.toString()}`, {
     headers: await getAuthHeaders(),
     signal: input.signal,
   });
@@ -180,7 +181,7 @@ export async function listConversationDateKeysFromCloud(input: {
   params.set("toDateKey", input.toDateKey);
   if (input.contactId) params.set("contactId", input.contactId);
 
-  const res = await fetch(`${BASE_URL}/chat/conversations/date-keys?${params.toString()}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/conversations/date-keys?${params.toString()}`, {
     headers: await getAuthHeaders(),
     signal: input.signal,
   });
@@ -204,7 +205,7 @@ export async function listPracticeDateKeysFromCloud(input: {
   params.set("fromDateKey", input.fromDateKey);
   params.set("toDateKey", input.toDateKey);
 
-  const res = await fetch(`${BASE_URL}/chat/practice/date-keys?${params.toString()}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/practice/date-keys?${params.toString()}`, {
     headers: await getAuthHeaders(),
     signal: input.signal,
   });
@@ -236,7 +237,7 @@ export async function listPracticeDayStatsFromCloud(input: {
   params.set("fromDateKey", input.fromDateKey);
   params.set("toDateKey", input.toDateKey);
 
-  const res = await fetch(`${BASE_URL}/chat/practice/day-stats?${params.toString()}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/practice/day-stats?${params.toString()}`, {
     headers: await getAuthHeaders(),
     signal: input.signal,
   });
@@ -254,7 +255,7 @@ export async function updateMessageClozeState(input: {
   baseVersion: number;
   clozeState: MessageView["clozeState"];
 }): Promise<{ clozeState: MessageView["clozeState"]; clozeVersion: number }> {
-  const res = await fetch(`${BASE_URL}/chat/messages/cloze`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/messages/cloze`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify(input),
@@ -279,7 +280,7 @@ export async function updateMessageClozeState(input: {
 export async function discardMessageClozePractice(input: {
   messageId: string;
 }): Promise<{ messageId: string; clozePracticeDiscardedAt: string }> {
-  const res = await fetch(`${BASE_URL}/chat/messages/cloze-practice-discard`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/messages/cloze-practice-discard`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify(input),

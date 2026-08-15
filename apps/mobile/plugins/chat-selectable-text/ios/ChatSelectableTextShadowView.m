@@ -110,13 +110,6 @@ static YGSize ChatSelectableTextShadowMeasure(
     NSParagraphStyleAttributeName: paragraph
   } range:fullRange];
 
-  UIFont *boldFont = [UIFont boldSystemFontOfSize:fontSize];
-  for (NSDictionary *range in [self parseRanges:self.blankRangesJson]) {
-    NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
-    if (safe.length == 0) continue;
-    [attributed addAttribute:NSFontAttributeName value:boldFont range:safe];
-  }
-
   CGFloat measuringWidth = widthMode == YGMeasureModeUndefined || width <= 0 ? CGFLOAT_MAX : width;
   NSTextStorage *storage = [[NSTextStorage alloc] initWithAttributedString:attributed];
   NSLayoutManager *layoutManager = [NSLayoutManager new];
@@ -171,18 +164,7 @@ static YGSize ChatSelectableTextShadowMeasure(
 
 - (NSString *)visibleTextForText:(NSString *)text blankRanges:(NSArray<NSDictionary *> *)blankRanges answersVisible:(BOOL)answersVisible
 {
-  if (answersVisible || blankRanges.count == 0) return text ?: @"";
-  NSMutableString *mutable = [(text ?: @"") mutableCopy];
-  for (NSDictionary *range in blankRanges) {
-    NSRange safe = [self safeRangeFromDictionary:range length:mutable.length];
-    for (NSUInteger index = safe.location; index < NSMaxRange(safe); index += 1) {
-      unichar ch = [mutable characterAtIndex:index];
-      if (![[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:ch]) {
-        [mutable replaceCharactersInRange:NSMakeRange(index, 1) withString:@"_"];
-      }
-    }
-  }
-  return mutable;
+  return text ?: @"";
 }
 
 @end

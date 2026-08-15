@@ -62,7 +62,7 @@ import { useMountedGuard } from "../hooks/useMountedGuard";
 import { environmentStorageKey } from "../services/storage/environmentStorageKey";
 import { t, tf } from "../i18n";
 
-type ProScreenProps = { onBack: () => void };
+type ProScreenProps = { onBack?: () => void; compact?: boolean; initialEntitlement?: CurrentEntitlement | null };
 type AppleIapBridgeState = Pick<
   ReturnType<typeof useIAP>,
   "connected" | "fetchProducts" | "finishTransaction" | "products" | "requestPurchase" | "subscriptions"
@@ -89,11 +89,11 @@ const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
 const AUTO_RENEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const APPLE_PURCHASE_TIMEOUT_MS = 120 * 1000;
 
-export function ProScreen({ onBack }: ProScreenProps) {
+export function ProScreen({ onBack = () => {}, compact = false, initialEntitlement = null }: ProScreenProps) {
   const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
   const [isPaying, setIsPaying] = useState(false);
-  const [isRenew, setIsRenew] = useState(false);
-  const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
+  const [isRenew, setIsRenew] = useState(initialEntitlement?.isMember ?? initialEntitlement?.isPro ?? false);
+  const [proExpiresAt, setProExpiresAt] = useState<string | null>(initialEntitlement?.expiresAt ?? null);
   const [autoRenew, setAutoRenew] = useState<MobileAutoRenewSubscription | null>(null);
   const [isAutoRenewLoading, setIsAutoRenewLoading] = useState(false);
   const [hasLoadedAutoRenew, setHasLoadedAutoRenew] = useState(false);
@@ -103,7 +103,7 @@ export function ProScreen({ onBack }: ProScreenProps) {
   const [isRedeemingAppleOffer, setIsRedeemingAppleOffer] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
   const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
-  const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(null);
+  const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(initialEntitlement);
   const applePurchaseIntentRef = useRef(false);
   const applePurchaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appleAppAccountTokenRef = useRef<string | null>(null);
@@ -147,6 +147,10 @@ export function ProScreen({ onBack }: ProScreenProps) {
     setAutoRenew(subscription);
     void saveCachedAutoRenewSubscriptionForCurrentUser(subscription);
   }
+
+  useEffect(() => {
+    if (initialEntitlement) applyEntitlementToState(initialEntitlement);
+  }, [initialEntitlement]);
 
   function alertOpenSuccess(input?: MembershipTierInput): void {
     const tier = resolveMembershipTier(input);
@@ -928,46 +932,115 @@ export function ProScreen({ onBack }: ProScreenProps) {
     }
   }
 
+  const iapBridge = Platform.OS === "ios" || Platform.OS === "android" ? (
+    <AppleIapBridge
+      onReady={setAppleIap}
+      onPurchaseSuccess={(purchase) => {
+        if (Platform.OS === "android") {
+          void handleGooglePlayPurchaseSuccess(purchase);
+          return;
+        }
+        void handleApplePurchaseSuccess(purchase);
+      }}
+      onPurchaseError={(error) => {
+        if (!isScreenAlive()) return;
+        if (Platform.OS === "android") {
+          const isUserInitiatedPurchase = googlePlayPurchaseIntentRef.current;
+          googlePlayPurchaseIntentRef.current = false;
+          if (isUserInitiatedPurchase && !isAppleUserCancelledPurchase(error)) {
+            safeAlert(t("pro.alert.payment_start_failed"), formatGooglePlayPaymentErrorMessage(error));
+          }
+          setIsPaying(false);
+          setIsAutoRenewLoading(false);
+          return;
+        }
+        clearApplePurchaseTimeout();
+        const isUserInitiatedPurchase = applePurchaseIntentRef.current;
+        applePurchaseIntentRef.current = false;
+        if (isAppleUserCancelledPurchase(error)) {
+          setIsPaying(false);
+          setIsAutoRenewLoading(false);
+          return;
+        }
+        if (isUserInitiatedPurchase) {
+          safeAlert(t("pro.alert.apple_payment_failed"), formatApplePaymentErrorMessage(error, t("pro.alert.apple_payment_failed")));
+        }
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+      }}
+    />
+  ) : null;
+
+  if (compact) {
+    const currentTier = currentEntitlement?.tier ?? "free";
+    const visibleTiers: Array<"plus" | "pro"> = currentTier === "free" ? ["plus", "pro"] : [currentTier];
+    const purchaseBusy = isAutoRenewLoading || isPaying || !hasLoadedAutoRenew;
+    return (
+      <View style={styles.compactContainer}>
+        {iapBridge}
+        <View style={[styles.compactPlanGrid, visibleTiers.length === 1 && styles.compactPlanGridSingle]}>
+          {visibleTiers.map((tier) => {
+            const isPlus = tier === "plus";
+            const price = isPlus ? productPrices.plus : productPrices.pro;
+            const productCode: MobilePaymentProductCode = isPlus ? "plus_monthly" : "pro_monthly";
+            const benefitKeys = isPlus
+              ? (["pro.compact.plus.ai", "pro.compact.plus.images", "pro.compact.assistant"] as const)
+              : (["pro.compact.pro.ai", "pro.compact.pro.images", "pro.compact.assistant", "pro.compact.custom_material"] as const);
+            return (
+              <View key={tier} style={[styles.compactPlanCard, visibleTiers.length === 1 && styles.compactPlanCardSingle]}>
+                <View style={styles.compactPlanTitleRow}>
+                  <Text style={styles.compactPlanTitle}>{isPlus ? "Plus" : "Pro"}</Text>
+                  {currentTier === tier ? <Text style={styles.compactCurrentBadge}>{t("pro.compact.current")}</Text> : null}
+                </View>
+                <View style={styles.compactBenefitList}>
+                  {benefitKeys.map((key) => (
+                    <View key={key} style={styles.compactBenefitRow}>
+                      <Ionicons name="checkmark-circle-outline" size={15} color="#444444" />
+                      <Text style={styles.compactBenefitText}>{t(key)}</Text>
+                    </View>
+                  ))}
+                </View>
+                {currentTier === tier && proExpiresAt ? (
+                  <Text style={styles.compactExpiry}>{tf("pro.valid_until", { date: formatDate(proExpiresAt) })}</Text>
+                ) : null}
+                {currentTier === "free" ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={tf("pro.compact.subscribe", { plan: isPlus ? "Plus" : "Pro" })}
+                    style={[styles.compactPriceButton, (!canStartAutoRenew || purchaseBusy) && styles.subscribeButtonDisabled]}
+                    disabled={!canStartAutoRenew || purchaseBusy}
+                    onPress={() => void handleStartAutoRenew(productCode)}
+                  >
+                    {purchaseBusy ? <ActivityIndicator size="small" color="#FFFFFF" /> : (
+                      <View style={styles.compactPriceContent}>
+                        <Text style={styles.compactPrice}>{price ?? "--"}</Text>
+                        {price ? <Text style={styles.compactPriceSuffix}>{productPrices.monthSuffix}</Text> : null}
+                      </View>
+                    )}
+                  </Pressable>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+        {currentTier === "free" && (Platform.OS === "ios" || Platform.OS === "android") ? (
+          <Pressable
+            style={styles.compactRestoreButton}
+            disabled={isRestoringApplePurchases || isRestoringGooglePlayPurchases}
+            onPress={() => void (Platform.OS === "android" ? handleRestoreGooglePlayPurchases() : handleRestoreApplePurchases())}
+          >
+            {isRestoringApplePurchases || isRestoringGooglePlayPurchases
+              ? <ActivityIndicator size="small" color="#777777" />
+              : <Text style={styles.compactRestoreText}>{t("pro.restore.button")}</Text>}
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      {Platform.OS === "ios" || Platform.OS === "android" ? (
-        <AppleIapBridge
-          onReady={setAppleIap}
-          onPurchaseSuccess={(purchase) => {
-            if (Platform.OS === "android") {
-              void handleGooglePlayPurchaseSuccess(purchase);
-              return;
-            }
-            void handleApplePurchaseSuccess(purchase);
-          }}
-          onPurchaseError={(error) => {
-            if (!isScreenAlive()) return;
-            if (Platform.OS === "android") {
-              const isUserInitiatedPurchase = googlePlayPurchaseIntentRef.current;
-              googlePlayPurchaseIntentRef.current = false;
-              if (isUserInitiatedPurchase && !isAppleUserCancelledPurchase(error)) {
-                safeAlert(t("pro.alert.payment_start_failed"), formatGooglePlayPaymentErrorMessage(error));
-              }
-              setIsPaying(false);
-              setIsAutoRenewLoading(false);
-              return;
-            }
-            clearApplePurchaseTimeout();
-            const isUserInitiatedPurchase = applePurchaseIntentRef.current;
-            applePurchaseIntentRef.current = false;
-            if (isAppleUserCancelledPurchase(error)) {
-              setIsPaying(false);
-              setIsAutoRenewLoading(false);
-              return;
-            }
-            if (isUserInitiatedPurchase) {
-              safeAlert(t("pro.alert.apple_payment_failed"), formatApplePaymentErrorMessage(error, t("pro.alert.apple_payment_failed")));
-            }
-            setIsPaying(false);
-            setIsAutoRenewLoading(false);
-          }}
-        />
-      ) : null}
+      {iapBridge}
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
           <Ionicons name="arrow-back" size={24} color="#111111" />
@@ -976,9 +1049,9 @@ export function ProScreen({ onBack }: ProScreenProps) {
         <View style={styles.backButton} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} alwaysBounceVertical={false}>
         <View style={styles.benefitCard}>
-          <BenefitItem icon="sparkles-outline" title={t("pro.plus.title")} subtitle={t("pro.plus.subtitle")} />
+          <BenefitItem icon="text-outline" title={t("pro.plus.title")} subtitle={t("pro.plus.subtitle")} />
           <BenefitItem icon="flash-outline" title={t("pro.pro.title")} subtitle={t("pro.pro.subtitle")} />
           <BenefitItem icon="leaf-outline" title={t("pro.shared.title")} subtitle={t("pro.shared.subtitle")} isLast />
         </View>
@@ -1584,6 +1657,106 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FCFCFD",
   },
+  compactContainer: {
+    paddingVertical: 16,
+  },
+  compactPlanGrid: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  compactPlanGridSingle: {
+    maxWidth: 320,
+  },
+  compactPlanCard: {
+    flex: 1,
+    minHeight: 194,
+    padding: 13,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#DCDCDC",
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+  },
+  compactPlanCardSingle: {
+    minHeight: 160,
+  },
+  compactPlanTitleRow: {
+    minHeight: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+  },
+  compactPlanTitle: {
+    color: "#111111",
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  compactCurrentBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    overflow: "hidden",
+    color: "#8A6218",
+    backgroundColor: "#FFF2D7",
+    fontSize: 9,
+    fontWeight: "600",
+  },
+  compactBenefitList: {
+    flex: 1,
+    marginTop: 11,
+    gap: 8,
+  },
+  compactBenefitRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+  },
+  compactBenefitText: {
+    flex: 1,
+    color: "#444444",
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  compactExpiry: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E8E8E8",
+    color: "#777777",
+    fontSize: 11,
+  },
+  compactPriceButton: {
+    minHeight: 38,
+    paddingHorizontal: 8,
+    borderRadius: 9,
+    backgroundColor: "#171717",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compactPriceContent: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 3,
+  },
+  compactPrice: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  compactPriceSuffix: {
+    color: "#D0D0D0",
+    fontSize: 10,
+  },
+  compactRestoreButton: {
+    minHeight: 30,
+    marginTop: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compactRestoreText: {
+    color: "#777777",
+    fontSize: 11,
+  },
 
   header: {
     height: 48,
@@ -1617,8 +1790,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E5E2FF",
-    backgroundColor: "#F8F7FF",
+    borderColor: "#DEDEDE",
+    backgroundColor: "#F5F5F5",
   },
   heroTitle: {
     color: "#111111",
@@ -1627,7 +1800,7 @@ const styles = StyleSheet.create({
   },
   heroCopy: {
     marginTop: 4,
-    color: "#44527E",
+    color: "#5F5F5F",
     fontSize: 12,
     lineHeight: 17,
   },
@@ -1636,7 +1809,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E2E5EB",
+    borderColor: "#DEDEDE",
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
@@ -1656,7 +1829,7 @@ const styles = StyleSheet.create({
     height: 30,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#DDE2EC",
+    borderColor: "#DEDEDE",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1671,7 +1844,7 @@ const styles = StyleSheet.create({
   },
   benefitSubtitle: {
     marginTop: 2,
-    color: "#44527E",
+    color: "#5F5F5F",
     fontSize: 11,
     lineHeight: 15,
   },
@@ -1681,7 +1854,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E2E5EB",
+    borderColor: "#DEDEDE",
     backgroundColor: "#FFFFFF",
   },
   priceHead: {
@@ -1695,7 +1868,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   membershipStatus: {
-    color: "#6A7290",
+    color: "#707070",
     fontSize: 11,
     lineHeight: 16,
     marginBottom: 5,
@@ -1712,8 +1885,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: "#E2E5EB",
-    backgroundColor: "#FAFBFF",
+    borderColor: "#DEDEDE",
+    backgroundColor: "#FAFAFA",
     justifyContent: "center",
   },
   planPriceName: {
@@ -1732,7 +1905,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   planPriceUnit: {
-    color: "#59617B",
+    color: "#686868",
     fontSize: 11,
   },
   autoRenewBox: {
@@ -1740,8 +1913,8 @@ const styles = StyleSheet.create({
     padding: 9,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: "#DDE2EC",
-    backgroundColor: "#FAFBFF",
+    borderColor: "#DEDEDE",
+    backgroundColor: "#FAFAFA",
     flexDirection: "row",
     alignItems: "center",
   },
@@ -1755,7 +1928,7 @@ const styles = StyleSheet.create({
   },
   autoRenewText: {
     marginTop: 3,
-    color: "#59617B",
+    color: "#686868",
     fontSize: 11,
     lineHeight: 16,
   },
@@ -1812,8 +1985,8 @@ const styles = StyleSheet.create({
     minHeight: 34,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DDE2EC",
-    backgroundColor: "#FAFBFF",
+    borderColor: "#DEDEDE",
+    backgroundColor: "#FAFAFA",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1832,7 +2005,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   restoreHintText: {
-    color: "#6A7290",
+    color: "#707070",
     fontSize: 11,
     fontWeight: "400",
   },
@@ -1868,7 +2041,7 @@ const styles = StyleSheet.create({
   },
   ruleText: {
     flex: 1,
-    color: "#59617B",
+    color: "#686868",
     fontSize: 10,
     lineHeight: 14,
   },

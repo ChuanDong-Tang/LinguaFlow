@@ -4,14 +4,16 @@ import { copyTextToClipboard } from "../device/clipboardService";
 import { parseTaggedRewrite } from "../../domain/rewrite/taggedRewrite";
 import { t } from "../../i18n";
 
-export async function copyAssistantText(text: string, silent = false): Promise<void> {
+export async function copyAssistantText(text: string, silent = false): Promise<boolean> {
   try {
     const ok = await copyTextToClipboard(text);
     if (!ok && !silent) {
       Alert.alert(t("common.copy.empty"));
     }
+    return ok;
   } catch {
     Alert.alert(t("common.copy.failed_title"), t("common.copy.failed_message"));
+    return false;
   }
 }
 
@@ -19,7 +21,7 @@ export async function copyAssistantTaggedText(
   text: string,
   mode: AutoCopyMode,
   silent = false,
-): Promise<void> {
+): Promise<boolean> {
   const tagged = parseTaggedRewrite(text);
   const rewrite = (tagged.rewrite || tagged.en || tagged.ja).trim();
   const note = (tagged.note || tagged.zh).trim();
@@ -34,5 +36,5 @@ export async function copyAssistantTaggedText(
           : mode === "all"
             ? [rewrite, note, reply].filter(Boolean).join("\n")
             : "";
-  await copyAssistantText(copyText, silent);
+  return copyAssistantText(copyText, silent);
 }

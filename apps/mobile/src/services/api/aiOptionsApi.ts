@@ -1,4 +1,5 @@
 import { getAuthHeaders } from "../auth/authHeaders";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -19,7 +20,7 @@ export type AiOptions = {
 };
 
 export async function getAiOptions(): Promise<AiOptions> {
-  const res = await fetch(`${BASE_URL}/chat/ai-options`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/chat/ai-options`, {
     headers: await getAuthHeaders(),
   });
   const json = (await res.json()) as ApiResult<AiOptions>;

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
-import { Animated, Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Animated, Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { t } from "../i18n";
-import { login, loginWithAuthing, loginWithTestPassword } from "../services/api/authApi";
+import { login, loginWithAuthing } from "../services/api/authApi";
 import {
   getAuthingClientId,
   getAuthingDiscovery,
@@ -24,7 +24,6 @@ import { useMountedGuard } from "../hooks/useMountedGuard";
 WebBrowser.maybeCompleteAuthSession();
 
 type LoginScreenProps = { onLoginSuccess: () => void };
-const ENABLE_TEST_PASSWORD_LOGIN = process.env.EXPO_PUBLIC_ENABLE_TEST_PASSWORD_LOGIN === "true";
 
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const { isMounted } = useMountedGuard();
@@ -32,8 +31,6 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [forceAuthingLogin, setForceAuthingLogin] = useState(false);
-  const [testAccount, setTestAccount] = useState("");
-  const [testPassword, setTestPassword] = useState("");
   const agreementShake = useRef(new Animated.Value(0)).current;
 
   const authingConfigured = isAuthingConfigured();
@@ -65,25 +62,6 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setStatusText("");
     try {
       await clearAccountScopedStorage();
-      if (ENABLE_TEST_PASSWORD_LOGIN) {
-        const backendSession = await loginWithTestPassword({
-          account: testAccount,
-          password: testPassword,
-        });
-        const localSession = {
-          accessToken: backendSession.accessToken,
-          refreshToken: backendSession.refreshToken,
-          user: toSessionUser(backendSession.user),
-          sessionFlags: { isPro: false },
-        };
-        await setSession(localSession);
-        await refreshEntitlementAndSessionSafe();
-        await logEvent("test_password_login_ui_success", "info", undefined, { userId: backendSession.user.id });
-        await clearForceAuthingLogin();
-        if (!isMounted()) return;
-        onLoginSuccess();
-        return;
-      }
       // 优先走真实 Authing OAuth；未配置时回落到本地 mock 登录，方便开发环境调试。
       if (authingConfigured) {
         if (!authingRequest || !authingDiscovery) {
@@ -187,30 +165,6 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <Text style={styles.brandText}>OIO</Text>
         <Text style={styles.tagline}>Output  ·  Input  ·  Output</Text>
 
-        {ENABLE_TEST_PASSWORD_LOGIN ? (
-          <View style={styles.testLoginFields}>
-            <TextInput
-              style={styles.testLoginInput}
-              value={testAccount}
-              onChangeText={setTestAccount}
-              placeholder={t("auth.login.username")}
-              placeholderTextColor="#8A8E99"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!loading}
-            />
-            <TextInput
-              style={styles.testLoginInput}
-              value={testPassword}
-              onChangeText={setTestPassword}
-              placeholder={t("auth.login.password")}
-              placeholderTextColor="#8A8E99"
-              secureTextEntry
-              editable={!loading}
-            />
-          </View>
-        ) : null}
-
         <Pressable
           style={[styles.loginButton, (!agreed || loading) && styles.loginButtonDisabled]}
           onPress={handlePrimaryLogin}
@@ -254,15 +208,6 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       </View>
     </SafeAreaView>
   );
-}
-
-function normalizeLoginError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : fallback;
-
-  // 后端枚举迁移期间的报错对用户不可读，这里转成稳定提示。
-  if (message.includes("invalid input value for enum")) return t("auth.login.failed");
-  if (message.length > 90) return t("auth.login.failed");
-  return message || fallback;
 }
 
 function toSessionUser(user: {
@@ -349,23 +294,6 @@ const styles = StyleSheet.create({
     color: "#111111",
     fontSize: 18,
     fontWeight: "500",
-  },
-  testLoginFields: {
-    marginTop: 52,
-    width: "100%",
-    maxWidth: 340,
-    gap: 12,
-  },
-  testLoginInput: {
-    width: "100%",
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#D8DAE0",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
-    color: "#111111",
-    fontSize: 16,
   },
 
   agreementBlock: {

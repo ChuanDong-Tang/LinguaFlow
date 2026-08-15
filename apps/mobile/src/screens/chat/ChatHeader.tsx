@@ -2,6 +2,7 @@ import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getChatContactDescription, getChatContactName, type ChatContact } from "../../domain/chat/contacts";
+import { t } from "../../i18n";
 
 type ChatHeaderProps = {
   contact: ChatContact;
@@ -26,7 +27,7 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
         <Text style={styles.headerSubTitle}>{getChatContactDescription(contact)}</Text>
       </View>
 
-      <Pressable style={styles.calendarButton} hitSlop={8} onPress={onOpenCalendar}>
+      <Pressable accessibilityLabel={t("chat.date.select")} style={styles.calendarButton} hitSlop={8} onPress={onOpenCalendar}>
         <Ionicons name="calendar-outline" size={22} color="#111111" />
       </Pressable>
 

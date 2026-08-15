@@ -2,12 +2,13 @@ import React from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getMessageTtsAsset, type TtsSourceKey } from "../services/api/ttsApi";
-import { playTtsAudio } from "../services/tts/ttsPlayback";
+import { getTtsPlaybackState, playTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
 import { t } from "../i18n";
 
 type TtsPlayButtonProps = {
   messageId: string | null | undefined;
   sourceKey?: TtsSourceKey;
+  sourceKeys?: TtsSourceKey[];
   textStart?: number;
   textEnd?: number;
   size?: number;
@@ -20,6 +21,7 @@ type TtsPlayButtonProps = {
 export function TtsPlayButton({
   messageId,
   sourceKey = "rewrite",
+  sourceKeys,
   textStart,
   textEnd,
   size = 18,
@@ -31,8 +33,13 @@ export function TtsPlayButton({
   const [loading, setLoading] = React.useState(false);
   const mountedRef = React.useRef(true);
   const requestControllerRef = React.useRef<AbortController | null>(null);
+  const playback = React.useSyncExternalStore(subscribeTtsPlayback, getTtsPlaybackState, getTtsPlaybackState);
+  const navigationKey = messageId ? `message:${messageId}:${(sourceKeys?.length ? sourceKeys : [sourceKey]).join("+")}` : null;
+  const isActive = Boolean(navigationKey && playback.hasActiveAudio && playback.activeNavigationKey === navigationKey);
+  const isPlaybackLoading = isActive && playback.status === "loading";
+  const isPlaying = isActive && playback.status === "playing";
   const hasValidRange = isValidOptionalRange(textStart, textEnd);
-  const canPlay = !!messageId && !disabled && !loading && hasValidRange;
+  const canPlay = !!messageId && !disabled && !loading && !isPlaybackLoading && hasValidRange;
 
   React.useEffect(() => {
     return () => {
@@ -46,22 +53,44 @@ export function TtsPlayButton({
     requestControllerRef.current?.abort();
     requestControllerRef.current = null;
     setLoading(false);
-  }, [messageId, sourceKey, textStart, textEnd]);
+  }, [messageId, sourceKey, sourceKeys?.join("+"), textStart, textEnd]);
 
   async function handlePress(): Promise<void> {
-    if (!messageId || loading || disabled || !hasValidRange) return;
+    if (!messageId || loading || disabled || !hasValidRange || isPlaybackLoading) return;
+    if (isActive) {
+      toggleTtsPlayback();
+      return;
+    }
     requestControllerRef.current?.abort();
     const controller = new AbortController();
     requestControllerRef.current = controller;
     setLoading(true);
     try {
-      const asset = await getMessageTtsAsset({ messageId, sourceKey, textStart, textEnd, signal: controller.signal });
+      const requestedSources = sourceKeys?.length ? sourceKeys : [sourceKey];
+      const assets = await Promise.all(requestedSources.map((requestedSource) => getMessageTtsAsset({
+        messageId,
+        sourceKey: requestedSource,
+        textStart,
+        textEnd,
+        signal: controller.signal,
+      })));
       if (!mountedRef.current || controller.signal.aborted) return;
-      await playTtsAudio({
-        url: asset.audioUrl,
-        cacheKey: buildTtsCacheKey(asset),
-        playbackRange: asset.playbackRange ?? undefined,
-      });
+      const playAsset = async (index: number): Promise<void> => {
+        const asset = assets[index];
+        if (!asset || !navigationKey) return;
+        await playTtsAudio({
+          url: asset.audioUrl,
+          cacheKey: buildTtsCacheKey(asset),
+          playbackRange: asset.playbackRange ?? undefined,
+          navigationKey,
+          loopScope: "all",
+          onFinished: () => {
+            const nextIndex = index + 1;
+            if (nextIndex < assets.length) void playAsset(nextIndex);
+          },
+        });
+      };
+      await playAsset(0);
     } catch (error) {
       if (!mountedRef.current || controller.signal.aborted) return;
       const normalized = error instanceof Error ? error : new Error(String(error));
@@ -87,10 +116,10 @@ export function TtsPlayButton({
       disabled={!canPlay}
       onPress={() => void handlePress()}
     >
-      {loading ? (
+      {loading || isPlaybackLoading ? (
         <ActivityIndicator size="small" color={color} />
       ) : (
-        <Ionicons name="volume-medium-outline" size={size} color={canPlay ? color : "#C1C5CE"} />
+        <Ionicons name={isPlaying ? "pause" : "play"} size={size} color={canPlay ? color : "#C1C5CE"} />
       )}
     </Pressable>
   );

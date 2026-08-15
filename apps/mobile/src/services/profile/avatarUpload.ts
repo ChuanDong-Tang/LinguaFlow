@@ -1,6 +1,7 @@
 import { File } from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import { completeAvatarUpload, createAvatarUpload, type UserProfile } from "../api/meApi";
+import { fetchWithTimeout } from "../api/fetchWithTimeout";
 
 export async function prepareAndUploadAvatar(input: { uri: string }): Promise<UserProfile> {
   const normalized = await ImageManipulator.manipulateAsync(
@@ -29,10 +30,10 @@ export async function prepareAndUploadAvatar(input: { uri: string }): Promise<Us
       width: cropped.width,
       height: cropped.height,
     });
-    const response = await fetch(session.uploadUrl, {
+    const response = await fetchWithTimeout(session.uploadUrl, {
       method: "PUT",
       headers: session.headers,
-      body: await (await fetch(cropped.uri)).blob(),
+      body: await (await fetchWithTimeout(cropped.uri)).blob(),
     });
     if (!response.ok) throw new Error(`头像上传失败 (${response.status})`);
     return await completeAvatarUpload(session.uploadId);

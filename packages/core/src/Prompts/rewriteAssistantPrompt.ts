@@ -67,7 +67,7 @@ Do not answer the user. Do not add a note, explanation, reply, label, or markdow
     ? `<en>${rewriteLanguage} expression</en>`
     : `<en>${rewriteLanguage} expression</en>
 <zh>${uiLanguage} restatement</zh>`;
-  const difficultyInstruction = buildDifficultyInstruction(language, difficulty);
+  const difficultyInstruction = buildDifficultyInstruction(difficulty);
 
   return `
 ${speakerLine}
@@ -93,7 +93,7 @@ ${outputFormat}
 `;
 }
 
-function buildDifficultyInstruction(language: PromptLanguage, difficulty?: string | null): string {
+function buildDifficultyInstruction(difficulty?: string | null): string {
   if (difficulty !== "simple") return "";
   return "\nFor beginner mode, keep the learning-language output easy to understand. Prefer common everyday words, simple grammar, and short natural sentences. For English, keep vocabulary roughly within 3,000 common words; for other languages, use a comparable beginner-friendly range.";
 }
@@ -138,7 +138,7 @@ function buildFriendSystemPrompt(language: PromptLanguage, difficulty?: string |
 * If a native speaker would normally say it in a shorter, more direct, or more conversational way, do that.
 * Make it sound like a real message, conversation, or life update.
 * Use natural spoken English, but do not force slang or filler words.`;
-  const difficultyInstruction = buildDifficultyInstruction(language, difficulty);
+  const difficultyInstruction = buildDifficultyInstruction(difficulty);
 
   return `
 You are Curious Buddy, a friendly ${chatPartnerLanguage} chat partner for a language learner.

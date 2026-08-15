@@ -1,4 +1,5 @@
 import { getAuthHeaders } from "../auth/authHeaders";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -65,7 +66,7 @@ export async function getMessageTtsAsset(input: {
   if (input.textStart !== undefined) params.set("textStart", String(input.textStart));
   if (input.textEnd !== undefined) params.set("textEnd", String(input.textEnd));
   const query = params.toString();
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${BASE_URL}/tts/messages/${encodeURIComponent(input.messageId)}${query ? `?${query}` : ""}`,
     { headers: await getAuthHeaders(), signal: input.signal },
   );
@@ -83,7 +84,7 @@ export async function listTtsVoices(input: { languageCode?: string } = {}): Prom
   const params = new URLSearchParams();
   if (input.languageCode) params.set("languageCode", input.languageCode);
   const query = params.toString();
-  const res = await fetch(`${BASE_URL}/tts/voices${query ? `?${query}` : ""}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/tts/voices${query ? `?${query}` : ""}`, {
     headers: await getAuthHeaders(),
   });
   const json = (await res.json()) as ApiResult<TtsVoiceOption[]>;

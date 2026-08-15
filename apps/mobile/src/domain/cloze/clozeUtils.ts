@@ -172,6 +172,84 @@ export function expandSelectionToTokenRange(
   };
 }
 
+const CJK_CHARACTER_RE = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u;
+const CARD_WORD_CHARACTER_RE = /[\p{L}\p{N}'’-]/u;
+
+function isCardWordCharacter(value: string | undefined): boolean {
+  return Boolean(value && CARD_WORD_CHARACTER_RE.test(value) && !CJK_CHARACTER_RE.test(value));
+}
+
+export function expandSelectionToCardBlankRange(
+  text: string,
+  selectionStart: number,
+  selectionEnd: number,
+): { start: number; end: number } | null {
+  let start = Math.max(0, Math.min(text.length, Math.min(selectionStart, selectionEnd)));
+  let end = Math.max(start, Math.min(text.length, Math.max(selectionStart, selectionEnd)));
+  if (start === end) return null;
+
+  // 空格分词语言扩到完整单词；中日韩文字保留用户实际选择的字符范围。
+  if (isCardWordCharacter(text[start])) {
+    while (start > 0 && isCardWordCharacter(text[start - 1])) start -= 1;
+  }
+  if (isCardWordCharacter(text[end - 1])) {
+    while (end < text.length && isCardWordCharacter(text[end])) end += 1;
+  }
+  while (start < end && /\s/u.test(text[start])) start += 1;
+  while (end > start && /\s/u.test(text[end - 1])) end -= 1;
+  return start < end ? { start, end } : null;
+}
+
+export function splitCardClozeAnswerUnits(text: string): string[] {
+  return text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{N}'’-]+/gu) ?? [];
+}
+
+export function countCardClozeHintUnits(text: string): number {
+  return splitCardClozeAnswerUnits(text).length;
+}
+
+export function getCardClozeUnitMatches(expectedText: string, actualText: string): boolean[] {
+  const expected = splitCardClozeAnswerUnits(expectedText).map((unit) => unit.normalize("NFKC").toLocaleLowerCase());
+  const actual = splitCardClozeAnswerUnits(actualText).map((unit) => unit.normalize("NFKC").toLocaleLowerCase());
+  const lengths = Array.from({ length: expected.length + 1 }, () => Array(actual.length + 1).fill(0) as number[]);
+  for (let expectedIndex = expected.length - 1; expectedIndex >= 0; expectedIndex -= 1) {
+    for (let actualIndex = actual.length - 1; actualIndex >= 0; actualIndex -= 1) {
+      lengths[expectedIndex][actualIndex] = expected[expectedIndex] === actual[actualIndex]
+        ? lengths[expectedIndex + 1][actualIndex + 1] + 1
+        : Math.max(lengths[expectedIndex + 1][actualIndex], lengths[expectedIndex][actualIndex + 1]);
+    }
+  }
+  const matches = expected.map(() => false);
+  let expectedIndex = 0;
+  let actualIndex = 0;
+  while (expectedIndex < expected.length && actualIndex < actual.length) {
+    if (expected[expectedIndex] === actual[actualIndex]) {
+      matches[expectedIndex] = true;
+      expectedIndex += 1;
+      actualIndex += 1;
+    } else if (lengths[expectedIndex + 1][actualIndex] >= lengths[expectedIndex][actualIndex + 1]) {
+      expectedIndex += 1;
+    } else {
+      actualIndex += 1;
+    }
+  }
+  return matches;
+}
+
+export function getCardClozeActualUnitMatches(expectedText: string, actualText: string): boolean[] {
+  const expected = splitCardClozeAnswerUnits(expectedText).map((unit) => unit.normalize("NFKC").toLocaleLowerCase());
+  const actual = splitCardClozeAnswerUnits(actualText).map((unit) => unit.normalize("NFKC").toLocaleLowerCase());
+  const matches = actual.map(() => false);
+  let expectedCursor = 0;
+  actual.forEach((unit, actualIndex) => {
+    const matchedIndex = expected.indexOf(unit, expectedCursor);
+    if (matchedIndex < 0) return;
+    matches[actualIndex] = true;
+    expectedCursor = matchedIndex + 1;
+  });
+  return matches;
+}
+
 export function replaceClozeGroup(
   state: ClozeState | null | undefined,
   groupIndex: number | null,
