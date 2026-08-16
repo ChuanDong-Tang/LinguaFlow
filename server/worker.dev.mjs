@@ -180,13 +180,13 @@ const cardContentSafetyService = new ContentSafetyService(systemEventLogReposito
 const cardRewriteService = new CardRewriteWorkerService(
   cardRepository,
   cardAiProvider,
-  entitlementService,
   cardTaskGuard,
   aiRequestLogRepository,
   systemEventLogRepository,
   cardContentSafetyService,
   { topicMaxChars: runtime.cardTopicMaxChars },
   resourceGovernor,
+  usageV2Service,
 );
 const cardRewriteWorker = new CardRewriteWorker(cardRewriteService, {
   concurrencyGuard: undefined,
@@ -200,6 +200,7 @@ const cardTopicWorker = new SerialCardJobWorker(
     { topicMaxChars: runtime.cardTopicMaxChars },
     resourceGovernor,
     cardContentSafetyService,
+    usageV2Service,
   ),
   {
     workerIdPrefix: "card-topic",
@@ -210,7 +211,7 @@ const cardTopicWorker = new SerialCardJobWorker(
   },
 );
 const phraseNormalizationWorker = new SerialCardJobWorker(
-  new PhraseNormalizationWorkerService(cardEnrichmentRepository, cardAiProvider, {}, resourceGovernor),
+  new PhraseNormalizationWorkerService(cardEnrichmentRepository, cardAiProvider, {}, resourceGovernor, usageV2Service),
   {
     workerIdPrefix: "phrase-normalization",
     errorLabel: "phrase-normalization-worker",
@@ -242,7 +243,7 @@ const cardPhraseIndexWorker = new SerialCardJobWorker(
 const progressPhraseDetectionWorker = new SerialCardJobWorker(
   new ProgressPhraseDetectionWorkerService(
     cardEnrichmentRepository,
-    new ProgressPhraseDetectionService(cardAiProvider, resourceGovernor),
+    new ProgressPhraseDetectionService(cardAiProvider, resourceGovernor, usageV2Service),
   ),
   {
     workerIdPrefix: "progress-phrase",

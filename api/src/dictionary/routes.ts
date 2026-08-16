@@ -168,17 +168,23 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
       let cacheStatus: "hit" | "miss" | "stale" | "fallback" = data ? "hit" : "miss";
 
       if (!data) {
-        const useV2 = req.headers["x-lf-usage-api"] === "v2";
-        if (useV2) {
-          await deps.usageV2Service.reserveTokens({
-            userId: userContext.userId,
-            requestId,
-            feature: "dictionary",
-            estimatedTokens: Array.from(body.context + body.term).length + runtimeConfig.dictionaryLookupMaxOutputTokens,
-            provider,
-            model,
-          });
-        }
+        const promptInput = {
+          term: body.term,
+          context: body.context,
+          selectionStart: body.selectionStart,
+          selectionEnd: body.selectionEnd,
+          targetLanguage,
+          uiLanguage,
+        };
+        const meteredPrompt = `${buildDictionarySystemPrompt(promptInput)}\n${buildDictionaryUserPrompt(promptInput)}`;
+        await deps.usageV2Service.reserveTokens({
+          userId: userContext.userId,
+          requestId,
+          feature: "dictionary",
+          estimatedTokens: Array.from(meteredPrompt).length + runtimeConfig.dictionaryLookupMaxOutputTokens,
+          provider,
+          model,
+        });
         try {
           const generated = await generateDictionaryLookup(deps.aiProvider, {
             userId: userContext.userId,
@@ -188,28 +194,29 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
             selectionEnd: body.selectionEnd,
             targetLanguage,
             uiLanguage,
+            maxOutputTokens: runtimeConfig.dictionaryLookupMaxOutputTokens,
             signal: abortController.signal,
+          });
+          // Settle as soon as the model call succeeds. Parsing, moderation or
+          // cache persistence failures must not make a completed LLM call free.
+          await deps.usageV2Service.settleTokens({
+            userId: userContext.userId,
+            requestId,
+            inputTokens: generated.usage?.inputTokens ?? Math.ceil(Array.from(meteredPrompt).length / 2),
+            outputTokens: generated.usage?.outputTokens ?? Math.ceil(Array.from(generated.text).length / 2),
+            meteringSource: generated.usage ? "provider" : "tokenizer",
+            provider,
+            model,
           });
           data = parseDictionaryResult(parseModelJson(generated.text));
           if (!data) throw Object.assign(new Error("DICTIONARY_MODEL_OUTPUT_INVALID"), { modelOutput: generated.text });
-          if (useV2) {
-            await deps.usageV2Service.settleTokens({
-              userId: userContext.userId,
-              requestId,
-              inputTokens: generated.usage?.inputTokens ?? Math.ceil((body.context.length + body.term.length) / 2),
-              outputTokens: generated.usage?.outputTokens ?? Math.ceil(Array.from(generated.text).length / 2),
-              meteringSource: generated.usage ? "provider" : "tokenizer",
-              provider,
-              model,
-            });
-          }
           await deps.cacheRepository.put({
             cacheKey, userId: userContext.userId, term: normalizedTerm, contextHash, targetLanguage, uiLanguage,
             promptVersion: DICTIONARY_PROMPT_VERSION, provider, model, result: data,
             expiresAt: new Date(Date.now() + DICTIONARY_CACHE_TTL_MS),
           }).catch((error) => req.log.warn({ requestId, error }, "dictionary cache write failed"));
         } catch (modelError) {
-          if (useV2) await deps.usageV2Service.releaseTokens(userContext.userId, requestId).catch(() => undefined);
+          await deps.usageV2Service.releaseTokens(userContext.userId, requestId).catch(() => undefined);
           if (abortController.signal.aborted) throw modelError;
           data = cached ? parseDictionaryResult(cached.result) : null;
           if (data) {
@@ -320,6 +327,7 @@ async function generateDictionaryLookup(
     selectionEnd: number;
     targetLanguage: "en-US" | "ja-JP";
     uiLanguage: "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
+    maxOutputTokens: number;
     signal: AbortSignal;
   },
 ): Promise<{ text: string; usage?: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"] }> {
@@ -333,7 +341,7 @@ async function generateDictionaryLookup(
     appLocale: input.uiLanguage,
     systemPrompt: buildDictionarySystemPrompt(input),
     rawUserPrompt: true,
-    maxOutputTokens: 1_200,
+    maxOutputTokens: input.maxOutputTokens,
     signal: input.signal,
   }, (event) => {
     if (event.type === "delta") output += event.text;

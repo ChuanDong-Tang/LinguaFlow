@@ -17,6 +17,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -73,6 +74,7 @@ import { getLanguage, t, tf } from "../i18n";
 import { CollectionPickerModal } from "./shared/CollectionPickerModal";
 import { CalendarSidebarPreview, CardCalendarScreen } from "./CardCalendarScreen";
 import { getCurrentEntitlement, getUsageV2, getUserProfile, type CurrentEntitlement, type UserProfile } from "../services/api/meApi";
+import { stabilizeProfileAvatar, stabilizeSignedImage } from "../services/image/signedImageCache";
 
 type MainScreenProps = {
   isActive: boolean;
@@ -85,6 +87,7 @@ type MainScreenProps = {
   onOpenAccount: () => void;
 };
 type LibraryView = "all" | string;
+type RecordActionAnchor = { x: number; y: number; width: number; height: number };
 
 const UNCLASSIFIED_VIEW = "unclassified";
 const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: false, translation: false, reply: false }, images: [] };
@@ -99,6 +102,7 @@ const THUMBNAIL_ERROR_REFRESH_COOLDOWN_MS = 10_000;
 
 export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onIncomingCardDraftHandled, onOpenCard, onOpenRecall, onOpenAssistant, onOpenAccount }: MainScreenProps) {
   const screenInsets = useSafeAreaInsets();
+  const windowSize = useWindowDimensions();
   const [libraryView, setLibraryView] = useState<LibraryView>("all");
   const [sortMode, setSortMode] = useState<"newest" | "oldest">("newest");
   const [libraryMenuVisible, setLibraryMenuVisible] = useState(false);
@@ -109,6 +113,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [cardCapabilities, setCardCapabilities] = useState<CardCapabilities>(DEFAULT_CARD_CAPABILITIES);
   const cardLimits = cardCapabilities.limits;
   const [records, setRecords] = useState<CardRecordSummary[]>([]);
+  const recordsRef = useRef<CardRecordSummary[]>([]);
   const [collections, setCollections] = useState<CardCollection[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -122,8 +127,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [collectionMoveVisible, setCollectionMoveVisible] = useState(false);
   const [collectionMoveTargetId, setCollectionMoveTargetId] = useState<string | null>(null);
   const [recordMoveTarget, setRecordMoveTarget] = useState<CardRecordSummary | null>(null);
+  const [recordActionMenu, setRecordActionMenu] = useState<{ record: CardRecordSummary; anchor: RecordActionAnchor } | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [sidebarProfile, setSidebarProfile] = useState<UserProfile | null>(null);
+  const sidebarProfileRef = useRef<UserProfile | null>(null);
   const [sidebarEntitlement, setSidebarEntitlement] = useState<CurrentEntitlement | null>(null);
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [draft, setDraft] = useState<CardDraft>(EMPTY_DRAFT);
@@ -150,6 +157,12 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const observedRevisionRef = useRef(refreshRevision);
   const observedLibraryViewRef = useRef<LibraryView>(libraryView);
   const observedSortModeRef = useRef(sortMode);
+  useEffect(() => {
+    recordsRef.current = records;
+  }, [records]);
+  useEffect(() => {
+    sidebarProfileRef.current = sidebarProfile;
+  }, [sidebarProfile]);
   function commitDraft(next: CardDraft): Promise<void> {
     draftRevisionRef.current += 1;
     draftRef.current = next;
@@ -185,9 +198,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     void Promise.all([
       getUserProfile().catch(() => null),
       getCurrentEntitlement().catch(() => null),
-    ]).then(([profile, entitlement]) => {
+    ]).then(async ([profile, entitlement]) => {
       if (!active) return;
-      if (profile) setSidebarProfile(profile);
+      if (profile) {
+        const stableProfile = await stabilizeProfileAvatar(sidebarProfileRef.current, profile);
+        if (!active) return;
+        setSidebarProfile(stableProfile);
+      }
       if (entitlement) setSidebarEntitlement(entitlement);
     });
     return () => { active = false; };
@@ -218,7 +235,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         getCardCollections(),
       ]);
       if (sequence !== refreshSequenceRef.current) return;
-      setRecords(rows.items.map((record) => isCardRecordGenerationInProgress(record.id) ? { ...record, status: "processing" } : record));
+      const incomingRecords = rows.items.map((record) => isCardRecordGenerationInProgress(record.id) ? { ...record, status: "processing" as const } : record);
+      const stableRecords = await stabilizeRecordThumbnails(recordsRef.current, incomingRecords);
+      if (sequence !== refreshSequenceRef.current) return;
+      setRecords(stableRecords);
       setCollections(collectionResult.collections);
       setNextCursor(rows.nextCursor);
       hasLoadedRef.current = true;
@@ -863,16 +883,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     ]);
   }
 
-  function openRecordActions(record: CardRecordSummary): void {
-    if (record.source !== "card") {
-      confirmDelete(record.id);
-      return;
-    }
-    Alert.alert("记录操作", undefined, [
-      { text: "移动到", onPress: () => openMoveActions(record) },
-      { text: "删除记录", style: "destructive", onPress: () => confirmDelete(record.id) },
-      { text: "取消", style: "cancel" },
-    ]);
+  function openRecordActions(record: CardRecordSummary, anchor: RecordActionAnchor): void {
+    setRecordActionMenu({ record, anchor });
   }
 
   function openMoveActions(record: CardRecordSummary): void {
@@ -1035,7 +1047,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         data={records}
         keyExtractor={(record) => record.id}
         renderItem={({ item: record }) => (
-          <CardCard record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : void openDetail(record, origin)} onDelete={() => openRecordActions(record)} onThumbnailError={recoverFailedThumbnail} />
+          <CardCard record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onThumbnailError={recoverFailedThumbnail} />
         )}
         contentContainerStyle={styles.list}
         alwaysBounceVertical={false}
@@ -1059,8 +1071,45 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </View>
         )}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : null}
-        ListHeaderComponent={<View style={styles.recallShortcuts}><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("today")}><Text style={styles.recallShortcutTitle}>{t("recall.today")}</Text><Ionicons name="arrow-forward" size={15} color={theme.colors.textSecondary} /></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("yesterday")}><Text style={styles.recallShortcutTitle}>{t("recall.yesterday")}</Text><Ionicons name="arrow-forward" size={15} color={theme.colors.textSecondary} /></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("blind")}><Text style={styles.recallShortcutTitle}>{t("recall.blind_box")}</Text><Ionicons name="cube-outline" size={16} color={theme.colors.textSecondary} /></Pressable></View>}
+        ListHeaderComponent={<View style={styles.recallShortcuts}><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("today")}><Text style={styles.recallShortcutTitle}>{t("recall.today_shortcut")}</Text></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("yesterday")}><Text style={styles.recallShortcutTitle}>{t("recall.yesterday_shortcut")}</Text></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("blind")}><Text style={styles.recallShortcutTitle}>{t("recall.blind_box")}</Text></Pressable></View>}
       />
+      {recordActionMenu ? <View style={styles.recordActionLayer}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setRecordActionMenu(null)} />
+        <View style={[
+          styles.recordActionMenu,
+          {
+            top: (() => {
+              const menuHeight = recordActionMenu.record.source === "card" ? 85 : 43;
+              const below = recordActionMenu.anchor.y + recordActionMenu.anchor.height + 7;
+              const availableBottom = windowSize.height - screenInsets.bottom - 8;
+              return below + menuHeight <= availableBottom
+                ? below
+                : Math.max(screenInsets.top + 8, recordActionMenu.anchor.y - menuHeight - 7);
+            })(),
+            left: Math.min(windowSize.width - 140, Math.max(12, recordActionMenu.anchor.x + recordActionMenu.anchor.width - 128)),
+          },
+        ]}>
+          {recordActionMenu.record.source === "card" ? <>
+            <Pressable style={styles.recordActionItem} onPress={() => {
+              const record = recordActionMenu.record;
+              setRecordActionMenu(null);
+              openMoveActions(record);
+            }}>
+              <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
+              <Text style={styles.recordActionText}>{t("library.move_to")}</Text>
+            </Pressable>
+            <View style={styles.recordActionDivider} />
+          </> : null}
+          <Pressable style={styles.recordActionItem} onPress={() => {
+            const recordId = recordActionMenu.record.id;
+            setRecordActionMenu(null);
+            confirmDelete(recordId);
+          }}>
+            <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+            <Text style={[styles.recordActionText, styles.recordActionDanger]}>{t("common.delete")}</Text>
+          </Pressable>
+        </View>
+      </View> : null}
       {!selectingRecords ? <Pressable
         accessibilityLabel={t("quick_note.a11y.make_card")}
         style={styles.floatingRecordButton}
@@ -2053,19 +2102,40 @@ function collectionDescendantIds(collectionId: string, collections: CardCollecti
   return descendants;
 }
 
-function CardCard({ record, collectionName, selecting = false, selected = false, onPress, onDelete, onThumbnailError }: {
+async function stabilizeRecordThumbnails(
+  previousRecords: CardRecordSummary[],
+  nextRecords: CardRecordSummary[],
+): Promise<CardRecordSummary[]> {
+  const previousById = new Map(previousRecords.map((record) => [record.id, record]));
+  return Promise.all(nextRecords.map(async (record) => {
+    const previousThumbnail = previousById.get(record.id)?.thumbnail;
+    if (!record.thumbnail) return record;
+    const stableThumbnail = await stabilizeSignedImage(previousThumbnail, record.thumbnail, THUMBNAIL_REFRESH_LEAD_MS);
+    return {
+      ...record,
+      thumbnail: {
+        ...record.thumbnail,
+        url: stableThumbnail.url,
+        urlExpiresAt: stableThumbnail.urlExpiresAt,
+      },
+    };
+  }));
+}
+
+function CardCard({ record, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError }: {
   record: CardRecordSummary;
   collectionName?: string;
   selecting?: boolean;
   selected?: boolean;
   onPress: (origin?: CardDetailRequest["origin"]) => void;
-  onDelete: () => void;
+  onOpenActions: (anchor: RecordActionAnchor) => void;
   onThumbnailError: () => void;
 }) {
   const processing = record.status !== "completed";
   const previewText = record.rewrittenPreview?.trim() || record.originalPreview;
   const thumbnailRef = useRef<View>(null);
   const cardRef = useRef<View>(null);
+  const moreButtonRef = useRef<View>(null);
   function measureOrigin(onMeasured: (origin: NonNullable<CardDetailRequest["origin"]>) => void): void {
     const target = record.thumbnail ? thumbnailRef.current : cardRef.current;
     target?.measureInWindow((x, y, width, height) => {
@@ -2104,7 +2174,10 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
             {collectionName ? <Text numberOfLines={1} style={styles.cardCollection}>{collectionName}</Text> : null}
             {record.isSample ? <Text style={styles.sampleBadge}>示例</Text> : null}
             {processing ? <ActivityIndicator size="small" color={theme.colors.accent} /> : !selecting ? (
-              <Pressable accessibilityLabel="记录操作" style={styles.cardMoreButton} hitSlop={8} onPress={(event) => { event.stopPropagation(); onDelete(); }}>
+              <Pressable ref={moreButtonRef} accessibilityLabel={t("quick_note.actions")} style={styles.cardMoreButton} hitSlop={8} onPress={(event) => {
+                event.stopPropagation();
+                moreButtonRef.current?.measureInWindow((x, y, width, height) => onOpenActions({ x, y, width, height }));
+              }}>
                 <Ionicons name="ellipsis-horizontal" size={19} color={theme.colors.textMuted} />
               </Pressable>
             ) : null}
@@ -2183,9 +2256,9 @@ const styles = StyleSheet.create({
   searchSubmitText: { color: theme.colors.surface, fontSize: 13, fontWeight: "600" },
   libraryList: { flex: 1 },
   list: { paddingHorizontal: 22, paddingTop: 4, paddingBottom: 96 },
-  recallShortcuts: { marginBottom: 10, paddingVertical: 8, flexDirection: "row", gap: 8 },
-  recallShortcut: { flex: 1, minHeight: 54, paddingHorizontal: 11, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 13, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center", gap: 3 },
-  recallShortcutTitle: { color: theme.colors.text, fontSize: 13, fontWeight: "500" },
+  recallShortcuts: { marginBottom: 8, paddingVertical: 6, flexDirection: "row", gap: 7 },
+  recallShortcut: { flex: 1, minHeight: 44, paddingHorizontal: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  recallShortcutTitle: { color: theme.colors.text, fontSize: 12, fontWeight: "500" },
   batchActionBar: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 64, paddingTop: 8, paddingHorizontal: 62, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", justifyContent: "space-between" },
   batchAction: { minWidth: 72, minHeight: 46, alignItems: "center", justifyContent: "center", gap: 2 },
   batchActionText: { color: theme.colors.text, fontSize: 11 },
@@ -2232,6 +2305,12 @@ const styles = StyleSheet.create({
   cardTime: { flex: 1, color: "#8A8A8A", fontSize: 11, lineHeight: 16, fontWeight: "400", letterSpacing: 0.1 },
   cardCollection: { maxWidth: 100, marginRight: 6, color: "#8A8A8A", fontSize: 11, lineHeight: 16 },
   cardMoreButton: { width: 32, height: 24, alignItems: "flex-end", justifyContent: "center" },
+  recordActionLayer: { ...StyleSheet.absoluteFillObject, zIndex: 80 },
+  recordActionMenu: { position: "absolute", width: 128, paddingVertical: 2, borderRadius: 8, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 8 },
+  recordActionItem: { height: 40, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  recordActionText: { color: theme.colors.text, fontSize: 13, fontWeight: "500" },
+  recordActionDanger: { color: theme.colors.danger },
+  recordActionDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 10, backgroundColor: theme.colors.border },
   sampleBadge: { marginRight: 8, color: "#8A8A8A", fontSize: 10 },
   cardContent: { minHeight: 88, flexDirection: "row", alignItems: "center", gap: 14 },
   cardTextColumn: { flex: 1, minWidth: 0, alignSelf: "stretch", justifyContent: "center" },

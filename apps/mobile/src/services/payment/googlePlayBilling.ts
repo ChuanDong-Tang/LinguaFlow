@@ -26,7 +26,7 @@ export function assertGooglePlayBillingAvailable(productCode: MobilePaymentProdu
     throw new Error(t("pro.alert.unsupported_purchase"));
   }
   if (!getGooglePlayProductId(productCode)) {
-    throw new Error(t("payment.apple.product_missing"));
+    throw new Error(t("payment.google.product_missing"));
   }
 }
 

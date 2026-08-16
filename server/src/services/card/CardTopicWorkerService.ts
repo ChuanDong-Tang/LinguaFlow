@@ -1,4 +1,4 @@
-import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
+import type { AIProvider, ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { buildCardTopicPrompt, parseCardTopicOutput } from "@lf/core/Prompts/cardTopicPrompt.js";
@@ -6,6 +6,8 @@ import { CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import type { UsageV2Service } from "../usage/UsageV2Service.js";
+import { isPlatformMigrationBillingExempt, reserveLlmTokenUsage, settleLlmTokenUsage, settleOrReleaseFailedLlmUsage } from "../usage/LlmTokenMeter.js";
 
 export class CardTopicWorkerService {
   constructor(
@@ -15,6 +17,7 @@ export class CardTopicWorkerService {
     private readonly options: { leaseMs?: number; maxAttempts?: number; topicMaxChars?: number } = {},
     private readonly resourceGovernor?: ResourceGovernor,
     private readonly contentSafetyService?: ContentSafetyService,
+    private readonly usageV2Service?: UsageV2Service,
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
@@ -30,14 +33,30 @@ export class CardTopicWorkerService {
   private async process(job: CardEnrichmentJobEntity): Promise<void> {
     const startedAt = Date.now();
     let output = "";
+    let meteredPrompt = "";
+    const requestId = `card_topic_${job.id}:attempt:${job.attempts}`;
+    let tokenMetered = !isPlatformMigrationBillingExempt(job.payload);
+    let tokenUsage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     try {
       const source = await this.repository.loadTopicSource(job);
       if (!source) {
         await this.repository.completeWithoutResult(job, "CARD_TOPIC_SOURCE_MISSING_OR_STALE");
         return;
       }
+      if (source.billingExemptReason === "chat_history_migration") tokenMetered = false;
       const topicMaxChars = this.options.topicMaxChars ?? CARD_TOPIC_MAX_CHARS;
       const prompt = buildCardTopicPrompt({ text: source.originalText, appLocale: source.appLocale, topicMaxChars });
+      meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
+      if (tokenMetered && !this.usageV2Service) throw new Error("V2 usage is unavailable");
+      if (tokenMetered) await reserveLlmTokenUsage({
+        usageService: this.usageV2Service!,
+        userId: source.userId,
+        requestId,
+        feature: "organization",
+        prompt: meteredPrompt,
+        maxOutputTokens: 100,
+        provider: this.aiProvider,
+      });
       const generate = () => this.aiProvider.generateChatTextStream({
         userId: source.userId,
         text: prompt.userPrompt,
@@ -46,9 +65,21 @@ export class CardTopicWorkerService {
         systemPrompt: prompt.systemPrompt,
         rawUserPrompt: true,
         maxOutputTokens: 100,
-      }, (event) => { if (event.type === "delta") output += event.text; });
+      }, (event) => {
+        if (event.type === "delta") output += event.text;
+        if (event.type === "done") tokenUsage = event.usage;
+      });
       if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, generate);
       else await generate();
+      if (tokenMetered) await settleLlmTokenUsage({
+        usageService: this.usageV2Service!,
+        userId: source.userId,
+        requestId,
+        prompt: meteredPrompt,
+        output,
+        usage: tokenUsage,
+        provider: this.aiProvider,
+      });
       const topic = parseCardTopicOutput(output, topicMaxChars);
       this.contentSafetyService?.assertAllowed(topic, "output");
       await this.contentSafetyService?.assertAllowedRemote({
@@ -62,9 +93,18 @@ export class CardTopicWorkerService {
         durationMs: Date.now() - startedAt,
         inputChars: source.originalText.length,
         outputChars: topic.length,
-        platformFunded: true,
+        tokenMetered,
       });
     } catch (error) {
+      if (tokenMetered && this.usageV2Service) await settleOrReleaseFailedLlmUsage({
+        usageService: this.usageV2Service,
+        userId: job.userId,
+        requestId,
+        prompt: meteredPrompt,
+        output,
+        usage: tokenUsage,
+        provider: this.aiProvider,
+      });
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(
         job,
@@ -72,7 +112,7 @@ export class CardTopicWorkerService {
         retry.retryAt,
         { preserveAttempt: retry.preserveAttempt },
       );
-      if (!retry.retryAt) await this.log(job, "failed", error, { outputChars: output.length, platformFunded: true });
+      if (!retry.retryAt) await this.log(job, "failed", error, { outputChars: output.length, tokenMetered });
     }
   }
 

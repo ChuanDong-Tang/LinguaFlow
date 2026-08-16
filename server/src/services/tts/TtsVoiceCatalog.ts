@@ -25,6 +25,18 @@ const VOICES_BY_LANGUAGE: Record<SpeechLanguageCode, TtsVoiceOption[]> = {
     voiceCode: "en-US-AndrewMultilingualNeural",
     label: "Andrew (English US)",
     isDefault: false,
+  }, {
+    provider: AZURE_GLOBAL_PROVIDER,
+    languageCode: "en-US",
+    voiceCode: "en-GB-SoniaNeural",
+    label: "Sonia (English UK)",
+    isDefault: false,
+  }, {
+    provider: AZURE_GLOBAL_PROVIDER,
+    languageCode: "en-US",
+    voiceCode: "en-GB-RyanNeural",
+    label: "Ryan (English UK)",
+    isDefault: false,
   }],
   "ja-JP": [{
     provider: AZURE_GLOBAL_PROVIDER,

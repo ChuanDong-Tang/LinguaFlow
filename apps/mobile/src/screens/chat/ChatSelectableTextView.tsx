@@ -23,6 +23,12 @@ export type ChatSelectableTextSelectionEvent = {
 
 export type ChatSelectableTextRangeEvent = {
   groupIndex: number;
+  selectionRect?: {
+    pageX: number;
+    pageY: number;
+    width: number;
+    height: number;
+  };
 };
 
 type NativeProps = ViewProps & {
@@ -31,6 +37,7 @@ type NativeProps = ViewProps & {
   blankRangesJson?: string;
   correctRangesJson?: string;
   answersVisible?: boolean;
+  visualsHidden?: boolean;
   textColor?: string;
   fontSize?: number;
   lineHeight?: number;

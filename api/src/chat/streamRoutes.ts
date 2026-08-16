@@ -15,7 +15,7 @@ import type { ChatMessageService } from "@lf/server/services/chat/ChatMessageSer
 type AuthenticatedChatGenerationStreamInput = ChatGenerationStreamRequestBody & {
   userId: string;
   requestId: string;
-  usageApiVersion?: "v2";
+  usageApiVersion: "v2";
   signal?: AbortSignalLike;
 };
 
@@ -202,7 +202,10 @@ export function registerChatStreamRoutes(app: FastifyInstance, deps: ChatStreamR
           conversationId: body.conversationId,
           userMessageId: body.userMessageId,
           requestId,
-          usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
+          // Usage enforcement is server-authoritative. Older clients may omit the
+          // capability header, but that must never turn an LLM request into a
+          // legacy/unmetered request.
+          usageApiVersion: "v2",
           signal: abortController.signal,
         },
         writeEvent

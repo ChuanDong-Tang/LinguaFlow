@@ -1,4 +1,4 @@
-import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
+import type { AIProvider, ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import {
   buildPhraseNormalizationPrompt,
@@ -7,6 +7,9 @@ import {
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import type { UsageV2Service } from "../usage/UsageV2Service.js";
+import { isPlatformMigrationBillingExempt, reserveLlmTokenUsage, settleLlmTokenUsage, settleOrReleaseFailedLlmUsage } from "../usage/LlmTokenMeter.js";
+import { TokenQuotaExceededError } from "../usage/UsageV2Service.js";
 
 export class PhraseNormalizationWorkerService {
   constructor(
@@ -14,6 +17,7 @@ export class PhraseNormalizationWorkerService {
     private readonly aiProvider: AIProvider,
     private readonly options: { leaseMs?: number; maxAttempts?: number } = {},
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly usageV2Service?: UsageV2Service,
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
@@ -23,6 +27,11 @@ export class PhraseNormalizationWorkerService {
     );
     if (!job) return false;
     let source: Awaited<ReturnType<CardEnrichmentRepository["loadPhraseNormalizationSource"]>> = null;
+    let meteredPrompt = "";
+    let rawOutput = "";
+    let tokenUsage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
+    const requestId = `phrase_normalization_${job.id}:attempt:${job.attempts}`;
+    let tokenMetered = !isPlatformMigrationBillingExempt(job.payload);
     try {
       source = await this.repository.loadPhraseNormalizationSource(job);
       if (!source) {
@@ -30,8 +39,19 @@ export class PhraseNormalizationWorkerService {
         return true;
       }
       const normalizationSource = source;
+      if (normalizationSource.billingExemptReason === "chat_history_migration") tokenMetered = false;
       const prompt = buildPhraseNormalizationPrompt(normalizationSource);
-      let rawOutput = "";
+      meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
+      if (tokenMetered && !this.usageV2Service) throw new Error("V2 usage is unavailable");
+      if (tokenMetered) await reserveLlmTokenUsage({
+        usageService: this.usageV2Service!,
+        userId: normalizationSource.userId,
+        requestId,
+        feature: "organization",
+        prompt: meteredPrompt,
+        maxOutputTokens: 500,
+        provider: this.aiProvider,
+      });
       const generate = () => this.aiProvider.generateChatTextStream({
         userId: normalizationSource.userId,
         text: prompt.userPrompt,
@@ -41,9 +61,19 @@ export class PhraseNormalizationWorkerService {
         maxOutputTokens: 500,
       }, (event) => {
         if (event.type === "delta") rawOutput += event.text;
+        if (event.type === "done") tokenUsage = event.usage;
       });
       if (this.resourceGovernor) await this.resourceGovernor.execute("llm", normalizationSource.userId, generate);
       else await generate();
+      if (tokenMetered) await settleLlmTokenUsage({
+        usageService: this.usageV2Service!,
+        userId: normalizationSource.userId,
+        requestId,
+        prompt: meteredPrompt,
+        output: rawOutput,
+        usage: tokenUsage,
+        provider: this.aiProvider,
+      });
       const parsed = parsePhraseNormalizationOutput(rawOutput);
       const canonicalKey = normalizePhraseSurface(parsed.canonicalText, normalizationSource.languageCode);
       if (!canonicalKey) throw phraseError("PHRASE_CANONICAL_INVALID");
@@ -63,8 +93,17 @@ export class PhraseNormalizationWorkerService {
         normalizerVersion: PHRASE_NORMALIZER_VERSION,
       });
     } catch (error) {
+      if (tokenMetered && source && this.usageV2Service) await settleOrReleaseFailedLlmUsage({
+        usageService: this.usageV2Service,
+        userId: source.userId,
+        requestId,
+        prompt: meteredPrompt,
+        output: rawOutput,
+        usage: tokenUsage,
+        provider: this.aiProvider,
+      });
       const maxAttempts = this.options.maxAttempts ?? 3;
-      if (error instanceof ResourceLimitedError) {
+      if (error instanceof ResourceLimitedError || error instanceof TokenQuotaExceededError) {
         const retry = resolveEnrichmentRetry(error, job.attempts, maxAttempts);
         await this.repository.rescheduleOrFail(
           job,

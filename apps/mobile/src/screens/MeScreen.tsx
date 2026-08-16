@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Updates from "expo-updates";
 import * as ImagePicker from "expo-image-picker";
@@ -34,6 +34,7 @@ import { theme } from "../theme";
 import { prepareAndUploadAvatar } from "../services/profile/avatarUpload";
 import { TARGET_LANGUAGE_CODES } from "@lf/core/language/targetLanguages";
 import { ProScreen } from "./ProScreen";
+import { stabilizeProfileAvatar } from "../services/image/signedImageCache";
 
 type MeScreenProps = {
   isActive: boolean;
@@ -58,9 +59,12 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
   const [usageV2, setUsageV2] = useState<UsageV2 | null>(null);
   const [preference, setPreference] = useState<UserPreference | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const profileRef = useRef<UserProfile | null>(null);
   const [bindings, setBindings] = useState<UserBindings | null>(null);
   const [profileVisible, setProfileVisible] = useState(false);
   const [bindingsVisible, setBindingsVisible] = useState(false);
+  const pendingBindEmailRef = useRef(false);
+  const bindEmailFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [languageSettingsVisible, setLanguageSettingsVisible] = useState(false);
   const [devDebugVisible, setDevDebugVisible] = useState(false);
   const [aiDebugVisible, setAiDebugVisible] = useState(false);
@@ -68,6 +72,34 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
   const [updatesDebugVisible, setUpdatesDebugVisible] = useState(false);
   const [updatesAction, setUpdatesAction] = useState<string | null>(null);
   const [updatesResult, setUpdatesResult] = useState(() => t("me.debug.not_run"));
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => () => {
+    if (bindEmailFallbackTimerRef.current) clearTimeout(bindEmailFallbackTimerRef.current);
+  }, []);
+
+  function finishBindEmailHandoff(): void {
+    if (!pendingBindEmailRef.current) return;
+    pendingBindEmailRef.current = false;
+    if (bindEmailFallbackTimerRef.current) {
+      clearTimeout(bindEmailFallbackTimerRef.current);
+      bindEmailFallbackTimerRef.current = null;
+    }
+    void onBindEmail();
+  }
+
+  function requestBindEmail(): void {
+    pendingBindEmailRef.current = true;
+    setBindingsVisible(false);
+    // iOS uses Modal.onDismiss. Android does not consistently emit it, so wait
+    // for the fade transition before handing off to the next modal.
+    if (Platform.OS !== "ios") {
+      bindEmailFallbackTimerRef.current = setTimeout(finishBindEmailHandoff, 250);
+    }
+  }
 
   useEffect(() => {
     if (!isActive) return;
@@ -84,11 +116,14 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
         localSession ? getUserBindings().catch(() => null) : Promise.resolve(null),
         localSession ? getUsageV2().catch(() => null) : Promise.resolve(null),
       ]);
+      const stableProfile = remoteProfile
+        ? await stabilizeProfileAvatar(profileRef.current, remoteProfile)
+        : null;
       if (cancelled || !isMounted()) return;
       setSession(localSession);
       if (cached) setEntitlement(cached.data);
       if (localPreference) setPreference(localPreference);
-      if (remoteProfile) setProfile(remoteProfile);
+      if (stableProfile) setProfile(stableProfile);
       if (remoteBindings) setBindings(remoteBindings);
       if (remoteUsage) setUsageV2(remoteUsage);
       setIsLoadingEntitlement(!cached);
@@ -269,16 +304,21 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
         visible={profileVisible}
         profile={profile}
         onClose={() => setProfileVisible(false)}
-        onSaved={setProfile}
+        onSaved={(nextProfile) => {
+          void stabilizeProfileAvatar(profileRef.current, nextProfile).then((stableProfile) => {
+            if (isMounted()) setProfile(stableProfile);
+          });
+        }}
       />
       <BindingsModal
         visible={bindingsVisible}
         bindings={bindings}
-        onClose={() => setBindingsVisible(false)}
-        onBindEmail={() => {
+        onClose={() => {
+          pendingBindEmailRef.current = false;
           setBindingsVisible(false);
-          void onBindEmail();
         }}
+        onDismiss={finishBindEmailHandoff}
+        onBindEmail={requestBindEmail}
       />
       <LanguageSettingsModal
         visible={languageSettingsVisible}
@@ -453,15 +493,16 @@ function ProfileEditModal({ visible, profile, onClose, onSaved }: {
   );
 }
 
-function BindingsModal({ visible, bindings, onClose, onBindEmail }: {
+function BindingsModal({ visible, bindings, onClose, onDismiss, onBindEmail }: {
   visible: boolean;
   bindings: UserBindings | null;
   onClose: () => void;
+  onDismiss: () => void;
   onBindEmail: () => void;
 }) {
   const isPhoneRegistration = bindings?.registrationMethod === "phone";
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.profileModalBackdrop}>
         <View style={styles.profileModalPanel}>
           <View style={styles.profileModalHeader}>
@@ -726,13 +767,56 @@ function SelectField({
   onToggle: () => void;
   onClose: () => void;
 }) {
+  const buttonRef = useRef<React.ElementRef<typeof Pressable>>(null);
+  const { height: windowHeight } = useWindowDimensions();
+  const [anchor, setAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const estimatedMenuHeight = options.reduce((height, option) => height + (option.detail ? 58 : 42), 2);
+  const menuTop = anchor
+    ? anchor.y + anchor.height + 6 + estimatedMenuHeight <= windowHeight - 8
+      ? anchor.y + anchor.height + 6
+      : Math.max(8, anchor.y - estimatedMenuHeight - 6)
+    : 0;
+
+  useEffect(() => {
+    if (!open) {
+      setAnchor(null);
+      return;
+    }
+    requestAnimationFrame(() => {
+      buttonRef.current?.measureInWindow((x, y, width, height) => setAnchor({ x, y, width, height }));
+    });
+  }, [open]);
+
+  const menuOptions = options.map((option) => (
+    <Pressable
+      key={option.key}
+      style={[styles.selectOption, option.active && styles.selectOptionActive]}
+      onPress={() => {
+        option.onPress();
+        onClose();
+      }}
+    >
+      <View style={styles.selectOptionTextWrap}>
+        {option.detail ? <Text style={[styles.selectOptionDetail, option.active && styles.selectOptionTextActive]}>{option.detail}</Text> : null}
+        <Text style={[styles.selectOptionText, option.active && styles.selectOptionTextActive]} numberOfLines={1}>
+          {option.label}
+        </Text>
+      </View>
+      {option.active ? <Ionicons name="checkmark" size={18} color="#FFFFFF" /> : null}
+    </Pressable>
+  ));
+
   return (
     <View style={styles.selectField}>
       <Text style={styles.languageFieldTitle}>{title}</Text>
       {hint ? <Text style={styles.languageHint}>{hint}</Text> : null}
       <Pressable
+        ref={buttonRef}
         style={[styles.selectButton, disabled && styles.selectButtonDisabled]}
-        onPress={disabled ? undefined : onToggle}
+        onPress={disabled ? undefined : () => {
+          if (!open) buttonRef.current?.measureInWindow((x, y, width, height) => setAnchor({ x, y, width, height }));
+          onToggle();
+        }}
         disabled={disabled}
       >
         <Text style={[styles.selectButtonText, !valueLabel && styles.selectButtonTextMuted]} numberOfLines={1}>
@@ -740,28 +824,16 @@ function SelectField({
         </Text>
         <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={disabled ? "#B4BBC7" : "#343A45"} />
       </Pressable>
-      {open && !disabled ? (
-        <View style={styles.selectMenu}>
-          {options.map((option) => (
-            <Pressable
-              key={option.key}
-              style={[styles.selectOption, option.active && styles.selectOptionActive]}
-              onPress={() => {
-                option.onPress();
-                onClose();
-              }}
-            >
-              <View style={styles.selectOptionTextWrap}>
-                {option.detail ? <Text style={[styles.selectOptionDetail, option.active && styles.selectOptionTextActive]}>{option.detail}</Text> : null}
-                <Text style={[styles.selectOptionText, option.active && styles.selectOptionTextActive]} numberOfLines={1}>
-                  {option.label}
-                </Text>
-              </View>
-              {option.active ? <Ionicons name="checkmark" size={18} color="#FFFFFF" /> : null}
-            </Pressable>
-          ))}
+      <Modal visible={open && !disabled && Boolean(anchor)} transparent animationType="none" onRequestClose={onClose}>
+        <View style={styles.selectMenuOverlay}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+          {anchor ? <View style={[styles.selectMenu, { left: anchor.x, top: menuTop, width: anchor.width, maxHeight: windowHeight - 16 }]}>
+            <ScrollView nestedScrollEnabled bounces={false} showsVerticalScrollIndicator={options.length > 6}>
+              {menuOptions}
+            </ScrollView>
+          </View> : null}
         </View>
-      ) : null}
+      </Modal>
     </View>
   );
 }
@@ -1477,6 +1549,7 @@ const styles = StyleSheet.create({
   },
   selectField: {
     marginTop: 14,
+    position: "relative",
   },
   selectButton: {
     marginTop: 8,
@@ -1503,12 +1576,21 @@ const styles = StyleSheet.create({
     color: "#A3A9B4",
   },
   selectMenu: {
-    marginTop: 6,
+    position: "absolute",
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#DFE3EA",
     overflow: "hidden",
     backgroundColor: "#FFFFFF",
+    zIndex: 21,
+    elevation: 8,
+    shadowColor: "#000000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  selectMenuOverlay: {
+    flex: 1,
   },
   selectOption: {
     minHeight: 42,

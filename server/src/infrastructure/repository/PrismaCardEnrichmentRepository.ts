@@ -25,7 +25,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     if (job.sourceKind !== "card") return null;
     const card = await this.prisma.card.findFirst({
       where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-      select: { originalText: true, originalContentHash: true, appLocaleSnapshot: true },
+      select: { originalText: true, originalContentHash: true, appLocaleSnapshot: true, clientId: true, promptVersion: true },
     });
     if (!card?.originalText || card.originalContentHash !== job.inputHash) return null;
     return {
@@ -33,6 +33,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       sourceId: job.sourceId,
       originalText: card.originalText,
       appLocale: card.appLocaleSnapshot,
+      ...(isChatHistoryMigrationCard(card.clientId, card.promptVersion) ? { billingExemptReason: "chat_history_migration" as const } : {}),
     };
   }
 
@@ -130,6 +131,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     languageCode: string;
     surfaceText: string;
     observedSource: "observed_cloze" | "observed_card";
+    billingExemptReason?: "chat_history_migration";
   } | null> {
     const phraseId = phraseIdFromPayload(job.payload);
     if (!phraseId) return null;
@@ -148,7 +150,14 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         variants: { select: { source: true } },
       },
     });
-    return phrase ? {
+    if (!phrase) return null;
+    const migrationCard = job.sourceKind === "card"
+      ? await this.prisma.card.findFirst({
+          where: { id: job.sourceId, userId: job.userId },
+          select: { clientId: true, promptVersion: true },
+        })
+      : null;
+    return {
       phraseId: phrase.id,
       userId: phrase.userId,
       languageCode: phrase.languageCode,
@@ -156,7 +165,10 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       observedSource: phrase.variants.some((variant) => variant.source === "observed_cloze")
         ? "observed_cloze" as const
         : "observed_card" as const,
-    } : null;
+      ...(migrationCard && isChatHistoryMigrationCard(migrationCard.clientId, migrationCard.promptVersion)
+        ? { billingExemptReason: "chat_history_migration" as const }
+        : {}),
+    };
   }
 
   async completePhraseNormalization(job: CardEnrichmentJobEntity, input: {
@@ -532,7 +544,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     if (job.sourceKind !== "card") return null;
     const card = await this.prisma.card.findFirst({
       where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-      select: { id: true, userId: true, languageCode: true, createdAt: true, originalText: true, rewrittenText: true },
+      select: { id: true, userId: true, languageCode: true, createdAt: true, originalText: true, rewrittenText: true, clientId: true, promptVersion: true },
     });
     if (!card?.originalText) return null;
     const currentInputHash = createHash("sha256")
@@ -546,6 +558,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       languageCode: card.languageCode,
       cardCreatedAt: card.createdAt,
       originalText: card.originalText,
+      ...(isChatHistoryMigrationCard(card.clientId, card.promptVersion) ? { billingExemptReason: "chat_history_migration" as const } : {}),
     };
   }
 
@@ -637,6 +650,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         }
         if (phrase.status !== "normalized") {
           const inputVersion = `${normalizerVersion}:${phrase.id}`;
+          const billingExemption = migrationBillingExemptionFromPayload(job.payload);
+          const normalizationPayload = {
+            phraseId: phrase.id,
+            schemaVersion: 1,
+            allowObservedCard: true,
+            ...(billingExemption ? { billingExemptReason: billingExemption } : {}),
+          };
           await tx.cardEnrichmentJob.upsert({
             where: {
               userId_sourceKind_sourceId_jobType_inputVersion: {
@@ -654,9 +674,9 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
               jobType: "normalize_phrase",
               inputHash: job.inputHash,
               inputVersion,
-              payload: { phraseId: phrase.id, schemaVersion: 1, allowObservedCard: true },
+              payload: normalizationPayload,
             },
-            update: {},
+            update: billingExemption ? { payload: normalizationPayload } : {},
           });
         }
       }
@@ -853,4 +873,15 @@ function phraseIdFromPayload(payload: unknown): string | null {
 function payloadAllowsObservedCard(payload: unknown): boolean {
   return Boolean(payload && typeof payload === "object" && "allowObservedCard" in payload
     && (payload as { allowObservedCard?: unknown }).allowObservedCard === true);
+}
+
+function migrationBillingExemptionFromPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const reason = (payload as { billingExemptReason?: unknown }).billingExemptReason;
+  return reason === "chat_history_migration" ? reason : null;
+}
+
+function isChatHistoryMigrationCard(clientId: string, promptVersion: string): boolean {
+  return clientId.startsWith("legacy_chat_to_card_v1:")
+    || (clientId.startsWith("chat-message:v1:") && promptVersion.startsWith("legacy_chat_to_card_"));
 }

@@ -22,6 +22,9 @@ import { generateMissingCardContent, hasGeneratedContent, isCardResourceLimitedE
 import { getCardGenerationState, isCardGenerationInProgress, setCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
 import { CardDetailModal } from "./CardDetailModal";
 import { t, tf } from "../i18n";
+import { stabilizeSignedImage } from "../services/image/signedImageCache";
+
+const DETAIL_IMAGE_REFRESH_LEAD_MS = 60_000;
 
 export type CardDetailRequest = {
   key: number;
@@ -30,6 +33,48 @@ export type CardDetailRequest = {
   origin?: { x: number; y: number; width: number; height: number };
   returnLabel?: string;
 };
+
+type DetailImage = NonNullable<CardRecordDetail["images"]>[number];
+
+async function stabilizeCardDetailImages(
+  previous: CardRecordDetail | null | undefined,
+  next: CardRecordDetail,
+): Promise<CardRecordDetail> {
+  const previousImages = new Map((previous?.images ?? []).map((image) => [image.id, image]));
+  const [thumbnail, images, image] = await Promise.all([
+    stabilizeDetailThumbnail(previous?.thumbnail, next.thumbnail),
+    Promise.all((next.images ?? []).map((candidate) => stabilizeDetailImage(previousImages.get(candidate.id), candidate))),
+    next.image ? stabilizeDetailImage(previous?.image, next.image) : Promise.resolve(null),
+  ]);
+  return {
+    ...next,
+    thumbnail,
+    ...(next.images ? { images } : {}),
+    image,
+  };
+}
+
+async function stabilizeDetailThumbnail<T extends { url: string; urlExpiresAt?: string | null }>(
+  previous: T | null | undefined,
+  next: T | null,
+): Promise<T | null> {
+  if (!next) return null;
+  const stable = await stabilizeSignedImage(previous, next, DETAIL_IMAGE_REFRESH_LEAD_MS);
+  return { ...next, url: stable.url, urlExpiresAt: stable.urlExpiresAt };
+}
+
+async function stabilizeDetailImage(previous: DetailImage | null | undefined, next: DetailImage): Promise<DetailImage> {
+  const [fullImage, thumbnail] = await Promise.all([
+    stabilizeSignedImage(previous, next, DETAIL_IMAGE_REFRESH_LEAD_MS),
+    next.thumbnail ? stabilizeDetailThumbnail(previous?.thumbnail ?? null, next.thumbnail) : Promise.resolve(null),
+  ]);
+  return {
+    ...next,
+    url: fullImage.url,
+    urlExpiresAt: fullImage.urlExpiresAt,
+    thumbnail,
+  };
+}
 
 export function CardDetailNavigator({
   request,
@@ -87,13 +132,15 @@ export function CardDetailNavigator({
     try {
       const [resolved, generationState] = await Promise.all([getCardRecord(recordId), getCardGenerationState(recordId)]);
       if (requestSequenceRef.current !== sequence) return null;
-      const pendingTargets = (generationState?.pendingTargets ?? []).filter((target) => !hasGeneratedContent(resolved, target));
-      const failedTargets = (generationState?.failedTargets ?? []).filter((target) => !hasGeneratedContent(resolved, target));
-      setDetail(resolved);
+      const stableDetail = await stabilizeCardDetailImages(cached?.detail, resolved);
+      if (requestSequenceRef.current !== sequence) return null;
+      const pendingTargets = (generationState?.pendingTargets ?? []).filter((target) => !hasGeneratedContent(stableDetail, target));
+      const failedTargets = (generationState?.failedTargets ?? []).filter((target) => !hasGeneratedContent(stableDetail, target));
+      setDetail(stableDetail);
       setPendingGenerationTargets(pendingTargets);
       setFailedGenerationTargets(failedTargets);
-      detailCacheRef.current.set(recordId, { detail: resolved, loadedAt: Date.now() });
-      return resolved;
+      detailCacheRef.current.set(recordId, { detail: stableDetail, loadedAt: Date.now() });
+      return stableDetail;
     } catch {
       if (requestSequenceRef.current === sequence) {
         Alert.alert(t("card_practice.error.open"), t("card_detail.error.try_again"));
@@ -142,8 +189,9 @@ export function CardDetailNavigator({
     try {
       await setCardGenerationState(detail.id, { pendingTargets: [target], failedTargets: failedGenerationTargets.filter((candidate) => candidate !== target) });
       const generation = await generateMissingCardContent(detail, [target]);
-      setDetail(generation.detail);
-      detailCacheRef.current.set(detail.id, { detail: generation.detail, loadedAt: Date.now() });
+      const stableDetail = await stabilizeCardDetailImages(detail, generation.detail);
+      setDetail(stableDetail);
+      detailCacheRef.current.set(detail.id, { detail: stableDetail, loadedAt: Date.now() });
       const failedTargets = generation.failedTargets.length
         ? failedGenerationTargets
         : failedGenerationTargets.filter((candidate) => candidate !== target);
@@ -196,7 +244,7 @@ export function CardDetailNavigator({
           const ready = await uploadCardDraftImage(prepared, () => undefined);
           if (!ready.uploadId) throw new Error(t("card_detail.photo.upload_incomplete"));
           uploadId = ready.uploadId;
-          updated = await appendCardRecordImage(recordId, uploadId);
+          updated = await stabilizeCardDetailImages(updated, await appendCardRecordImage(recordId, uploadId));
           uploadId = null;
         } finally {
           if (uploadId) void deleteCardImageUpload(uploadId).catch(() => undefined);
@@ -225,9 +273,10 @@ export function CardDetailNavigator({
         text: t("common.remove"),
         style: "destructive",
         onPress: () => void removeCardRecordImageById(recordId, image.id)
-          .then((updated) => {
-            setDetail(updated);
-            detailCacheRef.current.set(recordId, { detail: updated, loadedAt: Date.now() });
+          .then(async (updated) => {
+            const stableDetail = await stabilizeCardDetailImages(detail, updated);
+            setDetail(stableDetail);
+            detailCacheRef.current.set(recordId, { detail: stableDetail, loadedAt: Date.now() });
             onChanged();
           })
           .catch(() => Alert.alert(t("card_detail.photo.remove_failed_title"), t("card_detail.photo.remove_failed_message"))),
@@ -279,6 +328,7 @@ export function CardDetailNavigator({
           Alert.alert(t("card_detail.processing"), t("card_detail.processing_existing"));
           return false;
         }
+        updated = await stabilizeCardDetailImages(detail, updated);
         setDetail(updated);
         detailCacheRef.current.set(detail.id, { detail: updated, loadedAt: Date.now() });
         const targets = input.selectedTargets as CardGenerationTarget[];
@@ -292,13 +342,14 @@ export function CardDetailNavigator({
         setFailedGenerationTargets([]);
         onChanged();
         void generateMissingCardContent(updated, targets).then(async (generation) => {
-          setDetail(generation.detail);
+          const stableDetail = await stabilizeCardDetailImages(updated, generation.detail);
+          setDetail(stableDetail);
           setPendingGenerationTargets([]);
           setFailedGenerationTargets(generation.failedTargets);
           await setCardGenerationState(detail.id, generation.failedTargets.length
             ? { pendingTargets: [], failedTargets: generation.failedTargets }
             : null);
-          detailCacheRef.current.set(detail.id, { detail: generation.detail, loadedAt: Date.now() });
+          detailCacheRef.current.set(detail.id, { detail: stableDetail, loadedAt: Date.now() });
           onChanged();
         }).catch(async () => {
           setPendingGenerationTargets([]);

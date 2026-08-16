@@ -1,6 +1,7 @@
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { ProgressPhraseDetectionService } from "./ProgressPhraseDetectionService.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import { isPlatformMigrationBillingExempt } from "../usage/LlmTokenMeter.js";
 
 export class ProgressPhraseDetectionWorkerService {
   constructor(
@@ -23,6 +24,9 @@ export class ProgressPhraseDetectionWorkerService {
       }
       const detected = await this.detector.detect({
         userId: source.userId,
+        requestId: `progress_phrase_${job.id}:attempt:${job.attempts}`,
+        tokenMetered: !isPlatformMigrationBillingExempt(job.payload)
+          && source.billingExemptReason !== "chat_history_migration",
         originalText: source.originalText,
         languageCode: source.languageCode,
       });

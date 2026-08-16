@@ -5,6 +5,10 @@ import type {
   ConfirmDeleteAccountRequestBody,
   DeleteAccountResponse,
   AuthingLoginResponse,
+  AuthingPasscodeLoginRequestBody,
+  AuthingPasscodeLoginResponse,
+  AuthingPasswordLoginRequestBody,
+  AuthingPasswordLoginResponse,
   LoginCredential,
   LoginResponse,
   LogoutRequestBody,
@@ -14,6 +18,8 @@ import type {
   PrepareDeleteAccountResponse,
   RefreshTokenRequestBody,
   RefreshTokenResponse,
+  SendAuthingPasscodeRequestBody,
+  SendAuthingPasscodeResponse,
 } from "@lf/core/contracts/auth";
 import { logEvent } from "../logger";
 import { getAuthHeaders } from "../auth/authHeaders";
@@ -108,6 +114,51 @@ export async function loginWithAuthing(input: AuthingLoginRequestBody): Promise<
     );
     throw err;
   }
+}
+
+export async function sendAuthingPasscode(
+  input: SendAuthingPasscodeRequestBody
+): Promise<SendAuthingPasscodeResponse> {
+  const res = await fetchWithTimeout(`${BASE_URL}/auth/authing-passcode/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const apiResult = await readApiResult<SendAuthingPasscodeResponse>(res);
+  if (!apiResult.ok) {
+    throw new ApiError(apiResult.error.code, apiResult.error.message);
+  }
+  return apiResult.data;
+}
+
+export async function loginWithAuthingPasscode(
+  input: AuthingPasscodeLoginRequestBody
+): Promise<AuthingPasscodeLoginResponse> {
+  const res = await fetchWithTimeout(`${BASE_URL}/auth/authing-passcode/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const apiResult = await readApiResult<AuthingPasscodeLoginResponse>(res);
+  if (!apiResult.ok) {
+    throw new ApiError(apiResult.error.code, apiResult.error.message);
+  }
+  return apiResult.data;
+}
+
+export async function loginWithAuthingPassword(
+  input: AuthingPasswordLoginRequestBody
+): Promise<AuthingPasswordLoginResponse> {
+  const res = await fetchWithTimeout(`${BASE_URL}/auth/authing-password/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const apiResult = await readApiResult<AuthingPasswordLoginResponse>(res);
+  if (!apiResult.ok) {
+    throw new ApiError(apiResult.error.code, apiResult.error.message);
+  }
+  return apiResult.data;
 }
 
 export async function refreshAccessToken(input: RefreshTokenRequestBody): Promise<RefreshTokenResponse> {

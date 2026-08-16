@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ActivityIndicator, Alert, Animated, Easing, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { t, tf } from "../i18n";
+import { logEvent } from "../services/logger";
 import {
   createRecallSessionFromRecords,
   finishRecallSession,
@@ -108,37 +109,47 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
 
   useEffect(() => { if (isActive && stage === "home") void loadHome(); }, [isActive, stage, loadHome]);
 
-  async function hydrate(value: RecallSession): Promise<void> {
+  async function hydrate(value: RecallSession): Promise<Record<string, CardRecordDetail>> {
     const rows = await Promise.all(value.nodes.map(async (node) => {
       try { return [node.recordId, await getCardRecord(node.recordId)] as const; }
       catch { return null; }
     }));
-    setCards(Object.fromEntries(rows.filter((row): row is NonNullable<typeof row> => Boolean(row))));
+    return Object.fromEntries(rows.filter((row): row is NonNullable<typeof row> => Boolean(row)));
   }
 
   async function openSession(value: RecallSession, resume = false): Promise<void> {
+    if (!value.nodes.length) throw new Error("Recall session has no cards");
+    const resumeIndex = resume ? Math.max(0, value.nodes.findIndex((node) => node.state !== "completed")) : 0;
+    const initialIndex = resumeIndex < 0 ? 0 : resumeIndex;
+    const hydratedCards = await hydrate(value);
+    const node = value.nodes[initialIndex];
+    if (!node || !hydratedCards[node.recordId]) throw new Error("Recall card could not be loaded");
+    setCards(hydratedCards);
     setSession(value);
     setAttempts({});
-    const resumeIndex = resume ? Math.max(0, value.nodes.findIndex((node) => node.state !== "completed")) : 0;
-    setCurrentIndex(resumeIndex < 0 ? 0 : resumeIndex);
+    setCurrentIndex(initialIndex);
     setStage("deck");
-    await hydrate(value);
-    const node = value.nodes[resumeIndex < 0 ? 0 : resumeIndex];
     if (node) void markNode(value.id, node.id, "current", setSession);
   }
 
-  async function beginRecords(recordIds: string[], query?: string): Promise<void> {
+  async function beginRecords(recordIds: string[], query?: string): Promise<boolean> {
     const uniqueIds = [...new Set(recordIds)].slice(0, 50);
     if (!uniqueIds.length) {
       Alert.alert(t("recall.error.empty"));
-      return;
+      return false;
     }
     setLoading(true);
     try {
       const created = await createRecallSessionFromRecords(uniqueIds, query);
       await openSession(created);
-    } catch {
+      return true;
+    } catch (error) {
+      void logEvent("recall_session_start_failed", "error", error instanceof Error ? error.message : String(error), {
+        cardCount: uniqueIds.length,
+        source: query?.startsWith("blind:") ? "blind_box" : "records",
+      }).catch(() => undefined);
       Alert.alert(t("recall.error.start_title"), t("recall.error.retry"));
+      return false;
     } finally {
       setLoading(false);
     }
@@ -204,9 +215,13 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
         Alert.alert(t("recall.error.empty"));
         return;
       }
-      await beginRecords(selected, `blind:${blindPeriod}:${from}:${to}`);
-      setBlindVisible(false);
-    } catch {
+      const started = await beginRecords(selected, `blind:${blindPeriod}:${from}:${to}`);
+      if (started) setBlindVisible(false);
+    } catch (error) {
+      void logEvent("recall_blind_box_start_failed", "error", error instanceof Error ? error.message : String(error), {
+        period: blindPeriod,
+        count: blindCount,
+      }).catch(() => undefined);
       Alert.alert(t("recall.error.start_title"), t("recall.error.retry"));
     } finally {
       setLoading(false);
@@ -301,7 +316,7 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
   if (directLaunchPending) return <SafeAreaView style={styles.directLaunchPage}><ActivityIndicator size="large" color={theme.colors.text} /></SafeAreaView>;
 
   if (launchRequest?.mode === "blind") return <SafeAreaView style={styles.directLaunchPage}>
-    <BlindBoxModal visible={blindVisible} period={blindPeriod} count={blindCount} loading={loading} onClose={onOpenLibrary} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onStart={() => void beginBlindBox()} />
+    <BlindBoxModal visible period={blindPeriod} count={blindCount} loading={loading} onClose={onOpenLibrary} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onStart={() => void beginBlindBox()} />
   </SafeAreaView>;
 
   return <SafeAreaView style={styles.page}>
@@ -425,7 +440,9 @@ function resolveBlindPeriodRange(period: BlindPeriod, dateKeys: string[]): { fro
 async function saveBlindSettings(period: BlindPeriod, count: number): Promise<void> {
   await AsyncStorage.setItem(BLIND_BOX_SETTINGS_KEY, JSON.stringify({ period, count })).catch(() => undefined);
 }
-function completedCards(rows: CardRecordSummary[]): CardRecordSummary[] { return rows.filter((row) => row.status === "completed"); }
+function completedCards(rows: CardRecordSummary[]): CardRecordSummary[] {
+  return rows.filter((row) => row.status === "completed" && !row.isSample);
+}
 function shuffle<T>(items: T[]): T[] { for (let index = items.length - 1; index > 0; index -= 1) { const target = Math.floor(Math.random() * (index + 1)); [items[index], items[target]] = [items[target]!, items[index]!]; } return items; }
 
 const styles = StyleSheet.create({

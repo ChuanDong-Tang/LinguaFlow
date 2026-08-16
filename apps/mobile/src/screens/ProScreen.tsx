@@ -65,12 +65,13 @@ import { t, tf } from "../i18n";
 type ProScreenProps = { onBack?: () => void; compact?: boolean; initialEntitlement?: CurrentEntitlement | null };
 type AppleIapBridgeState = Pick<
   ReturnType<typeof useIAP>,
-  "connected" | "fetchProducts" | "finishTransaction" | "products" | "requestPurchase" | "subscriptions"
+  "connected" | "fetchProducts" | "finishTransaction" | "products" | "reconnect" | "requestPurchase" | "subscriptions"
 >;
 type AppleIapBridgeProps = {
   onReady: (bridge: AppleIapBridgeState) => void;
   onPurchaseSuccess: (purchase: Purchase) => void;
   onPurchaseError: (error: unknown) => void;
+  onStoreError: (error: unknown) => void;
 };
 
 const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_TIME_PURCHASE === "true";
@@ -102,6 +103,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   const [isRestoringGooglePlayPurchases, setIsRestoringGooglePlayPurchases] = useState(false);
   const [isRedeemingAppleOffer, setIsRedeemingAppleOffer] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
+  const [storeError, setStoreError] = useState<string | null>(null);
   const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(initialEntitlement);
   const applePurchaseIntentRef = useRef(false);
@@ -250,6 +252,28 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     }, APPLE_PURCHASE_TIMEOUT_MS);
   }
 
+  async function ensureStoreConnected(): Promise<boolean> {
+    if (appleIap?.connected) return true;
+    let errorMessage = storeError;
+    try {
+      const connected = await appleIap?.reconnect();
+      if (connected) {
+        setStoreError(null);
+        return true;
+      }
+    } catch (error) {
+      errorMessage = formatStoreErrorMessage(error);
+      if (isScreenAlive()) setStoreError(errorMessage);
+    }
+    if (isScreenAlive()) {
+      safeAlert(
+        t(Platform.OS === "android" ? "pro.alert.google_init_title" : "pro.alert.apple_init_title"),
+        errorMessage ?? t("app.delete.retry_later"),
+      );
+    }
+    return false;
+  }
+
   useEffect(() => {
     return () => {
       clearApplePurchaseTimeout();
@@ -323,6 +347,10 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     setCachedProductPrices(liveProductPrices);
     void saveCachedProductPrices(liveProductPrices);
   }, [liveProductPrices.plus, liveProductPrices.pro, liveProductPrices.monthSuffix]);
+
+  useEffect(() => {
+    if (appleIap?.connected) setStoreError(null);
+  }, [appleIap?.connected]);
 
   useEffect(() => {
     if (Platform.OS !== "ios") return;
@@ -470,14 +498,11 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
 
   async function startGooglePlaySubscriptionPurchase(productCode: MobilePaymentProductCode): Promise<void> {
     assertGooglePlayBillingAvailable(productCode);
-    if (!appleIap?.connected) {
-      safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
-      return;
-    }
+    if (!(await ensureStoreConnected()) || !appleIap) return;
     const productId = getGooglePlayProductId(productCode);
     const product = appleIap.subscriptions.find((item) => item.id === productId);
     if (!product) {
-      safeAlert(t("pro.alert.apple_product_loading_title"), t("pro.alert.apple_product_loading_message"));
+      safeAlert(t("pro.alert.google_product_loading_title"), storeError ?? t("pro.alert.google_product_loading_message"));
       return;
     }
 
@@ -759,7 +784,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
         purchaseToken,
         obfuscatedAccountId,
       });
-      if (!appleIap) throw new Error(t("pro.alert.apple_not_initialized"));
+      if (!appleIap) throw new Error(t("pro.alert.google_not_initialized"));
       await appleIap.finishTransaction({ purchase, isConsumable: false });
       const entitlementResult = await refreshProEntitlementState();
       const currentAutoRenew = await getCurrentAutoRenewSubscription();
@@ -775,7 +800,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
       }
       if (!isScreenAlive()) return;
       if (isUserInitiatedPurchase) {
-        safeAlert(t("pro.alert.apple_verify_failed"), formatGooglePlayPaymentErrorMessage(error));
+        safeAlert(t("pro.alert.google_verify_failed"), formatGooglePlayPaymentErrorMessage(error));
       }
     } finally {
       googlePlayPurchaseFinishingRef.current = false;
@@ -861,10 +886,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
 
   async function handleRestoreGooglePlayPurchases(): Promise<void> {
     if (Platform.OS !== "android") return;
-    if (!appleIap?.connected) {
-      safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
-      return;
-    }
+    if (!(await ensureStoreConnected()) || !appleIap) return;
     if (isRestoringGooglePlayPurchases) return;
 
     setIsRestoringGooglePlayPurchases(true);
@@ -935,6 +957,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   const iapBridge = Platform.OS === "ios" || Platform.OS === "android" ? (
     <AppleIapBridge
       onReady={setAppleIap}
+      onStoreError={(error) => setStoreError(formatStoreErrorMessage(error))}
       onPurchaseSuccess={(purchase) => {
         if (Platform.OS === "android") {
           void handleGooglePlayPurchaseSuccess(purchase);
@@ -1198,10 +1221,11 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   );
 }
 
-function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError }: AppleIapBridgeProps) {
+function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError, onStoreError }: AppleIapBridgeProps) {
   const iap = useIAP({
     onPurchaseSuccess,
     onPurchaseError,
+    onError: onStoreError,
   });
 
   useEffect(() => {
@@ -1210,6 +1234,7 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError }: AppleIa
       fetchProducts: iap.fetchProducts,
       finishTransaction: iap.finishTransaction,
       products: iap.products,
+      reconnect: iap.reconnect,
       requestPurchase: iap.requestPurchase,
       subscriptions: iap.subscriptions,
     });
@@ -1218,6 +1243,7 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError }: AppleIa
     iap.fetchProducts,
     iap.finishTransaction,
     iap.products,
+    iap.reconnect,
     iap.requestPurchase,
     iap.subscriptions,
     onReady,
@@ -1566,7 +1592,7 @@ function formatApplePaymentErrorMessage(error: unknown, fallback = t("app.delete
 function formatGooglePlayPaymentErrorMessage(error: unknown, fallback = t("app.delete.retry_later")): string {
   if (error instanceof MobileApiError) {
     if (error.code === "GOOGLE_PLAY_SUBSCRIPTION_INACTIVE" || error.code === "GOOGLE_PLAY_SUBSCRIPTION_EXPIRED") {
-      return t("pro.alert.apple_subscription_expired");
+      return t("pro.alert.google_subscription_expired");
     }
     if (error.code === "AUTO_RENEW_SWITCH_BLOCKED") {
       return t("pro.alert.pro_active_subscribe_later");
@@ -1577,6 +1603,11 @@ function formatGooglePlayPaymentErrorMessage(error: unknown, fallback = t("app.d
     return error.message || fallback;
   }
   return error instanceof Error ? error.message : fallback;
+}
+
+function formatStoreErrorMessage(error: unknown): string {
+  if (Platform.OS === "android") return formatGooglePlayPaymentErrorMessage(error);
+  return formatApplePaymentErrorMessage(error);
 }
 
 function isAppleInactiveSubscriptionTransactionError(error: unknown): boolean {

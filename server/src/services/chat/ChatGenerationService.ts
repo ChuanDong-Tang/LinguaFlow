@@ -26,7 +26,7 @@ type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
   userId: string;
   signal?: AbortSignalLike;
   requestId: string;
-  usageApiVersion?: "v2";
+  usageApiVersion: "v2";
 };
 
 type AppErrorCode =
@@ -269,11 +269,12 @@ export class ChatGenerationService {
     try {
       if (input.usageApiVersion === "v2") {
         if (!this.usageV2Service) throw new Error("V2 usage is unavailable");
+        const meteredInput = `${input.systemPrompt ?? ""}\n${input.text}`;
         await this.usageV2Service.reserveTokens({
           userId: input.userId,
           requestId: input.requestId,
           feature: "rewrite",
-          estimatedTokens: Array.from(input.text).length + 4_000,
+          estimatedTokens: Array.from(meteredInput).length + 4_000,
           provider: effectiveProvider,
           model: effectiveModel,
         });
@@ -293,6 +294,7 @@ export class ChatGenerationService {
           promptDifficulty: userPreference.promptDifficulty,
           companionMode: input.companionMode,
           systemPrompt: input.systemPrompt,
+          maxOutputTokens: 4_000,
           signal: input.signal,
         },
         async (event) => {
@@ -338,6 +340,17 @@ export class ChatGenerationService {
         if (error instanceof ResourceLimitedError) throw createAppError("RATE_LIMITED", error.message);
         throw error;
       }
+      if (input.usageApiVersion === "v2") {
+        await this.usageV2Service!.settleTokens({
+          userId: input.userId,
+          requestId: input.requestId,
+          inputTokens: tokenUsage?.inputTokens ?? Math.ceil(Array.from(`${input.systemPrompt ?? ""}\n${input.text}`).length / 2),
+          outputTokens: tokenUsage?.outputTokens ?? Math.ceil(Array.from(assistantText).length / 2),
+          meteringSource: tokenUsage ? "provider" : "tokenizer",
+          provider: effectiveProvider,
+          model: effectiveModel,
+        });
+      }
       if (outputBuffer) {
         this.contentSafetyService?.assertAllowed(assistantText, "output");
         try {
@@ -369,17 +382,7 @@ export class ChatGenerationService {
       }
       const totalChars = input.text.length + assistantText.length;
       try {
-        if (input.usageApiVersion === "v2") {
-          await this.usageV2Service!.settleTokens({
-            userId: input.userId,
-            requestId: input.requestId,
-            inputTokens: tokenUsage?.inputTokens ?? Math.ceil(Array.from(input.text).length / 2),
-            outputTokens: tokenUsage?.outputTokens ?? Math.ceil(Array.from(assistantText).length / 2),
-            meteringSource: tokenUsage ? "provider" : "tokenizer",
-            provider: effectiveProvider,
-            model: effectiveModel,
-          });
-        } else {
+        if (input.usageApiVersion !== "v2") {
         // 输出长度由模型决定；用户只要有额度发起本轮，就让回复完整返回，最终扣费最多扣到当日上限。
         await this.entitlementService.consumeUpToLimit(input.userId, totalChars, { dateKey: quotaDateKey });
         }
@@ -404,7 +407,19 @@ export class ChatGenerationService {
       await onEvent({ type: "done", assistantMessage });
     }catch(error){
       if (input.usageApiVersion === "v2") {
-        await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+        if (assistantText.length > 0 && this.usageV2Service) {
+          await this.usageV2Service.settleTokens({
+            userId: input.userId,
+            requestId: input.requestId,
+            inputTokens: tokenUsage?.inputTokens ?? Math.ceil(Array.from(`${input.systemPrompt ?? ""}\n${input.text}`).length / 2),
+            outputTokens: tokenUsage?.outputTokens ?? Math.ceil(Array.from(assistantText).length / 2),
+            meteringSource: tokenUsage ? "provider" : "tokenizer",
+            provider: effectiveProvider,
+            model: effectiveModel,
+          }).catch(async () => this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined));
+        } else {
+          await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+        }
       }
       const failureStatus = this.resolveFailureStatus(error);
       if (input.usageApiVersion !== "v2" && failureStatus === "cancelled") {

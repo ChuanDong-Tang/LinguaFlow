@@ -612,7 +612,17 @@
   NSDictionary *range = [self highlightRangeAtPoint:[recognizer locationInView:self.textView]];
   if (!range || !self.onClozeRangeLongPress) return;
   [self clearSelectionState];
-  self.onClozeRangeLongPress(@{ @"groupIndex": range[@"groupIndex"] ?: @0 });
+  NSRange safeRange = [self safeRangeFromDictionary:range length:self.textView.textStorage.length];
+  CGRect rect = [self selectionRectForRange:safeRange];
+  self.onClozeRangeLongPress(@{
+    @"groupIndex": range[@"groupIndex"] ?: @0,
+    @"selectionRect": @{
+      @"pageX": @(rect.origin.x),
+      @"pageY": @(rect.origin.y),
+      @"width": @(rect.size.width),
+      @"height": @(rect.size.height)
+    }
+  });
 }
 
 - (void)handleSelectAllLongPress:(UILongPressGestureRecognizer *)recognizer

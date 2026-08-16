@@ -1,4 +1,5 @@
 import { ResourceLimitedError } from "../resource/ResourceGovernor.js";
+import { TokenQuotaExceededError } from "../usage/UsageV2Service.js";
 
 export type EnrichmentRetry = {
   retryAt: Date | null;
@@ -16,6 +17,12 @@ export function resolveEnrichmentRetry(
     const jitterMs = Math.floor(Math.random() * Math.min(5_000, Math.max(500, retryAfterMs / 10)));
     return {
       retryAt: new Date(now + retryAfterMs + jitterMs),
+      preserveAttempt: true,
+    };
+  }
+  if (error instanceof TokenQuotaExceededError) {
+    return {
+      retryAt: new Date(Math.max(now + 1_000, error.refreshAt.getTime() + 1_000)),
       preserveAttempt: true,
     };
   }

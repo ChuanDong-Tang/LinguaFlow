@@ -388,7 +388,7 @@ export class CardService {
     requestId: string;
     recordId: string;
     target: CardGeneratedContentTarget;
-    usageApiVersion?: "v2";
+    usageApiVersion: "v2";
   }): Promise<CardRecordDetailView> {
     if (!this.aiProvider) throw new CardValidationError("Card generation is unavailable");
     const parsed = parseCardRecordId(input.recordId);
@@ -415,6 +415,7 @@ export class CardService {
       appLocale: preference.appLocale,
       difficulty: current.promptDifficultySnapshot,
     });
+    const meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
     let output = "";
     let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     if (input.usageApiVersion === "v2") {
@@ -423,7 +424,7 @@ export class CardService {
         userId: input.userId,
         requestId: input.requestId,
         feature: cardUsageFeature(input.target),
-        estimatedTokens: estimateTokenReservation(prompt.userPrompt, 1_000),
+        estimatedTokens: estimateTokenReservation(meteredPrompt, 1_000),
         provider: this.aiProvider.providerName,
         model: this.aiProvider.modelName,
       });
@@ -451,8 +452,18 @@ export class CardService {
       }
       else await generate();
     } catch (error) {
-      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      if (input.usageApiVersion === "v2") {
+        if (output.length > 0) {
+          await settleGeneratedUsage(this.usageV2Service!, input.userId, input.requestId, usage, meteredPrompt, output, this.aiProvider)
+            .catch(async () => this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined));
+        } else {
+          await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+        }
+      }
       throw error;
+    }
+    if (input.usageApiVersion === "v2") {
+      await settleGeneratedUsage(this.usageV2Service!, input.userId, input.requestId, usage, meteredPrompt, output, this.aiProvider);
     }
     output = output.trim();
     if (!output) {
@@ -468,12 +479,17 @@ export class CardService {
         userId: input.userId,
       });
     } catch (error) {
-      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      if (input.usageApiVersion === "v2") {
+        if (output.length > 0) {
+          await settleGeneratedUsage(this.usageV2Service!, input.userId, input.requestId, usage, meteredPrompt, output, this.aiProvider)
+            .catch(async () => this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined));
+        } else {
+          await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+        }
+      }
       throw error;
     }
-    if (input.usageApiVersion === "v2") {
-      await settleGeneratedUsage(this.usageV2Service!, input.userId, input.requestId, usage, prompt.userPrompt, output, this.aiProvider);
-    } else {
+    if (input.usageApiVersion !== "v2") {
       await this.entitlementService.consumeUpToLimit(
         input.userId,
         countCardCharacters(sourceText) + countCardCharacters(output),
@@ -497,7 +513,7 @@ export class CardService {
     requestId: string;
     recordId: string;
     body: SaveCardContentInput;
-    usageApiVersion?: "v2";
+    usageApiVersion: "v2";
   }): Promise<CardRecordDetailView> {
     const parsed = parseCardRecordId(input.recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
@@ -545,7 +561,7 @@ export class CardService {
     requestId: string;
     target: CardGeneratedContentTarget;
     sourceText: string;
-    usageApiVersion?: "v2";
+    usageApiVersion: "v2";
   }): Promise<{ text: string }> {
     if (!this.aiProvider) throw new CardValidationError("Card generation is unavailable");
     const sourceText = normalizeCardBodyText(input.sourceText);
@@ -564,6 +580,7 @@ export class CardService {
       appLocale: preference.appLocale,
       difficulty: preference.promptDifficulty,
     });
+    const meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
     let output = "";
     let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     if (input.usageApiVersion === "v2") {
@@ -572,7 +589,7 @@ export class CardService {
         userId: input.userId,
         requestId: input.requestId,
         feature: cardUsageFeature(input.target),
-        estimatedTokens: estimateTokenReservation(prompt.userPrompt, 1_000),
+        estimatedTokens: estimateTokenReservation(meteredPrompt, 1_000),
         provider: this.aiProvider.providerName,
         model: this.aiProvider.modelName,
       });
@@ -597,8 +614,16 @@ export class CardService {
       }
       else await generate();
     } catch (error) {
-      if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      if (output.length > 0) {
+        await settleGeneratedUsage(this.usageV2Service!, input.userId, input.requestId, usage, meteredPrompt, output, this.aiProvider)
+          .catch(async () => this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined));
+      } else {
+        await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+      }
       throw error;
+    }
+    if (input.usageApiVersion === "v2") {
+      await settleGeneratedUsage(this.usageV2Service!, input.userId, input.requestId, usage, meteredPrompt, output, this.aiProvider);
     }
     output = output.trim();
     if (!output) {
@@ -612,9 +637,7 @@ export class CardService {
       if (input.usageApiVersion === "v2") await this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined);
       throw error;
     }
-    if (input.usageApiVersion === "v2") {
-      await settleGeneratedUsage(this.usageV2Service!, input.userId, input.requestId, usage, prompt.userPrompt, output, this.aiProvider);
-    } else {
+    if (input.usageApiVersion !== "v2") {
       await this.entitlementService.consumeUpToLimit(input.userId, countCardCharacters(sourceText) + countCardCharacters(output), { dateKey });
     }
     return { text: output };

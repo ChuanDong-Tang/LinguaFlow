@@ -71,6 +71,7 @@ export type CardRecordDetail = CardRecordSummary & {
   images?: Array<{
     id: string;
     url: string;
+    urlExpiresAt?: string | null;
     width: number;
     height: number;
     thumbnail?: { id: string; url: string; urlExpiresAt?: string | null; width: number; height: number } | null;
@@ -78,6 +79,7 @@ export type CardRecordDetail = CardRecordSummary & {
   image: {
     id: string;
     url: string;
+    urlExpiresAt?: string | null;
     width: number;
     height: number;
     thumbnail?: { id: string; url: string; urlExpiresAt?: string | null; width: number; height: number } | null;

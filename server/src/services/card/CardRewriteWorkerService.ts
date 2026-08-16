@@ -1,4 +1,4 @@
-import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
+import type { AIProvider, ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEntryEntity, CardRepository } from "@lf/core/ports/repository/CardRepository.js";
 import type { AiRequestLogRepository } from "@lf/core/ports/repository/AiRequestLogRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
@@ -7,24 +7,25 @@ import { inferLearningTextLanguage, segmentLearningSentences } from "@lf/core/te
 import { countGraphemes } from "@lf/core/text/grapheme.js";
 import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
 import { createHash } from "node:crypto";
-import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
 import type { ChatGenerationTaskGuard } from "../chat/ChatGenerationTaskGuard.js";
 import { taskGuardId } from "./CardService.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { buildCardContentSegments } from "./cardContentSegments.js";
+import type { UsageV2Service } from "../usage/UsageV2Service.js";
+import { reserveLlmTokenUsage, settleLlmTokenUsage, settleOrReleaseFailedLlmUsage } from "../usage/LlmTokenMeter.js";
 
 export class CardRewriteWorkerService {
   constructor(
     private readonly repository: CardRepository,
     private readonly aiProvider: AIProvider,
-    private readonly entitlementService: EntitlementService,
     private readonly taskGuard: ChatGenerationTaskGuard,
     private readonly aiRequestLogRepository: AiRequestLogRepository,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly contentSafetyService?: ContentSafetyService,
     private readonly options: { leaseMs?: number; leaseRenewMs?: number; topicMaxChars?: number } = {},
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly usageV2Service?: UsageV2Service,
   ) {}
 
   get leaseMs(): number {
@@ -69,6 +70,8 @@ export class CardRewriteWorkerService {
     const requestId = `card_${entry.id}`;
     const startedAt = Date.now();
     let rawOutput = "";
+    let meteredPrompt = "";
+    let tokenUsage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     const renewEvery = this.options.leaseRenewMs ?? 30_000;
     const renewTimer = setInterval(() => {
       void this.repository.renewLease(entry.id, workerId, new Date(Date.now() + this.leaseMs));
@@ -85,6 +88,17 @@ export class CardRewriteWorkerService {
         difficulty: entry.promptDifficultySnapshot,
         topicMaxChars: this.options.topicMaxChars ?? CARD_TOPIC_MAX_CHARS,
       });
+      meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
+      if (!this.usageV2Service) throw new Error("V2 usage is unavailable");
+      await reserveLlmTokenUsage({
+        usageService: this.usageV2Service,
+        userId: entry.userId,
+        requestId,
+        feature: "rewrite",
+        prompt: meteredPrompt,
+        maxOutputTokens: 4_000,
+        provider: this.aiProvider,
+      });
       const generate = () => this.aiProvider.generateChatTextStream(
         {
           userId: entry.userId,
@@ -95,13 +109,24 @@ export class CardRewriteWorkerService {
           companionMode: "rewrite_only",
           systemPrompt: prompt.systemPrompt,
           rawUserPrompt: true,
+          maxOutputTokens: 4_000,
         },
         (event) => {
           if (event.type === "delta") rawOutput += event.text;
+          if (event.type === "done") tokenUsage = event.usage;
         },
       );
       if (this.resourceGovernor) await this.resourceGovernor.execute("llm", entry.userId, generate);
       else await generate();
+      await settleLlmTokenUsage({
+        usageService: this.usageV2Service,
+        userId: entry.userId,
+        requestId,
+        prompt: meteredPrompt,
+        output: rawOutput,
+        usage: tokenUsage,
+        provider: this.aiProvider,
+      });
       const parsedOutput = parseCardExpressionOutput(rawOutput, this.options.topicMaxChars ?? CARD_TOPIC_MAX_CHARS);
       const rewrittenText = parsedOutput.expression.trim();
       const topic = parsedOutput.topic.trim();
@@ -155,20 +180,16 @@ export class CardRewriteWorkerService {
           },
         ]),
       });
-      try {
-        await this.entitlementService.consumeUpToLimit(
-          entry.userId,
-          entry.inputChars + countGraphemes(rewrittenText),
-          { dateKey: entry.dateKey },
-        );
-      } catch (error) {
-        await this.writeSystemLog(entry, "card.entitlement.settlement_failed", error, {
-          requestId,
-          inputChars: entry.inputChars,
-          outputChars: countGraphemes(rewrittenText),
-        });
-      }
     } catch (error) {
+      if (this.usageV2Service) await settleOrReleaseFailedLlmUsage({
+        usageService: this.usageV2Service,
+        userId: entry.userId,
+        requestId,
+        prompt: meteredPrompt,
+        output: rawOutput,
+        usage: tokenUsage,
+        provider: this.aiProvider,
+      });
       await this.fail(entry, workerId, error, Date.now() - startedAt, rawOutput.length);
     } finally {
       clearInterval(renewTimer);

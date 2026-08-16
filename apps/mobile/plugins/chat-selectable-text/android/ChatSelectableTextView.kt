@@ -1,9 +1,14 @@
 package com.yueyantech.oio.chatselectabletext
 
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
+import android.os.Build
 import android.text.TextPaint
 import android.text.SpannableString
 import android.text.Selection
@@ -11,7 +16,6 @@ import android.text.Spannable
 import android.text.Spanned
 import android.widget.TextView
 import android.text.style.ForegroundColorSpan
-import android.text.style.BackgroundColorSpan
 import android.text.style.CharacterStyle
 import android.text.style.UpdateAppearance
 import android.util.TypedValue
@@ -21,25 +25,80 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.view.Window
 import androidx.appcompat.widget.AppCompatTextView
+import androidx.appcompat.view.WindowCallbackWrapper
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
 import com.facebook.react.uimanager.events.RCTEventEmitter
 import com.facebook.react.uimanager.PixelUtil
 import org.json.JSONArray
+import java.lang.ref.WeakReference
 
 class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   companion object {
     private const val TAG = "ChatSelectableText"
     private const val CUSTOM_MENU_ITEM_ID_BASE = 0x4F490000
+    private var activeSelectionView: WeakReference<ChatSelectableTextView>? = null
   }
 
-  private class BlankUnderlineSpan(private val underlineColor: Int) : CharacterStyle(), UpdateAppearance {
+  private class BlankMaskSpan : CharacterStyle(), UpdateAppearance {
     override fun updateDrawState(textPaint: TextPaint) {
       textPaint.color = Color.TRANSPARENT
-      textPaint.underlineColor = underlineColor
-      textPaint.underlineThickness = 1.5f
     }
+  }
+
+  /**
+   * Android positions selection handles at the 3/4 (start) and 1/4 (end)
+   * points of their drawable. The platform's round API 36 handles draw the
+   * circle away from that hotspot, which makes the handles look detached from
+   * the selected glyphs. Keep the native selection/drag behavior, but place
+   * the visible circle directly on the platform hotspot.
+   */
+  private class CenteredSelectionHandleDrawable(
+    private val density: Float,
+    private val startHandle: Boolean,
+    color: Int,
+  ) : Drawable() {
+    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      style = Paint.Style.FILL
+      this.color = color
+    }
+    private val intrinsicWidthPx = (24f * density).toInt().coerceAtLeast(1)
+    private val intrinsicHeightPx = (18f * density).toInt().coerceAtLeast(1)
+    private val radiusPx = 6f * density
+    private val stemWidthPx = 2f * density
+    private val stemHeightPx = 5f * density
+
+    override fun draw(canvas: Canvas) {
+      val hotspotX = bounds.left + bounds.width() * (if (startHandle) 0.75f else 0.25f)
+      val top = bounds.top.toFloat()
+      canvas.drawRect(
+        hotspotX - stemWidthPx / 2f,
+        top,
+        hotspotX + stemWidthPx / 2f,
+        top + stemHeightPx,
+        handlePaint,
+      )
+      canvas.drawCircle(hotspotX, top + stemHeightPx + radiusPx, radiusPx, handlePaint)
+    }
+
+    override fun setAlpha(alpha: Int) {
+      handlePaint.alpha = alpha
+      invalidateSelf()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
+      handlePaint.colorFilter = colorFilter
+      invalidateSelf()
+    }
+
+    @Deprecated("Deprecated in the Android Drawable API")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+
+    override fun getIntrinsicWidth(): Int = intrinsicWidthPx
+    override fun getIntrinsicHeight(): Int = intrinsicHeightPx
   }
 
   private var rawText: String = ""
@@ -47,6 +106,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   private var blankRangesJson: String = "[]"
   private var correctRangesJson: String = "[]"
   private var answersVisible: Boolean = false
+  private var visualsHidden: Boolean = false
   private var menuOptions: List<String> = emptyList()
   private var currentTextColor: Int = Color.parseColor("#111111")
   private var currentActionMode: ActionMode? = null
@@ -58,12 +118,15 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   private var textApplyRequested: Boolean = false
   private var rangeLongPressed: Boolean = false
   private var selectionMode: String = "range"
+  private var observedWindow: Window? = null
+  private var previousWindowCallback: Window.Callback? = null
+  private var outsideTouchCallback: Window.Callback? = null
   private val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
   private val rangeLongPressRunnable = Runnable {
     val range = pendingRange ?: return@Runnable
     rangeLongPressed = true
     parent?.requestDisallowInterceptTouchEvent(false)
-    emitClozeRange("topClozeRangeLongPress", range.groupIndex)
+    emitClozeRange("topClozeRangeLongPress", range)
   }
 
   init {
@@ -76,6 +139,14 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     isLongClickable = true
     isFocusable = true
     isFocusableInTouchMode = true
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      val accent = TypedValue().let { value ->
+        if (context.theme.resolveAttribute(android.R.attr.colorAccent, value, true)) value.data
+        else Color.parseColor("#009688")
+      }
+      setTextSelectHandleLeft(CenteredSelectionHandleDrawable(resources.displayMetrics.density, true, accent))
+      setTextSelectHandleRight(CenteredSelectionHandleDrawable(resources.displayMetrics.density, false, accent))
+    }
     setupSelectionMenu()
   }
 
@@ -102,6 +173,12 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   fun setAnswersVisible(value: Boolean) {
     answersVisible = value
     requestApplyText()
+  }
+
+  fun setVisualsHidden(value: Boolean) {
+    visualsHidden = value
+    requestApplyText()
+    invalidate()
   }
 
   fun setMenuOptions(value: List<String>) {
@@ -148,8 +225,22 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     val mode = currentActionMode
     if (mode != null) {
       mode.finish()
+    } else {
+      stopObservingOutsideSelectionTaps()
     }
     scheduleSelectionRelease()
+  }
+
+  override fun onDetachedFromWindow() {
+    removeCallbacks(rangeLongPressRunnable)
+    cancelLongPress()
+    pendingRange = null
+    rangeLongPressed = false
+    parent?.requestDisallowInterceptTouchEvent(false)
+    currentActionMode?.finish()
+    currentActionMode = null
+    stopObservingOutsideSelectionTaps()
+    super.onDetachedFromWindow()
   }
 
   override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -241,6 +332,76 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     applyTextIfReady()
   }
 
+  override fun onDraw(canvas: Canvas) {
+    val textLayout = layout ?: return
+    val textLength = text?.length ?: return
+    if (textLength == 0) {
+      super.onDraw(canvas)
+      return
+    }
+    if (visualsHidden) {
+      super.onDraw(canvas)
+      return
+    }
+    val density = resources.displayMetrics.density
+    val correctRanges = parseRanges(correctRangesJson)
+    val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    parseRanges(highlightRangesJson).forEach { range ->
+      val isCorrect = correctRanges.any { correct -> correct.start == range.start && correct.end == range.end }
+      backgroundPaint.color = Color.parseColor(if (isCorrect) "#DDEFE2" else "#FFF0B8")
+      drawRangeLines(textLayout, textLength, range) { left, top, right, bottom ->
+        canvas.drawRect(left, top, right, bottom, backgroundPaint)
+      }
+    }
+
+    super.onDraw(canvas)
+    val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.parseColor("#8C6D1F")
+      strokeWidth = 1.5f * density
+      style = Paint.Style.STROKE
+    }
+    parseRanges(blankRangesJson).forEach { range ->
+      drawRangeLines(textLayout, textLength, range) { left, _, right, bottom ->
+        canvas.drawLine(left, bottom + density, right, bottom + density, linePaint)
+      }
+    }
+  }
+
+  private inline fun drawRangeLines(
+    textLayout: android.text.Layout,
+    textLength: Int,
+    range: Range,
+    draw: (left: Float, top: Float, right: Float, bottom: Float) -> Unit,
+  ) {
+    val safeStart = range.start.coerceIn(0, textLength)
+    val safeEnd = range.end.coerceIn(safeStart, textLength)
+    if (safeStart >= safeEnd) return
+    val firstLine = textLayout.getLineForOffset(safeStart)
+    val lastLine = textLayout.getLineForOffset((safeEnd - 1).coerceAtLeast(safeStart))
+    for (line in firstLine..lastLine) {
+      val lineStart = maxOf(safeStart, textLayout.getLineStart(line))
+      val lineEnd = minOf(safeEnd, textLayout.getLineEnd(line))
+      if (lineStart >= lineEnd) continue
+      val startX = compoundPaddingLeft + textLayout.getPrimaryHorizontal(lineStart)
+      val endX = compoundPaddingLeft + textLayout.getPrimaryHorizontal(lineEnd)
+      // Android can report a shorter box for the final line of a paragraph.
+      // Derive a fixed-height highlight from the text baseline instead so
+      // mastered/unfinished blanks and normal/fill mode share the same visual
+      // height regardless of which line the blank lands on. This mirrors the
+      // fixed fontSize + 2pt rectangle used by the iOS implementation.
+      val fontMetrics = paint.fontMetrics
+      val textCenter = extendedPaddingTop - scrollY + textLayout.getLineBaseline(line) +
+        (fontMetrics.ascent + fontMetrics.descent) / 2f
+      val fixedHeight = minOf(
+        textLayout.getLineBottom(line) - textLayout.getLineTop(line).toFloat(),
+        paint.textSize + 2f * resources.displayMetrics.density,
+      )
+      val top = textCenter - fixedHeight / 2f
+      val bottom = top + fixedHeight
+      draw(minOf(startX, endX), top, maxOf(startX, endX), bottom)
+    }
+  }
+
   private fun requestApplyText() {
     textApplyRequested = true
     if (pendingTextApply) return
@@ -264,22 +425,19 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     val spannable = SpannableString(visibleText)
 
     if (visibleText.isNotEmpty()) {
-      spannable.setSpan(ForegroundColorSpan(currentTextColor), 0, visibleText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+      spannable.setSpan(ForegroundColorSpan(if (visualsHidden) Color.TRANSPARENT else currentTextColor), 0, visibleText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
-    parseRanges(highlightRangesJson).forEach { range ->
-      applyRangeSpan(spannable, range.start, range.end, visibleText.length, BackgroundColorSpan(Color.parseColor("#FFF0B8")))
+    if (!visualsHidden) parseRanges(highlightRangesJson).forEach { range ->
       applyRangeSpan(spannable, range.start, range.end, visibleText.length, ForegroundColorSpan(Color.parseColor("#3D3420")))
     }
 
+    // Apply the blank span last so its underline stays visible over both the
+    // yellow and mastered-green backgrounds.
     if (!answersVisible) {
       blankRanges.forEach { range ->
-        applyRangeSpan(spannable, range.start, range.end, visibleText.length, BlankUnderlineSpan(Color.parseColor("#8C6D1F")))
+        applyRangeSpan(spannable, range.start, range.end, visibleText.length, BlankMaskSpan())
       }
-    }
-
-    parseRanges(correctRangesJson).forEach { range ->
-      applyRangeSpan(spannable, range.start, range.end, visibleText.length, BackgroundColorSpan(Color.parseColor("#DDEFE2")))
     }
 
     setText(spannable, TextView.BufferType.SPANNABLE)
@@ -321,12 +479,13 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   }
 
   private fun setupSelectionMenu() {
-    customSelectionActionModeCallback = object : ActionMode.Callback {
+    customSelectionActionModeCallback = object : ActionMode.Callback2() {
       override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
         ensureSpannableTextBuffer()
         currentActionMode = mode
         populateSelectionMenu(menu)
         emitSelectionStart()
+        startObservingOutsideSelectionTaps()
         return true
       }
 
@@ -351,7 +510,20 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         if (currentActionMode === mode) {
           currentActionMode = null
         }
+        stopObservingOutsideSelectionTaps()
         scheduleSelectionRelease()
+      }
+
+      override fun onGetContentRect(mode: ActionMode?, view: android.view.View?, outRect: Rect?) {
+        if (outRect == null) return
+        val selectedStart = selectionStart.coerceAtMost(selectionEnd)
+        val selectedEnd = selectionStart.coerceAtLeast(selectionEnd)
+        val selectionRect = selectionRectForRangeLocal(selectedStart, selectedEnd)
+        if (selectionRect.isEmpty) {
+          super.onGetContentRect(mode, view, outRect)
+          return
+        }
+        selectionRect.roundOut(outRect)
       }
     }
   }
@@ -364,6 +536,50 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         .add(Menu.NONE, CUSTOM_MENU_ITEM_ID_BASE + index, index, option)
         .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS or MenuItem.SHOW_AS_ACTION_WITH_TEXT)
     }
+  }
+
+  private fun startObservingOutsideSelectionTaps() {
+    val previousActive = activeSelectionView?.get()
+    if (previousActive !== null && previousActive !== this) previousActive.clearSelectionState()
+    activeSelectionView = WeakReference(this)
+    if (outsideTouchCallback != null) return
+    val reactContext = context as? ReactContext ?: return
+    val window = reactContext.currentActivity?.window ?: return
+    val previousCallback = window.callback ?: return
+    val callback = object : WindowCallbackWrapper(previousCallback) {
+      override fun dispatchTouchEvent(event: MotionEvent?): Boolean {
+        if (event?.actionMasked == MotionEvent.ACTION_DOWN && currentActionMode != null && !isTouchInsideSelection(event)) {
+          post { if (currentActionMode != null) clearSelectionState() }
+        }
+        return super.dispatchTouchEvent(event)
+      }
+    }
+    observedWindow = window
+    previousWindowCallback = previousCallback
+    outsideTouchCallback = callback
+    window.callback = callback
+  }
+
+  private fun stopObservingOutsideSelectionTaps() {
+    val window = observedWindow
+    val callback = outsideTouchCallback
+    if (window != null && callback != null && window.callback === callback) {
+      previousWindowCallback?.let { window.callback = it }
+    }
+    observedWindow = null
+    previousWindowCallback = null
+    outsideTouchCallback = null
+    if (activeSelectionView?.get() === this) activeSelectionView = null
+  }
+
+  private fun isTouchInsideSelection(event: MotionEvent): Boolean {
+    val selectedStart = selectionStart.coerceAtMost(selectionEnd)
+    val selectedEnd = selectionStart.coerceAtLeast(selectionEnd)
+    val rect = selectionRectForRange(selectedStart, selectedEnd)
+    if (rect.isEmpty) return false
+    val padding = 10f * resources.displayMetrics.density
+    rect.inset(-padding, -padding)
+    return rect.contains(event.rawX, event.rawY)
   }
 
   private fun handleClozeRangeTouch(event: MotionEvent): Boolean {
@@ -395,7 +611,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         pendingRange = null
         parent?.requestDisallowInterceptTouchEvent(false)
         if (!rangeLongPressed) {
-          emitClozeRange("topClozeRangePress", range.groupIndex)
+          emitClozeRange("topClozeRangePress", range)
         }
         rangeLongPressed = false
         return true
@@ -463,6 +679,15 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   }
 
   private fun selectionRectForRange(start: Int, end: Int): RectF {
+    val result = selectionRectForRangeLocal(start, end)
+    if (result.isEmpty) return result
+    val location = IntArray(2)
+    getLocationOnScreen(location)
+    result.offset(location[0].toFloat(), location[1].toFloat())
+    return result
+  }
+
+  private fun selectionRectForRangeLocal(start: Int, end: Int): RectF {
     val result = RectF()
     val currentText = text ?: return result
     if (currentText.isEmpty() || layout == null) return result
@@ -488,16 +713,20 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         result.union(rect)
       }
     }
-    val location = IntArray(2)
-    getLocationOnScreen(location)
-    result.offset(location[0].toFloat(), location[1].toFloat())
     return result
   }
 
-  private fun emitClozeRange(eventName: String, groupIndex: Int) {
+  private fun emitClozeRange(eventName: String, range: Range) {
     val reactContext = context as? ReactContext ?: return
+    val rect = selectionRectForRange(range.start, range.end)
     val event = Arguments.createMap().apply {
-      putInt("groupIndex", groupIndex)
+      putInt("groupIndex", range.groupIndex)
+      putMap("selectionRect", Arguments.createMap().apply {
+        putDouble("pageX", PixelUtil.toDIPFromPixel(rect.left).toDouble())
+        putDouble("pageY", PixelUtil.toDIPFromPixel(rect.top).toDouble())
+        putDouble("width", PixelUtil.toDIPFromPixel(rect.width()).toDouble())
+        putDouble("height", PixelUtil.toDIPFromPixel(rect.height()).toDouble())
+      })
     }
     reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(id, eventName, event)
   }

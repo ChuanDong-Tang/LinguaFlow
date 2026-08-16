@@ -51,6 +51,7 @@ type Props = {
   highlightRanges?: NativeClozeHighlightRange[];
   blankRanges?: NativeClozeBlankRange[];
   answersVisible?: boolean;
+  visualsHidden?: boolean;
   correctRanges?: NativeClozeBlankRange[];
   trailingElement?: React.ReactNode;
   enableClozeMenu?: boolean;
@@ -62,7 +63,7 @@ type Props = {
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
   onDictionarySelection?: (payload: NativeTextSelectionPayload) => void;
   onClozeRangePress?: (groupIndex: number) => void;
-  onClozeRangeLongPress?: (groupIndex: number) => void;
+  onClozeRangeLongPress?: (groupIndex: number, selectionRect?: NativeTextSelectionPayload["selectionRect"]) => void;
 };
 
 const SELECTABLE_TEXT_PERF_LOGS = false;
@@ -214,6 +215,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     highlightRanges,
     blankRanges,
     answersVisible = false,
+    visualsHidden = false,
     correctRanges,
     trailingElement,
     enableClozeMenu = true,
@@ -314,7 +316,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     );
     const handleClozeRangeLongPress = React.useCallback(
       (event: { nativeEvent: ChatSelectableTextRangeEvent }) => {
-        onClozeRangeLongPress?.(event.nativeEvent.groupIndex);
+        onClozeRangeLongPress?.(event.nativeEvent.groupIndex, event.nativeEvent.selectionRect);
       },
       [onClozeRangeLongPress],
     );
@@ -381,6 +383,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           blankRangesJson={nativeBlankRangesJson}
           correctRangesJson={nativeCorrectRangesJson}
           answersVisible={answersVisible}
+          visualsHidden={visualsHidden}
           textColor={typeof flattenedTextStyle.color === "string" ? flattenedTextStyle.color : "#111111"}
           fontSize={typeof flattenedTextStyle.fontSize === "number" ? flattenedTextStyle.fontSize : 17}
           lineHeight={typeof flattenedTextStyle.lineHeight === "number" ? flattenedTextStyle.lineHeight : 25}

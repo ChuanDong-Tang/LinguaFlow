@@ -763,7 +763,7 @@ export default function App() {
               onSubmit={() => void submitDeleteAccount()}
             />
             <BindEmailModal
-              visible={bindEmailVisible}
+              visible={bindEmailVisible && !accountSheetVisible}
               email={bindEmailValue}
               target={bindEmailTarget}
               passCode={bindEmailCode}
@@ -792,6 +792,18 @@ export default function App() {
                 onBindEmail={handleBindEmail}
                 onLogout={handleLogout}
                 onDeleteAccount={handleDeleteAccount}
+              />
+              <BindEmailModal
+                visible={bindEmailVisible}
+                email={bindEmailValue}
+                target={bindEmailTarget}
+                passCode={bindEmailCode}
+                loading={bindEmailLoading}
+                onChangeEmail={setBindEmailValue}
+                onChangePassCode={setBindEmailCode}
+                onCancel={cancelBindEmailFlow}
+                onSendCode={() => void sendBindEmailCode()}
+                onSubmit={() => void submitBindEmail()}
               />
             </Modal>
             <UiLocaleSetupModal

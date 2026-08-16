@@ -26,6 +26,7 @@ export interface CardTopicSource {
   sourceId: string;
   originalText: string;
   appLocale: string;
+  billingExemptReason?: "chat_history_migration";
 }
 
 export interface PhraseIndexSource {
@@ -76,6 +77,7 @@ export interface ProgressPhraseDetectionSource {
   languageCode: string;
   cardCreatedAt: Date;
   originalText: string;
+  billingExemptReason?: "chat_history_migration";
 }
 
 export interface ProgressPhraseDetectionResult {
@@ -107,6 +109,7 @@ export interface CardEnrichmentRepository {
     languageCode: string;
     surfaceText: string;
     observedSource: "observed_cloze" | "observed_card";
+    billingExemptReason?: "chat_history_migration";
   } | null>;
   completePhraseNormalization(job: CardEnrichmentJobEntity, input: {
     canonicalText: string;

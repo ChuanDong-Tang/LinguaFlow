@@ -40,6 +40,11 @@ class ChatSelectableTextViewManager : SimpleViewManager<ChatSelectableTextView>(
     view.setAnswersVisible(value)
   }
 
+  @ReactProp(name = "visualsHidden", defaultBoolean = false)
+  fun setVisualsHidden(view: ChatSelectableTextView, value: Boolean) {
+    view.setVisualsHidden(value)
+  }
+
   @ReactProp(name = "menuOptions")
   fun setMenuOptions(view: ChatSelectableTextView, value: ReadableArray?) {
     val options = mutableListOf<String>()

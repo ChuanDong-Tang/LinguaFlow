@@ -1,17 +1,26 @@
 import React, { useEffect, useRef, useState } from "react";
-import * as AuthSession from "expo-auth-session";
-import * as WebBrowser from "expo-web-browser";
-import { Animated, Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { t } from "../i18n";
-import { login, loginWithAuthing } from "../services/api/authApi";
 import {
-  getAuthingClientId,
-  getAuthingDiscovery,
-  getAuthingRedirectUri,
-  isAuthingConfigured,
-} from "../services/auth/authingAuth";
-import { clearForceAuthingLogin, setAuthingAccessToken, setSession, shouldForceAuthingLogin } from "../services/auth/authStorage";
+  ActivityIndicator,
+  Animated,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { t, tf } from "../i18n";
+import {
+  ApiError,
+  loginWithAuthingPasscode,
+  loginWithAuthingPassword,
+  sendAuthingPasscode,
+} from "../services/api/authApi";
+import { clearForceAuthingLogin, setAuthingAccessToken, setSession } from "../services/auth/authStorage";
 import { clearAccountScopedStorage } from "../services/auth/accountScopedStorage";
 import { logEvent } from "../services/logger";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
@@ -20,40 +29,80 @@ import type { User } from "@lf/core/types";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 
-
-WebBrowser.maybeCompleteAuthSession();
-
 type LoginScreenProps = { onLoginSuccess: () => void };
+type LoginMode = "phone" | "email";
+type LoginMethod = "passcode" | "password";
 
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const { isMounted } = useMountedGuard();
   const [agreed, setAgreed] = useState(false);
+  const [method, setMethod] = useState<LoginMethod>("passcode");
+  const [mode, setMode] = useState<LoginMode>("phone");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [passCode, setPassCode] = useState("");
+  const [passwordAccount, setPasswordAccount] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [countdown, setCountdown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
-  const [forceAuthingLogin, setForceAuthingLogin] = useState(false);
   const agreementShake = useRef(new Animated.Value(0)).current;
 
-  const authingConfigured = isAuthingConfigured();
-  const authingDiscovery = authingConfigured ? getAuthingDiscovery() : null;
-  const authingClientId = authingConfigured ? getAuthingClientId() : "authing-disabled";
-  const authingRedirectUri = getAuthingRedirectUri();
-  const [authingRequest, _authingResponse, promptAuthingAsync] = AuthSession.useAuthRequest(
-    {
-      clientId: authingClientId,
-      redirectUri: authingRedirectUri,
-      responseType: AuthSession.ResponseType.Code,
-      scopes: ["openid", "profile", "email", "phone", "offline_access"],
-      usePKCE: true,
-      prompt: forceAuthingLogin ? AuthSession.Prompt.Login : undefined,
-    },
-    authingDiscovery
-  );
-
   useEffect(() => {
-    void shouldForceAuthingLogin().then((value) => {
-      if (isMounted()) setForceAuthingLogin(value);
-    });
-  }, [isMounted]);
+    if (countdown <= 0) return;
+    const timer = setInterval(() => setCountdown((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [countdown]);
+
+  function switchMode(nextMode: LoginMode) {
+    if (loading || sendingCode || nextMode === mode) return;
+    setMode(nextMode);
+    setPassCode("");
+    setCountdown(0);
+    setStatusText("");
+  }
+
+  function switchMethod(nextMethod: LoginMethod) {
+    if (loading || sendingCode || nextMethod === method) return;
+    setMethod(nextMethod);
+    setStatusText("");
+    setPasswordVisible(false);
+  }
+
+  function buildCredential() {
+    if (mode === "phone") {
+      const normalizedPhone = phone.replace(/\D/g, "");
+      if (!/^1\d{10}$/.test(normalizedPhone)) throw new Error(t("auth.login.invalid_phone"));
+      return { channel: "phone" as const, phone: normalizedPhone, phoneCountryCode: "+86" };
+    }
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      throw new Error(t("auth.login.invalid_email"));
+    }
+    return { channel: "email" as const, email: normalizedEmail };
+  }
+
+  async function handleSendCode() {
+    if (sendingCode || countdown > 0) return;
+    if (!agreed) return shakeAgreement();
+    setSendingCode(true);
+    setStatusText("");
+    try {
+      await sendAuthingPasscode(buildCredential());
+      if (!isMounted()) return;
+      setCountdown(60);
+    } catch (error) {
+      if (!isMounted()) return;
+      setStatusText(resolveLoginError(error, "send"));
+      await logEvent("authing_passcode_send_failed", "warn", error instanceof Error ? error.message : String(error), {
+        channel: mode,
+      });
+    } finally {
+      if (isMounted()) setSendingCode(false);
+    }
+  }
 
   async function handlePrimaryLogin() {
     if (loading) return;
@@ -62,86 +111,40 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setStatusText("");
     try {
       await clearAccountScopedStorage();
-      // 优先走真实 Authing OAuth；未配置时回落到本地 mock 登录，方便开发环境调试。
-      if (authingConfigured) {
-        if (!authingRequest || !authingDiscovery) {
-          if (!isMounted()) return;
-          setStatusText(t("app.delete.unavailable_message"));
-          return;
-        }
-        const result = await promptAuthingAsync();
-        if (!isMounted()) return;
-        if (result.type !== "success") {
-          await logEvent("authing_oauth_cancelled", "warn", result.type, {
-            redirectUri: authingRedirectUri,
+      const result = method === "password"
+        ? await loginWithAuthingPassword({
+            account: requirePasswordAccount(passwordAccount),
+            password: requirePassword(password),
+          })
+        : await loginWithAuthingPasscode({
+            ...buildCredential(),
+            passCode: requirePassCode(passCode),
           });
-          setStatusText(t("auth.login.failed"));
-          return;
-        }
-        if (typeof result.params.error === "string" && result.params.error) {
-          const authingError =
-            typeof result.params.error_description === "string" && result.params.error_description
-              ? result.params.error_description
-              : result.params.error;
-          await logEvent("authing_oauth_error", "warn", authingError, {
-            error: result.params.error,
-            redirectUri: authingRedirectUri,
-          });
-          setStatusText(authingError);
-          return;
-        }
-        if (typeof result.params.code !== "string" || !result.params.code) {
-          await logEvent("authing_oauth_missing_code", "warn", undefined, {
-            params: Object.keys(result.params),
-            redirectUri: authingRedirectUri,
-          });
-          setStatusText(t("auth.login.failed"));
-          return;
-        }
-        const tokenResult = await AuthSession.exchangeCodeAsync(
-          {
-            clientId: authingClientId,
-            code: result.params.code,
-            redirectUri: authingRedirectUri,
-            extraParams: { code_verifier: authingRequest.codeVerifier ?? "" },
-          },
-          authingDiscovery,
-        );
-        const backendSession = await loginWithAuthing({ authingToken: tokenResult.accessToken });
-        const localSession = {
-          accessToken: backendSession.accessToken,
-          refreshToken: backendSession.refreshToken,
-          user: toSessionUser(backendSession.user),
-          sessionFlags: { isPro: false },
-        };
-        await setSession(localSession);
-        await setAuthingAccessToken(tokenResult.accessToken);
-        await refreshEntitlementAndSessionSafe();
-        await logEvent("authing_login_ui_success", "info", undefined, { userId: backendSession.user.id });
-        await clearForceAuthingLogin();
-        if (!isMounted()) return;
-        onLoginSuccess();
-        return;
-      }
-      const result = await login({ type: "wechat_code", wechatCode: "mock_wechat_code" });
       const localSession = {
-        accessToken: result.token,
+        accessToken: result.accessToken,
         refreshToken: result.refreshToken,
-        user: result.user,
-        sessionFlags: { isPro: result.sessionFlags?.isPro ?? false },
+        user: toSessionUser(result.user),
+        sessionFlags: { isPro: false },
       };
       await setSession(localSession);
+      await setAuthingAccessToken(result.authingToken);
       await refreshEntitlementAndSessionSafe();
-      await logEvent("login_ui_success", "info", undefined, { userId: result.user.id });
+      await logEvent("authing_login_success", "info", undefined, {
+        userId: result.user.id,
+        method,
+        ...(method === "passcode" ? { channel: mode } : {}),
+      });
       await clearForceAuthingLogin();
       if (!isMounted()) return;
       onLoginSuccess();
     } catch (err) {
       if (!isMounted()) return;
       const rawMessage = err instanceof Error ? err.message : String(err);
-      const message = rawMessage ? rawMessage.slice(0, 180) : t("auth.login.failed");
-      setStatusText(message);
-      await logEvent("login_ui_failed", "warn", rawMessage || message);
+      setStatusText(resolveLoginError(err, "login"));
+      await logEvent("authing_login_failed", "warn", rawMessage || t("auth.login.failed"), {
+        method,
+        ...(method === "passcode" ? { channel: mode } : {}),
+      });
     } finally {
       if (isMounted()) setLoading(false);
     }
@@ -160,17 +163,130 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardArea}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
       <View style={styles.content}>
         <Image source={require("../../assets/app/logo.png")} style={styles.logoImage} resizeMode="contain" />
         <Text style={styles.brandText}>OIO</Text>
-        <Text style={styles.tagline}>Output  ·  Input  ·  Output</Text>
+
+        {method === "passcode" ? (
+          <View style={styles.modeTabs}>
+            <Pressable style={[styles.modeTab, mode === "phone" && styles.modeTabActive]} onPress={() => switchMode("phone")}>
+              <Text style={[styles.modeTabText, mode === "phone" && styles.modeTabTextActive]}>{t("auth.login.phone_tab")}</Text>
+            </Pressable>
+            <Pressable style={[styles.modeTab, mode === "email" && styles.modeTabActive]} onPress={() => switchMode("email")}>
+              <Text style={[styles.modeTabText, mode === "email" && styles.modeTabTextActive]}>{t("auth.login.email_tab")}</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.passwordHeader}>
+            <Text style={styles.passwordHeaderText}>{t("auth.login.password_title")}</Text>
+          </View>
+        )}
+
+        <View style={styles.form}>
+          <View style={styles.inputShell}>
+            {method === "passcode" && mode === "phone" ? <Text style={styles.countryCode}>+86</Text> : null}
+            {method === "password" ? (
+              <TextInput
+                value={passwordAccount}
+                onChangeText={setPasswordAccount}
+                placeholder={t("auth.login.account_placeholder")}
+                placeholderTextColor="#A1A4AD"
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="username"
+                style={styles.accountInput}
+                maxLength={160}
+              />
+            ) : (
+              <TextInput
+                value={mode === "phone" ? phone : email}
+                onChangeText={mode === "phone" ? (value) => setPhone(value.replace(/\D/g, "")) : setEmail}
+                placeholder={mode === "phone" ? t("auth.login.phone_placeholder") : t("auth.login.email_placeholder")}
+                placeholderTextColor="#A1A4AD"
+                keyboardType={mode === "phone" ? "phone-pad" : "email-address"}
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType={mode === "phone" ? "telephoneNumber" : "emailAddress"}
+                style={styles.accountInput}
+                maxLength={mode === "phone" ? 11 : 120}
+              />
+            )}
+          </View>
+          <View style={styles.inputShell}>
+            {method === "password" ? (
+              <>
+                <TextInput
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder={t("auth.login.password_placeholder")}
+                  placeholderTextColor="#A1A4AD"
+                  secureTextEntry={!passwordVisible}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="password"
+                  style={styles.accountInput}
+                  maxLength={256}
+                />
+                <Pressable
+                  style={styles.passwordVisibilityButton}
+                  onPress={() => setPasswordVisible((value) => !value)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={passwordVisible ? t("auth.login.hide_password") : t("auth.login.show_password")}
+                >
+                  <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={21} color="#777B85" />
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  value={passCode}
+                  onChangeText={(value) => setPassCode(value.replace(/\D/g, ""))}
+                  placeholder={t("auth.login.code_placeholder")}
+                  placeholderTextColor="#A1A4AD"
+                  keyboardType="number-pad"
+                  textContentType="oneTimeCode"
+                  style={styles.accountInput}
+                  maxLength={8}
+                />
+                <Pressable
+                  style={styles.sendCodeButton}
+                  onPress={handleSendCode}
+                  disabled={sendingCode || countdown > 0}
+                >
+                  {sendingCode ? (
+                    <ActivityIndicator size="small" color="#111111" />
+                  ) : (
+                    <Text style={[styles.sendCodeText, countdown > 0 && styles.sendCodeTextDisabled]}>
+                      {countdown > 0 ? tf("auth.login.resend_countdown", { seconds: countdown }) : t("auth.login.send_code")}
+                    </Text>
+                  )}
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
 
         <Pressable
           style={[styles.loginButton, (!agreed || loading) && styles.loginButtonDisabled]}
           onPress={handlePrimaryLogin}
           disabled={loading}
         >
-          <Text style={styles.loginText}>{loading ? t("auth.login.loading") : t("auth.login.button")}</Text>
+          {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.loginText}>{t("auth.login.button")}</Text>}
+        </Pressable>
+
+        <Pressable
+          style={styles.methodSwitchButton}
+          onPress={() => switchMethod(method === "passcode" ? "password" : "passcode")}
+          disabled={loading || sendingCode}
+        >
+          <Text style={styles.methodSwitchText}>
+            {method === "passcode" ? t("auth.login.use_password") : t("auth.login.use_passcode")}
+          </Text>
         </Pressable>
 
         <Animated.View
@@ -189,7 +305,13 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           ]}
         >
           <View style={styles.agreeRow}>
-            <Pressable style={[styles.checkbox, agreed && styles.checkboxChecked]} onPress={() => setAgreed((v) => !v)}>
+            <Pressable
+              style={[styles.checkbox, agreed && styles.checkboxChecked]}
+              onPress={() => setAgreed((v) => !v)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: agreed }}
+              accessibilityLabel={t("auth.login.agreement_checkbox")}
+            >
               {agreed ? <Ionicons name="checkmark" size={20} color="#111111" /> : null}
             </Pressable>
             <Text style={styles.agreeText}>
@@ -206,8 +328,39 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           {!!statusText && <Text style={styles.statusText}>{statusText}</Text>}
         </Animated.View>
       </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+function resolveLoginError(error: unknown, action: "send" | "login"): string {
+  if (error instanceof ApiError) {
+    if (error.code === "RATE_LIMITED") return t("auth.login.too_frequent");
+    if (error.code === "PASSCODE_INVALID") return t("auth.login.code_invalid");
+    if (error.code === "PASSCODE_SEND_FAILED") return t("auth.login.send_failed");
+    if (error.code === "PASSWORD_INVALID") return t("auth.login.password_invalid");
+    return action === "send" ? t("auth.login.send_failed") : t("auth.login.failed");
+  }
+  if (error instanceof TypeError) return t("auth.login.network_failed");
+  if (error instanceof Error && error.message) return error.message.slice(0, 120);
+  return action === "send" ? t("auth.login.send_failed") : t("auth.login.failed");
+}
+
+function requirePassCode(value: string): string {
+  const normalized = value.trim();
+  if (!/^\d{4,8}$/.test(normalized)) throw new Error(t("auth.login.invalid_code"));
+  return normalized;
+}
+
+function requirePasswordAccount(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error(t("auth.login.account_required"));
+  return normalized;
+}
+
+function requirePassword(value: string): string {
+  if (!value) throw new Error(t("auth.login.password_required"));
+  return value;
 }
 
 function toSessionUser(user: {
@@ -249,41 +402,129 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FCFCFD",
   },
+  keyboardArea: {
+    flex: 1,
+  },
   content: {
     flex: 1,
     paddingHorizontal: 32,
-    paddingTop: 132,
+    paddingTop: 54,
     alignItems: "center",
   },
 
   logoImage: {
-    width: 180,
-    height: 180,
-    marginTop: 40,
+    width: 132,
+    height: 132,
+    marginTop: 16,
   },
   brandText: {
-    marginTop: -30,
+    marginTop: -22,
     color: "#050505",
     fontSize: 20,
     fontWeight: "500",
     letterSpacing: 1,
   },
-  tagline: {
-    marginTop: 8,
-    color: "#6E7280",
+  modeTabs: {
+    marginTop: 48,
+    width: "100%",
+    maxWidth: 340,
+    height: 44,
+    padding: 3,
+    borderRadius: 12,
+    backgroundColor: "#F0F0F2",
+    flexDirection: "row",
+  },
+  modeTab: {
+    flex: 1,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modeTabActive: {
+    backgroundColor: "#FFFFFF",
+  },
+  modeTabText: {
+    color: "#8A8D96",
+    fontSize: 15,
+  },
+  modeTabTextActive: {
+    color: "#111111",
+    fontWeight: "600",
+  },
+  passwordHeader: {
+    marginTop: 48,
+    width: "100%",
+    maxWidth: 340,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#F0F0F2",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  passwordHeaderText: {
+    color: "#111111",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  form: {
+    marginTop: 18,
+    width: "100%",
+    maxWidth: 340,
+    gap: 12,
+  },
+  inputShell: {
+    height: 54,
+    paddingHorizontal: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#DADCE2",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  countryCode: {
+    paddingRight: 12,
+    marginRight: 12,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: "#DADCE2",
+    color: "#111111",
+    fontSize: 16,
+  },
+  accountInput: {
+    flex: 1,
+    height: "100%",
+    color: "#111111",
+    fontSize: 16,
+    paddingVertical: 0,
+  },
+  sendCodeButton: {
+    minWidth: 78,
+    height: 40,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  sendCodeText: {
+    color: "#111111",
     fontSize: 14,
-    letterSpacing: 0.2,
+    fontWeight: "500",
+  },
+  sendCodeTextDisabled: {
+    color: "#A1A4AD",
+  },
+  passwordVisibilityButton: {
+    width: 38,
+    height: 40,
+    alignItems: "flex-end",
+    justifyContent: "center",
   },
 
   loginButton: {
-    marginTop: 80,
+    marginTop: 20,
     width: "100%",
     maxWidth: 340,
     height: 56,
     borderRadius: 28,
-    borderWidth: 1.5,
-    borderColor: "#20222A",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#111111",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -291,13 +532,23 @@ const styles = StyleSheet.create({
     opacity: 0.56,
   },
   loginText: {
-    color: "#111111",
+    color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "500",
   },
+  methodSwitchButton: {
+    height: 34,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  methodSwitchText: {
+    color: "#686C75",
+    fontSize: 14,
+  },
 
   agreementBlock: {
-    marginTop: 36,
+    marginTop: 8,
     width: "100%",
     maxWidth: 340,
     alignItems: "center",

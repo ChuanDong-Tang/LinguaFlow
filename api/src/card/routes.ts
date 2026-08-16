@@ -479,7 +479,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     try {
       const data = await deps.cardService.generateDraftContent({
         userId, requestId, target, sourceText: body.sourceText,
-        usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
+        usageApiVersion: "v2",
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -535,7 +535,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
             ? { collectionId: body.collectionId as string | null }
             : {}),
         },
-        usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
+        usageApiVersion: "v2",
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -560,7 +560,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         requestId,
         recordId: `card:${recordId}`,
         target,
-        usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
+        usageApiVersion: "v2",
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -606,7 +606,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         fileSize: Number(body?.fileSize),
         width: Number(body?.width),
         height: Number(body?.height),
-        usageApiVersion: req.headers["x-lf-usage-api"] === "v2" ? "v2" : undefined,
+        usageApiVersion: "v2",
       });
       return reply.status(201).send({ ok: true, request_id: requestId, data });
     } catch (error) {

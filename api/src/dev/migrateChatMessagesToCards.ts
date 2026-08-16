@@ -68,6 +68,7 @@ const LEGACY_MIGRATION_VERSION = "legacy_chat_to_card_v1";
 const MIGRATION_CONTENT_VERSION = "legacy_chat_to_card_v3";
 const APPLY_CONFIRMATION = "chat-to-card-migration";
 const ROLLBACK_CONFIRMATION = "rollback-chat-to-card-migration";
+const MIGRATION_BILLING_EXEMPTION = "chat_history_migration";
 
 const args = parseArgs(process.argv.slice(2));
 loadDatabaseUrl(args.databaseLine);
@@ -485,7 +486,7 @@ async function main(): Promise<void> {
           jobType: "generate_topic",
           inputHash: card.originalContentHash,
           inputVersion: `${CARD_TOPIC_PROMPT_VERSION}:${card.originalContentHash}`,
-          payload: { schemaVersion: 1, platformFunded: true },
+          payload: { schemaVersion: 1, billingExemptReason: MIGRATION_BILLING_EXEMPTION },
         },
         {
           jobType: "generate_embedding",
@@ -503,7 +504,7 @@ async function main(): Promise<void> {
           jobType: "detect_progress_phrases",
           inputHash: embeddingInputHash,
           inputVersion: `progress_phrase_detection_v1:${embeddingInputHash}`,
-          payload: { schemaVersion: 1 },
+          payload: { schemaVersion: 1, billingExemptReason: MIGRATION_BILLING_EXEMPTION },
         },
       ] as const) {
         await ensureEnrichmentJob(tx, {
@@ -812,7 +813,7 @@ async function registerClozePhrase(tx: any, input: {
     jobType: "normalize_phrase",
     inputHash,
     inputVersion: `${PHRASE_NORMALIZER_VERSION}:${phrase.id}`,
-    payload: { phraseId: phrase.id, schemaVersion: 1 },
+    payload: { phraseId: phrase.id, schemaVersion: 1, billingExemptReason: MIGRATION_BILLING_EXEMPTION },
   });
   return true;
 }
@@ -857,6 +858,13 @@ async function ensureEnrichmentJob(tx: any, input: {
         completedAt: null,
         failedAt: null,
       },
+    });
+    return;
+  }
+  if (existing.status === "queued") {
+    await tx.cardEnrichmentJob.update({
+      where: { id: existing.id },
+      data: { inputHash: input.inputHash, payload: input.payload },
     });
   }
 }

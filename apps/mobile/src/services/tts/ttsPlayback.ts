@@ -17,6 +17,8 @@ let playbackState: TtsPlaybackState = {
   loopMode: "off",
   loopScope: "one",
   activeNavigationKey: null,
+  positionMs: 0,
+  durationMs: null,
   canNavigatePrevious: false,
   canNavigateNext: false,
 };
@@ -53,6 +55,8 @@ export type TtsPlaybackState = {
   loopMode: "off" | "all" | "one";
   loopScope: "all" | "one";
   activeNavigationKey: string | null;
+  positionMs: number;
+  durationMs: number | null;
   canNavigatePrevious: boolean;
   canNavigateNext: boolean;
 };
@@ -91,6 +95,8 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     hasActiveAudio: true,
     status: "loading",
     activeNavigationKey: resolvedSource.navigationKey ?? null,
+    positionMs: 0,
+    durationMs: null,
     loopScope: nextLoopScope,
     loopEnabled: playbackState.loopMode !== "off",
   });
@@ -109,6 +115,19 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
 
   const player = createAudioPlayer({ uri: audioUri }, { updateInterval: 30 });
   activePlayer = player;
+  let loopRestartInFlight = false;
+  const restartLoopFrom = async (startSeconds: number) => {
+    if (loopRestartInFlight || activePlayer !== player) return;
+    loopRestartInFlight = true;
+    try {
+      await player.seekTo(startSeconds, 0, 0);
+      if (activePlayer !== player || requestId !== playbackRequestId) return;
+      player.setPlaybackRate(playbackState.playbackRate, "medium");
+      if (playbackState.status === "playing") player.play();
+    } finally {
+      loopRestartInFlight = false;
+    }
+  };
   const finishPlayback = () => {
     if (activePlayer !== player) return;
     const onFinished = resolvedSource.onFinished;
@@ -129,7 +148,22 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
       onError?.();
       return;
     }
-    if (status.didJustFinish && playbackState.loopMode !== "one") finishPlayback();
+    if (activePlayer === player) {
+      const positionMs = Math.max(0, Math.round((status.currentTime ?? 0) * 1000));
+      const durationMs = typeof status.duration === "number" && Number.isFinite(status.duration)
+        ? Math.max(0, Math.round(status.duration * 1000))
+        : playbackState.durationMs;
+      if (Math.abs(positionMs - playbackState.positionMs) >= 100 || durationMs !== playbackState.durationMs) {
+        setPlaybackState({ positionMs, durationMs });
+      }
+    }
+    if (status.didJustFinish) {
+      if (playbackState.loopMode === "one") {
+        void restartLoopFrom(effectivePlaybackRange ? Math.max(0, effectivePlaybackRange.startMs / 1000) : 0);
+      } else {
+        finishPlayback();
+      }
+    }
   });
   activeLoadTimer = setTimeout(() => {
     if (activePlayer !== player || player.currentStatus.isLoaded) return;
@@ -159,9 +193,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
       const currentMs = player.currentStatus.currentTime * 1000;
       if (currentMs >= stopAtMs) {
         if (playbackState.loopMode === "one") {
-          void player.seekTo(startSeconds, 0, 0).then(() => {
-            if (activePlayer === player && playbackState.status === "playing") player.play();
-          });
+          void restartLoopFrom(startSeconds);
           return;
         }
         finishPlayback();
@@ -226,7 +258,8 @@ export function toggleTtsLoop(): void {
     : playbackState.loopMode === "one"
       ? "all"
       : "off";
-  if (activePlayer) activePlayer.loop = loopMode === "one";
+  // Loop explicitly so seeking/restarting can reapply the selected playback rate.
+  if (activePlayer) activePlayer.loop = false;
   setPlaybackState({ loopMode, loopEnabled: loopMode !== "off" });
 }
 
@@ -261,11 +294,13 @@ function stopActivePlayer(): void {
     hasActiveAudio: false,
     status: "idle",
     activeNavigationKey: null,
+    positionMs: 0,
+    durationMs: null,
   });
 }
 
 function applyPlayerControls(player: AudioPlayer): void {
-  player.loop = playbackState.loopMode === "one";
+  player.loop = false;
   player.setPlaybackRate(playbackState.playbackRate, "medium");
 }
 
@@ -279,6 +314,8 @@ function setPlaybackState(next: Partial<TtsPlaybackState>): void {
     merged.loopMode === playbackState.loopMode &&
     merged.loopScope === playbackState.loopScope &&
     merged.activeNavigationKey === playbackState.activeNavigationKey &&
+    merged.positionMs === playbackState.positionMs &&
+    merged.durationMs === playbackState.durationMs &&
     merged.canNavigatePrevious === playbackState.canNavigatePrevious &&
     merged.canNavigateNext === playbackState.canNavigateNext
   ) {
