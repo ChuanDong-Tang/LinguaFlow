@@ -1,5 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 import { Directory, File, Paths } from "expo-file-system";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 let activePlayer: AudioPlayer | null = null;
 let activeStopTimer: ReturnType<typeof setInterval> | null = null;
@@ -9,6 +10,8 @@ let audioModeReady = false;
 let cacheDirectoryReady = false;
 let playbackRequestId = 0;
 let lastCachePruneAt = 0;
+let playbackPreferencesLoadPromise: Promise<void> | null = null;
+let playbackPreferencesWriteChain = Promise.resolve();
 let playbackState: TtsPlaybackState = {
   hasActiveAudio: false,
   status: "idle",
@@ -31,6 +34,7 @@ const TTS_AUDIO_CACHE_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
 const TTS_RANGE_STOP_GUARD_MS = 80;
 const TTS_AUDIO_LOAD_TIMEOUT_MS = 15_000;
 const TTS_PLAYBACK_RATES = [0.5, 0.8, 1, 1.2, 1.5] as const;
+const TTS_PLAYBACK_PREFERENCES_KEY = "linguaflow.tts_playback.preferences.v1";
 
 export type TtsPlaybackRange = {
   startMs: number;
@@ -45,6 +49,7 @@ export type TtsAudioSource = {
   loopScope?: "all" | "one";
   onFinished?: () => void;
   onError?: () => void;
+  sessionId?: number;
 };
 
 export type TtsPlaybackState = {
@@ -74,7 +79,12 @@ export async function preloadTtsAudio(source: string | TtsAudioSource): Promise<
 }
 
 export async function playTtsAudio(source: string | TtsAudioSource, playbackRange?: TtsPlaybackRange): Promise<void> {
-  const requestId = playbackRequestId + 1;
+  await ensureTtsPlaybackPreferencesLoaded();
+  const resolvedSource = typeof source === "string"
+    ? { url: source, playbackRange }
+    : source;
+  const requestId = resolvedSource.sessionId ?? playbackRequestId + 1;
+  if (resolvedSource.sessionId !== undefined && resolvedSource.sessionId !== playbackRequestId) return;
   playbackRequestId = requestId;
 
   if (!audioModeReady) {
@@ -87,9 +97,6 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
 
   stopActivePlayer();
 
-  const resolvedSource = typeof source === "string"
-    ? { url: source, playbackRange }
-    : source;
   const nextLoopScope = resolvedSource.loopScope ?? "one";
   setPlaybackState({
     hasActiveAudio: true,
@@ -116,6 +123,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
   const player = createAudioPlayer({ uri: audioUri }, { updateInterval: 30 });
   activePlayer = player;
   let loopRestartInFlight = false;
+  let playbackFinished = false;
   const restartLoopFrom = async (startSeconds: number) => {
     if (loopRestartInFlight || activePlayer !== player) return;
     loopRestartInFlight = true;
@@ -129,9 +137,10 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     }
   };
   const finishPlayback = () => {
-    if (activePlayer !== player) return;
+    if (activePlayer !== player || playbackFinished) return;
+    playbackFinished = true;
     const onFinished = resolvedSource.onFinished;
-    stopTtsAudio();
+    stopActivePlayer();
     onFinished?.();
   };
   activePlaybackSubscription = player.addListener("playbackStatusUpdate", (status) => {
@@ -157,7 +166,11 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
         setPlaybackState({ positionMs, durationMs });
       }
     }
-    if (status.didJustFinish) {
+    const reachedNaturalEnd = typeof status.duration === "number"
+      && status.duration > 0
+      && typeof status.currentTime === "number"
+      && status.currentTime >= status.duration - 0.06;
+    if (status.didJustFinish || reachedNaturalEnd) {
       if (playbackState.loopMode === "one") {
         void restartLoopFrom(effectivePlaybackRange ? Math.max(0, effectivePlaybackRange.startMs / 1000) : 0);
       } else {
@@ -208,12 +221,18 @@ export function stopTtsAudio(options: { resetControls?: boolean } = {}): void {
   stopActivePlayer();
   if (options.resetControls) {
     setPlaybackState({
-      playbackRate: 1,
-      loopEnabled: false,
-      loopMode: "off",
       activeNavigationKey: null,
     });
   }
+}
+
+export function beginTtsPlaybackSession(): number {
+  stopTtsAudio();
+  return playbackRequestId;
+}
+
+export function isTtsPlaybackSessionCurrent(sessionId: number): boolean {
+  return sessionId === playbackRequestId;
 }
 
 export function toggleTtsPlayback(): void {
@@ -232,6 +251,7 @@ export function cycleTtsPlaybackRate(): void {
   const nextRate = TTS_PLAYBACK_RATES[(currentIndex + 1) % TTS_PLAYBACK_RATES.length] ?? 1;
   if (activePlayer) activePlayer.setPlaybackRate(nextRate, "medium");
   setPlaybackState({ playbackRate: nextRate });
+  persistTtsPlaybackPreferences();
 }
 
 export function navigateTtsPrevious(): void {
@@ -261,6 +281,7 @@ export function toggleTtsLoop(): void {
   // Loop explicitly so seeking/restarting can reapply the selected playback rate.
   if (activePlayer) activePlayer.loop = false;
   setPlaybackState({ loopMode, loopEnabled: loopMode !== "off" });
+  persistTtsPlaybackPreferences();
 }
 
 export function getTtsPlaybackState(): TtsPlaybackState {
@@ -324,6 +345,36 @@ function setPlaybackState(next: Partial<TtsPlaybackState>): void {
   playbackState = merged;
   playbackSubscribers.forEach((listener) => listener());
 }
+
+function ensureTtsPlaybackPreferencesLoaded(): Promise<void> {
+  playbackPreferencesLoadPromise ??= AsyncStorage.getItem(TTS_PLAYBACK_PREFERENCES_KEY)
+    .then((raw) => {
+      if (!raw) return;
+      const stored = JSON.parse(raw) as { playbackRate?: unknown; loopMode?: unknown };
+      const playbackRate = typeof stored.playbackRate === "number" && TTS_PLAYBACK_RATES.some((rate) => rate === stored.playbackRate)
+        ? stored.playbackRate
+        : playbackState.playbackRate;
+      const loopMode = stored.loopMode === "one" || stored.loopMode === "all" || stored.loopMode === "off"
+        ? stored.loopMode
+        : playbackState.loopMode;
+      setPlaybackState({ playbackRate, loopMode, loopEnabled: loopMode !== "off" });
+    })
+    .catch(() => undefined);
+  return playbackPreferencesLoadPromise;
+}
+
+function persistTtsPlaybackPreferences(): void {
+  const serialized = JSON.stringify({
+    playbackRate: playbackState.playbackRate,
+    loopMode: playbackState.loopMode,
+  });
+  playbackPreferencesWriteChain = playbackPreferencesWriteChain
+    .catch(() => undefined)
+    .then(() => AsyncStorage.setItem(TTS_PLAYBACK_PREFERENCES_KEY, serialized))
+    .catch(() => undefined);
+}
+
+void ensureTtsPlaybackPreferencesLoaded();
 
 async function resolveCachedTtsAudioUri(source: TtsAudioSource): Promise<string> {
   const cacheKey = sanitizeCacheKey(source.cacheKey);

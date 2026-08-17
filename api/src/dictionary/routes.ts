@@ -20,7 +20,7 @@ import { TokenQuotaExceededError, TokenRequestAlreadyExistsError, type UsageV2Se
 
 const FAILED_MODEL_OUTPUT_LOG_MAX_CHARS = 12_000;
 const DATAMUSE_TIMEOUT_MS = 4_000;
-const DICTIONARY_PROMPT_VERSION = "dictionary-context-v2";
+const DICTIONARY_PROMPT_VERSION = "dictionary-meaning-v3";
 const DICTIONARY_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1_000;
 
 export interface DictionaryRouteDeps {
@@ -54,16 +54,9 @@ type DictionaryLookupResult = {
   term: string;
   phonetic: string | null;
   audioUrl: string | null;
-  meanings: Array<{
-    partOfSpeech: string;
-    definitions: Array<{ definition: string; example: string | null }>;
-  }>;
-  source: { type: string; title: string } | null;
-  target: DictionaryExplanation;
-  ui: DictionaryExplanation;
+  targetMeaning: string;
+  nativeMeaning: string;
 };
-
-type DictionaryExplanation = { meaning: string; example: string; sourceNote: string | null; scenario: string };
 
 export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryRouteDeps): void {
   const runtimeConfig = getRuntimeConfig();
@@ -280,20 +273,8 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
 }
 
 function attachContextExample(result: DictionaryLookupResult, body: DictionaryLookupBody): DictionaryLookupResult {
-  const example = extractSelectionSentence(body.context, body.selectionStart, body.selectionEnd);
-  if (!example || !result.meanings[0]?.definitions[0]) return result;
-  const meanings = result.meanings.map((meaning, meaningIndex) => ({
-    ...meaning,
-    definitions: meaning.definitions.map((definition, definitionIndex) => (
-      meaningIndex === 0 && definitionIndex === 0 ? { ...definition, example } : definition
-    )),
-  }));
-  return {
-    ...result,
-    meanings,
-    target: { ...result.target, example },
-    ui: { ...result.ui, example },
-  };
+  void body;
+  return result;
 }
 
 function extractSelectionSentence(context: string, selectionStart: number, selectionEnd: number): string | null {
@@ -372,34 +353,11 @@ export function parseDictionaryResult(value: unknown): DictionaryLookupResult | 
     ? value.queryType
     : null;
   const term = readString(value.term);
-  const target = parseExplanation(value.target);
-  const ui = parseExplanation(value.ui);
-  const meanings = Array.isArray(value.meanings) ? value.meanings.flatMap((entry) => {
-    if (!isRecord(entry)) return [];
-    const definitions = Array.isArray(entry.definitions) ? entry.definitions.flatMap((definition) => {
-      if (!isRecord(definition)) return [];
-      const text = readString(definition.definition);
-      if (!text) return [];
-      const example = readString(definition.example);
-      return [{ definition: text, example: example || null }];
-    }).slice(0, 4) : [];
-    return definitions.length ? [{ partOfSpeech: readString(entry.partOfSpeech), definitions }] : [];
-  }).slice(0, 4) : [];
-  if (!queryType || !term || !target || !ui || !meanings.length) return null;
-  const source = isRecord(value.source) && readString(value.source.type) && readString(value.source.title)
-    ? { type: readString(value.source.type), title: readString(value.source.title) }
-    : null;
+  const targetMeaning = readString(value.targetMeaning);
+  const nativeMeaning = readString(value.nativeMeaning);
+  if (!queryType || !term || !targetMeaning || !nativeMeaning) return null;
   const phonetic = queryType === "word" ? readString(value.phonetic) || null : null;
-  return { queryType, term, phonetic, audioUrl: null, meanings, source, target, ui };
-}
-
-function parseExplanation(value: unknown): DictionaryExplanation | null {
-  if (!isRecord(value)) return null;
-  const meaning = readString(value.meaning);
-  const example = readString(value.example);
-  const scenario = readString(value.scenario);
-  if (!meaning || !example || !scenario) return null;
-  return { meaning, example, scenario, sourceNote: readString(value.sourceNote) || null };
+  return { queryType, term, phonetic, audioUrl: null, targetMeaning, nativeMeaning };
 }
 
 function sha256(value: string): string {
@@ -456,21 +414,14 @@ function normalizeDatamuseResult(value: unknown, fallbackTerm: string): Dictiona
   const fallbackPronunciation = tags.find((tag) => tag.startsWith("pron:"))?.slice("pron:".length).trim();
   const phonetic = ipa ? `/${ipa}/` : fallbackPronunciation || null;
   const firstDefinition = meanings[0]!.definitions[0]!;
-  const legacyContent = {
-    meaning: meanings.flatMap((meaning) => meaning.definitions.map((definition) => definition.definition)).slice(0, 3).join("\n"),
-    example: "No example available.",
-    sourceNote: null,
-    scenario: meanings.map((meaning) => meaning.partOfSpeech).filter(Boolean).join(", ") || "Dictionary entry",
-  };
+  const meaning = meanings.flatMap((item) => item.definitions.map((definition) => definition.definition)).slice(0, 3).join("; ") || firstDefinition.definition;
   return {
     queryType: "word",
     term: readString(entry.defHeadword) || readString(entry.word) || fallbackTerm,
     phonetic,
     audioUrl: null,
-    meanings,
-    source: null,
-    target: { ...legacyContent, meaning: legacyContent.meaning || firstDefinition.definition },
-    ui: { ...legacyContent, meaning: legacyContent.meaning || firstDefinition.definition },
+    targetMeaning: meaning,
+    nativeMeaning: meaning,
   };
 }
 

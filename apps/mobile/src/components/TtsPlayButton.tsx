@@ -2,7 +2,7 @@ import React from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getMessageTtsAsset, type TtsSourceKey } from "../services/api/ttsApi";
-import { getTtsPlaybackState, playTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
+import { beginTtsPlaybackSession, getTtsPlaybackState, isTtsPlaybackSessionCurrent, playTtsAudio, stopTtsAudio, subscribeTtsPlayback } from "../services/tts/ttsPlayback";
 import { t } from "../i18n";
 
 type TtsPlayButtonProps = {
@@ -33,6 +33,7 @@ export function TtsPlayButton({
   const [loading, setLoading] = React.useState(false);
   const mountedRef = React.useRef(true);
   const requestControllerRef = React.useRef<AbortController | null>(null);
+  const playbackSequenceRef = React.useRef(0);
   const playback = React.useSyncExternalStore(subscribeTtsPlayback, getTtsPlaybackState, getTtsPlaybackState);
   const navigationKey = messageId ? `message:${messageId}:${(sourceKeys?.length ? sourceKeys : [sourceKey]).join("+")}` : null;
   const isActive = Boolean(navigationKey && playback.hasActiveAudio && playback.activeNavigationKey === navigationKey);
@@ -44,6 +45,7 @@ export function TtsPlayButton({
   React.useEffect(() => {
     return () => {
       mountedRef.current = false;
+      playbackSequenceRef.current += 1;
       requestControllerRef.current?.abort();
       requestControllerRef.current = null;
     };
@@ -51,6 +53,7 @@ export function TtsPlayButton({
 
   React.useEffect(() => {
     requestControllerRef.current?.abort();
+    playbackSequenceRef.current += 1;
     requestControllerRef.current = null;
     setLoading(false);
   }, [messageId, sourceKey, sourceKeys?.join("+"), textStart, textEnd]);
@@ -58,35 +61,49 @@ export function TtsPlayButton({
   async function handlePress(): Promise<void> {
     if (!messageId || loading || disabled || !hasValidRange || isPlaybackLoading) return;
     if (isActive) {
-      toggleTtsPlayback();
+      stopTtsAudio();
       return;
     }
     requestControllerRef.current?.abort();
     const controller = new AbortController();
+    const ttsSessionId = beginTtsPlaybackSession();
+    const sequence = playbackSequenceRef.current + 1;
+    playbackSequenceRef.current = sequence;
     requestControllerRef.current = controller;
     setLoading(true);
     try {
       const requestedSources = sourceKeys?.length ? sourceKeys : [sourceKey];
-      const assets = await Promise.all(requestedSources.map((requestedSource) => getMessageTtsAsset({
-        messageId,
-        sourceKey: requestedSource,
-        textStart,
-        textEnd,
-        signal: controller.signal,
-      })));
+      const assetRequests = requestedSources.map((requestedSource) => getMessageTtsAsset({
+          messageId,
+          sourceKey: requestedSource,
+          textStart,
+          textEnd,
+          signal: controller.signal,
+        }));
+      // Start as soon as the first source is ready. Remaining sources continue
+      // loading in the background so a slow final reply cannot delay playback.
+      const firstAsset = await assetRequests[0];
       if (!mountedRef.current || controller.signal.aborted) return;
       const playAsset = async (index: number): Promise<void> => {
-        const asset = assets[index];
-        if (!asset || !navigationKey) return;
+        const asset = index === 0 ? firstAsset : await assetRequests[index];
+        if (!asset || !navigationKey || controller.signal.aborted || playbackSequenceRef.current !== sequence || !isTtsPlaybackSessionCurrent(ttsSessionId)) return;
         await playTtsAudio({
           url: asset.audioUrl,
           cacheKey: buildTtsCacheKey(asset),
           playbackRange: asset.playbackRange ?? undefined,
           navigationKey,
           loopScope: "all",
+          sessionId: ttsSessionId,
           onFinished: () => {
             const nextIndex = index + 1;
-            if (nextIndex < assets.length) void playAsset(nextIndex);
+            if (nextIndex < assetRequests.length) {
+              void playAsset(nextIndex).catch((error) => {
+                if (controller.signal.aborted || playbackSequenceRef.current !== sequence) return;
+                const normalized = error instanceof Error ? error : new Error(String(error));
+                if (onError) onError(normalized);
+                else Alert.alert(t("tts.error.title"), toFriendlyErrorMessage(normalized));
+              });
+            }
           },
         });
       };
@@ -119,7 +136,7 @@ export function TtsPlayButton({
       {loading || isPlaybackLoading ? (
         <ActivityIndicator size="small" color={color} />
       ) : (
-        <Ionicons name={isPlaying ? "pause" : "play"} size={size} color={canPlay ? color : "#C1C5CE"} />
+        <Ionicons name={isPlaying ? "stop" : "pulse-outline"} size={size} color={canPlay ? color : "#C1C5CE"} />
       )}
     </Pressable>
   );

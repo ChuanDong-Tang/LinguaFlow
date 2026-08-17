@@ -142,22 +142,8 @@ export function DictionaryPopover({
             <>
               {result.phonetic ? <Text style={styles.phonetic}>{result.phonetic}</Text> : null}
               <Text style={styles.sectionLabel}>{t("dictionary.meaning_here")}</Text>
-              <Text style={styles.primaryMeaning}>{result.target.meaning}</Text>
-              {result.ui.meaning !== result.target.meaning ? <Text style={styles.uiMeaning}>{result.ui.meaning}</Text> : null}
-
-              <Text style={styles.sectionLabel}>{t("dictionary.section.example")}</Text>
-              <Text style={styles.exampleText}>{result.target.example}</Text>
-              {result.ui.example !== result.target.example ? <Text style={styles.uiExample}>{result.ui.example}</Text> : null}
-
-              <Text style={styles.sectionLabel}>{t("dictionary.section.scenario")}</Text>
-              <Text style={styles.bodyText}>{result.target.scenario}</Text>
-              {result.ui.scenario !== result.target.scenario ? <Text style={styles.uiMeaning}>{result.ui.scenario}</Text> : null}
-
-              {result.source?.title || result.target.sourceNote || result.ui.sourceNote ? <>
-                <Text style={styles.sectionLabel}>{t("dictionary.section.source")}</Text>
-                <Text style={styles.bodyText}>{result.target.sourceNote || result.source?.title}</Text>
-                {result.ui.sourceNote && result.ui.sourceNote !== result.target.sourceNote ? <Text style={styles.uiMeaning}>{result.ui.sourceNote}</Text> : null}
-              </> : null}
+              <Text style={styles.primaryMeaning}>{result.targetMeaning}</Text>
+              {result.nativeMeaning !== result.targetMeaning ? <Text style={styles.uiMeaning}>{result.nativeMeaning}</Text> : null}
             </>
           ) : null}
         </ScrollView>

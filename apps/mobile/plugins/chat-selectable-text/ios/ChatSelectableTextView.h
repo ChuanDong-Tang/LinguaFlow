@@ -4,6 +4,7 @@
 @interface ChatSelectableTextView : UIView
 
 @property (nonatomic, copy) RCTDirectEventBlock onSelectionStart;
+@property (nonatomic, copy) RCTDirectEventBlock onSelectionEnd;
 @property (nonatomic, copy) RCTDirectEventBlock onSelection;
 @property (nonatomic, copy) RCTDirectEventBlock onClozeRangePress;
 @property (nonatomic, copy) RCTDirectEventBlock onClozeRangeLongPress;
@@ -14,6 +15,7 @@
 - (void)setBlankRangesJson:(NSString *)json;
 - (void)setCorrectRangesJson:(NSString *)json;
 - (void)setAnswersVisible:(BOOL)visible;
+- (void)setVisualsHidden:(BOOL)hidden;
 - (void)setTextColor:(NSString *)color;
 - (void)setFontSize:(NSNumber *)fontSize;
 - (void)setLineHeight:(NSNumber *)lineHeight;

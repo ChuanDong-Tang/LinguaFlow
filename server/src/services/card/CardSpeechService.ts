@@ -22,6 +22,8 @@ export type CardSpeechAssetView = {
   id: string;
   entryId: string;
   segmentId: string;
+  provider: string;
+  voiceCode: string;
   audioUrl: string;
   audioUrlExpiresAt: string | null;
   durationMs: number | null;
@@ -337,6 +339,8 @@ export class CardSpeechService {
       id: asset.id,
       entryId,
       segmentId,
+      provider: asset.provider,
+      voiceCode: asset.voiceCode,
       audioUrl: asset.objectUrl,
       audioUrlExpiresAt: asset.objectUrlExpiresAt?.toISOString() ?? null,
       durationMs: asset.durationMs,

@@ -29,6 +29,7 @@ import { useMountedGuard } from "../hooks/useMountedGuard";
 import { t, tf } from "../i18n";
 import { DebugPromptModal } from "./shared/DebugPromptModal";
 import { listTtsVoices, type TtsVoiceOption } from "../services/api/ttsApi";
+import { stopTtsAudio } from "../services/tts/ttsPlayback";
 import { getLogs, type AppLog } from "../services/logger";
 import { theme } from "../theme";
 import { prepareAndUploadAvatar } from "../services/profile/avatarUpload";
@@ -425,12 +426,14 @@ function ProfileEditModal({ visible, profile, onClose, onSaved }: {
   }
 
   async function pickAvatar(source: "camera" | "library"): Promise<void> {
-    const permission = source === "camera"
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(t("me.profile.photo_permission"), source === "camera" ? t("me.profile.camera_permission_message") : t("me.profile.library_permission_message"));
-      return;
+    if (source === "camera" || Platform.OS !== "android") {
+      const permission = source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t("me.profile.photo_permission"), source === "camera" ? t("me.profile.camera_permission_message") : t("me.profile.library_permission_message"));
+        return;
+      }
     }
     const result = source === "camera"
       ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 })
@@ -623,6 +626,7 @@ function LanguageSettingsModal({
     if (!canSave) return;
     setSaving(true);
     try {
+      const voiceChanged = ttsVoiceCode !== preference?.ttsVoiceCode;
       await onSave({
         appLocale,
         learningLanguage,
@@ -630,6 +634,7 @@ function LanguageSettingsModal({
         ttsVoiceCode,
         sttMultilingualRecognitionEnabled: multilingualRecognitionEnabled,
       });
+      if (voiceChanged) stopTtsAudio({ resetControls: true });
     } finally {
       setSaving(false);
     }

@@ -433,7 +433,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     dictionaryLookupGlobalRateLimit: readPositiveInt(env.DICTIONARY_LOOKUP_GLOBAL_RATE_LIMIT, 500),
     dictionaryLookupUserRateLimit: readPositiveInt(env.DICTIONARY_LOOKUP_USER_RATE_LIMIT, 80),
     dictionaryLookupRateWindowMs: readPositiveInt(env.DICTIONARY_LOOKUP_RATE_WINDOW_MS, 60_000),
-    dictionaryLookupMaxOutputTokens: readPositiveInt(env.DICTIONARY_LOOKUP_MAX_OUTPUT_TOKENS, 420),
+    dictionaryLookupMaxOutputTokens: readPositiveInt(env.DICTIONARY_LOOKUP_MAX_OUTPUT_TOKENS, 180),
     sttRealtimeGlobalRateLimit: resourcePolicies.stt.globalRequestsPerMinute,
     sttRealtimeUserRateLimit: resourcePolicies.stt.userRequestsPerMinute,
     sttRealtimeRateWindowMs: readPositiveInt(env.STT_REALTIME_RATE_WINDOW_MS, 60_000),

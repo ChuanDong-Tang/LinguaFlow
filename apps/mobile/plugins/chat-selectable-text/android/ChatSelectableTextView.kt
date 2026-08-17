@@ -511,6 +511,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
           currentActionMode = null
         }
         stopObservingOutsideSelectionTaps()
+        emitSelectionEnd()
         scheduleSelectionRelease()
       }
 
@@ -638,6 +639,14 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     reactContext
       .getJSModule(RCTEventEmitter::class.java)
       .receiveEvent(id, "topSelectionStart", event)
+  }
+
+  private fun emitSelectionEnd() {
+    val reactContext = context as? ReactContext ?: return
+    val event = Arguments.createMap()
+    reactContext
+      .getJSModule(RCTEventEmitter::class.java)
+      .receiveEvent(id, "topSelectionEnd", event)
   }
 
   private fun emitTextInteractionStart() {

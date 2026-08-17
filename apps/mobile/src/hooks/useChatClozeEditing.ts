@@ -236,8 +236,13 @@ export function useChatClozeEditing({
       if (payload.start === payload.end) {
         return;
       }
+      const clozeText = getAssistantClozeText(message, contact).text;
+      if (!selectionPayloadMatchesText(clozeText, payload)) {
+        clearSelection();
+        return;
+      }
       const expanded = expandSelectionToTokenRange(
-        getAssistantClozeText(message, contact).text,
+        clozeText,
         payload.start,
         payload.end,
         message.clozeState,
@@ -364,4 +369,9 @@ export function useChatClozeEditing({
     toggleDraftToken,
     confirmClozeEditor,
   };
+}
+
+function selectionPayloadMatchesText(text: string, payload: NativeTextSelectionPayload): boolean {
+  if (payload.start < 0 || payload.end > text.length || payload.start >= payload.end) return false;
+  return text.slice(payload.start, payload.end).normalize("NFC") === payload.selectedText.normalize("NFC");
 }

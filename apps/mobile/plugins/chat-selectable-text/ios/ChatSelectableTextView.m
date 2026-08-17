@@ -21,6 +21,7 @@
 @property (nonatomic, strong) UILongPressGestureRecognizer *rangeLongPressRecognizer;
 @property (nonatomic, strong) UILongPressGestureRecognizer *selectAllLongPressRecognizer;
 @property (nonatomic, assign) BOOL answersVisible;
+@property (nonatomic, assign) BOOL visualsHidden;
 @property (nonatomic, assign) BOOL hasEmittedSelectionStart;
 @property (nonatomic, assign) BOOL pendingSelectionRelease;
 @property (nonatomic, assign) NSRange lastSelectedRange;
@@ -212,6 +213,12 @@
   [self applyText];
 }
 
+- (void)setVisualsHidden:(BOOL)hidden
+{
+  _visualsHidden = hidden;
+  [self applyText];
+}
+
 - (void)setTextColor:(NSString *)color
 {
   _currentTextColor = [self colorFromString:color fallback:self.currentTextColor];
@@ -315,12 +322,12 @@
   paragraph.minimumLineHeight = self.currentLineHeight.floatValue;
   paragraph.maximumLineHeight = self.currentLineHeight.floatValue;
   [attributed addAttributes:@{
-    NSForegroundColorAttributeName: self.currentTextColor,
+    NSForegroundColorAttributeName: self.visualsHidden ? UIColor.clearColor : self.currentTextColor,
     NSFontAttributeName: font,
     NSParagraphStyleAttributeName: paragraph
   } range:fullRange];
 
-  for (NSDictionary *range in [self parseRanges:self.highlightRangesJson]) {
+  for (NSDictionary *range in (self.visualsHidden ? @[] : [self parseRanges:self.highlightRangesJson])) {
     NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
     if (safe.length == 0) continue;
     [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#3D3420" fallback:self.currentTextColor] range:safe];
@@ -346,6 +353,7 @@
 
 - (void)drawHighlightBackgroundsInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect
 {
+  if (self.visualsHidden) return;
   if (textView.textStorage.length == 0 || textView.bounds.size.width <= 0) return;
 
   NSLayoutManager *layoutManager = textView.layoutManager;
@@ -391,6 +399,7 @@
 
 - (void)drawBlankUnderlinesInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect
 {
+  if (self.visualsHidden) return;
   if (textView.textStorage.length == 0 || textView.bounds.size.width <= 0) return;
 
   NSLayoutManager *layoutManager = textView.layoutManager;
@@ -545,8 +554,12 @@
       self.onSelectionStart(@{});
     }
   } else if (textView.selectedRange.length == 0) {
+    BOOL hadActiveSelection = self.hasEmittedSelectionStart;
     self.hasEmittedSelectionStart = NO;
     [self stopObservingOutsideSelectionTaps];
+    if (hadActiveSelection && self.onSelectionEnd) {
+      self.onSelectionEnd(@{});
+    }
   } else if (textView.selectedRange.length > 0) {
     self.lastSelectedRange = textView.selectedRange;
     self.hasLastSelectedRange = YES;

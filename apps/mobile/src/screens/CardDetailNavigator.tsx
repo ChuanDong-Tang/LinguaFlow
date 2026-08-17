@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import {
   deleteCardImageUpload,
@@ -217,12 +217,14 @@ export function CardDetailNavigator({
       await appendPickedImages(recordId, [suppliedAsset]);
       return;
     }
-    const permission = source === "camera"
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(t("me.profile.photo_permission"), source === "camera" ? t("card_detail.photo.camera_permission_message") : t("card_detail.photo.library_permission_message"));
-      return;
+    if (source === "camera" || Platform.OS !== "android") {
+      const permission = source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t("me.profile.photo_permission"), source === "camera" ? t("card_detail.photo.camera_permission_message") : t("card_detail.photo.library_permission_message"));
+        return;
+      }
     }
     const result = source === "camera"
       ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 })

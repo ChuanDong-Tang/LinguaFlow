@@ -618,7 +618,7 @@ export async function getCardSelectionAudio(input: {
   endUtf16: number;
   contentType?: CardLearningContentType;
   contentVersion?: string;
-}): Promise<{ audioUrl: string; audioUrlExpiresAt: string | null }> {
+}): Promise<{ audioUrl: string; audioUrlExpiresAt: string | null; provider: string; voiceCode: string }> {
   return request(`/tts/cards/${encodeURIComponent(input.entryId)}/selection`, {
     method: "POST",
     body: JSON.stringify({
@@ -639,7 +639,7 @@ export async function getCardSegmentAudio(input: {
   endUtf16?: number;
   contentType?: CardLearningContentType;
   contentVersion?: string;
-}): Promise<{ audioUrl: string; audioUrlExpiresAt: string | null }> {
+}): Promise<{ audioUrl: string; audioUrlExpiresAt: string | null; provider: string; voiceCode: string }> {
   const range = input.startUtf16 === undefined || input.endUtf16 === undefined
     ? ""
     : `&start=${encodeURIComponent(String(input.startUtf16))}&end=${encodeURIComponent(String(input.endUtf16))}`;
@@ -656,6 +656,8 @@ export async function getCardArticleAudio(input: {
 }): Promise<{
   audioUrl: string;
   audioUrlExpiresAt: string | null;
+  provider: string;
+  voiceCode: string;
   durationMs: number | null;
   sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }> | null;
 }> {

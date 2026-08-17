@@ -12,20 +12,8 @@ export type DictionaryLookupResult = {
   term: string;
   phonetic: string | null;
   audioUrl: string | null;
-  meanings: Array<{
-    partOfSpeech: string;
-    definitions: Array<{ definition: string; example: string | null }>;
-  }>;
-  source: { type: string; title: string } | null;
-  target: DictionaryExplanation;
-  ui: DictionaryExplanation;
-};
-
-export type DictionaryExplanation = {
-  meaning: string;
-  example: string;
-  sourceNote: string | null;
-  scenario: string;
+  targetMeaning: string;
+  nativeMeaning: string;
 };
 
 export async function lookupDictionary(input: {

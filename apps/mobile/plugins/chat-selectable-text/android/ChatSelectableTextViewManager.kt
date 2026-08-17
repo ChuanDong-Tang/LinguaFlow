@@ -84,6 +84,7 @@ class ChatSelectableTextViewManager : SimpleViewManager<ChatSelectableTextView>(
   override fun getExportedCustomDirectEventTypeConstants(): Map<String, Any> {
     return MapBuilder.builder<String, Any>()
       .put("topSelectionStart", MapBuilder.of("registrationName", "onSelectionStart"))
+      .put("topSelectionEnd", MapBuilder.of("registrationName", "onSelectionEnd"))
       .put("topTextInteractionStart", MapBuilder.of("registrationName", "onTextInteractionStart"))
       .put("topSelection", MapBuilder.of("registrationName", "onSelection"))
       .put("topClozeRangePress", MapBuilder.of("registrationName", "onClozeRangePress"))

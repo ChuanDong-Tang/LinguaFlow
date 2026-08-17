@@ -776,12 +776,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       Alert.alert(t("card_detail.photo.limit_title"));
       return;
     }
-    const permission = source === "camera"
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(t("card_detail.photo.permission_title"), source === "camera" ? t("card_detail.photo.camera_permission_message") : t("card_detail.photo.library_permission_message"));
-      return;
+    if (source === "camera" || Platform.OS !== "android") {
+      const permission = source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t("card_detail.photo.permission_title"), source === "camera" ? t("card_detail.photo.camera_permission_message") : t("card_detail.photo.library_permission_message"));
+        return;
+      }
     }
     const result = source === "camera"
       ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 })
@@ -1012,8 +1014,31 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     await refresh();
   }
 
+  const openAssistant = () => {
+    const available = sidebarEntitlement?.tier === "plus" || sidebarEntitlement?.tier === "pro";
+    if (available) onOpenAssistant();
+    else Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"));
+  };
+  const edgeSidebarResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponderCapture: (_event, gesture) => Boolean(
+      !sidebarVisible
+      && !searchVisible
+      && !composerVisible
+      && !selectingRecords
+      && gesture.x0 <= 28
+      && gesture.dx > 14
+      && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4
+    ),
+    onPanResponderRelease: (_event, gesture) => {
+      if (gesture.dx > 64 || gesture.vx > 0.55) {
+        Keyboard.dismiss();
+        setSidebarVisible(true);
+      }
+    },
+  }), [composerVisible, searchVisible, selectingRecords, sidebarVisible]);
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} {...edgeSidebarResponder.panHandlers}>
       <View style={styles.brandRow}>
         <Pressable accessibilityLabel={selectingRecords ? t("common.cancel") : t("quick_note.a11y.open_nav")} style={styles.headerIconButton} onPress={() => {
           if (selectingRecords) {
@@ -1029,7 +1054,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           ? <Text style={styles.selectionHeaderTitle}>{selectedRecordIds.size}</Text>
           : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Ionicons name="chevron-down" size={15} color={theme.colors.textSecondary} /></Pressable>}
         <View style={styles.headerActions}>
-          {selectingRecords ? <View style={styles.headerIconButton} /> : <Pressable
+          {selectingRecords ? <View style={styles.headerIconButton} /> : <><Pressable accessibilityLabel={t("contact.curious_companion.name")} style={styles.headerIconButton} onPress={openAssistant}>
+            <Ionicons name="sparkles-outline" size={22} color={theme.colors.text} />
+          </Pressable><Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}
             onPress={() => {
@@ -1038,7 +1065,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             }}
           >
             <Ionicons name="search-outline" size={23} color={theme.colors.text} />
-          </Pressable>}
+          </Pressable></>}
         </View>
       </View>
 

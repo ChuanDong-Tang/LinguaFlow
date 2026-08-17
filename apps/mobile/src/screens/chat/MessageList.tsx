@@ -14,6 +14,7 @@ import {
 } from "./SelectableMessageText";
 import { t } from "../../i18n";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
+import { segmentLearningSentences } from "../../domain/learning/learningText";
 
 const TypingDots = React.memo(function TypingDots() {
   const dot1 = React.useRef(new Animated.Value(0.35)).current;
@@ -239,7 +240,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   onPrepareForCommand: (options?: { closeCopyMenu?: boolean }) => void;
 }) {
   const renderStart = perfNow();
-  const selectableRef = React.useRef<SelectableMessageTextRef | null>(null);
+  const sentenceRefs = React.useRef(new Map<string, SelectableMessageTextRef>());
   const [answersVisible, setAnswersVisible] = React.useState(false);
   const copyOptions = React.useMemo(() => getCopyOptions(message.text), [message.text]);
   const ttsSourceKeys = React.useMemo(() => {
@@ -258,6 +259,14 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
   }, [message, messageContact]);
 
   const displayText = clozeText.text;
+  const sentenceSegments = React.useMemo(
+    () => segmentLearningSentences({ text: displayText, languageCode: message.languageCode, minSegmentChars: 1 }),
+    [displayText, message.languageCode],
+  );
+  const translationSegments = React.useMemo(
+    () => segmentLearningSentences({ text: clozeText.translation, languageCode: message.languageCode, minSegmentChars: 1 }),
+    [clozeText.translation, message.languageCode],
+  );
   const hasDisplayText = displayText.trim().length > 0;
 
   const assistantRenderState:
@@ -364,13 +373,23 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
           {assistantRenderState === "typing" ? (
             <TypingDots />
           ) : hasDisplayText ? (
-            <SelectableMessageText
-              ref={selectableRef}
-              text={displayText}
+            <View>
+            {sentenceSegments.map((sentence, sentenceIndex) => {
+              const sentenceKey = `${sentence.textStart}:${sentence.textEnd}`;
+              const sentenceRef = sentenceRefs.current.get(sentenceKey) ?? null;
+              const localize = <T extends { start: number; end: number }>(ranges: T[] | undefined): T[] | undefined => ranges?.flatMap((range) => {
+                const start = Math.max(sentence.textStart, range.start);
+                const end = Math.min(sentence.textEnd, range.end);
+                return start < end ? [{ ...range, start: start - sentence.textStart, end: end - sentence.textStart }] : [];
+              });
+              return <View key={sentenceKey} style={styles.assistantSentenceRow}>
+              <View style={styles.assistantSentenceText}><SelectableMessageText
+              ref={(ref) => { if (ref) sentenceRefs.current.set(sentenceKey, ref); else sentenceRefs.current.delete(sentenceKey); }}
+              text={displayText.slice(sentence.textStart, sentence.textEnd)}
               style={styles.assistantCardText}
-              highlightRanges={highlightRanges}
-              blankRanges={blankRanges}
-              correctRanges={correctRanges}
+              highlightRanges={localize(highlightRanges)}
+              blankRanges={localize(blankRanges)}
+              correctRanges={localize(correctRanges)}
               trailingElement={
                 shouldShowAiBadge && !shouldShowTranslation ? (
                   <Text style={styles.inlineAiBadge}>{t("chat.ai_badge")}</Text>
@@ -378,14 +397,16 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               }
               onSelectionStart={
                 canShowCloze && !interactionsDisabled
-                  ? () => onSelectionRefChange(selectableRef.current)
+                  ? () => onSelectionRefChange(sentenceRefs.current.get(sentenceKey) ?? null)
                   : undefined
               }
               onSelectionChange={
                 canShowCloze && !interactionsDisabled
                   ? (payload) => {
-                    onSelectionRefChange(selectableRef.current);
-                    onTextSelection(message, payload, () => selectableRef.current?.clearSelection());
+                    const ref = sentenceRefs.current.get(sentenceKey);
+                    onSelectionRefChange(ref ?? null);
+                    const absolute = { ...payload, start: payload.start + sentence.textStart, end: payload.end + sentence.textStart };
+                    onTextSelection(message, absolute, () => ref?.clearSelection());
                   }
                   : undefined
               }
@@ -393,24 +414,30 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               onDictionarySelection={
                 canShowCloze && !interactionsDisabled
                   ? (payload) => {
-                    onSelectionRefChange(selectableRef.current);
-                    onDictionarySelection({ ...message, text: displayText }, payload, () => selectableRef.current?.clearSelection());
+                    const ref = sentenceRefs.current.get(sentenceKey);
+                    onSelectionRefChange(ref ?? null);
+                    const absolute = { ...payload, start: payload.start + sentence.textStart, end: payload.end + sentence.textStart };
+                    onDictionarySelection({ ...message, text: displayText }, absolute, () => ref?.clearSelection());
                   }
                   : undefined
               }
-              onClozeRangePress={undefined}
-              onClozeRangeLongPress={
+              onClozeRangePress={
                 hasClozeGroup && !interactionsDisabled ? (groupIndex) => onDeleteClozeGroup(message, groupIndex) : undefined
               }
+              onClozeRangeLongPress={undefined}
               interactionsDisabled={interactionsDisabled}
               onInteractionStart={onInteractionStart}
-            />
+            /></View>
+            {canUseTts && assistantRenderState === "complete" ? <TtsPlayButton messageId={message.id ?? message.serverId} sourceKey="rewrite" textStart={sentence.textStart} textEnd={sentence.textEnd} size={17} style={styles.sentenceTtsButton} /> : null}
+            </View>;
+            })}
+            </View>
           ) : null}
           {shouldShowTranslation ? (
-            <Text style={styles.translationText}>
-              {clozeText.translation}
-              {shouldShowAiBadge ? <Text style={styles.inlineAiBadge}>{t("chat.ai_badge")}</Text> : null}
-            </Text>
+            <View style={styles.translationBlock}>{translationSegments.map((sentence) => <View key={`${sentence.textStart}:${sentence.textEnd}`} style={styles.assistantSentenceRow}>
+              <Text style={[styles.translationText, styles.assistantSentenceText, styles.translationSentenceText]}>{clozeText.translation.slice(sentence.textStart, sentence.textEnd)}</Text>
+              {canUseTts && assistantRenderState === "complete" && ttsSourceKeys.length > 1 ? <TtsPlayButton messageId={message.id ?? message.serverId} sourceKey="reply" textStart={sentence.textStart} textEnd={sentence.textEnd} size={17} style={styles.sentenceTtsButton} /> : null}
+            </View>)}</View>
           ) : null}
           {shouldShowActions ? (
             <View style={styles.cardActionRow}>
@@ -820,6 +847,11 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 23,
   },
+  assistantSentenceRow: { flexDirection: "row", alignItems: "flex-end" },
+  assistantSentenceText: { flex: 1, minWidth: 0 },
+  sentenceTtsButton: { width: 30, height: 30, marginLeft: 3, marginBottom: 1 },
+  translationBlock: { marginTop: 8 },
+  translationSentenceText: { marginTop: 0 },
   inlineAiBadge: {
     color: "#6A62B7",
     fontSize: 10,

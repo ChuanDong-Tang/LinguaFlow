@@ -37,3 +37,28 @@ bash ci/cd/ios-testflight.sh --yes
 TestFlight installations always use Apple's Sandbox environment for in-app
 purchases. This is independent of the app's production API and Expo Updates
 channel, both of which are validated by this workflow.
+
+# Local Android Google Play workflow
+
+Before the first run, copy `android-play.env.example` to `android-play.env`.
+The default workflow builds a signed Android App Bundle and submits it to the
+Google Play internal testing track, not directly to production. Automated
+submission requires a Google Service Account key configured in EAS credentials.
+
+```bash
+# Build, validate, and submit to Google Play internal testing.
+bash ci/cd/android-play.sh
+
+# Check local configuration only.
+bash ci/cd/android-play.sh --check
+
+# Build and validate without uploading.
+bash ci/cd/android-play.sh --build-only
+
+# Skip the confirmation prompt.
+bash ci/cd/android-play.sh --yes
+```
+
+The Android workflow validates the package ID, version name/code, release
+signature, production Expo Updates channel, and embedded production API URL
+before upload.

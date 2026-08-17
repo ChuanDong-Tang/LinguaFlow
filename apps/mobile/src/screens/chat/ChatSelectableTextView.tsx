@@ -46,6 +46,7 @@ type NativeProps = ViewProps & {
   selectionMode?: "range" | "all";
   onContentHeightChange?: (event: NativeSyntheticEvent<{ height: number }>) => void;
   onSelectionStart?: (event: NativeSyntheticEvent<Record<string, never>>) => void;
+  onSelectionEnd?: (event: NativeSyntheticEvent<Record<string, never>>) => void;
   onSelection?: (event: NativeSyntheticEvent<ChatSelectableTextSelectionEvent>) => void;
   onClozeRangePress?: (event: NativeSyntheticEvent<ChatSelectableTextRangeEvent>) => void;
   onClozeRangeLongPress?: (event: NativeSyntheticEvent<ChatSelectableTextRangeEvent>) => void;

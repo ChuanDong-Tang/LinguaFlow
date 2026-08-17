@@ -38,6 +38,7 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [attempts, setAttempts] = useState<Record<string, boolean>>({});
   const [summary, setSummary] = useState({ cards: 0, attempted: 0, correct: 0 });
+  const [completedBlindBox, setCompletedBlindBox] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [topicVisible, setTopicVisible] = useState(false);
@@ -141,6 +142,7 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
     setLoading(true);
     try {
       const created = await createRecallSessionFromRecords(uniqueIds, query);
+      setCompletedBlindBox(query?.startsWith("blind:") === true);
       await openSession(created);
       return true;
     } catch (error) {
@@ -293,11 +295,12 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
   }
 
   const currentNode = session?.nodes[currentIndex];
+  const currentDetail = currentNode ? cards[currentNode.recordId] ?? null : null;
   if (stage === "deck" && session && currentNode) return <View style={styles.deckPage}>
     <CardDetailModal
-      detail={cards[currentNode.recordId] ?? null}
-      loading={!cards[currentNode.recordId]}
-      initialTab="cloze"
+      detail={currentDetail}
+      loading={!currentDetail}
+      initialTab={hasRecallCloze(currentDetail) ? "cloze" : "review"}
       hideRelations
       onClose={leaveDeck}
       recallPosition={{ index: currentIndex, total: session.nodes.length }}
@@ -311,7 +314,7 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
     {finishing ? <View style={styles.busyOverlay}><ActivityIndicator size="large" color={theme.colors.text} /></View> : null}
   </View>;
 
-  if (stage === "summary") return <RecallSummary summary={summary} onDone={finishSummary} />;
+  if (stage === "summary") return <RecallSummary summary={summary} onDone={finishSummary} onAgain={completedBlindBox ? () => void beginBlindBox() : undefined} loading={loading} />;
 
   if (directLaunchPending) return <SafeAreaView style={styles.directLaunchPage}><ActivityIndicator size="large" color={theme.colors.text} /></SafeAreaView>;
 
@@ -407,11 +410,11 @@ function BlindCountSlider({ value, onChange }: { value: number; onChange: (value
   </View>;
 }
 
-function RecallSummary({ summary, onDone }: { summary: { cards: number; attempted: number; correct: number }; onDone: () => void }) {
+function RecallSummary({ summary, onDone, onAgain, loading }: { summary: { cards: number; attempted: number; correct: number }; onDone: () => void; onAgain?: () => void; loading: boolean }) {
   const scale = useRef(new Animated.Value(.88)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   useEffect(() => { Animated.parallel([Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 15, bounciness: 7 }), Animated.timing(opacity, { toValue: 1, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true })]).start(); }, [opacity, scale]);
-  return <SafeAreaView style={styles.summaryPage}><Animated.View style={[styles.summaryCard, { opacity, transform: [{ scale }] }]}><View style={styles.summaryIcon}><Ionicons name="sparkles" size={30} color="#58916B" /></View><Text style={styles.summaryTitle}>{t("recall.summary_title")}</Text><View style={styles.summaryStats}><SummaryStat value={summary.cards} label={t("recall.summary_cards_short")} /><SummaryStat value={summary.attempted} label={t("recall.summary_blanks")} /><SummaryStat value={summary.correct} label={t("recall.summary_correct")} /></View><Pressable style={styles.startButton} onPress={onDone}><Text style={styles.startButtonText}>{t("recall.summary_done")}</Text></Pressable></Animated.View></SafeAreaView>;
+  return <SafeAreaView style={styles.summaryPage}><Animated.View style={[styles.summaryCard, { opacity, transform: [{ scale }] }]}><View style={styles.summaryIcon}><Ionicons name="sparkles" size={30} color="#58916B" /></View><Text style={styles.summaryTitle}>{t("recall.summary_title")}</Text><View style={styles.summaryStats}><SummaryStat value={summary.cards} label={t("recall.summary_cards_short")} /><SummaryStat value={summary.attempted} label={t("recall.summary_blanks")} /><SummaryStat value={summary.correct} label={t("recall.summary_correct")} /></View>{onAgain ? <Pressable disabled={loading} style={[styles.startButton, loading && styles.disabled]} onPress={onAgain}>{loading ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.startButtonText}>{t("recall.summary_again")}</Text>}</Pressable> : null}<Pressable style={[styles.startButton, onAgain && styles.summaryDoneSecondary]} onPress={onDone}><Text style={[styles.startButtonText, onAgain && styles.summaryDoneSecondaryText]}>{t("recall.summary_done")}</Text></Pressable></Animated.View></SafeAreaView>;
 }
 
 function SummaryStat({ value, label }: { value: number; label: string }) { return <View style={styles.summaryStat}><Text style={styles.summaryValue}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text></View>; }
@@ -443,6 +446,19 @@ async function saveBlindSettings(period: BlindPeriod, count: number): Promise<vo
 function completedCards(rows: CardRecordSummary[]): CardRecordSummary[] {
   return rows.filter((row) => row.status === "completed" && !row.isSample);
 }
+function hasRecallCloze(detail: CardRecordDetail | null): boolean {
+  if (!detail) return false;
+  const blocks = detail.contentBlocks ?? [];
+  const learningBlock = blocks.find((block) => block.contentType === "rewrite")
+    ?? blocks.find((block) => block.contentType === "original")
+    ?? blocks[0];
+  const practice = learningBlock?.practice ?? detail.practice;
+  const state = practice?.clozeState;
+  return Boolean(
+    practice?.hasCloze
+    || state && typeof state === "object" && "blanks" in state && Array.isArray(state.blanks) && state.blanks.length > 0,
+  );
+}
 function shuffle<T>(items: T[]): T[] { for (let index = items.length - 1; index > 0; index -= 1) { const target = Math.floor(Math.random() * (index + 1)); [items[index], items[target]] = [items[target]!, items[index]!]; } return items; }
 
 const styles = StyleSheet.create({
@@ -452,4 +468,5 @@ const styles = StyleSheet.create({
   scrim: { flex: 1, paddingHorizontal: 24, backgroundColor: "rgba(0,0,0,.28)", justifyContent: "center" }, panel: { paddingHorizontal: 18, paddingTop: 17, paddingBottom: 18, borderRadius: 18, backgroundColor: theme.colors.surface }, panelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, panelTitle: { marginBottom: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "600" }, topicInputRow: { height: 48, paddingLeft: 13, paddingRight: 4, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, flexDirection: "row", alignItems: "center" }, topicInput: { flex: 1, height: 46, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 15 }, topicGo: { width: 38, height: 38, borderRadius: 9, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" }, topicGoDisabled: { backgroundColor: theme.colors.surfaceMuted }, topicStatus: { minHeight: 34, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 }, topicStatusText: { color: theme.colors.textMuted, fontSize: 13 }, topicEmpty: { minHeight: 34, marginTop: 8, color: theme.colors.textSecondary, fontSize: 13 },
   blindOptionLabel: { marginTop: 16, color: theme.colors.text, fontSize: 14, fontWeight: "500" }, periodSegments: { height: 44, marginTop: 10, padding: 3, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row" }, periodSegment: { flex: 1, borderRadius: 9, alignItems: "center", justifyContent: "center" }, periodSegmentActive: { backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: .08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }, periodSegmentText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, periodSegmentTextActive: { color: theme.colors.text }, blindCountHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, blindCountValue: { marginTop: 16, color: theme.colors.text, fontSize: 16, fontWeight: "600" }, countSlider: { height: 38, marginHorizontal: 10, marginTop: 7, justifyContent: "center" }, countSliderTrack: { position: "absolute", left: 0, right: 0, height: 4, borderRadius: 2, backgroundColor: theme.colors.border }, countSliderProgress: { position: "absolute", left: 0, height: 4, borderRadius: 2, backgroundColor: theme.colors.text }, countSliderTick: { position: "absolute", width: 2, height: 8, marginLeft: -1, borderRadius: 1, backgroundColor: theme.colors.border }, countSliderThumb: { position: "absolute", width: 22, height: 22, marginLeft: -11, borderWidth: 2, borderColor: theme.colors.surface, borderRadius: 11, backgroundColor: theme.colors.text, shadowColor: "#000", shadowOpacity: .18, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 3 }, countEndpoints: { marginTop: -3, paddingHorizontal: 9, flexDirection: "row", justifyContent: "space-between" }, countEndpoint: { color: theme.colors.textMuted, fontSize: 11 }, startButton: { height: 48, marginTop: 18, borderRadius: 14, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" }, startButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
   busyOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,.55)", alignItems: "center", justifyContent: "center" }, summaryPage: { flex: 1, paddingHorizontal: 24, backgroundColor: "#F4F7F3", alignItems: "center", justifyContent: "center" }, summaryCard: { width: "100%", maxWidth: 430, padding: 24, borderRadius: 24, backgroundColor: theme.colors.surface, shadowColor: "#315D3F", shadowOpacity: .1, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 4 }, summaryIcon: { width: 58, height: 58, alignSelf: "center", borderRadius: 29, backgroundColor: "#E5F2E8", alignItems: "center", justifyContent: "center" }, summaryTitle: { marginTop: 15, textAlign: "center", color: theme.colors.text, fontSize: 23, fontWeight: "600" }, summaryStats: { marginTop: 25, flexDirection: "row" }, summaryStat: { flex: 1, alignItems: "center" }, summaryValue: { color: theme.colors.text, fontSize: 27, fontWeight: "600" }, summaryLabel: { marginTop: 5, color: theme.colors.textMuted, fontSize: 12 },
+  summaryDoneSecondary: { marginTop: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface }, summaryDoneSecondaryText: { color: theme.colors.text },
 });

@@ -60,6 +60,7 @@ type Props = {
   interactionsDisabled?: boolean;
   onInteractionStart?: () => void;
   onSelectionStart?: () => void;
+  onSelectionEnd?: () => void;
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
   onDictionarySelection?: (payload: NativeTextSelectionPayload) => void;
   onClozeRangePress?: (groupIndex: number) => void;
@@ -224,6 +225,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     interactionsDisabled = false,
     onInteractionStart,
     onSelectionStart,
+    onSelectionEnd,
     onSelectionChange,
     onDictionarySelection,
     onClozeRangePress,
@@ -271,10 +273,12 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         const selectedText = payload.highlightedText;
         if (!selectedText) return;
         const hasNativeRange = typeof payload.selectionStart === "number" && typeof payload.selectionEnd === "number";
-        const start = hasNativeRange ? payload.selectionStart! : text.indexOf(selectedText);
+        const fallbackStart = findUniqueSelectionStart(text, selectedText);
+        const start = hasNativeRange ? payload.selectionStart! : fallbackStart;
         if (start < 0) return;
         const end = hasNativeRange ? payload.selectionEnd! : start + selectedText.length;
         const selectedRange = { start: Math.min(start, end), end: Math.max(start, end) };
+        if (!selectionMatchesText(text, selectedRange, selectedText)) return;
         if (payload.chosenOption === dictionaryMenuOption) {
           const expandedRange =
             findContainingHighlightRange(highlights, selectedRange.start, selectedRange.end) ??
@@ -350,6 +354,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         ],
         onContentHeightChange: handleNativeContentHeightChange,
         onSelectionStart,
+        onSelectionEnd,
         onSelection: handleNativeSelection,
         onClozeRangePress: handleClozeRangePress,
         onClozeRangeLongPress: handleClozeRangeLongPress,
@@ -365,6 +370,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           : [],
         onTouchStart: interactionsDisabled || !shouldNotifyInteractionOnTouchStart ? undefined : handleTouchStart,
         onSelectionStart: interactionsDisabled ? undefined : onSelectionStart,
+        onSelectionEnd: interactionsDisabled ? undefined : onSelectionEnd,
         onSelection: interactionsDisabled ? undefined : handleNativeSelection,
         onClozeRangePress: interactionsDisabled ? undefined : handleClozeRangePress,
         onClozeRangeLongPress: interactionsDisabled ? undefined : handleClozeRangeLongPress,
@@ -407,6 +413,21 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     );
   },
 );
+
+function findUniqueSelectionStart(text: string, selectedText: string): number {
+  const first = text.indexOf(selectedText);
+  if (first < 0) return -1;
+  return text.indexOf(selectedText, first + selectedText.length) < 0 ? first : -1;
+}
+
+function selectionMatchesText(
+  text: string,
+  range: { start: number; end: number },
+  selectedText: string,
+): boolean {
+  if (range.start < 0 || range.end > text.length || range.start >= range.end) return false;
+  return text.slice(range.start, range.end).normalize("NFC") === selectedText.normalize("NFC");
+}
 
 const styles = StyleSheet.create({
   nativeTextContainer: {

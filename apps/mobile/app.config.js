@@ -37,6 +37,13 @@ module.exports = {
       versionCode: 61,
       allowBackup: false,
       permissions: ["RECORD_AUDIO"],
+      blockedPermissions: [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+      ],
       adaptiveIcon: {
         foregroundImage: "./assets/app/logo_main.png",
         backgroundColor: "#ffffff",
@@ -62,12 +69,6 @@ module.exports = {
         {
           photosPermission: "OIO 需要访问相册，让你为生活记录选择图片。",
           cameraPermission: "OIO 需要使用相机，让你为生活记录拍摄图片。",
-        },
-      ],
-      [
-        "expo-media-library",
-        {
-          photosPermission: "OIO 需要访问最近照片，让你更快地为生活记录选择图片。",
         },
       ],
       "./plugins/with-android-audio-playback-policy",
