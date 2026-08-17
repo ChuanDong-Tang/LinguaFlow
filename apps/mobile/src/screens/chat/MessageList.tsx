@@ -15,6 +15,7 @@ import {
 import { t } from "../../i18n";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
 import { segmentLearningSentences } from "../../domain/learning/learningText";
+import OioCharacter from "../../../assets/app/oio-character.svg";
 
 const TypingDots = React.memo(function TypingDots() {
   const dot1 = React.useRef(new Animated.Value(0.35)).current;
@@ -367,7 +368,9 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
     <View style={styles.assistantBlock}>
       <View style={styles.assistantRow}>
         <View style={styles.assistantAvatar}>
-          <Text style={styles.assistantLogo}>{contact.avatarLabel}</Text>
+          {contact.id === "curious_companion"
+            ? <OioCharacter width={38} height={36} />
+            : <Text style={styles.assistantLogo}>{contact.avatarLabel}</Text>}
         </View>
         <View style={styles.assistantCard}>
           {assistantRenderState === "typing" ? (

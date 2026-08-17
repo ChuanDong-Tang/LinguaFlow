@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getChatContactDescription, getChatContactName, type ChatContact } from "../../domain/chat/contacts";
 import { t } from "../../i18n";
+import OioCharacter from "../../../assets/app/oio-character.svg";
 
 type ChatHeaderProps = {
   contact: ChatContact;
@@ -19,7 +20,9 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
       </Pressable>
 
       <View style={styles.headerAvatarWrap}>
-        <Text style={styles.logoText}>{contact.avatarLabel}</Text>
+        {contact.id === "curious_companion"
+          ? <OioCharacter width={38} height={36} />
+          : <Text style={styles.logoText}>{contact.avatarLabel}</Text>}
       </View>
 
       <View style={styles.headerBody}>
