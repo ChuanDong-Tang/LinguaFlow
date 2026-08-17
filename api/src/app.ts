@@ -403,6 +403,7 @@ export function createApp() {
     ttsStorageProvider,
     redisClient,
     resourceGovernor,
+    runtimeConfig.cardContentMaxChars,
   );
   const sttService = new SttService(new AzureGlobalSttProvider());
 

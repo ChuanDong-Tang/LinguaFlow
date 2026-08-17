@@ -1736,72 +1736,6 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     void playReplyFrom(0);
   }
 
-  function prepareArticleAudio(index: number, rows: CardClozeSentenceRow[]): Promise<string> {
-    const row = rows[index];
-    if (!row || detail.source !== "card") return Promise.reject(new Error("Article sentence is unavailable"));
-    const requestKey = [
-      "card-article",
-      detail.id.slice("card:".length),
-      contentBinding.contentType,
-      row.segmentId,
-      row.textStart,
-      row.textEnd,
-      contentBinding.contentVersion,
-    ].join("-");
-    const existing = articleAudioPromisesRef.current.get(requestKey);
-    if (existing) return existing;
-    const request = (async () => {
-      const audio = await getCardSegmentAudio({
-        entryId: detail.id.slice("card:".length),
-        segmentId: row.segmentId,
-        sourceKind: "review_segment",
-        startUtf16: row.textStart,
-        endUtf16: row.textEnd,
-        ...contentBinding,
-      });
-      return preloadTtsAudio({ url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") });
-    })();
-    articleAudioPromisesRef.current.set(requestKey, request);
-    void request.finally(() => {
-      if (articleAudioPromisesRef.current.get(requestKey) === request) articleAudioPromisesRef.current.delete(requestKey);
-    }).catch(() => undefined);
-    return request;
-  }
-
-  async function playArticleFrom(index: number, rows: CardClozeSentenceRow[], sessionId = beginTtsPlaybackSession()): Promise<void> {
-    const row = rows[index];
-    if (!row || detail.source !== "card") return;
-    try {
-      const audioUrl = await prepareArticleAudio(index, rows);
-      if (!isTtsPlaybackSessionCurrent(sessionId)) return;
-      const lookAheadIndex = index + 2;
-      if (lookAheadIndex < rows.length) void prepareArticleAudio(lookAheadIndex, rows).catch(() => undefined);
-      await playTtsAudio({
-        url: audioUrl,
-        loopScope: "all",
-        navigationKey: `card:${detail.id}:article:${index}`,
-        sessionId,
-        onFinished: () => {
-          const nextIndex = index + 1;
-          if (nextIndex < rows.length) {
-            void playArticleFrom(nextIndex, rows, sessionId);
-            return;
-          }
-          const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
-          if (replyBlock?.segments.length) {
-            void playReplyFrom(0, () => {
-              if (getTtsPlaybackState().loopMode === "all") void playArticleFrom(0, rows, sessionId);
-            }, true, sessionId);
-            return;
-          }
-          if (getTtsPlaybackState().loopMode === "all") void playArticleFrom(0, rows, sessionId);
-        },
-      });
-    } catch (error) {
-      Alert.alert(t("card_detail.error.play"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
-    }
-  }
-
   function prepareWholeArticleAudio(): Promise<{
     audioUrl: string;
     sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }>;
@@ -1817,9 +1751,9 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       return { audioUrl, sentenceMarks: audio.sentenceMarks ?? [] };
     })();
     wholeArticleAudioPromisesRef.current.set(requestKey, request);
-    void request.finally(() => {
+    void request.catch(() => {
       if (wholeArticleAudioPromisesRef.current.get(requestKey) === request) wholeArticleAudioPromisesRef.current.delete(requestKey);
-    }).catch(() => undefined);
+    });
     return request;
   }
 
@@ -1839,17 +1773,12 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
         navigationKey: `${articleNavigationPrefix}0`,
         sessionId,
         onFinished: () => {
-          if (getTtsPlaybackState().loopMode === "all") void playArticleFrom(0, rows, sessionId);
+          if (getTtsPlaybackState().loopMode === "all") void playArticle();
         },
       });
-    } catch {
-      // Older server versions do not expose article audio. Keep sentence playback as a safe fallback.
+    } catch (error) {
       setArticleSentenceMarks([]);
-      await Promise.all([
-        prepareArticleAudio(0, rows),
-        rows.length > 1 ? prepareArticleAudio(1, rows) : Promise.resolve(""),
-      ]);
-      if (isTtsPlaybackSessionCurrent(sessionId)) await playArticleFrom(0, rows, sessionId);
+      showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.play"), type: "error", position: "top-center" });
     } finally {
       setArticleAudioLoading(false);
     }
@@ -1860,16 +1789,20 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     if (index < 0 || detail.source !== "card") return;
     const sessionId = beginTtsPlaybackSession();
     try {
-      const audioUrl = await prepareArticleAudio(index, articleRows);
+      const audio = await prepareWholeArticleAudio();
       if (!isTtsPlaybackSessionCurrent(sessionId)) return;
+      setArticleSentenceMarks(audio.sentenceMarks);
+      const mark = audio.sentenceMarks[index];
+      if (!mark || mark.durationMs <= 0) throw new Error(t("card_detail.error.play"));
       await playTtsAudio({
-        url: audioUrl,
+        url: audio.audioUrl,
+        playbackRange: { startMs: mark.startMs, endMs: mark.startMs + mark.durationMs },
         loopScope: "one",
         navigationKey: `card:${detail.id}:sentence:${row.key}`,
         sessionId,
       });
     } catch (error) {
-      Alert.alert(t("card_detail.error.play"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+      showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.play"), type: "error", position: "top-center" });
     }
   }
 
@@ -1901,10 +1834,10 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     const playQueueIndex = (nextQueueIndex: number) => {
       const normalized = (nextQueueIndex + queueLength) % queueLength;
       if (normalized < articleRows.length) {
-        void playArticleFrom(normalized, articleRows);
+        void playStandaloneSentence(articleRows[normalized]!);
       } else {
         void playReplyFrom(normalized - articleRows.length, () => {
-          if (getTtsPlaybackState().loopMode === "all") void playArticleFrom(0, articleRows);
+          if (getTtsPlaybackState().loopMode === "all" && articleRows[0]) void playStandaloneSentence(articleRows[0]);
         }, true);
       }
     };

@@ -3,6 +3,7 @@ import type { CardRepository, CardSpeechAssetEntity, CardLearningContentType, Ca
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import { inferLearningTextLanguage, normalizeLearningText, segmentLearningSentences } from "@lf/core/text/learningText.js";
 import { countGraphemes, isUtf16GraphemeBoundary } from "@lf/core/text/grapheme.js";
+import { DEFAULT_CARD_CONTENT_MAX_CHARS } from "@lf/core/text/cardText.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { TtsProvider } from "../tts/TtsProvider.js";
 import type { TtsStorageProvider } from "../tts/TtsStorageProvider.js";
@@ -56,6 +57,7 @@ export class CardSpeechService {
     private readonly storage: TtsStorageProvider,
     private readonly redisClient?: RedisClient | null,
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly articleMaxChars = DEFAULT_CARD_CONTENT_MAX_CHARS,
   ) {}
 
   async getOrCreateSegment(input: {
@@ -146,9 +148,8 @@ export class CardSpeechService {
     if (!segments.length) throw new CardNotFoundError();
     const languageCode = contentLanguageCode(entry, input.contentType);
     const learningText = segments.map((segment) => segment.text.trim()).filter(Boolean).join(" ");
-    const replyText = input.contentType !== "reply" && entry.replyLanguageCode === languageCode ? entry.replyText?.trim() ?? "" : "";
-    const sourceText = normalizeLearningText({ text: [learningText, replyText].filter(Boolean).join("\n\n"), languageCode });
-    if (!sourceText || countGraphemes(sourceText) > 3_000) throw new CardValidationError("Article speech is too long");
+    const sourceText = normalizeLearningText({ text: learningText, languageCode });
+    if (!sourceText || countGraphemes(sourceText) > this.articleMaxChars) throw new CardValidationError("Article speech is too long");
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
     const voiceCode = preference.ttsVoiceCode && isConfiguredTtsVoice({ provider, languageCode, voiceCode: preference.ttsVoiceCode })
