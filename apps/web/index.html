@@ -1522,6 +1522,58 @@
             <div class="section">
               <div class="section-head">
                 <div>
+                  <h2 class="section-title">TTS 审计</h2>
+                  <p class="section-subtitle">仅统计用户主动请求；查看整篇音频、缓存命中、生成字符、耗时与错误</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>User ID</label>
+                  <input id="ttsLogUserId" placeholder="可空" />
+                </div>
+                <div class="field">
+                  <label>Status</label>
+                  <select id="ttsLogStatus">
+                    <option value="">全部</option>
+                    <option value="success">success</option>
+                    <option value="failed">failed</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Cache Hit</label>
+                  <select id="ttsLogCacheHit">
+                    <option value="">全部</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </div>
+                <button id="btnLoadTtsLogs" class="btn">查询 TTS</button>
+              </div>
+              <div id="ttsLogMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>内容</th>
+                      <th>语言 / 音色</th>
+                      <th>字符</th>
+                      <th>缓存</th>
+                      <th>复用</th>
+                      <th>耗时</th>
+                      <th>消息</th>
+                      <th>错误</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ttsLogsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
                   <h2 class="section-title">STT 审计</h2>
                   <p class="section-subtitle">实时语音识别请求、音频时长、计费秒数、识别结果和错误</p>
                 </div>
@@ -2916,6 +2968,74 @@
         setStatus("已填入智能词典系统日志筛选");
       }
 
+      async function loadTtsLogs() {
+        const qs = new URLSearchParams();
+        qs.set("limit", "100");
+        if ($("ttsLogUserId").value.trim()) qs.set("userId", $("ttsLogUserId").value.trim());
+        if ($("ttsLogStatus").value.trim()) qs.set("status", $("ttsLogStatus").value.trim());
+        if ($("ttsLogCacheHit").value.trim()) qs.set("cacheHit", $("ttsLogCacheHit").value.trim());
+        const res = await request(`/admin/tts/request-logs?${qs.toString()}`);
+        const rows = Array.isArray(res.data) ? res.data : [];
+        renderTtsLogs(rows);
+        setStatus(`TTS 审计：${rows.length} 条`);
+      }
+
+      function renderTtsLogs(rows) {
+        const durations = rows
+          .map((row) => Number(row.durationMs || 0))
+          .filter((value) => Number.isFinite(value) && value > 0)
+          .sort((left, right) => left - right);
+        const summary = rows.reduce((acc, row) => {
+          acc.total += 1;
+          if (row.status === "success") acc.success += 1;
+          if (row.status === "failed") acc.failed += 1;
+          if (row.cacheHit) acc.cacheHits += 1;
+          if (row.deduped) acc.deduped += 1;
+          if (row.status === "success" && !row.cacheHit && !row.deduped) {
+            acc.generatedRequests += 1;
+            acc.generatedChars += Number(row.sourceTextChars || 0);
+          }
+          return acc;
+        }, { total: 0, success: 0, failed: 0, cacheHits: 0, deduped: 0, generatedRequests: 0, generatedChars: 0 });
+        const averageDuration = durations.length
+          ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length)
+          : 0;
+        const p95Duration = durations.length
+          ? durations[Math.min(durations.length - 1, Math.ceil(durations.length * 0.95) - 1)]
+          : 0;
+        const cacheRate = summary.total ? `${(summary.cacheHits / summary.total * 100).toFixed(1)}%` : "0%";
+        $("ttsLogMetrics").innerHTML = [
+          ["请求数", summary.total, "latest 100 · user initiated"],
+          ["成功 / 失败", `${summary.success} / ${summary.failed}`, "request status"],
+          ["缓存命中率", cacheRate, `${summary.cacheHits} cache hits`],
+          ["新生成", summary.generatedRequests, `${summary.generatedChars} chars`],
+          ["并发复用", summary.deduped, "deduped requests"],
+          ["平均 / P95", `${averageDuration} / ${p95Duration} ms`, "end-to-end server latency"],
+        ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+        const sourceLabels = { full: "整篇", rewrite: "润色", reply: "回复" };
+        $("ttsLogsTbody").innerHTML = rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td class="mono">${escapeHtml(row.userId)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(sourceLabels[row.sourceKey] || row.sourceKey || "-")}</td>
+            <td>${escapeHtml(`${row.languageCode || "-"} / ${row.voiceCode || "-"}`)}</td>
+            <td>${escapeHtml(row.sourceTextChars ?? "")}</td>
+            <td>${escapeHtml(row.cacheHit ? "hit" : "miss")}</td>
+            <td>${escapeHtml(row.deduped ? "yes" : "no")}</td>
+            <td>${escapeHtml(row.durationMs == null ? "" : `${row.durationMs} ms`)}</td>
+            <td class="mono">${escapeHtml(row.messageId || "")}</td>
+            <td>${escapeHtml(row.errorMessage || row.errorCode || "")}</td>
+          </tr>
+        `).join("") || rowEmpty(11);
+      }
+
       async function loadSttLogs() {
         const qs = new URLSearchParams();
         qs.set("limit", "100");
@@ -3093,6 +3213,7 @@
         $("btnFillContentSafetyFilter").addEventListener("click", fillContentSafetyFilter);
         $("btnLoadDictionaryLogs").addEventListener("click", guard(loadDictionaryLogs));
         $("btnUseDictionaryFilter").addEventListener("click", useDictionaryLogFilter);
+        $("btnLoadTtsLogs").addEventListener("click", guard(loadTtsLogs));
         $("btnLoadSttLogs").addEventListener("click", guard(loadSttLogs));
         $("btnUseSttFilter").addEventListener("click", useSttLogFilter);
         $("btnLoadAuditLogs").addEventListener("click", guard(loadAuditLogs));

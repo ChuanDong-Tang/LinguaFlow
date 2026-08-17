@@ -1,7 +1,7 @@
 import { countGraphemes, truncateGraphemes } from "./grapheme.js";
 
 export const DEFAULT_CARD_TITLE_MAX_CHARS = 100;
-export const DEFAULT_CARD_CONTENT_MAX_CHARS = 10_000;
+export const DEFAULT_CARD_CONTENT_MAX_CHARS = 5_000;
 export const DEFAULT_CARD_IMAGES_MAX_PER_CARD = 10;
 
 export type CardTextLimits = {

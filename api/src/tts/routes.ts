@@ -408,7 +408,7 @@ function parseRange(req: FastifyRequest): { ok: true; sourceKey: TtsSourceKey; t
   const body = isObject(req.body) ? req.body as TtsMessageBody : {};
   const sourceKey = parseSourceKey(query.sourceKey ?? body.sourceKey);
   if (!sourceKey) {
-    return { ok: false, message: "sourceKey must be rewrite or reply" };
+    return { ok: false, message: "sourceKey must be rewrite, reply, or full" };
   }
   const textStart = parseOptionalIndex(query.textStart ?? body.textStart);
   const textEnd = parseOptionalIndex(query.textEnd ?? body.textEnd);
@@ -427,7 +427,7 @@ function parseRange(req: FastifyRequest): { ok: true; sourceKey: TtsSourceKey; t
 function parseSourceKey(value: string | undefined): TtsSourceKey | null {
   if (value === undefined || value.trim() === "") return "rewrite";
   const trimmed = value.trim();
-  if (trimmed === "rewrite" || trimmed === "reply") return trimmed;
+  if (trimmed === "rewrite" || trimmed === "reply" || trimmed === "full") return trimmed;
   return null;
 }
 

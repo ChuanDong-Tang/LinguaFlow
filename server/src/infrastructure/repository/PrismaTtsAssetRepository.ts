@@ -169,7 +169,7 @@ export class PrismaTtsAssetRepository implements TtsAssetRepository {
       provider: row.provider,
       voiceCode: row.voiceCode,
       languageCode: row.languageCode,
-      sourceKey: row.sourceKey === "reply" ? "reply" : "rewrite",
+      sourceKey: row.sourceKey === "reply" || row.sourceKey === "full" ? row.sourceKey : "rewrite",
       sourceText: row.sourceText,
       sourceTextHash: row.sourceTextHash,
       format: row.format,

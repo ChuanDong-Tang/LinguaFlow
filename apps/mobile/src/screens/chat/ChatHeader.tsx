@@ -19,7 +19,7 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
         <Ionicons name="chevron-back" size={24} color="#111111" />
       </Pressable>
 
-      <View style={styles.headerAvatarWrap}>
+      <View style={[styles.headerAvatarWrap, contact.id === "curious_companion" && styles.characterAvatarWrap]}>
         {contact.id === "curious_companion"
           ? <OioCharacter width={38} height={36} />
           : <Text style={styles.logoText}>{contact.avatarLabel}</Text>}
@@ -68,6 +68,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  characterAvatarWrap: { borderWidth: 0, borderRadius: 0 },
   logoText: {
     fontSize: 12,
     color: "#5A5497",

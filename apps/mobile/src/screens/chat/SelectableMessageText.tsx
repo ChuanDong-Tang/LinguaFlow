@@ -1,6 +1,5 @@
 import React from "react";
 import {
-  Alert,
   Keyboard,
   Platform,
   Pressable,
@@ -17,6 +16,7 @@ import {
   type ChatSelectableTextRangeEvent,
   type ChatSelectableTextSelectionEvent,
 } from "./ChatSelectableTextView";
+import { useFloatingNotice } from "../shared/FloatingNotice";
 
 export type NativeTextSelectionPayload = {
   start: number;
@@ -63,7 +63,7 @@ type Props = {
   onSelectionEnd?: () => void;
   onSelectionChange?: (payload: NativeTextSelectionPayload) => void;
   onDictionarySelection?: (payload: NativeTextSelectionPayload) => void;
-  onClozeRangePress?: (groupIndex: number) => void;
+  onClozeRangePress?: (groupIndex: number, selectionRect?: NativeTextSelectionPayload["selectionRect"]) => void;
   onClozeRangeLongPress?: (groupIndex: number, selectionRect?: NativeTextSelectionPayload["selectionRect"]) => void;
 };
 
@@ -231,6 +231,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     onClozeRangePress,
     onClozeRangeLongPress,
   }, ref) {
+    const { showNotice } = useFloatingNotice();
     const renderStart = perfNow();
     const clozeMenuOption = t("cloze.menu");
     const dictionaryMenuOption = t("dictionary.menu");
@@ -304,17 +305,17 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         if (insideExistingCloze) return;
         const crossesExistingCloze = existingClozeRanges.some((range) => rangesOverlap(range, selectedRange));
         if (crossesExistingCloze) {
-          Alert.alert(t("cloze.cross_existing"));
+          showNotice({ message: t("cloze.cross_existing"), type: "info", position: "top-center" });
           return;
         }
         onSelectionStart?.();
         onSelectionChange?.(normalizedPayload);
       },
-      [blanks, clozeMenuOption, dictionaryMenuOption, highlights, onDictionarySelection, onSelectionChange, onSelectionStart, text],
+      [blanks, clozeMenuOption, dictionaryMenuOption, highlights, onDictionarySelection, onSelectionChange, onSelectionStart, showNotice, text],
     );
     const handleClozeRangePress = React.useCallback(
       (event: { nativeEvent: ChatSelectableTextRangeEvent }) => {
-        onClozeRangePress?.(event.nativeEvent.groupIndex);
+        onClozeRangePress?.(event.nativeEvent.groupIndex, event.nativeEvent.selectionRect);
       },
       [onClozeRangePress],
     );

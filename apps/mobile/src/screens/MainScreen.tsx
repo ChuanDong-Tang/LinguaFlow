@@ -25,6 +25,7 @@ import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import OioCharacter from "../../assets/app/oio-character.svg";
 import { NestableDraggableFlatList, NestableScrollContainer, type RenderItemParams } from "react-native-draggable-flatlist";
 import {
   createCardEntry,
@@ -1055,7 +1056,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Ionicons name="chevron-down" size={15} color={theme.colors.textSecondary} /></Pressable>}
         <View style={styles.headerActions}>
           {selectingRecords ? <View style={styles.headerIconButton} /> : <><Pressable accessibilityLabel={t("contact.curious_companion.name")} style={styles.headerIconButton} onPress={openAssistant}>
-            <Ionicons name="sparkles-outline" size={22} color={theme.colors.text} />
+            <OioCharacter width={27} height={25} />
           </Pressable><Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}
@@ -1657,7 +1658,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
           <CalendarSidebarPreview onPress={onOpenCalendar} />
           <View style={styles.sidebarFixedContent}>
             <SidebarRow
-              icon="sparkles-outline"
+              leading={<OioCharacter width={27} height={25} />}
               label={t("contact.curious_companion.name")}
               muted={!assistantAvailable}
               onPress={assistantAvailable ? onOpenAssistant : () => Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"))}
@@ -1834,8 +1835,9 @@ function AnimatedSidebarModal({ visible, onRequestClose, children }: {
   );
 }
 
-function SidebarRow({ icon, label, count, selected = false, muted = false, onPress, depth = 0, expandable = false, expanded = false, onToggle, favorite, favoriteSaving = false, onToggleFavorite, onMore, drag, dragActive = false }: {
+function SidebarRow({ icon, leading, label, count, selected = false, muted = false, onPress, depth = 0, expandable = false, expanded = false, onToggle, favorite, favoriteSaving = false, onToggleFavorite, onMore, drag, dragActive = false }: {
   icon?: React.ComponentProps<typeof Ionicons>["name"];
+  leading?: React.ReactNode;
   label: string;
   count?: number;
   selected?: boolean;
@@ -1865,6 +1867,7 @@ function SidebarRow({ icon, label, count, selected = false, muted = false, onPre
         {expandable ? <Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} /> : null}
       </Pressable>
       {icon ? <Ionicons name={icon} size={19} color={muted ? theme.colors.textMuted : selected ? "#111111" : "#555555"} /> : null}
+      {leading ? <View style={muted && styles.sidebarLeadingMuted}>{leading}</View> : null}
       <Text numberOfLines={1} style={[styles.sidebarRowLabel, muted && styles.sidebarRowLabelMuted, selected && styles.sidebarRowLabelSelected]}>{label}</Text>
       {count !== undefined ? <Text style={styles.sidebarRowCount}>{count}</Text> : null}
       {onToggleFavorite ? (
@@ -2382,6 +2385,7 @@ const styles = StyleSheet.create({
   sidebarCollectionContent: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 24 },
   sidebarRow: { position: "relative", minHeight: 46, paddingHorizontal: 12, borderRadius: 6, flexDirection: "row", alignItems: "center", gap: 11 },
   sidebarRowMuted: { opacity: 0.42 },
+  sidebarLeadingMuted: { opacity: 0.55 },
   sidebarDisclosure: { width: 16, height: 32, marginRight: -7, alignItems: "center", justifyContent: "center" },
   sidebarRowSelected: { backgroundColor: "#F2F2F2" },
   sidebarSelectionMark: { position: "absolute", left: 0, top: 10, bottom: 10, width: 2, borderRadius: 1, backgroundColor: "#171717" },

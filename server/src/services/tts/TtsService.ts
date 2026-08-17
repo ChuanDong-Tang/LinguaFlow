@@ -555,6 +555,11 @@ function extractTtsLearningText(rawText: string, sourceKey: TtsSourceKey): strin
   }
 
   const rewrite = extractTagContent(rawText, "rewrite").trim() || extractTagContent(rawText, "en").trim();
+  if (sourceKey === "full") {
+    const fallbackRewrite = rewrite || (hasKnownRewriteTag(rawText) ? "" : rawText.trim());
+    const reply = extractTagContent(rawText, "reply").trim();
+    return [fallbackRewrite, reply].filter(Boolean).join("\n\n");
+  }
   if (rewrite) return rewrite;
 
   return hasKnownRewriteTag(rawText) ? "" : rawText;

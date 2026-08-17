@@ -474,6 +474,7 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
   onCancel: () => void;
   onSave: (input: { title: string | null; originalText: string; collectionId: string | null; selectedTargets: Array<"expression" | "translation" | "reply"> }) => Promise<void>;
 }) {
+  const { showNotice } = useFloatingNotice();
   const [title, setTitle] = useState(detail.title ?? "");
   const [originalText, setOriginalText] = useState(detail.originalText);
   const rewrittenText = detail.rewrittenText ?? "";
@@ -502,8 +503,8 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
     || selectedTargets.reply !== Boolean(detail.replyText)
     || collectionId !== (detail.collectionId ?? null);
   const originalChanged = normalizeCardBodyText(originalText) !== normalizeCardBodyText(detail.originalText);
-  const primary = (rewrittenText || originalText).trim();
-  const canSave = primary.length > 0 && countGraphemes(primary) <= limits.contentChars && !saving;
+  const contentCount = countGraphemes(originalText);
+  const canSave = contentCount > 0 && contentCount <= limits.contentChars && !saving;
   async function save(): Promise<void> {
     if (!canSave) return;
     setSaving(true);
@@ -600,7 +601,10 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
           onRecentPhotos={openImageActions}
           onAi={() => setAiMenuVisible((visible) => !visible)}
           onStt={() => void originalStt.toggle()}
+          characterCount={contentCount}
+          characterLimit={limits.contentChars}
           canSave={canSave}
+          onInvalidSave={() => showNotice({ message: tf("card_detail.error.content_limit", { count: limits.contentChars }), type: "info", position: "top-center" })}
           onSave={() => void save()}
         />
       </KeyboardAvoidingView>
@@ -626,6 +630,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   onSelectImage?: (asset: { uri: string; width: number; height: number }) => void;
   onRemoveImage?: (localUri?: string) => void;
 }) {
+  const { showNotice } = useFloatingNotice();
   const processing = draft.submitted;
   const count = countGraphemes(draft.text);
   const imagesReady = draft.images.every((image) => image.status === "ready");
@@ -776,7 +781,10 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                 originalInputRef.current?.focus();
                 setTimeout(() => void originalStt.toggle(), 0);
               }}
+              characterCount={count}
+              characterLimit={limits.contentChars}
               canSave={canSave}
+              onInvalidSave={count < 1 || count > limits.contentChars ? () => showNotice({ message: tf("card_detail.error.content_limit", { count: limits.contentChars }), type: "info", position: "top-center" }) : undefined}
               onSave={() => onSave?.("review")}
             />
           </KeyboardAvoidingView>
@@ -1048,7 +1056,7 @@ function DraftAiMenu({ selected, onChoose, onRemove }: {
   </Animated.View>;
 }
 
-function DraftComposerToolbar({ imageCount, aiModuleCount, sttStatus, sttAudioLevel, disabled, onCamera, onRecentPhotos, onAi, onStt, canSave, onSave }: {
+function DraftComposerToolbar({ imageCount, aiModuleCount, sttStatus, sttAudioLevel, disabled, onCamera, onRecentPhotos, onAi, onStt, characterCount, characterLimit, canSave, onInvalidSave, onSave }: {
   imageCount: number;
   aiModuleCount: number;
   sttStatus: RealtimeSttInputStatus;
@@ -1058,7 +1066,10 @@ function DraftComposerToolbar({ imageCount, aiModuleCount, sttStatus, sttAudioLe
   onRecentPhotos: () => void;
   onAi: () => void;
   onStt: () => void;
+  characterCount?: number;
+  characterLimit?: number;
   canSave?: boolean;
+  onInvalidSave?: () => void;
   onSave?: () => void;
 }) {
   const progress = useRef(new Animated.Value(0)).current;
@@ -1089,7 +1100,8 @@ function DraftComposerToolbar({ imageCount, aiModuleCount, sttStatus, sttAudioLe
     </Pressable>)}
     <RealtimeSttButton status={sttStatus} audioLevel={sttAudioLevel} disabled={disabled} style={styles.draftComposerTool} onPress={onStt} />
     <View style={styles.draftComposerSpacer} />
-    {onSave ? <Pressable accessibilityLabel={t("card_detail.done")} disabled={disabled || !canSave} style={[styles.draftPublishButton, (disabled || !canSave) && styles.draftPublishButtonDisabled]} onPress={onSave}>
+    {typeof characterCount === "number" && typeof characterLimit === "number" ? <Text style={[styles.draftCharacterCount, characterCount > characterLimit && styles.draftCharacterCountOver]}>{characterCount}/{characterLimit}</Text> : null}
+    {onSave ? <Pressable accessibilityLabel={t("card_detail.done")} disabled={disabled || (!canSave && !onInvalidSave)} style={[styles.draftPublishButton, (disabled || !canSave) && styles.draftPublishButtonDisabled]} onPress={canSave ? onSave : onInvalidSave}>
       <Text style={[styles.draftPublishButtonText, (disabled || !canSave) && styles.draftPublishButtonTextDisabled]}>{t("card_detail.done")}</Text>
     </Pressable> : null}
   </Animated.View>;
@@ -1502,8 +1514,8 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const lockForTextSelection = useCallback(() => setTextSelectionActive(true), []);
   const unlockTextSelection = useCallback(() => setTextSelectionActive(false), []);
   useEffect(() => {
-    onInteractionLockChange?.(fillMode || savingCloze || Boolean(dictionary) || Boolean(blankAction) || textSelectionActive);
-  }, [blankAction, dictionary, fillMode, onInteractionLockChange, savingCloze, textSelectionActive]);
+    onInteractionLockChange?.(savingCloze || Boolean(dictionary) || Boolean(blankAction) || textSelectionActive);
+  }, [blankAction, dictionary, onInteractionLockChange, savingCloze, textSelectionActive]);
   useEffect(() => () => {
     onInteractionLockChange?.(false);
   }, [onInteractionLockChange]);
@@ -1620,7 +1632,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     const { start, end } = expanded;
     const overlaps = clozeState.blanks.some((blank) => blank.segmentId === segment.id && blank.startUtf16 < end && blank.endUtf16 > start);
     if (overlaps) {
-      Alert.alert(t("card_detail.cloze.already_set"));
+      showNotice({ message: t("card_detail.cloze.already_set"), type: "info", position: "top-center" });
       return;
     }
     setSavingCloze(true);
@@ -1655,11 +1667,11 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
           onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
           return;
         } catch (retryError) {
-          Alert.alert(t("card_detail.cloze.save_failed"), retryError instanceof Error ? retryError.message : t("card_detail.error.refresh_retry"));
+          showNotice({ message: retryError instanceof Error ? retryError.message : t("card_detail.cloze.save_failed"), type: "error", position: "top-center" });
           return;
         }
       }
-      Alert.alert(t("card_detail.cloze.save_failed"), error instanceof Error ? error.message : t("card_detail.error.refresh_retry"));
+      showNotice({ message: error instanceof Error ? error.message : t("card_detail.cloze.save_failed"), type: "error", position: "top-center" });
     } finally {
       setSavingCloze(false);
     }
@@ -1945,11 +1957,11 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
           onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
           return;
         } catch (retryError) {
-          Alert.alert(t("card_detail.cloze.delete_failed"), retryError instanceof Error ? retryError.message : t("card_detail.error.refresh_retry"));
+          showNotice({ message: retryError instanceof Error ? retryError.message : t("card_detail.cloze.delete_failed"), type: "error", position: "top-center" });
           return;
         }
       }
-      Alert.alert(t("card_detail.cloze.delete_failed"), error instanceof Error ? error.message : t("card_detail.error.refresh_retry"));
+      showNotice({ message: error instanceof Error ? error.message : t("card_detail.cloze.delete_failed"), type: "error", position: "top-center" });
     } finally {
       setSavingCloze(false);
     }
@@ -2126,7 +2138,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       canUseTts
       onClose={() => { dictionaryRequestRef.current += 1; setDictionary(null); }}
     />
-    <Modal visible={Boolean(blankAction)} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setBlankAction(null)}>
+    <Modal visible={Boolean(blankAction)} transparent animationType="none" statusBarTranslucent onRequestClose={() => setBlankAction(null)}>
       <Pressable style={styles.blankActionBackdrop} onPress={() => setBlankAction(null)}>
         {blankAction ? <View style={[
           styles.blankActionMenu,
@@ -2303,6 +2315,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   onTextSelectionStart?: () => void;
   onTextSelectionEnd?: () => void;
 }) {
+  const { showNotice } = useFloatingNotice();
   const sentenceRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, embedded), [detail, clozeState, embedded]);
   const orderedBlankIndexes = useMemo(
     () => sentenceRows.flatMap((row) => row.blanks.map(({ blankIndex }) => blankIndex)),
@@ -2386,7 +2399,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
         }
       } catch (error) {
         setSaving(false);
-        Alert.alert(t("card_detail.practice_unsaved"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+        showNotice({ message: error instanceof Error ? error.message : t("card_detail.practice_unsaved"), type: "error", position: "top-center" });
         return;
       } finally {
         if (!allChecked) setSaving(false);
@@ -2420,11 +2433,11 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
           onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
           return;
         } catch (retryError) {
-          Alert.alert(t("card_detail.practice_unsaved"), retryError instanceof Error ? retryError.message : t("card_detail.error.try_again"));
+          showNotice({ message: retryError instanceof Error ? retryError.message : t("card_detail.practice_unsaved"), type: "error", position: "top-center" });
           return;
         }
       }
-      Alert.alert(t("card_detail.practice_unsaved"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+      showNotice({ message: error instanceof Error ? error.message : t("card_detail.practice_unsaved"), type: "error", position: "top-center" });
     } finally { setSaving(false); }
   }
 
@@ -2556,53 +2569,36 @@ function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, ac
   onTextSelectionStart?: () => void;
   onTextSelectionEnd?: () => void;
 }) {
-  const suppressPlayRef = useRef(false);
-  const pressStartedAtRef = useRef(0);
-  function suppressPlay(): void {
-    suppressPlayRef.current = true;
-  }
-  function beginSentencePress(): void {
-    pressStartedAtRef.current = Date.now();
-    suppressPlayRef.current = false;
-  }
-  function playUnlessSelecting(): void {
-    const pressDurationMs = pressStartedAtRef.current > 0 ? Date.now() - pressStartedAtRef.current : 0;
-    const shouldPlay = !suppressPlayRef.current && pressDurationMs < 450;
-    pressStartedAtRef.current = 0;
-    suppressPlayRef.current = false;
-    if (shouldPlay) onPlay();
-  }
+  const sentencePlayback = React.useSyncExternalStore(subscribeTtsPlayback, getTtsPlaybackState, getTtsPlaybackState);
+  const sentenceLoading = active && sentencePlayback.status === "loading";
+  const sentencePlaying = active && sentencePlayback.status === "playing";
   const sentenceText = row.text.slice(row.textStart, row.textEnd);
-  const selectableSentence = (visualsHidden: boolean) => <SelectableMessageText
+  const selectableSentence = <SelectableMessageText
     text={sentenceText}
     style={styles.clozeSentence}
     highlightRanges={row.blanks.map(({ blank }, index) => ({ start: blank.startUtf16 - row.textStart, end: blank.endUtf16 - row.textStart, groupIndex: index }))}
     blankRanges={row.blanks.map(({ blank }) => ({ start: blank.startUtf16 - row.textStart, end: blank.endUtf16 - row.textStart }))}
     correctRanges={row.blanks.filter(({ blank }) => blank.mastered).map(({ blank }) => ({ start: blank.startUtf16 - row.textStart, end: blank.endUtf16 - row.textStart }))}
     answersVisible={revealed}
-    visualsHidden={visualsHidden}
     enableDictionaryMenu
     enableClozeMenu={!saving}
     onSelectionStart={() => {
-      suppressPlay();
       onTextSelectionStart?.();
     }}
     onSelectionEnd={onTextSelectionEnd}
     onDictionarySelection={(payload) => onLookup(payload.selectedText, row.textStart + payload.start, row.textStart + payload.end)}
     onSelectionChange={(payload) => {
-      suppressPlay();
       onAddBlank?.({ ...payload, start: row.textStart + payload.start, end: row.textStart + payload.end });
     }}
-    onClozeRangePress={(index) => {
-      suppressPlay();
+    onClozeRangePress={(index, selectionRect) => {
       const selected = row.blanks[index];
-      if (selected) onBlankLongPress?.(selected.blank);
+      if (selected) onBlankLongPress?.(selected.blank, selectionRect);
     }}
   />;
   return <View style={[styles.stableSentence, active && styles.stableSentenceActive]}>
-    <Pressable accessibilityLabel={t("card_detail.a11y.play_sentence")} disabled={speaking} delayLongPress={450} onPressIn={beginSentencePress} onLongPress={suppressPlay} onPress={playUnlessSelecting}>
-      {!fillMode && Platform.OS === "android" ? selectableSentence(false) : <View>
-        <View pointerEvents={fillMode ? "auto" : "none"}>
+    <View style={styles.stableSentenceContent}>
+      {!fillMode ? selectableSentence : <View>
+        <View>
           <CardBlankSentenceFlow
             row={row}
             answers={answers}
@@ -2612,17 +2608,26 @@ function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, ac
             fillMode={fillMode}
             inputMode={inputMode}
             activeChoiceBlankIndex={activeChoiceBlankIndex}
-            onLookup={() => onPlay()}
+            onLookup={onLookup}
             onBlankLongPress={onBlankLongPress}
             onChangeAnswer={onChangeAnswer}
             onCheckAnswer={onCheckAnswer}
             onActivateChoiceBlank={onActivateChoiceBlank}
           />
         </View>
-        {!fillMode ? <View style={styles.normalSentenceSelectionOverlay}>
-          {selectableSentence(true)}
-        </View> : null}
       </View>}
+    </View>
+    <Pressable
+      accessibilityLabel={t("card_detail.a11y.play_sentence")}
+      style={styles.inlineSentencePlay}
+      disabled={sentenceLoading}
+      onPress={() => active ? stopTtsAudio() : onPlay()}
+    >
+      {sentenceLoading
+        ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+        : sentencePlaying
+          ? <Ionicons name="stop" size={18} color={theme.colors.textSecondary} />
+          : <Ionicons name="play" size={17} color={theme.colors.textSecondary} />}
     </Pressable>
   </View>;
 }
@@ -2667,33 +2672,28 @@ function ClozePracticeBlank({ expectedText, answer, checked, mastered = false, r
   inputMode?: ClozeInputMode;
   choiceActive?: boolean;
   disabled?: boolean;
-  onLongPress: (anchor: CardBlankActionAnchor) => void;
+  onLongPress: (anchor?: CardBlankActionAnchor) => void;
   onChangeAnswer: (value: string) => void;
   onCheck: () => void;
   onActivateChoice?: () => void;
 }) {
   const inputRef = useRef<TextInput>(null);
-  const longPressedRef = useRef(false);
   const underlineUnits = useMemo(() => splitCardClozeAnswerUnits(expectedText), [expectedText]);
   const showInput = fillEnabled && editing && inputMode === "keyboard" && !revealed;
   const choiceEnabled = fillEnabled && editing && inputMode === "choice" && !revealed;
   const coloredAnswer = !revealed && checked === "incorrect" ? renderCheckedClozeAnswer(expectedText, answer) : null;
   return <View style={styles.cardBlankUnit}>
     <Pressable
-      delayLongPress={360}
       style={styles.cardBlankField}
-      onPressIn={() => { longPressedRef.current = false; }}
       onPress={showInput || choiceEnabled ? () => {
-        if (!longPressedRef.current) {
-          if (choiceEnabled) onActivateChoice?.();
-          else inputRef.current?.focus();
-        }
-        longPressedRef.current = false;
-      } : undefined}
-      onLongPress={(event: GestureResponderEvent) => {
-        longPressedRef.current = true;
-        onLongPress({ pageX: event.nativeEvent.pageX, pageY: event.nativeEvent.pageY, width: 0, height: 0 });
-      }}
+        if (choiceEnabled) onActivateChoice?.();
+        else inputRef.current?.focus();
+      } : (event: GestureResponderEvent) => onLongPress({
+        pageX: event.nativeEvent.pageX,
+        pageY: event.nativeEvent.pageY,
+        width: 1,
+        height: 24,
+      })}
     >
       <Text
         pointerEvents="none"
@@ -2951,11 +2951,11 @@ const styles = StyleSheet.create({
   clozeChoiceOptionIncorrect: { borderColor: "#D98B87", backgroundColor: "#FCE7E5" },
   clozeChoiceOptionText: { color: theme.colors.text, fontSize: 15, lineHeight: 20, fontWeight: "500", textAlign: "center" },
   clozeChoiceOptionTextIncorrect: { color: theme.colors.danger },
-  stableSentence: { alignSelf: "stretch", overflow: "visible" },
+  stableSentence: { alignSelf: "stretch", overflow: "visible", flexDirection: "row", alignItems: "flex-end" },
+  stableSentenceContent: { flex: 1, minWidth: 0 },
   stableSentenceActive: { borderRadius: 7, backgroundColor: theme.colors.surfaceMuted },
-  normalSentenceSelectionOverlay: { ...StyleSheet.absoluteFillObject },
   inlineSentenceActions: { minHeight: 34, marginTop: 4, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
-  inlineSentencePlay: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  inlineSentencePlay: { width: 27, height: 27, marginLeft: 2, alignItems: "center", justifyContent: "center" },
   inlineSentenceActionSpacer: { flex: 1 },
   inlineSentenceModeButton: { minHeight: 30, paddingHorizontal: 9, borderRadius: 15, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 4 },
   inlineSentenceModeButtonActive: { backgroundColor: theme.colors.text },
@@ -3040,6 +3040,8 @@ const styles = StyleSheet.create({
   draftComposerToolbar: { minHeight: 50, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 8 },
   draftComposerTool: { width: 42, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   draftComposerSpacer: { flex: 1 },
+  draftCharacterCount: { color: theme.colors.textMuted, fontSize: 12, fontVariant: ["tabular-nums"] },
+  draftCharacterCountOver: { color: theme.colors.danger, fontWeight: "600" },
   draftComposerBadge: { position: "absolute", top: 2, right: 2, minWidth: 15, height: 15, paddingHorizontal: 3, borderRadius: 8, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
   draftComposerBadgeText: { color: theme.colors.surface, fontSize: 9, fontWeight: "700" },
   draftPublishButton: { minWidth: 78, height: 40, paddingHorizontal: 18, borderRadius: 20, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },

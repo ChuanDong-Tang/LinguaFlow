@@ -17,7 +17,7 @@ export type CardCapabilities = {
 export const DEFAULT_CARD_CAPABILITIES: CardCapabilities = {
   limits: {
     titleChars: 100,
-    contentChars: 10_000,
+    contentChars: 5_000,
     imagesPerCard: 10,
     listPageSize: 50,
   },

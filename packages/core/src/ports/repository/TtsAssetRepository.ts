@@ -1,5 +1,5 @@
 export type TtsAssetStatus = "ready" | "failed";
-export type TtsSourceKey = "rewrite" | "reply";
+export type TtsSourceKey = "rewrite" | "reply" | "full";
 
 export type TtsWordMark = {
   text: string;

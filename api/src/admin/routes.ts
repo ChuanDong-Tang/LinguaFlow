@@ -1529,6 +1529,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         provider: true,
         voiceCode: true,
         languageCode: true,
+        sourceKey: true,
         sourceTextHash: true,
         format: true,
         status: true,
@@ -1570,7 +1571,20 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       take: limit,
     });
 
-    return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
+    const assetIds = [...new Set(rows.map((row) => row.assetId).filter((id): id is string => Boolean(id)))];
+    const assets = assetIds.length
+      ? await deps.prisma.ttsAsset.findMany({
+        where: { id: { in: assetIds } },
+        select: { id: true, sourceKey: true },
+      })
+      : [];
+    const sourceKeyByAssetId = new Map(assets.map((asset) => [asset.id, asset.sourceKey]));
+    const data = rows.map((row) => ({
+      ...row,
+      sourceKey: row.assetId ? sourceKeyByAssetId.get(row.assetId) ?? null : null,
+    }));
+
+    return reply.status(200).send({ ok: true, request_id: requestId, data });
   });
 
   app.get("/admin/stt/request-logs", async (req, reply) => {

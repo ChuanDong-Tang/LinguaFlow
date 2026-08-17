@@ -21,7 +21,7 @@ export type TtsSentenceMark = {
   durationMs: number;
 };
 
-export type TtsSourceKey = "rewrite" | "reply";
+export type TtsSourceKey = "rewrite" | "reply" | "full";
 
 export type TtsVoiceOption = {
   provider: string;

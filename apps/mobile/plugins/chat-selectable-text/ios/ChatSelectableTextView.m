@@ -140,7 +140,6 @@
     _rangeTapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeTap:)];
     _rangeTapRecognizer.delegate = self;
     _rangeTapRecognizer.cancelsTouchesInView = NO;
-    [_rangeTapRecognizer requireGestureRecognizerToFail:_doubleTapBlocker];
     [_textView addGestureRecognizer:_rangeTapRecognizer];
 
     _rangeLongPressRecognizer = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeLongPress:)];
@@ -377,10 +376,11 @@
     }
     UIColor *rangeHighlightColor = isCorrect ? correctHighlightColor : highlightColor;
     NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:characterRange actualCharacterRange:nil];
-    [layoutManager enumerateEnclosingRectsForGlyphRange:glyphRange
-                              withinSelectedGlyphRange:NSMakeRange(NSNotFound, 0)
-                                       inTextContainer:textContainer
-                                            usingBlock:^(CGRect rect, BOOL *stop) {
+    [layoutManager enumerateLineFragmentsForGlyphRange:glyphRange
+                                             usingBlock:^(CGRect lineFragmentRect, CGRect usedRect, NSTextContainer *lineTextContainer, NSRange lineGlyphRange, BOOL *stop) {
+      NSRange fragmentGlyphRange = NSIntersectionRange(glyphRange, lineGlyphRange);
+      if (fragmentGlyphRange.length == 0) return;
+      CGRect rect = [layoutManager boundingRectForGlyphRange:fragmentGlyphRange inTextContainer:lineTextContainer];
       CGRect layerFrame = CGRectMake(
         rect.origin.x + textView.textContainerInset.left,
         CGRectGetMidY(rect) - fixedHeight / 2.0 + textView.textContainerInset.top,
@@ -411,19 +411,20 @@
     NSRange characterRange = [self safeRangeFromDictionary:range length:textView.textStorage.length];
     if (characterRange.length == 0) continue;
     NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:characterRange actualCharacterRange:nil];
-    [layoutManager enumerateEnclosingRectsForGlyphRange:glyphRange
-                              withinSelectedGlyphRange:NSMakeRange(NSNotFound, 0)
-                                       inTextContainer:textContainer
-                                            usingBlock:^(CGRect rect, BOOL *stop) {
-      CGRect lineRect = CGRectMake(
+    [layoutManager enumerateLineFragmentsForGlyphRange:glyphRange
+                                             usingBlock:^(CGRect lineFragmentRect, CGRect usedRect, NSTextContainer *lineTextContainer, NSRange lineGlyphRange, BOOL *stop) {
+      NSRange fragmentGlyphRange = NSIntersectionRange(glyphRange, lineGlyphRange);
+      if (fragmentGlyphRange.length == 0) return;
+      CGRect rect = [layoutManager boundingRectForGlyphRange:fragmentGlyphRange inTextContainer:lineTextContainer];
+      CGRect underlineRect = CGRectMake(
         rect.origin.x + textView.textContainerInset.left,
         CGRectGetMaxY(rect) + textView.textContainerInset.top - 2.0,
         rect.size.width,
         1.5
       );
-      if (CGRectIntersectsRect(lineRect, dirtyRect)) {
+      if (CGRectIntersectsRect(underlineRect, dirtyRect)) {
         [blankLineColor setFill];
-        UIRectFill(lineRect);
+        UIRectFill(underlineRect);
       }
     }];
   }
@@ -616,7 +617,17 @@
   if (recognizer.state != UIGestureRecognizerStateEnded) return;
   NSDictionary *range = [self highlightRangeAtPoint:[recognizer locationInView:self.textView]];
   if (!range || !self.onClozeRangePress) return;
-  self.onClozeRangePress(@{ @"groupIndex": range[@"groupIndex"] ?: @0 });
+  NSRange safeRange = [self safeRangeFromDictionary:range length:self.textView.textStorage.length];
+  CGRect rect = [self selectionRectForRange:safeRange];
+  self.onClozeRangePress(@{
+    @"groupIndex": range[@"groupIndex"] ?: @0,
+    @"selectionRect": @{
+      @"pageX": @(rect.origin.x),
+      @"pageY": @(rect.origin.y),
+      @"width": @(rect.size.width),
+      @"height": @(rect.size.height)
+    }
+  });
 }
 
 - (void)handleRangeLongPress:(UILongPressGestureRecognizer *)recognizer
