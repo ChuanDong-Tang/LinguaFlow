@@ -220,6 +220,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         amount: config.payment.proMonthlyPriceCents,
         currency: "CNY",
         displayPrice: formatCnyPrice(config.payment.proMonthlyPriceCents),
+        monthlyTokenLimit: config.proMonthlyTokenLimit,
+        monthlyImageUploadBytes: config.proImageStorageBytes,
       },
     });
   });
@@ -232,6 +234,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         amount: config.payment.plusMonthlyPriceCents,
         currency: "CNY",
         displayPrice: formatCnyPrice(config.payment.plusMonthlyPriceCents),
+        monthlyTokenLimit: config.plusMonthlyTokenLimit,
+        monthlyImageUploadBytes: config.plusImageStorageBytes,
       },
     });
   });

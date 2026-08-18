@@ -193,6 +193,7 @@ export interface CompleteCardEntryInput {
 }
 
 export interface CardRepository {
+  hideSamplesIfRealCardExists(userId: string, hiddenAt: Date): Promise<void>;
   hasAnyByUser(userId: string): Promise<boolean>;
   createSamples(input: {
     userId: string;

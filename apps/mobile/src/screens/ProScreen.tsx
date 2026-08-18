@@ -17,6 +17,8 @@ import {
   createWeChatAutoRenewPreSign,
   createProMonthlyOrder,
   getCurrentAutoRenewSubscription,
+  getPlusMonthlyProductQuote,
+  getProMonthlyProductQuote,
   MobileApiError,
   registerAppleAppAccountToken,
   registerGooglePlayObfuscatedAccountId,
@@ -24,6 +26,7 @@ import {
   verifyAppleProMonthlyTransaction,
   type MobileAutoRenewSubscription,
   type MobilePaymentProductCode,
+  type MobilePaymentProductQuote,
   type MobileWeChatAutoRenewPreSignResult,
 } from "../services/api/paymentApi";
 import {
@@ -105,6 +108,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
   const [storeError, setStoreError] = useState<string | null>(null);
   const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
+  const [productQuotes, setProductQuotes] = useState<Partial<Record<MobilePaymentProductCode, MobilePaymentProductQuote>>>({});
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(initialEntitlement);
   const applePurchaseIntentRef = useRef(false);
   const applePurchaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -337,6 +341,21 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
         setCachedProductPrices(cached);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isScreenAlive]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.allSettled([getPlusMonthlyProductQuote(), getProMonthlyProductQuote()]).then((results) => {
+      if (cancelled || !isScreenAlive()) return;
+      const next: Partial<Record<MobilePaymentProductCode, MobilePaymentProductQuote>> = {};
+      for (const result of results) {
+        if (result.status === "fulfilled") next[result.value.productCode] = result.value;
+      }
+      setProductQuotes(next);
+    });
     return () => {
       cancelled = true;
     };
@@ -1006,9 +1025,19 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
             const isPlus = tier === "plus";
             const price = isPlus ? productPrices.plus : productPrices.pro;
             const productCode: MobilePaymentProductCode = isPlus ? "plus_monthly" : "pro_monthly";
-            const benefitKeys = isPlus
-              ? (["pro.compact.plus.ai", "pro.compact.plus.images", "pro.compact.assistant"] as const)
-              : (["pro.compact.pro.ai", "pro.compact.pro.images", "pro.compact.assistant", "pro.compact.custom_material"] as const);
+            const quote = productQuotes[productCode];
+            const benefits = isPlus
+              ? [
+                  resolveTokenBenefit("plus", quote?.monthlyTokenLimit),
+                  resolveImageBenefit("plus", quote?.monthlyImageUploadBytes),
+                  t("pro.compact.assistant"),
+                ]
+              : [
+                  resolveTokenBenefit("pro", quote?.monthlyTokenLimit),
+                  resolveImageBenefit("pro", quote?.monthlyImageUploadBytes),
+                  t("pro.compact.assistant"),
+                  t("pro.compact.custom_material"),
+                ];
             return (
               <View key={tier} style={[styles.compactPlanCard, visibleTiers.length === 1 && styles.compactPlanCardSingle]}>
                 <View style={styles.compactPlanTitleRow}>
@@ -1016,10 +1045,10 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
                   {currentTier === tier ? <Text style={styles.compactCurrentBadge}>{t("pro.compact.current")}</Text> : null}
                 </View>
                 <View style={styles.compactBenefitList}>
-                  {benefitKeys.map((key) => (
-                    <View key={key} style={styles.compactBenefitRow}>
+                  {benefits.map((benefit) => (
+                    <View key={benefit} style={styles.compactBenefitRow}>
                       <Ionicons name="checkmark-circle-outline" size={15} color="#444444" />
-                      <Text style={styles.compactBenefitText}>{t(key)}</Text>
+                      <Text style={styles.compactBenefitText}>{benefit}</Text>
                     </View>
                   ))}
                 </View>
@@ -1360,6 +1389,35 @@ function readPositiveIntEnv(value: string | undefined, fallback: number): number
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
+}
+
+function resolveTokenBenefit(tier: "plus" | "pro", value?: number): string {
+  if (!Number.isFinite(value) || value! <= 0) {
+    return t(tier === "plus" ? "pro.compact.plus.ai" : "pro.compact.pro.ai");
+  }
+  return tf("pro.compact.dynamic.ai", { count: formatCompactNumber(value!) });
+}
+
+function resolveImageBenefit(tier: "plus" | "pro", value?: number): string {
+  if (!Number.isFinite(value) || value! <= 0) {
+    return t(tier === "plus" ? "pro.compact.plus.images" : "pro.compact.pro.images");
+  }
+  return tf("pro.compact.dynamic.images", { size: formatStorageBytes(value!) });
+}
+
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+function formatStorageBytes(value: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let amount = value;
+  let unitIndex = 0;
+  while (amount >= 1024 && unitIndex < units.length - 1) {
+    amount /= 1024;
+    unitIndex += 1;
+  }
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(amount)} ${units[unitIndex]}`;
 }
 
 function resolveQuotaBenefit(entitlement: CurrentEntitlement | null): { title: string; subtitle: string } {

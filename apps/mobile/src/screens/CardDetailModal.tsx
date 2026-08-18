@@ -1447,6 +1447,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const [answersVisible, setAnswersVisible] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<"learning" | "reply" | "original" | "translation", boolean>>({ learning: false, reply: false, original: false, translation: false });
   const [articleAudioLoading, setArticleAudioLoading] = useState(false);
+  const [sentenceAudioLoadingKey, setSentenceAudioLoadingKey] = useState<string | null>(null);
   const { showNotice } = useFloatingNotice();
   const clozeSavingNoticeRef = useRef<ReturnType<typeof showNotice> | null>(null);
   const articleAudioPromisesRef = useRef(new Map<string, Promise<string>>());
@@ -1537,6 +1538,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     setChoiceTrayOptions([]);
     setAnswersVisible(false);
     setArticleSentenceMarks([]);
+    setSentenceAudioLoadingKey(null);
     setCardFace("front");
     flipProgress.stopAnimation();
     flipProgress.setValue(0);
@@ -1788,6 +1790,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     const index = articleRows.findIndex((candidate) => candidate.key === row.key);
     if (index < 0 || detail.source !== "card") return;
     const sessionId = beginTtsPlaybackSession();
+    setSentenceAudioLoadingKey(row.key);
     try {
       const audio = await prepareWholeArticleAudio();
       if (!isTtsPlaybackSessionCurrent(sessionId)) return;
@@ -1803,6 +1806,8 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       });
     } catch (error) {
       showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.play"), type: "error", position: "top-center" });
+    } finally {
+      setSentenceAudioLoadingKey((current) => current === row.key ? null : current);
     }
   }
 
@@ -2002,7 +2007,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
           <View style={styles.flipCardTextBlock}>
             <CollapsibleCardSection label={contentBinding.contentType === "rewrite" ? t("card_detail.module.expression_description") : t("card_detail.my_record")} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
               {practiceEnabled
-                ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
+                ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                 : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
               <CardSectionCopyButton onPress={() => void copySection(learningText)} />
             </CollapsibleCardSection>
@@ -2228,7 +2233,7 @@ function ReasonBadge({ reason }: { reason: CardRelationReason }) {
   return <View style={[styles.reasonBadge, reason.type === "progress" && styles.reasonProgress, reason.type === "phrase" && styles.reasonPhrase]}><Text style={styles.reasonText}>{label}</Text></View>;
 }
 
-function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange, onAddBlank, onBlankLongPress, onPlaySentence, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, activeSentenceKey = null, onChoiceOptionsChange, onChoiceAnswerHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
+function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange, onAddBlank, onBlankLongPress, onPlaySentence, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, activeSentenceKey = null, loadingSentenceKey = null, onChoiceOptionsChange, onChoiceAnswerHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
   detail: CardRecordDetail;
   contentBinding: CardContentBinding;
   clozeState: CardClozeState;
@@ -2242,6 +2247,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   inputMode?: ClozeInputMode;
   answersVisible?: boolean;
   activeSentenceKey?: string | null;
+  loadingSentenceKey?: string | null;
   onChoiceOptionsChange?: (options: ClozeChoiceOption[]) => void;
   onChoiceAnswerHandlerChange?: (handler: ((value: string) => void) | null) => void;
   onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
@@ -2442,7 +2448,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                   revealed={answersVisible}
                   saving={saving}
                   active={activeSentenceKey === row.key}
-                  speaking={activeSentenceKey === row.key}
+                  loading={loadingSentenceKey === row.key}
                   fillMode={rowFillMode}
                   inputMode={inputMode}
                   activeChoiceBlankIndex={effectiveActiveChoiceBlankIndex}
@@ -2481,14 +2487,14 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   return <View style={styles.reviewPage}><KeyboardAwareScrollView bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.practiceContent} alwaysBounceVertical={false}>{practice}</KeyboardAwareScrollView>{dictionaryPopover}</View>;
 }
 
-function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, active, speaking, fillMode, inputMode, activeChoiceBlankIndex, onLookup, onAddBlank, onBlankLongPress, onPlay, onChangeAnswer, onCheckAnswer, onActivateChoiceBlank, onTextSelectionStart, onTextSelectionEnd }: {
+function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, active, loading, fillMode, inputMode, activeChoiceBlankIndex, onLookup, onAddBlank, onBlankLongPress, onPlay, onChangeAnswer, onCheckAnswer, onActivateChoiceBlank, onTextSelectionStart, onTextSelectionEnd }: {
   row: CardClozeSentenceRow;
   answers: Record<string, string>;
   checkedAnswers: Record<string, "correct" | "incorrect">;
   revealed: boolean;
   saving: boolean;
   active: boolean;
-  speaking: boolean;
+  loading: boolean;
   fillMode: boolean;
   inputMode: ClozeInputMode;
   activeChoiceBlankIndex: number | null;
@@ -2503,7 +2509,7 @@ function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, ac
   onTextSelectionEnd?: () => void;
 }) {
   const sentencePlayback = React.useSyncExternalStore(subscribeTtsPlayback, getTtsPlaybackState, getTtsPlaybackState);
-  const sentenceLoading = active && sentencePlayback.status === "loading";
+  const sentenceLoading = loading || (active && sentencePlayback.status === "loading");
   const sentencePlaying = active && sentencePlayback.status === "playing";
   const sentenceText = row.text.slice(row.textStart, row.textEnd);
   const selectableSentence = <SelectableMessageText

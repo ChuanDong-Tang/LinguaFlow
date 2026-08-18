@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="124" height="115" viewBox="20 75 124 115" fill="none">
+  <title>OIO recall</title>
+  <desc>OIO 小人和紫色回忆时钟标记。</desc>
+  <g stroke="#20251F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#FFFFFF" d="M32 124c3-25 20-39 42-39s39 14 42 39v55H32z"/>
+    <circle cx="59" cy="119" r="14"/>
+    <circle cx="89" cy="119" r="14"/>
+    <circle cx="63" cy="119" r="2.8" fill="#20251F" stroke="none"/>
+    <circle cx="93" cy="119" r="2.8" fill="#20251F" stroke="none"/>
+    <path d="M74 112v16" stroke-width="2.8"/>
+    <circle cx="74" cy="105" r="2.5" fill="#20251F" stroke="none"/>
+    <path d="M54 150h40v18H54z" fill="#A8D65E" stroke="#276749"/>
+    <path d="M106 139c15 0 24-4 35-13" stroke-width="2.4"/>
+  </g>
+  <g stroke="#8D7DDF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="119" cy="166" r="13" fill="#FFFFFF"/>
+    <path d="M119 158.5v8l5 3"/>
+  </g>
+</svg>

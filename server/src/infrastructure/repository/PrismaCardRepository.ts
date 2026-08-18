@@ -92,6 +92,16 @@ const includeSegments = {
 export class PrismaCardRepository implements CardRepository {
   constructor(private readonly prisma: PrismaCardClient) {}
 
+  async hideSamplesIfRealCardExists(userId: string, hiddenAt: Date): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const realCard = await tx.card.findFirst({
+        where: { userId, isSample: false, status: "completed", deletedAt: null },
+        select: { id: true },
+      });
+      if (realCard) await hideCompletedSamples(tx, userId, hiddenAt);
+    });
+  }
+
   async hasAnyByUser(userId: string): Promise<boolean> {
     return Boolean(await this.prisma.card.findFirst({
       where: { userId },
@@ -353,6 +363,7 @@ export class PrismaCardRepository implements CardRepository {
         });
       }
       await syncContentSegments(tx, row.id, input.contentSegments);
+      await hideCompletedSamples(tx, input.userId, input.createdAt ?? new Date());
       if (input.originalText && input.originalContentHash) {
         await enqueueTopicGeneration(tx, {
           userId: input.userId,
@@ -755,25 +766,7 @@ export class PrismaCardRepository implements CardRepository {
         cardId: input.entryId,
         inputHash: input.embeddingInputHash,
       });
-      if (completedEntry && !completedEntry.isSample) {
-        const visibleSamples = await tx.card.findMany({
-          where: { userId: completedEntry.userId, isSample: true, status: "completed" },
-          select: { id: true },
-        });
-        const sampleIds = visibleSamples.map((sample: { id: string }) => sample.id);
-        if (sampleIds.length) {
-          await tx.card.updateMany({
-            where: { id: { in: sampleIds } },
-            data: {
-              status: "deleted",
-              originalText: null,
-              rewrittenText: null,
-              deletedAt: input.publishedAt,
-            },
-          });
-          await tx.cardRewriteSegment.deleteMany({ where: { entryId: { in: sampleIds } } });
-        }
-      }
+      if (!completedEntry.isSample) await hideCompletedSamples(tx, completedEntry.userId, input.publishedAt);
       const row = await tx.card.findFirst({
         where: { id: input.entryId },
         include: includeSegments,
@@ -1858,6 +1851,25 @@ function toContentPracticeState(row: any): CardContentPracticeStateEntity {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
+}
+
+async function hideCompletedSamples(tx: any, userId: string, hiddenAt: Date): Promise<void> {
+  const visibleSamples = await tx.card.findMany({
+    where: { userId, isSample: true, status: "completed", deletedAt: null },
+    select: { id: true },
+  });
+  const sampleIds = visibleSamples.map((sample: { id: string }) => sample.id);
+  if (!sampleIds.length) return;
+  await tx.card.updateMany({
+    where: { id: { in: sampleIds } },
+    data: {
+      status: "deleted",
+      originalText: null,
+      rewrittenText: null,
+      deletedAt: hiddenAt,
+    },
+  });
+  await tx.cardRewriteSegment.deleteMany({ where: { entryId: { in: sampleIds } } });
 }
 
 function toSpeechAsset(row: any): CardSpeechAssetEntity {

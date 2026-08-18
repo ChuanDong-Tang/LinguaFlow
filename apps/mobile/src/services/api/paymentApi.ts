@@ -36,6 +36,8 @@ export type MobilePaymentProductQuote = {
   amount: number;
   currency: "CNY";
   displayPrice: string;
+  monthlyTokenLimit: number;
+  monthlyImageUploadBytes: number;
 };
 
 export type MobilePaymentOrderResult = {

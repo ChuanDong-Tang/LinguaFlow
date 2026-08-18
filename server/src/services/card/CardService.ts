@@ -112,6 +112,7 @@ export class CardService {
   ) {}
 
   async bootstrap(userId: string): Promise<CardRecordSummaryView[]> {
+    await this.repository.hideSamplesIfRealCardExists(userId, new Date());
     if (await this.repository.hasAnyByUser(userId)) return [];
     const preference = await this.userPreferenceRepository.getByUserId(userId);
     const entries = await this.repository.createSamples({

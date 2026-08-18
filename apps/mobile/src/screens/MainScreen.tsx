@@ -26,6 +26,7 @@ import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import OioCharacter from "../../assets/app/oio-character.svg";
+import OioRecall from "../../assets/app/oio-recall.svg";
 import { NestableDraggableFlatList, NestableScrollContainer, type RenderItemParams } from "react-native-draggable-flatlist";
 import {
   createCardEntry,
@@ -249,7 +250,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       }
     } catch {
       if (sequence !== refreshSequenceRef.current) return;
-      Alert.alert("暂时无法加载", "请检查网络后重试");
+      Alert.alert(t("main.error.load_title"), t("main.error.network_retry"));
     } finally {
       if (sequence === refreshSequenceRef.current) setLoading(false);
     }
@@ -559,7 +560,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   async function submit(initialTab: CardDetailRequest["initialTab"] = "review"): Promise<void> {
     if (submitInFlightRef.current) return;
     if (isCardGenerationInProgress()) {
-      Alert.alert("请稍后再试", "有卡片正在处理，请等待完成后再操作。");
+      Alert.alert(t("main.error.try_later"), t("main.error.card_processing"));
       return;
     }
     const snapshot = draftRef.current;
@@ -707,7 +708,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         return;
       }
       if (isCardResourceLimitedError(error)) {
-        Alert.alert("请稍后再试", "有卡片正在处理，请等待完成后再操作。");
+        Alert.alert(t("main.error.try_later"), t("main.error.card_processing"));
         return;
       }
       Alert.alert(
@@ -829,7 +830,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
   function openDetail(record: CardRecordSummary, origin?: CardDetailRequest["origin"]): void {
     if (record.status !== "completed") {
-      Alert.alert("仍在整理", "OIO 正在整理这条记录");
+      Alert.alert(t("card_detail.processing"), t("main.card.processing_message"));
       return;
     }
     onOpenCard(record.id, "review", origin);
@@ -849,7 +850,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       if (sequence === searchSequenceRef.current) setSearchResults(rows);
     } catch {
       if (sequence === searchSequenceRef.current) {
-        Alert.alert("搜索失败", "请检查网络后重试");
+        Alert.alert(t("main.search.failed"), t("main.error.network_retry"));
       }
     } finally {
       if (sequence === searchSequenceRef.current) setSearching(false);
@@ -874,14 +875,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }
 
   function confirmDelete(recordId: string): void {
-    Alert.alert("删除这条记录？", "删除后无法恢复", [
-      { text: "取消", style: "cancel" },
+    Alert.alert(t("main.card.delete_title"), t("main.card.delete_message"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "删除",
+        text: t("common.delete"),
         style: "destructive",
         onPress: () => void deleteCardRecord(recordId).then(() => {
           setRecords((rows) => rows.filter((row) => row.id !== recordId));
-        }).catch(() => Alert.alert("删除失败", "请稍后重试")),
+        }).catch(() => Alert.alert(t("main.error.delete_failed"), t("card_detail.error.try_again"))),
       },
     ]);
   }
@@ -1015,9 +1016,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     await refresh();
   }
 
+  const assistantAvailable = sidebarEntitlement?.tier === "plus" || sidebarEntitlement?.tier === "pro";
   const openAssistant = () => {
-    const available = sidebarEntitlement?.tier === "plus" || sidebarEntitlement?.tier === "pro";
-    if (available) onOpenAssistant();
+    if (assistantAvailable) onOpenAssistant();
     else Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"));
   };
   const edgeSidebarResponder = useMemo(() => PanResponder.create({
@@ -1055,7 +1056,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           ? <Text style={styles.selectionHeaderTitle}>{selectedRecordIds.size}</Text>
           : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Ionicons name="chevron-down" size={15} color={theme.colors.textSecondary} /></Pressable>}
         <View style={styles.headerActions}>
-          {selectingRecords ? <View style={styles.headerIconButton} /> : <><Pressable accessibilityLabel={t("contact.curious_companion.name")} style={styles.headerIconButton} onPress={openAssistant}>
+          {selectingRecords ? <View style={styles.headerIconButton} /> : <><Pressable accessibilityLabel={t("contact.curious_companion.name")} style={[styles.headerIconButton, !assistantAvailable && styles.headerAssistantUnavailable]} onPress={openAssistant}>
             <OioCharacter width={27} height={25} />
           </Pressable><Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
@@ -1375,7 +1376,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
       await onReorderCollection(moved.id, parentId, serverPosition);
     } catch (error) {
       setOrderedCollections(collections);
-      Alert.alert("无法调整顺序", error instanceof Error ? error.message : "请稍后重试");
+      Alert.alert(t("main.collection.reorder_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
     } finally {
       setReorderSavingId(null);
     }
@@ -1396,7 +1397,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
       await onReorderFavoriteCollection(moved.id, to);
     } catch (error) {
       setOrderedCollections(collections);
-      Alert.alert("无法调整收藏顺序", error instanceof Error ? error.message : "请稍后重试");
+      Alert.alert(t("main.collection.favorite_reorder_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
     } finally {
       setReorderSavingId(null);
     }
@@ -1408,19 +1409,19 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
     try {
       await onToggleFavorite(collection);
     } catch (error) {
-      Alert.alert("无法更新收藏", error instanceof Error ? error.message : "请稍后重试");
+      Alert.alert(t("main.collection.favorite_update_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
     } finally {
       setFavoriteSavingId(null);
     }
   }
 
   function confirmDeleteCollection(collection: CardCollection): void {
-    Alert.alert("删除这个生活集？", "其子生活集也会删除，其中的生活记录会回到未分类，但记录本身不会删除。", [
-      { text: "取消", style: "cancel" },
+    Alert.alert(t("main.collection.delete_title"), t("main.collection.delete_message"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "删除",
+        text: t("common.delete"),
         style: "destructive",
-        onPress: () => void onDeleteCollection(collection).catch(() => Alert.alert("删除失败", "请稍后重试")),
+        onPress: () => void onDeleteCollection(collection).catch(() => Alert.alert(t("main.error.delete_failed"), t("card_detail.error.try_again"))),
       },
     ]);
   }
@@ -1434,11 +1435,11 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
 
   function openCollectionActions(collection: CardCollection): void {
     const options = [
-      "新建子生活集",
-      "重命名",
-      "移动到",
-      "删除",
-      "取消",
+      t("main.collection.new_child"),
+      t("main.collection.rename"),
+      t("main.collection.move_to"),
+      t("common.delete"),
+      t("common.cancel"),
     ];
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -1454,7 +1455,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
       { text: options[1], onPress: () => runCollectionAction(collection, 1) },
       { text: options[2], onPress: () => runCollectionAction(collection, 2) },
       { text: options[3], style: "destructive", onPress: () => runCollectionAction(collection, 3) },
-      { text: "取消", style: "cancel" },
+      { text: t("common.cancel"), style: "cancel" },
     ]);
   }
 
@@ -1470,7 +1471,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
       setNewCollectionName("");
       setCreatingParentId(undefined);
     } catch (error) {
-      Alert.alert("无法新建生活集", error instanceof Error ? error.message : "请稍后重试");
+      Alert.alert(t("main.collection.create_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
     } finally {
       setSavingCollection(false);
     }
@@ -1502,7 +1503,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
       await onRenameCollection(renamingCollectionId, name);
       cancelRenaming();
     } catch (error) {
-      Alert.alert("无法重命名生活集", error instanceof Error ? error.message : "请稍后重试");
+      Alert.alert(t("main.collection.rename_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
     } finally {
       setSavingRename(false);
     }
@@ -1547,19 +1548,19 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
           editable={!savingCollection}
           maxLength={60}
           returnKeyType="done"
-          placeholder={creatingParentId ? "子生活集名称" : "生活集名称"}
+          placeholder={creatingParentId ? t("main.collection.child_name") : t("main.collection.name")}
           placeholderTextColor={theme.colors.textMuted}
           onFocus={(event) => keepCollectionInputVisible(event.target)}
           onBlur={(event) => clearFocusedCollectionInput(event.target)}
           style={styles.sidebarCreateInput}
         />
-        <Pressable accessibilityLabel="完成新建生活集" disabled={!newCollectionName.trim() || savingCollection} hitSlop={8} onPress={() => void createCollection()}>
+        <Pressable accessibilityLabel={t("main.collection.a11y.finish_create")} disabled={!newCollectionName.trim() || savingCollection} hitSlop={8} onPress={() => void createCollection()}>
           {savingCollection
             ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
             : <Ionicons name="checkmark-outline" size={22} color={newCollectionName.trim() ? theme.colors.text : theme.colors.textMuted} />}
         </Pressable>
         <Pressable
-          accessibilityLabel="取消新建生活集"
+          accessibilityLabel={t("sidebar.a11y.cancel_new_collection")}
           disabled={savingCollection}
           hitSlop={8}
           onPress={() => {
@@ -1598,12 +1599,12 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                 onBlur={(event) => clearFocusedCollectionInput(event.target)}
                 style={styles.sidebarCreateInput}
               />
-              <Pressable accessibilityLabel="确认重命名" disabled={!renameValue.trim() || savingRename} hitSlop={8} onPress={() => void submitRename()}>
+              <Pressable accessibilityLabel={t("main.collection.a11y.confirm_rename")} disabled={!renameValue.trim() || savingRename} hitSlop={8} onPress={() => void submitRename()}>
                 {savingRename
                   ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                   : <Ionicons name="checkmark-outline" size={22} color={renameValue.trim() ? theme.colors.text : theme.colors.textMuted} />}
               </Pressable>
-              <Pressable accessibilityLabel="取消重命名" disabled={savingRename} hitSlop={8} onPress={cancelRenaming}>
+              <Pressable accessibilityLabel={t("main.collection.a11y.cancel_rename")} disabled={savingRename} hitSlop={8} onPress={cancelRenaming}>
                 <Ionicons name="close-outline" size={22} color={theme.colors.textMuted} />
               </Pressable>
             </View>
@@ -1663,7 +1664,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
               muted={!assistantAvailable}
               onPress={assistantAvailable ? onOpenAssistant : () => Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"))}
             />
-            <SidebarRow icon="time-outline" label={t("sidebar.recall")} onPress={onOpenRecall} />
+            <SidebarRow leading={<OioRecall width={27} height={25} />} label={t("sidebar.recall")} onPress={onOpenRecall} />
           </View>
 
           <View style={styles.sidebarCollectionSection}>
@@ -1863,7 +1864,7 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
       onPress={onPress}
     >
       {selected ? <View pointerEvents="none" style={styles.sidebarSelectionMark} /> : null}
-      <Pressable accessibilityLabel={expanded ? "折叠生活集" : "展开生活集"} disabled={!expandable} style={styles.sidebarDisclosure} onPress={(event) => { event.stopPropagation(); onToggle?.(); }}>
+      <Pressable accessibilityLabel={expanded ? t("sidebar.a11y.collapse_collection") : t("sidebar.a11y.expand_collection")} disabled={!expandable} style={styles.sidebarDisclosure} onPress={(event) => { event.stopPropagation(); onToggle?.(); }}>
         {expandable ? <Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} /> : null}
       </Pressable>
       {icon ? <Ionicons name={icon} size={19} color={muted ? theme.colors.textMuted : selected ? "#111111" : "#555555"} /> : null}
@@ -1872,7 +1873,7 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
       {count !== undefined ? <Text style={styles.sidebarRowCount}>{count}</Text> : null}
       {onToggleFavorite ? (
         <Pressable
-          accessibilityLabel={favorite ? `取消收藏${label}` : `收藏${label}`}
+          accessibilityLabel={favorite ? tf("sidebar.a11y.unfavorite", { label }) : tf("sidebar.a11y.favorite", { label })}
           disabled={favoriteSaving}
           style={styles.sidebarRowFavorite}
           hitSlop={5}
@@ -1888,7 +1889,7 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
       ) : null}
       {onMore ? (
         <Pressable
-          accessibilityLabel={`${label}的更多操作`}
+          accessibilityLabel={tf("sidebar.a11y.more_actions", { label })}
           style={styles.sidebarRowAction}
           hitSlop={6}
           onPress={(event) => {
@@ -1936,16 +1937,16 @@ function CardSearchScreen({ query, results, searching, collections, collectionId
     return () => clearTimeout(timer);
   }, []);
   const selectedCollection = collectionId ? collections.find((collection) => collection.id === collectionId) : null;
-  const collectionLabel = collectionId === undefined ? t("sidebar.collections") : collectionId === null ? t("sidebar.unclassified") : selectedCollection ? collectionPathName(selectedCollection, collections) : "分类";
+  const collectionLabel = collectionId === undefined ? t("sidebar.collections") : collectionId === null ? t("sidebar.unclassified") : selectedCollection ? collectionPathName(selectedCollection, collections) : t("main.search.category");
   return <SafeAreaView style={styles.searchPage}>
     <View style={styles.searchPageHeader}>
-      <Pressable accessibilityLabel="返回" style={styles.searchBackButton} onPress={onClose}><Ionicons name="chevron-back" size={25} color={theme.colors.text} /></Pressable>
+      <Pressable accessibilityLabel={t("card_detail.back")} style={styles.searchBackButton} onPress={onClose}><Ionicons name="chevron-back" size={25} color={theme.colors.text} /></Pressable>
       <View style={styles.searchBox}>
         <Ionicons name="search" size={18} color={theme.colors.textMuted} />
         <TextInput ref={inputRef} value={query} onChangeText={onQueryChange} onSubmitEditing={onSearch} returnKeyType="search" style={styles.searchPageInput} />
-        {query ? <Pressable accessibilityLabel="清空搜索" hitSlop={8} onPress={() => onQueryChange("")}><Ionicons name="close-circle" size={19} color={theme.colors.textMuted} /></Pressable> : null}
+        {query ? <Pressable accessibilityLabel={t("main.search.clear")} hitSlop={8} onPress={() => onQueryChange("")}><Ionicons name="close-circle" size={19} color={theme.colors.textMuted} /></Pressable> : null}
       </View>
-      <Pressable accessibilityLabel="搜索" disabled={!query.trim() || searching} style={[styles.searchPageSubmit, (!query.trim() || searching) && styles.searchPageSubmitDisabled]} onPress={onSearch}>
+      <Pressable accessibilityLabel={t("main.search.action")} disabled={!query.trim() || searching} style={[styles.searchPageSubmit, (!query.trim() || searching) && styles.searchPageSubmitDisabled]} onPress={onSearch}>
         {searching ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />}
       </Pressable>
     </View>
@@ -1959,11 +1960,11 @@ function CardSearchScreen({ query, results, searching, collections, collectionId
       </ScrollView>
     </View>
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.searchResultsContent} showsVerticalScrollIndicator={false}>
-      {results ? <Text style={styles.searchSummary}>{results.length ? `找到 ${results.length} 条相关记录` : `没有找到“${query.trim()}”`}</Text> : <View style={styles.searchStart}><Ionicons name="search-outline" size={30} color="#C1C1C1" /><Text style={styles.searchStartText}>搜索原文、AI 改写和学过的表达</Text></View>}
+      {results ? <Text style={styles.searchSummary}>{results.length ? tf("main.search.result_count", { count: results.length }) : tf("main.search.no_result", { query: query.trim() })}</Text> : <View style={styles.searchStart}><Ionicons name="search-outline" size={30} color="#C1C1C1" /><Text style={styles.searchStartText}>{t("main.search.description")}</Text></View>}
       {results?.map((result) => <SearchResultCard key={result.recordId} result={result} query={query} onPress={() => onOpenResult(result.recordId)} />)}
-      {results && !results.length ? <Text style={styles.searchEmptyHint}>换一个关键词，或者调整时间和生活集范围。</Text> : null}
+      {results && !results.length ? <Text style={styles.searchEmptyHint}>{t("main.search.empty_hint")}</Text> : null}
     </ScrollView>
-    <CollectionPickerModal visible={collectionPickerVisible} title="选择分类" collections={collections} value={collectionId} includeAll onClose={() => setCollectionPickerVisible(false)} onSelect={(value) => { setCollectionPickerVisible(false); onCollectionChange(value); }} />
+    <CollectionPickerModal visible={collectionPickerVisible} title={t("main.search.choose_category")} collections={collections} value={collectionId} includeAll onClose={() => setCollectionPickerVisible(false)} onSelect={(value) => { setCollectionPickerVisible(false); onCollectionChange(value); }} />
   </SafeAreaView>;
 }
 
@@ -1994,14 +1995,14 @@ function AnimatedSearchOverlay({ visible, children }: { visible: boolean; childr
 function SearchResultCard({ result, query, onPress }: { result: RecallCandidate; query: string; onPress: () => void }) {
   const match = result.matches?.[0];
   const fieldLabel = match?.field === "title" || match?.field === "topic"
-    ? "相关内容"
+    ? t("main.search.field.related")
     : match?.field === "original"
-      ? "原文"
+      ? t("card_detail.original")
       : match?.field === "organization"
-        ? "整理"
+        ? t("card_detail.translation")
         : match?.field === "reply"
-          ? "回复"
-          : "自然表达";
+          ? t("card_detail.reply")
+          : t("main.search.field.expression");
   return (
     <Pressable style={styles.searchResultCard} onPress={onPress}>
       <View style={styles.cardContent}>
@@ -2015,7 +2016,7 @@ function SearchResultCard({ result, query, onPress }: { result: RecallCandidate;
             : <HighlightedSearchText text={match?.sentence || result.originalText} term={match?.surfaceText || query} />}
           <View style={styles.cardFooter}>
             <Text style={styles.cardTime}>{formatSearchResultDate(result.createdAt)}</Text>
-            <Text style={styles.searchMatchLabel}>{fieldLabel}{match?.matchType === "variant" ? " · 词形" : ""}</Text>
+            <Text style={styles.searchMatchLabel}>{fieldLabel}{match?.matchType === "variant" ? ` · ${t("main.search.variant")}` : ""}</Text>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
           </View>
         </View>
@@ -2033,7 +2034,7 @@ function HighlightedSearchText({ text, term }: { text: string; term: string }) {
 function formatSearchResultDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
+  return date.toLocaleDateString(getLanguage(), { month: "short", day: "numeric" });
 }
 
 function formatQuotaRefreshTime(value: string | null): string {
@@ -2062,7 +2063,7 @@ function CollectionMoveModal({ visible, collections, collectionId, onClose, onMo
       await onMove(moving.id, parentId);
       onClose();
     } catch (error) {
-      Alert.alert("无法移动生活集", error instanceof Error ? error.message : "请稍后重试");
+      Alert.alert(t("main.collection.move_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
     } finally {
       setMovingTo(undefined);
     }
@@ -2074,17 +2075,17 @@ function CollectionMoveModal({ visible, collections, collectionId, onClose, onMo
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={styles.modalPage}>
         <View style={styles.modalHeader}>
-          <Pressable style={styles.modalHeaderButton} onPress={onClose}><Text style={styles.modalCancel}>取消</Text></Pressable>
-          <Text style={styles.modalTitle}>{moving ? `移动“${moving.name}”` : "移动到"}</Text>
+          <Pressable style={styles.modalHeaderButton} onPress={onClose}><Text style={styles.modalCancel}>{t("common.cancel")}</Text></Pressable>
+          <Text style={styles.modalTitle}>{moving ? tf("main.collection.move_named", { name: moving.name }) : t("main.collection.move_to")}</Text>
           <View style={styles.modalHeaderButton} />
         </View>
         <ScrollView contentContainerStyle={styles.collectionManagerList} alwaysBounceVertical={false}>
           {moving ? (
             <>
-              <Text style={styles.collectionMoveHint}>选择新的所属生活集</Text>
+              <Text style={styles.collectionMoveHint}>{t("main.collection.move_hint")}</Text>
               <Pressable style={styles.collectionMoveRow} onPress={() => void move(null)}>
                 <Ionicons name="albums-outline" size={20} color={theme.colors.textSecondary} />
-                <Text style={styles.collectionRowName}>生活集顶层</Text>
+                <Text style={styles.collectionRowName}>{t("main.collection.top_level")}</Text>
                 {moving.parentId === null ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
                 {movingTo === null ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
               </Pressable>
@@ -2191,7 +2192,7 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
             <>
               <Text numberOfLines={1} ellipsizeMode="tail" style={styles.cardTitle}>{record.displayTitle}</Text>
               <Text numberOfLines={record.thumbnail ? 2 : 3} ellipsizeMode="tail" style={styles.originalText}>{previewText}</Text>
-              <Text style={styles.processingText}>整理中</Text>
+              <Text style={styles.processingText}>{t("main.card.processing")}</Text>
             </>
           ) : (
             <>
@@ -2202,7 +2203,7 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
           <View style={styles.cardFooter}>
             <Text numberOfLines={1} style={styles.cardTime}>{formatCardDateLabel(record.dateKey)} · {formatTime(record.createdAt)}</Text>
             {collectionName ? <Text numberOfLines={1} style={styles.cardCollection}>{collectionName}</Text> : null}
-            {record.isSample ? <Text style={styles.sampleBadge}>示例</Text> : null}
+            {record.isSample ? <Text style={styles.sampleBadge}>{t("main.card.sample")}</Text> : null}
             {processing ? <ActivityIndicator size="small" color={theme.colors.accent} /> : !selecting ? (
               <Pressable ref={moreButtonRef} accessibilityLabel={t("quick_note.actions")} style={styles.cardMoreButton} hitSlop={8} onPress={(event) => {
                 event.stopPropagation();
@@ -2253,7 +2254,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.canvas },
   brandRow: { minHeight: 52, paddingHorizontal: 16, paddingTop: 3, flexDirection: "row", alignItems: "center" },
   brand: { flex: 1, marginLeft: 10, color: theme.colors.text, fontSize: 20, lineHeight: 27, fontWeight: "500", letterSpacing: -0.2 },
-  homeSectionTabs: { flex: 1, height: 48, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  homeSectionTabs: { flex: 1, height: 48, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, transform: [{ translateX: 21 }] },
   homeHeaderTitle: { maxWidth: "86%", color: theme.colors.text, fontSize: 17, lineHeight: 23, fontWeight: "600" },
   selectionHeaderTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 17, fontWeight: "600" },
   headerDate: { color: theme.colors.textMuted, fontSize: 13 },
@@ -2261,6 +2262,7 @@ const styles = StyleSheet.create({
   recordButton: { minHeight: 44, paddingHorizontal: 13, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accentStrong, flexDirection: "row", alignItems: "center", gap: 5 },
   recordButtonText: { color: theme.colors.surface, fontSize: 13, fontWeight: "600" },
   headerIconButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
+  headerAssistantUnavailable: { opacity: 0.42 },
   libraryMenuBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.12)" },
   libraryMenuPanel: { position: "absolute", alignSelf: "center", width: 300, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 12 },
   libraryMenuRow: { minHeight: 76, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 10 },
