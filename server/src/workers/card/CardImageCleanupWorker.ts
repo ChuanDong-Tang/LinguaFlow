@@ -1,4 +1,5 @@
 import type { CardRepository } from "@lf/core/ports/repository/CardRepository.js";
+import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
 import type { UsageV2Service } from "../../services/usage/UsageV2Service.js";
 
@@ -10,6 +11,7 @@ export class CardImageCleanupWorker {
     private readonly storage: CardImageStorageProvider,
     private readonly options: { intervalMs?: number; batchSize?: number } = {},
     private readonly usageV2Service?: UsageV2Service,
+    private readonly systemEventLogRepository?: SystemEventLogRepository,
   ) {}
   start(): void {
     if (this.timer) return;
@@ -20,6 +22,10 @@ export class CardImageCleanupWorker {
   async runOnce(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    const startedAt = Date.now();
+    let deletedRows = 0;
+    let failedRows = 0;
+    let roundFailed = false;
     try {
       const assets = await this.repository.listImageAssetsForCleanup(new Date(), this.options.batchSize ?? 100);
       for (const asset of assets) {
@@ -45,7 +51,9 @@ export class CardImageCleanupWorker {
           });
           await this.usageV2Service?.releaseImageReservation(asset.userId, asset.id);
           await this.repository.deleteUnclaimedImageAsset(asset.id);
+          deletedRows += 1;
         } catch (error) {
+          failedRows += 1;
           console.error("[card-image-cleanup] asset cleanup failed", asset.id, error);
         }
       }
@@ -55,10 +63,40 @@ export class CardImageCleanupWorker {
         try {
           await this.storage.delete(asset.uploadObjectKey);
           await this.repository.clearImageUploadObjectKey(asset.id, asset.uploadObjectKey);
+          deletedRows += 1;
         } catch (error) {
+          failedRows += 1;
           console.error("[card-image-cleanup] isolated upload cleanup failed", asset.id, error);
         }
       }
-    } finally { this.running = false; }
+    } catch (error) {
+      roundFailed = true;
+      console.error("[card-image-cleanup] round failed", error);
+    } finally {
+      await this.writeRoundLog({ startedAt, deletedRows, failedRows, roundFailed });
+      this.running = false;
+    }
+  }
+
+  private async writeRoundLog(input: { startedAt: number; deletedRows: number; failedRows: number; roundFailed: boolean }): Promise<void> {
+    if (!this.systemEventLogRepository) return;
+    try {
+      await this.systemEventLogRepository.create({
+        module: "card",
+        event: "card.worker.card_image_cleanup_round",
+        level: input.roundFailed ? "error" : input.failedRows ? "warn" : "info",
+        status: input.roundFailed ? "failed" : "success",
+        metadata: {
+          worker: "card_image_cleanup",
+          status: input.roundFailed ? "failed" : input.failedRows ? "success_partial" : input.deletedRows ? "success" : "success_empty",
+          durationMs: Date.now() - input.startedAt,
+          deletedRows: input.deletedRows,
+          failedRows: input.failedRows,
+          batchSize: this.options.batchSize ?? 100,
+        },
+      });
+    } catch (error) {
+      console.error("[card-image-cleanup] write round log failed", error);
+    }
   }
 }

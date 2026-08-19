@@ -975,6 +975,36 @@
               <div id="resourceAlerts" class="metrics"></div>
             </div>
             <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">数据库查询</h2>
+                  <p id="databaseMetricsMeta" class="section-subtitle">仅保存操作类型、表名和聚合耗时，不保存 SQL、参数或用户数据。</p>
+                </div>
+              </div>
+              <div id="databaseMetrics" class="metrics"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead><tr><th>操作</th><th>涉及表</th><th>查询数</th><th>平均</th><th>p50</th><th>p95</th><th>p99</th><th>慢查询</th><th>状态</th></tr></thead>
+                  <tbody id="databaseMetricsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">维护 Worker</h2>
+                  <p id="maintenanceWorkerMeta" class="section-subtitle">查看清理任务是否持续运行；超过两个执行周期未上报将标记为过期。</p>
+                </div>
+              </div>
+              <div id="maintenanceWorkerMetrics" class="metrics"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead><tr><th>任务</th><th>健康度</th><th>本轮结果</th><th>最近运行</th><th>耗时</th><th>删除</th><th>连续失败</th><th>异常</th></tr></thead>
+                  <tbody id="maintenanceWorkerTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
               <div class="table-wrap">
                 <table>
                   <thead><tr><th>资源</th><th>最近一分钟</th><th>当前并发</th><th>一分钟峰值</th><th>平均耗时</th><th>成功 / 失败</th><th>限流</th><th>状态</th></tr></thead>
@@ -2280,6 +2310,8 @@
         state.resources = resourceRes.data || {};
         state.operations = operationsRes.data || {};
         renderApiMetrics(state.operations.api);
+        renderDatabaseMetrics(state.operations.database);
+        renderMaintenanceWorkers(state.operations.maintenance);
         renderResources(state.resources);
         setStatus("运行监控已刷新");
       }
@@ -2376,6 +2408,100 @@
           <td>${escapeHtml(row.count)}</td>
           <td>${escapeHtml(fmtDate(row.lastOccurredAt))}</td>
         </tr>`).join("") || rowEmpty(5, "近 24 小时没有限流记录");
+      }
+
+      function renderDatabaseMetrics(database) {
+        const summary = database?.summary || {};
+        const rows = Array.isArray(database?.operations) ? database.operations : [];
+        const queries = Number(summary.queries || 0);
+        const errors = Number(summary.errors || 0);
+        const slowQueries = Number(summary.slowQueries || 0);
+        const errorRate = queries ? errors / queries : 0;
+        const slowRate = queries ? slowQueries / queries : 0;
+        const overallStatus = errors >= 5 && errorRate >= 0.01
+          ? "大面积异常"
+          : errors > 0 || slowRate >= 0.05
+            ? "需要关注"
+            : "正常";
+        $("databaseMetricsMeta").textContent = database
+          ? `${database.redisShared ? "API 与 Worker 跨实例统计" : "当前 API 进程统计"} · 近 ${database.windowMinutes} 分钟 · 慢查询阈值 ${database.slowThresholdMs}ms`
+          : "数据库指标尚不可用";
+        $("databaseMetrics").innerHTML = [
+          ["查询量", queries, `近 ${database?.windowMinutes || 0} 分钟`],
+          ["平均耗时", summary.averageDurationMs == null ? "—" : formatDurationMs(summary.averageDurationMs), "database query duration"],
+          ["p95 / p99", `${summary.p95DurationMs ?? "—"} / ${summary.p99DurationMs ?? "—"} ms`, "长尾查询"],
+          ["慢查询", slowQueries, `${(slowRate * 100).toFixed(2)}%`],
+          ["数据库错误", errors, `${(errorRate * 100).toFixed(2)}%`],
+          ["整体状态", overallStatus, overallStatus === "大面积异常" ? "错误数和错误率同时越线" : "仅大面积异常标红"],
+        ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+        $("databaseMetricsTbody").innerHTML = rows.map((row) => {
+          const rowSlowRate = Number(row.queries) ? Number(row.slowQueries || 0) / Number(row.queries) : 0;
+          const status = rowSlowRate >= 0.1 || Number(row.p95DurationMs || 0) >= Number(database.slowThresholdMs || 250) * 2
+            ? "较慢"
+            : rowSlowRate > 0
+              ? "偶发慢"
+              : "正常";
+          const statusClass = status === "较慢" ? "status-warn" : "status-pass";
+          return `<tr>
+            <td><span class="pill">${escapeHtml(row.operation)}</span></td>
+            <td class="mono">${escapeHtml(row.tables?.join(", ") || "—")}</td>
+            <td>${escapeHtml(row.queries || 0)}</td>
+            <td>${row.averageDurationMs == null ? "—" : escapeHtml(formatDurationMs(row.averageDurationMs))}</td>
+            <td>${row.p50DurationMs == null ? "—" : escapeHtml(formatDurationMs(row.p50DurationMs))}</td>
+            <td><strong>${row.p95DurationMs == null ? "—" : escapeHtml(formatDurationMs(row.p95DurationMs))}</strong></td>
+            <td>${row.p99DurationMs == null ? "—" : escapeHtml(formatDurationMs(row.p99DurationMs))}</td>
+            <td>${escapeHtml(row.slowQueries || 0)}</td>
+            <td><span class="pill ${statusClass}">${escapeHtml(status)}</span></td>
+          </tr>`;
+        }).join("") || rowEmpty(9, "统计窗口内暂无数据库查询");
+      }
+
+      function renderMaintenanceWorkers(input) {
+        const rows = Array.isArray(input) ? input : [];
+        const healthy = rows.filter((row) => row.health === "healthy").length;
+        const failed = rows.filter((row) => row.health === "failed").length;
+        const stale = rows.filter((row) => row.health === "stale").length;
+        const unknown = rows.filter((row) => row.health === "unknown").length;
+        const disabled = rows.filter((row) => row.health === "disabled").length;
+        const degraded = rows.filter((row) => row.health === "degraded").length;
+        const lastRunAt = rows.map((row) => row.lastRunAt).filter(Boolean).sort().at(-1) || null;
+        $("maintenanceWorkerMeta").textContent = lastRunAt
+          ? `最近上报 ${fmtDate(lastRunAt)} · 超过两个执行周期未上报将标记为过期`
+          : "尚未找到维护 Worker 运行记录，请确认 maintenance 或 all Worker 组已启动。";
+        $("maintenanceWorkerMetrics").innerHTML = [
+          ["维护任务", rows.length, "已纳入监控的清理任务"],
+          ["正常", healthy, "按计划持续上报"],
+          ["失败", failed, failed ? "最近一轮执行失败" : "最近一轮无失败"],
+          ["部分失败", degraded, degraded ? "部分对象清理失败" : "无部分失败"],
+          ["过期", stale, stale ? "超过两个执行周期" : "无过期任务"],
+          ["未见记录", unknown, unknown ? "检查 Worker 部署或配置" : "全部已有运行记录"],
+          ["已禁用", disabled, disabled ? "由服务器配置关闭" : "无禁用任务"],
+        ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+        const healthLabels = { healthy: "正常", degraded: "部分失败", failed: "失败", stale: "过期", unknown: "未见记录", disabled: "已禁用" };
+        const roundLabels = {
+          success: "成功",
+          success_empty: "成功，无数据",
+          success_partial: "部分成功",
+          failed: "失败",
+          skipped_disabled: "已禁用",
+          skipped_circuit_open: "熔断跳过",
+          skipped_lock_miss: "其他实例执行",
+          unknown: "未知",
+        };
+        $("maintenanceWorkerTbody").innerHTML = rows.map((row) => {
+          const statusClass = row.health === "failed" ? "status-fail" : row.health === "degraded" || row.health === "stale" || row.health === "unknown" || row.health === "disabled" ? "status-warn" : "status-pass";
+          const error = row.errorMessage || row.errorCode || (row.circuitOpenUntil ? `熔断至 ${fmtDate(row.circuitOpenUntil)}` : row.failedRows ? `${row.failedRows} 个对象失败` : "");
+          return `<tr>
+            <td><strong>${escapeHtml(row.label)}</strong><br><span class="mono muted">${escapeHtml(row.key)}</span></td>
+            <td><span class="pill ${statusClass}">${escapeHtml(healthLabels[row.health] || row.health)}</span></td>
+            <td>${escapeHtml(roundLabels[row.roundStatus] || row.roundStatus)}</td>
+            <td>${row.lastRunAt ? `${escapeHtml(fmtDate(row.lastRunAt))}<br><span class="muted">${escapeHtml(formatDuration(row.ageMs / 1000))}前</span>` : "—"}</td>
+            <td>${row.lastRunAt ? escapeHtml(formatDurationMs(row.durationMs)) : "—"}</td>
+            <td>${escapeHtml(row.deletedRows || 0)}${row.batchCount ? ` <span class="muted">/ ${escapeHtml(row.batchCount)} 批</span>` : ""}</td>
+            <td>${escapeHtml(row.consecutiveFailures || 0)}</td>
+            <td>${escapeHtml(error || "—")}</td>
+          </tr>`;
+        }).join("") || rowEmpty(8, "暂无维护 Worker 数据");
       }
 
       function toggleResourceAutoRefresh() {
@@ -3116,17 +3242,22 @@
           ? durations[Math.min(durations.length - 1, Math.ceil(durations.length * 0.95) - 1)]
           : 0;
         const cacheRate = summary.total ? `${(summary.cacheHits / summary.total * 100).toFixed(1)}%` : "0%";
-        const cacheDurations = rows.filter((row) => row.cacheHit).map((row) => Number(row.durationMs || 0)).filter(Number.isFinite);
-        const generatedDurations = rows
+        const phaseFields = ["preparationMs", "cacheLookupMs", "lockWaitMs", "queueWaitMs", "synthesisMs", "storageMs", "persistenceMs"];
+        const phaseRows = rows.filter((row) => phaseFields.some((field) => row[field] !== null && row[field] !== undefined));
+        const cacheDurations = phaseRows.filter((row) => row.cacheHit).map((row) => Number(row.durationMs || 0)).filter(Number.isFinite);
+        const generatedDurations = phaseRows
           .filter((row) => !row.cacheHit && !row.deduped && row.status === "success")
           .map((row) => Number(row.durationMs || 0))
           .filter(Number.isFinite);
-        const phaseAverage = (field) => {
-          const values = rows.map((row) => Number(row[field] || 0)).filter((value) => Number.isFinite(value) && value > 0);
-          return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+        const phaseAverage = (field, options = {}) => {
+          const values = phaseRows
+            .filter((row) => row[field] !== null && row[field] !== undefined)
+            .map((row) => Number(row[field]))
+            .filter((value) => Number.isFinite(value) && (!options.positiveOnly || value > 0));
+          return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : null;
         };
         const percentile = (values, ratio) => {
-          if (!values.length) return 0;
+          if (!values.length) return null;
           const sorted = [...values].sort((left, right) => left - right);
           return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)];
         };
@@ -3135,13 +3266,14 @@
           ["成功 / 失败", `${summary.success} / ${summary.failed}`, "request status"],
           ["缓存命中率", cacheRate, `${summary.cacheHits} cache hits`],
           ["新生成", summary.generatedRequests, `${summary.generatedChars} chars`],
-          ["缓存 P95", `${percentile(cacheDurations, 0.95)} ms`, "cache-hit end-to-end"],
-          ["生成 P95", `${percentile(generatedDurations, 0.95)} ms`, "new generation end-to-end"],
-          ["Azure 平均", `${phaseAverage("synthesisMs")} ms`, "synthesis including retry"],
-          ["COS 平均", `${phaseAverage("storageMs")} ms`, "upload + URL"],
-          ["排队 / 锁等待", `${phaseAverage("queueWaitMs")} / ${phaseAverage("lockWaitMs")} ms`, "concurrency / dedupe"],
-          ["前置 / 缓存查询", `${phaseAverage("preparationMs")} / ${phaseAverage("cacheLookupMs")} ms`, "auth + DB / asset lookup"],
-          ["数据库落库", `${phaseAverage("persistenceMs")} ms`, "ready asset insert"],
+          ["分段覆盖", `${phaseRows.length} / ${rows.length}`, "new-format / loaded logs"],
+          ["缓存 P95", formatOptionalMs(percentile(cacheDurations, 0.95)), "cache-hit end-to-end"],
+          ["生成 P95", formatOptionalMs(percentile(generatedDurations, 0.95)), "new generation end-to-end"],
+          ["Azure 平均", formatOptionalMs(phaseAverage("synthesisMs", { positiveOnly: true })), "generated requests only"],
+          ["COS 平均", formatOptionalMs(phaseAverage("storageMs", { positiveOnly: true })), "generated requests only"],
+          ["排队 / 锁等待", formatOptionalMsPair(phaseAverage("queueWaitMs"), phaseAverage("lockWaitMs")), "concurrency / dedupe"],
+          ["前置 / 缓存查询", formatOptionalMsPair(phaseAverage("preparationMs"), phaseAverage("cacheLookupMs")), "auth + DB / asset lookup"],
+          ["数据库落库", formatOptionalMs(phaseAverage("persistenceMs", { positiveOnly: true })), "generated requests only"],
           ["整体平均 / P95", `${averageDuration} / ${p95Duration} ms`, "end-to-end server latency"],
         ].map(([label, value, hint]) => `
           <div class="metric">
@@ -3170,7 +3302,7 @@
       }
 
       function formatTtsPhaseTimings(row) {
-        const phases = [
+        const rawPhases = [
           ["前置", row.preparationMs],
           ["缓存", row.cacheLookupMs],
           ["锁", row.lockWaitMs],
@@ -3178,13 +3310,29 @@
           ["Azure", row.synthesisMs],
           ["COS", row.storageMs],
           ["落库", row.persistenceMs],
-        ].filter(([, value]) => Number(value || 0) > 0);
-        if (!phases.length) return '<span class="muted">旧数据无分段</span>';
+        ];
+        if (!rawPhases.some(([, value]) => value !== null && value !== undefined)) {
+          return '<span class="muted">旧数据无分段</span>';
+        }
+        const phases = rawPhases.filter(([label, value]) => {
+          if (label === "前置" || label === "缓存") return value !== null && value !== undefined;
+          return Number(value || 0) > 0;
+        });
+        if (!phases.length) return '<span class="muted">各阶段 &lt;1ms</span>';
         const slowest = phases.reduce((current, candidate) => Number(candidate[1]) > Number(current[1]) ? candidate : current);
         return phases.map(([label, value]) => {
           const content = `${escapeHtml(label)} ${escapeHtml(value)}ms`;
           return label === slowest[0] ? `<strong>${content}</strong>` : content;
         }).join("<br>");
+      }
+
+      function formatOptionalMs(value) {
+        return value === null || value === undefined ? "—" : `${value} ms`;
+      }
+
+      function formatOptionalMsPair(left, right) {
+        const format = (value) => value === null || value === undefined ? "—" : value;
+        return `${format(left)} / ${format(right)} ms`;
       }
 
       async function loadSttLogs() {

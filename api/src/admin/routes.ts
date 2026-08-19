@@ -9,6 +9,7 @@ import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import type { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 import type { ApiRequestMetrics } from "@lf/server/services/observability/ApiRequestMetrics.js";
+import type { DatabaseQueryMetrics } from "@lf/server/services/observability/DatabaseQueryMetrics.js";
 
 export interface AdminRouteDeps {
   subscriptionService: SubscriptionService;
@@ -59,6 +60,7 @@ export interface AdminRouteDeps {
   systemEventLogRepository?: SystemEventLogWriter;
   resourceGovernor?: ResourceGovernor;
   apiRequestMetrics?: ApiRequestMetrics;
+  databaseQueryMetrics?: DatabaseQueryMetrics;
 }
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps): void {
@@ -112,11 +114,88 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     const requestedWindow = Number((req.query as Record<string, unknown>)?.minutes ?? 15);
     const windowMinutes = Number.isFinite(requestedWindow) ? Math.max(1, Math.min(120, Math.floor(requestedWindow))) : 15;
-    const api = await deps.apiRequestMetrics?.snapshot(windowMinutes) ?? null;
+    const maintenanceSpecs = [
+      { key: "session_cleanup", label: "会话清理", event: "auth.worker.session_cleanup_round", intervalMs: 86_400_000 },
+      { key: "system_event_log_cleanup", label: "系统日志清理", event: "infra.worker.system_event_log_cleanup_round", intervalMs: 86_400_000 },
+      { key: "ai_request_log_cleanup", label: "AI 日志清理", event: "ai.worker.ai_request_log_cleanup_round", intervalMs: 86_400_000 },
+      { key: "tts_asset_cleanup", label: "TTS 资产清理", event: "tts.worker.tts_asset_cleanup_round", intervalMs: 86_400_000 },
+      { key: "tts_request_log_cleanup", label: "TTS 日志清理", event: "tts.worker.tts_request_log_cleanup_round", intervalMs: 86_400_000 },
+      { key: "account_deletion_cleanup", label: "账户删除清理", event: "auth.worker.account_deletion_cleanup_round", intervalMs: 7 * 86_400_000 },
+      { key: "card_image_cleanup", label: "Card 图片清理", event: "card.worker.card_image_cleanup_round", intervalMs: 3_600_000 },
+      { key: "card_speech_cleanup", label: "Card 语音清理", event: "card.worker.card_speech_cleanup_round", intervalMs: 3_600_000 },
+      { key: "user_avatar_cleanup", label: "用户头像清理", event: "auth.worker.user_avatar_cleanup_round", intervalMs: 3_600_000 },
+    ] as const;
+    const [api, database, maintenanceRows] = await Promise.all([
+      deps.apiRequestMetrics?.snapshot(windowMinutes) ?? null,
+      deps.databaseQueryMetrics?.snapshot(windowMinutes) ?? null,
+      deps.prisma.$queryRawUnsafe(
+        `SELECT DISTINCT ON ("event")
+           "event", "status", "level", "errorCode", "errorMessage", "metadata", "createdAt"
+         FROM "system_event_logs"
+         WHERE "event" IN (
+           'auth.worker.session_cleanup_round',
+           'infra.worker.system_event_log_cleanup_round',
+           'ai.worker.ai_request_log_cleanup_round',
+           'tts.worker.tts_asset_cleanup_round',
+           'tts.worker.tts_request_log_cleanup_round',
+           'auth.worker.account_deletion_cleanup_round',
+           'card.worker.card_image_cleanup_round',
+           'card.worker.card_speech_cleanup_round',
+           'auth.worker.user_avatar_cleanup_round'
+         )
+         ORDER BY "event", "createdAt" DESC`,
+      ) as Promise<Array<{
+        event: string;
+        status: string;
+        level: string;
+        errorCode: string | null;
+        errorMessage: string | null;
+        metadata: unknown;
+        createdAt: Date;
+      }>>,
+    ]);
+    const latestByEvent = new Map(maintenanceRows.map((row) => [row.event, row]));
+    const now = Date.now();
+    const maintenance = maintenanceSpecs.map((spec) => {
+      const latest = latestByEvent.get(spec.event);
+      const ageMs = latest ? Math.max(0, now - latest.createdAt.getTime()) : null;
+      const metadata = latest?.metadata && typeof latest.metadata === "object"
+        ? latest.metadata as Record<string, unknown>
+        : {};
+      const roundStatus = typeof metadata.status === "string" ? metadata.status : latest?.status ?? "unknown";
+      const health = !latest
+        ? "unknown"
+        : roundStatus === "skipped_disabled"
+          ? "disabled"
+        : roundStatus === "success_partial"
+          ? "degraded"
+        : latest.status === "failed" || roundStatus === "failed"
+          ? "failed"
+          : ageMs !== null && ageMs > spec.intervalMs * 2
+            ? "stale"
+            : "healthy";
+      return {
+        key: spec.key,
+        label: spec.label,
+        event: spec.event,
+        health,
+        roundStatus,
+        lastRunAt: latest?.createdAt.toISOString() ?? null,
+        ageMs,
+        durationMs: Number(metadata.durationMs ?? 0),
+        deletedRows: Number(metadata.deletedRows ?? metadata.deletedUsers ?? 0),
+        failedRows: Number(metadata.failedRows ?? 0),
+        batchCount: Number(metadata.batchCount ?? 0),
+        consecutiveFailures: Number(metadata.consecutiveFailures ?? 0),
+        circuitOpenUntil: metadata.circuitOpenUntil ?? null,
+        errorCode: latest?.errorCode ?? null,
+        errorMessage: latest?.errorMessage ?? null,
+      };
+    });
     return reply.status(200).send({
       ok: true,
       request_id: requestId,
-      data: { api },
+      data: { api, database, maintenance },
     });
   });
 

@@ -172,7 +172,7 @@ export class TtsService {
       timings.cacheLookupMs += Date.now() - cacheLookupStartedAt;
     } catch (error) {
       timings.cacheLookupMs += Date.now() - cacheLookupStartedAt;
-      await this.writeRequestLog({
+      this.queueRequestLog({
         requestId: input.requestId,
         userId: input.userId,
         messageId: message.id,
@@ -192,7 +192,7 @@ export class TtsService {
       throw error;
     }
     if (cached) {
-      await this.writeRequestLog({
+      this.queueRequestLog({
         requestId: input.requestId,
         userId: input.userId,
         messageId: message.id,
@@ -218,7 +218,7 @@ export class TtsService {
       try {
         const result = await existingGeneration;
         timings.lockWaitMs += Date.now() - lockWaitStartedAt;
-        await this.writeRequestLog({
+        this.queueRequestLog({
           requestId: input.requestId,
           userId: input.userId,
           messageId: message.id,
@@ -237,7 +237,7 @@ export class TtsService {
         return this.toView(result.asset, result.cacheHit, true, requestedRange);
       } catch (error) {
         timings.lockWaitMs += Date.now() - lockWaitStartedAt;
-        await this.writeRequestLog({
+        this.queueRequestLog({
           requestId: input.requestId,
           userId: input.userId,
           messageId: message.id,
@@ -271,7 +271,7 @@ export class TtsService {
     ttsGenerationLocks.set(lockKey, generation);
     try {
       const result = await generation;
-      await this.writeRequestLog({
+      this.queueRequestLog({
         requestId: input.requestId,
         userId: input.userId,
         messageId: message.id,
@@ -290,7 +290,7 @@ export class TtsService {
       return this.toView(result.asset, result.cacheHit, result.deduped, requestedRange);
     } catch (error) {
       if (error instanceof TtsSignedUrlFailedError) {
-        await this.writeRequestLog({
+        this.queueRequestLog({
           requestId: input.requestId,
           userId: input.userId,
           messageId: message.id,
@@ -310,7 +310,7 @@ export class TtsService {
         throw error;
       }
       if (error instanceof TtsGenerationInProgressError) {
-        await this.writeRequestLog({
+        this.queueRequestLog({
           requestId: input.requestId,
           userId: input.userId,
           messageId: message.id,
@@ -357,7 +357,7 @@ export class TtsService {
       } finally {
         timings.persistenceMs += Date.now() - persistenceStartedAt;
       }
-      await this.writeRequestLog({
+      this.queueRequestLog({
         requestId: input.requestId,
         userId: input.userId,
         messageId: message.id,
@@ -622,13 +622,11 @@ export class TtsService {
     }
   }
 
-  private async writeRequestLog(input: Parameters<TtsRequestLogRepository["create"]>[0]): Promise<void> {
+  private queueRequestLog(input: Parameters<TtsRequestLogRepository["create"]>[0]): void {
     if (!this.ttsRequestLogRepository) return;
-    try {
-      await this.ttsRequestLogRepository.create(input);
-    } catch (error) {
+    void this.ttsRequestLogRepository.create(input).catch((error) => {
       console.error("[tts] write request log failed", error);
-    }
+    });
   }
 }
 

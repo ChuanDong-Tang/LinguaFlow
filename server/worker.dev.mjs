@@ -60,9 +60,15 @@ import {
 import { ContentSafetyService } from "./src/services/contentSafety/ContentSafetyService.ts";
 import { TencentTmsClient } from "./src/services/contentSafety/TencentTmsClient.ts";
 import { ResourceGovernor } from "./src/services/resource/ResourceGovernor.ts";
+import { DatabaseQueryMetrics } from "./src/services/observability/DatabaseQueryMetrics.ts";
 import { UsageV2Service } from "./src/services/usage/UsageV2Service.ts";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  log: [
+    { emit: "event", level: "query" },
+    { emit: "event", level: "error" },
+  ],
+});
 const runtime = getRuntimeConfig();
 const paymentOrderRepository = new PrismaPaymentOrderRepository(prisma);
 const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
@@ -151,6 +157,13 @@ const entitlementService = new EntitlementService(entitlementRepository, subscri
 const aiRequestLogRepository = new PrismaAiRequestLogRepository(prisma);
 const cardAiProvider = createAIProvider(runtime);
 const workerRedisClient = getRedisClient();
+const databaseQueryMetrics = new DatabaseQueryMetrics(workerRedisClient);
+prisma.$on("query", (event) => {
+  void databaseQueryMetrics.observeQuery({ query: event.query, durationMs: event.duration }).catch(() => undefined);
+});
+prisma.$on("error", () => {
+  void databaseQueryMetrics.observeError().catch(() => undefined);
+});
 const resourceGovernor = new ResourceGovernor(runtime.resourcePolicies, workerRedisClient);
 const cardTaskGuard = workerRedisClient
   ? new RedisChatGenerationTaskGuard(workerRedisClient)
@@ -297,14 +310,19 @@ const cardImageCleanupWorker = new CardImageCleanupWorker(
   cardImageStorageProvider,
   {},
   usageV2Service,
+  systemEventLogRepository,
 );
 const cardSpeechCleanupWorker = new CardSpeechCleanupWorker(
   cardRepository,
   ttsStorageProvider,
+  {},
+  systemEventLogRepository,
 );
 const userAvatarCleanupWorker = new UserAvatarCleanupWorker(
   new PrismaUserProfileRepository(prisma),
   cardImageStorageProvider,
+  {},
+  systemEventLogRepository,
 );
 
 const workerGroup = (process.env.LF_WORKER_GROUP || "all").trim().toLowerCase();

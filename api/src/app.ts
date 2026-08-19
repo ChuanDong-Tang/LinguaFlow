@@ -90,6 +90,7 @@ import { CosStorageProvider } from "@lf/server/providers/storage/CosStorageProvi
 import { ContentSafetyService } from "@lf/server/services/contentSafety/ContentSafetyService.js";
 import { TencentTmsClient } from "@lf/server/services/contentSafety/TencentTmsClient.js";
 import { ApiRequestMetrics } from "@lf/server/services/observability/ApiRequestMetrics.js";
+import { DatabaseQueryMetrics } from "@lf/server/services/observability/DatabaseQueryMetrics.js";
 import websocket from "@fastify/websocket";
 import type {
   CreateProviderOrderInput,
@@ -99,7 +100,19 @@ import type {
   QueryProviderOrderResult,
 } from "@lf/core/ports/payment/index.js";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  log: [
+    { emit: "event", level: "query" },
+    { emit: "event", level: "error" },
+  ],
+});
+const databaseQueryMetrics = new DatabaseQueryMetrics(getRedisClient());
+prisma.$on("query", (event) => {
+  void databaseQueryMetrics.observeQuery({ query: event.query, durationMs: event.duration }).catch(() => undefined);
+});
+prisma.$on("error", () => {
+  void databaseQueryMetrics.observeError().catch(() => undefined);
+});
 
 export function createApp() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -518,7 +531,7 @@ export function createApp() {
       systemEventLogRepository,
     });
     registerAppVersionRoutes(app);
-    registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository, resourceGovernor, apiRequestMetrics });
+    registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository, resourceGovernor, apiRequestMetrics, databaseQueryMetrics });
 
     app.get("/health", async (req, reply) => {
       const [db, redis] = await Promise.all([
