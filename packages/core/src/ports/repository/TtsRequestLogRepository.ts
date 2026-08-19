@@ -14,6 +14,13 @@ export interface CreateTtsRequestLogInput {
   deduped?: boolean;
   status: TtsRequestLogStatus;
   durationMs?: number | null;
+  preparationMs?: number | null;
+  cacheLookupMs?: number | null;
+  lockWaitMs?: number | null;
+  queueWaitMs?: number | null;
+  synthesisMs?: number | null;
+  storageMs?: number | null;
+  persistenceMs?: number | null;
   errorCode?: string | null;
   errorMessage?: string | null;
 }

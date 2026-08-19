@@ -713,6 +713,13 @@ model TtsRequestLog {
   deduped         Boolean  @default(false)
   status          String
   durationMs      Int?
+  preparationMs   Int?
+  cacheLookupMs   Int?
+  lockWaitMs      Int?
+  queueWaitMs     Int?
+  synthesisMs     Int?
+  storageMs       Int?
+  persistenceMs   Int?
   errorCode       String?
   errorMessage    String?
   createdAt       DateTime @default(now())

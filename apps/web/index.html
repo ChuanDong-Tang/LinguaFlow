@@ -756,22 +756,27 @@
           <div class="nav-group">
             <div class="nav-label">运营</div>
             <button class="tab active" data-tab="overview">运营概览</button>
-            <button class="tab" data-tab="resources">资源监控</button>
-            <button class="tab" data-tab="cardops">Card 运行</button>
-          </div>
-          <div class="nav-group">
-            <div class="nav-label">用户</div>
-            <button class="tab" data-tab="user">用户排障</button>
             <button class="tab" data-tab="contacts">用户触达</button>
           </div>
           <div class="nav-group">
-            <div class="nav-label">商业</div>
+            <div class="nav-label">运行</div>
+            <button class="tab" data-tab="resources">运行监控</button>
+            <button class="tab" data-tab="cardops">Card 任务</button>
+          </div>
+          <div class="nav-group">
+            <div class="nav-label">业务</div>
+            <button class="tab" data-tab="user">用户排障</button>
             <button class="tab" data-tab="payments">支付订阅</button>
           </div>
           <div class="nav-group">
-            <div class="nav-label">系统</div>
-            <button class="tab" data-tab="audit">生产审计</button>
-            <button class="tab" data-tab="logs">日志审计</button>
+            <div class="nav-label">审计</div>
+            <button class="tab" data-tab="security">安全审计</button>
+            <button class="tab" data-tab="adminaudit">管理员操作</button>
+            <button class="tab" data-tab="logs">系统事件</button>
+          </div>
+          <div class="nav-group">
+            <div class="nav-label">发布</div>
+            <button class="tab" data-tab="audit">生产检查</button>
           </div>
         </nav>
         <div class="sidebar-foot">
@@ -931,12 +936,40 @@
             <div class="section">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">AI 资源池</h2>
-                  <p id="resourceMeta" class="section-subtitle">监控最近一分钟请求、实时并发、耗时与限流。达到 70% 提醒，90% 告警。</p>
+                  <h2 class="section-title">API 运行概览</h2>
+                  <p id="apiMetricsMeta" class="section-subtitle">查看请求量、响应时间、错误与慢请求。</p>
                 </div>
                 <div class="inline-actions">
+                  <select id="apiMetricsWindow" aria-label="API 统计窗口">
+                    <option value="15">近 15 分钟</option>
+                    <option value="60">近 1 小时</option>
+                    <option value="120">近 2 小时</option>
+                  </select>
                   <button id="btnLoadResources" class="btn">刷新</button>
                   <button id="btnToggleResourceAutoRefresh" class="btn secondary">开启 15 秒刷新</button>
+                </div>
+              </div>
+              <div id="apiMetrics" class="metrics"></div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">接口响应排行</h2>
+                  <p class="section-subtitle">按 p95 从慢到快排列；流式 AI 接口统计的是完整生成耗时，不等同于首字延迟。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>接口</th><th>请求</th><th>平均</th><th>p50</th><th>p95</th><th>p99</th><th>4xx</th><th>5xx</th><th>慢请求</th><th>状态</th></tr></thead>
+                  <tbody id="apiMetricsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">AI 与媒体资源池</h2>
+                  <p id="resourceMeta" class="section-subtitle">监控最近一分钟请求、实时并发、耗时与限流。达到 70% 提醒，90% 告警。</p>
                 </div>
               </div>
               <div id="resourceAlerts" class="metrics"></div>
@@ -1392,11 +1425,11 @@
             <div class="section">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">生产功能审计</h2>
+                  <h2 class="section-title">生产功能检查</h2>
                   <p class="section-subtitle">使用当前管理员 Access Token 验证真实 API；默认仅执行只读请求，不创建订单、不扣额度、不修改用户数据。</p>
                 </div>
                 <div class="inline-actions">
-                  <button id="btnRunProductionAudit" class="btn">开始审计</button>
+                  <button id="btnRunProductionAudit" class="btn">开始检查</button>
                   <button id="btnClearProductionAudit" class="btn secondary">清空结果</button>
                 </div>
               </div>
@@ -1405,7 +1438,7 @@
             <div class="section">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">审计结果</h2>
+                  <h2 class="section-title">检查结果</h2>
                   <p id="productionAuditMeta" class="section-subtitle">尚未执行</p>
                 </div>
               </div>
@@ -1430,12 +1463,12 @@
           </div>
         </section>
 
-        <section id="panel-logs" class="panel">
+        <section id="panel-security" class="panel">
           <div class="card">
             <div class="section">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">内容安全审计</h2>
+                  <h2 class="section-title">内容安全拦截</h2>
                   <p class="section-subtitle">查看本地规则拦截记录；日志只保存分类、规则和文本 hash，不保存原文。</p>
                 </div>
                 <div class="inline-actions">
@@ -1474,10 +1507,29 @@
                 </table>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section id="panel-logs" class="panel">
+          <div class="card">
             <div class="section">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">系统日志</h2>
+                  <h2 class="section-title">系统事件</h2>
+                  <p class="section-subtitle">按事件类型查看通用日志与各服务调用记录；切换分类时只加载当前分类。</p>
+                </div>
+              </div>
+              <div class="tabs" style="margin-bottom:10px">
+                <button class="tab active" data-event-subtab="eventGeneral">通用事件</button>
+                <button class="tab" data-event-subtab="eventTts">TTS</button>
+                <button class="tab" data-event-subtab="eventStt">STT</button>
+                <button class="tab" data-event-subtab="eventDictionary">智能词典</button>
+              </div>
+            </div>
+            <div id="eventGeneral" class="section event-subpanel">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">通用系统事件</h2>
                   <p class="section-subtitle">默认查 failed，最多 200 条</p>
                 </div>
               </div>
@@ -1519,11 +1571,11 @@
                 </table>
               </div>
             </div>
-            <div class="section">
+            <div id="eventTts" class="section event-subpanel" style="display:none">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">TTS 审计</h2>
-                  <p class="section-subtitle">仅统计用户主动请求；查看整篇音频、缓存命中、生成字符、耗时与错误</p>
+                  <h2 class="section-title">TTS 调用记录</h2>
+                  <p class="section-subtitle">分解前置查询、缓存、锁等待、并发排队、Azure 合成、COS 上传和数据库落库耗时。</p>
                 </div>
               </div>
               <div class="form-row">
@@ -1562,7 +1614,8 @@
                       <th>字符</th>
                       <th>缓存</th>
                       <th>复用</th>
-                      <th>耗时</th>
+                      <th>总耗时</th>
+                      <th>阶段耗时</th>
                       <th>消息</th>
                       <th>错误</th>
                     </tr>
@@ -1571,10 +1624,10 @@
                 </table>
               </div>
             </div>
-            <div class="section">
+            <div id="eventStt" class="section event-subpanel" style="display:none">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">STT 审计</h2>
+                  <h2 class="section-title">STT 调用记录</h2>
                   <p class="section-subtitle">实时语音识别请求、音频时长、计费秒数、识别结果和错误</p>
                 </div>
               </div>
@@ -1633,10 +1686,10 @@
                 </table>
               </div>
             </div>
-            <div class="section">
+            <div id="eventDictionary" class="section event-subpanel" style="display:none">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">智能词典审计</h2>
+                  <h2 class="section-title">智能词典调用记录</h2>
                   <p class="section-subtitle">来自 system_event_logs / dictionary.lookup，不扣用户字符额度</p>
                 </div>
               </div>
@@ -1674,11 +1727,16 @@
                 </table>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section id="panel-adminaudit" class="panel">
+          <div class="card">
             <div class="section">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">审计日志</h2>
-                  <p class="section-subtitle">后台查询和人工操作记录</p>
+                  <h2 class="section-title">管理员操作记录</h2>
+                  <p class="section-subtitle">查询后台人工操作及其对象、原因和请求标识。</p>
                 </div>
               </div>
               <div class="form-row">
@@ -1690,7 +1748,7 @@
                   <label>Target ID</label>
                   <input id="auditTargetId" placeholder="可空" />
                 </div>
-                <button id="btnLoadAuditLogs" class="btn">查询审计</button>
+                <button id="btnLoadAuditLogs" class="btn">查询操作</button>
                 <span class="muted"></span>
               </div>
               <div class="table-wrap mt">
@@ -1727,9 +1785,11 @@
         cardOperations: null,
         cardOperationsTimer: null,
         resources: null,
+        operations: null,
         resourceTimer: null,
         contactUsersPage: 1,
         contactUsersTotalPages: 0,
+        loadedAuditViews: new Set(),
       };
       const DEFAULT_API_BASE_BY_HOST = {
         "admin.yueyantech.com": "https://api.yueyantech.com",
@@ -1737,13 +1797,15 @@
       };
       const TAB_META = {
         overview: ["运营概览", "查看用户活跃、额度消耗与核心服务成本。"],
-        resources: ["资源监控", "监控 LLM、STT、TTS 与 Embedding 的实时负载。"],
-        cardops: ["Card 运行", "监控生成任务、队列积压、并发槽与限流保护。"],
+        resources: ["运行监控", "先看 API 健康与延迟，再定位 AI、媒体资源和限流。"],
+        cardops: ["Card 任务", "监控生成任务、队列积压、并发槽与限流保护。"],
         user: ["用户排障", "定位单个用户的账号、会员、额度与支付状态。"],
         contacts: ["用户触达", "筛选可触达用户并导出账号名单。"],
         payments: ["支付订阅", "查询订单、订阅与自动续费状态。"],
-        audit: ["生产审计", "执行发布前检查并确认生产环境配置。"],
-        logs: ["日志审计", "查询系统事件、内容安全、STT 与词典调用记录。"],
+        security: ["安全审计", "查看内容安全规则的拦截结果，不展示用户原文。"],
+        adminaudit: ["管理员操作", "追踪后台人工操作、目标对象与请求标识。"],
+        logs: ["系统事件", "按分类查询通用事件及 TTS、STT、智能词典调用记录。"],
+        audit: ["生产检查", "执行发布前检查并确认生产环境配置。"],
       };
 
       function setStatus(message) {
@@ -2122,7 +2184,7 @@
         const failed = state.productionAudit.filter((row) => row.status === "fail").length;
         const warned = state.productionAudit.filter((row) => row.status === "warn").length;
         $("productionAuditMeta").textContent = `完成于 ${fmtDate(new Date())} · ${failed} 失败 · ${warned} 警告`;
-        setStatus(failed ? `生产审计完成：${failed} 项失败` : warned ? `生产审计完成：${warned} 项警告` : "生产审计全部通过");
+        setStatus(failed ? `生产检查完成：${failed} 项失败` : warned ? `生产检查完成：${warned} 项警告` : "生产检查全部通过");
       }
 
       function clearProductionAudit() {
@@ -2131,7 +2193,7 @@
         $("productionAuditMeta").textContent = "尚未执行";
         renderProductionAudit();
         $("productionAuditJson").textContent = "{}";
-        setStatus("已清空生产审计结果");
+        setStatus("已清空生产检查结果");
       }
 
       function escapeHtml(value) {
@@ -2209,11 +2271,58 @@
       }
 
       async function loadResources() {
-        setStatus("正在加载资源监控...");
-        const res = await request("/admin/resources/overview");
-        state.resources = res.data || {};
+        setStatus("正在加载运行监控...");
+        const minutes = Number($("apiMetricsWindow").value || 15);
+        const [resourceRes, operationsRes] = await Promise.all([
+          request("/admin/resources/overview"),
+          request(`/admin/operations/overview?minutes=${encodeURIComponent(minutes)}`),
+        ]);
+        state.resources = resourceRes.data || {};
+        state.operations = operationsRes.data || {};
+        renderApiMetrics(state.operations.api);
         renderResources(state.resources);
-        setStatus("资源监控已刷新");
+        setStatus("运行监控已刷新");
+      }
+
+      function renderApiMetrics(api) {
+        const summary = api?.summary || {};
+        const routes = Array.isArray(api?.routes) ? api.routes : [];
+        const requests = Number(summary.requests || 0);
+        const serverErrors = Number(summary.serverErrors || 0);
+        const slowRequests = Number(summary.slowRequests || 0);
+        const errorRate = requests ? serverErrors / requests : 0;
+        const slowRate = requests ? slowRequests / requests : 0;
+        $("apiMetricsMeta").textContent = api
+          ? `${api.redisShared ? "Redis 跨实例统计" : "单实例内存统计"} · 近 ${api.windowMinutes} 分钟 · 刷新于 ${fmtDate(api.generatedAt)}`
+          : "API 指标尚不可用";
+        $("apiMetrics").innerHTML = [
+          ["请求量", requests, `近 ${api?.windowMinutes || 0} 分钟`],
+          ["平均响应", summary.averageDurationMs == null ? "—" : formatDurationMs(summary.averageDurationMs), "全部非探活请求"],
+          ["p95", summary.p95DurationMs == null ? "—" : formatDurationMs(summary.p95DurationMs), "95% 请求不超过此值"],
+          ["p99", summary.p99DurationMs == null ? "—" : formatDurationMs(summary.p99DurationMs), "长尾响应"],
+          ["5xx", serverErrors, `${(errorRate * 100).toFixed(2)}%`],
+          ["慢请求", slowRequests, `${(slowRate * 100).toFixed(2)}%`],
+        ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "—")}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+        $("apiMetricsTbody").innerHTML = routes.map((row) => {
+          const routeRequests = Number(row.requests || 0);
+          const routeServerErrors = Number(row.serverErrors || 0);
+          const routeSlow = Number(row.slowRequests || 0);
+          const routeSlowRate = routeRequests ? routeSlow / routeRequests : 0;
+          const status = routeServerErrors > 0 ? "告警" : routeSlowRate >= 0.05 || Number(row.p95DurationMs || 0) >= 1000 ? "提醒" : "正常";
+          const statusClass = status === "告警" ? "status-fail" : status === "提醒" ? "status-warn" : "status-pass";
+          return `<tr>
+            <td><span class="pill">${escapeHtml(row.method)}</span> <span class="mono">${escapeHtml(row.route)}</span></td>
+            <td>${escapeHtml(routeRequests)}</td>
+            <td>${escapeHtml(row.averageDurationMs == null ? "—" : formatDurationMs(row.averageDurationMs))}</td>
+            <td>${escapeHtml(row.p50DurationMs == null ? "—" : formatDurationMs(row.p50DurationMs))}</td>
+            <td><strong>${escapeHtml(row.p95DurationMs == null ? "—" : formatDurationMs(row.p95DurationMs))}</strong></td>
+            <td>${escapeHtml(row.p99DurationMs == null ? "—" : formatDurationMs(row.p99DurationMs))}</td>
+            <td>${escapeHtml(row.clientErrors || 0)}</td>
+            <td>${escapeHtml(routeServerErrors)}</td>
+            <td>${escapeHtml(routeSlow)}</td>
+            <td><span class="pill ${statusClass}">${status}</span></td>
+          </tr>`;
+        }).join("") || rowEmpty(10, "统计窗口内暂无请求");
       }
 
       function renderResources(data) {
@@ -2900,6 +3009,8 @@
         $("logModule").value = "content_safety";
         $("logEvent").value = "content_safety.blocked";
         $("logStatus").value = "failed";
+        setTab("logs");
+        setEventSubtab("eventGeneral");
         setStatus("已填入内容安全日志筛选条件");
       }
 
@@ -2912,7 +3023,7 @@
         const res = await request(`/admin/system-event-logs?${qs.toString()}`);
         const rows = Array.isArray(res.data) ? res.data : [];
         renderDictionaryLogs(rows);
-        setStatus(`智能词典审计：${rows.length} 条`);
+        setStatus(`智能词典调用：${rows.length} 条`);
       }
 
       function renderDictionaryLogs(rows) {
@@ -2965,6 +3076,7 @@
         $("logModule").value = "dictionary";
         $("logEvent").value = "dictionary.lookup";
         $("logStatus").value = "";
+        setEventSubtab("eventGeneral");
         setStatus("已填入智能词典系统日志筛选");
       }
 
@@ -2977,7 +3089,7 @@
         const res = await request(`/admin/tts/request-logs?${qs.toString()}`);
         const rows = Array.isArray(res.data) ? res.data : [];
         renderTtsLogs(rows);
-        setStatus(`TTS 审计：${rows.length} 条`);
+        setStatus(`TTS 调用：${rows.length} 条`);
       }
 
       function renderTtsLogs(rows) {
@@ -3004,13 +3116,33 @@
           ? durations[Math.min(durations.length - 1, Math.ceil(durations.length * 0.95) - 1)]
           : 0;
         const cacheRate = summary.total ? `${(summary.cacheHits / summary.total * 100).toFixed(1)}%` : "0%";
+        const cacheDurations = rows.filter((row) => row.cacheHit).map((row) => Number(row.durationMs || 0)).filter(Number.isFinite);
+        const generatedDurations = rows
+          .filter((row) => !row.cacheHit && !row.deduped && row.status === "success")
+          .map((row) => Number(row.durationMs || 0))
+          .filter(Number.isFinite);
+        const phaseAverage = (field) => {
+          const values = rows.map((row) => Number(row[field] || 0)).filter((value) => Number.isFinite(value) && value > 0);
+          return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+        };
+        const percentile = (values, ratio) => {
+          if (!values.length) return 0;
+          const sorted = [...values].sort((left, right) => left - right);
+          return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)];
+        };
         $("ttsLogMetrics").innerHTML = [
           ["请求数", summary.total, "latest 100 · user initiated"],
           ["成功 / 失败", `${summary.success} / ${summary.failed}`, "request status"],
           ["缓存命中率", cacheRate, `${summary.cacheHits} cache hits`],
           ["新生成", summary.generatedRequests, `${summary.generatedChars} chars`],
-          ["并发复用", summary.deduped, "deduped requests"],
-          ["平均 / P95", `${averageDuration} / ${p95Duration} ms`, "end-to-end server latency"],
+          ["缓存 P95", `${percentile(cacheDurations, 0.95)} ms`, "cache-hit end-to-end"],
+          ["生成 P95", `${percentile(generatedDurations, 0.95)} ms`, "new generation end-to-end"],
+          ["Azure 平均", `${phaseAverage("synthesisMs")} ms`, "synthesis including retry"],
+          ["COS 平均", `${phaseAverage("storageMs")} ms`, "upload + URL"],
+          ["排队 / 锁等待", `${phaseAverage("queueWaitMs")} / ${phaseAverage("lockWaitMs")} ms`, "concurrency / dedupe"],
+          ["前置 / 缓存查询", `${phaseAverage("preparationMs")} / ${phaseAverage("cacheLookupMs")} ms`, "auth + DB / asset lookup"],
+          ["数据库落库", `${phaseAverage("persistenceMs")} ms`, "ready asset insert"],
+          ["整体平均 / P95", `${averageDuration} / ${p95Duration} ms`, "end-to-end server latency"],
         ].map(([label, value, hint]) => `
           <div class="metric">
             <span>${escapeHtml(label)}</span>
@@ -3030,10 +3162,29 @@
             <td>${escapeHtml(row.cacheHit ? "hit" : "miss")}</td>
             <td>${escapeHtml(row.deduped ? "yes" : "no")}</td>
             <td>${escapeHtml(row.durationMs == null ? "" : `${row.durationMs} ms`)}</td>
+            <td class="mono">${formatTtsPhaseTimings(row)}</td>
             <td class="mono">${escapeHtml(row.messageId || "")}</td>
             <td>${escapeHtml(row.errorMessage || row.errorCode || "")}</td>
           </tr>
-        `).join("") || rowEmpty(11);
+        `).join("") || rowEmpty(12);
+      }
+
+      function formatTtsPhaseTimings(row) {
+        const phases = [
+          ["前置", row.preparationMs],
+          ["缓存", row.cacheLookupMs],
+          ["锁", row.lockWaitMs],
+          ["排队", row.queueWaitMs],
+          ["Azure", row.synthesisMs],
+          ["COS", row.storageMs],
+          ["落库", row.persistenceMs],
+        ].filter(([, value]) => Number(value || 0) > 0);
+        if (!phases.length) return '<span class="muted">旧数据无分段</span>';
+        const slowest = phases.reduce((current, candidate) => Number(candidate[1]) > Number(current[1]) ? candidate : current);
+        return phases.map(([label, value]) => {
+          const content = `${escapeHtml(label)} ${escapeHtml(value)}ms`;
+          return label === slowest[0] ? `<strong>${content}</strong>` : content;
+        }).join("<br>");
       }
 
       async function loadSttLogs() {
@@ -3048,7 +3199,7 @@
         const res = await request(`/admin/stt/request-logs?${qs.toString()}`);
         const rows = Array.isArray(res.data) ? res.data : [];
         renderSttLogs(rows);
-        setStatus(`STT 审计：${rows.length} 条`);
+        setStatus(`STT 调用：${rows.length} 条`);
       }
 
       function renderSttLogs(rows) {
@@ -3101,6 +3252,7 @@
         $("logModule").value = "stt";
         $("logEvent").value = "stt.realtime";
         $("logStatus").value = "failed";
+        setEventSubtab("eventGeneral");
         setStatus("已填入 STT 系统日志筛选");
       }
 
@@ -3121,7 +3273,32 @@
             <td class="mono">${escapeHtml(row.requestId)}</td>
           </tr>
         `).join("") || rowEmpty(6);
-        setStatus(`审计日志：${rows.length} 条`);
+        setStatus(`管理员操作：${rows.length} 条`);
+      }
+
+      function setEventSubtab(name) {
+        document.querySelectorAll(".tab[data-event-subtab]").forEach((item) => {
+          item.classList.toggle("active", item.dataset.eventSubtab === name);
+        });
+        document.querySelectorAll(".event-subpanel").forEach((panel) => {
+          panel.style.display = panel.id === name ? "block" : "none";
+        });
+      }
+
+      async function loadAuditView(name) {
+        if (state.loadedAuditViews.has(name)) return;
+        const loaders = {
+          security: () => loadContentSafetyLogs({ reset: true }),
+          adminaudit: loadAuditLogs,
+          eventGeneral: loadLogs,
+          eventTts: loadTtsLogs,
+          eventStt: loadSttLogs,
+          eventDictionary: loadDictionaryLogs,
+        };
+        const loader = loaders[name];
+        if (!loader) return;
+        await loader();
+        state.loadedAuditViews.add(name);
       }
 
       function bindEvents() {
@@ -3132,6 +3309,16 @@
               await loadCardOperations();
             }
             if (tab.dataset.tab === "resources" && !state.resources) await loadResources();
+            if (tab.dataset.tab === "security") await loadAuditView("security");
+            if (tab.dataset.tab === "adminaudit") await loadAuditView("adminaudit");
+            if (tab.dataset.tab === "logs") await loadAuditView("eventGeneral");
+          }));
+        });
+        document.querySelectorAll(".tab[data-event-subtab]").forEach((tab) => {
+          tab.addEventListener("click", guard(async () => {
+            const name = tab.dataset.eventSubtab;
+            setEventSubtab(name);
+            await loadAuditView(name);
           }));
         });
         document.querySelectorAll(".tab[data-user-subtab]").forEach((tab) => {
@@ -3145,6 +3332,7 @@
         $("btnLogin").addEventListener("click", guard(async () => {
           setStatus("登录中...");
           await login();
+          state.loadedAuditViews.clear();
           document.querySelector(".connection-settings")?.removeAttribute("open");
           setStatus("登录成功");
         }));
@@ -3155,6 +3343,7 @@
           state.resourceTimer = null;
           $("token").value = "";
           $("password").value = "";
+          state.loadedAuditViews.clear();
           saveLocal();
           document.querySelector(".connection-settings")?.removeAttribute("open");
           setStatus("已清空登录状态");
@@ -3164,6 +3353,7 @@
         $("btnToggleCardAutoRefresh").addEventListener("click", toggleCardOperationsAutoRefresh);
         $("btnLoadResources").addEventListener("click", guard(loadResources));
         $("btnToggleResourceAutoRefresh").addEventListener("click", toggleResourceAutoRefresh);
+        $("apiMetricsWindow").addEventListener("change", guard(loadResources));
         $("btnOverview7d").addEventListener("click", guard(async () => {
           setOverviewRange(7);
           await loadOverview();

@@ -89,6 +89,7 @@ import { AzureGlobalSttProvider } from "@lf/server/providers/stt/AzureGlobalSttP
 import { CosStorageProvider } from "@lf/server/providers/storage/CosStorageProvider.js";
 import { ContentSafetyService } from "@lf/server/services/contentSafety/ContentSafetyService.js";
 import { TencentTmsClient } from "@lf/server/services/contentSafety/TencentTmsClient.js";
+import { ApiRequestMetrics } from "@lf/server/services/observability/ApiRequestMetrics.js";
 import websocket from "@fastify/websocket";
 import type {
   CreateProviderOrderInput,
@@ -102,6 +103,7 @@ const prisma = new PrismaClient();
 
 export function createApp() {
   const app = Fastify({ logger: true, trustProxy: true });
+  const slowRequestThresholdMs = resolvePositiveInteger(process.env.LF_API_SLOW_REQUEST_MS, 1_000);
   void app.register(websocket);
   app.addHook("onReady", async () => {
     await seedSystemContacts(prisma);
@@ -180,6 +182,30 @@ export function createApp() {
   const messageRepository = new PrismaMessageRepository(prisma);
   const chatMessageService = new ChatMessageService(conversationRepository, messageRepository);
   const redisClient = getRedisClient();
+  const apiRequestMetrics = new ApiRequestMetrics(redisClient);
+  app.addHook("onResponse", async (req, reply) => {
+    const route = req.routeOptions.url;
+    if (!route || route === "/health" || req.headers.upgrade === "websocket") return;
+    const durationMs = Math.round(reply.elapsedTime * 10) / 10;
+    const isServerError = reply.statusCode >= 500;
+    void apiRequestMetrics.observe({
+      route,
+      method: req.method,
+      statusCode: reply.statusCode,
+      durationMs,
+      slowThresholdMs: slowRequestThresholdMs,
+    }).catch((error) => req.log.warn({ err: error }, "api request metrics write failed"));
+    if (!isServerError && durationMs < slowRequestThresholdMs) return;
+
+    req.log.warn({
+      requestId: firstHeaderValue(req.headers["x-request-id"]) ?? req.id,
+      route,
+      method: req.method,
+      statusCode: reply.statusCode,
+      durationMs,
+      slowRequestThresholdMs,
+    }, isServerError ? "api request failed" : "slow api request");
+  });
   const chatGenerationTaskGuard = redisClient
     ? new RedisChatGenerationTaskGuard(redisClient)
     : new InMemoryChatGenerationTaskGuard();
@@ -492,27 +518,30 @@ export function createApp() {
       systemEventLogRepository,
     });
     registerAppVersionRoutes(app);
-    registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository, resourceGovernor });
+    registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository, resourceGovernor, apiRequestMetrics });
 
-    app.get("/health", async (_req, reply) => {
-      const db = await prisma
-        .$queryRaw`SELECT 1`
-        .then(() => ({ ok: true }))
-        .catch((error: unknown) => ({
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      const redis = redisClient
-        ? await redisClient
-            .ping()
-            .then(() => ({ ok: true }))
-            .catch((error) => ({
-              ok: false,
-              error: error instanceof Error ? error.message : String(error),
-            }))
-        : { ok: true, skipped: true };
+    app.get("/health", async (req, reply) => {
+      const [db, redis] = await Promise.all([
+        prisma
+          .$queryRaw`SELECT 1`
+          .then(() => ({ ok: true }))
+          .catch((error: unknown) => {
+            req.log.error({ err: error, component: "db" }, "health dependency check failed");
+            return { ok: false };
+          }),
+        redisClient
+          ? redisClient
+              .ping()
+              .then(() => ({ ok: true }))
+              .catch((error: unknown) => {
+                req.log.error({ err: error, component: "redis" }, "health dependency check failed");
+                return { ok: false };
+              })
+          : Promise.resolve({ ok: true, skipped: true }),
+      ]);
       const ok = db.ok && redis.ok;
 
+      reply.header("Cache-Control", "no-store");
       return reply.status(ok ? 200 : 503).send({
         ok,
         data: {
@@ -554,6 +583,11 @@ function resolveAllowOrigin(origin: string | undefined, allowOrigins: Set<string
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function resolvePositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 export async function disconnectApp() {

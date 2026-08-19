@@ -8,6 +8,7 @@ import { requireAdmin } from "../auth/adminAuth.js";
 import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import type { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
+import type { ApiRequestMetrics } from "@lf/server/services/observability/ApiRequestMetrics.js";
 
 export interface AdminRouteDeps {
   subscriptionService: SubscriptionService;
@@ -57,6 +58,7 @@ export interface AdminRouteDeps {
   };
   systemEventLogRepository?: SystemEventLogWriter;
   resourceGovernor?: ResourceGovernor;
+  apiRequestMetrics?: ApiRequestMetrics;
 }
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps): void {
@@ -101,6 +103,20 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         resources,
         limitEvents24h,
       },
+    });
+  });
+
+  app.get("/admin/operations/overview", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const requestedWindow = Number((req.query as Record<string, unknown>)?.minutes ?? 15);
+    const windowMinutes = Number.isFinite(requestedWindow) ? Math.max(1, Math.min(120, Math.floor(requestedWindow))) : 15;
+    const api = await deps.apiRequestMetrics?.snapshot(windowMinutes) ?? null;
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: { api },
     });
   });
 
@@ -1423,14 +1439,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       aiFailed24h,
       quotaExceeded24h,
       ttsFailed24h,
-      apiP95Ms: p95Ms,
+      aiP95Ms: p95Ms,
       thresholds: {
         paymentNotifyFailed24h: 0,
         pendingBacklog: 10,
         aiFailed24h: 20,
         quotaExceeded24h: 50,
         ttsFailed24h: 10,
-        apiP95Ms: 3000,
+        aiP95Ms: 15000,
       },
     };
 

@@ -1679,7 +1679,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     }
   }
 
-  function prepareReplyAudio(index: number): Promise<string> {
+  function prepareReplyAudio(index: number, options: { waitForDownload?: boolean } = {}): Promise<string> {
     const block = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
     const segment = block?.segments[index];
     if (!block || !segment) return Promise.reject(new Error("Reply sentence is unavailable"));
@@ -1694,7 +1694,10 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
         contentType: block.contentType,
         contentVersion: block.contentVersion,
       });
-      return preloadTtsAudio({ url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") });
+      const source = { url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") };
+      if (options.waitForDownload) return preloadTtsAudio(source);
+      void preloadTtsAudio(source).catch(() => undefined);
+      return audio.audioUrl;
     })();
     articleAudioPromisesRef.current.set(requestKey, request);
     void request.finally(() => {
@@ -1713,7 +1716,9 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     try {
       const audioUrl = await prepareReplyAudio(index);
       if (!isTtsPlaybackSessionCurrent(sessionId)) return;
-      if (index + 1 < block.segments.length) void prepareReplyAudio(index + 1).catch(() => undefined);
+      if (index + 1 < block.segments.length) {
+        void prepareReplyAudio(index + 1, { waitForDownload: true }).catch(() => undefined);
+      }
       await playTtsAudio({
         url: audioUrl,
         loopScope: "all",
@@ -1749,8 +1754,9 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     if (existing) return existing;
     const request = (async () => {
       const audio = await getCardArticleAudio({ entryId, ...contentBinding });
-      const audioUrl = await preloadTtsAudio({ url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") });
-      return { audioUrl, sentenceMarks: audio.sentenceMarks ?? [] };
+      const source = { url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") };
+      void preloadTtsAudio(source).catch(() => undefined);
+      return { audioUrl: audio.audioUrl, sentenceMarks: audio.sentenceMarks ?? [] };
     })();
     wholeArticleAudioPromisesRef.current.set(requestKey, request);
     void request.catch(() => {

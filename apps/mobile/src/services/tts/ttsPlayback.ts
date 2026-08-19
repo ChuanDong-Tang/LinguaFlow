@@ -12,6 +12,7 @@ let playbackRequestId = 0;
 let lastCachePruneAt = 0;
 let playbackPreferencesLoadPromise: Promise<void> | null = null;
 let playbackPreferencesWriteChain = Promise.resolve();
+const ttsAudioDownloadPromises = new Map<string, Promise<string>>();
 let playbackState: TtsPlaybackState = {
   hasActiveAudio: false,
   status: "idle",
@@ -75,7 +76,7 @@ export type TtsNavigationControls = {
 
 export async function preloadTtsAudio(source: string | TtsAudioSource): Promise<string> {
   const resolvedSource = typeof source === "string" ? { url: source } : source;
-  return resolveCachedTtsAudioUri(resolvedSource);
+  return resolveCachedTtsAudioUri(resolvedSource, { waitForDownload: true });
 }
 
 export async function playTtsAudio(source: string | TtsAudioSource, playbackRange?: TtsPlaybackRange): Promise<void> {
@@ -376,7 +377,10 @@ function persistTtsPlaybackPreferences(): void {
 
 void ensureTtsPlaybackPreferencesLoaded();
 
-async function resolveCachedTtsAudioUri(source: TtsAudioSource): Promise<string> {
+async function resolveCachedTtsAudioUri(
+  source: TtsAudioSource,
+  options: { waitForDownload?: boolean } = {},
+): Promise<string> {
   const cacheKey = sanitizeCacheKey(source.cacheKey);
   if (!cacheKey) return source.url;
 
@@ -392,18 +396,34 @@ async function resolveCachedTtsAudioUri(source: TtsAudioSource): Promise<string>
       return cachedFile.uri;
     }
 
-    await pruneTtsAudioCache(cacheDir, cachedFile.uri);
+    let download = ttsAudioDownloadPromises.get(cacheKey);
+    if (!download) {
+      download = downloadTtsAudioToCache(source.url, cacheDir, cachedFile)
+        .finally(() => ttsAudioDownloadPromises.delete(cacheKey));
+      ttsAudioDownloadPromises.set(cacheKey, download);
+    }
+    if (options.waitForDownload) return await download;
+    void download.catch(() => undefined);
+    return source.url;
+  } catch {
+    cacheDirectoryReady = false;
+    return source.url;
+  }
+}
 
-    const tempFile = new File(cacheDir, `${cacheKey}.${Date.now()}.${Math.random().toString(36).slice(2)}.download`);
+async function downloadTtsAudioToCache(url: string, cacheDir: Directory, cachedFile: File): Promise<string> {
+  await pruneTtsAudioCache(cacheDir, cachedFile.uri);
+  const tempFile = new File(cacheDir, `${cachedFile.name}.${Date.now()}.${Math.random().toString(36).slice(2)}.download`);
+  try {
     deleteFileIfExists(tempFile);
-    await File.downloadFileAsync(source.url, tempFile, { idempotent: true });
+    await File.downloadFileAsync(url, tempFile, { idempotent: true });
     deleteFileIfExists(cachedFile);
     tempFile.move(cachedFile);
     await pruneTtsAudioCache(cacheDir, cachedFile.uri, { force: true });
     return cachedFile.uri;
-  } catch {
-    cacheDirectoryReady = false;
-    return source.url;
+  } catch (error) {
+    deleteFileIfExists(tempFile);
+    throw error;
   }
 }
 
