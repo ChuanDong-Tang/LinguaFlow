@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Animated, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Animated, AppState, Image, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as AuthSession from "expo-auth-session";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
@@ -62,6 +62,7 @@ import {
 import { fetchChatContacts, loadCachedChatContacts } from "./services/api/chatContactsApi";
 import { theme } from "./theme";
 import type { CardDraft } from "./services/card/cardDraftStorage";
+import { getAvailableAppUpdate } from "./services/api/appVersionApi";
 
 type Screen =
   | "booting"
@@ -113,6 +114,9 @@ export default function App() {
   const [bindEmailLoading, setBindEmailLoading] = useState(false);
   const [bindEmailUserId, setBindEmailUserId] = useState("");
   const bindEmailRunIdRef = useRef(0);
+  const updateCheckRunningRef = useRef(false);
+  const promptedUpdateVersionRef = useRef<string | null>(null);
+  const appBooting = screen === "booting";
   const authingConfigured = isAuthingConfigured();
   const authingDiscovery = authingConfigured ? getAuthingDiscovery() : null;
   const authingClientId = authingConfigured ? getAuthingClientId() : "authing-disabled";
@@ -185,6 +189,38 @@ export default function App() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (appBooting) return;
+    const check = async () => {
+      if (updateCheckRunningRef.current) return;
+      updateCheckRunningRef.current = true;
+      try {
+        const update = await getAvailableAppUpdate();
+        if (!update || promptedUpdateVersionRef.current === update.latestVersion) return;
+        promptedUpdateVersionRef.current = update.latestVersion;
+        const openStore = () => void Linking.openURL(update.storeUrl).catch(() => undefined);
+        Alert.alert(
+          t("app_update.title"),
+          tf("app_update.message", { version: update.latestVersion }),
+          [
+            { text: t("app_update.later"), style: "cancel" },
+            { text: t("app_update.now"), onPress: openStore },
+          ],
+        );
+      } catch {
+        // Version checks must never block app startup or normal use.
+      } finally {
+        updateCheckRunningRef.current = false;
+      }
+    };
+
+    void check();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void check();
+    });
+    return () => subscription.remove();
+  }, [appBooting]);
 
   // 监听登录失效
   useEffect(() => {

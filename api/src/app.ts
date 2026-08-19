@@ -74,6 +74,7 @@ import { registerAdminRoutes } from "./admin/routes.js";
 import { registerTtsRoutes } from "./tts/routes.js";
 import { registerDictionaryRoutes } from "./dictionary/routes.js";
 import { registerSttRoutes } from "./stt/routes.js";
+import { registerAppVersionRoutes } from "./appVersion/routes.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 import { writeSystemEventLog } from "./lib/systemEventLog.js";
@@ -490,6 +491,7 @@ export function createApp() {
       sttRequestLogRepository,
       systemEventLogRepository,
     });
+    registerAppVersionRoutes(app);
     registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository, resourceGovernor });
 
     app.get("/health", async (_req, reply) => {

@@ -4,7 +4,6 @@ import {
   Alert,
   Animated,
   AppState,
-  ActionSheetIOS,
   Easing,
   FlatList,
   Image,
@@ -25,9 +24,10 @@ import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import Reanimated, { useAnimatedRef } from "react-native-reanimated";
 import OioCharacter from "../../assets/app/oio-character.svg";
 import OioRecall from "../../assets/app/oio-recall.svg";
-import { NestableDraggableFlatList, NestableScrollContainer, type RenderItemParams } from "react-native-draggable-flatlist";
+import Sortable from "react-native-sortables";
 import {
   createCardEntry,
   bootstrapCard,
@@ -93,8 +93,6 @@ type RecordActionAnchor = { x: number; y: number; width: number; height: number 
 
 const UNCLASSIFIED_VIEW = "unclassified";
 const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: false, translation: false, reply: false }, images: [] };
-const COLLECTION_DRAG_ANIMATION = { damping: 24, mass: 0.12, stiffness: 260, overshootClamping: true } as const;
-const COLLECTION_DRAG_SETTLE_GUARD_MS = 100;
 const LIBRARY_PAGE_SIZE = 40;
 const BACKGROUND_REFRESH_INTERVAL_MS = 60_000;
 const TOPIC_REFRESH_DELAYS_MS = [1_000, 2_000, 3_000, 5_000, 8_000] as const;
@@ -126,8 +124,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [searching, setSearching] = useState(false);
   const [searchCollectionId, setSearchCollectionId] = useState<string | null | undefined>(undefined);
   const [composerVisible, setComposerVisible] = useState(false);
-  const [collectionMoveVisible, setCollectionMoveVisible] = useState(false);
-  const [collectionMoveTargetId, setCollectionMoveTargetId] = useState<string | null>(null);
   const [recordMoveTarget, setRecordMoveTarget] = useState<CardRecordSummary | null>(null);
   const [recordActionMenu, setRecordActionMenu] = useState<{ record: CardRecordSummary; anchor: RecordActionAnchor } | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
@@ -389,8 +385,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   useEffect(() => {
     if (isActive) return;
     setSidebarVisible(false);
-    setCollectionMoveVisible(false);
-    setCollectionMoveTargetId(null);
     if (sidebarActionTimerRef.current) {
       clearTimeout(sidebarActionTimerRef.current);
       sidebarActionTimerRef.current = null;
@@ -1224,16 +1218,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           />
         </Modal>
       ) : null}
-      <CollectionMoveModal
-        visible={collectionMoveVisible}
-        collections={collections}
-        collectionId={collectionMoveTargetId}
-        onClose={() => {
-          setCollectionMoveVisible(false);
-          setCollectionMoveTargetId(null);
-        }}
-        onMove={moveCollection}
-      />
       <CollectionPickerModal
         visible={Boolean(recordMoveTarget)}
         title={t("library.move_to")}
@@ -1269,10 +1253,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         onRenameCollection={(collectionId, name) => saveCollection(name, collectionId)}
         onToggleFavorite={toggleCollectionFavorite}
         onDeleteCollection={removeCollection}
-        onRequestMoveCollection={(collectionId) => {
-          setCollectionMoveTargetId(collectionId);
-          closeSidebarThen(() => setCollectionMoveVisible(true));
-        }}
         onReorderCollection={(collectionId, parentId, position) => moveCollection(collectionId, parentId, position)}
         onReorderFavoriteCollection={reorderFavoriteCollection}
         onOpenAccount={() => {
@@ -1284,7 +1264,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   );
 }
 
-function LibrarySidebar({ visible, activeView, collections, profile, entitlement, onClose, onSelect, onOpenRecall, onOpenAssistant, onOpenCalendar, onCreateCollection, onRenameCollection, onToggleFavorite, onDeleteCollection, onRequestMoveCollection, onReorderCollection, onReorderFavoriteCollection, onOpenAccount }: {
+function LibrarySidebar({ visible, activeView, collections, profile, entitlement, onClose, onSelect, onOpenRecall, onOpenAssistant, onOpenCalendar, onCreateCollection, onRenameCollection, onToggleFavorite, onDeleteCollection, onReorderCollection, onReorderFavoriteCollection, onOpenAccount }: {
   visible: boolean;
   activeView: LibraryView;
   collections: CardCollection[];
@@ -1299,19 +1279,24 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   onRenameCollection: (collectionId: string, name: string) => Promise<void>;
   onToggleFavorite: (collection: CardCollection) => Promise<void>;
   onDeleteCollection: (collection: CardCollection) => Promise<void>;
-  onRequestMoveCollection: (collectionId: string) => void;
   onReorderCollection: (collectionId: string, parentId: string | null, position: number) => Promise<void>;
   onReorderFavoriteCollection: (collectionId: string, position: number) => Promise<void>;
   onOpenAccount: () => void;
 }) {
   const assistantAvailable = entitlement?.tier === "plus" || entitlement?.tier === "pro";
   const insets = useSafeAreaInsets();
+  const windowDimensions = useWindowDimensions();
+  const sidebarCollectionContentWidth = Math.min(windowDimensions.width * 0.84, 360) - 20;
   const [creatingParentId, setCreatingParentId] = useState<string | null | undefined>(undefined);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [savingCollection, setSavingCollection] = useState(false);
   const [renamingCollectionId, setRenamingCollectionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [savingRename, setSavingRename] = useState(false);
+  const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null);
+  const [movingCollectionId, setMovingCollectionId] = useState<string | null>(null);
+  const [movingCollectionSaving, setMovingCollectionSaving] = useState(false);
+  const [managerExpandedCollectionIds, setManagerExpandedCollectionIds] = useState<Set<string>>(new Set());
   const [expandedCollectionIds, setExpandedCollectionIds] = useState<Set<string>>(new Set());
   const [favoritesExpanded, setFavoritesExpanded] = useState(true);
   const [collectionsExpanded, setCollectionsExpanded] = useState(true);
@@ -1319,21 +1304,44 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   const [reorderSavingId, setReorderSavingId] = useState<string | null>(null);
   const [orderedCollections, setOrderedCollections] = useState(collections);
   const [draggingCollectionId, setDraggingCollectionId] = useState<string | null>(null);
-  const [collectionDragLocked, setCollectionDragLocked] = useState(false);
-  const collectionDragUnlockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const collectionScrollRef = useRef<React.ElementRef<typeof NestableScrollContainer>>(null);
+  const [collectionActionMenu, setCollectionActionMenu] = useState<{ collection: CardCollection; anchor: RecordActionAnchor } | null>(null);
+  const collectionScrollRef = useAnimatedRef<React.ElementRef<typeof Reanimated.ScrollView>>();
+  const collectionManagerScrollRef = useAnimatedRef<React.ElementRef<typeof Reanimated.ScrollView>>();
   const focusedCollectionInputHandleRef = useRef<object | null>(null);
-  const favoriteCollections = orderedCollections
-    .filter((collection) => collection.isFavorite)
-    .sort((left, right) => (left.favoriteSortOrder ?? Number.MAX_SAFE_INTEGER) - (right.favoriteSortOrder ?? Number.MAX_SAFE_INTEGER));
-
+  const collectionKeyExtractor = useCallback((collection: CardCollection) => collection.id, []);
+  const favoriteCollections = useMemo(
+    () => orderedCollections
+      .filter((collection) => collection.isFavorite)
+      .sort((left, right) => (left.favoriteSortOrder ?? Number.MAX_SAFE_INTEGER) - (right.favoriteSortOrder ?? Number.MAX_SAFE_INTEGER)),
+    [orderedCollections],
+  );
+  const rootCollections = useMemo(
+    () => orderedCollections.filter((collection) => collection.parentId === null),
+    [orderedCollections],
+  );
+  const collectionManagerRows = useMemo(() => collectionTreeRows(orderedCollections), [orderedCollections]);
+  const editingCollection = orderedCollections.find((collection) => collection.id === editingCollectionId) ?? null;
+  const movingCollection = orderedCollections.find((collection) => collection.id === movingCollectionId) ?? null;
+  const unavailableMoveTargetIds = useMemo(() => {
+    if (!movingCollectionId) return new Set<string>();
+    const unavailable = collectionDescendantIds(movingCollectionId, orderedCollections);
+    unavailable.add(movingCollectionId);
+    return unavailable;
+  }, [movingCollectionId, orderedCollections]);
+  const collectionMoveTargets = useMemo(
+    () => collectionManagerRows.filter(({ collection }) => !unavailableMoveTargetIds.has(collection.id)),
+    [collectionManagerRows, unavailableMoveTargetIds],
+  );
+  const managerInlineCreating = Boolean(editingCollectionId) && creatingParentId !== undefined && renamingCollectionId === null;
+  const collectionNameEditing = (creatingParentId !== undefined && !managerInlineCreating) || renamingCollectionId !== null;
+  const collectionManagerWidth = Math.max(280, windowDimensions.width - 32);
   useEffect(() => {
     if (!draggingCollectionId && !reorderSavingId) setOrderedCollections(collections);
   }, [collections, draggingCollectionId, reorderSavingId]);
 
-  useEffect(() => () => {
-    if (collectionDragUnlockTimer.current) clearTimeout(collectionDragUnlockTimer.current);
-  }, []);
+  useEffect(() => {
+    if (!visible) setCollectionActionMenu(null);
+  }, [visible]);
 
   useEffect(() => {
     const subscription = Keyboard.addListener("keyboardDidShow", () => {
@@ -1343,25 +1351,32 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
     return () => subscription.remove();
   }, []);
 
-  function beginNativeCollectionDrag(collectionId: string | undefined): void {
-    if (!collectionId || collectionDragLocked) return;
-    if (collectionDragUnlockTimer.current) clearTimeout(collectionDragUnlockTimer.current);
-    collectionDragUnlockTimer.current = null;
-    setCollectionDragLocked(true);
-    setDraggingCollectionId(collectionId);
-  }
+  useEffect(() => {
+    if (!editingCollectionId || collectionNameEditing) return;
+    const rowIndex = collectionManagerRows.findIndex((row) => row.collection.id === editingCollectionId);
+    if (rowIndex < 0) return;
+    const timer = setTimeout(() => {
+      const inlineOffset = managerInlineCreating ? 58 : 0;
+      collectionManagerScrollRef.current?.scrollTo({ y: Math.max(0, rowIndex * 52 + inlineOffset - 104), animated: managerInlineCreating });
+    }, 260);
+    return () => clearTimeout(timer);
+  }, [collectionManagerRows, collectionNameEditing, creatingParentId, editingCollectionId, managerInlineCreating]);
 
-  function unlockCollectionDragAfterSettle(): void {
-    if (collectionDragUnlockTimer.current) clearTimeout(collectionDragUnlockTimer.current);
-    collectionDragUnlockTimer.current = setTimeout(() => {
-      collectionDragUnlockTimer.current = null;
-      setCollectionDragLocked(false);
-    }, COLLECTION_DRAG_SETTLE_GUARD_MS);
+  useEffect(() => {
+    if (!editingCollectionId) return;
+    setManagerExpandedCollectionIds((current) => {
+      if (current.size) return current;
+      return new Set(orderedCollections.filter((collection) => orderedCollections.some((candidate) => candidate.parentId === collection.id)).map((collection) => collection.id));
+    });
+  }, [editingCollectionId, orderedCollections]);
+
+  function beginNativeCollectionDrag(collectionId: string | undefined): void {
+    if (!collectionId) return;
+    setDraggingCollectionId(collectionId);
   }
 
   async function commitNativeReorder(parentId: string | null, data: CardCollection[], from: number, to: number): Promise<void> {
     setDraggingCollectionId(null);
-    unlockCollectionDragAfterSettle();
     if (from === to) return;
     const moved = data[to];
     if (!moved || moved.parentId !== parentId) return;
@@ -1384,7 +1399,6 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
 
   async function commitFavoriteReorder(data: CardCollection[], from: number, to: number): Promise<void> {
     setDraggingCollectionId(null);
-    unlockCollectionDragAfterSettle();
     if (from === to) return;
     const moved = data[to];
     if (!moved) return;
@@ -1427,36 +1441,33 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   }
 
   function runCollectionAction(collection: CardCollection, index: number): void {
-    if (index === 0) beginCreating(collection.id);
-    else if (index === 1) beginRenaming(collection);
-    else if (index === 2) onRequestMoveCollection(collection.id);
-    else if (index === 3) confirmDeleteCollection(collection);
+    if (index === 0) beginRenaming(collection);
+    else if (index === 1) confirmDeleteCollection(collection);
   }
 
-  function openCollectionActions(collection: CardCollection): void {
-    const options = [
-      t("main.collection.new_child"),
-      t("main.collection.rename"),
-      t("main.collection.move_to"),
-      t("common.delete"),
-      t("common.cancel"),
-    ];
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: 4, destructiveButtonIndex: 3, title: collection.name },
-        (index) => {
-          if (index < 4) runCollectionAction(collection, index);
-        },
-      );
-      return;
-    }
-    Alert.alert(collection.name, undefined, [
-      { text: options[0], onPress: () => runCollectionAction(collection, 0) },
-      { text: options[1], onPress: () => runCollectionAction(collection, 1) },
-      { text: options[2], onPress: () => runCollectionAction(collection, 2) },
-      { text: options[3], style: "destructive", onPress: () => runCollectionAction(collection, 3) },
-      { text: t("common.cancel"), style: "cancel" },
-    ]);
+  function openCollectionActions(collection: CardCollection, anchor: RecordActionAnchor): void {
+    setCollectionActionMenu({ collection, anchor });
+  }
+
+  function selectCollectionAction(index: number): void {
+    const collection = collectionActionMenu?.collection;
+    setCollectionActionMenu(null);
+    if (collection) runCollectionAction(collection, index);
+  }
+
+  function collectionActionMenuPosition(): { top: number; right: number } {
+    const anchor = collectionActionMenu?.anchor;
+    const menuHeight = 113;
+    const gap = 4;
+    const safeTop = Math.max(insets.top, 8) + 8;
+    const safeBottom = windowDimensions.height - Math.max(insets.bottom, 8) - 8;
+    const anchorTop = anchor?.y ?? safeTop;
+    const anchorBottom = anchorTop + (anchor?.height ?? 0);
+    const preferredTop = anchorBottom + gap;
+    return {
+      top: Math.max(safeTop, Math.min(preferredTop, safeBottom - menuHeight)),
+      right: Math.max(12, windowDimensions.width - ((anchor?.x ?? 0) + (anchor?.width ?? 0))),
+    };
   }
 
   async function createCollection(): Promise<void> {
@@ -1478,21 +1489,83 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   }
 
   function beginCreating(parentId: string | null): void {
+    setRenamingCollectionId(null);
+    setRenameValue("");
     setCreatingParentId(parentId);
     setNewCollectionName("");
-    if (parentId) setExpandedCollectionIds((current) => new Set(current).add(parentId));
+    onClose();
   }
 
   function beginRenaming(collection: CardCollection): void {
+    setCreatingParentId(undefined);
+    setNewCollectionName("");
+    setEditingCollectionId(collection.id);
+    setRenamingCollectionId(null);
+    setRenameValue(collection.name);
+    onClose();
+  }
+
+  function startRenaming(collection: CardCollection): void {
+    setEditingCollectionId(collection.id);
     setCreatingParentId(undefined);
     setNewCollectionName("");
     setRenamingCollectionId(collection.id);
     setRenameValue(collection.name);
   }
 
+  function startCreatingChild(collection: CardCollection): void {
+    setEditingCollectionId(collection.id);
+    setManagerExpandedCollectionIds((current) => new Set(current).add(collection.id));
+    beginCreating(collection.id);
+  }
+
+  function toggleManagerCollectionExpanded(collectionId: string): void {
+    setManagerExpandedCollectionIds((current) => {
+      const next = new Set(current);
+      if (next.has(collectionId)) next.delete(collectionId);
+      else next.add(collectionId);
+      return next;
+    });
+  }
+
+  function startMovingCollection(collection: CardCollection): void {
+    setEditingCollectionId(collection.id);
+    setCreatingParentId(undefined);
+    setNewCollectionName("");
+    cancelRenaming();
+    setMovingCollectionId(collection.id);
+  }
+
+  async function moveCollectionFromManager(parentId: string | null): Promise<void> {
+    const moving = orderedCollections.find((collection) => collection.id === movingCollectionId);
+    if (!moving || movingCollectionSaving) return;
+    if (moving.parentId === parentId) {
+      setMovingCollectionId(null);
+      return;
+    }
+    const position = orderedCollections.filter((collection) => collection.parentId === parentId && collection.id !== moving.id).length;
+    setMovingCollectionSaving(true);
+    try {
+      await onReorderCollection(moving.id, parentId, position);
+      setMovingCollectionId(null);
+    } catch (error) {
+      Alert.alert(t("main.collection.move_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+    } finally {
+      setMovingCollectionSaving(false);
+    }
+  }
+
   function cancelRenaming(): void {
     setRenamingCollectionId(null);
     setRenameValue("");
+  }
+
+  function closeCollectionEditor(): void {
+    setCreatingParentId(undefined);
+    setNewCollectionName("");
+    cancelRenaming();
+    setEditingCollectionId(null);
+    setMovingCollectionId(null);
   }
 
   async function submitRename(): Promise<void> {
@@ -1509,6 +1582,11 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
     }
   }
 
+  function selectCollectionForEditing(collection: CardCollection): void {
+    if (collection.id === editingCollectionId) return;
+    setEditingCollectionId(collection.id);
+  }
+
   function toggleExpanded(collectionId: string): void {
     setExpandedCollectionIds((current) => {
       const next = new Set(current);
@@ -1519,7 +1597,10 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   }
 
   function scrollCollectionInputIntoView(nativeHandle: object): void {
-    collectionScrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(nativeHandle, 18, true);
+    const scrollResponder = collectionScrollRef.current?.getScrollResponder() as {
+      scrollResponderScrollNativeHandleToKeyboard?: (handle: object, extraOffset: number, preventNegativeScrollOffset: boolean) => void;
+    } | undefined;
+    scrollResponder?.scrollResponderScrollNativeHandleToKeyboard?.(nativeHandle, 18, true);
   }
 
   function keepCollectionInputVisible(nativeHandle: object): void {
@@ -1579,59 +1660,104 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
     return siblings.map((collection) => renderCollectionNode(collection, depth));
   }
 
-  function renderCollectionNode(collection: CardCollection, depth: number, drag?: () => void, isActive = false): React.ReactNode {
+  function renderCollectionNode(collection: CardCollection, depth: number): React.ReactNode {
     const children = orderedCollections.filter((candidate) => candidate.parentId === collection.id);
     const expanded = expandedCollectionIds.has(collection.id);
     return (
         <React.Fragment key={collection.id}>
-          {renamingCollectionId === collection.id ? (
-            <View style={[styles.sidebarCreateRow, { marginLeft: 6 + Math.min(depth, 2) * 18 }]}>
-              <TextInput
-                autoFocus
-                value={renameValue}
-                onChangeText={setRenameValue}
-                onSubmitEditing={() => void submitRename()}
-                editable={!savingRename}
-                maxLength={60}
-                returnKeyType="done"
-                selectTextOnFocus
-                onFocus={(event) => keepCollectionInputVisible(event.target)}
-                onBlur={(event) => clearFocusedCollectionInput(event.target)}
-                style={styles.sidebarCreateInput}
-              />
-              <Pressable accessibilityLabel={t("main.collection.a11y.confirm_rename")} disabled={!renameValue.trim() || savingRename} hitSlop={8} onPress={() => void submitRename()}>
-                {savingRename
-                  ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                  : <Ionicons name="checkmark-outline" size={22} color={renameValue.trim() ? theme.colors.text : theme.colors.textMuted} />}
-              </Pressable>
-              <Pressable accessibilityLabel={t("main.collection.a11y.cancel_rename")} disabled={savingRename} hitSlop={8} onPress={cancelRenaming}>
-                <Ionicons name="close-outline" size={22} color={theme.colors.textMuted} />
-              </Pressable>
-            </View>
-          ) : (
-            <SidebarRow
-              label={collection.name}
-              selected={activeView === collection.id}
-              depth={depth}
-              expandable={children.length > 0}
-              expanded={expanded}
-              onToggle={() => toggleExpanded(collection.id)}
-              favorite={collection.isFavorite}
-              favoriteSaving={favoriteSavingId === collection.id}
-              onToggleFavorite={() => void toggleFavorite(collection)}
-              onMore={() => openCollectionActions(collection)}
-              drag={drag}
-              dragActive={isActive}
-              onPress={() => onSelect(collection.id)}
-            />
-          )}
-          {creatingParentId === collection.id ? renderCreateRow(depth + 1) : null}
+          <SidebarRow
+            label={collection.name}
+            selected={activeView === collection.id}
+            depth={depth}
+            expandable={children.length > 0}
+            expanded={expanded}
+            onToggle={() => toggleExpanded(collection.id)}
+            favorite={collection.isFavorite}
+            favoriteSaving={favoriteSavingId === collection.id}
+            onToggleFavorite={() => void toggleFavorite(collection)}
+            onMore={(anchor) => openCollectionActions(collection, anchor)}
+            onPress={() => onSelect(collection.id)}
+          />
           {expanded ? renderCollectionTree(collection.id, depth + 1) : null}
         </React.Fragment>
     );
   }
 
+  function renderCollectionManagerNode(collection: CardCollection, depth: number): React.ReactNode {
+    const children = orderedCollections
+      .filter((candidate) => candidate.parentId === collection.id)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id));
+    const expanded = managerExpandedCollectionIds.has(collection.id);
+    const inlineCreatingHere = managerInlineCreating && creatingParentId === collection.id;
+    const expandable = children.length > 0 || inlineCreatingHere;
+    return (
+      <React.Fragment key={collection.id}>
+        <View style={[
+          styles.collectionManagerRow,
+          editingCollectionId === collection.id && styles.collectionManagerRowSelected,
+        ]}>
+          <Pressable
+            onPress={() => selectCollectionForEditing(collection)}
+            style={[styles.collectionManagerRowContent, { paddingLeft: 14 + depth * 22 }]}
+          >
+            {expandable ? (
+              <Pressable
+                accessibilityLabel={expanded ? t("sidebar.a11y.collapse_collections") : t("sidebar.a11y.expand_collections")}
+                hitSlop={6}
+                style={styles.collectionManagerDisclosure}
+                onPress={() => toggleManagerCollectionExpanded(collection.id)}
+              >
+                <Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
+              </Pressable>
+            ) : <View style={styles.collectionManagerDisclosure} />}
+            <Text numberOfLines={1} style={styles.collectionRowName}>{collection.name}</Text>
+            {reorderSavingId === collection.id ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
+            <Pressable accessibilityLabel={t("main.collection.new_child")} hitSlop={7} style={styles.collectionManagerRowAction} onPress={() => startCreatingChild(collection)}>
+              <Ionicons name="add-circle-outline" size={19} color={theme.colors.textMuted} />
+            </Pressable>
+            <Pressable accessibilityLabel={t("main.collection.rename")} hitSlop={7} style={styles.collectionManagerRowAction} onPress={() => startRenaming(collection)}>
+              <Ionicons name="create-outline" size={19} color={theme.colors.textMuted} />
+            </Pressable>
+            <Pressable accessibilityLabel={t("main.collection.move_to")} hitSlop={7} style={styles.collectionManagerRowAction} onPress={() => startMovingCollection(collection)}>
+              <Ionicons name="move-outline" size={19} color={theme.colors.textMuted} />
+            </Pressable>
+            <Pressable accessibilityLabel={t("common.delete")} hitSlop={7} style={styles.collectionManagerRowAction} onPress={() => confirmDeleteCollection(collection)}>
+              <Ionicons name="trash-outline" size={19} color={theme.colors.danger} />
+            </Pressable>
+          </Pressable>
+        </View>
+        {inlineCreatingHere ? (
+          <View style={[styles.collectionManagerInlineCreate, { marginLeft: 14 + (depth + 1) * 22 }]}>
+            <View style={styles.collectionManagerDisclosure} />
+            <TextInput
+              autoFocus
+              value={newCollectionName}
+              onChangeText={setNewCollectionName}
+              onSubmitEditing={() => void createCollection()}
+              editable={!savingCollection}
+              maxLength={60}
+              returnKeyType="done"
+              placeholder={t("main.collection.child_name")}
+              placeholderTextColor={theme.colors.textMuted}
+              style={styles.collectionManagerInlineInput}
+            />
+            <Pressable disabled={!newCollectionName.trim() || savingCollection} hitSlop={7} style={styles.collectionManagerInlineAction} onPress={() => void createCollection()}>
+              {savingCollection
+                ? <ActivityIndicator size="small" color={theme.colors.accentStrong} />
+                : <Ionicons name="checkmark-circle-outline" size={22} color={newCollectionName.trim() ? theme.colors.accentStrong : theme.colors.textMuted} />}
+            </Pressable>
+            <Pressable disabled={savingCollection} hitSlop={7} style={styles.collectionManagerInlineAction} onPress={() => { setCreatingParentId(undefined); setNewCollectionName(""); }}>
+              <Ionicons name="close-outline" size={22} color={theme.colors.textMuted} />
+            </Pressable>
+          </View>
+        ) : null}
+        {expanded ? children.map((child) => renderCollectionManagerNode(child, depth + 1)) : null}
+      </React.Fragment>
+    );
+  }
+
   return (
+    <>
     <AnimatedSidebarModal visible={visible} onRequestClose={onClose}>
         <KeyboardAvoidingView behavior="height" style={[styles.sidebar, { paddingTop: Math.max(insets.top, 12), paddingBottom: insets.bottom }]}>
           <View style={styles.sidebarHeader}>
@@ -1668,97 +1794,255 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
           </View>
 
           <View style={styles.sidebarCollectionSection}>
-            <NestableScrollContainer
+            <Reanimated.ScrollView
               ref={collectionScrollRef}
               style={styles.sidebarCollectionScroller}
               contentContainerStyle={styles.sidebarCollectionContent}
+              nestedScrollEnabled
               alwaysBounceVertical={false}
               bounces={collections.length > 7}
               keyboardShouldPersistTaps="always"
               showsVerticalScrollIndicator={false}
+              scrollEventThrottle={16}
             >
-              <View style={styles.sidebarSectionHeader}>
-                <Pressable
-                  accessibilityLabel={favoritesExpanded ? t("sidebar.a11y.collapse_favorites") : t("sidebar.a11y.expand_favorites")}
-                  style={styles.sidebarSectionToggle}
-                  onPress={() => setFavoritesExpanded((expanded) => !expanded)}
-                >
-                  <Ionicons name={favoritesExpanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
-                  <Text style={styles.sidebarSectionTitle}>{t("sidebar.favorites")}</Text>
-                </Pressable>
-              </View>
-              {favoritesExpanded ? (
-                <NestableDraggableFlatList
-                  data={favoriteCollections}
-                  keyExtractor={(collection) => `favorite-${collection.id}`}
-                  keyboardShouldPersistTaps="always"
-                  activationDistance={3}
-                  animationConfig={COLLECTION_DRAG_ANIMATION}
-                  onDragBegin={(index) => beginNativeCollectionDrag(favoriteCollections[index]?.id)}
-                  onDragEnd={({ data, from, to }) => void commitFavoriteReorder(data, from, to)}
-                  renderItem={({ item, drag, isActive }: RenderItemParams<CardCollection>) => (
-                      <SidebarRow label={item.name} selected={activeView === item.id} favorite favoriteSaving={favoriteSavingId === item.id} onToggleFavorite={() => void toggleFavorite(item)} drag={collectionDragLocked && !isActive ? undefined : drag} dragActive={isActive} onPress={() => onSelect(item.id)} />
-                  )}
-                />
-              ) : null}
-
-              <View style={[styles.sidebarSectionHeader, styles.sidebarLifeSectionHeader, activeView === "all" && styles.sidebarSectionHeaderSelected]}>
-                <Pressable
-                  accessibilityLabel={collectionsExpanded ? t("sidebar.a11y.collapse_collections") : t("sidebar.a11y.expand_collections")}
-                  style={styles.sidebarSectionDisclosureButton}
-                  onPress={() => setCollectionsExpanded((expanded) => !expanded)}
-                >
-                  <Ionicons name={collectionsExpanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
-                </Pressable>
-                <Pressable accessibilityLabel={t("sidebar.collections")} style={styles.sidebarSectionSelect} onPress={() => onSelect("all")}>
-                  <Text style={[styles.sidebarSectionTitle, activeView === "all" && styles.sidebarSectionTitleSelected]}>{t("sidebar.collections")}</Text>
-                </Pressable>
-                <View style={styles.sidebarSectionActions}>
-                  <Pressable
-                    accessibilityLabel={creatingParentId === null ? t("sidebar.a11y.cancel_new_collection") : t("sidebar.a11y.new_collection")}
-                    style={styles.sidebarSectionAction}
-                    hitSlop={8}
-                    onPress={() => {
-                      if (creatingParentId === null) {
-                        setCreatingParentId(undefined);
-                        setNewCollectionName("");
-                      } else {
-                        setCollectionsExpanded(true);
-                        beginCreating(null);
-                      }
-                    }}
-                  >
-                    <Ionicons name={creatingParentId === null ? "close-outline" : "add-outline"} size={23} color={theme.colors.text} />
-                  </Pressable>
-                </View>
-              </View>
-              {collectionsExpanded ? (
-                <>
-                  <SidebarRow
-                    label={t("sidebar.unclassified")}
-                    selected={activeView === UNCLASSIFIED_VIEW}
-                    depth={0}
-                    onPress={() => onSelect(UNCLASSIFIED_VIEW)}
-                  />
-                  {creatingParentId === null ? renderCreateRow(0) : null}
-                  <NestableDraggableFlatList
-                    data={orderedCollections.filter((collection) => collection.parentId === null)}
-                    keyExtractor={(collection) => collection.id}
-                    keyboardShouldPersistTaps="always"
-                    activationDistance={3}
-                    animationConfig={COLLECTION_DRAG_ANIMATION}
-                    onDragBegin={(index) => beginNativeCollectionDrag(orderedCollections.filter((collection) => collection.parentId === null)[index]?.id)}
-                    onDragEnd={({ data, from, to }) => void commitNativeReorder(null, data, from, to)}
-                    renderItem={({ item, drag, isActive }: RenderItemParams<CardCollection>) => (
-                      <>{renderCollectionNode(item, 0, collectionDragLocked && !isActive ? undefined : drag, isActive)}</>
-                    )}
-                  />
-                </>
-              ) : null}
-            </NestableScrollContainer>
+                  <View style={styles.sidebarSectionHeader}>
+                    <Pressable
+                      accessibilityLabel={favoritesExpanded ? t("sidebar.a11y.collapse_favorites") : t("sidebar.a11y.expand_favorites")}
+                      style={styles.sidebarSectionToggle}
+                      onPress={() => setFavoritesExpanded((expanded) => !expanded)}
+                    >
+                      <Ionicons name={favoritesExpanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
+                      <Text style={styles.sidebarSectionTitle}>{t("sidebar.favorites")}</Text>
+                    </Pressable>
+                  </View>
+                  {favoritesExpanded ? (
+                    <Sortable.Flex
+                      flexDirection="column"
+                      flexWrap="nowrap"
+                      width={sidebarCollectionContentWidth}
+                      scrollableRef={collectionScrollRef}
+                      dragActivationDelay={400}
+                      itemsLayoutTransitionMode="reorder"
+                      autoScrollEnabled
+                      onDragStart={({ key }) => beginNativeCollectionDrag(key)}
+                      onDragEnd={({ order, fromIndex, toIndex }) => {
+                        void commitFavoriteReorder(order(favoriteCollections), fromIndex, toIndex);
+                      }}
+                    >
+                      {favoriteCollections.map((item) => (
+                        <View key={item.id} style={[styles.sidebarSortableCollection, { width: sidebarCollectionContentWidth }]}>
+                          <SidebarRow label={item.name} selected={activeView === item.id} favorite favoriteSaving={favoriteSavingId === item.id} onToggleFavorite={() => void toggleFavorite(item)} onPress={() => onSelect(item.id)} />
+                        </View>
+                      ))}
+                    </Sortable.Flex>
+                  ) : null}
+                  <View style={[styles.sidebarSectionHeader, styles.sidebarLifeSectionHeader, activeView === "all" && styles.sidebarSectionHeaderSelected]}>
+                    <Pressable
+                      accessibilityLabel={collectionsExpanded ? t("sidebar.a11y.collapse_collections") : t("sidebar.a11y.expand_collections")}
+                      style={styles.sidebarSectionDisclosureButton}
+                      onPress={() => setCollectionsExpanded((expanded) => !expanded)}
+                    >
+                      <Ionicons name={collectionsExpanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
+                    </Pressable>
+                    <Pressable accessibilityLabel={t("sidebar.collections")} style={styles.sidebarSectionSelect} onPress={() => onSelect("all")}>
+                      <Text style={[styles.sidebarSectionTitle, activeView === "all" && styles.sidebarSectionTitleSelected]}>{t("sidebar.collections")}</Text>
+                    </Pressable>
+                    <View style={styles.sidebarSectionActions}>
+                      <Pressable
+                        accessibilityLabel={t("sidebar.a11y.new_collection")}
+                        style={styles.sidebarSectionAction}
+                        hitSlop={8}
+                        onPress={() => { setCollectionsExpanded(true); beginCreating(null); }}
+                      >
+                        <Ionicons name="add-outline" size={23} color={theme.colors.text} />
+                      </Pressable>
+                    </View>
+                  </View>
+                  {collectionsExpanded ? (
+                    <>
+                      <SidebarRow label={t("sidebar.unclassified")} selected={activeView === UNCLASSIFIED_VIEW} depth={0} onPress={() => onSelect(UNCLASSIFIED_VIEW)} />
+                      <Sortable.Flex
+                        flexDirection="column"
+                        flexWrap="nowrap"
+                        width={sidebarCollectionContentWidth}
+                        scrollableRef={collectionScrollRef}
+                        dragActivationDelay={400}
+                        itemsLayoutTransitionMode="reorder"
+                        autoScrollEnabled
+                        onDragStart={({ key }) => beginNativeCollectionDrag(key)}
+                        onDragEnd={({ order, fromIndex, toIndex }) => {
+                          void commitNativeReorder(null, order(rootCollections), fromIndex, toIndex);
+                        }}
+                      >
+                        {rootCollections.map((item) => (
+                          <View key={item.id} style={[styles.sidebarSortableCollection, { width: sidebarCollectionContentWidth }]}>
+                            {renderCollectionNode(item, 0)}
+                          </View>
+                        ))}
+                      </Sortable.Flex>
+                    </>
+                  ) : null}
+            </Reanimated.ScrollView>
           </View>
         </KeyboardAvoidingView>
     </AnimatedSidebarModal>
+    <Modal
+      visible={Boolean(collectionActionMenu)}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={() => setCollectionActionMenu(null)}
+    >
+      <Pressable style={styles.collectionActionBackdrop} onPress={() => setCollectionActionMenu(null)}>
+        <Pressable
+          style={[styles.collectionActionMenu, collectionActionMenuPosition()]}
+          onPress={(event) => event.stopPropagation()}
+        >
+          {[["create-outline", t("main.collection.edit")]].map(([icon, label], index) => (
+            <Pressable key={label} style={styles.collectionActionRow} onPress={() => selectCollectionAction(index)}>
+              <Ionicons name={icon as React.ComponentProps<typeof Ionicons>["name"]} size={21} color={theme.colors.textSecondary} />
+              <Text style={styles.collectionActionText}>{label}</Text>
+            </Pressable>
+          ))}
+          <View style={styles.collectionActionDivider} />
+          <Pressable style={styles.collectionActionRow} onPress={() => selectCollectionAction(1)}>
+            <Ionicons name="trash-outline" size={21} color={theme.colors.danger} />
+            <Text style={[styles.collectionActionText, styles.collectionActionDanger]}>{t("common.delete")}</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+    <Modal
+      visible={Boolean(editingCollectionId) || collectionNameEditing}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => {
+        if (savingCollection || savingRename || reorderSavingId || movingCollectionSaving) return;
+        closeCollectionEditor();
+      }}
+    >
+      <SafeAreaView style={styles.modalPage}>
+        <KeyboardAvoidingView behavior="padding" style={styles.collectionNameSheet}>
+          <View style={styles.modalHeader}>
+            <Pressable
+              style={styles.modalHeaderButton}
+              disabled={savingCollection || savingRename || Boolean(reorderSavingId)}
+              onPress={() => {
+                if (movingCollectionId) {
+                  setMovingCollectionId(null);
+                } else if (collectionNameEditing && editingCollectionId) {
+                  setCreatingParentId(undefined);
+                  setNewCollectionName("");
+                  cancelRenaming();
+                } else {
+                  closeCollectionEditor();
+                }
+              }}
+            >
+              <Text style={styles.modalCancel}>{t("common.cancel")}</Text>
+            </Pressable>
+            <Text style={styles.modalTitle}>
+              {renamingCollectionId
+                ? t("main.collection.rename")
+                : movingCollection
+                  ? tf("main.collection.move_named", { name: movingCollection.name })
+                : creatingParentId && !managerInlineCreating
+                  ? t("main.collection.new_child")
+                  : editingCollectionId
+                    ? t("main.collection.manage")
+                    : t("sidebar.a11y.new_collection")}
+            </Text>
+            {movingCollectionId ? <View style={styles.modalHeaderButton} /> : <Pressable
+              style={styles.modalHeaderButton}
+              disabled={Boolean(reorderSavingId) || (collectionNameEditing && (renamingCollectionId ? !renameValue.trim() || savingRename : !newCollectionName.trim() || savingCollection))}
+              onPress={() => collectionNameEditing
+                ? renamingCollectionId ? void submitRename() : void createCollection()
+                : closeCollectionEditor()}
+            >
+              {savingCollection || savingRename
+                ? <ActivityIndicator size="small" color={theme.colors.accentStrong} />
+                : <Text style={[
+                    styles.collectionNameSheetConfirm,
+                    collectionNameEditing && (renamingCollectionId ? !renameValue.trim() : !newCollectionName.trim()) && styles.collectionNameSheetConfirmDisabled,
+                  ]}>{collectionNameEditing ? renamingCollectionId ? t("common.save") : t("common.confirm") : t("main.collection.done")}</Text>}
+            </Pressable>}
+          </View>
+          <Reanimated.ScrollView
+            ref={collectionManagerScrollRef}
+            contentContainerStyle={styles.collectionNameSheetBody}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {collectionNameEditing ? (
+              <View style={styles.collectionNameEditorCard}>
+                {creatingParentId ? <Text style={styles.collectionNameSheetContext}>{collections.find((collection) => collection.id === creatingParentId)?.name ?? ""}</Text> : null}
+                <TextInput
+                  autoFocus
+                  value={renamingCollectionId ? renameValue : newCollectionName}
+                  onChangeText={renamingCollectionId ? setRenameValue : setNewCollectionName}
+                  onSubmitEditing={() => renamingCollectionId ? void submitRename() : void createCollection()}
+                  editable={!savingCollection && !savingRename}
+                  maxLength={60}
+                  returnKeyType="done"
+                  selectTextOnFocus={Boolean(renamingCollectionId)}
+                  placeholder={creatingParentId ? t("main.collection.child_name") : t("main.collection.name")}
+                  placeholderTextColor={theme.colors.textMuted}
+                  style={styles.collectionNameSheetInput}
+                />
+              </View>
+            ) : null}
+            {movingCollection ? (
+              <View style={styles.collectionManagerMoveList}>
+                <Pressable style={styles.collectionManagerMoveRow} disabled={movingCollectionSaving} onPress={() => void moveCollectionFromManager(null)}>
+                  <Ionicons name="albums-outline" size={20} color={theme.colors.textSecondary} />
+                  <Text style={styles.collectionRowName}>{t("main.collection.top_level")}</Text>
+                  {movingCollection.parentId === null ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
+                </Pressable>
+                {collectionMoveTargets.map(({ collection, depth }) => (
+                  <Pressable
+                    key={collection.id}
+                    style={[styles.collectionManagerMoveRow, { paddingLeft: 14 + depth * 22 }]}
+                    disabled={movingCollectionSaving}
+                    onPress={() => void moveCollectionFromManager(collection.id)}
+                  >
+                    <Ionicons name="folder-outline" size={20} color={theme.colors.textSecondary} />
+                    <Text style={styles.collectionRowName}>{collection.name}</Text>
+                    {movingCollection.parentId === collection.id ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
+                  </Pressable>
+                ))}
+                {movingCollectionSaving ? <ActivityIndicator style={styles.collectionManagerMoveSaving} color={theme.colors.accentStrong} /> : null}
+              </View>
+            ) : !collectionNameEditing ? (
+              <Sortable.Flex
+                flexDirection="column"
+                flexWrap="nowrap"
+                width={collectionManagerWidth}
+                scrollableRef={collectionManagerScrollRef}
+                dragActivationDelay={400}
+                itemsLayoutTransitionMode="reorder"
+                autoScrollEnabled
+                sortEnabled={!managerInlineCreating && !reorderSavingId && !savingCollection && !savingRename}
+                onDragStart={({ key }) => {
+                  setDraggingCollectionId(key);
+                  Keyboard.dismiss();
+                }}
+                onDragEnd={({ order, fromIndex, toIndex }) => {
+                  void commitNativeReorder(null, order(rootCollections), fromIndex, toIndex);
+                }}
+              >
+                {rootCollections.map((collection) => (
+                  <View key={collection.id} style={[styles.collectionManagerSortableRow, { width: collectionManagerWidth }]}>
+                    {renderCollectionManagerNode(collection, 0)}
+                  </View>
+                ))}
+              </Sortable.Flex>
+            ) : null}
+          </Reanimated.ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Modal>
+    </>
   );
 }
 
@@ -1836,7 +2120,7 @@ function AnimatedSidebarModal({ visible, onRequestClose, children }: {
   );
 }
 
-function SidebarRow({ icon, leading, label, count, selected = false, muted = false, onPress, depth = 0, expandable = false, expanded = false, onToggle, favorite, favoriteSaving = false, onToggleFavorite, onMore, drag, dragActive = false }: {
+function SidebarRow({ icon, leading, label, count, selected = false, muted = false, onPress, depth = 0, expandable = false, expanded = false, onToggle, favorite, favoriteSaving = false, onToggleFavorite, onMore }: {
   icon?: React.ComponentProps<typeof Ionicons>["name"];
   leading?: React.ReactNode;
   label: string;
@@ -1851,16 +2135,12 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
   favorite?: boolean;
   favoriteSaving?: boolean;
   onToggleFavorite?: () => void;
-  onMore?: () => void;
-  drag?: () => void;
-  dragActive?: boolean;
+  onMore?: (anchor: RecordActionAnchor) => void;
 }) {
+  const moreButtonRef = useRef<View>(null);
   return (
     <Pressable
-      delayLongPress={140}
-      disabled={dragActive}
-      style={[styles.sidebarRow, dragActive && styles.sidebarRowDragging, muted && styles.sidebarRowMuted, { paddingLeft: 14 + Math.min(depth, 2) * 18 }, selected && styles.sidebarRowSelected]}
-      onLongPress={drag}
+      style={[styles.sidebarRow, muted && styles.sidebarRowMuted, { paddingLeft: 14 + Math.min(depth, 2) * 18 }, selected && styles.sidebarRowSelected]}
       onPress={onPress}
     >
       {selected ? <View pointerEvents="none" style={styles.sidebarSelectionMark} /> : null}
@@ -1889,12 +2169,18 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
       ) : null}
       {onMore ? (
         <Pressable
+          ref={moreButtonRef}
+          collapsable={false}
           accessibilityLabel={tf("sidebar.a11y.more_actions", { label })}
           style={styles.sidebarRowAction}
           hitSlop={6}
           onPress={(event) => {
             event.stopPropagation();
-            onMore();
+            const { pageX, pageY } = event.nativeEvent;
+            onMore({ x: pageX, y: pageY, width: 0, height: 0 });
+            moreButtonRef.current?.measureInWindow((x, y, width, height) => {
+              if (width > 0 && height > 0) onMore({ x, y, width, height });
+            });
           }}
         >
           <Ionicons name="ellipsis-horizontal" size={19} color={theme.colors.textMuted} />
@@ -2042,67 +2328,6 @@ function formatQuotaRefreshTime(value: string | null): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return t("me.quota.next_period");
   return date.toLocaleString(getLanguage(), { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-function CollectionMoveModal({ visible, collections, collectionId, onClose, onMove }: {
-  visible: boolean;
-  collections: CardCollection[];
-  collectionId: string | null;
-  onClose: () => void;
-  onMove: (collectionId: string, parentId: string | null) => Promise<void>;
-}) {
-  const [movingTo, setMovingTo] = useState<string | null | undefined>(undefined);
-  const moving = collections.find((collection) => collection.id === collectionId) ?? null;
-  const move = async (parentId: string | null) => {
-    if (!moving || movingTo !== undefined || moving.parentId === parentId) {
-      if (moving?.parentId === parentId) onClose();
-      return;
-    }
-    setMovingTo(parentId);
-    try {
-      await onMove(moving.id, parentId);
-      onClose();
-    } catch (error) {
-      Alert.alert(t("main.collection.move_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
-    } finally {
-      setMovingTo(undefined);
-    }
-  };
-  const unavailableIds = moving ? collectionDescendantIds(moving.id, collections) : new Set<string>();
-  if (moving) unavailableIds.add(moving.id);
-  const moveTargets = collectionTreeRows(collections).filter(({ collection }) => !unavailableIds.has(collection.id));
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={styles.modalPage}>
-        <View style={styles.modalHeader}>
-          <Pressable style={styles.modalHeaderButton} onPress={onClose}><Text style={styles.modalCancel}>{t("common.cancel")}</Text></Pressable>
-          <Text style={styles.modalTitle}>{moving ? tf("main.collection.move_named", { name: moving.name }) : t("main.collection.move_to")}</Text>
-          <View style={styles.modalHeaderButton} />
-        </View>
-        <ScrollView contentContainerStyle={styles.collectionManagerList} alwaysBounceVertical={false}>
-          {moving ? (
-            <>
-              <Text style={styles.collectionMoveHint}>{t("main.collection.move_hint")}</Text>
-              <Pressable style={styles.collectionMoveRow} onPress={() => void move(null)}>
-                <Ionicons name="albums-outline" size={20} color={theme.colors.textSecondary} />
-                <Text style={styles.collectionRowName}>{t("main.collection.top_level")}</Text>
-                {moving.parentId === null ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
-                {movingTo === null ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
-              </Pressable>
-              {moveTargets.map(({ collection, depth }) => (
-                <Pressable key={collection.id} style={[styles.collectionMoveRow, { paddingLeft: 12 + depth * 20 }]} onPress={() => void move(collection.id)}>
-                  <Ionicons name="folder-outline" size={20} color={theme.colors.textSecondary} />
-                  <Text style={styles.collectionRowName}>{collection.name}</Text>
-                  {moving.parentId === collection.id ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
-                  {movingTo === collection.id ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
-                </Pressable>
-              ))}
-            </>
-          ) : null}
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
-  );
 }
 
 function collectionTreeRows(collections: CardCollection[]): Array<{ collection: CardCollection; depth: number }> {
@@ -2362,10 +2587,26 @@ const styles = StyleSheet.create({
   modalTitleSpacer: { flex: 1 },
   modalCancel: { color: theme.colors.textSecondary, fontSize: 15 },
   modalSend: { color: theme.colors.accentStrong, fontSize: 15, fontWeight: "600" },
+  collectionNameSheet: { flex: 1 },
+  collectionNameSheetBody: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 44 },
+  collectionNameSheetContext: { marginBottom: 10, color: theme.colors.textMuted, fontSize: 13, lineHeight: 19 },
+  collectionNameSheetInput: { minHeight: 52, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 16 },
+  collectionNameEditorCard: { padding: 12, borderRadius: 14, backgroundColor: theme.colors.surface },
+  collectionNameSheetConfirm: { color: theme.colors.accentStrong, fontSize: 15, fontWeight: "600" },
+  collectionNameSheetConfirmDisabled: { color: theme.colors.textMuted },
   collectionEditor: { padding: 16, flexDirection: "row", gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
-  collectionManagerList: { padding: 16, paddingBottom: 40 },
-  collectionMoveHint: { paddingHorizontal: 12, paddingTop: 5, paddingBottom: 12, color: theme.colors.textMuted, fontSize: 13 },
-  collectionMoveRow: { minHeight: 54, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 13, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
+  collectionManagerSortableRow: { width: "100%" },
+  collectionManagerRow: { width: "100%", minHeight: 50, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.canvas },
+  collectionManagerRowContent: { width: "100%", minHeight: 52, paddingRight: 8, flexDirection: "row", alignItems: "center", gap: 4 },
+  collectionManagerDisclosure: { width: 22, height: 40, alignItems: "center", justifyContent: "center" },
+  collectionManagerRowAction: { width: 34, height: 40, alignItems: "center", justifyContent: "center" },
+  collectionManagerInlineCreate: { minHeight: 52, marginRight: 8, paddingRight: 8, flexDirection: "row", alignItems: "center", gap: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
+  collectionManagerInlineInput: { flex: 1, minWidth: 0, height: 52, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 15, lineHeight: 20, textAlignVertical: "center" },
+  collectionManagerInlineAction: { width: 32, height: 40, alignItems: "center", justifyContent: "center" },
+  collectionManagerMoveList: { width: "100%" },
+  collectionManagerMoveRow: { minHeight: 52, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
+  collectionManagerMoveSaving: { marginTop: 18 },
+  collectionManagerRowSelected: { backgroundColor: "#F5F5F5" },
   collectionRowName: { flex: 1, color: theme.colors.text, fontSize: 15 },
   sidebarOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 100, elevation: 20 },
   sidebarAnimatedContent: { position: "absolute", top: 0, bottom: 0, left: 0, width: "84%", maxWidth: 360, zIndex: 2 },
@@ -2385,6 +2626,7 @@ const styles = StyleSheet.create({
   sidebarCollectionSection: { flex: 1, minHeight: 0, marginTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#E2E2E2" },
   sidebarCollectionScroller: { flex: 1 },
   sidebarCollectionContent: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 24 },
+  sidebarSortableCollection: { width: "100%" },
   sidebarRow: { position: "relative", minHeight: 46, paddingHorizontal: 12, borderRadius: 6, flexDirection: "row", alignItems: "center", gap: 11 },
   sidebarRowMuted: { opacity: 0.42 },
   sidebarLeadingMuted: { opacity: 0.55 },
@@ -2397,7 +2639,12 @@ const styles = StyleSheet.create({
   sidebarRowCount: { minWidth: 24, color: "#8A8A8A", fontSize: 12, textAlign: "right" },
   sidebarRowFavorite: { width: 28, height: 34, marginHorizontal: -4, zIndex: 2, elevation: 2, alignItems: "center", justifyContent: "center" },
   sidebarRowAction: { width: 28, height: 34, marginHorizontal: -5, zIndex: 2, elevation: 2, alignItems: "center", justifyContent: "center" },
-  sidebarRowDragging: { backgroundColor: "#FFFFFF", borderRadius: 7, shadowColor: "#000000", shadowOpacity: 0.16, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
+  collectionActionBackdrop: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.08)" },
+  collectionActionMenu: { position: "absolute", width: 168, paddingVertical: 4, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
+  collectionActionRow: { minHeight: 52, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 12 },
+  collectionActionText: { flex: 1, color: theme.colors.text, fontSize: 15, lineHeight: 21 },
+  collectionActionDanger: { color: theme.colors.danger },
+  collectionActionDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 8, backgroundColor: theme.colors.border },
   sidebarSectionHeader: { minHeight: 46, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sidebarLifeSectionHeader: { marginTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#E4E4E4" },
   sidebarSectionHeaderSelected: { borderRadius: 6, backgroundColor: "#F2F2F2" },
