@@ -88,6 +88,11 @@ export interface PracticeDayStatsEntity {
   correct: number;
 }
 
+export interface FirstUserMessageEntity {
+  conversationId: string;
+  content: string;
+}
+
 export interface UpdateMessageStatusInput {
   messageId: string;
   status: MessageStatus;
@@ -113,6 +118,7 @@ export interface MessageRepository {
   findAssistantBySourceMessageId(sourceMessageId: string): Promise<MessageEntity | null>;
   findByUserConversationClientId(userId: string, conversationId: string, clientId: string): Promise<MessageEntity | null>;
   listByConversation(conversationId: string, limit: number): Promise<MessageEntity[]>;
+  listFirstUserMessagesByConversationIds(conversationIds: string[]): Promise<FirstUserMessageEntity[]>;
   listByUserAndDay(userId: string, dayStart: Date, dayEnd: Date): Promise<MessageEntity[]>;
   listSuccessfulByUserBefore(userId: string, before: Date, limit: number): Promise<MessageEntity[]>;
   listByConversationRange(input: ListByConversationRangeInput): Promise<MessageEntity[]>;

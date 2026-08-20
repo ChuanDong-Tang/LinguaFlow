@@ -1116,14 +1116,24 @@ export class CardService {
     const cardEntries = await this.repository.listRecentCompleted(userId, "9999-12-31", 100);
     const cardRecords = await Promise.all(cardEntries.filter((entry) => !entry.isSample).map((entry) => this.summaryWithImage(entry)));
     const records = cardRecords.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const entryById = new Map(cardEntries.map((entry) => [entry.id, entry]));
+    const sourceIds = records.map((record) => parseCardRecordId(record.id)!.sourceId);
+    const [practiceStates, contentPracticeStates] = await Promise.all([
+      this.repository.listPracticeStates(userId, sourceIds),
+      this.repository.listContentPracticeStates(userId, sourceIds),
+    ]);
+    const practiceStateByCardId = new Map(practiceStates.map((state) => [state.cardId, state]));
+    const contentStateByCardAndType = new Map(
+      contentPracticeStates.map((state) => [`${state.cardId}:${state.contentType}`, state]),
+    );
     const now = Date.now();
-    const items = await Promise.all(records.map(async (record) => {
+    const items = records.map((record) => {
       const parsed = parseCardRecordId(record.id)!;
-      const entry = cardEntries.find((candidate) => candidate.id === parsed.sourceId);
+      const entry = entryById.get(parsed.sourceId);
       const contentType = entry ? defaultLearningContentType(entry) : null;
       const state = contentType
-        ? await this.repository.findContentPracticeState(userId, parsed.sourceId, contentType)
-        : await this.repository.findPracticeState(userId, parsed.sourceId);
+        ? contentStateByCardAndType.get(`${parsed.sourceId}:${contentType}`)
+        : practiceStateByCardId.get(parsed.sourceId);
       if (!state?.dictationCompleted) {
         return { record, initialTab: "dictation", reason: "try_dictation" } as const;
       }
@@ -1134,7 +1144,7 @@ export class CardService {
         return { record, initialTab: "dictation", reason: "review" } as const;
       }
       return null;
-    }));
+    });
     return items.filter((item): item is NonNullable<typeof item> => item !== null).slice(0, safeLimit);
   }
 

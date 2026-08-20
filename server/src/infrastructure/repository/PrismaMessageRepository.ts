@@ -8,6 +8,7 @@ import type {
   ListPracticeDateKeysByUserRangeInput,
   MessageEntity,
   MessageRepository,
+  FirstUserMessageEntity,
   PracticeDayStatsEntity,
   UpdateMessageClozeInput,
   UpdateMessageClozeResult,
@@ -23,6 +24,7 @@ type PrismaMessageClient = {
     findMany: (args: any) => Promise<any[]>;
     findUnique: (args: any) => Promise<any>;
   };
+  $queryRawUnsafe: <T = unknown>(query: string, ...values: unknown[]) => Promise<T>;
 };
 
 export class PrismaMessageRepository implements MessageRepository {
@@ -134,6 +136,21 @@ export class PrismaMessageRepository implements MessageRepository {
     });
 
     return rows.map((row) => this.toEntity(row));
+  }
+
+  async listFirstUserMessagesByConversationIds(conversationIds: string[]): Promise<FirstUserMessageEntity[]> {
+    if (!conversationIds.length) return [];
+    const placeholders = conversationIds.map((_, index) => `$${index + 1}`).join(", ");
+    return this.prisma.$queryRawUnsafe<FirstUserMessageEntity[]>(
+      `SELECT DISTINCT ON ("conversationId")
+         "conversationId", "content"
+       FROM "messages"
+       WHERE "conversationId" IN (${placeholders})
+         AND "role" = 'user'::"MessageRole"
+         AND btrim("content") <> ''
+       ORDER BY "conversationId", "createdAt" ASC, "id" ASC`,
+      ...conversationIds,
+    );
   }
 
   async listByUserAndDay(userId: string, dayStart: Date, dayEnd: Date): Promise<MessageEntity[]> {

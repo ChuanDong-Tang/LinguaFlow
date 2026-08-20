@@ -48,6 +48,7 @@ type PrismaCardClient = {
   };
   cardContentPracticeState: {
     findUnique: (args: any) => Promise<any>;
+    findMany: (args: any) => Promise<any[]>;
     create: (args: any) => Promise<any>;
     updateMany: (args: any) => Promise<{ count: number }>;
     upsert: (args: any) => Promise<any>;
@@ -63,6 +64,7 @@ type PrismaCardClient = {
   };
   cardPracticeState: {
     findUnique: (args: any) => Promise<any>;
+    findMany: (args: any) => Promise<any[]>;
     create: (args: any) => Promise<any>;
     updateMany: (args: any) => Promise<{ count: number }>;
     upsert: (args: any) => Promise<any>;
@@ -898,6 +900,14 @@ export class PrismaCardRepository implements CardRepository {
     return row?.userId === userId ? toPracticeState(row) : null;
   }
 
+  async listPracticeStates(userId: string, cardIds: string[]): Promise<CardPracticeStateEntity[]> {
+    if (!cardIds.length) return [];
+    const rows = await this.prisma.cardPracticeState.findMany({
+      where: { userId, cardId: { in: cardIds } },
+    });
+    return rows.map(toPracticeState);
+  }
+
   async findContentPracticeState(
     userId: string,
     cardId: string,
@@ -907,6 +917,14 @@ export class PrismaCardRepository implements CardRepository {
       where: { cardId_contentType: { cardId, contentType } },
     });
     return row?.userId === userId ? toContentPracticeState(row) : null;
+  }
+
+  async listContentPracticeStates(userId: string, cardIds: string[]): Promise<CardContentPracticeStateEntity[]> {
+    if (!cardIds.length) return [];
+    const rows = await this.prisma.cardContentPracticeState.findMany({
+      where: { userId, cardId: { in: cardIds } },
+    });
+    return rows.map(toContentPracticeState);
   }
 
   async saveContentDictationResult(input: {

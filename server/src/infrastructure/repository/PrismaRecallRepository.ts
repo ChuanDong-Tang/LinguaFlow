@@ -69,11 +69,25 @@ export class PrismaRecallRepository {
       take: Math.min(50, Math.max(limit * 4, limit)),
     });
     const ordered = mode === "shuffle" ? stableShuffle(rows) : rows;
-    const candidates: RecallCandidate[] = await Promise.all(ordered.slice(0, limit).map(async (card): Promise<RecallCandidate> => {
-      const [occurrenceCount, embeddingCount] = await Promise.all([
-        this.prisma.phraseOccurrence.count({ where: { userId, cardId: card.id } }),
-        this.prisma.cardEmbedding.count({ where: { userId, cardId: card.id } }),
-      ]);
+    const selected = ordered.slice(0, limit);
+    const selectedIds = selected.map((card) => card.id);
+    const [occurrences, embeddings] = selectedIds.length ? await Promise.all([
+      this.prisma.phraseOccurrence.groupBy({
+        by: ["cardId"],
+        where: { userId, cardId: { in: selectedIds } },
+        _count: { _all: true },
+      }),
+      this.prisma.cardEmbedding.groupBy({
+        by: ["cardId"],
+        where: { userId, cardId: { in: selectedIds } },
+        _count: { _all: true },
+      }),
+    ]) : [[], []];
+    const connectedCardIds = new Set([
+      ...occurrences.map((row: { cardId: string }) => row.cardId),
+      ...embeddings.map((row: { cardId: string }) => row.cardId),
+    ]);
+    const candidates: RecallCandidate[] = selected.map((card): RecallCandidate => {
       return {
         recordId: cardRecordId("card", card.id),
         title: card.title,
@@ -82,9 +96,9 @@ export class PrismaRecallRepository {
         originalText: card.originalText ?? "",
         rewrittenText: card.rewrittenText ?? "",
         createdAt: card.createdAt,
-        reason: mode === "shuffle" ? "shuffle" : occurrenceCount + embeddingCount > 0 ? "has_connections" : "long_unseen",
+        reason: mode === "shuffle" ? "shuffle" : connectedCardIds.has(card.id) ? "has_connections" : "long_unseen",
       };
-    }));
+    });
     return mode === "recommended"
       ? candidates.sort((left, right) => Number(right.reason === "has_connections") - Number(left.reason === "has_connections"))
       : candidates;

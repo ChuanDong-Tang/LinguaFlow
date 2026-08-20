@@ -269,11 +269,13 @@ export interface CardRepository {
   listExpiredProcessing(now: Date, limit: number): Promise<CardEntryEntity[]>;
   markDeleted(entryId: string, userId: string, deletedAt: Date): Promise<boolean>;
   findPracticeState(userId: string, cardId: string): Promise<CardPracticeStateEntity | null>;
+  listPracticeStates(userId: string, cardIds: string[]): Promise<CardPracticeStateEntity[]>;
   findContentPracticeState(
     userId: string,
     cardId: string,
     contentType: CardLearningContentType,
   ): Promise<CardContentPracticeStateEntity | null>;
+  listContentPracticeStates(userId: string, cardIds: string[]): Promise<CardContentPracticeStateEntity[]>;
   saveContentDictationResult(input: {
     userId: string;
     cardId: string;

@@ -48,6 +48,8 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [countdown, setCountdown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const [credentialError, setCredentialError] = useState("");
+  const [agreementRequired, setAgreementRequired] = useState(false);
   const agreementShake = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -62,12 +64,14 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setPassCode("");
     setCountdown(0);
     setStatusText("");
+    setCredentialError("");
   }
 
   function switchMethod(nextMethod: LoginMethod) {
     if (loading || sendingCode || nextMethod === method) return;
     setMethod(nextMethod);
     setStatusText("");
+    setCredentialError("");
     setPasswordVisible(false);
   }
 
@@ -86,11 +90,19 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   async function handleSendCode() {
     if (sendingCode || countdown > 0) return;
+    let credential: ReturnType<typeof buildCredential>;
+    try {
+      credential = buildCredential();
+      setCredentialError("");
+    } catch (error) {
+      setCredentialError(error instanceof Error ? error.message : t("auth.login.send_failed"));
+      return;
+    }
     if (!agreed) return shakeAgreement();
     setSendingCode(true);
     setStatusText("");
     try {
-      await sendAuthingPasscode(buildCredential());
+      await sendAuthingPasscode(credential);
       if (!isMounted()) return;
       setCountdown(60);
     } catch (error) {
@@ -151,6 +163,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   }
 
   function shakeAgreement() {
+    setAgreementRequired(true);
     agreementShake.setValue(0);
     Animated.sequence([
       Animated.timing(agreementShake, { toValue: 1, duration: 58, useNativeDriver: true }),
@@ -204,7 +217,15 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             ) : (
               <TextInput
                 value={mode === "phone" ? phone : email}
-                onChangeText={mode === "phone" ? (value) => setPhone(value.replace(/\D/g, "")) : setEmail}
+                onChangeText={mode === "phone"
+                  ? (value) => {
+                      setPhone(value.replace(/\D/g, ""));
+                      if (credentialError) setCredentialError("");
+                    }
+                  : (value) => {
+                      setEmail(value);
+                      if (credentialError) setCredentialError("");
+                    }}
                 placeholder={mode === "phone" ? t("auth.login.phone_placeholder") : t("auth.login.email_placeholder")}
                 placeholderTextColor="#A1A4AD"
                 keyboardType={mode === "phone" ? "phone-pad" : "email-address"}
@@ -216,6 +237,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               />
             )}
           </View>
+          {credentialError ? <Text style={styles.fieldErrorText}>{credentialError}</Text> : null}
           <View style={styles.inputShell}>
             {method === "password" ? (
               <>
@@ -271,6 +293,54 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           </View>
         </View>
 
+        <Animated.View
+          style={[
+            styles.agreementBlock,
+            agreementRequired && styles.agreementBlockRequired,
+            {
+              transform: [
+                {
+                  translateX: agreementShake.interpolate({
+                    inputRange: [-1, 1],
+                    outputRange: [-8, 8],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <View style={styles.agreeRow}>
+            <Pressable
+              style={styles.checkboxTouchTarget}
+              onPress={() => {
+                const next = !agreed;
+                setAgreed(next);
+                if (next) setAgreementRequired(false);
+              }}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: agreed }}
+              accessibilityLabel={t("auth.login.agreement_checkbox")}
+            >
+              <View style={[styles.checkbox, agreed && styles.checkboxChecked]}>
+                {agreed ? <Ionicons name="checkmark" size={18} color="#111111" /> : null}
+              </View>
+            </Pressable>
+            <Text style={styles.agreeText}>
+              {t("auth.login.agree_prefix")}{" "}
+              <Text style={styles.linkText} onPress={() => void Linking.openURL(TERMS_URL)}>
+                {t("auth.login.terms")}
+              </Text>{" "}
+              {t("auth.login.and")}{" "}
+              <Text style={styles.linkText} onPress={() => void Linking.openURL(PRIVACY_URL)}>
+                {t("auth.login.privacy")}
+              </Text>
+            </Text>
+          </View>
+          {agreementRequired ? (
+            <Text style={styles.agreementRequiredText}>{t("auth.login.agreement_required")}</Text>
+          ) : null}
+        </Animated.View>
+
         <Pressable
           style={[styles.loginButton, (!agreed || loading) && styles.loginButtonDisabled]}
           onPress={handlePrimaryLogin}
@@ -289,44 +359,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           </Text>
         </Pressable>
 
-        <Animated.View
-          style={[
-            styles.agreementBlock,
-            {
-              transform: [
-                {
-                  translateX: agreementShake.interpolate({
-                    inputRange: [-1, 1],
-                    outputRange: [-8, 8],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          <View style={styles.agreeRow}>
-            <Pressable
-              style={[styles.checkbox, agreed && styles.checkboxChecked]}
-              onPress={() => setAgreed((v) => !v)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: agreed }}
-              accessibilityLabel={t("auth.login.agreement_checkbox")}
-            >
-              {agreed ? <Ionicons name="checkmark" size={20} color="#111111" /> : null}
-            </Pressable>
-            <Text style={styles.agreeText}>
-              {t("auth.login.agree_prefix")}{" "}
-              <Text style={styles.linkText} onPress={() => void Linking.openURL(TERMS_URL)}>
-                {t("auth.login.terms")}
-              </Text>{" "}
-              {t("auth.login.and")}{" "}
-              <Text style={styles.linkText} onPress={() => void Linking.openURL(PRIVACY_URL)}>
-                {t("auth.login.privacy")}
-              </Text>
-            </Text>
-          </View>
-          {!!statusText && <Text style={styles.statusText}>{statusText}</Text>}
-        </Animated.View>
+        {!!statusText && <Text style={styles.statusText}>{statusText}</Text>}
       </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -517,6 +550,13 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "center",
   },
+  fieldErrorText: {
+    marginTop: -6,
+    paddingHorizontal: 4,
+    color: "#C53C3C",
+    fontSize: 12,
+    lineHeight: 18,
+  },
 
   loginButton: {
     marginTop: 20,
@@ -548,26 +588,41 @@ const styles = StyleSheet.create({
   },
 
   agreementBlock: {
-    marginTop: 8,
+    marginTop: 12,
     width: "100%",
     maxWidth: 340,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "transparent",
+    borderRadius: 10,
     alignItems: "center",
+  },
+  agreementBlockRequired: {
+    borderColor: "#E8B1B1",
+    backgroundColor: "#FFF7F7",
   },
   agreeRow: {
     width: "100%",
-    maxWidth: 320,
     flexDirection: "row",
+    alignItems: "center",
+  },
+  checkboxTouchTarget: {
+    width: 36,
+    height: 36,
+    marginRight: 4,
     alignItems: "center",
     justifyContent: "center",
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    marginRight: 10,
-    borderRadius: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 5,
     borderWidth: 1.2,
     borderColor: "#6F7078",
     backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
   },
   checkboxChecked: {
     borderColor: "#111111",
@@ -583,8 +638,17 @@ const styles = StyleSheet.create({
     color: "#111111",
     textDecorationLine: "underline",
   },
+  agreementRequiredText: {
+    width: "100%",
+    paddingLeft: 40,
+    color: "#C53C3C",
+    fontSize: 12,
+    lineHeight: 18,
+  },
   statusText: {
-    marginTop: 10,
+    width: "100%",
+    maxWidth: 340,
+    marginTop: 8,
     color: "#D14343",
     fontSize: 12,
     textAlign: "center",

@@ -201,16 +201,19 @@ export class ChatMessageService {
     });
     const hasMore = rows.length > input.limit;
     const pageRows = rows.slice(0, input.limit);
+    const firstUserMessages = await this.messageRepository.listFirstUserMessagesByConversationIds(
+      pageRows.map((row) => row.id),
+    );
+    const firstUserMessageByConversationId = new Map(
+      firstUserMessages.map((message) => [message.conversationId, message.content]),
+    );
     return {
-      items: await Promise.all(pageRows.map(async (row) => {
+      items: pageRows.map((row) => {
         const assistant = row.contactId === "curious_companion";
         let title = row.title?.trim() || "";
-        const firstUserMessage = (await this.messageRepository.listByConversation(row.id, 100))
-          .find((message) => message.role === "user" && message.content.trim());
+        const firstUserMessage = firstUserMessageByConversationId.get(row.id);
         if (firstUserMessage) {
-          const currentTitle = conversationTitle(firstUserMessage.content);
-          if (currentTitle !== title) await this.conversationRepository.setTitle(row.id, currentTitle);
-          title = currentTitle;
+          title = conversationTitle(firstUserMessage);
         }
         return {
           id: row.id,
@@ -220,7 +223,7 @@ export class ChatMessageService {
           dateKey: row.dateKey,
           updatedAt: row.updatedAt.toISOString(),
         };
-      })),
+      }),
       nextCursor: hasMore && pageRows.length
         ? encodeConversationCursor(pageRows[pageRows.length - 1])
         : null,
