@@ -1597,6 +1597,7 @@
                       <th>状态</th>
                       <th>错误码</th>
                       <th>错误信息</th>
+                      <th>Metadata</th>
                     </tr>
                   </thead>
                   <tbody id="logsTbody"></tbody>
@@ -3068,8 +3069,11 @@
             <td>${statusPill(row.status)}</td>
             <td>${escapeHtml(row.errorCode)}</td>
             <td>${escapeHtml(row.errorMessage)}</td>
+            <td>${row.metadata && typeof row.metadata === "object" && Object.keys(row.metadata).length
+              ? `<details><summary>查看</summary><pre class="mono" style="margin:8px 0 0;white-space:pre-wrap;word-break:break-all">${escapeHtml(JSON.stringify(row.metadata, null, 2))}</pre></details>`
+              : "-"}</td>
           </tr>
-        `).join("") || rowEmpty(8);
+        `).join("") || rowEmpty(9);
         setStatus(`系统日志：${rows.length} 条`);
       }
 

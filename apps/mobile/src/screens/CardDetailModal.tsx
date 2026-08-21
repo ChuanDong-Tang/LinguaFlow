@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as MediaLibrary from "expo-media-library";
+import { File, Paths } from "expo-file-system";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView, KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -55,7 +56,6 @@ import { DictionaryPopover } from "./chat/DictionaryPopover";
 import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { getLanguage, t, tf } from "../i18n";
 import { expandSelectionToCardBlankRange, getCardClozeActualUnitMatches, splitCardClozeAnswerUnits } from "../domain/cloze/clozeUtils";
-import { segmentLearningSentences } from "../domain/learning/learningText";
 import { useRealtimeSttInput, type RealtimeSttInputStatus } from "../hooks/useRealtimeSttInput";
 import { CollectionPickerModal, collectionPathName } from "./shared/CollectionPickerModal";
 import { normalizeCardBodyText } from "@lf/core/text/cardText";
@@ -71,7 +71,7 @@ type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; heig
 type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
 const CARD_CLOZE_ONBOARDING_KEY = "linguaflow.card_detail.cloze_onboarding.v2";
 
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -93,6 +93,9 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onDraftFieldChange?: (field: "title" | "rewrittenText" | "translationText" | "replyText", value: string) => void;
   onDraftEnabledLayersChange?: (layers: CardDraft["enabledLayers"]) => void;
   onDraftCollectionChange?: (collectionId: string | null) => void;
+  onDraftCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
+  onDraftRenameCollection?: (collectionId: string, name: string) => Promise<void>;
+  onDraftDeleteCollection?: (collection: CardCollection) => Promise<void>;
   onDraftSave?: (initialTab?: DetailTab) => void;
   onDraftChooseImage?: () => void;
   onDraftTakePhoto?: () => void;
@@ -328,6 +331,9 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         onChangeField={onDraftFieldChange}
         onEnabledLayersChange={onDraftEnabledLayersChange}
         onCollectionChange={onDraftCollectionChange}
+        onCreateCollection={onDraftCreateCollection}
+        onRenameCollection={onDraftRenameCollection}
+        onDeleteCollection={onDraftDeleteCollection}
         onSave={onDraftSave}
         onChooseImage={onDraftChooseImage}
         onTakePhoto={onDraftTakePhoto}
@@ -612,7 +618,7 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
   </View>;
 }
 
-function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onCollectionChange, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage }: {
+function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onCollectionChange, onCreateCollection, onRenameCollection, onDeleteCollection, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage }: {
   draft: CardDraft;
   sending: boolean;
   imageAdding: boolean;
@@ -624,6 +630,9 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   onChangeField?: (field: "title" | "rewrittenText" | "translationText" | "replyText", value: string) => void;
   onEnabledLayersChange?: (layers: CardDraft["enabledLayers"]) => void;
   onCollectionChange?: (collectionId: string | null) => void;
+  onCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
+  onRenameCollection?: (collectionId: string, name: string) => Promise<void>;
+  onDeleteCollection?: (collection: CardCollection) => Promise<void>;
   onSave?: (initialTab?: DetailTab) => void;
   onChooseImage?: () => void;
   onTakePhoto?: () => void;
@@ -719,7 +728,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
               alwaysBounceVertical={false}
               bounces={false}
             >
-              <CollectionPickerRow collections={collections} value={draft.collectionId} onChange={(collectionId) => onCollectionChange?.(collectionId)} />
+              <CollectionPickerRow collections={collections} value={draft.collectionId} onChange={(collectionId) => onCollectionChange?.(collectionId)} onCreateCollection={onCreateCollection} onRenameCollection={onRenameCollection} onDeleteCollection={onDeleteCollection} />
               <TextInput
                 value={draft.title}
                 editable={!sending}
@@ -1017,10 +1026,13 @@ function DictationPracticeView({ sentences, onPlay }: {
   </ScrollView>;
 }
 
-function CollectionPickerRow({ collections, value, onChange }: {
+function CollectionPickerRow({ collections, value, onChange, onCreateCollection, onRenameCollection, onDeleteCollection }: {
   collections: CardCollection[];
   value: string | null;
   onChange: (collectionId: string | null) => void;
+  onCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
+  onRenameCollection?: (collectionId: string, name: string) => Promise<void>;
+  onDeleteCollection?: (collection: CardCollection) => Promise<void>;
 }) {
   const [visible, setVisible] = useState(false);
   const selected = collections.find((collection) => collection.id === value);
@@ -1030,7 +1042,7 @@ function CollectionPickerRow({ collections, value, onChange }: {
       <Text numberOfLines={1} style={styles.collectionPickerValue}>{selected ? collectionPathName(selected, collections) : t("sidebar.unclassified")}</Text>
       <Ionicons name="chevron-forward" size={17} color={theme.colors.textMuted} />
     </Pressable>
-    <CollectionPickerModal visible={visible} title={t("card_detail.choose_collection")} collections={collections} value={value} onClose={() => setVisible(false)} onSelect={(collectionId) => onChange(collectionId ?? null)} />
+    <CollectionPickerModal visible={visible} title={t("card_detail.choose_collection")} collections={collections} value={value} onClose={() => setVisible(false)} onSelect={(collectionId) => onChange(collectionId ?? null)} onCreateCollection={onCreateCollection} onRenameCollection={onRenameCollection} onDeleteCollection={onDeleteCollection} />
   </>;
 }
 
@@ -1285,6 +1297,7 @@ function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, on
   const bottomInset = Math.max(insets.bottom, Platform.OS === "ios" ? 20 : 0);
   const imageAreaHeight = Math.max(240, height - topInset - bottomInset - 58 - 76);
   const [index, setIndex] = useState(initialIndex);
+  const [savingImage, setSavingImage] = useState(false);
   const listRef = useRef<FlatList<GalleryImage>>(null);
   const progress = useRef(new Animated.Value(0)).current;
   const dismissOpacity = useRef(new Animated.Value(1)).current;
@@ -1335,15 +1348,58 @@ function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, on
       afterClose?.();
     });
   }
+  async function saveCurrentImage(): Promise<void> {
+    const image = images[index];
+    if (!image || savingImage) return;
+    setSavingImage(true);
+    let downloadedUri: string | null = null;
+    try {
+      if (Platform.OS === "android") {
+        const permission = await MediaLibrary.requestPermissionsAsync(false, ["photo"]);
+        if (!permission.granted) {
+          Alert.alert(t("card_detail.photo.save_permission_title"), t("card_detail.photo.save_permission_message"));
+          return;
+        }
+      }
+      const extension = image.url.match(/\.(png|jpe?g)(?:\?|$)/i)?.[1]?.toLowerCase().replace("jpeg", "jpg") || "jpg";
+      const destination = new File(Paths.cache, `oio-card-${image.key}.${extension}`);
+      // Expo 54 exposes the native base File type in this static method's
+      // declaration even though it accepts the public File wrapper at runtime.
+      const downloadFile = File.downloadFileAsync as unknown as (
+        url: string,
+        target: File,
+        options: { idempotent: boolean },
+      ) => Promise<{ uri: string }>;
+      const downloaded = await downloadFile(image.url, destination, { idempotent: true });
+      downloadedUri = downloaded.uri;
+      await MediaLibrary.saveToLibraryAsync(downloadedUri);
+      Alert.alert(t("card_detail.photo.save_success_title"), t("card_detail.photo.save_success_message"));
+    } catch {
+      Alert.alert(t("card_detail.photo.save_failed_title"), t("card_detail.photo.save_failed_message"));
+    } finally {
+      try {
+        if (downloadedUri) {
+          const cachedFile = new File(downloadedUri);
+          if (cachedFile.exists) cachedFile.delete();
+        }
+      } catch { /* cache cleanup is best effort */ }
+      setSavingImage(false);
+    }
+  }
   const chromeOpacity = progress.interpolate({ inputRange: [0, 0.82, 1], outputRange: [0, 0, 1] });
   const fullImageOpacity = progress.interpolate({ inputRange: [0, 0.9, 1], outputRange: [0, 0, 1] });
   return <Modal visible={visible} transparent animationType="none" presentationStyle="overFullScreen" statusBarTranslucent onRequestClose={() => close()}>
     <Animated.View style={[styles.imagePreviewPage, { paddingTop: topInset, paddingBottom: bottomInset, opacity: dismissOpacity }]}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.imagePreviewBackdrop, { opacity: progress }]} />
-      <Animated.View style={[styles.imagePreviewHeader, { opacity: chromeOpacity }]}>
-        <Pressable accessibilityLabel={t("card_detail.a11y.close_image_preview")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close()}><Ionicons name="close" size={27} color={theme.colors.text} /></Pressable>
+      <Animated.View
+        style={[styles.imagePreviewHeader, { opacity: chromeOpacity }]}
+      >
+        <View style={styles.imagePreviewHeaderStart}><Pressable accessibilityLabel={t("card_detail.a11y.close_image_preview")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close()}><Ionicons name="close" size={27} color={theme.colors.text} /></Pressable></View>
         <Text style={styles.imagePreviewCounter}>{images.length > 1 ? `${index + 1} / ${images.length}` : ""}</Text>
-        <View style={styles.imagePreviewHeaderEnd}>{onRemove && images[index] ? <Pressable accessibilityLabel={t("common.delete")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close(() => onRemove(images[index]!.key))}><Ionicons name="trash-outline" size={25} color={theme.colors.danger} /></Pressable> : null}</View>
+        <View style={styles.imagePreviewHeaderEnd}>
+          <Pressable accessibilityLabel={t("card_detail.a11y.save_image")} disabled={savingImage} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => void saveCurrentImage()}>{savingImage ? <ActivityIndicator size="small" color={theme.colors.text} /> : <Ionicons name="download-outline" size={25} color={theme.colors.text} />}</Pressable>
+          {onRemove && images[index] ? <Pressable accessibilityLabel={t("common.delete")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close(() => onRemove(images[index]!.key))}><Ionicons name="trash-outline" size={25} color={theme.colors.danger} /></Pressable> : null}
+        </View>
       </Animated.View>
       <Animated.View style={{ height: imageAreaHeight, opacity: fullImageOpacity }}><FlatList
         ref={listRef}
@@ -2593,15 +2649,14 @@ function buildCardClozeSentenceRows(detail: CardRecordDetail, clozeState: CardCl
       .filter(({ blank }) => blank.segmentId === segment.id)
       .sort((left, right) => left.blank.startUtf16 - right.blank.startUtf16);
     if (!segmentBlanks.length && !includeUnblanked) return [];
-    const sentences = segmentLearningSentences({ text: segment.text, languageCode: detail.languageCode, minSegmentChars: 1 });
-    const rows = sentences.map((sentence, sentenceIndex) => ({
-      key: `${segment.id}:sentence-${sentenceIndex}-${sentence.textStart}-${sentence.textEnd}`,
+    const rows = [{
+      key: `${segment.id}:sentence-0-${segment.text.length}`,
       segmentId: segment.id,
       text: segment.text,
-      textStart: sentence.textStart,
-      textEnd: sentence.textEnd,
-      blanks: segmentBlanks.filter(({ blank }) => blank.startUtf16 >= sentence.textStart && blank.endUtf16 <= sentence.textEnd),
-    })).filter((row) => includeUnblanked || row.blanks.length > 0);
+      textStart: 0,
+      textEnd: segment.text.length,
+      blanks: segmentBlanks,
+    }].filter((row) => includeUnblanked || row.blanks.length > 0);
     return rows.length ? rows : [{ key: `${segment.id}:sentence-fallback`, segmentId: segment.id, text: segment.text, textStart: 0, textEnd: segment.text.length, blanks: segmentBlanks }];
   });
 }
@@ -2771,13 +2826,13 @@ function asCardClozeState(value: unknown): CardClozeState {
 }
 
 function Dictation({ detail, contentBinding }: { detail: CardRecordDetail; contentBinding: CardContentBinding }) {
-  const rows = useMemo(() => detail.rewriteSegments.flatMap((segment) => segmentLearningSentences({ text: segment.text, languageCode: detail.languageCode, minSegmentChars: 1 }).map((sentence, index) => ({
-    key: `${segment.id}-${index}-${sentence.textStart}`,
-    text: sentence.text.trim(),
+  const rows = useMemo(() => detail.rewriteSegments.map((segment) => ({
+    key: `${segment.id}-0`,
+    text: segment.text.trim(),
     segmentId: segment.id,
-    startUtf16: sentence.textStart,
-    endUtf16: sentence.textEnd,
-  }))).filter((sentence) => sentence.text), [detail.id, detail.rewrittenText, detail.rewriteSegments]);
+    startUtf16: 0,
+    endUtf16: segment.text.length,
+  })).filter((sentence) => sentence.text), [detail.id, detail.rewrittenText, detail.rewriteSegments]);
   const sentences = useMemo(() => rows.map(({ key, text }) => ({ key, text })), [rows]);
   return <DictationPracticeView
     sentences={sentences}
@@ -2841,7 +2896,8 @@ const styles = StyleSheet.create({
   imagePreviewBackdrop: { backgroundColor: theme.colors.canvas },
   imagePreviewHeader: { height: 58, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
   imagePreviewHeaderButton: { width: 46, height: 46, alignItems: "center", justifyContent: "center" },
-  imagePreviewHeaderEnd: { width: 46, height: 46, alignItems: "center", justifyContent: "center" },
+  imagePreviewHeaderStart: { width: 92, height: 46, alignItems: "flex-start", justifyContent: "center" },
+  imagePreviewHeaderEnd: { width: 92, height: 46, flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
   imagePreviewCounter: { flex: 1, color: theme.colors.textSecondary, fontSize: 14, fontWeight: "500", textAlign: "center" },
   imagePreviewPageItem: { alignItems: "center", justifyContent: "flex-start", backgroundColor: theme.colors.canvas },
   imagePreviewImage: { backgroundColor: theme.colors.canvas },

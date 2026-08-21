@@ -1450,6 +1450,23 @@ export class PrismaCardRepository implements CardRepository {
       return updated ? toEntry(updated) : null;
     });
   }
+
+  async refreshContentSegments(input: {
+    entryId: string;
+    userId: string;
+    contentSegments: CardContentSegmentWrite[];
+  }): Promise<CardEntryEntity | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.card.findFirst({
+        where: { id: input.entryId, userId: input.userId, status: "completed" },
+        select: { id: true },
+      });
+      if (!entry) return null;
+      await syncContentSegments(tx, entry.id, input.contentSegments);
+      const updated = await tx.card.findFirst({ where: { id: entry.id }, include: includeSegments });
+      return updated ? toEntry(updated) : null;
+    });
+  }
 }
 
 async function syncContentSegments(tx: any, entryId: string, writes: CardContentSegmentWrite[]): Promise<void> {

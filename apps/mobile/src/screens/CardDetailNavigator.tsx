@@ -17,6 +17,7 @@ import {
   prepareCardDraftImage,
   removePersistentDraftImage,
   uploadCardDraftImage,
+  CardImageModerationRejectedError,
 } from "../services/card/cardImageUpload";
 import { generateMissingCardContent, hasGeneratedContent, isCardResourceLimitedError, type CardGenerationTarget } from "../services/card/cardContentGeneration";
 import { getCardGenerationState, isCardGenerationInProgress, setCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
@@ -258,7 +259,14 @@ export function CardDetailNavigator({
       detailCacheRef.current.set(recordId, { detail: updated, loadedAt: Date.now() });
       onChanged();
     } catch (error) {
-      Alert.alert(t("card_detail.photo.add_failed_title"), error instanceof Error ? `${error.message}\n${t("common.retry")}` : t("card_detail.photo.add_failed_message"));
+      Alert.alert(
+        t("card_detail.photo.add_failed_title"),
+        error instanceof CardImageModerationRejectedError
+          ? t("card_detail.photo.moderation_rejected_message")
+          : error instanceof Error
+            ? `${error.message}\n${t("common.retry")}`
+            : t("card_detail.photo.add_failed_message"),
+      );
     } finally {
       setImageAdding(false);
     }

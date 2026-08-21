@@ -3,7 +3,7 @@ import type { CardEntryEntity, CardRepository } from "@lf/core/ports/repository/
 import type { AiRequestLogRepository } from "@lf/core/ports/repository/AiRequestLogRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { buildCardExpressionPrompt, CARD_TOPIC_MAX_CHARS, parseCardExpressionOutput } from "@lf/core/Prompts/cardExpressionPrompt.js";
-import { inferLearningTextLanguage, segmentLearningSentences } from "@lf/core/text/learningText.js";
+import { inferLearningTextLanguage } from "@lf/core/text/learningText.js";
 import { countGraphemes } from "@lf/core/text/grapheme.js";
 import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
 import { createHash } from "node:crypto";
@@ -14,6 +14,7 @@ import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { buildCardContentSegments } from "./cardContentSegments.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
 import { reserveLlmTokenUsage, settleLlmTokenUsage, settleOrReleaseFailedLlmUsage } from "../usage/LlmTokenMeter.js";
+import { segmentLearningSentences } from "../text/learningSentenceSegmenter.js";
 
 export class CardRewriteWorkerService {
   constructor(

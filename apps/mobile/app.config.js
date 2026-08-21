@@ -71,6 +71,14 @@ module.exports = {
           cameraPermission: "OIO 需要使用相机，让你为生活记录拍摄图片。",
         },
       ],
+      [
+        "expo-media-library",
+        {
+          photosPermission: "OIO 需要访问相册，让你选择和管理图片。",
+          savePhotosPermission: "OIO 需要将图片保存到你的相册。",
+          granularPermissions: ["photo"],
+        },
+      ],
       "./plugins/with-android-audio-playback-policy",
       "expo-secure-store",
       "./plugins/with-chat-selectable-text",

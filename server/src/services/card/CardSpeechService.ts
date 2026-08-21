@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { CardRepository, CardSpeechAssetEntity, CardLearningContentType, CardEntryEntity } from "@lf/core/ports/repository/CardRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
-import { inferLearningTextLanguage, normalizeLearningText, segmentLearningSentences } from "@lf/core/text/learningText.js";
+import { inferLearningTextLanguage, normalizeLearningText } from "@lf/core/text/learningText.js";
 import { countGraphemes, isUtf16GraphemeBoundary } from "@lf/core/text/grapheme.js";
 import { DEFAULT_CARD_CONTENT_MAX_CHARS } from "@lf/core/text/cardText.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
@@ -11,6 +11,7 @@ import { isConfiguredTtsVoice, resolveDefaultTtsVoice } from "../tts/TtsVoiceCat
 import { CardNotFoundError, CardValidationError } from "./CardService.js";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
+import { segmentLearningSentences } from "../text/learningSentenceSegmenter.js";
 
 export class CardSpeechProRequiredError extends Error {
   readonly code = "PRO_REQUIRED";

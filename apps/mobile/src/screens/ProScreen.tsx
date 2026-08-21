@@ -1075,6 +1075,24 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
             );
           })}
         </View>
+        {Platform.OS === "ios" ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("pro.redeem.button")}
+            style={({ pressed }) => [
+              styles.compactRedeemButton,
+              pressed && styles.compactRedeemButtonPressed,
+              (isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading) &&
+                styles.subscribeButtonDisabled,
+            ]}
+            disabled={isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading}
+            onPress={() => void handleRedeemAppleOfferCode()}
+          >
+            {isRedeemingAppleOffer
+              ? <ActivityIndicator size="small" color="#111111" />
+              : <Text style={styles.compactRedeemText}>{t("pro.redeem.button")}</Text>}
+          </Pressable>
+        ) : null}
         {currentTier === "free" && (Platform.OS === "ios" || Platform.OS === "android") ? (
           <Pressable
             style={styles.compactRestoreButton}
@@ -1845,6 +1863,26 @@ const styles = StyleSheet.create({
   compactRestoreText: {
     color: "#777777",
     fontSize: 11,
+  },
+  compactRedeemButton: {
+    minHeight: 42,
+    marginTop: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#111111",
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  compactRedeemButtonPressed: {
+    backgroundColor: "#F1F1F1",
+  },
+  compactRedeemText: {
+    color: "#111111",
+    fontSize: 13,
+    fontWeight: "600",
   },
 
   header: {

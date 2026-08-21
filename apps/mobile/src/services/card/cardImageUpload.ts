@@ -9,6 +9,13 @@ import {
 import type { CardDraftImage } from "./cardDraftStorage";
 import { fetchWithTimeout } from "../api/fetchWithTimeout";
 
+export class CardImageModerationRejectedError extends Error {
+  constructor() {
+    super("CARD_IMAGE_MODERATION_REJECTED");
+    this.name = "CardImageModerationRejectedError";
+  }
+}
+
 export async function prepareCardDraftImage(input: { uri: string; width: number; height: number }): Promise<CardDraftImage> {
   const normalized = await ImageManipulator.manipulateAsync(
     input.uri,
@@ -82,7 +89,8 @@ export async function uploadCardDraftImage(
   onState(current);
   const completed = await completeCardImageUpload(session.uploadId);
   if (completed.status !== "approved" && completed.status !== "approved_with_review") {
-    throw new Error(completed.status === "rejected" ? "图片未通过审核" : "图片暂时无法审核");
+    if (completed.status === "rejected") throw new CardImageModerationRejectedError();
+    throw new Error("图片暂时无法审核");
   }
   return { ...current, status: "ready" };
 }

@@ -32,7 +32,7 @@ import { formatDateKeyInTimeZone } from "../time/businessClock.js";
 import type { CardImageService } from "./CardImageService.js";
 import { CARD_EXPRESSION_PROMPT_VERSION, CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
-import { inferLearningTextLanguage, segmentLearningSentences } from "@lf/core/text/learningText.js";
+import { inferLearningTextLanguage } from "@lf/core/text/learningText.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { buildCardContentGenerationPrompt, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
@@ -40,6 +40,10 @@ import { buildCardContentSegments } from "./cardContentSegments.js";
 import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
 import { isTargetLanguageCode } from "@lf/core/language/targetLanguages.js";
+import {
+  LEARNING_SENTENCE_SEGMENTER_VERSION,
+  segmentLearningSentences,
+} from "../text/learningSentenceSegmenter.js";
 
 const PREVIEW_GRAPHEMES = 240;
 const FOREGROUND_LLM_RETRY_DELAYS_MS = [750, 1_500, 3_000] as const;
@@ -760,9 +764,38 @@ export class CardService {
   async detail(userId: string, recordId: string): Promise<CardRecordDetailView> {
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
-    const entry = await this.repository.findByIdForUser(parsed.sourceId, userId);
+    let entry = await this.repository.findByIdForUser(parsed.sourceId, userId);
     if (!entry || entry.status !== "completed" || (!entry.originalText && !entry.rewrittenText)) {
       throw new CardNotFoundError();
+    }
+    if (!contentSegmentsUseCurrentVersion(entry)) {
+      const expectedContentSegments = buildCardContentSegments([
+        {
+          contentType: "original",
+          text: entry.originalText,
+          languageCode: inferLearningTextLanguage(entry.originalText ?? "", entry.appLocaleSnapshot),
+          sourceHash: entry.originalContentHash,
+        },
+        {
+          contentType: "rewrite",
+          text: entry.rewrittenText,
+          languageCode: entry.rewrittenLanguageCode ?? entry.languageCode,
+          sourceHash: entry.rewrittenSourceHash,
+        },
+        {
+          contentType: "reply",
+          text: entry.replyText,
+          languageCode: entry.replyLanguageCode ?? entry.languageCode,
+          sourceHash: entry.replySourceHash,
+        },
+      ]);
+      const refreshed = await this.repository.refreshContentSegments({
+        entryId: entry.id,
+        userId,
+        contentSegments: expectedContentSegments,
+      });
+      if (!refreshed) throw new CardNotFoundError();
+      entry = refreshed;
     }
     const practiceState = await this.repository.findPracticeState(userId, entry.id);
     const contentBlocks = await Promise.all(["original", "rewrite", "reply"].flatMap((contentType) => {
@@ -1155,6 +1188,18 @@ export class CardService {
     const views = await this.imageService.views(firstImage);
     return { ...summary, thumbnail: views.thumbnail };
   }
+}
+
+function contentSegmentsUseCurrentVersion(entry: CardEntryEntity): boolean {
+  const expectedTypes = new Set<CardLearningContentType>();
+  if (entry.originalText?.trim()) expectedTypes.add("original");
+  if (entry.rewrittenText?.trim()) expectedTypes.add("rewrite");
+  if (entry.replyText?.trim()) expectedTypes.add("reply");
+  const actualTypes = new Set(entry.contentSegments.map((segment) => segment.contentType));
+  return expectedTypes.size === actualTypes.size &&
+    [...expectedTypes].every((contentType) => actualTypes.has(contentType)) &&
+    entry.contentSegments.length > 0 &&
+    entry.contentSegments.every((segment) => segment.contentVersion.startsWith(`${LEARNING_SENTENCE_SEGMENTER_VERSION}:`));
 }
 
 function reviewDelayDays(result: CardPracticeResult, correctStreak: number): number {

@@ -226,6 +226,11 @@ export interface CardRepository {
     contentSegments: CardContentSegmentWrite[];
     clearPractice: boolean;
   }): Promise<CardEntryEntity | null>;
+  refreshContentSegments(input: {
+    entryId: string;
+    userId: string;
+    contentSegments: CardContentSegmentWrite[];
+  }): Promise<CardEntryEntity | null>;
   findByUserClientId(userId: string, clientId: string): Promise<CardEntryEntity | null>;
   findByIdForUser(entryId: string, userId: string): Promise<CardEntryEntity | null>;
   findActiveByUser(userId: string): Promise<CardEntryEntity | null>;

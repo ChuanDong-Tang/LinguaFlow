@@ -3,13 +3,14 @@ import type { MessageRepository } from "@lf/core/ports/repository/MessageReposit
 import type { TtsAssetEntity, TtsAssetRepository, TtsSourceKey } from "@lf/core/ports/repository/TtsAssetRepository.js";
 import type { TtsRequestLogRepository } from "@lf/core/ports/repository/TtsRequestLogRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
-import { normalizeLearningText, segmentLearningSentences } from "@lf/core/text/learningText.js";
+import { normalizeLearningText } from "@lf/core/text/learningText.js";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
 import type { TtsProvider } from "./TtsProvider.js";
 import type { TtsStorageProvider } from "./TtsStorageProvider.js";
 import { isConfiguredTtsVoice, listTtsVoiceOptions, resolveDefaultTtsVoice } from "./TtsVoiceCatalog.js";
+import { segmentLearningSentences } from "../text/learningSentenceSegmenter.js";
 
 export class TtsAccessDeniedError extends Error {
   readonly code = "TTS_ACCESS_DENIED";

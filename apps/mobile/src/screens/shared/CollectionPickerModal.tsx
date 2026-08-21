@@ -6,7 +6,7 @@ import type { CardCollection } from "../../services/api/cardApi";
 import { theme } from "../../theme";
 import { t } from "../../i18n";
 
-export function CollectionPickerModal({ visible, title, collections, value, includeAll = false, onClose, onSelect }: {
+export function CollectionPickerModal({ visible, title, collections, value, includeAll = false, onClose, onSelect, onCreateCollection, onRenameCollection, onDeleteCollection }: {
   visible: boolean;
   title: string;
   collections: CardCollection[];
@@ -14,10 +14,16 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
   includeAll?: boolean;
   onClose: () => void;
   onSelect: (collectionId: string | null | undefined) => Promise<void> | void;
+  onCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
+  onRenameCollection?: (collectionId: string, name: string) => Promise<void>;
+  onDeleteCollection?: (collection: CardCollection) => Promise<void>;
 }) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState<string | null | undefined>(undefined);
+  const [creating, setCreating] = useState(false);
+  const [editor, setEditor] = useState<{ kind: "create"; parentId: string | null } | { kind: "rename"; collectionId: string } | null>(null);
+  const [editorName, setEditorName] = useState("");
   useEffect(() => {
     if (!visible) return;
     const expanded = new Set<string>();
@@ -31,6 +37,9 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
     setExpandedIds(expanded);
     setQuery("");
     setSelecting(undefined);
+    setCreating(false);
+    setEditor(null);
+    setEditorName("");
   }, [visible, value, collections]);
   const treeRows = useMemo(() => {
     const rows: Array<{ collection: CardCollection; depth: number }> = [];
@@ -53,6 +62,43 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
     catch (error) { Alert.alert(t("collection_picker.select_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again")); }
     finally { setSelecting(undefined); }
   };
+  const saveEditor = async () => {
+    const name = editorName.trim();
+    if (!name || !editor || selecting !== undefined || creating) return;
+    setCreating(true);
+    try {
+      if (editor.kind === "rename") {
+        if (!onRenameCollection) return;
+        await onRenameCollection(editor.collectionId, name);
+        setEditor(null);
+        setEditorName("");
+      } else {
+        if (!onCreateCollection) return;
+        const collection = await onCreateCollection(name, editor.parentId);
+        await onSelect(collection.id);
+        onClose();
+      }
+    } catch (error) {
+      Alert.alert(t(editor.kind === "rename" ? "main.collection.rename_failed" : "main.collection.create_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+    } finally {
+      setCreating(false);
+    }
+  };
+  const openActions = (collection: CardCollection) => {
+    Alert.alert(collection.name, undefined, [
+      ...(onRenameCollection ? [{ text: t("main.collection.rename"), onPress: () => { setEditor({ kind: "rename", collectionId: collection.id }); setEditorName(collection.name); } }] : []),
+      ...(onCreateCollection ? [{ text: t("main.collection.new_child"), onPress: () => { setEditor({ kind: "create", parentId: collection.id }); setEditorName(""); } }] : []),
+      ...(onDeleteCollection ? [{ text: t("common.delete"), style: "destructive" as const, onPress: () => confirmDelete(collection) }] : []),
+      { text: t("common.cancel"), style: "cancel" },
+    ]);
+  };
+  const confirmDelete = (collection: CardCollection) => {
+    if (!onDeleteCollection) return;
+    Alert.alert(t("main.collection.delete_title"), t("main.collection.delete_message"), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("common.delete"), style: "destructive", onPress: () => void onDeleteCollection(collection).catch((error) => Alert.alert(t("main.collection.delete_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"))) },
+    ]);
+  };
   const renderTarget = (collection: CardCollection, showPath: boolean, depth = 0) => {
     const hasChildren = collections.some((candidate) => candidate.parentId === collection.id);
     return <View key={collection.id} style={styles.row}>
@@ -63,6 +109,7 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
         {value === collection.id ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
         {selecting === collection.id ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
       </Pressable>
+      {(onRenameCollection || onCreateCollection || onDeleteCollection) ? <Pressable accessibilityLabel={t("collection_picker.manage_named")} style={styles.moreButton} disabled={selecting !== undefined || creating} onPress={() => openActions(collection)}><Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.textSecondary} /></Pressable> : null}
     </View>;
   };
   return <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -71,6 +118,47 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
       {collections.length > 7 ? <View style={styles.search}><Ionicons name="search" size={18} color={theme.colors.textMuted} /><TextInput value={query} onChangeText={setQuery} placeholder={t("collection_picker.search_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.searchInput} autoCorrect={false} clearButtonMode="while-editing" /></View> : null}
       <ScrollView contentContainerStyle={styles.list} alwaysBounceVertical={false} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {normalizedQuery ? searchMatches.length ? searchMatches.map((collection) => renderTarget(collection, true)) : <Text style={styles.empty}>{t("collection_picker.empty")}</Text> : <>
+          {onCreateCollection && !editor ? (
+            <Pressable style={styles.createEntry} disabled={selecting !== undefined} onPress={() => { setEditor({ kind: "create", parentId: null }); setEditorName(""); }}>
+              <Ionicons name="add" size={21} color={theme.colors.text} />
+              <Text style={styles.createEntryText}>{t("collection_picker.new")}</Text>
+            </Pressable>
+          ) : null}
+          {editor ? (
+            <View style={styles.createRow}>
+              <TextInput
+                value={editorName}
+                onChangeText={setEditorName}
+                placeholder={t(editor.kind === "rename" ? "main.collection.name" : "collection_picker.new_placeholder")}
+                placeholderTextColor={theme.colors.textMuted}
+                style={styles.createInput}
+                editable={!creating && selecting === undefined}
+                returnKeyType="done"
+                onSubmitEditing={() => void saveEditor()}
+                autoFocus
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("main.collection.a11y.finish_create")}
+                style={styles.editorCancelButton}
+                disabled={creating}
+                onPress={() => { setEditor(null); setEditorName(""); }}
+              >
+                <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("main.collection.a11y.finish_create")}
+                style={[styles.createButton, (!editorName.trim() || creating) && styles.createButtonDisabled]}
+                disabled={!editorName.trim() || creating || selecting !== undefined}
+                onPress={() => void saveEditor()}
+              >
+                {creating
+                  ? <ActivityIndicator size="small" color="#FFFFFF" />
+                  : <Text style={styles.createButtonText}>{t(editor.kind === "rename" ? "common.save" : "collection_picker.create")}</Text>}
+              </Pressable>
+            </View>
+          ) : null}
           {includeAll ? (
             <Pressable style={styles.hereRow} disabled={selecting !== undefined} onPress={() => void select(undefined)}>
               <Ionicons name="albums-outline" size={20} color={theme.colors.textSecondary} />
@@ -129,4 +217,13 @@ const styles = StyleSheet.create({
   hereRow: { minHeight: 54, paddingHorizontal: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 12 },
   name: { flex: 1, color: theme.colors.text, fontSize: 15 },
   empty: { paddingVertical: 36, color: theme.colors.textMuted, fontSize: 14, textAlign: "center" },
+  createRow: { minHeight: 54, paddingHorizontal: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 10 },
+  createEntry: { minHeight: 54, paddingHorizontal: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 12 },
+  createEntryText: { flex: 1, color: theme.colors.text, fontSize: 15, fontWeight: "500" },
+  createInput: { flex: 1, minWidth: 0, height: 44, color: theme.colors.text, fontSize: 15 },
+  editorCancelButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  createButton: { minWidth: 60, height: 34, paddingHorizontal: 12, borderRadius: 8, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
+  createButtonDisabled: { opacity: 0.4 },
+  createButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
+  moreButton: { width: 42, alignItems: "center", justifyContent: "center" },
 });

@@ -3,7 +3,10 @@ import type {
   CardContentSegmentWrite,
   CardLearningContentType,
 } from "@lf/core/ports/repository/CardRepository.js";
-import { segmentLearningSentences } from "@lf/core/text/learningText.js";
+import {
+  LEARNING_SENTENCE_SEGMENTER_VERSION,
+  segmentLearningSentences,
+} from "../text/learningSentenceSegmenter.js";
 
 export type CardLearningContentInput = {
   contentType: CardLearningContentType;
@@ -14,8 +17,8 @@ export type CardLearningContentInput = {
 
 export function cardContentBlockVersion(input: Pick<CardLearningContentInput, "contentType" | "text" | "sourceHash">): string {
   const normalized = (input.text ?? "").normalize("NFKC").replace(/\r\n?/gu, "\n").trim();
-  return `sha256:${createHash("sha256")
-    .update(`${input.contentType}\n${input.sourceHash ?? ""}\n${normalized}`)
+  return `${LEARNING_SENTENCE_SEGMENTER_VERSION}:sha256:${createHash("sha256")
+    .update(`${LEARNING_SENTENCE_SEGMENTER_VERSION}\n${input.contentType}\n${input.sourceHash ?? ""}\n${normalized}`)
     .digest("hex")}`;
 }
 

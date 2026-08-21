@@ -69,6 +69,7 @@ import {
   prepareCardDraftImage,
   removePersistentDraftImage,
   uploadCardDraftImage,
+  CardImageModerationRejectedError,
 } from "../services/card/cardImageUpload";
 import { generateMissingCardContent, isCardResourceLimitedError, type CardGenerationTarget } from "../services/card/cardContentGeneration";
 import { isCardGenerationInProgress, isCardRecordGenerationInProgress, setCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
@@ -76,6 +77,8 @@ import { getLanguage, t, tf } from "../i18n";
 import { CollectionPickerModal } from "./shared/CollectionPickerModal";
 import { CalendarSidebarPreview, CardCalendarScreen } from "./CardCalendarScreen";
 import { getCurrentEntitlement, getUsageV2, getUserProfile, type CurrentEntitlement, type UserProfile } from "../services/api/meApi";
+import { getSession } from "../services/auth/authStorage";
+import { getCachedEntitlementForUser, setCachedEntitlement } from "../services/entitlement/entitlementCache";
 import { stabilizeProfileAvatar, stabilizeSignedImage } from "../services/image/signedImageCache";
 
 type MainScreenProps = {
@@ -207,6 +210,25 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     });
     return () => { active = false; };
   }, [sidebarVisible]);
+  useEffect(() => {
+    if (!isActive) return;
+    let active = true;
+    void (async () => {
+      const session = await getSession().catch(() => null);
+      if (!active) return;
+      const cached = session?.user.id
+        ? await getCachedEntitlementForUser(session.user.id).catch(() => null)
+        : null;
+      if (!active) return;
+      if (cached) setSidebarEntitlement(cached.data);
+
+      const entitlement = await getCurrentEntitlement().catch(() => null);
+      if (!active || !entitlement) return;
+      setSidebarEntitlement(entitlement);
+      await setCachedEntitlement(entitlement).catch(() => undefined);
+    })();
+    return () => { active = false; };
+  }, [isActive, refreshRevision]);
   useEffect(() => {
     let active = true;
     void getCardCapabilities()
@@ -734,6 +756,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       console.warn("[card] image upload failed", error);
       if (error instanceof CardApiError && (error.code === "IMAGE_STORAGE_QUOTA_EXCEEDED" || error.code === "CARD_IMAGE_QUOTA_EXCEEDED")) {
         void showUsageQuotaExhausted("image");
+      } else if (error instanceof CardImageModerationRejectedError) {
+        Alert.alert(t("card_detail.photo.add_failed_title"), t("card_detail.photo.moderation_rejected_message"));
       } else {
         Alert.alert(t("card_detail.photo.add_failed_title"), t("card_detail.photo.add_failed_message"));
       }
@@ -910,6 +934,28 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     await refresh();
   }
 
+  async function createDraftCollection(name: string, parentId: string | null): Promise<CardCollection> {
+    const created = await createCardCollection(name, parentId);
+    setCollections((current) => [...current, created]);
+    return created;
+  }
+
+  async function renameDraftCollection(collectionId: string, name: string): Promise<void> {
+    const updated = await renameCardCollection(collectionId, name);
+    setCollections((current) => current.map((collection) => collection.id === collectionId ? updated : collection));
+  }
+
+  async function deleteDraftCollection(collection: CardCollection): Promise<void> {
+    const removedIds = collectionDescendantIds(collection.id, collections);
+    removedIds.add(collection.id);
+    await deleteCardCollection(collection.id);
+    setCollections((current) => current.filter((candidate) => !removedIds.has(candidate.id)));
+    setRecords((current) => current.map((record) => record.collectionId && removedIds.has(record.collectionId) ? { ...record, collectionId: null } : record));
+    if (draftRef.current.collectionId && removedIds.has(draftRef.current.collectionId)) {
+      await updateDraftCollection(null);
+    }
+  }
+
   async function removeCollection(collection: CardCollection): Promise<void> {
     const removedIds = collectionDescendantIds(collection.id, collections);
     removedIds.add(collection.id);
@@ -1011,9 +1057,21 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }
 
   const assistantAvailable = sidebarEntitlement?.tier === "plus" || sidebarEntitlement?.tier === "pro";
-  const openAssistant = () => {
-    if (assistantAvailable) onOpenAssistant();
-    else Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"));
+  const openAssistant = async () => {
+    if (assistantAvailable) {
+      onOpenAssistant();
+      return;
+    }
+    const entitlement = await getCurrentEntitlement().catch(() => null);
+    if (entitlement) {
+      setSidebarEntitlement(entitlement);
+      await setCachedEntitlement(entitlement).catch(() => undefined);
+    }
+    if (entitlement?.tier === "plus" || entitlement?.tier === "pro") {
+      onOpenAssistant();
+      return;
+    }
+    Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"));
   };
   const edgeSidebarResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_event, gesture) => Boolean(
@@ -1050,7 +1108,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           ? <Text style={styles.selectionHeaderTitle}>{selectedRecordIds.size}</Text>
           : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Ionicons name="chevron-down" size={15} color={theme.colors.textSecondary} /></Pressable>}
         <View style={styles.headerActions}>
-          {selectingRecords ? <View style={styles.headerIconButton} /> : <><Pressable accessibilityLabel={t("contact.curious_companion.name")} style={[styles.headerIconButton, !assistantAvailable && styles.headerAssistantUnavailable]} onPress={openAssistant}>
+          {selectingRecords ? <View style={styles.headerIconButton} /> : <><Pressable accessibilityLabel={t("contact.curious_companion.name")} style={[styles.headerIconButton, !assistantAvailable && styles.headerAssistantUnavailable]} onPress={() => void openAssistant()}>
             <OioCharacter width={27} height={25} />
           </Pressable><Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
@@ -1210,6 +1268,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             onDraftFieldChange={(field, value) => void updateDraftField(field, value)}
             onDraftEnabledLayersChange={(layers) => void updateDraftEnabledLayers(layers)}
             onDraftCollectionChange={(collectionId) => void updateDraftCollection(collectionId)}
+            onDraftCreateCollection={createDraftCollection}
+            onDraftRenameCollection={renameDraftCollection}
+            onDraftDeleteCollection={deleteDraftCollection}
             onDraftSave={(initialTab) => void submit(initialTab)}
             onDraftChooseImage={() => void pickImage("library")}
             onDraftTakePhoto={() => void pickImage("camera")}
