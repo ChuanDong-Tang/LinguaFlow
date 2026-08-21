@@ -711,15 +711,33 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            WHERE "createdAt" >= (($1::date)::timestamp AT TIME ZONE $3)
              AND "createdAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
          ),
-         quota_days AS (
-           SELECT DISTINCT
-             to_char("updatedAt" AT TIME ZONE $3, 'YYYY-MM-DD') AS "dateKey",
+         card_days AS (
+           SELECT
+             to_char("createdAt" AT TIME ZONE $3, 'YYYY-MM-DD') AS "dateKey",
              "userId"
-           FROM "entitlements"
-           WHERE "dateKey" = 'free_trial'
-             AND "usedTotalChars" > 0
-             AND "updatedAt" >= (($1::date)::timestamp AT TIME ZONE $3)
+           FROM "cards"
+           WHERE "isSample" = false
+             AND "createdAt" >= (($1::date)::timestamp AT TIME ZONE $3)
+             AND "createdAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+         ),
+         practice_days AS (
+           SELECT to_char("updatedAt" AT TIME ZONE $3, 'YYYY-MM-DD') AS "dateKey", "userId"
+           FROM "card_practice_states"
+           WHERE "updatedAt" >= (($1::date)::timestamp AT TIME ZONE $3)
              AND "updatedAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+           UNION
+           SELECT to_char("updatedAt" AT TIME ZONE $3, 'YYYY-MM-DD') AS "dateKey", "userId"
+           FROM "card_content_practice_states"
+           WHERE "updatedAt" >= (($1::date)::timestamp AT TIME ZONE $3)
+             AND "updatedAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+         ),
+         recall_days AS (
+           SELECT
+             to_char("lastOpenedAt" AT TIME ZONE $3, 'YYYY-MM-DD') AS "dateKey",
+             "userId"
+           FROM "recall_sessions"
+           WHERE "lastOpenedAt" >= (($1::date)::timestamp AT TIME ZONE $3)
+             AND "lastOpenedAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
          )
          SELECT
            to_char(d.day, 'YYYY-MM-DD') AS "dateKey",
@@ -729,33 +747,21 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
              WHERE u.status = 'active'
                AND u."createdAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
            ) AS "totalUsers",
-          (
-            SELECT COUNT(DISTINCT users."userId")::int
-            FROM (
-              SELECT md."userId"
-              FROM message_days md
-              WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
-                AND md.role = 'user'
-              UNION
-              SELECT qd."userId"
-              FROM quota_days qd
-              WHERE qd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
-            ) users
-          ) AS "usingUsers",
-          (
-            SELECT COUNT(DISTINCT users."userId")::int
-            FROM (
-              SELECT md."userId"
-              FROM message_days md
-              WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD')
-                AND md.role = 'user'
-                AND md.status = 'success'
-              UNION
-              SELECT qd."userId"
-              FROM quota_days qd
-              WHERE qd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
-            ) users
-          ) AS "activeUsers",
+          (SELECT COUNT(DISTINCT activity."userId")::int FROM (
+            SELECT cd."userId" FROM card_days cd WHERE cd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+            UNION SELECT pd."userId" FROM practice_days pd WHERE pd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+            UNION SELECT rd."userId" FROM recall_days rd WHERE rd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+          ) activity) AS "usingUsers",
+          (SELECT COUNT(DISTINCT activity."userId")::int FROM (
+            SELECT cd."userId" FROM card_days cd WHERE cd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+            UNION SELECT pd."userId" FROM practice_days pd WHERE pd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+            UNION SELECT rd."userId" FROM recall_days rd WHERE rd."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+          ) activity) AS "activeUsers",
+          (SELECT COUNT(DISTINCT cd."userId")::int FROM card_days cd WHERE cd."dateKey" = to_char(d.day, 'YYYY-MM-DD')) AS "cardCreatingUsers",
+          (SELECT COUNT(*)::int FROM card_days cd WHERE cd."dateKey" = to_char(d.day, 'YYYY-MM-DD')) AS "cardsCreated",
+          (SELECT COUNT(DISTINCT pd."userId")::int FROM practice_days pd WHERE pd."dateKey" = to_char(d.day, 'YYYY-MM-DD')) AS "practiceUsers",
+          (SELECT COUNT(DISTINCT rd."userId")::int FROM recall_days rd WHERE rd."dateKey" = to_char(d.day, 'YYYY-MM-DD')) AS "recallUsers",
+          (SELECT COUNT(DISTINCT md."userId")::int FROM message_days md WHERE md."dateKey" = to_char(d.day, 'YYYY-MM-DD') AND md.role = 'user') AS "assistantUsers",
            (
              SELECT COUNT(DISTINCT s."userId")::int
              FROM "subscriptions" s
