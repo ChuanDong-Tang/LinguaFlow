@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Animated,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -10,6 +11,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -176,6 +178,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
+      <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
       <KeyboardAvoidingView
         style={styles.keyboardArea}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -362,6 +365,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         {!!statusText && <Text style={styles.statusText}>{statusText}</Text>}
       </View>
       </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 }
@@ -522,13 +526,18 @@ const styles = StyleSheet.create({
     borderRightColor: "#DADCE2",
     color: "#111111",
     fontSize: 16,
+    lineHeight: 20,
+    includeFontPadding: false,
   },
   accountInput: {
     flex: 1,
     height: "100%",
     color: "#111111",
     fontSize: 16,
+    lineHeight: 20,
     paddingVertical: 0,
+    textAlignVertical: "center",
+    includeFontPadding: false,
   },
   sendCodeButton: {
     minWidth: 78,

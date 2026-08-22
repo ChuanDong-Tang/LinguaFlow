@@ -35,7 +35,7 @@ import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text
 import { inferLearningTextLanguage } from "@lf/core/text/learningText.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
-import { buildCardContentGenerationPrompt, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
+import { buildCardContentGenerationPrompt, cardContentMaxOutputTokens, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
 import { buildCardContentSegments } from "./cardContentSegments.js";
 import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
@@ -420,6 +420,7 @@ export class CardService {
       appLocale: preference.appLocale,
       difficulty: current.promptDifficultySnapshot,
     });
+    const maxOutputTokens = cardContentMaxOutputTokens(input.target, sourceText);
     const meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
     let output = "";
     let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
@@ -429,7 +430,7 @@ export class CardService {
         userId: input.userId,
         requestId: input.requestId,
         feature: cardUsageFeature(input.target),
-        estimatedTokens: estimateTokenReservation(meteredPrompt, 1_000),
+        estimatedTokens: estimateTokenReservation(meteredPrompt, maxOutputTokens),
         provider: this.aiProvider.providerName,
         model: this.aiProvider.modelName,
       });
@@ -446,7 +447,7 @@ export class CardService {
         companionMode: "rewrite_only",
         systemPrompt: prompt.systemPrompt,
         rawUserPrompt: true,
-        maxOutputTokens: 1_000,
+        maxOutputTokens,
       }, (event) => {
         if (event.type === "delta") output += event.text;
         if (event.type === "done") usage = event.usage;
@@ -585,6 +586,7 @@ export class CardService {
       appLocale: preference.appLocale,
       difficulty: preference.promptDifficulty,
     });
+    const maxOutputTokens = cardContentMaxOutputTokens(input.target, sourceText);
     const meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
     let output = "";
     let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
@@ -594,7 +596,7 @@ export class CardService {
         userId: input.userId,
         requestId: input.requestId,
         feature: cardUsageFeature(input.target),
-        estimatedTokens: estimateTokenReservation(meteredPrompt, 1_000),
+        estimatedTokens: estimateTokenReservation(meteredPrompt, maxOutputTokens),
         provider: this.aiProvider.providerName,
         model: this.aiProvider.modelName,
       });
@@ -608,7 +610,7 @@ export class CardService {
         companionMode: "rewrite_only",
         systemPrompt: prompt.systemPrompt,
         rawUserPrompt: true,
-        maxOutputTokens: 1_000,
+        maxOutputTokens,
       }, (event) => {
         if (event.type === "delta") output += event.text;
         if (event.type === "done") usage = event.usage;

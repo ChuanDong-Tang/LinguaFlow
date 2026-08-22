@@ -495,7 +495,6 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
   const [photoRailVisible, setPhotoRailVisible] = useState(false);
   const [recentPhotos, setRecentPhotos] = useState<MediaLibrary.Asset[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
-  const [aiMenuVisible, setAiMenuVisible] = useState(false);
   const images = useMemo(
     () => detail.images?.length ? detail.images : detail.image ? [detail.image] : [],
     [detail.images, detail.image],
@@ -587,25 +586,20 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
           </ScrollView>
           {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} onDismiss={() => setPhotoRailVisible(false)} onSelect={(asset) => void selectRecentPhoto(asset)} onTakePhoto={() => { setPhotoRailVisible(false); onAddImage?.("camera"); }} onOpenAll={() => { setPhotoRailVisible(false); onAddImage?.("library"); }} /> : null}
         </>
-        {aiMenuVisible ? <Pressable accessibilityLabel={t("card_detail.a11y.close_ai_menu")} style={styles.draftAiDismissLayer} onPress={() => setAiMenuVisible(false)} /> : null}
-        {aiMenuVisible ? <DraftAiMenu
+        <DraftAiOptionsRow
           selected={selectedTargets}
-          onChoose={(target) => {
+          disabled={saving}
+          onToggle={(target) => {
             setSelectedTargets((current) => ({ ...current, [target]: !current[target] }));
           }}
-          onRemove={(target) => {
-            setSelectedTargets((current) => ({ ...current, [target]: false }));
-          }}
-        /> : null}
+        />
         <DraftComposerToolbar
           imageCount={images.length}
-          aiModuleCount={Object.values(selectedTargets).filter(Boolean).length}
           sttStatus={originalStt.status}
           sttAudioLevel={originalStt.audioLevel}
           disabled={saving}
           onCamera={() => onAddImage?.("camera")}
           onRecentPhotos={openImageActions}
-          onAi={() => setAiMenuVisible((visible) => !visible)}
           onStt={() => void originalStt.toggle()}
           characterCount={contentCount}
           characterLimit={limits.contentChars}
@@ -644,7 +638,6 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   const count = countGraphemes(draft.text);
   const imagesReady = draft.images.every((image) => image.status === "ready");
   const canSave = count > 0 && count <= limits.contentChars && imagesReady;
-  const [aiMenuVisible, setAiMenuVisible] = useState(false);
   const [photoRailVisible, setPhotoRailVisible] = useState(false);
   const [recentPhotos, setRecentPhotos] = useState<MediaLibrary.Asset[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
@@ -653,10 +646,6 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   useEffect(() => {
     const timer = setTimeout(() => originalInputRef.current?.focus(), 320);
     return () => clearTimeout(timer);
-  }, []);
-  useEffect(() => {
-    const hidden = Keyboard.addListener("keyboardDidHide", () => setAiMenuVisible(false));
-    return () => hidden.remove();
   }, []);
   async function togglePhotoRail(): Promise<void> {
     if (photoRailVisible) { setPhotoRailVisible(false); return; }
@@ -694,9 +683,6 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
     } catch {
       Alert.alert(t("card_detail.photo.asset_failed_title"), t("card_detail.photo.asset_failed_message"));
     }
-  }
-  function openDraftAdditions(): void {
-    setAiMenuVisible((visible) => !visible);
   }
   function confirmRemoveDraftImage(localUri: string): void {
     Alert.alert(t("card_detail.photo.remove_title"), undefined, [
@@ -771,21 +757,18 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
             </ScrollView>
             {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} onDismiss={() => setPhotoRailVisible(false)} onSelect={(asset) => void selectRecentPhoto(asset)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
             </>
-            {aiMenuVisible ? <Pressable accessibilityLabel={t("card_detail.a11y.close_ai_menu")} style={styles.draftAiDismissLayer} onPress={() => setAiMenuVisible(false)} /> : null}
-            {aiMenuVisible ? <DraftAiMenu
+            <DraftAiOptionsRow
               selected={draft.enabledLayers}
-              onChoose={(target) => onEnabledLayersChange?.({ ...draft.enabledLayers, [target]: !draft.enabledLayers[target] })}
-              onRemove={(target) => onEnabledLayersChange?.({ ...draft.enabledLayers, [target]: false })}
-            /> : null}
+              disabled={sending}
+              onToggle={(target) => onEnabledLayersChange?.({ ...draft.enabledLayers, [target]: !draft.enabledLayers[target] })}
+            />
             <DraftComposerToolbar
               imageCount={draft.images.length}
-              aiModuleCount={Object.values(draft.enabledLayers).filter(Boolean).length}
               sttStatus={originalStt.status}
               sttAudioLevel={originalStt.audioLevel}
               disabled={sending}
               onCamera={() => onTakePhoto?.()}
               onRecentPhotos={openImageActions}
-              onAi={openDraftAdditions}
               onStt={() => {
                 originalInputRef.current?.focus();
                 setTimeout(() => void originalStt.toggle(), 0);
@@ -1046,37 +1029,31 @@ function CollectionPickerRow({ collections, value, onChange, onCreateCollection,
   </>;
 }
 
-function DraftAiMenu({ selected, onChoose, onRemove }: {
+function DraftAiOptionsRow({ selected, disabled, onToggle }: {
   selected: Record<"expression" | "translation" | "reply", boolean>;
-  onChoose: (key: "expression" | "translation" | "reply") => void;
-  onRemove: (key: "expression" | "translation" | "reply") => void;
+  disabled: boolean;
+  onToggle: (key: "expression" | "translation" | "reply") => void;
 }) {
-  const progress = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(progress, { toValue: 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-  }, [progress]);
   const items = [
     { key: "translation" as const, label: t("card_detail.module.translation_description") },
     { key: "reply" as const, label: t("card_detail.module.reply_description") },
     { key: "expression" as const, label: t("card_detail.module.expression_description") },
   ];
-  return <Animated.View style={[styles.draftAiMenu, { bottom: 62, opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }] }>
-    {items.map((item) => <Pressable key={item.key} style={styles.draftAiMenuItem} onPress={() => selected[item.key] ? onRemove(item.key) : onChoose(item.key)}>
-      <View style={styles.draftAiMenuIcon}><Ionicons name={selected[item.key] ? "checkmark-circle" : "ellipse-outline"} size={19} color={selected[item.key] ? theme.colors.accentStrong : theme.colors.textMuted} /></View>
-      <Text style={styles.draftAiMenuLabel}>{item.label}</Text>
+  return <View style={styles.draftAiOptionsRow}>
+    {items.map((item) => <Pressable key={item.key} disabled={disabled} style={styles.draftAiOption} onPress={() => onToggle(item.key)}>
+      <Ionicons name={selected[item.key] ? "checkmark-circle" : "ellipse-outline"} size={18} color={selected[item.key] ? theme.colors.accentStrong : theme.colors.textMuted} />
+      <Text numberOfLines={1} style={[styles.draftAiOptionLabel, selected[item.key] && styles.draftAiOptionLabelSelected]}>{item.label}</Text>
     </Pressable>)}
-  </Animated.View>;
+  </View>;
 }
 
-function DraftComposerToolbar({ imageCount, aiModuleCount, sttStatus, sttAudioLevel, disabled, onCamera, onRecentPhotos, onAi, onStt, characterCount, characterLimit, canSave, onInvalidSave, onSave }: {
+function DraftComposerToolbar({ imageCount, sttStatus, sttAudioLevel, disabled, onCamera, onRecentPhotos, onStt, characterCount, characterLimit, canSave, onInvalidSave, onSave }: {
   imageCount: number;
-  aiModuleCount: number;
   sttStatus: RealtimeSttInputStatus;
   sttAudioLevel: number;
   disabled: boolean;
   onCamera: () => void;
   onRecentPhotos: () => void;
-  onAi: () => void;
   onStt: () => void;
   characterCount?: number;
   characterLimit?: number;
@@ -1097,7 +1074,6 @@ function DraftComposerToolbar({ imageCount, aiModuleCount, sttStatus, sttAudioLe
   }> = [
     { key: "camera", label: t("card_detail.photo.camera"), icon: "camera-outline", onPress: onCamera },
     { key: "recent", label: t("card_detail.photo.recent"), icon: "images-outline", count: imageCount, onPress: onRecentPhotos },
-    { key: "ai", label: t("card_detail.ai_content"), icon: "sparkles-outline", count: aiModuleCount, onPress: onAi },
   ];
   return <Animated.View style={[styles.draftComposerToolbar, { opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }] }>
     {tools.map((tool) => <Pressable
@@ -3051,11 +3027,10 @@ const styles = StyleSheet.create({
   draftPublishButtonTextDisabled: { color: theme.colors.textMuted },
   staleContentNotice: { marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: theme.radius.control, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 7 },
   staleContentNoticeText: { flex: 1, color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
-  draftAiDismissLayer: { ...StyleSheet.absoluteFillObject, zIndex: 19, elevation: 19, backgroundColor: "transparent" },
-  draftAiMenu: { position: "absolute", left: 10, bottom: 50, width: 238, zIndex: 20, elevation: 20, paddingVertical: 6, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.14, shadowRadius: 16, shadowOffset: { width: 0, height: 6 } },
-  draftAiMenuItem: { minHeight: 48, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 },
-  draftAiMenuIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
-  draftAiMenuLabel: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "600" },
+  draftAiOptionsRow: { minHeight: 46, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 4 },
+  draftAiOption: { flex: 1, minWidth: 0, height: 38, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  draftAiOptionLabel: { flexShrink: 1, color: theme.colors.textSecondary, fontSize: 12, fontWeight: "500" },
+  draftAiOptionLabelSelected: { color: theme.colors.text, fontWeight: "600" },
   draftImage: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted },
   draftImageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(30,35,38,0.34)", alignItems: "center", justifyContent: "center" },
   photoLayer: { ...StyleSheet.absoluteFillObject, zIndex: 30, elevation: 30, justifyContent: "flex-end" },

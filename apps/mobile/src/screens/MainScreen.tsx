@@ -1196,7 +1196,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         style={styles.floatingRecordButton}
         onPress={openCardComposer}
       >
-        <Ionicons name="create-outline" size={23} color="#171717" />
+        <Ionicons name="add-outline" size={34} color="#171717" />
       </Pressable> : null}
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}><Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Ionicons name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable><Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Ionicons name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
@@ -2640,7 +2640,7 @@ const styles = StyleSheet.create({
   rewrittenText: { color: "#171717", fontSize: 17, lineHeight: 25, fontWeight: "400" },
   cardDate: { marginTop: 9, color: theme.colors.textMuted, fontSize: 11 },
   processingText: { marginTop: 6, color: "#999999", fontSize: 11, lineHeight: 17 },
-  floatingRecordButton: { position: "absolute", right: 20, bottom: 20, width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: "#D8D8D8", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  floatingRecordButton: { position: "absolute", right: 24, bottom: 52, width: 66, height: 66, borderRadius: 33, borderWidth: StyleSheet.hairlineWidth, borderColor: "#DDDDDD", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.18, shadowRadius: 14, shadowOffset: { width: 0, height: 7 }, elevation: 9 },
   modalPage: { flex: 1, backgroundColor: theme.colors.canvas },
   modalHeader: { minHeight: 58, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
   modalHeaderButton: { width: 62, minHeight: 44, alignItems: "center", justifyContent: "center" },
