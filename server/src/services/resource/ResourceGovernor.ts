@@ -3,6 +3,7 @@ import type { ResourceKind, ResourcePolicies } from "../../config/resourcePolici
 
 type RedisLike = {
   eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
+  hgetall(key: string): Promise<Record<string, string>>;
 };
 
 export type ResourceLimitScope = "user_rate" | "global_rate" | "user_concurrency" | "global_concurrency";
@@ -32,6 +33,7 @@ export type ResourceLease = {
 
 export type ResourceSnapshot = {
   resource: ResourceKind;
+  windowMinutes: number;
   requestsLastMinute: number;
   requestLimit: number;
   currentConcurrency: number;
@@ -49,7 +51,7 @@ type MemoryMetric = { minute: number; completed: number; succeeded: number; fail
 export class ResourceGovernor {
   private readonly memoryRates = new Map<string, { count: number; expiresAt: number }>();
   private readonly memoryLeases = new Map<string, Map<string, number>>();
-  private readonly memoryMetrics = new Map<ResourceKind, MemoryMetric>();
+  private readonly memoryMetrics = new Map<string, MemoryMetric>();
 
   constructor(
     private readonly policies: ResourcePolicies,
@@ -135,15 +137,16 @@ export class ResourceGovernor {
     }
   }
 
-  async snapshots(): Promise<ResourceSnapshot[]> {
-    return Promise.all((Object.keys(this.policies) as ResourceKind[]).map((resource) => this.snapshot(resource)));
+  async snapshots(windowMinutes = 1): Promise<ResourceSnapshot[]> {
+    const minutes = Math.max(1, Math.min(120, Math.floor(windowMinutes)));
+    return Promise.all((Object.keys(this.policies) as ResourceKind[]).map((resource) => this.snapshot(resource, minutes)));
   }
 
   async observeCompletion(resource: ResourceKind, durationMs: number, succeeded: boolean): Promise<void> {
     await this.recordCompletion(resource, durationMs, succeeded);
   }
 
-  private async snapshot(resource: ResourceKind): Promise<ResourceSnapshot> {
+  private async snapshot(resource: ResourceKind, windowMinutes: number): Promise<ResourceSnapshot> {
     const policy = this.policies[resource];
     let values: number[];
     if (this.redis) {
@@ -155,16 +158,44 @@ export class ResourceGovernor {
         this.metricKey(resource),
       ) as Array<string | number | null>;
       values = raw.map((value) => Number(value ?? 0));
+      if (windowMinutes > 1) {
+        const currentMinute = Math.floor(Date.now() / 60_000);
+        const previousRows = await Promise.all(Array.from(
+          { length: windowMinutes - 1 },
+          (_, index) => this.redis!.hgetall(this.metricKey(resource, currentMinute - index - 1)),
+        ));
+        for (const row of previousRows) {
+          values[2] = Math.max(values[2] ?? 0, Number(row.peak ?? 0));
+          values[3] = (values[3] ?? 0) + Number(row.completed ?? 0);
+          values[4] = (values[4] ?? 0) + Number(row.succeeded ?? 0);
+          values[5] = (values[5] ?? 0) + Number(row.failed ?? 0);
+          values[6] = (values[6] ?? 0) + Number(row.limited ?? 0);
+          values[7] = (values[7] ?? 0) + Number(row.duration_sum_ms ?? 0);
+        }
+      }
     } else {
       const now = Date.now();
       const rate = this.currentMemoryRate(`${resource}:global`, now);
       const active = this.currentMemoryLeases(`resource:{${resource}}:active:global`, now).size;
-      const metric = this.currentMemoryMetric(resource);
-      values = [rate.count, active, metric.peak, metric.completed, metric.succeeded, metric.failed, metric.limited, metric.durationSumMs];
+      const currentMinute = Math.floor(now / 60_000);
+      const metrics = Array.from({ length: windowMinutes }, (_, index) =>
+        this.memoryMetrics.get(this.memoryMetricKey(resource, currentMinute - index)))
+        .filter((metric): metric is MemoryMetric => Boolean(metric));
+      values = [
+        rate.count,
+        active,
+        metrics.reduce((peak, metric) => Math.max(peak, metric.peak), 0),
+        metrics.reduce((sum, metric) => sum + metric.completed, 0),
+        metrics.reduce((sum, metric) => sum + metric.succeeded, 0),
+        metrics.reduce((sum, metric) => sum + metric.failed, 0),
+        metrics.reduce((sum, metric) => sum + metric.limited, 0),
+        metrics.reduce((sum, metric) => sum + metric.durationSumMs, 0),
+      ];
     }
     const [requests, current, peak, completed, succeeded, failed, limited, durationSum] = values;
     return {
       resource,
+      windowMinutes,
       requestsLastMinute: requests,
       requestLimit: policy.globalRequestsPerMinute,
       currentConcurrency: current,
@@ -218,17 +249,25 @@ export class ResourceGovernor {
     metric.peak = Math.max(metric.peak, active);
   }
 
-  private metricKey(resource: ResourceKind): string {
-    return `resource:{${resource}}:metrics:${Math.floor(Date.now() / 60_000)}`;
+  private metricKey(resource: ResourceKind, minute = Math.floor(Date.now() / 60_000)): string {
+    return `resource:{${resource}}:metrics:${minute}`;
   }
 
   private currentMemoryMetric(resource: ResourceKind): MemoryMetric {
     const minute = Math.floor(Date.now() / 60_000);
-    const current = this.memoryMetrics.get(resource);
-    if (current?.minute === minute) return current;
+    const key = this.memoryMetricKey(resource, minute);
+    const current = this.memoryMetrics.get(key);
+    if (current) return current;
     const next = { minute, completed: 0, succeeded: 0, failed: 0, limited: 0, durationSumMs: 0, peak: 0 };
-    this.memoryMetrics.set(resource, next);
+    this.memoryMetrics.set(key, next);
+    for (const [storedKey, metric] of this.memoryMetrics) {
+      if (metric.minute < minute - 120) this.memoryMetrics.delete(storedKey);
+    }
     return next;
+  }
+
+  private memoryMetricKey(resource: ResourceKind, minute: number): string {
+    return `${resource}:${minute}`;
   }
 
   private async consumeRate(resource: ResourceKind, userId: string): Promise<"user_rate" | "global_rate" | null> {

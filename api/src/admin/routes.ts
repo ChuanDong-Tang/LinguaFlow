@@ -68,8 +68,12 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
     const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const requestedWindow = Number((req.query as Record<string, unknown>)?.minutes ?? 15);
+    const windowMinutes = Number.isFinite(requestedWindow)
+      ? Math.max(1, Math.min(120, Math.floor(requestedWindow)))
+      : 15;
     const [resources, rawLimitEvents24h] = await Promise.all([
-      deps.resourceGovernor?.snapshots() ?? [],
+      deps.resourceGovernor?.snapshots(windowMinutes) ?? [],
       deps.prisma.$queryRawUnsafe(
         `SELECT
            COALESCE("metadata"->>'resource', 'unknown') AS "resource",
@@ -101,6 +105,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       request_id: requestId,
       data: {
         generatedAt: new Date().toISOString(),
+        windowMinutes,
         redisShared: Boolean(getRuntimeConfig().redisUrl),
         resources,
         limitEvents24h,

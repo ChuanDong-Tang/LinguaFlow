@@ -962,7 +962,7 @@
               </div>
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>接口</th><th>请求</th><th>平均</th><th>p50</th><th>p95</th><th>p99</th><th>4xx</th><th>5xx</th><th>慢请求</th><th>状态</th></tr></thead>
+                  <thead><tr><th>接口</th><th>请求</th><th>平均</th><th>p50</th><th>p95</th><th>p99</th><th>4xx</th><th>5xx</th><th>慢请求</th><th>阈值</th><th>状态</th></tr></thead>
                   <tbody id="apiMetricsTbody"></tbody>
                 </table>
               </div>
@@ -971,7 +971,7 @@
               <div class="section-head">
                 <div>
                   <h2 class="section-title">AI 与媒体资源池</h2>
-                  <p id="resourceMeta" class="section-subtitle">监控最近一分钟请求、实时并发、耗时与限流。达到 70% 提醒，90% 告警。</p>
+                  <p id="resourceMeta" class="section-subtitle">监控最近一分钟请求、实时并发，以及所选窗口内的峰值、耗时与限流。</p>
                 </div>
               </div>
               <div id="resourceAlerts" class="metrics"></div>
@@ -1009,7 +1009,7 @@
             <div class="section">
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>资源</th><th>最近一分钟</th><th>当前并发</th><th>一分钟峰值</th><th>平均耗时</th><th>成功 / 失败</th><th>限流</th><th>状态</th></tr></thead>
+                  <thead><tr><th>资源</th><th>最近一分钟</th><th>当前并发</th><th>窗口峰值</th><th>窗口平均耗时</th><th>窗口成功 / 失败</th><th>窗口限流</th><th>状态</th></tr></thead>
                   <tbody id="resourceTbody"></tbody>
                 </table>
               </div>
@@ -2307,7 +2307,7 @@
         setStatus("正在加载运行监控...");
         const minutes = Number($("apiMetricsWindow").value || 15);
         const [resourceRes, operationsRes] = await Promise.all([
-          request("/admin/resources/overview"),
+          request(`/admin/resources/overview?minutes=${encodeURIComponent(minutes)}`),
           request(`/admin/operations/overview?minutes=${encodeURIComponent(minutes)}`),
         ]);
         state.resources = resourceRes.data || {};
@@ -2343,8 +2343,16 @@
           const routeServerErrors = Number(row.serverErrors || 0);
           const routeSlow = Number(row.slowRequests || 0);
           const routeSlowRate = routeRequests ? routeSlow / routeRequests : 0;
-          const status = routeServerErrors > 0 ? "告警" : routeSlowRate >= 0.05 || Number(row.p95DurationMs || 0) >= 1000 ? "提醒" : "正常";
-          const statusClass = status === "告警" ? "status-fail" : status === "提醒" ? "status-warn" : "status-pass";
+          const routeThresholdMs = Number(row.slowThresholdMs || 1000);
+          const enoughSamples = routeRequests >= 20;
+          const status = routeServerErrors > 0
+            ? "告警"
+            : !enoughSamples
+              ? "样本不足"
+              : routeSlowRate >= 0.05 || Number(row.p95DurationMs || 0) >= routeThresholdMs
+                ? "提醒"
+                : "正常";
+          const statusClass = status === "告警" ? "status-fail" : status === "提醒" || status === "样本不足" ? "status-warn" : "status-pass";
           return `<tr>
             <td><span class="pill">${escapeHtml(row.method)}</span> <span class="mono">${escapeHtml(row.route)}</span></td>
             <td>${escapeHtml(routeRequests)}</td>
@@ -2355,9 +2363,10 @@
             <td>${escapeHtml(row.clientErrors || 0)}</td>
             <td>${escapeHtml(routeServerErrors)}</td>
             <td>${escapeHtml(routeSlow)}</td>
+            <td>${escapeHtml(formatDurationMs(routeThresholdMs))}</td>
             <td><span class="pill ${statusClass}">${status}</span></td>
           </tr>`;
-        }).join("") || rowEmpty(10, "统计窗口内暂无请求");
+        }).join("") || rowEmpty(11, "统计窗口内暂无请求");
       }
 
       function renderResources(data) {
@@ -2383,11 +2392,11 @@
         const warningCount = evaluated.filter((row) => row.status !== "正常").length;
         const limitedCount = evaluated.reduce((sum, row) => sum + Number(row.limitedLastMinute || 0), 0);
         const limited24h = limitRows.reduce((sum, row) => sum + Number(row.count || 0), 0);
-        $("resourceMeta").textContent = `${data.redisShared ? "Redis 跨实例统计" : "单实例内存统计"} · 刷新于 ${fmtDate(data.generatedAt)}`;
+        $("resourceMeta").textContent = `${data.redisShared ? "Redis 跨实例统计" : "单实例内存统计"} · 最近 ${data.windowMinutes || 1} 分钟 · 刷新于 ${fmtDate(data.generatedAt)}`;
         $("resourceAlerts").innerHTML = [
           ["资源池", evaluated.length, "LLM / STT / TTS / Embedding"],
           ["需要关注", warningCount, warningCount ? "达到阈值或发生限流" : "当前负载正常"],
-          ["一分钟限流", limitedCount, "请求或并发被拒绝"],
+          ["窗口限流", limitedCount, `最近 ${data.windowMinutes || 1} 分钟`],
           ["24 小时限流", limited24h, "含图片上传与额度"],
           ["统计方式", data.redisShared ? "跨实例" : "单实例", data.redisShared ? "所有服务共享" : "仅当前进程"],
         ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");

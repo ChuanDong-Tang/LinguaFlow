@@ -89,7 +89,7 @@ import { AzureGlobalSttProvider } from "@lf/server/providers/stt/AzureGlobalSttP
 import { CosStorageProvider } from "@lf/server/providers/storage/CosStorageProvider.js";
 import { ContentSafetyService } from "@lf/server/services/contentSafety/ContentSafetyService.js";
 import { TencentTmsClient } from "@lf/server/services/contentSafety/TencentTmsClient.js";
-import { ApiRequestMetrics } from "@lf/server/services/observability/ApiRequestMetrics.js";
+import { ApiRequestMetrics, resolveApiSlowRequestThresholdMs } from "@lf/server/services/observability/ApiRequestMetrics.js";
 import { DatabaseQueryMetrics } from "@lf/server/services/observability/DatabaseQueryMetrics.js";
 import websocket from "@fastify/websocket";
 import type {
@@ -195,7 +195,7 @@ export function createApp() {
   const messageRepository = new PrismaMessageRepository(prisma);
   const chatMessageService = new ChatMessageService(conversationRepository, messageRepository);
   const redisClient = getRedisClient();
-  const apiRequestMetrics = new ApiRequestMetrics(redisClient);
+  const apiRequestMetrics = new ApiRequestMetrics(redisClient, slowRequestThresholdMs);
   app.addHook("onResponse", async (req, reply) => {
     const route = req.routeOptions.url;
     if (!route || route === "/health" || req.headers.upgrade === "websocket") return;
@@ -206,9 +206,9 @@ export function createApp() {
       method: req.method,
       statusCode: reply.statusCode,
       durationMs,
-      slowThresholdMs: slowRequestThresholdMs,
     }).catch((error) => req.log.warn({ err: error }, "api request metrics write failed"));
-    if (!isServerError && durationMs < slowRequestThresholdMs) return;
+    const routeSlowThresholdMs = resolveApiSlowRequestThresholdMs(req.method, route, slowRequestThresholdMs);
+    if (!isServerError && durationMs < routeSlowThresholdMs) return;
 
     req.log.warn({
       requestId: firstHeaderValue(req.headers["x-request-id"]) ?? req.id,
@@ -216,7 +216,7 @@ export function createApp() {
       method: req.method,
       statusCode: reply.statusCode,
       durationMs,
-      slowRequestThresholdMs,
+      slowRequestThresholdMs: routeSlowThresholdMs,
     }, isServerError ? "api request failed" : "slow api request");
   });
   const chatGenerationTaskGuard = redisClient

@@ -13,7 +13,6 @@ export type ApiRequestMetricInput = {
   route: string;
   statusCode: number;
   durationMs: number;
-  slowThresholdMs: number;
 };
 
 export type ApiRequestMetricsSnapshot = {
@@ -38,12 +37,16 @@ export type ApiMetricSummary = {
 export type ApiRouteMetricSummary = ApiMetricSummary & {
   method: string;
   route: string;
+  slowThresholdMs: number;
 };
 
 export class ApiRequestMetrics {
   private readonly memory = new Map<number, MinuteMetric>();
 
-  constructor(private readonly redis?: RedisLike | null) {}
+  constructor(
+    private readonly redis?: RedisLike | null,
+    private readonly defaultSlowThresholdMs = 1_000,
+  ) {}
 
   async observe(input: ApiRequestMetricInput): Promise<void> {
     const minute = Math.floor(Date.now() / 60_000);
@@ -51,7 +54,12 @@ export class ApiRequestMetrics {
     const routeKey = encodeURIComponent(`${input.method.toUpperCase()} ${input.route}`);
     const clientError = input.statusCode >= 400 && input.statusCode < 500 ? 1 : 0;
     const serverError = input.statusCode >= 500 ? 1 : 0;
-    const slow = input.durationMs >= input.slowThresholdMs ? 1 : 0;
+    const slowThresholdMs = resolveApiSlowRequestThresholdMs(
+      input.method,
+      input.route,
+      this.defaultSlowThresholdMs,
+    );
+    const slow = input.durationMs >= slowThresholdMs ? 1 : 0;
     const duration = Math.max(0, Math.round(input.durationMs));
 
     if (this.redis) {
@@ -108,6 +116,11 @@ export class ApiRequestMetrics {
       return {
         method: separator > 0 ? decoded.slice(0, separator) : "UNKNOWN",
         route: separator > 0 ? decoded.slice(separator + 1) : decoded,
+        slowThresholdMs: resolveApiSlowRequestThresholdMs(
+          separator > 0 ? decoded.slice(0, separator) : "UNKNOWN",
+          separator > 0 ? decoded.slice(separator + 1) : decoded,
+          this.defaultSlowThresholdMs,
+        ),
         ...summarize(aggregate, `r|${key}|`),
       };
     }).sort((left, right) => right.p95DurationMs! - left.p95DurationMs! || right.requests - left.requests);
@@ -120,6 +133,18 @@ export class ApiRequestMetrics {
       routes,
     };
   }
+}
+
+export function resolveApiSlowRequestThresholdMs(method: string, route: string, fallbackMs = 1_000): number {
+  const key = `${method.toUpperCase()} ${route}`;
+  if (key === "GET /tts/messages/:messageId" || key === "POST /tts/messages/:messageId"
+    || key === "GET /tts/cards/:entryId/segments/:segmentId") return 20_000;
+  if (key === "POST /cards/:recordId/generate" || key === "POST /cards/generate-preview"
+    || key === "POST /chat/generation/stream") return 10_000;
+  if (key === "POST /payment/ios/verify-transaction" || key === "GET /payment/autorenew/current") return 5_000;
+  if (key === "POST /cards/image-uploads/:uploadId/complete"
+    || key === "POST /auth/authing-passcode/send") return 3_000;
+  return fallbackMs;
 }
 
 function incrementRoute(metric: MinuteMetric, routeKey: string, bucket: number, duration: number, clientError: number, serverError: number, slow: number): void {
