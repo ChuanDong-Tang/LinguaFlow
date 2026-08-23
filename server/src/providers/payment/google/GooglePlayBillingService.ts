@@ -416,7 +416,11 @@ export class GooglePlayBillingService {
         purchaseToken: decoded.purchaseToken,
         rawPayload: decoded.rawNotification,
       });
-      await this.revokeCurrentEntitlementForPurchaseToken(decoded.purchaseToken, new Date());
+      await this.revokeCurrentEntitlementForPurchaseToken(
+        decoded.purchaseToken,
+        new Date(),
+        decoded.orderId
+      );
       return { status: "processed", action: "voided_purchase_revoked" };
     }
 
@@ -522,11 +526,19 @@ export class GooglePlayBillingService {
 
   private async revokeCurrentEntitlementForPurchaseToken(
     purchaseToken: string,
-    revokedAt: Date
+    revokedAt: Date,
+    providerChargeId?: string | null
   ): Promise<void> {
-    await this.suspendCurrentEntitlementForPurchaseToken(purchaseToken, revokedAt);
+    await this.suspendCurrentEntitlementForPurchaseToken(purchaseToken, revokedAt, providerChargeId);
     const order = await this.paymentOrderRepository.findByProviderOrderId(purchaseToken);
     if (!order) return;
+    // A voided-purchase notification identifies one concrete Google order. The
+    // internal order represents the initial period, so do not mark it refunded
+    // when an older/later renewal order was the one that was voided.
+    if (providerChargeId) {
+      const initialProviderChargeId = readString(asRecord(asRecord(order.metadata).googlePlay).latestOrderId);
+      if (initialProviderChargeId && initialProviderChargeId !== providerChargeId) return;
+    }
     await this.paymentOrderRepository.updateStatus({
       id: order.id,
       status: "refunded",
@@ -542,22 +554,28 @@ export class GooglePlayBillingService {
 
   private async suspendCurrentEntitlementForPurchaseToken(
     purchaseToken: string,
-    suspendedAt: Date
+    suspendedAt: Date,
+    providerChargeId?: string | null
   ): Promise<void> {
     if (!this.subscriptionRepository) return;
     const order = await this.paymentOrderRepository.findByProviderOrderId(purchaseToken);
-    if (order) {
+    const initialProviderChargeId = order
+      ? readString(asRecord(asRecord(order.metadata).googlePlay).latestOrderId)
+      : null;
+    if (order && (!providerChargeId || !initialProviderChargeId || initialProviderChargeId === providerChargeId)) {
       await this.subscriptionRepository.cancelActiveBySourceOrderId({
         sourceOrderId: order.id,
         cancelledAt: suspendedAt,
         expiresAt: suspendedAt,
       });
     }
-    const autoRenew = await this.autoRenewService?.getGooglePlaySubscriptionByPurchaseToken(purchaseToken);
-    const latestTransactionId = autoRenew?.latestTransactionId;
-    if (latestTransactionId) {
+    const autoRenew = providerChargeId
+      ? null
+      : await this.autoRenewService?.getGooglePlaySubscriptionByPurchaseToken(purchaseToken);
+    const entitlementProviderChargeId = providerChargeId ?? autoRenew?.latestTransactionId;
+    if (entitlementProviderChargeId) {
       await this.subscriptionRepository.cancelActiveBySourceOrderId({
-        sourceOrderId: `google_play_iap:${latestTransactionId}`,
+        sourceOrderId: `google_play_iap:${entitlementProviderChargeId}`,
         cancelledAt: suspendedAt,
         expiresAt: suspendedAt,
       });

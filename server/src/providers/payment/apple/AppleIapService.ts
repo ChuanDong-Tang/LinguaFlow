@@ -665,12 +665,26 @@ export class AppleIapService {
 
         const nextStatus = purchase ? mapAppleEventToOrderStatus(notification.notificationType) : null;
         if (nextStatus) {
-          const candidateProviderOrderIds = [
-            tx.originalTransactionId,
-            tx.transactionId,
-            `apple_iap:${tx.originalTransactionId}`,
-          ].filter((value): value is string => Boolean(value));
+          const isRefundOrRevoke = isAppleRefundOrRevoke(notification.notificationType);
+          // Refunds belong to one concrete transaction. Falling back to the
+          // original transaction here can revoke the first period while leaving
+          // the refunded renewal active (or mark the wrong order as refunded).
+          const candidateProviderOrderIds = isRefundOrRevoke
+            ? [tx.transactionId, tx.transactionId ? `apple_iap:${tx.transactionId}` : null]
+                .filter((value): value is string => Boolean(value))
+            : [
+                tx.transactionId,
+                tx.originalTransactionId,
+                tx.originalTransactionId ? `apple_iap:${tx.originalTransactionId}` : null,
+              ].filter((value): value is string => Boolean(value));
           const order = await this.findOrderByProviderOrderIds(candidateProviderOrderIds);
+          const revocations = isRefundOrRevoke
+            ? await this.revokeEntitlementsForRefundedAppleTransaction({
+                transactionId: tx.transactionId,
+                sourceOrderId: order?.id ?? null,
+                revokedAt: resolveAppleRevocationDate(tx) ?? new Date(),
+              })
+            : undefined;
           if (order) {
             const orderMetadata = buildAppleNotificationOrderMetadata(order.metadata, {
               eventId,
@@ -687,11 +701,7 @@ export class AppleIapService {
               metadata: orderMetadata,
             });
             const effectiveOrder = updatedOrder ?? (order.status === "refunded" ? order : null);
-            if (effectiveOrder && isAppleRefundOrRevoke(notification.notificationType)) {
-              const revocation = await this.revokeEntitlementForRefundedOrder({
-                sourceOrderId: effectiveOrder.id,
-                revokedAt: resolveAppleRevocationDate(tx) ?? new Date(),
-              });
+            if (effectiveOrder && isRefundOrRevoke) {
               await this.paymentOrderRepository.updateStatus({
                 id: effectiveOrder.id,
                 status: "refunded",
@@ -703,7 +713,7 @@ export class AppleIapService {
                   subtype: notification.subtype ?? null,
                   transactionId: tx.transactionId ?? null,
                   originalTransactionId: tx.originalTransactionId ?? null,
-                  entitlementRevocation: revocation,
+                  entitlementRevocations: revocations,
                 }),
               });
             }
@@ -721,6 +731,18 @@ export class AppleIapService {
       );
       throw error;
     }
+  }
+
+  private async revokeEntitlementsForRefundedAppleTransaction(input: {
+    transactionId: string;
+    sourceOrderId: string | null;
+    revokedAt: Date;
+  }): Promise<AppleRefundEntitlementRevocationResult[]> {
+    const sourceOrderIds = new Set<string>();
+    if (input.transactionId) sourceOrderIds.add(`apple_iap:${input.transactionId}`);
+    if (input.sourceOrderId) sourceOrderIds.add(input.sourceOrderId);
+    return Promise.all(Array.from(sourceOrderIds, (sourceOrderId) =>
+      this.revokeEntitlementForRefundedOrder({ sourceOrderId, revokedAt: input.revokedAt })));
   }
 
   private async findOrderByProviderOrderIds(ids: string[]): Promise<Awaited<ReturnType<PaymentOrderRepository["findByProviderOrderId"]>> | null> {
@@ -886,7 +908,7 @@ function buildAppleNotificationOrderMetadata(
     subtype: string | null;
     transactionId: string | null;
     originalTransactionId: string | null;
-    entitlementRevocation?: AppleRefundEntitlementRevocationResult;
+    entitlementRevocations?: AppleRefundEntitlementRevocationResult[];
   }
 ): Record<string, unknown> {
   const base = asRecord(metadata);
@@ -901,9 +923,9 @@ function buildAppleNotificationOrderMetadata(
       subtype: event.subtype,
       transactionId: event.transactionId,
       originalTransactionId: event.originalTransactionId,
-      ...(event.entitlementRevocation === undefined
+      ...(event.entitlementRevocations === undefined
         ? {}
-        : { entitlementRevocation: event.entitlementRevocation }),
+        : { entitlementRevocations: event.entitlementRevocations }),
     },
   };
 }
