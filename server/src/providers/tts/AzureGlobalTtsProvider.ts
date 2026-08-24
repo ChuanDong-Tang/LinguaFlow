@@ -82,14 +82,17 @@ export class AzureGlobalTtsProvider implements TtsProvider {
 
     try {
       const stream = callbacks
-        ? {
-            write(dataBuffer: ArrayBuffer) {
+        ? new class extends SpeechSDK.PushAudioOutputStreamCallback {
+            override write(dataBuffer: ArrayBuffer): void {
               const chunk = Buffer.from(dataBuffer.slice(0));
               audioChunks.push(chunk);
               callbacks.onAudioChunk(chunk);
-            },
-            close() { /* Speech SDK owns stream completion. */ },
-          }
+            }
+
+            override close(): void {
+              // Speech SDK owns stream completion.
+            }
+          }()
         : undefined;
       const result = await withTimeout(
         speakSsml(synthesizer, buildSsml({
