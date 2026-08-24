@@ -5,7 +5,7 @@ export type TencentImsResult = {
   suggestion: string;
   label: string;
   subLabel: string;
-  score: number;
+  score: number | null;
 };
 
 export class TencentImsClient {
@@ -57,12 +57,15 @@ export class TencentImsClient {
         error.code = body.Error?.Code ?? "TENCENT_IMS_ERROR";
         throw error;
       }
+      const parsedScore = body.Score === undefined || body.Score === null
+        ? null
+        : Number(body.Score);
       return {
         requestId: body.RequestId ?? "",
         suggestion: body.Suggestion ?? "Block",
         label: body.Label ?? "Unknown",
         subLabel: body.SubLabel ?? "",
-        score: Number(body.Score ?? 0),
+        score: parsedScore !== null && Number.isFinite(parsedScore) ? parsedScore : null,
       };
     } finally { clearTimeout(timer); }
   }

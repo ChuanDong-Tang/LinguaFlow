@@ -13,6 +13,42 @@ const MAX_IMAGE_EDGE = 2_200;
 const THUMBNAIL_VERSION = 4;
 const LANDSCAPE_THUMBNAIL_SIZE = { width: 1_440, height: 960 } as const;
 const PORTRAIT_THUMBNAIL_SIZE = { width: 1_152, height: 1_440 } as const;
+const DEFAULT_BLOCK_SCORE = 80;
+const POLITY_BLOCK_SCORE = 90;
+const SOFT_BLOCK_LABELS = new Set(["ad", "ads", "advertising", "teenager"]);
+
+type ModerationDecision = {
+  status: "approved" | "approved_with_review" | "rejected";
+  accepted: boolean;
+  reason: string;
+  blockScore: number | null;
+};
+
+export function decideCardImageModeration(input: {
+  suggestion: string;
+  label: string;
+  score: number | null;
+}): ModerationDecision {
+  const suggestion = input.suggestion.trim().toLowerCase();
+  if (suggestion === "pass") return { status: "approved", accepted: true, reason: "vendor_pass", blockScore: null };
+  if (suggestion === "review") return { status: "approved_with_review", accepted: true, reason: "vendor_review", blockScore: null };
+  if (suggestion !== "block") return { status: "rejected", accepted: false, reason: "unknown_vendor_suggestion", blockScore: null };
+
+  // Missing or malformed scores retain Tencent's Block result rather than weakening moderation.
+  if (input.score === null || !Number.isFinite(input.score) || input.score < 0 || input.score > 100) {
+    return { status: "rejected", accepted: false, reason: "vendor_block_without_valid_score", blockScore: null };
+  }
+
+  const label = input.label.trim().toLowerCase();
+  if (SOFT_BLOCK_LABELS.has(label)) {
+    return { status: "approved_with_review", accepted: true, reason: "soft_label_override", blockScore: null };
+  }
+
+  const blockScore = label === "polity" ? POLITY_BLOCK_SCORE : DEFAULT_BLOCK_SCORE;
+  return input.score >= blockScore
+    ? { status: "rejected", accepted: false, reason: "score_at_or_above_threshold", blockScore }
+    : { status: "approved_with_review", accepted: true, reason: "score_below_threshold", blockScore };
+}
 
 export class CardImageModerationUnavailableError extends Error {
   readonly code = "CARD_IMAGE_MODERATION_UNAVAILABLE";
@@ -128,18 +164,18 @@ export class CardImageService {
       await this.logModeration(userId, uploadId, { status: "failed", errorCode: "IMS_UNAVAILABLE" });
       throw new CardImageModerationUnavailableError("Image moderation is unavailable");
     }
-    const status = result.suggestion === "Pass"
-      ? "approved"
-      : result.suggestion === "Review"
-        ? "approved_with_review"
-        : "rejected";
-    const moderationAccepted = result.suggestion === "Pass" || result.suggestion === "Review";
+    const decision = decideCardImageModeration(result);
+    const status = decision.status;
     await this.logModeration(userId, uploadId, {
-      status: moderationAccepted ? "success" : "failed",
-      errorCode: moderationAccepted ? null : "CARD_IMAGE_REJECTED",
+      status: decision.accepted ? "success" : "failed",
+      errorCode: decision.accepted ? null : "CARD_IMAGE_REJECTED",
       vendorRequestId: result.requestId,
       suggestion: result.suggestion,
       label: result.label,
+      subLabel: result.subLabel,
+      score: result.score,
+      decisionReason: decision.reason,
+      blockScore: decision.blockScore,
     });
     const extension = asset.mimeType === "image/png" ? "png" : "jpg";
     const promotedObjectKey = `card-assets/${userId}/${uploadId}/original.${extension}`;
@@ -265,6 +301,10 @@ export class CardImageService {
       vendorRequestId?: string;
       suggestion?: string;
       label?: string;
+      subLabel?: string;
+      score?: number | null;
+      decisionReason?: string;
+      blockScore?: number | null;
     },
   ): Promise<void> {
     try {
@@ -280,6 +320,10 @@ export class CardImageService {
           vendorRequestId: input.vendorRequestId ?? null,
           suggestion: input.suggestion ?? null,
           label: input.label ?? null,
+          subLabel: input.subLabel ?? null,
+          score: input.score ?? null,
+          decisionReason: input.decisionReason ?? null,
+          blockScore: input.blockScore ?? null,
         },
       });
     } catch {
