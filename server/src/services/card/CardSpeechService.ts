@@ -5,7 +5,7 @@ import { inferLearningTextLanguage, normalizeLearningText } from "@lf/core/text/
 import { countGraphemes, isUtf16GraphemeBoundary } from "@lf/core/text/grapheme.js";
 import { DEFAULT_CARD_CONTENT_MAX_CHARS } from "@lf/core/text/cardText.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
-import type { TtsProvider } from "../tts/TtsProvider.js";
+import type { SynthesizeSpeechResult, TtsProvider } from "../tts/TtsProvider.js";
 import type { TtsStorageProvider } from "../tts/TtsStorageProvider.js";
 import { isConfiguredTtsVoice, resolveDefaultTtsVoice } from "../tts/TtsVoiceCatalog.js";
 import { CardNotFoundError, CardValidationError } from "./CardService.js";
@@ -35,7 +35,7 @@ export type CardSpeechAssetView = {
 };
 
 const generations = new Map<string, Promise<CardSpeechAssetEntity>>();
-type GenerateInput = {
+export type CardSpeechGenerateInput = {
   userId: string;
   entryId: string | null;
   segmentId: string | null;
@@ -47,6 +47,12 @@ type GenerateInput = {
   sourceText: string;
   sourceTextHash: string;
   sentenceSegments?: Array<{ text: string; textStart: number; textEnd: number }>;
+};
+
+export type PreparedCardArticleSpeech = {
+  cached: CardSpeechAssetView | null;
+  generation: CardSpeechGenerateInput;
+  graphemeCount: number;
 };
 
 export class CardSpeechService {
@@ -139,6 +145,19 @@ export class CardSpeechService {
   }
 
   async getOrCreateArticle(input: { userId: string; entryId: string; contentType: CardLearningContentType; contentVersion: string }): Promise<CardSpeechAssetView> {
+    const prepared = await this.prepareArticle(input);
+    if (prepared.cached) return prepared.cached;
+    const { generation: generationInput } = prepared;
+    const context = { entryId: input.entryId, segmentId: "__article__" };
+    const existing = generations.get(generationInput.cacheKey);
+    if (existing) return this.toView(await existing, true, context);
+    const generation = this.generateWithLock(generationInput);
+    generations.set(generationInput.cacheKey, generation);
+    try { return this.toView(await generation, false, context); }
+    finally { if (generations.get(generationInput.cacheKey) === generation) generations.delete(generationInput.cacheKey); }
+  }
+
+  async prepareArticle(input: { userId: string; entryId: string; contentType: CardLearningContentType; contentVersion: string }): Promise<PreparedCardArticleSpeech> {
     const entry = await this.repository.findByIdForUser(input.entryId, input.userId);
     if (!entry || entry.status !== "completed") throw new CardNotFoundError();
     const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
@@ -150,7 +169,8 @@ export class CardSpeechService {
     const languageCode = contentLanguageCode(entry, input.contentType);
     const learningText = segments.map((segment) => segment.text.trim()).filter(Boolean).join(" ");
     const sourceText = normalizeLearningText({ text: learningText, languageCode });
-    if (!sourceText || countGraphemes(sourceText) > this.articleMaxChars) throw new CardValidationError("Article speech is too long");
+    const graphemeCount = countGraphemes(sourceText);
+    if (!sourceText || graphemeCount > this.articleMaxChars) throw new CardValidationError("Article speech is too long");
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
     const voiceCode = preference.ttsVoiceCode && isConfiguredTtsVoice({ provider, languageCode, voiceCode: preference.ttsVoiceCode })
@@ -160,13 +180,43 @@ export class CardSpeechService {
     const cacheKey = sha256([input.userId, input.entryId, input.contentType, input.contentVersion, "review_article", provider, voiceCode, languageCode, sourceTextHash].join("\n"));
     const context = { entryId: input.entryId, segmentId: "__article__" };
     const cached = await this.repository.findReadySpeechAsset(cacheKey);
-    if (cached) return this.toView(await this.refreshUrlIfNeeded(cached), true, context);
-    const existing = generations.get(cacheKey);
-    if (existing) return this.toView(await existing, true, context);
-    const generation = this.generateWithLock({ userId: input.userId, entryId: input.entryId, segmentId: null, sourceKind: "review_article", cacheKey, provider, voiceCode, languageCode, sourceText, sourceTextHash, sentenceSegments: segmentLearningSentences({ text: sourceText, languageCode, minSegmentChars: 1 }) });
-    generations.set(cacheKey, generation);
-    try { return this.toView(await generation, false, context); }
-    finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
+    return {
+      cached: cached ? this.toView(await this.refreshUrlIfNeeded(cached), true, context) : null,
+      graphemeCount,
+      generation: {
+        userId: input.userId,
+        entryId: input.entryId,
+        segmentId: null,
+        sourceKind: "review_article",
+        cacheKey,
+        provider,
+        voiceCode,
+        languageCode,
+        sourceText,
+        sourceTextHash,
+        sentenceSegments: segmentLearningSentences({ text: sourceText, languageCode, minSegmentChars: 1 }),
+      },
+    };
+  }
+
+  async generateStreaming(
+    input: CardSpeechGenerateInput,
+    generationId: string,
+    onAudioChunk: (chunk: Buffer) => void,
+  ): Promise<{ asset: CardSpeechAssetEntity; synthesis: SynthesizeSpeechResult }> {
+    const cached = await this.repository.findReadySpeechAsset(input.cacheKey);
+    if (cached) return { asset: await this.refreshUrlIfNeeded(cached), synthesis: emptySynthesisResult() };
+    if (!this.provider.synthesizeStreaming) throw new Error("TTS_STREAMING_NOT_SUPPORTED");
+    const synthesize = () => this.provider.synthesizeStreaming!({
+      text: input.sourceText,
+      languageCode: input.languageCode,
+      voiceCode: input.voiceCode,
+      sentenceSegments: input.sentenceSegments ?? [{ text: input.sourceText, textStart: 0, textEnd: input.sourceText.length }],
+    }, { onAudioChunk });
+    const synthesized = this.resourceGovernor
+      ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
+      : await synthesize();
+    return { asset: await this.persistSynthesis(input, synthesized, generationId), synthesis: synthesized };
   }
 
   async getOrCreateSelection(input: {
@@ -260,7 +310,7 @@ export class CardSpeechService {
     finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
   }
 
-  private async generateWithLock(input: GenerateInput): Promise<CardSpeechAssetEntity> {
+  private async generateWithLock(input: CardSpeechGenerateInput): Promise<CardSpeechAssetEntity> {
     if (!this.redisClient) return this.generate(input);
     const lockKey = `lock:tts:card:${input.cacheKey}`;
     const lockValue = `${process.pid}:${Date.now()}:${randomUUID()}`;
@@ -288,7 +338,7 @@ export class CardSpeechService {
     throw new CardSpeechGenerationInProgressError();
   }
 
-  private async generate(input: GenerateInput): Promise<CardSpeechAssetEntity> {
+  private async generate(input: CardSpeechGenerateInput): Promise<CardSpeechAssetEntity> {
     const synthesize = () => this.provider.synthesize({
       text: input.sourceText,
       languageCode: input.languageCode,
@@ -298,7 +348,14 @@ export class CardSpeechService {
     const synthesized = this.resourceGovernor
       ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
       : await synthesize();
-    const generationId = randomUUID();
+    return this.persistSynthesis(input, synthesized, randomUUID());
+  }
+
+  private async persistSynthesis(
+    input: CardSpeechGenerateInput,
+    synthesized: SynthesizeSpeechResult,
+    generationId: string,
+  ): Promise<CardSpeechAssetEntity> {
     const objectKey = input.entryId
       ? `tts/card/${input.userId}/${input.entryId}/${input.cacheKey}-${generationId}.mp3`
       : `tts/card/${input.userId}/selections/${input.cacheKey}-${generationId}.mp3`;
@@ -351,6 +408,17 @@ export class CardSpeechService {
       cached,
     };
   }
+}
+
+function emptySynthesisResult(): SynthesizeSpeechResult {
+  return {
+    audio: Buffer.alloc(0),
+    format: "mp3",
+    contentType: "audio/mpeg",
+    durationMs: null,
+    wordMarks: [],
+    sentenceMarks: [],
+  };
 }
 
 function resolveSpeechBinding(

@@ -660,9 +660,15 @@ export async function getCardArticleAudio(input: {
   voiceCode: string;
   durationMs: number | null;
   sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }> | null;
+  deliveryMode?: "buffered" | "streaming";
+  generationId?: string;
 }> {
-  const binding = `contentType=${encodeURIComponent(input.contentType)}&contentVersion=${encodeURIComponent(input.contentVersion)}`;
-  return request(`/tts/cards/${encodeURIComponent(input.entryId)}/segments/__article__?${binding}`);
+  const binding = `contentType=${encodeURIComponent(input.contentType)}&contentVersion=${encodeURIComponent(input.contentVersion)}&streaming=1`;
+  const audio = await request<Awaited<ReturnType<typeof getCardArticleAudio>>>(`/tts/cards/${encodeURIComponent(input.entryId)}/segments/__article__?${binding}`);
+  return {
+    ...audio,
+    audioUrl: audio.audioUrl.startsWith("/") ? `${BASE_URL}${audio.audioUrl}` : audio.audioUrl,
+  };
 }
 
 function requireCardId(recordId: string): string {

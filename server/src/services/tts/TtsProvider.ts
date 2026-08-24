@@ -16,9 +16,22 @@ export interface SynthesizeSpeechResult {
   durationMs: number | null;
   wordMarks: TtsWordMark[];
   sentenceMarks: TtsSentenceMark[];
+  providerTimings?: {
+    firstByteMs: number | null;
+    finishMs: number | null;
+    networkMs: number | null;
+  };
+}
+
+export interface SynthesizeSpeechStreamCallbacks {
+  onAudioChunk(chunk: Buffer): void;
 }
 
 export interface TtsProvider {
   readonly providerName: string;
   synthesize(input: SynthesizeSpeechInput): Promise<SynthesizeSpeechResult>;
+  synthesizeStreaming?(
+    input: SynthesizeSpeechInput,
+    callbacks: SynthesizeSpeechStreamCallbacks,
+  ): Promise<SynthesizeSpeechResult>;
 }

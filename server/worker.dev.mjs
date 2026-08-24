@@ -62,6 +62,11 @@ import { TencentTmsClient } from "./src/services/contentSafety/TencentTmsClient.
 import { ResourceGovernor } from "./src/services/resource/ResourceGovernor.ts";
 import { DatabaseQueryMetrics } from "./src/services/observability/DatabaseQueryMetrics.ts";
 import { UsageV2Service } from "./src/services/usage/UsageV2Service.ts";
+import { PrismaUserPreferenceRepository } from "./src/infrastructure/repository/PrismaUserPreferenceRepository.ts";
+import { AzureGlobalTtsProvider } from "./src/providers/tts/AzureGlobalTtsProvider.ts";
+import { CardSpeechService } from "./src/services/card/CardSpeechService.ts";
+import { TtsStreamingCoordinator } from "./src/services/tts/TtsStreamingCoordinator.ts";
+import { TtsStreamingWorker } from "./src/workers/tts/TtsStreamingWorker.ts";
 
 const prisma = new PrismaClient({
   log: [
@@ -165,6 +170,26 @@ prisma.$on("error", () => {
   void databaseQueryMetrics.observeError().catch(() => undefined);
 });
 const resourceGovernor = new ResourceGovernor(runtime.resourcePolicies, workerRedisClient);
+const ttsStreamingEnabled = process.env.TTS_STREAMING_ENABLED?.trim().toLowerCase() === "true";
+if (ttsStreamingEnabled && !workerRedisClient) throw new Error("TTS_STREAMING_REDIS_REQUIRED");
+const ttsStreamingCoordinator = ttsStreamingEnabled
+  ? new TtsStreamingCoordinator(workerRedisClient, {})
+  : null;
+const ttsStreamingWorker = ttsStreamingCoordinator
+  ? new TtsStreamingWorker(
+      ttsStreamingCoordinator,
+      new CardSpeechService(
+        cardRepository,
+        new PrismaUserPreferenceRepository(prisma),
+        entitlementService,
+        new AzureGlobalTtsProvider(),
+        ttsStorageProvider,
+        workerRedisClient,
+        resourceGovernor,
+      ),
+      systemEventLogRepository,
+    )
+  : null;
 const cardTaskGuard = workerRedisClient
   ? new RedisChatGenerationTaskGuard(workerRedisClient)
   : new InMemoryChatGenerationTaskGuard();
@@ -344,6 +369,7 @@ const workerGroups = {
     cardPhraseIndexWorker,
     progressPhraseDetectionWorker,
   ].filter(Boolean),
+  tts: [ttsStreamingWorker].filter(Boolean),
   maintenance: [
     sessionCleanupWorker,
     accountDeletionCleanupWorker,
@@ -357,7 +383,7 @@ const workerGroups = {
   ],
 };
 if (workerGroup !== "all" && !Object.prototype.hasOwnProperty.call(workerGroups, workerGroup)) {
-  throw new Error(`LF_WORKER_GROUP must be one of all, payment, card, maintenance; received ${workerGroup}`);
+  throw new Error(`LF_WORKER_GROUP must be one of all, payment, card, tts, maintenance; received ${workerGroup}`);
 }
 const activeWorkers = workerGroup === "all"
   ? Object.values(workerGroups).flat()

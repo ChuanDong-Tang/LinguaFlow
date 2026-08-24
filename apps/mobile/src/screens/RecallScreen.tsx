@@ -310,6 +310,25 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
       onRecallNext={currentIndex < session.nodes.length - 1 ? () => navigateDeck(currentIndex + 1) : undefined}
       onRecallFinish={currentIndex === session.nodes.length - 1 ? () => void finish() : undefined}
       onClozeAttempt={({ recordId, blankId, correct }) => setAttempts((current) => ({ ...current, [`${recordId}:${blankId}`]: current[`${recordId}:${blankId}`] || correct }))}
+      onClozeStateChange={({ recordId, contentType, contentVersion, state, version }) => setCards((current) => {
+        const card = current[recordId];
+        if (!card) return current;
+        const contentBlocks = card.contentBlocks.map((block) => block.contentType === contentType && block.contentVersion === contentVersion
+          ? {
+              ...block,
+              practice: {
+                hasCloze: state.blanks.length > 0,
+                dictationCompleted: block.practice?.dictationCompleted ?? false,
+                nextReviewAt: block.practice?.nextReviewAt ?? null,
+                clozeState: state,
+                clozeVersion: version,
+                clozeLastResult: block.practice?.clozeLastResult ?? null,
+                dictationLastResult: block.practice?.dictationLastResult ?? null,
+              },
+            }
+          : block);
+        return { ...current, [recordId]: { ...card, contentBlocks } };
+      })}
     />
     {finishing ? <View style={styles.busyOverlay}><ActivityIndicator size="large" color={theme.colors.text} /></View> : null}
   </View>;

@@ -975,6 +975,21 @@
                 </div>
               </div>
               <div id="resourceAlerts" class="metrics"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead><tr><th>资源</th><th>最近一分钟</th><th>当前并发</th><th>窗口峰值</th><th>平均耗时</th><th>成功 / 失败</th><th>限流</th><th>状态</th></tr></thead>
+                  <tbody id="resourceTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">流式 TTS Worker</h2>
+                  <p id="ttsStreamingMeta" class="section-subtitle">查看后台生成队列、Worker 心跳，以及排队、首包和完整生成耗时。</p>
+                </div>
+              </div>
+              <div id="ttsStreamingMetrics" class="metrics"></div>
             </div>
             <div class="section">
               <div class="section-head">
@@ -1003,14 +1018,6 @@
                 <table>
                   <thead><tr><th>任务</th><th>健康度</th><th>本轮结果</th><th>最近运行</th><th>耗时</th><th>删除</th><th>连续失败</th><th>异常</th></tr></thead>
                   <tbody id="maintenanceWorkerTbody"></tbody>
-                </table>
-              </div>
-            </div>
-            <div class="section">
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>资源</th><th>最近一分钟</th><th>当前并发</th><th>窗口峰值</th><th>窗口平均耗时</th><th>窗口成功 / 失败</th><th>窗口限流</th><th>状态</th></tr></thead>
-                  <tbody id="resourceTbody"></tbody>
                 </table>
               </div>
             </div>
@@ -2316,6 +2323,7 @@
         renderDatabaseMetrics(state.operations.database);
         renderMaintenanceWorkers(state.operations.maintenance);
         renderResources(state.resources);
+        renderTtsStreaming(state.resources.ttsStreaming);
         setStatus("运行监控已刷新");
       }
 
@@ -2420,6 +2428,47 @@
           <td>${escapeHtml(row.count)}</td>
           <td>${escapeHtml(fmtDate(row.lastOccurredAt))}</td>
         </tr>`).join("") || rowEmpty(5, "近 24 小时没有限流记录");
+      }
+
+      function renderTtsStreaming(streaming) {
+        const enabled = streaming?.enabled === true;
+        if (!enabled) {
+          $("ttsStreamingMeta").textContent = "流式 TTS 未启用；启用后这里会显示队列与 Worker 的实时状态。";
+          $("ttsStreamingMetrics").innerHTML = [["运行状态", "未启用", "TTS_STREAMING_ENABLED=false"]]
+            .map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+          return;
+        }
+        if (streaming.unavailable) {
+          $("ttsStreamingMeta").textContent = "流式 TTS 已启用，但 Redis 队列指标暂时不可读取。";
+          $("ttsStreamingMetrics").innerHTML = `<div class="metric"><span>运行状态</span><strong>指标不可用</strong><small>检查 Redis 连接；业务请求不会因监控读取失败而中断</small></div>`;
+          return;
+        }
+        const queued = Number(streaming.queued || 0);
+        const running = Number(streaming.running || 0);
+        const workers = Number(streaming.onlineWorkers || 0);
+        const succeeded = Number(streaming.succeeded || 0);
+        const failed = Number(streaming.failed || 0);
+        const completed = succeeded + failed;
+        const failureRate = completed ? failed / completed : 0;
+        const oldestAge = streaming.oldestRunningAgeMs == null ? null : Number(streaming.oldestRunningAgeMs);
+        const health = workers === 0
+          ? "无 Worker"
+          : oldestAge != null && oldestAge >= 120000
+            ? "任务阻塞"
+            : queued > workers * 4 || failureRate >= 0.1
+              ? "需要关注"
+              : "正常";
+        $("ttsStreamingMeta").textContent = `Redis 队列实时状态 · 近 ${streaming.windowMinutes || 1} 分钟聚合 · Worker 30 秒无心跳视为离线`;
+        $("ttsStreamingMetrics").innerHTML = [
+          ["整体状态", health, workers ? `${workers} 个 Worker 在线` : "请确认 tts 或 all Worker 组已启动"],
+          ["等待 / 处理中", `${queued} / ${running}`, oldestAge == null ? "当前无处理中任务" : `最老任务已运行 ${formatDuration(oldestAge / 1000)}`],
+          ["创建 / 复用", `${Number(streaming.created || 0)} / ${Number(streaming.reused || 0)}`, `近 ${streaming.windowMinutes || 1} 分钟`],
+          ["成功 / 失败", `${succeeded} / ${failed}`, completed ? `失败率 ${(failureRate * 100).toFixed(1)}%` : "窗口内暂无完成任务"],
+          ["平均排队", streaming.averageQueueWaitMs == null ? "—" : formatDurationMs(streaming.averageQueueWaitMs), "创建到 Worker 接单"],
+          ["平均首包", streaming.averageFirstChunkMs == null ? "—" : formatDurationMs(streaming.averageFirstChunkMs), "Worker 接单到首段音频"],
+          ["平均生成", streaming.averageDurationMs == null ? "—" : formatDurationMs(streaming.averageDurationMs), "Worker 完整生成耗时"],
+          ["已接单", Number(streaming.started || 0), "包含成功、失败及仍在运行"],
+        ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
       }
 
       function renderDatabaseMetrics(database) {

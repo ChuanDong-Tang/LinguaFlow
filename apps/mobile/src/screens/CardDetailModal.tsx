@@ -66,12 +66,18 @@ import type { CardGenerationTarget } from "../services/card/cardContentGeneratio
 
 type DetailTab = "review" | "cloze" | "dictation";
 type ClozeInputMode = "keyboard" | "choice";
+type ClozeInteractionMode = "edit" | ClozeInputMode;
+
+function initialClozeInteractionMode(autoStart: boolean, blankCount: number): ClozeInteractionMode {
+  if (!autoStart || blankCount === 0) return "edit";
+  return blankCount === 1 ? "keyboard" : "choice";
+}
 type ClozeChoiceOption = { value: string; incorrect: boolean };
 type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; height: number };
 type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
 const CARD_CLOZE_ONBOARDING_KEY = "linguaflow.card_detail.cloze_onboarding.v2";
 
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -119,6 +125,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onRecallNext?: () => void;
   onRecallFinish?: () => void;
   onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
+  onClozeStateChange?: (input: { recordId: string; contentType: CardLearningContentType; contentVersion: string; state: CardClozeState; version: number }) => void;
 }) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const exitProgress = useRef(new Animated.Value(transitionOrigin ? 1 : 0)).current;
@@ -128,11 +135,19 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   const recallNavigatingRef = useRef(false);
   const [recallInteractionLocked, setRecallInteractionLocked] = useState(false);
   const [tab, setTab] = useState<DetailTab>(initialTab === "cloze" ? "review" : initialTab);
+  const clozeEntryModeRef = useRef<{ recordId: string | null; autoStart: boolean }>({
+    recordId: detail?.id ?? null,
+    autoStart: initialTab === "cloze",
+  });
+  if ((detail?.id ?? null) !== clozeEntryModeRef.current.recordId) {
+    clozeEntryModeRef.current = { recordId: detail?.id ?? null, autoStart: initialTab === "cloze" };
+  }
   const [editing, setEditing] = useState(false);
   const practiceMode = tab === "dictation";
   const [clozeState, setClozeState] = useState<CardClozeState>({ schemaVersion: 1, blanks: [] });
   const [clozeVersion, setClozeVersion] = useState(0);
   const [clozeOwnerKey, setClozeOwnerKey] = useState<string | null>(null);
+  const clozeStateCacheRef = useRef(new Map<string, { state: CardClozeState; version: number }>());
   const [hasProAccess, setHasProAccess] = useState<boolean | null>(null);
   const [showClozeTipButton, setShowClozeTipButton] = useState(false);
   const [clozeTipVisible, setClozeTipVisible] = useState(false);
@@ -196,12 +211,13 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     ?? null;
   const contentBinding = activeBlock ? { contentType: activeBlock.contentType, contentVersion: activeBlock.contentVersion } : null;
   const activeClozeOwnerKey = detail && activeBlock ? `${detail.id}:${activeBlock.contentType}:${activeBlock.contentVersion}` : null;
+  const cachedActiveCloze = activeClozeOwnerKey ? clozeStateCacheRef.current.get(activeClozeOwnerKey) : undefined;
   const resolvedClozeState = activeClozeOwnerKey && clozeOwnerKey === activeClozeOwnerKey
     ? clozeState
-    : asCardClozeState(activeBlock?.practice?.clozeState);
+    : cachedActiveCloze?.state ?? asCardClozeState(activeBlock?.practice?.clozeState);
   const resolvedClozeVersion = activeClozeOwnerKey && clozeOwnerKey === activeClozeOwnerKey
     ? clozeVersion
-    : activeBlock?.practice?.clozeVersion ?? 0;
+    : cachedActiveCloze?.version ?? activeBlock?.practice?.clozeVersion ?? 0;
   const canPracticeActiveBlock = activeBlock?.contentType !== "original" || hasProAccess === true;
   const practiceDetail = detail && activeBlock ? {
     ...detail,
@@ -255,11 +271,17 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     }
   }, [detail?.id, initialTab]);
   useEffect(() => {
-    if (detail) {
-      setClozeState(asCardClozeState(activeBlock?.practice?.clozeState));
-      setClozeVersion(activeBlock?.practice?.clozeVersion ?? 0);
-      setClozeOwnerKey(activeClozeOwnerKey);
-    }
+    if (!detail || !activeClozeOwnerKey) return;
+    const incoming = {
+      state: asCardClozeState(activeBlock?.practice?.clozeState),
+      version: activeBlock?.practice?.clozeVersion ?? 0,
+    };
+    const cached = clozeStateCacheRef.current.get(activeClozeOwnerKey);
+    const next = cached && cached.version >= incoming.version ? cached : incoming;
+    clozeStateCacheRef.current.set(activeClozeOwnerKey, next);
+    setClozeState(next.state);
+    setClozeVersion(next.version);
+    setClozeOwnerKey(activeClozeOwnerKey);
   }, [
     detail?.id,
     activeBlock?.contentType,
@@ -268,6 +290,14 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     activeClozeOwnerKey,
   ]);
   const updateCloze = (state: CardClozeState, version: number) => {
+    if (activeClozeOwnerKey) clozeStateCacheRef.current.set(activeClozeOwnerKey, { state, version });
+    if (detail && activeBlock) onClozeStateChange?.({
+      recordId: detail.id,
+      contentType: activeBlock.contentType,
+      contentVersion: activeBlock.contentVersion,
+      state,
+      version,
+    });
     setClozeState(state);
     setClozeVersion(version);
     setClozeOwnerKey(activeClozeOwnerKey);
@@ -388,7 +418,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           </View>
         </View>
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} initialFillMode={initialTab === "cloze"} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
         {clozeTipVisible ? <View pointerEvents="box-none" style={styles.clozeTipOverlay}>
           <View style={styles.clozeTipCard}>
@@ -429,7 +459,7 @@ function RecallAdjacentCard({ detail, position, canUseDictation }: { detail: Car
       contentBinding={contentBinding}
       practiceEnabled={practiceEnabled}
       canUseDictation={canUseDictation}
-      initialFillMode
+      autoStartClozePractice
       clozeState={previewClozeState}
       clozeVersion={learningBlock.practice?.clozeVersion ?? 0}
       onClozeChange={() => undefined}
@@ -1436,13 +1466,13 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, initialFillMode, clozeState, clozeVersion, onClozeChange, onRemoveImage, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt, onInteractionLockChange }: {
+function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt, onInteractionLockChange }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
   practiceEnabled: boolean;
   canUseDictation: boolean;
-  initialFillMode: boolean;
+  autoStartClozePractice: boolean;
   clozeState: CardClozeState;
   clozeVersion: number;
   onClozeChange: (state: CardClozeState, version: number) => void;
@@ -1463,13 +1493,11 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     () => detail.images?.length ? detail.images : detail.image ? [detail.image] : [],
     [detail.images, detail.image],
   );
-  const uniqueBlankAnswerCount = useMemo(() => new Set(
-    clozeState.blanks.map((blank) => normalizeAnswer(blank.answer)).filter(Boolean),
-  ).size, [clozeState.blanks]);
-  const canStartFillMode = initialFillMode && clozeState.blanks.length > 0;
+  const blankCount = clozeState.blanks.length;
   const [savingCloze, setSavingCloze] = useState(false);
-  const [fillMode, setFillMode] = useState(canStartFillMode);
-  const [clozeInputMode, setClozeInputMode] = useState<ClozeInputMode>(() => canStartFillMode && uniqueBlankAnswerCount < 2 ? "keyboard" : "choice");
+  const [clozeMode, setClozeMode] = useState<ClozeInteractionMode>(() => initialClozeInteractionMode(autoStartClozePractice, blankCount));
+  const fillMode = clozeMode !== "edit";
+  const clozeInputMode: ClozeInputMode = clozeMode === "choice" ? "choice" : "keyboard";
   const [choiceTrayOptions, setChoiceTrayOptions] = useState<ClozeChoiceOption[]>([]);
   const choiceAnswerHandlerRef = useRef<(value: string) => void>(() => undefined);
   const [blankAction, setBlankAction] = useState<{ blank: CardClozeState["blanks"][number]; anchor: CardBlankActionAnchor } | null>(null);
@@ -1486,6 +1514,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const wholeArticleAudioPromisesRef = useRef(new Map<string, Promise<{
     audioUrl: string;
     sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }>;
+    deliveryMode: "buffered" | "streaming";
   }>>());
   const [articleSentenceMarks, setArticleSentenceMarks] = useState<Array<{
     text: string;
@@ -1564,9 +1593,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     choiceAnswerHandlerRef.current = handler ?? (() => undefined);
   }, []);
   useLayoutEffect(() => {
-    const shouldStartFillMode = initialFillMode && clozeState.blanks.length > 0;
-    setFillMode(shouldStartFillMode);
-    setClozeInputMode(shouldStartFillMode && uniqueBlankAnswerCount < 2 ? "keyboard" : "choice");
+    setClozeMode(initialClozeInteractionMode(autoStartClozePractice, clozeState.blanks.length));
     setChoiceTrayOptions([]);
     setAnswersVisible(false);
     setArticleSentenceMarks([]);
@@ -1575,12 +1602,16 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     flipProgress.stopAnimation();
     flipProgress.setValue(0);
     flipAnimatingRef.current = false;
-  }, [detail.id, contentBinding.contentType, contentBinding.contentVersion, initialFillMode, flipProgress]);
+  }, [detail.id, contentBinding.contentType, contentBinding.contentVersion, autoStartClozePractice, flipProgress]);
   useEffect(() => {
-    if (fillMode && clozeInputMode === "choice" && uniqueBlankAnswerCount < 2) {
-      setClozeInputMode("keyboard");
-    }
-  }, [clozeInputMode, fillMode, uniqueBlankAnswerCount]);
+    // Keep an active practice mode valid when the server state changes, but never
+    // auto-enter practice after the user exits it or creates a blank in edit mode.
+    setClozeMode((current) => {
+      if (blankCount === 0) return "edit";
+      if (current === "choice" && blankCount < 2) return "keyboard";
+      return current;
+    });
+  }, [blankCount]);
   useEffect(() => {
     if (savingCloze) {
       clozeSavingNoticeRef.current ??= showNotice({
@@ -1627,20 +1658,18 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     });
   }
 
-  function toggleFillMode(mode: ClozeInputMode): void {
-    if (fillMode && clozeInputMode === mode) {
-      setFillMode(false);
+  function toggleClozeMode(mode: ClozeInputMode): void {
+    if (clozeMode === mode) {
+      setClozeMode("edit");
       setAnswersVisible(false);
       return;
     }
-    if (mode === "choice" && uniqueBlankAnswerCount < 2) {
+    if (mode === "choice" && blankCount < 2) {
       showNotice({ message: t("card_detail.cloze.choice_unavailable"), type: "info", position: "top-center" });
-      setFillMode(false);
-      setAnswersVisible(false);
       return;
     }
-    setClozeInputMode(mode);
-    setFillMode(true);
+    if (blankCount === 0) return;
+    setClozeMode(mode);
     setAnswersVisible(false);
   }
 
@@ -1654,7 +1683,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     }
   }
   async function addBlank(segment: CardRecordDetail["rewriteSegments"][number], payload: NativeTextSelectionPayload): Promise<void> {
-    if (savingCloze) return;
+    if (savingCloze || clozeMode !== "edit") return;
     if (
       payload.start < 0
       || payload.end > segment.text.length
@@ -1778,6 +1807,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   function prepareWholeArticleAudio(): Promise<{
     audioUrl: string;
     sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }>;
+    deliveryMode: "buffered" | "streaming";
   }> {
     if (detail.source !== "card") return Promise.reject(new Error("Article is unavailable"));
     const entryId = detail.id.slice("card:".length);
@@ -1786,11 +1816,19 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     if (existing) return existing;
     const request = (async () => {
       const audio = await getCardArticleAudio({ entryId, ...contentBinding });
-      const source = { url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") };
-      void preloadTtsAudio(source).catch(() => undefined);
-      return { audioUrl: audio.audioUrl, sentenceMarks: audio.sentenceMarks ?? [] };
+      const deliveryMode = audio.deliveryMode ?? "buffered";
+      if (deliveryMode === "buffered") {
+        const source = { url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") };
+        void preloadTtsAudio(source).catch(() => undefined);
+      }
+      return { audioUrl: audio.audioUrl, sentenceMarks: audio.sentenceMarks ?? [], deliveryMode };
     })();
     wholeArticleAudioPromisesRef.current.set(requestKey, request);
+    void request.then((audio) => {
+      if (audio.deliveryMode === "streaming" && wholeArticleAudioPromisesRef.current.get(requestKey) === request) {
+        wholeArticleAudioPromisesRef.current.delete(requestKey);
+      }
+    });
     void request.catch(() => {
       if (wholeArticleAudioPromisesRef.current.get(requestKey) === request) wholeArticleAudioPromisesRef.current.delete(requestKey);
     });
@@ -1812,6 +1850,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
         loopScope: "all",
         navigationKey: `${articleNavigationPrefix}0`,
         sessionId,
+        loadTimeoutMs: audio.deliveryMode === "streaming" ? 45_000 : undefined,
         onFinished: () => {
           if (getTtsPlaybackState().loopMode === "all") void playArticle();
         },
@@ -1825,19 +1864,20 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   }
 
   async function playStandaloneSentence(row: CardClozeSentenceRow): Promise<void> {
-    const index = articleRows.findIndex((candidate) => candidate.key === row.key);
-    if (index < 0 || detail.source !== "card") return;
+    if (detail.source !== "card") return;
     const sessionId = beginTtsPlaybackSession();
     setSentenceAudioLoadingKey(row.key);
     try {
-      const audio = await prepareWholeArticleAudio();
+      const audio = await getCardSegmentAudio({
+        entryId: detail.id.slice("card:".length),
+        segmentId: row.segmentId,
+        sourceKind: "review_segment",
+        ...contentBinding,
+      });
       if (!isTtsPlaybackSessionCurrent(sessionId)) return;
-      setArticleSentenceMarks(audio.sentenceMarks);
-      const mark = audio.sentenceMarks[index];
-      if (!mark || mark.durationMs <= 0) throw new Error(t("card_detail.error.play"));
       await playTtsAudio({
         url: audio.audioUrl,
-        playbackRange: { startMs: mark.startMs, endMs: mark.startMs + mark.durationMs },
+        cacheKey: ["card-segment", detail.id, row.segmentId, contentBinding.contentVersion, audio.provider, audio.voiceCode].join("-"),
         loopScope: "one",
         navigationKey: `card:${detail.id}:sentence:${row.key}`,
         sessionId,
@@ -2100,8 +2140,8 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       <DetailActionButton label={t("card_detail.flip")} icon="swap-horizontal-outline" active={cardFace === "back"} onPress={flipCard} />
       <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={cardFace !== "front" || !practiceEnabled || !canUseDictation} onPress={onOpenDictation} />
       <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks} onPress={() => setAnswersVisible((current) => !current)} />
-      <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks} onPress={() => toggleFillMode("keyboard")} />
-      <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks} onPress={() => toggleFillMode("choice")} />
+      <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks} onPress={() => toggleClozeMode("keyboard")} />
+      <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || blankCount < 2} onPress={() => toggleClozeMode("choice")} />
       <DetailActionButton label={t("card_detail.a11y.play_all")} icon={articlePlaying ? "pause" : "play"} loading={articlePlaybackLoading} disabled={cardFace !== "front" || detail.source !== "card"} onPress={() => articlePlaybackActive ? toggleTtsPlayback() : void playArticle()} />
     </View>
     <DictionaryPopover
@@ -2311,10 +2351,10 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   useLayoutEffect(() => {
     setAnswers({});
     setCheckedAnswers({});
+  }, [detail.id, contentBinding.contentType, contentBinding.contentVersion]);
+  useLayoutEffect(() => {
     setActiveChoiceBlankIndex(fillMode && inputMode === "choice" ? firstChoiceBlankIndex : null);
-    if (!fillMode) {
-      Keyboard.dismiss();
-    }
+    if (!fillMode) Keyboard.dismiss();
   }, [detail.id, contentBinding.contentType, contentBinding.contentVersion, fillMode, inputMode, firstChoiceBlankIndex]);
   const choiceOptions = useMemo(() => {
     if (effectiveActiveChoiceBlankIndex === null) return [];
@@ -2476,7 +2516,6 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
       ) : (
           <View style={[styles.clozeSentenceList, embedded && styles.inlineClozeSentenceList]}>{sentenceRows.map((row) => {
             const segment = detail.rewriteSegments.find((candidate) => candidate.id === row.segmentId);
-            const rowFillMode = fillMode && row.blanks.length > 0;
             return <View key={row.key} style={[styles.clozeSentenceRow, embedded && styles.inlineClozeSentenceRow]}>
               <View style={styles.clozeSentenceBody}>
                 <StableCardSentence
@@ -2487,11 +2526,11 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                   saving={saving}
                   active={activeSentenceKey === row.key}
                   loading={loadingSentenceKey === row.key}
-                  fillMode={rowFillMode}
+                  fillMode={fillMode}
                   inputMode={inputMode}
                   activeChoiceBlankIndex={effectiveActiveChoiceBlankIndex}
                   onLookup={(term, start, end) => lookupInSentence(row, term, start, end)}
-                  onAddBlank={segment && !saving ? (payload) => onAddBlank?.(segment, payload) : undefined}
+                  onAddBlank={!fillMode && segment && !saving ? (payload) => onAddBlank?.(segment, payload) : undefined}
                   onBlankLongPress={onBlankLongPress}
                   onPlay={() => onPlaySentence?.(row)}
                   onTextSelectionStart={onTextSelectionStart}
@@ -2558,13 +2597,14 @@ function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, ac
     correctRanges={row.blanks.filter(({ blank }) => blank.mastered).map(({ blank }) => ({ start: blank.startUtf16 - row.textStart, end: blank.endUtf16 - row.textStart }))}
     answersVisible={revealed}
     enableDictionaryMenu
-    enableClozeMenu={!saving}
+    enableClozeMenu={!fillMode && !saving}
     onSelectionStart={() => {
       onTextSelectionStart?.();
     }}
     onSelectionEnd={onTextSelectionEnd}
     onDictionarySelection={(payload) => onLookup(payload.selectedText, row.textStart + payload.start, row.textStart + payload.end)}
     onSelectionChange={(payload) => {
+      if (fillMode) return;
       onAddBlank?.({ ...payload, start: row.textStart + payload.start, end: row.textStart + payload.end });
     }}
     onClozeRangePress={(index, selectionRect) => {

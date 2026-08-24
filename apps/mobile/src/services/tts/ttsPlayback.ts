@@ -51,6 +51,7 @@ export type TtsAudioSource = {
   onFinished?: () => void;
   onError?: () => void;
   sessionId?: number;
+  loadTimeoutMs?: number;
 };
 
 export type TtsPlaybackState = {
@@ -184,7 +185,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     const onError = resolvedSource.onError;
     stopTtsAudio();
     onError?.();
-  }, TTS_AUDIO_LOAD_TIMEOUT_MS);
+  }, resolvedSource.loadTimeoutMs ?? TTS_AUDIO_LOAD_TIMEOUT_MS);
   applyPlayerControls(player);
   setPlaybackState({
     hasActiveAudio: true,

@@ -1,6 +1,11 @@
 import type * as SpeechSDKTypes from "microsoft-cognitiveservices-speech-sdk";
 import type { TtsSentenceMark, TtsWordMark } from "@lf/core/ports/repository/TtsAssetRepository.js";
-import type { SynthesizeSpeechInput, SynthesizeSpeechResult, TtsProvider } from "../../services/tts/TtsProvider.js";
+import type {
+  SynthesizeSpeechInput,
+  SynthesizeSpeechResult,
+  SynthesizeSpeechStreamCallbacks,
+  TtsProvider,
+} from "../../services/tts/TtsProvider.js";
 import { resolveDefaultTtsVoice } from "../../services/tts/TtsVoiceCatalog.js";
 
 type SpeechSdkModule = typeof SpeechSDKTypes;
@@ -10,7 +15,8 @@ type RawBoundaryMark = {
   durationMs: number;
 };
 
-const SPEECH_SYNTHESIS_TIMEOUT_MS = 20_000;
+const BUFFERED_SYNTHESIS_TIMEOUT_MS = readPositiveInt(process.env.TTS_SYNTHESIS_TIMEOUT_MS, 20_000);
+const STREAMING_SYNTHESIS_TIMEOUT_MS = readPositiveInt(process.env.TTS_STREAMING_SYNTHESIS_TIMEOUT_MS, 180_000);
 
 export class AzureGlobalTtsProvider implements TtsProvider {
   readonly providerName = "azure_global";
@@ -21,6 +27,20 @@ export class AzureGlobalTtsProvider implements TtsProvider {
   ) {}
 
   async synthesize(input: SynthesizeSpeechInput): Promise<SynthesizeSpeechResult> {
+    return this.synthesizeInternal(input);
+  }
+
+  async synthesizeStreaming(
+    input: SynthesizeSpeechInput,
+    callbacks: SynthesizeSpeechStreamCallbacks,
+  ): Promise<SynthesizeSpeechResult> {
+    return this.synthesizeInternal(input, callbacks);
+  }
+
+  private async synthesizeInternal(
+    input: SynthesizeSpeechInput,
+    callbacks?: SynthesizeSpeechStreamCallbacks,
+  ): Promise<SynthesizeSpeechResult> {
     if (!this.subscriptionKey || !this.region) {
       throw new Error("AZURE_SPEECH_KEY and AZURE_SPEECH_REGION are required");
     }
@@ -43,6 +63,7 @@ export class AzureGlobalTtsProvider implements TtsProvider {
     const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig, undefined);
     const rawWordMarks: RawBoundaryMark[] = [];
     const rawSentenceMarks: RawBoundaryMark[] = [];
+    const audioChunks: Buffer[] = [];
 
     synthesizer.wordBoundary = (_sender, event) => {
       const text = String(event.text ?? "").trim();
@@ -60,19 +81,29 @@ export class AzureGlobalTtsProvider implements TtsProvider {
     };
 
     try {
+      const stream = callbacks
+        ? {
+            write(dataBuffer: ArrayBuffer) {
+              const chunk = Buffer.from(dataBuffer.slice(0));
+              audioChunks.push(chunk);
+              callbacks.onAudioChunk(chunk);
+            },
+            close() { /* Speech SDK owns stream completion. */ },
+          }
+        : undefined;
       const result = await withTimeout(
         speakSsml(synthesizer, buildSsml({
           text: input.text,
           languageCode: input.languageCode,
           voiceCode: input.voiceCode || resolveDefaultTtsVoice(input.languageCode, this.providerName),
-        })),
-        SPEECH_SYNTHESIS_TIMEOUT_MS,
+        }), stream),
+        callbacks ? STREAMING_SYNTHESIS_TIMEOUT_MS : BUFFERED_SYNTHESIS_TIMEOUT_MS,
         "Azure speech synthesis timed out",
       );
       if (result.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
         throw new Error(result.errorDetails || `Azure speech synthesis failed: ${result.reason}`);
       }
-      const audio = Buffer.from(result.audioData);
+      const audio = audioChunks.length > 0 ? Buffer.concat(audioChunks) : Buffer.from(result.audioData);
       const wordMarks = alignBoundaryMarks(input.text, rawWordMarks);
       const azureSentenceMarks = alignBoundaryMarks(input.text, rawSentenceMarks);
       const durationMs = resolveDurationMs([...wordMarks, ...azureSentenceMarks]);
@@ -83,6 +114,11 @@ export class AzureGlobalTtsProvider implements TtsProvider {
         durationMs,
         wordMarks,
         sentenceMarks: buildSentenceMarks(input.text, input.sentenceSegments, wordMarks, durationMs, azureSentenceMarks),
+        providerTimings: {
+          firstByteMs: readResultNumber(result, SpeechSDK.PropertyId.SpeechServiceResponse_SynthesisFirstByteLatencyMs),
+          finishMs: readResultNumber(result, SpeechSDK.PropertyId.SpeechServiceResponse_SynthesisFinishLatencyMs),
+          networkMs: readResultNumber(result, SpeechSDK.PropertyId.SpeechServiceResponse_SynthesisNetworkLatencyMs),
+        },
       };
     } finally {
       synthesizer.close();
@@ -112,15 +148,25 @@ async function loadSpeechSdk(): Promise<SpeechSdkModule> {
 
 function speakSsml(
   synthesizer: SpeechSDKTypes.SpeechSynthesizer,
-  ssml: string
+  ssml: string,
+  stream?: SpeechSDKTypes.PushAudioOutputStreamCallback,
 ): Promise<SpeechSDKTypes.SpeechSynthesisResult> {
   return new Promise((resolve, reject) => {
     synthesizer.speakSsmlAsync(
       ssml,
       (result) => resolve(result),
-      (error) => reject(new Error(String(error)))
+      (error) => reject(new Error(String(error))),
+      stream,
     );
   });
+}
+
+function readResultNumber(
+  result: SpeechSDKTypes.SpeechSynthesisResult,
+  propertyId: SpeechSDKTypes.PropertyId,
+): number | null {
+  const value = Number(result.properties.getProperty(propertyId, ""));
+  return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 function buildSsml(input: { text: string; languageCode: string; voiceCode: string }): string {
@@ -265,6 +311,11 @@ function escapeXml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function readPositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export function resolveDefaultAzureVoice(languageCode: string): string {

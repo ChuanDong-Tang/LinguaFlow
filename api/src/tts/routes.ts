@@ -26,10 +26,13 @@ import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { ResourceLimitedError, type ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
+import type { TtsStreamingCoordinator } from "@lf/server/services/tts/TtsStreamingCoordinator.js";
+import { once } from "node:events";
 
 export interface TtsRouteDeps {
   ttsService: TtsService;
   cardSpeechService: CardSpeechService;
+  ttsStreamingCoordinator?: TtsStreamingCoordinator;
   rateLimiter?: ChatGenerationRateLimiter;
   resourceGovernor?: ResourceGovernor;
   userRepository: {
@@ -58,6 +61,101 @@ type TtsMessageBody = {
 };
 
 export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): void {
+  app.route({
+    method: ["GET", "HEAD"],
+    url: "/tts/stream/:generationId",
+    handler: async (req, reply) => {
+      const coordinator = deps.ttsStreamingCoordinator;
+      const params = req.params as { generationId?: unknown };
+      const query = req.query as { ticket?: unknown };
+      const generationId = String(params.generationId ?? "");
+      const ticket = typeof query.ticket === "string" ? query.ticket : "";
+      const payload = coordinator?.verifyTicket(ticket);
+      if (!coordinator || !payload || payload.generationId !== generationId) {
+        return reply.status(401).send({ ok: false, error: { code: "TTS_STREAM_TICKET_INVALID", message: "Invalid or expired stream ticket" } });
+      }
+      const generation = await coordinator.getGeneration(generationId);
+      if (!generation || generation.userId !== payload.userId || generation.cacheKey !== payload.cacheKey) {
+        return reply.status(404).send({ ok: false, error: { code: "TTS_STREAM_NOT_FOUND", message: "Stream not found" } });
+      }
+      if (generation.status === "ready" && generation.audioUrl) return reply.redirect(generation.audioUrl);
+      if (generation.status === "failed") {
+        return reply.status(503).send({ ok: false, error: { code: generation.errorCode ?? "TTS_STREAM_FAILED", message: "Speech generation failed" } });
+      }
+      reply.header("Content-Type", "audio/mpeg");
+      reply.header("Cache-Control", "no-store, no-transform");
+      reply.header("X-Accel-Buffering", "no");
+      reply.header("Accept-Ranges", "none");
+      if (req.method === "HEAD") return reply.status(200).send();
+
+      reply.hijack();
+      reply.raw.writeHead(200, reply.getHeaders() as Record<string, string>);
+      const reader = coordinator.duplicateRedis();
+      const streamStartedAt = Date.now();
+      const requestId = resolveRequestId(req.headers["x-request-id"]);
+      let cursor = "0-0";
+      let closed = false;
+      let sentBytes = 0;
+      let firstByteAt: number | null = null;
+      let terminalKind: "end" | "error" | null = null;
+      reply.raw.once("close", () => { closed = true; });
+      try {
+        while (!closed) {
+          const raw = await (reader as any).xreadBuffer(
+            "COUNT", 32, "BLOCK", 5_000, "STREAMS", coordinator.audioStreamKey(generationId), cursor,
+          );
+          const entries = parseAudioStreamEntries(raw);
+          if (!entries.length) {
+            const current = await coordinator.getGeneration(generationId);
+            if (current?.status === "failed") break;
+            if (current?.status === "ready") {
+              const tail = await (reader as any).xreadBuffer(
+                "COUNT", 32, "STREAMS", coordinator.audioStreamKey(generationId), cursor,
+              );
+              const tailEntries = parseAudioStreamEntries(tail);
+              if (!tailEntries.length) break;
+              entries.push(...tailEntries);
+            }
+          }
+          let ended = false;
+          for (const entry of entries) {
+            cursor = entry.id;
+            if (entry.kind === "audio" && entry.data) {
+              firstByteAt ??= Date.now();
+              sentBytes += entry.data.length;
+              if (!reply.raw.write(entry.data)) await once(reply.raw, "drain");
+            } else if (entry.kind === "end" || entry.kind === "error") {
+              terminalKind = entry.kind;
+              ended = true;
+              break;
+            }
+          }
+          if (ended) break;
+        }
+      } finally {
+        reader.disconnect();
+        if (!reply.raw.destroyed) reply.raw.end();
+        void writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: payload.userId,
+          module: "tts",
+          event: "tts.streaming.delivery",
+          level: terminalKind === "error" ? "warn" : "info",
+          status: terminalKind === "error" ? "failed" : "success",
+          errorCode: terminalKind === "error" ? "TTS_STREAM_INTERRUPTED" : null,
+          metadata: {
+            generationId,
+            sentBytes,
+            firstByteMs: firstByteAt === null ? null : firstByteAt - streamStartedAt,
+            durationMs: Date.now() - streamStartedAt,
+            terminalKind,
+            clientDisconnected: closed && terminalKind === null,
+          },
+        });
+      }
+    },
+  });
+
   app.post("/tts/text", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
@@ -306,7 +404,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       throw error;
     }
     const params = req.params as { entryId?: unknown; segmentId?: unknown };
-    const query = req.query as { sourceKind?: unknown; start?: unknown; end?: unknown; contentType?: unknown; contentVersion?: unknown };
+    const query = req.query as { sourceKind?: unknown; start?: unknown; end?: unknown; contentType?: unknown; contentVersion?: unknown; streaming?: unknown };
     const rateLimitResult = await consumeTtsRateLimit(deps.rateLimiter, userId, deps.resourceGovernor);
     if (!rateLimitResult.allowed) {
       return reply.status(429).send({ ok: false, request_id: requestId, error: { code: rateLimitResult.code, message: "发音请求过于频繁，请稍后再试" } });
@@ -315,13 +413,63 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       const segmentId = String(params.segmentId ?? "");
       const contentType = query.contentType as "original" | "rewrite" | "reply" | undefined;
       const contentVersion = typeof query.contentVersion === "string" ? query.contentVersion : undefined;
-      const data = segmentId === "__article__"
-        ? await deps.cardSpeechService.getOrCreateArticle({
-            userId,
-            entryId: String(params.entryId ?? ""),
-            contentType: contentType ?? "rewrite",
-            contentVersion: contentVersion ?? "",
-          })
+      const articleInput = {
+        userId,
+        entryId: String(params.entryId ?? ""),
+        contentType: contentType ?? "rewrite",
+        contentVersion: contentVersion ?? "",
+      };
+      const wantsStreaming = query.streaming === "1" || query.streaming === "true";
+      const prepared = segmentId === "__article__" && deps.ttsStreamingCoordinator
+        ? await deps.cardSpeechService.prepareArticle(articleInput)
+        : null;
+      const threshold = prepared ? streamingThreshold(prepared.generation.languageCode) : Number.POSITIVE_INFINITY;
+      const activeStreamingGeneration = prepared && !prepared.cached
+        ? await deps.ttsStreamingCoordinator!.findActiveByCacheKey(prepared.generation.cacheKey)
+        : null;
+      const streamingAvailable = Boolean(
+        prepared
+        && wantsStreaming
+        && !prepared.cached
+        && prepared.graphemeCount > threshold
+        && await deps.ttsStreamingCoordinator!.hasOnlineWorker()
+      );
+      if (activeStreamingGeneration && (!wantsStreaming || prepared!.graphemeCount <= threshold || !streamingAvailable)) {
+        if (!streamingAvailable && activeStreamingGeneration.status === "queued") {
+          await deps.ttsStreamingCoordinator!.markFailed(activeStreamingGeneration.generationId, "TTS_STREAMING_WORKER_UNAVAILABLE");
+        } else {
+          throw new CardSpeechGenerationInProgressError();
+        }
+      }
+      const data = prepared && streamingAvailable
+        ? await (async () => {
+            const created = await deps.ttsStreamingCoordinator!.createOrReuse(prepared.generation);
+            const ticket = deps.ttsStreamingCoordinator!.createTicket({
+              generationId: created.generation.generationId,
+              cacheKey: created.generation.cacheKey,
+              userId,
+            });
+            return {
+              id: created.generation.generationId,
+              entryId: articleInput.entryId,
+              segmentId: "__article__",
+              provider: prepared.generation.provider,
+              voiceCode: prepared.generation.voiceCode,
+              audioUrl: `/tts/stream/${encodeURIComponent(created.generation.generationId)}?ticket=${encodeURIComponent(ticket)}`,
+              audioUrlExpiresAt: new Date(Date.now() + 90_000).toISOString(),
+              durationMs: null,
+              wordMarks: null,
+              sentenceMarks: null,
+              cached: false,
+              deliveryMode: "streaming" as const,
+              generationId: created.generation.generationId,
+              generationReused: created.reused,
+            };
+          })()
+        : prepared?.cached
+          ? { ...prepared.cached, deliveryMode: "buffered" as const }
+          : segmentId === "__article__"
+            ? { ...(await deps.cardSpeechService.getOrCreateArticle(articleInput)), deliveryMode: "buffered" as const }
         : await deps.cardSpeechService.getOrCreateSegment({
             userId,
             entryId: String(params.entryId ?? ""),
@@ -396,6 +544,31 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       if (error instanceof CardSpeechGenerationInProgressError) return reply.status(202).send({ ok: false, request_id: requestId, error: { code: error.code, message: "发音仍在生成，请稍后重试" } });
       throw error;
     }
+  });
+}
+
+function streamingThreshold(languageCode: string): number {
+  const isCjk = /^(zh|ja|ko)(-|$)/iu.test(languageCode);
+  const raw = isCjk ? process.env.TTS_STREAMING_CJK_MIN_CHARS : process.env.TTS_STREAMING_DEFAULT_MIN_CHARS;
+  const fallback = isCjk ? 100 : 200;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : fallback;
+}
+
+function parseAudioStreamEntries(raw: unknown): Array<{ id: string; kind: string; data: Buffer | null }> {
+  if (!Array.isArray(raw) || !Array.isArray(raw[0]) || !Array.isArray(raw[0][1])) return [];
+  return raw[0][1].flatMap((row: unknown) => {
+    if (!Array.isArray(row) || !Buffer.isBuffer(row[0]) || !Array.isArray(row[1])) return [];
+    let kind = "";
+    let data: Buffer | null = null;
+    for (let index = 0; index < row[1].length; index += 2) {
+      const key = row[1][index];
+      const value = row[1][index + 1];
+      const keyText = Buffer.isBuffer(key) ? key.toString("utf8") : String(key);
+      if (keyText === "kind") kind = Buffer.isBuffer(value) ? value.toString("utf8") : String(value);
+      if (keyText === "data" && Buffer.isBuffer(value)) data = value;
+    }
+    return [{ id: row[0].toString("utf8"), kind, data }];
   });
 }
 

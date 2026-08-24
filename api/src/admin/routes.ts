@@ -10,6 +10,7 @@ import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
 import type { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 import type { ApiRequestMetrics } from "@lf/server/services/observability/ApiRequestMetrics.js";
 import type { DatabaseQueryMetrics } from "@lf/server/services/observability/DatabaseQueryMetrics.js";
+import type { TtsStreamingCoordinator } from "@lf/server/services/tts/TtsStreamingCoordinator.js";
 
 export interface AdminRouteDeps {
   subscriptionService: SubscriptionService;
@@ -61,6 +62,7 @@ export interface AdminRouteDeps {
   resourceGovernor?: ResourceGovernor;
   apiRequestMetrics?: ApiRequestMetrics;
   databaseQueryMetrics?: DatabaseQueryMetrics;
+  ttsStreamingCoordinator?: TtsStreamingCoordinator | null;
 }
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps): void {
@@ -72,7 +74,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const windowMinutes = Number.isFinite(requestedWindow)
       ? Math.max(1, Math.min(120, Math.floor(requestedWindow)))
       : 15;
-    const [resources, rawLimitEvents24h] = await Promise.all([
+    const [resources, rawLimitEvents24h, ttsStreaming] = await Promise.all([
       deps.resourceGovernor?.snapshots(windowMinutes) ?? [],
       deps.prisma.$queryRawUnsafe(
         `SELECT
@@ -94,6 +96,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         count: number | bigint;
         lastOccurredAt: Date;
       }>>,
+      deps.ttsStreamingCoordinator
+        ? deps.ttsStreamingCoordinator.snapshot(windowMinutes).catch(() => ({ enabled: true as const, unavailable: true }))
+        : null,
     ]);
     const limitEvents24h = rawLimitEvents24h.map((row) => ({
       ...row,
@@ -109,6 +114,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         redisShared: Boolean(getRuntimeConfig().redisUrl),
         resources,
         limitEvents24h,
+        ttsStreaming: ttsStreaming ?? { enabled: false },
       },
     });
   });

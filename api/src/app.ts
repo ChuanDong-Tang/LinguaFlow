@@ -83,6 +83,7 @@ import { AutoRenewService } from "@lf/server/services/payment/AutoRenewService.j
 import { PaymentEntitlementRefreshService } from "@lf/server/services/payment/PaymentEntitlementRefreshService.js";
 import { getBusinessClockSnapshot } from "@lf/server/services/time/businessClock.js";
 import { TtsService } from "@lf/server/services/tts/TtsService.js";
+import { TtsStreamingCoordinator } from "@lf/server/services/tts/TtsStreamingCoordinator.js";
 import { AzureGlobalTtsProvider } from "@lf/server/providers/tts/AzureGlobalTtsProvider.js";
 import { SttService } from "@lf/server/services/stt/SttService.js";
 import { AzureGlobalSttProvider } from "@lf/server/providers/stt/AzureGlobalSttProvider.js";
@@ -198,7 +199,7 @@ export function createApp() {
   const apiRequestMetrics = new ApiRequestMetrics(redisClient, slowRequestThresholdMs);
   app.addHook("onResponse", async (req, reply) => {
     const route = req.routeOptions.url;
-    if (!route || route === "/health" || req.headers.upgrade === "websocket") return;
+    if (!route || route === "/health" || route === "/tts/stream/:generationId" || req.headers.upgrade === "websocket") return;
     const durationMs = Math.round(reply.elapsedTime * 10) / 10;
     const isServerError = reply.statusCode >= 500;
     void apiRequestMetrics.observe({
@@ -445,6 +446,13 @@ export function createApp() {
     resourceGovernor,
     runtimeConfig.cardContentMaxChars,
   );
+  const ttsStreamingEnabled = process.env.TTS_STREAMING_ENABLED?.trim().toLowerCase() === "true";
+  const ttsStreamingTicketSecret = process.env.TTS_STREAMING_TICKET_SECRET?.trim() ?? "";
+  if (ttsStreamingEnabled && !redisClient) throw new Error("TTS_STREAMING_REDIS_REQUIRED");
+  if (ttsStreamingEnabled && !ttsStreamingTicketSecret) throw new Error("TTS_STREAMING_TICKET_SECRET_REQUIRED");
+  const ttsStreamingCoordinator = ttsStreamingEnabled
+    ? new TtsStreamingCoordinator(redisClient!, { ticketSecret: ttsStreamingTicketSecret })
+    : undefined;
   const sttService = new SttService(new AzureGlobalSttProvider());
 
   app.after((error) => {
@@ -508,6 +516,7 @@ export function createApp() {
     registerTtsRoutes(app, {
       ttsService,
       cardSpeechService,
+      ttsStreamingCoordinator,
       rateLimiter: chatGenerationRateLimiter,
       resourceGovernor,
       userRepository,
@@ -531,7 +540,7 @@ export function createApp() {
       systemEventLogRepository,
     });
     registerAppVersionRoutes(app);
-    registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository, resourceGovernor, apiRequestMetrics, databaseQueryMetrics });
+    registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository, resourceGovernor, apiRequestMetrics, databaseQueryMetrics, ttsStreamingCoordinator });
 
     app.get("/health", async (req, reply) => {
       const [db, redis] = await Promise.all([

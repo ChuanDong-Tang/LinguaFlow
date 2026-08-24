@@ -39,7 +39,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const { isMounted } = useMountedGuard();
   const [agreed, setAgreed] = useState(false);
   const [method, setMethod] = useState<LoginMethod>("passcode");
-  const [mode, setMode] = useState<LoginMode>("phone");
+  const [mode, setMode] = useState<LoginMode>("email");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [passCode, setPassCode] = useState("");
@@ -189,11 +189,11 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
         {method === "passcode" ? (
           <View style={styles.modeTabs}>
-            <Pressable style={[styles.modeTab, mode === "phone" && styles.modeTabActive]} onPress={() => switchMode("phone")}>
-              <Text style={[styles.modeTabText, mode === "phone" && styles.modeTabTextActive]}>{t("auth.login.phone_tab")}</Text>
-            </Pressable>
             <Pressable style={[styles.modeTab, mode === "email" && styles.modeTabActive]} onPress={() => switchMode("email")}>
               <Text style={[styles.modeTabText, mode === "email" && styles.modeTabTextActive]}>{t("auth.login.email_tab")}</Text>
+            </Pressable>
+            <Pressable style={[styles.modeTab, mode === "phone" && styles.modeTabActive]} onPress={() => switchMode("phone")}>
+              <Text style={[styles.modeTabText, mode === "phone" && styles.modeTabTextActive]}>{t("auth.login.phone_tab")}</Text>
             </Pressable>
           </View>
         ) : (
@@ -240,6 +240,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               />
             )}
           </View>
+          {method === "passcode" && mode === "phone" ? <Text style={styles.phoneRegionHint}>{t("auth.login.phone_region_hint")}</Text> : null}
           {credentialError ? <Text style={styles.fieldErrorText}>{credentialError}</Text> : null}
           <View style={styles.inputShell}>
             {method === "password" ? (
@@ -518,6 +519,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
+  },
+  phoneRegionHint: {
+    marginTop: -5,
+    paddingHorizontal: 2,
+    color: "#8A8D96",
+    fontSize: 12,
+    lineHeight: 18,
   },
   countryCode: {
     paddingRight: 12,
