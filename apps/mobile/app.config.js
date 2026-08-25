@@ -7,7 +7,7 @@ module.exports = {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.0.9",
+    version: "1.1.0",
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
@@ -20,7 +20,7 @@ module.exports = {
     },
     ios: {
       bundleIdentifier: "com.yueyantech.oio",
-      buildNumber: "62",
+      buildNumber: "125",
       supportsTablet: true,
       icon: "./assets/app/logo_main_apple.png",
       infoPlist: {
@@ -86,7 +86,7 @@ module.exports = {
       "./plugins/with-android-release-signing",
     ],
     owner: "reedtang",
-    runtimeVersion: "1.0.9",
+    runtimeVersion: "1.1.0",
     updates: {
       url: "https://u.expo.dev/0a8b5bb4-bdb1-4950-b3e9-6e2530b9c836",
     },

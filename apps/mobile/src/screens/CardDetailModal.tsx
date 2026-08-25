@@ -22,9 +22,9 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as MediaLibrary from "expo-media-library";
 import { File, Paths } from "expo-file-system";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView, KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import Svg, { Defs, Mask, Path, Rect } from "react-native-svg";
 import {
   saveCardClozeUpdate,
   getCardArticleAudio,
@@ -62,6 +62,7 @@ import { hasLocalStrictProAccess } from "../services/entitlement/proAccess";
 import { copyTextToClipboard } from "../services/device/clipboardService";
 import { useFloatingNotice } from "./shared/FloatingNotice";
 import type { CardGenerationTarget } from "../services/card/cardContentGeneration";
+import { completeClozeOnboarding, shouldShowClozeOnboarding } from "../services/card/clozeOnboarding";
 
 type DetailTab = "review" | "cloze" | "dictation";
 type ClozeInputMode = "keyboard" | "choice";
@@ -74,9 +75,8 @@ function initialClozeInteractionMode(autoStart: boolean, blankCount: number): Cl
 type ClozeChoiceOption = { value: string; incorrect: boolean };
 type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; height: number };
 type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
-const CARD_TEXT_SELECTION_ONBOARDING_KEY = "linguaflow.card_detail.cloze_onboarding.v2";
-
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, showClozeOnboarding = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+type ClozeOnboardingTarget = { x: number; y: number; width: number; height: number };
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -92,7 +92,6 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   initialTab?: DetailTab;
   initialEditing?: boolean;
   closeAfterEditing?: boolean;
-  showClozeOnboarding?: boolean;
   onClose: () => void;
   returnLabel?: string;
   onReplaceImage?: (source: "camera" | "library", asset?: { uri: string; width: number; height: number }) => void;
@@ -131,7 +130,8 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onClozeStateChange?: (input: { recordId: string; contentType: CardLearningContentType; contentVersion: string; state: CardClozeState; version: number }) => void;
 }) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const exitProgress = useRef(new Animated.Value(transitionOrigin ? 1 : 0)).current;
+  const mountedWithDetailRef = useRef(Boolean(detail));
+  const exitProgress = useRef(new Animated.Value(detail || transitionOrigin ? 1 : 0)).current;
   const exitingRef = useRef(false);
   const enteredRef = useRef(false);
   const recallTranslateX = useRef(new Animated.Value(0)).current;
@@ -153,6 +153,17 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   const clozeStateCacheRef = useRef(new Map<string, { state: CardClozeState; version: number }>());
   const [hasProAccess, setHasProAccess] = useState<boolean | null>(null);
   const [clozeTipVisible, setClozeTipVisible] = useState(false);
+  const [clozeTipEligible, setClozeTipEligible] = useState(false);
+  const [clozeTipTarget, setClozeTipTarget] = useState<ClozeOnboardingTarget | null>(null);
+  const [clozeGuideStep, setClozeGuideStep] = useState<1 | 2>(1);
+  const handleClozeLearningTargetReady = useCallback((target: ClozeOnboardingTarget) => {
+    setClozeTipTarget(target);
+    setClozeTipVisible(true);
+  }, []);
+  const handleClozeActionBarTargetReady = useCallback((target: ClozeOnboardingTarget) => {
+    setClozeTipTarget(target);
+    setClozeTipVisible(true);
+  }, []);
   const [recallHandoff, setRecallHandoff] = useState<{
     direction: "next" | "previous";
     detail: CardRecordDetail;
@@ -243,26 +254,29 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   }, [hasProAccess, tab]);
   useEffect(() => {
     if (
-      !showClozeOnboarding
-      || !detail
+      !detail
       || activeBlock?.contentType !== "rewrite"
-      || pendingGenerationTargets.includes("expression")
+      || pendingGenerationTargets.length > 0
+      || failedGenerationTargets.length > 0
     ) return;
     let active = true;
-    void AsyncStorage.getItem(CARD_TEXT_SELECTION_ONBOARDING_KEY)
-      .then((seen) => { if (active && !seen) setClozeTipVisible(true); })
-      .catch(() => { if (active) setClozeTipVisible(true); });
+    void shouldShowClozeOnboarding(detail.id)
+      .then((shouldShow) => { if (active && shouldShow) setClozeTipEligible(true); })
+      .catch(() => undefined);
     return () => { active = false; };
-  }, [activeBlock?.contentType, detail?.id, pendingGenerationTargets, showClozeOnboarding]);
+  }, [activeBlock?.contentType, detail?.id, failedGenerationTargets, pendingGenerationTargets]);
   useEffect(() => {
     if (!detail || enteredRef.current) return;
     enteredRef.current = true;
-    if (!transitionOrigin) return;
+    if (!mountedWithDetailRef.current && !transitionOrigin) {
+      exitProgress.setValue(0);
+      return;
+    }
     exitProgress.setValue(1);
     const frame = requestAnimationFrame(() => {
       Animated.timing(exitProgress, {
         toValue: 0,
-        duration: 250,
+        duration: transitionOrigin ? 250 : 230,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
@@ -401,11 +415,9 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     <Animated.View style={[
       styles.fullscreen,
       {
-        opacity: transitionOrigin
-          ? exitProgress.interpolate({ inputRange: [0, 0.68, 0.92, 1], outputRange: [1, 1, 0.18, 0] })
-          : 1,
+        opacity: exitProgress.interpolate({ inputRange: [0, 0.68, 0.92, 1], outputRange: [1, 1, 0.18, 0] }),
         transform: [
-          { translateX: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [0, transitionOrigin ? transitionOrigin.x + transitionOrigin.width / 2 - windowWidth / 2 : -windowWidth] }) },
+          { translateX: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [0, transitionOrigin ? transitionOrigin.x + transitionOrigin.width / 2 - windowWidth / 2 : windowWidth * 0.12] }) },
           { translateY: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [0, transitionOrigin ? transitionOrigin.y + transitionOrigin.height / 2 - windowHeight / 2 : 0] }) },
           { scale: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [1, transitionOrigin ? Math.max(0.1, transitionOrigin.width / windowWidth) : 1] }) },
         ],
@@ -416,7 +428,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       <SafeAreaView style={styles.page}>
         <View style={styles.header}>
           <View style={styles.historyButtons}>
-            {returnLabel && tab === "review" ? <View style={styles.historyButton} /> : <Pressable accessibilityLabel={recallPosition && tab === "review" ? t("recall.exit") : tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close")} style={styles.historyButton} onPress={recallPosition && tab === "review" ? onClose : tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? onBack : () => animateExit(onClose, false)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>}
+            <Pressable accessibilityLabel={returnLabel ?? (recallPosition && tab === "review" ? t("recall.exit") : tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close"))} style={styles.historyButton} onPress={recallPosition && tab === "review" ? onClose : tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? onBack : () => animateExit(onClose, false)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>
             {practiceMode && canGoForward && onForward ? <Pressable accessibilityLabel={t("card_detail.a11y.forward")} style={styles.historyButton} onPress={onForward}><Ionicons name="chevron-forward" size={22} color={theme.colors.text} /></Pressable> : null}
           </View>
           <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>
@@ -425,27 +437,130 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           </View>
         </View>
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
-        {clozeTipVisible ? <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t("card_detail.cloze.onboarding")}
-          style={styles.clozeTipOverlay}
-          onPress={() => {
-            setClozeTipVisible(false);
-            void AsyncStorage.setItem(CARD_TEXT_SELECTION_ONBOARDING_KEY, "1");
-          }}
-        >
-          <Text style={styles.clozeTipText}>{t("card_detail.cloze.onboarding")}</Text>
-          <Text style={styles.clozeTipDoneText}>{t("common.got_it")}</Text>
-        </Pressable> : null}
-        {returnLabel ? <Pressable accessibilityLabel={t("card_detail.a11y.back_to_map")} style={styles.recallMapReturnButton} onPress={() => animateExit(onClose, false)}><Ionicons name="map-outline" size={22} color="#fff" /></Pressable> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
       </Animated.View>
+      {clozeTipVisible && clozeTipTarget ? <ClozeOnboardingOverlay
+        step={clozeGuideStep}
+        target={clozeTipTarget}
+        windowWidth={windowWidth}
+        windowHeight={windowHeight}
+        onAdvance={() => {
+          setClozeTipVisible(false);
+          setClozeTipTarget(null);
+          if (clozeGuideStep === 1) {
+            setClozeGuideStep(2);
+            return;
+          }
+          setClozeTipEligible(false);
+          if (detail) void completeClozeOnboarding(detail.id);
+        }}
+      /> : null}
       <TtsMiniPlayer storageKey="linguaflow.tts_mini_player.card.v1" />
     </Animated.View>
   );
+}
+
+function ClozeOnboardingOverlay({ step, target, windowWidth, windowHeight, onAdvance }: {
+  step: 1 | 2;
+  target: ClozeOnboardingTarget;
+  windowWidth: number;
+  windowHeight: number;
+  onAdvance: () => void;
+}) {
+  const fade = useRef(new Animated.Value(0)).current;
+  const lift = useRef(new Animated.Value(12)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fade, { toValue: 1, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.spring(lift, { toValue: 0, speed: 15, bounciness: 5, useNativeDriver: true }),
+    ]).start();
+  }, [fade, lift]);
+
+  const padding = 11;
+  const spotlight = {
+    x: Math.max(12, target.x - padding),
+    y: Math.max(70, target.y - padding),
+    width: Math.min(windowWidth - 24, target.width + padding * 2),
+    height: Math.min(target.height + padding * 2, windowHeight - 300),
+  };
+  const targetX = step === 1
+    ? Math.min(spotlight.x + spotlight.width * 0.62, windowWidth - 46)
+    : spotlight.x + spotlight.width * 0.54;
+  const targetY = step === 1
+    ? spotlight.y + Math.min(spotlight.height * 0.62, spotlight.height - 20)
+    : spotlight.y + spotlight.height * 0.46;
+  const messageTop = step === 1
+    ? Math.min(Math.max(spotlight.y + spotlight.height + 88, windowHeight * 0.57), windowHeight - 174)
+    : Math.max(102, spotlight.y - 354);
+  const arrowStartX = step === 1 ? windowWidth * 0.66 : windowWidth * 0.48;
+  const arrowStartY = step === 1 ? messageTop - 16 : spotlight.y - 38;
+  const controlX = step === 1
+    ? Math.min(windowWidth - 34, Math.max(targetX + 54, arrowStartX + 20))
+    : arrowStartX + 34;
+  const controlY = step === 1 ? (arrowStartY + targetY) / 2 : arrowStartY + 22;
+  const angle = Math.atan2(targetY - controlY, targetX - controlX);
+  const arrowSize = 10;
+  const arrowLeftX = targetX - arrowSize * Math.cos(angle - Math.PI / 5);
+  const arrowLeftY = targetY - arrowSize * Math.sin(angle - Math.PI / 5);
+  const arrowRightX = targetX - arrowSize * Math.cos(angle + Math.PI / 5);
+  const arrowRightY = targetY - arrowSize * Math.sin(angle + Math.PI / 5);
+
+  return <Animated.View style={[styles.clozeGuideOverlay, { opacity: fade }]}>
+    <Pressable accessibilityLabel={step === 1 ? t("card_detail.cloze.onboarding") : t("card_detail.cloze.onboarding_actions_title")} style={StyleSheet.absoluteFillObject} onPress={onAdvance} />
+    <Svg pointerEvents="none" width={windowWidth} height={windowHeight} style={StyleSheet.absoluteFillObject}>
+      <Defs>
+        <Mask id="cloze-guide-mask" x="0" y="0" width={windowWidth} height={windowHeight} maskUnits="userSpaceOnUse">
+          <Rect x="0" y="0" width={windowWidth} height={windowHeight} fill="#fff" />
+          <Rect x={spotlight.x} y={spotlight.y} width={spotlight.width} height={spotlight.height} rx="18" fill="#000" />
+        </Mask>
+      </Defs>
+      <Rect x="0" y="0" width={windowWidth} height={windowHeight} fill="rgba(15, 16, 20, 0.78)" mask="url(#cloze-guide-mask)" />
+      <Rect x={spotlight.x} y={spotlight.y} width={spotlight.width} height={spotlight.height} rx="18" fill="none" stroke="rgba(255,255,255,0.82)" strokeWidth="1.4" />
+      <Path d={`M ${arrowStartX} ${arrowStartY} Q ${controlX} ${controlY} ${targetX} ${targetY}`} fill="none" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" />
+      <Path d={`M ${arrowLeftX} ${arrowLeftY} L ${targetX} ${targetY} L ${arrowRightX} ${arrowRightY}`} fill="none" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+    <Animated.View pointerEvents="box-none" style={[styles.clozeGuideCopy, { top: messageTop, transform: [{ translateY: lift }] }]}>
+      <Text style={styles.clozeGuideProgress}>{step} / 2</Text>
+      {step === 1
+        ? <Text style={styles.clozeGuideText}>{t("card_detail.cloze.onboarding")}</Text>
+        : <ClozeActionGuide />}
+      <Pressable accessibilityRole="button" accessibilityLabel={step === 1 ? t("common.continue") : t("common.got_it")} style={styles.clozeGuideButtonWrap} onPress={onAdvance}>
+        <View style={styles.clozeGuideButtonShadow} />
+        <View style={styles.clozeGuideButton}>
+          <Text style={styles.clozeGuideButtonText}>{step === 1 ? t("common.continue") : t("common.got_it")}</Text>
+          <Ionicons name="arrow-forward" size={17} color="#17171B" />
+        </View>
+      </Pressable>
+    </Animated.View>
+  </Animated.View>;
+}
+
+function ClozeActionGuide() {
+  const actions: Array<{ icon?: React.ComponentProps<typeof Ionicons>["name"]; textIcon?: string; label: string; detail: string }> = [
+    { icon: "swap-horizontal-outline", label: t("card_detail.flip"), detail: t("card_detail.cloze.onboarding_action.flip") },
+    { icon: "headset-outline", label: t("card_detail.tab.dictation"), detail: t("card_detail.cloze.onboarding_action.dictation") },
+    { icon: "eye-outline", label: t("card_detail.dictation.show_answer"), detail: t("card_detail.cloze.onboarding_action.answer") },
+    { textIcon: t("card_detail.tab.cloze_short"), label: t("card_detail.cloze.keyboard_mode"), detail: t("card_detail.cloze.onboarding_action.type") },
+    { textIcon: t("card_detail.tab.choice_short"), label: t("card_detail.cloze.choice_mode"), detail: t("card_detail.cloze.onboarding_action.choice") },
+    { icon: "play", label: t("card_detail.a11y.play_all"), detail: t("card_detail.cloze.onboarding_action.play") },
+  ];
+  return <View style={styles.clozeActionGuideCard}>
+    <Text style={styles.clozeActionGuideTitle}>{t("card_detail.cloze.onboarding_actions_title")}</Text>
+    <View style={styles.clozeActionGuideGrid}>
+      {actions.map((action) => <View key={action.label} style={styles.clozeActionGuideItem}>
+        <View style={styles.clozeActionGuideIcon}>
+          {action.icon ? <Ionicons name={action.icon} size={16} color="#FFFFFF" /> : <Text style={styles.clozeActionGuideTextIcon}>{action.textIcon}</Text>}
+        </View>
+        <View style={styles.clozeActionGuideItemCopy}>
+          <Text numberOfLines={1} style={styles.clozeActionGuideLabel}>{action.label}</Text>
+          <Text numberOfLines={1} style={styles.clozeActionGuideDetail}>{action.detail}</Text>
+        </View>
+      </View>)}
+    </View>
+  </View>;
 }
 
 function RecallAdjacentCard({ detail, position, canUseDictation }: { detail: CardRecordDetail; position: { index: number; total: number }; canUseDictation: boolean }) {
@@ -1472,7 +1587,7 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt, onInteractionLockChange }: {
+function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
@@ -1493,8 +1608,16 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   onRecallFinish?: () => void;
   onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
   onInteractionLockChange?: (locked: boolean) => void;
+  focusLearningContent?: boolean;
+  onLearningTargetReady?: (target: ClozeOnboardingTarget) => void;
+  focusActionBar?: boolean;
+  onActionBarTargetReady?: (target: ClozeOnboardingTarget) => void;
 }) {
-  const { width: reviewWindowWidth } = useWindowDimensions();
+  const { width: reviewWindowWidth, height: reviewWindowHeight } = useWindowDimensions();
+  const learningTargetRef = useRef<View>(null);
+  const learningTargetContentYRef = useRef(0);
+  const flipCardScrollRef = useRef<React.ComponentRef<typeof KeyboardAwareScrollView>>(null);
+  const actionBarRef = useRef<View>(null);
   const images = useMemo(
     () => detail.images?.length ? detail.images : detail.image ? [detail.image] : [],
     [detail.images, detail.image],
@@ -1585,6 +1708,42 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const [dictionary, setDictionary] = useState<DictionaryLookupState | null>(null);
   const dictionaryRequestRef = useRef(0);
   const [textSelectionActive, setTextSelectionActive] = useState(false);
+  useEffect(() => {
+    if (!focusLearningContent || !onLearningTargetReady) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const measure = (allowScroll: boolean) => {
+      learningTargetRef.current?.measureInWindow((x, y, width, height) => {
+        if (cancelled || width <= 0 || height <= 0) return;
+        const needsScroll = allowScroll && (y < 82 || y + height > reviewWindowHeight - 235);
+        if (needsScroll) {
+          flipCardScrollRef.current?.scrollTo({ y: Math.max(0, learningTargetContentYRef.current - 68), animated: true });
+          timer = setTimeout(() => measure(false), 360);
+          return;
+        }
+        onLearningTargetReady({ x, y, width, height });
+      });
+    };
+    const frame = requestAnimationFrame(() => measure(true));
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      if (timer) clearTimeout(timer);
+    };
+  }, [focusLearningContent, onLearningTargetReady, reviewWindowHeight]);
+  useEffect(() => {
+    if (!focusActionBar || !onActionBarTargetReady) return;
+    let cancelled = false;
+    const frame = requestAnimationFrame(() => {
+      actionBarRef.current?.measureInWindow((x, y, width, height) => {
+        if (!cancelled && width > 0 && height > 0) onActionBarTargetReady({ x, y, width, height });
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [focusActionBar, onActionBarTargetReady]);
   const lockForTextSelection = useCallback(() => setTextSelectionActive(true), []);
   const unlockTextSelection = useCallback(() => setTextSelectionActive(false), []);
   useEffect(() => {
@@ -2088,13 +2247,13 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     <View style={styles.flipCardStage}>
       <Animated.View style={[styles.flipCardShell, flipCardTransformStyle]}>
       <View pointerEvents={cardFace === "front" ? "auto" : "none"} style={[styles.flipCardFace, cardFace !== "front" && styles.flipCardFaceHidden]}>
-        <KeyboardAwareScrollView style={styles.flipCardScroll} bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.flipCardContent} alwaysBounceVertical={false}>
+        <KeyboardAwareScrollView ref={flipCardScrollRef} style={styles.flipCardScroll} bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.flipCardContent} alwaysBounceVertical={false}>
           <View style={styles.cardTitleRow}>
             <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
           </View>
           <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
           <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} />
-          <View style={styles.flipCardTextBlock}>
+          <View ref={learningTargetRef} style={styles.flipCardTextBlock} onLayout={(event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; }}>
             {frontLearningReady ? <CollapsibleCardSection label={rewriteIsReady ? t("card_detail.module.expression_description") : t("card_detail.my_record")} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
                 {practiceEnabled
                   ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
@@ -2154,7 +2313,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
         <Text numberOfLines={2} style={[styles.clozeChoiceOptionText, option.incorrect && styles.clozeChoiceOptionTextIncorrect]}>{option.value}</Text>
       </Pressable>)}
     </View> : null}
-    <View style={styles.detailActionBar}>
+    <View ref={actionBarRef} style={styles.detailActionBar}>
       <DetailActionButton label={t("card_detail.flip")} icon="swap-horizontal-outline" active={cardFace === "back"} onPress={flipCard} />
       <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={cardFace !== "front" || !practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} />
       <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => setAnswersVisible((current) => !current)} />
@@ -2909,12 +3068,25 @@ const styles = StyleSheet.create({
   headerButton: { width: 64, minHeight: 44, justifyContent: "center" }, close: { color: theme.colors.textSecondary, fontSize: 15 }, title: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 16, fontWeight: "500" },
   historyButtons: { width: 82, flexDirection: "row", alignItems: "center" },
   historyButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
-  recallMapReturnButton: { position: "absolute", right: 22, bottom: 88, width: 48, height: 48, borderRadius: 24, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: .18, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   headerEnd: { width: 82, flexDirection: "row", justifyContent: "flex-end" },
   iconHeaderButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
-  clozeTipOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 80, elevation: 80, paddingHorizontal: 38, backgroundColor: "rgba(0,0,0,0.88)", alignItems: "center", justifyContent: "center" },
-  clozeTipText: { maxWidth: 300, color: "#fff", fontSize: 20, lineHeight: 30, fontWeight: "600", textAlign: "center" },
-  clozeTipDoneText: { marginTop: 22, color: "rgba(255,255,255,0.68)", fontSize: 14, lineHeight: 20 },
+  clozeGuideOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 90, elevation: 90 },
+  clozeGuideCopy: { position: "absolute", left: 32, right: 32, alignItems: "center" },
+  clozeGuideProgress: { marginBottom: 10, color: "rgba(255,255,255,0.7)", fontSize: 12, lineHeight: 17, fontWeight: "600", letterSpacing: 1.1 },
+  clozeGuideText: { maxWidth: 310, color: "#FFFFFF", fontSize: 19, lineHeight: 29, fontWeight: "500", letterSpacing: 0.2, textAlign: "center", textShadowColor: "rgba(0,0,0,0.24)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 },
+  clozeGuideButtonWrap: { width: 126, height: 48, marginTop: 22, transform: [{ rotate: "-1.5deg" }] },
+  clozeGuideButtonShadow: { position: "absolute", left: 4, right: -4, top: 5, bottom: -5, borderRadius: 24, backgroundColor: "#B9A7F5" },
+  clozeGuideButton: { flex: 1, borderWidth: 1, borderColor: "rgba(23,23,27,0.12)", borderRadius: 24, backgroundColor: "#FFFDF8", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  clozeGuideButtonText: { color: "#17171B", fontSize: 15, lineHeight: 21, fontWeight: "600", letterSpacing: 0.4 },
+  clozeActionGuideCard: { width: "100%", maxWidth: 340, paddingHorizontal: 15, paddingTop: 14, paddingBottom: 15, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)", borderRadius: 18, backgroundColor: "rgba(255,255,255,0.1)" },
+  clozeActionGuideTitle: { marginBottom: 12, color: "#FFFFFF", fontSize: 17, lineHeight: 23, fontWeight: "600", textAlign: "center" },
+  clozeActionGuideGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 12 },
+  clozeActionGuideItem: { width: "50%", paddingRight: 7, flexDirection: "row", alignItems: "center", gap: 8 },
+  clozeActionGuideIcon: { width: 29, height: 29, borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
+  clozeActionGuideTextIcon: { color: "#FFFFFF", fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  clozeActionGuideItemCopy: { flex: 1, minWidth: 0 },
+  clozeActionGuideLabel: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "600" },
+  clozeActionGuideDetail: { color: "rgba(255,255,255,0.64)", fontSize: 10, lineHeight: 14 },
   draftHeaderSide: { width: 82, minHeight: 44, justifyContent: "center" },
   draftCloseButton: { width: 44, height: 44, alignItems: "flex-start", justifyContent: "center" },
   draftCreateTitle: { flex: 1, color: theme.colors.text, fontSize: 18, fontWeight: "700", textAlign: "center" },

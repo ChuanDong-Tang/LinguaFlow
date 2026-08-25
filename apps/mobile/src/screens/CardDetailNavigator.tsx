@@ -35,10 +35,21 @@ export type CardDetailRequest = {
   closeAfterEditing?: boolean;
   origin?: { x: number; y: number; width: number; height: number };
   returnLabel?: string;
-  showClozeOnboarding?: boolean;
 };
 
 type DetailImage = NonNullable<CardRecordDetail["images"]>[number];
+type CachedCardDetail = {
+  detail: CardRecordDetail;
+  loadedAt: number;
+  pendingTargets?: CardGenerationTarget[];
+  failedTargets?: CardGenerationTarget[];
+};
+type CardDetailSnapshot = {
+  detail: CardRecordDetail;
+  pendingTargets: CardGenerationTarget[];
+  failedTargets: CardGenerationTarget[];
+};
+const CARD_DETAIL_PREFETCH_FRESH_MS = 45_000;
 
 async function stabilizeCardDetailImages(
   previous: CardRecordDetail | null | undefined,
@@ -82,10 +93,12 @@ async function stabilizeDetailImage(previous: DetailImage | null | undefined, ne
 
 export function CardDetailNavigator({
   request,
+  prefetchRecordId,
   onClose,
   onChanged,
 }: {
   request: CardDetailRequest | null;
+  prefetchRecordId?: string | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -100,7 +113,8 @@ export function CardDetailNavigator({
   const [retryingGenerationTarget, setRetryingGenerationTarget] = useState<CardGenerationTarget | null>(null);
   const cardLimits = cardCapabilities.limits;
   const requestSequenceRef = useRef(0);
-  const detailCacheRef = useRef(new Map<string, { detail: CardRecordDetail; loadedAt: number }>());
+  const detailCacheRef = useRef(new Map<string, CachedCardDetail>());
+  const detailLoadsRef = useRef(new Map<string, Promise<CardDetailSnapshot>>());
 
   useEffect(() => {
     let active = true;
@@ -109,6 +123,13 @@ export function CardDetailNavigator({
       .catch(() => undefined);
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!prefetchRecordId) return;
+    const cached = detailCacheRef.current.get(prefetchRecordId);
+    if (cached && Date.now() - cached.loadedAt < CARD_DETAIL_PREFETCH_FRESH_MS) return;
+    void fetchDetailSnapshot(prefetchRecordId).catch(() => undefined);
+  }, [prefetchRecordId]);
 
   useEffect(() => {
     if (!request) {
@@ -120,9 +141,10 @@ export function CardDetailNavigator({
       setPendingGenerationTargets([]);
       return;
     }
-    setDetail(null);
-    setPendingGenerationTargets([]);
-    setFailedGenerationTargets([]);
+    const cached = detailCacheRef.current.get(request.recordId);
+    setDetail(cached?.detail ?? null);
+    setPendingGenerationTargets(cached?.pendingTargets ?? []);
+    setFailedGenerationTargets(cached?.failedTargets ?? []);
     setHistory([request.recordId]);
     setHistoryIndex(0);
     void loadDetail(request.recordId);
@@ -132,22 +154,19 @@ export function CardDetailNavigator({
     const cached = detailCacheRef.current.get(recordId);
     if (cached) {
       setDetail(cached.detail);
+      setPendingGenerationTargets(cached.pendingTargets ?? []);
+      setFailedGenerationTargets(cached.failedTargets ?? []);
     }
     const sequence = requestSequenceRef.current + 1;
     requestSequenceRef.current = sequence;
-    setLoading(true);
+    setLoading(!cached);
     try {
-      const [resolved, generationState] = await Promise.all([getCardRecord(recordId), getCardGenerationState(recordId)]);
+      const snapshot = await fetchDetailSnapshot(recordId);
       if (requestSequenceRef.current !== sequence) return null;
-      const stableDetail = await stabilizeCardDetailImages(cached?.detail, resolved);
-      if (requestSequenceRef.current !== sequence) return null;
-      const pendingTargets = (generationState?.pendingTargets ?? []).filter((target) => !hasGeneratedContent(stableDetail, target));
-      const failedTargets = (generationState?.failedTargets ?? []).filter((target) => !hasGeneratedContent(stableDetail, target));
-      setDetail(stableDetail);
-      setPendingGenerationTargets(pendingTargets);
-      setFailedGenerationTargets(failedTargets);
-      detailCacheRef.current.set(recordId, { detail: stableDetail, loadedAt: Date.now() });
-      return stableDetail;
+      setDetail(snapshot.detail);
+      setPendingGenerationTargets(snapshot.pendingTargets);
+      setFailedGenerationTargets(snapshot.failedTargets);
+      return snapshot.detail;
     } catch {
       if (requestSequenceRef.current === sequence) {
         Alert.alert(t("card_practice.error.open"), t("card_detail.error.try_again"));
@@ -156,6 +175,23 @@ export function CardDetailNavigator({
     } finally {
       if (requestSequenceRef.current === sequence) setLoading(false);
     }
+  }
+
+  function fetchDetailSnapshot(recordId: string): Promise<CardDetailSnapshot> {
+    const inFlight = detailLoadsRef.current.get(recordId);
+    if (inFlight) return inFlight;
+    const load = (async () => {
+      const cached = detailCacheRef.current.get(recordId);
+      const [resolved, generationState] = await Promise.all([getCardRecord(recordId), getCardGenerationState(recordId)]);
+      const stableDetail = await stabilizeCardDetailImages(cached?.detail, resolved);
+      const pendingTargets = (generationState?.pendingTargets ?? []).filter((target) => !hasGeneratedContent(stableDetail, target));
+      const failedTargets = (generationState?.failedTargets ?? []).filter((target) => !hasGeneratedContent(stableDetail, target));
+      const snapshot = { detail: stableDetail, pendingTargets, failedTargets };
+      detailCacheRef.current.set(recordId, { ...snapshot, loadedAt: Date.now() });
+      return snapshot;
+    })().finally(() => detailLoadsRef.current.delete(recordId));
+    detailLoadsRef.current.set(recordId, load);
+    return load;
   }
 
   useEffect(() => subscribeCardGenerationState((recordId, state) => {
@@ -300,7 +336,7 @@ export function CardDetailNavigator({
     ]);
   }
 
-  if (!request) return null;
+  if (!request || (!detail && request.returnLabel)) return null;
   const canNavigateBack = historyIndex > 0 && Boolean(history[historyIndex - 1]);
   const canNavigateForward = historyIndex >= 0 && historyIndex < history.length - 1 && Boolean(history[historyIndex + 1]);
   return (
@@ -318,7 +354,6 @@ export function CardDetailNavigator({
       initialTab={request.initialTab}
       initialEditing={request.initialEditing}
       closeAfterEditing={request.closeAfterEditing}
-      showClozeOnboarding={historyIndex === 0 && request.showClozeOnboarding === true}
         onClose={close}
         returnLabel={request?.returnLabel}
       canGoBack={canNavigateBack}

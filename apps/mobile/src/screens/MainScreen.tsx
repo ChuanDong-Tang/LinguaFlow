@@ -73,6 +73,7 @@ import {
 } from "../services/card/cardImageUpload";
 import { generateMissingCardContent, isCardResourceLimitedError, type CardGenerationTarget } from "../services/card/cardContentGeneration";
 import { isCardGenerationInProgress, isCardRecordGenerationInProgress, setCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
+import { registerClozeOnboardingCandidate } from "../services/card/clozeOnboarding";
 import { getLanguage, t, tf } from "../i18n";
 import { CollectionPickerModal } from "./shared/CollectionPickerModal";
 import { CalendarSidebarPreview, CardCalendarScreen } from "./CardCalendarScreen";
@@ -86,7 +87,7 @@ type MainScreenProps = {
   refreshRevision: number;
   incomingCardDraft?: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled?: (id: number) => void;
-  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { showClozeOnboarding?: boolean }) => void;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"]) => void;
   onOpenRecall: (mode?: "today" | "yesterday" | "blind") => void;
   onOpenMemoryRound: () => void;
   memoryRoundResumeAvailable: boolean;
@@ -630,6 +631,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             imageUploadIds: snapshot.images.map((image) => image.uploadId).filter((uploadId): uploadId is string => Boolean(uploadId)),
           });
       persistedRecordId = created.id;
+      if (isNewCard && selectedTargets.includes("expression")) {
+        await registerClozeOnboardingCandidate(created.id);
+      }
       await commitDraft({ ...submitting, recordId: persistedRecordId });
 
       await setCardGenerationState(created.id, { pendingTargets: selectedTargets, failedTargets: [] });
@@ -653,7 +657,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       setActiveRecordId(null);
       await commitDraft(EMPTY_DRAFT);
       setSending(false);
-      onOpenCard(created.id, initialTab, undefined, { showClozeOnboarding: isNewCard });
+      onOpenCard(created.id, initialTab);
 
       let detail = await updateCardContent(created.id, {
         title: snapshot.title.trim() || null,
@@ -1336,12 +1340,24 @@ function MemoryRoundShortcut({ active, resume, onPress }: { active: boolean; res
       pulse.setValue(0);
       return;
     }
-    const animation = Animated.loop(Animated.sequence([
-      Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-    ]));
-    animation.start();
-    return () => animation.stop();
+    let animation: Animated.CompositeAnimation | null = null;
+    const startPulse = () => {
+      animation?.stop();
+      pulse.stopAnimation();
+      pulse.setValue(0);
+      animation = Animated.loop(Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]));
+      animation.start();
+    };
+    startPulse();
+    const subscription = AppState.addEventListener("change", (state) => state === "active" ? startPulse() : animation?.stop());
+    return () => {
+      subscription.remove();
+      animation?.stop();
+      pulse.stopAnimation();
+    };
   }, [active, pulse]);
   return <Pressable style={[styles.recallShortcut, styles.memoryRoundShortcut]} onPress={onPress}><Animated.View style={[styles.memoryRoundDot, { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.32] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [.62, 1] }) }]} /><Text style={[styles.recallShortcutTitle, styles.memoryRoundShortcutText]}>{t("memory_round.title")}</Text>{resume ? <Text style={styles.memoryRoundResumeText}>{t("common.continue")}</Text> : null}</Pressable>;
 }

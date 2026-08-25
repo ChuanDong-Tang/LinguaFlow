@@ -100,6 +100,8 @@ export default function App() {
   const [recallVisible, setRecallVisible] = useState(false);
   const [memoryRoundVisible, setMemoryRoundVisible] = useState(false);
   const [memoryRoundResumeAvailable, setMemoryRoundResumeAvailable] = useState(false);
+  const [memoryRoundRefreshRevision, setMemoryRoundRefreshRevision] = useState(0);
+  const [memoryRoundCurrentRecordId, setMemoryRoundCurrentRecordId] = useState<string | null>(null);
   const [recallLaunchRequest, setRecallLaunchRequest] = useState<{ key: number; mode: "today" | "yesterday" | "blind" } | null>(null);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteAccountAuthingToken, setDeleteAccountAuthingToken] = useState("");
@@ -274,7 +276,7 @@ export default function App() {
     recordId: string,
     initialTab: CardDetailRequest["initialTab"] = "review",
     origin?: CardDetailRequest["origin"],
-    options?: { returnLabel?: string; showClozeOnboarding?: boolean },
+    options?: { returnLabel?: string },
   ): void {
     cardDetailRequestKeyRef.current += 1;
     setCardDetailRequest({
@@ -283,7 +285,6 @@ export default function App() {
       initialTab,
       origin,
       returnLabel: options?.returnLabel,
-      showClozeOnboarding: options?.showClozeOnboarding,
     });
   }
 
@@ -808,7 +809,7 @@ export default function App() {
           <View style={[styles.overlayScreen, styles.memoryRoundOverlay]}>
             <MemoryRoundScreen
               onClose={() => setMemoryRoundVisible(false)}
-              onOpenCard={(recordId) => openCardDetail(recordId, "cloze", undefined, { returnLabel: t("memory_round.title") })}
+              onOpenCard={(recordId) => openCardDetail(recordId, "review", undefined, { returnLabel: t("memory_round.title") })}
               onOpenLibrary={() => {
                 setMemoryRoundVisible(false);
                 setRecallVisible(false);
@@ -817,13 +818,20 @@ export default function App() {
               }}
               onResumeStateChange={setMemoryRoundResumeAvailable}
               onCardChanged={() => setCardDataRevision((value) => value + 1)}
+              onCurrentCardChange={setMemoryRoundCurrentRecordId}
+              refreshRevision={memoryRoundRefreshRevision}
             />
           </View>
         ) : null}
         {overlay ? <View style={styles.overlayScreen}>{overlay}</View> : null}
         <CardDetailNavigator
           request={cardDetailRequest}
-          onClose={() => setCardDetailRequest(null)}
+          prefetchRecordId={memoryRoundVisible ? memoryRoundCurrentRecordId : null}
+          onClose={() => {
+            const returningToMemoryRound = memoryRoundVisible && Boolean(cardDetailRequest?.returnLabel);
+            setCardDetailRequest(null);
+            if (returningToMemoryRound) setMemoryRoundRefreshRevision((value) => value + 1);
+          }}
           onChanged={() => setCardDataRevision((value) => value + 1)}
         />
       </View>
@@ -1132,7 +1140,7 @@ function TabScreens({
   cardDataRevision: number;
   incomingCardDraft: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled: (id: number) => void;
-  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { returnLabel?: string; showClozeOnboarding?: boolean }) => void;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { returnLabel?: string }) => void;
   onEditRecallCard: (recordId: string) => void;
   onCardChanged: () => void;
   onOpenLibrary: () => void;
