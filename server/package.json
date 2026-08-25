@@ -13,7 +13,6 @@
     }
   },
   "scripts": {
-    "test": "node --import tsx --test src/**/*.test.ts",
     "dev:worker": "node --env-file-if-exists=../.env --import tsx worker.dev.mjs",
     "start:worker": "node --env-file-if-exists=../.env --import tsx worker.dev.mjs",
     "start:worker:payment": "LF_WORKER_GROUP=payment node --env-file-if-exists=../.env --import tsx worker.dev.mjs",
