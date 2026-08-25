@@ -9,18 +9,17 @@ inspect/
 
 # Native build outputs and local caches
 android/
-android/.gradle/
-android/app/build/
-android/build/
-android/.cxx/
-ios/build/
-ios/Pods/
-ios/DerivedData/
+ios/
 
 # JS build outputs
 dist/
 web-build/
 coverage/
+
+# Local release archives
+*.ipa
+*.apk
+*.aab
 
 # Logs
 *.log

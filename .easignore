@@ -15,9 +15,16 @@ apps/mobile/inspect/
 # Generated native projects and build outputs
 apps/mobile/android/
 apps/mobile/android/**
-apps/mobile/ios/build/
-apps/mobile/ios/Pods/
-apps/mobile/ios/DerivedData/
+apps/mobile/ios/
+apps/mobile/ios/**
+apps/mobile/dist/
+
+# Local release archives and CI artifacts
+ci/cd/artifacts/
+ci/cd/artifacts/**
+*.ipa
+*.apk
+*.aab
 
 # Non-mobile app folders and generated outputs
 /api/
