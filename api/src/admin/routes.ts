@@ -926,7 +926,6 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
          daily_users AS (
            SELECT DISTINCT "dateKey", "userId"
            FROM activity_events
-           WHERE feature IN ('card', 'practice', 'recall', 'assistant')
          ),
          daily_features AS (
            SELECT "dateKey", feature,
