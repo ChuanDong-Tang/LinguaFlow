@@ -101,6 +101,22 @@ export type CardPracticeQueueItem = {
   reason: "continue_cloze" | "retry" | "try_dictation" | "review";
 };
 
+export type CardMemoryRoundCandidate = {
+  recordId: string;
+  title: string | null;
+  displayTitle: string;
+  languageCode: string;
+  thumbnail: { url: string; urlExpiresAt?: string | null; width: number; height: number } | null;
+  createdAt: string;
+  contentType: CardLearningContentType | null;
+  contentVersion: string | null;
+  segments: CardRecordDetail["rewriteSegments"];
+  clozeState: CardClozeState;
+  clozeVersion: number;
+  clozeLastResult: "correct" | "incorrect" | "revealed" | null;
+  clozeNextReviewAt: string | null;
+};
+
 export type CardCollection = {
   id: string;
   parentId: string | null;
@@ -554,6 +570,17 @@ export async function getCardPracticeQueue(limit = 20): Promise<CardPracticeQueu
   return request(`/cards/practice/queue?limit=${encodeURIComponent(String(limit))}`);
 }
 
+export async function getCardMemoryRoundCandidates(limit = 40): Promise<CardMemoryRoundCandidate[]> {
+  return request(`/cards/practice/memory-round?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export async function validateCardMemoryRoundCandidates(candidates: Array<{ recordId: string; contentType: CardLearningContentType | null; contentVersion: string | null }>): Promise<CardMemoryRoundCandidate[]> {
+  return request("/cards/practice/memory-round/validate", {
+    method: "POST",
+    body: JSON.stringify({ candidates }),
+  });
+}
+
 export async function saveCardDictationResult(
   recordId: string,
   result: "correct" | "incorrect" | "revealed",
@@ -576,6 +603,7 @@ export async function saveCardClozeUpdate(
       | { type: "add"; segmentId: string; startUtf16: number; endUtf16: number }
       | { type: "remove"; blankId: string }
       | { type: "master"; blankId: string }
+      | { type: "memory_result"; blankIds: string[] }
       | { type: "result" };
     result?: "correct" | "incorrect" | "revealed";
   },

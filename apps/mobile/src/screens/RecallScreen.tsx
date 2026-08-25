@@ -29,7 +29,7 @@ type Stage = "home" | "deck" | "summary";
 type BlindPeriod = "week" | "month" | "quarter" | "year" | "all";
 const BLIND_BOX_SETTINGS_KEY = "linguaflow.recall.blind_box.settings.v1";
 
-export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChanged, refreshRevision = 0, launchRequest = null }: { isActive: boolean; onOpenLibrary: () => void; onEditCard: (recordId: string) => void; onCardChanged: () => void; refreshRevision?: number; launchRequest?: { key: number; mode: "today" | "yesterday" | "blind" } | null }) {
+export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChanged, onOpenMemoryRound, memoryRoundResumeAvailable, refreshRevision = 0, launchRequest = null }: { isActive: boolean; onOpenLibrary: () => void; onEditCard: (recordId: string) => void; onCardChanged: () => void; onOpenMemoryRound: () => void; memoryRoundResumeAvailable: boolean; refreshRevision?: number; launchRequest?: { key: number; mode: "today" | "yesterday" | "blind" } | null }) {
   const [stage, setStage] = useState<Stage>("home");
   const [loading, setLoading] = useState(false);
   const [todayCards, setTodayCards] = useState<CardRecordSummary[]>([]);
@@ -145,17 +145,19 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
 
   async function openSession(value: RecallSession, resume = false): Promise<void> {
     if (!value.nodes.length) throw new Error("Recall session has no cards");
-    const resumeIndex = resume ? Math.max(0, value.nodes.findIndex((node) => node.state !== "completed")) : 0;
-    const initialIndex = resumeIndex < 0 ? 0 : resumeIndex;
     const hydratedCards = await hydrate(value);
-    const node = value.nodes[initialIndex];
-    if (!node || !hydratedCards[node.recordId]) throw new Error("Recall card could not be loaded");
+    const availableRecordIds = new Set(Object.keys(hydratedCards));
+    const availableSession = filterAvailableRecallSession(value, availableRecordIds);
+    if (!availableSession.nodes.length) throw new Error("Recall session has no available cards");
+    const firstIncomplete = resume ? availableSession.nodes.findIndex((node) => node.state !== "completed") : 0;
+    const initialIndex = firstIncomplete >= 0 ? firstIncomplete : availableSession.nodes.length - 1;
+    const node = availableSession.nodes[initialIndex]!;
     setCards(hydratedCards);
-    setSession(value);
+    setSession(availableSession);
     setAttempts({});
     setCurrentIndex(initialIndex);
     setStage("deck");
-    if (node) void markNode(value.id, node.id, "current", setSession);
+    void markNode(value.id, node.id, "current", setSession, availableRecordIds);
   }
 
   async function beginRecords(recordIds: string[], query?: string): Promise<boolean> {
@@ -185,7 +187,11 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   async function resume(): Promise<void> {
     if (!activeSession) return;
     setLoading(true);
-    try { await openSession(activeSession, true); }
+    try {
+      setCompletedBlindBox(isBlindRecallSession(activeSession));
+      await openSession(activeSession, true);
+    }
+    catch { Alert.alert(t("recall.error.load")); }
     finally { setLoading(false); }
   }
 
@@ -274,7 +280,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       try {
         await updateRecallNode(session.id, current.id, "completed");
         const latest = await updateRecallNode(session.id, next.id, "current");
-        setSession(latest);
+        setSession(filterAvailableRecallSession(latest, new Set(Object.keys(cards))));
       } catch {
         // Navigation remains available when a progress marker cannot be persisted.
       }
@@ -306,7 +312,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     setFinishing(true);
     try {
       const current = session.nodes[currentIndex];
-      if (current) await markNode(session.id, current.id, "completed", setSession);
+      if (current) await markNode(session.id, current.id, "completed", setSession, new Set(Object.keys(cards)));
       await finishRecallSession(session.id);
       const values = Object.values(attempts);
       setSummary({ cards: session.nodes.length, attempted: values.length, correct: values.filter(Boolean).length });
@@ -390,17 +396,19 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     <BlindBoxModal visible period={blindPeriod} count={blindCount} loading={loading} onClose={onOpenLibrary} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onStart={() => void beginBlindBox()} />
   </SafeAreaView>;
 
+  const activeBlindBoxSession = isBlindRecallSession(activeSession);
   return <SafeAreaView style={styles.page}>
     <View style={styles.header}><Pressable accessibilityLabel={t("recall.a11y.back")} style={styles.headerSide} onPress={onOpenLibrary}><Ionicons name="chevron-back" size={25} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{t("recall.title")}</Text><View style={styles.headerSide} /></View>
     <ScrollView contentContainerStyle={styles.home} showsVerticalScrollIndicator={false}>
-      {activeSession ? <Pressable style={styles.resume} onPress={() => void resume()}><Text style={styles.resumeText}>{t("recall.resume")}</Text><Ionicons name="arrow-forward" size={18} color={theme.colors.text} /></Pressable> : null}
+      <MemoryRoundHero active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} />
+      {activeSession && !activeBlindBoxSession ? <Pressable style={styles.resume} onPress={() => void resume()}><Text style={styles.resumeText}>{t("recall.resume")}</Text><Ionicons name="arrow-forward" size={18} color={theme.colors.text} /></Pressable> : null}
       <View style={styles.dayRow}>
         <DayCard title={t("recall.today")} count={todayCards.length} onPress={() => void beginRecords(todayCards.map((row) => row.id), localDateKey(new Date()))} />
         <DayCard title={t("recall.yesterday")} count={yesterdayCards.length} onPress={() => void beginRecords(yesterdayCards.map((row) => row.id), localDateKey(new Date(Date.now() - 86_400_000)))} />
       </View>
       <RecallChoice icon="calendar-outline" title={t("recall.select_date")} disabled={!dateKeys.length} onPress={() => setDatePickerVisible(true)} />
       <RecallChoice icon="search-outline" title={t("recall.explore")} disabled={!dateKeys.length} onPress={() => setTopicVisible(true)} />
-      <RecallChoice icon="cube-outline" title={t("recall.blind_box")} disabled={!dateKeys.length} onPress={() => setBlindVisible(true)} />
+      <RecallChoice icon="cube-outline" title={t("recall.blind_box")} subtitle={activeBlindBoxSession ? t("recall.resume") : undefined} disabled={!dateKeys.length} onPress={activeBlindBoxSession ? () => void resume() : () => setBlindVisible(true)} />
       {!loading && !dateKeys.length ? <Pressable style={styles.createHint} onPress={onOpenLibrary}><Text style={styles.createHintText}>{t("recall.create_more")}</Text><Ionicons name="add" size={18} color={theme.colors.text} /></Pressable> : null}
       {loading ? <ActivityIndicator style={styles.loader} color={theme.colors.text} /> : null}
     </ScrollView>
@@ -410,8 +418,33 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   </SafeAreaView>;
 }
 
+function MemoryRoundHero({ active, resume, onPress }: { active: boolean; resume: boolean; onPress: () => void }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!active) {
+      pulse.stopAnimation();
+      pulse.setValue(0);
+      return;
+    }
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [active, pulse]);
+  return <Pressable style={styles.memoryHero} onPress={onPress}>
+    <View style={styles.memoryHeroTop}><View><View style={styles.memoryHeroTitleRow}><Text style={styles.memoryHeroTitle}>{t("memory_round.title")}</Text>{resume ? <Text style={styles.memoryResumeBadge}>{t("recall.resume")}</Text> : null}</View><Text style={styles.memoryHeroText}>{t("memory_round.hero_text")}</Text></View><View style={styles.memoryHeroArrow}><Ionicons name="arrow-forward" size={19} color="#49675D" /></View></View>
+    <View style={styles.memoryPath}>{["#82CEB7", "#84C4EC", "#F1B587", "#AE98DF"].map((color, index) => <React.Fragment key={color}>{index ? <View style={[styles.memoryConnector, { backgroundColor: `${color}80` }]} /> : null}<Animated.View style={[styles.memoryNode, { backgroundColor: color }, index === 0 && { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [.72, 1] }) }]} /></React.Fragment>)}</View>
+  </Pressable>;
+}
+
 function RecallChoice({ icon, title, subtitle, disabled, onPress }: { icon: React.ComponentProps<typeof Ionicons>["name"]; title: string; subtitle?: string; disabled: boolean; onPress: () => void }) {
   return <Pressable disabled={disabled} style={[styles.choice, disabled && styles.disabled]} onPress={onPress}><View style={styles.choiceIcon}><Ionicons name={icon} size={20} color={theme.colors.text} /></View><View style={styles.choiceBody}><Text style={styles.choiceText}>{title}</Text>{subtitle ? <Text style={styles.choiceSubtitle}>{subtitle}</Text> : null}</View><Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} /></Pressable>;
+}
+
+function isBlindRecallSession(session: RecallSession | null): boolean {
+  return typeof session?.launchContext?.query === "string" && session.launchContext.query.startsWith("blind:");
 }
 
 function TopicModal({ visible, value, searchState, onChange, onClose, onSubmit }: { visible: boolean; value: string; searchState: "idle" | "searching" | "empty"; onChange: (value: string) => void; onClose: () => void; onSubmit: () => void }) {
@@ -488,7 +521,23 @@ function RecallSummary({ summary, onDone, onAgain, loading }: { summary: { cards
 function SummaryStat({ value, label }: { value: number; label: string }) { return <View style={styles.summaryStat}><Text style={styles.summaryValue}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text></View>; }
 function DayCard({ title, count, onPress }: { title: string; count: number; onPress: () => void }) { const disabled = count === 0; return <Pressable disabled={disabled} style={[styles.dayCard, disabled && styles.disabled]} onPress={onPress}><Text style={styles.dayTitle}>{title}</Text><Text style={styles.dayCount}>{count ? tf("recall.card_count", { count }) : t("recall.no_cards")}</Text><Ionicons name="arrow-forward" size={17} color={disabled ? theme.colors.border : theme.colors.text} /></Pressable>; }
 
-async function markNode(sessionId: string, nodeId: string, state: RecallSession["nodes"][number]["state"], update: React.Dispatch<React.SetStateAction<RecallSession | null>>): Promise<void> { try { const next = await updateRecallNode(sessionId, nodeId, state); update(next); } catch { /* A failed marker must not interrupt practice. */ } }
+async function markNode(
+  sessionId: string,
+  nodeId: string,
+  state: RecallSession["nodes"][number]["state"],
+  update: React.Dispatch<React.SetStateAction<RecallSession | null>>,
+  availableRecordIds?: Set<string>,
+): Promise<void> {
+  try {
+    const next = await updateRecallNode(sessionId, nodeId, state);
+    update(availableRecordIds ? filterAvailableRecallSession(next, availableRecordIds) : next);
+  } catch { /* A failed marker must not interrupt practice. */ }
+}
+function filterAvailableRecallSession(value: RecallSession, availableRecordIds: Set<string>): RecallSession {
+  const nodes = value.nodes.filter((node) => availableRecordIds.has(node.recordId));
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  return { ...value, nodes, edges: value.edges.filter((edge) => nodeIds.has(edge.fromNodeId) && nodeIds.has(edge.toNodeId)) };
+}
 function localDateKey(date: Date): string { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, "0"); const day = String(date.getDate()).padStart(2, "0"); return `${year}-${month}-${day}`; }
 function dateFromKey(value: string): Date { return new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, Number(value.slice(8, 10))); }
 function resolveBlindPeriodRange(period: BlindPeriod, dateKeys: string[]): { from: string; to: string } {
@@ -531,7 +580,7 @@ function shuffle<T>(items: T[]): T[] { for (let index = items.length - 1; index 
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: theme.colors.canvas }, directLaunchPage: { flex: 1, backgroundColor: theme.colors.canvas, alignItems: "center", justifyContent: "center" }, deckPage: { flex: 1, backgroundColor: theme.colors.canvas }, header: { height: 60, paddingHorizontal: 8, flexDirection: "row", alignItems: "center" }, headerSide: { width: 46, height: 46, alignItems: "center", justifyContent: "center" }, headerTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 18, fontWeight: "600" },
-  home: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 100 }, dayRow: { flexDirection: "row", gap: 12 }, dayCard: { flex: 1, minHeight: 145, padding: 17, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: "flex-start" }, disabled: { opacity: .42 }, dayTitle: { color: theme.colors.text, fontSize: 20, fontWeight: "600" }, dayCount: { flex: 1, marginTop: 8, color: theme.colors.textMuted, fontSize: 12 },
+  home: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 100 }, memoryHero: { minHeight: 154, marginBottom: 16, padding: 20, borderRadius: 24, backgroundColor: "#EAF6F1", borderWidth: 1, borderColor: "#CFE8DE" }, memoryHeroTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }, memoryHeroTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 }, memoryHeroTitle: { color: "#294D42", fontSize: 22, fontWeight: "600" }, memoryResumeBadge: { overflow: "hidden", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 9, backgroundColor: "rgba(255,255,255,.8)", color: "#49675D", fontSize: 10, fontWeight: "600" }, memoryHeroText: { maxWidth: 230, marginTop: 7, color: "#61776F", fontSize: 13, lineHeight: 19 }, memoryHeroArrow: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,.72)", alignItems: "center", justifyContent: "center" }, memoryPath: { marginTop: 23, flexDirection: "row", alignItems: "center" }, memoryNode: { width: 18, height: 18, borderRadius: 9 }, memoryConnector: { flex: 1, height: 3, borderRadius: 2 }, dayRow: { flexDirection: "row", gap: 12 }, dayCard: { flex: 1, minHeight: 145, padding: 17, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: "flex-start" }, disabled: { opacity: .42 }, dayTitle: { color: theme.colors.text, fontSize: 20, fontWeight: "600" }, dayCount: { flex: 1, marginTop: 8, color: theme.colors.textMuted, fontSize: 12 },
   choice: { minHeight: 58, marginTop: 11, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 11 }, choiceIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" }, choiceBody: { flex: 1, paddingVertical: 10 }, choiceText: { color: theme.colors.text, fontSize: 15, fontWeight: "500" }, choiceSubtitle: { marginTop: 2, color: theme.colors.textMuted, fontSize: 12 }, resume: { minHeight: 52, marginBottom: 14, paddingHorizontal: 16, borderRadius: 13, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center" }, resumeText: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "500" }, createHint: { marginTop: 20, minHeight: 46, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, createHintText: { color: theme.colors.text, fontSize: 14 }, loader: { marginTop: 28 },
   scrim: { flex: 1, paddingHorizontal: 24, backgroundColor: "rgba(0,0,0,.28)", justifyContent: "center" }, panel: { paddingHorizontal: 18, paddingTop: 17, paddingBottom: 18, borderRadius: 18, backgroundColor: theme.colors.surface }, panelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, panelTitle: { marginBottom: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "600" }, topicInputRow: { height: 48, paddingLeft: 13, paddingRight: 4, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, flexDirection: "row", alignItems: "center" }, topicInput: { flex: 1, height: 46, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 15 }, topicGo: { width: 38, height: 38, borderRadius: 9, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" }, topicGoDisabled: { backgroundColor: theme.colors.surfaceMuted }, topicStatus: { minHeight: 34, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 }, topicStatusText: { color: theme.colors.textMuted, fontSize: 13 }, topicEmpty: { minHeight: 34, marginTop: 8, color: theme.colors.textSecondary, fontSize: 13 },
   blindOptionLabel: { marginTop: 16, color: theme.colors.text, fontSize: 14, fontWeight: "500" }, periodSegments: { height: 44, marginTop: 10, padding: 3, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row" }, periodSegment: { flex: 1, borderRadius: 9, alignItems: "center", justifyContent: "center" }, periodSegmentActive: { backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: .08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }, periodSegmentText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, periodSegmentTextActive: { color: theme.colors.text }, blindCountHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, blindCountValue: { marginTop: 16, color: theme.colors.text, fontSize: 16, fontWeight: "600" }, countSlider: { height: 38, marginHorizontal: 10, marginTop: 7, justifyContent: "center" }, countSliderTrack: { position: "absolute", left: 0, right: 0, height: 4, borderRadius: 2, backgroundColor: theme.colors.border }, countSliderProgress: { position: "absolute", left: 0, height: 4, borderRadius: 2, backgroundColor: theme.colors.text }, countSliderTick: { position: "absolute", width: 2, height: 8, marginLeft: -1, borderRadius: 1, backgroundColor: theme.colors.border }, countSliderThumb: { position: "absolute", width: 22, height: 22, marginLeft: -11, borderWidth: 2, borderColor: theme.colors.surface, borderRadius: 11, backgroundColor: theme.colors.text, shadowColor: "#000", shadowOpacity: .18, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 3 }, countEndpoints: { marginTop: -3, paddingHorizontal: 9, flexDirection: "row", justifyContent: "space-between" }, countEndpoint: { color: theme.colors.textMuted, fontSize: 11 }, startButton: { height: 48, marginTop: 18, borderRadius: 14, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" }, startButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },

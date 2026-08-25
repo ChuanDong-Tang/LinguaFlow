@@ -86,8 +86,10 @@ type MainScreenProps = {
   refreshRevision: number;
   incomingCardDraft?: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled?: (id: number) => void;
-  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"]) => void;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { showClozeOnboarding?: boolean }) => void;
   onOpenRecall: (mode?: "today" | "yesterday" | "blind") => void;
+  onOpenMemoryRound: () => void;
+  memoryRoundResumeAvailable: boolean;
   onOpenAssistant: () => void;
   onOpenAccount: () => void;
 };
@@ -103,7 +105,7 @@ const TOPIC_REFRESH_DELAYS_MS = [1_000, 2_000, 3_000, 5_000, 8_000] as const;
 const THUMBNAIL_REFRESH_LEAD_MS = 60_000;
 const THUMBNAIL_ERROR_REFRESH_COOLDOWN_MS = 10_000;
 
-export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onIncomingCardDraftHandled, onOpenCard, onOpenRecall, onOpenAssistant, onOpenAccount }: MainScreenProps) {
+export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onIncomingCardDraftHandled, onOpenCard, onOpenRecall, onOpenMemoryRound, memoryRoundResumeAvailable, onOpenAssistant, onOpenAccount }: MainScreenProps) {
   const screenInsets = useSafeAreaInsets();
   const windowSize = useWindowDimensions();
   const [libraryView, setLibraryView] = useState<LibraryView>("all");
@@ -580,6 +582,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       return;
     }
     const snapshot = draftRef.current;
+    const isNewCard = snapshot.recordId === null;
     const text = snapshot.text.trim();
     const count = countGraphemes(text);
     if (count < 1 || count > cardLimits.contentChars) {
@@ -650,7 +653,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       setActiveRecordId(null);
       await commitDraft(EMPTY_DRAFT);
       setSending(false);
-      onOpenCard(created.id, initialTab);
+      onOpenCard(created.id, initialTab, undefined, { showClozeOnboarding: isNewCard });
 
       let detail = await updateCardContent(created.id, {
         title: snapshot.title.trim() || null,
@@ -1152,7 +1155,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </View>
         )}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : null}
-        ListHeaderComponent={<View style={styles.recallShortcuts}><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("today")}><Text style={styles.recallShortcutTitle}>{t("recall.today_shortcut")}</Text></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("yesterday")}><Text style={styles.recallShortcutTitle}>{t("recall.yesterday_shortcut")}</Text></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("blind")}><Text style={styles.recallShortcutTitle}>{t("recall.blind_box")}</Text></Pressable></View>}
+        ListHeaderComponent={<View style={styles.recallShortcuts}><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("today")}><Text style={styles.recallShortcutTitle}>{t("recall.today_shortcut")}</Text></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("yesterday")}><Text style={styles.recallShortcutTitle}>{t("recall.yesterday_shortcut")}</Text></Pressable><MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /></View>}
       />
       {recordActionMenu ? <View style={styles.recordActionLayer}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setRecordActionMenu(null)} />
@@ -1323,6 +1326,24 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       <CardCalendarScreen visible={calendarVisible} onClose={() => setCalendarVisible(false)} onOpenCard={(recordId) => onOpenCard(recordId)} />
     </SafeAreaView>
   );
+}
+
+function MemoryRoundShortcut({ active, resume, onPress }: { active: boolean; resume: boolean; onPress: () => void }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!active) {
+      pulse.stopAnimation();
+      pulse.setValue(0);
+      return;
+    }
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [active, pulse]);
+  return <Pressable style={[styles.recallShortcut, styles.memoryRoundShortcut]} onPress={onPress}><Animated.View style={[styles.memoryRoundDot, { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.32] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [.62, 1] }) }]} /><Text style={[styles.recallShortcutTitle, styles.memoryRoundShortcutText]}>{t("memory_round.title")}</Text>{resume ? <Text style={styles.memoryRoundResumeText}>{t("common.continue")}</Text> : null}</Pressable>;
 }
 
 function LibrarySidebar({ visible, activeView, collections, profile, entitlement, onClose, onSelect, onOpenRecall, onOpenAssistant, onOpenCalendar, onCreateCollection, onRenameCollection, onToggleFavorite, onDeleteCollection, onReorderCollection, onReorderFavoriteCollection, onOpenAccount }: {
@@ -2576,6 +2597,10 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 22, paddingTop: 4, paddingBottom: 96 },
   recallShortcuts: { marginBottom: 8, paddingVertical: 6, flexDirection: "row", gap: 7 },
   recallShortcut: { flex: 1, minHeight: 44, paddingHorizontal: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  memoryRoundShortcut: { borderColor: "#BBDCD1", backgroundColor: "#EAF6F1" },
+  memoryRoundShortcutText: { color: "#446A5D" },
+  memoryRoundResumeText: { marginTop: 2, color: "#64877B", fontSize: 9, fontWeight: "600" },
+  memoryRoundDot: { position: "absolute", top: 8, right: 9, width: 6, height: 6, borderRadius: 3, backgroundColor: "#72BEA6" },
   recallShortcutTitle: { color: theme.colors.text, fontSize: 12, fontWeight: "500" },
   batchActionBar: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 64, paddingTop: 8, paddingHorizontal: 62, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", justifyContent: "space-between" },
   batchAction: { minWidth: 72, minHeight: 46, alignItems: "center", justifyContent: "center", gap: 2 },

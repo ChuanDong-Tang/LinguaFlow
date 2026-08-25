@@ -666,6 +666,87 @@ export class PrismaCardRepository implements CardRepository {
     return rows.map(toEntry);
   }
 
+  async listMemoryRoundEntries(userId: string, limit: number, cardIds?: string[], allowOriginalPractice = true): Promise<CardEntryEntity[]> {
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    let orderedIds: string[];
+    if (cardIds !== undefined) {
+      orderedIds = [...new Set(cardIds)].slice(0, safeLimit);
+    } else {
+      const rows = await this.prisma.$queryRawUnsafe<Array<{ cardId: string }>>(
+        `SELECT candidate."cardId"
+           FROM (
+             SELECT legacy."cardId",
+                    CASE
+                      WHEN legacy."clozeNextReviewAt" IS NOT NULL AND legacy."clozeNextReviewAt" <= NOW() THEN 0
+                      WHEN legacy."clozeLastResult" IN ('incorrect', 'revealed') THEN 1
+                      WHEN legacy."clozeLastResult" IS NULL THEN 2
+                      WHEN legacy."updatedAt" <= NOW() - INTERVAL '30 days' THEN 3
+                      ELSE 4
+                    END AS priority,
+                    legacy."updatedAt"
+               FROM "card_practice_states" legacy
+               JOIN "cards" card ON card.id = legacy."cardId"
+              WHERE legacy."userId" = $1
+                AND card.status = 'completed'
+                AND card."deletedAt" IS NULL
+                AND card."isSample" = FALSE
+                AND (card."rewrittenText" IS NOT NULL OR $3::boolean)
+                AND jsonb_typeof(legacy."clozeState"->'blanks') = 'array'
+                AND jsonb_array_length(legacy."clozeState"->'blanks') > 0
+                AND NOT EXISTS (
+                  SELECT 1 FROM "card_content_practice_states" content
+                   WHERE content."cardId" = legacy."cardId" AND content."userId" = legacy."userId"
+                )
+             UNION ALL
+             SELECT state."cardId",
+                    CASE
+                      WHEN state."clozeNextReviewAt" IS NOT NULL AND state."clozeNextReviewAt" <= NOW() THEN 0
+                      WHEN state."clozeLastResult" IN ('incorrect', 'revealed') THEN 1
+                      WHEN state."clozeLastResult" IS NULL THEN 2
+                      WHEN state."updatedAt" <= NOW() - INTERVAL '30 days' THEN 3
+                      ELSE 4
+                    END AS priority,
+                    state."updatedAt"
+               FROM "card_content_practice_states" state
+               JOIN "cards" card ON card.id = state."cardId"
+              WHERE state."userId" = $1
+                AND card.status = 'completed'
+                AND card."deletedAt" IS NULL
+                AND card."isSample" = FALSE
+                AND (state."contentType" <> 'original' OR $3::boolean)
+                AND jsonb_typeof(state."clozeState"->'blanks') = 'array'
+                AND jsonb_array_length(state."clozeState"->'blanks') > 0
+                AND EXISTS (
+                  SELECT 1 FROM "card_content_segments" segment
+                   WHERE segment."entryId" = state."cardId"
+                     AND segment."contentType" = state."contentType"
+                     AND segment."contentVersion" = state."contentVersion"
+                )
+           ) candidate
+          GROUP BY candidate."cardId"
+          ORDER BY MIN(candidate.priority) ASC, MIN(candidate."updatedAt") ASC, candidate."cardId" ASC
+          LIMIT $2`,
+        userId,
+        safeLimit,
+        allowOriginalPractice,
+      );
+      orderedIds = rows.map((row) => row.cardId);
+    }
+    if (!orderedIds.length) return [];
+    const rows = await this.prisma.card.findMany({
+      where: {
+        id: { in: orderedIds },
+        userId,
+        status: "completed",
+        deletedAt: null,
+        isSample: false,
+      },
+      include: includeSegments,
+    });
+    const byId = new Map(rows.map((row) => [row.id, toEntry(row)]));
+    return orderedIds.map((id) => byId.get(id)).filter((entry): entry is CardEntryEntity => Boolean(entry));
+  }
+
   async claimNextQueued(workerId: string, leaseExpiresAt: Date): Promise<CardEntryEntity | null> {
     return this.prisma.$transaction(async (tx) => {
       const rows = (await tx.$queryRawUnsafe(
@@ -1873,6 +1954,7 @@ function toPracticeState(row: any): CardPracticeStateEntity {
     dictationLastResult: row.dictationLastResult ?? null,
     dictationCorrectStreak: row.dictationCorrectStreak ?? 0,
     dictationNextReviewAt: row.dictationNextReviewAt ?? null,
+    updatedAt: row.updatedAt,
   };
 }
 

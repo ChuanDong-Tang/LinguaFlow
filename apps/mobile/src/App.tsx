@@ -30,6 +30,7 @@ import { MainScreen } from "./screens/MainScreen";
 import { MeScreen } from "./screens/MeScreen";
 import { ChatScreen } from "./screens/ChatScreen";
 import { RecallScreen } from "./screens/RecallScreen";
+import { hasStoredMemoryRound, MemoryRoundScreen } from "./screens/MemoryRoundScreen";
 import {
   CardDetailNavigator,
   type CardDetailRequest,
@@ -97,6 +98,8 @@ export default function App() {
   const incomingCardDraftIdRef = useRef(0);
   const [accountSheetVisible, setAccountSheetVisible] = useState(false);
   const [recallVisible, setRecallVisible] = useState(false);
+  const [memoryRoundVisible, setMemoryRoundVisible] = useState(false);
+  const [memoryRoundResumeAvailable, setMemoryRoundResumeAvailable] = useState(false);
   const [recallLaunchRequest, setRecallLaunchRequest] = useState<{ key: number; mode: "today" | "yesterday" | "blind" } | null>(null);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteAccountAuthingToken, setDeleteAccountAuthingToken] = useState("");
@@ -118,6 +121,10 @@ export default function App() {
   const promptedUpdateVersionRef = useRef<string | null>(null);
   const appBooting = screen === "booting";
   const authingConfigured = isAuthingConfigured();
+
+  useEffect(() => {
+    void hasStoredMemoryRound().then(setMemoryRoundResumeAvailable).catch(() => undefined);
+  }, [sessionRevision, cardDataRevision]);
   const authingDiscovery = authingConfigured ? getAuthingDiscovery() : null;
   const authingClientId = authingConfigured ? getAuthingClientId() : "authing-disabled";
   const authingRedirectUri = getAuthingRedirectUri();
@@ -229,6 +236,8 @@ export default function App() {
       cancelBindEmailFlow();
       setAccountSheetVisible(false);
       setRecallVisible(false);
+      setMemoryRoundVisible(false);
+      setMemoryRoundResumeAvailable(false);
       setCardDetailRequest(null);
       setScreen("login");
     });
@@ -244,6 +253,9 @@ export default function App() {
     cancelDeleteAccountFlow();
     cancelBindEmailFlow();
     setAccountSheetVisible(false);
+    setRecallVisible(false);
+    setMemoryRoundVisible(false);
+    setMemoryRoundResumeAvailable(false);
     const session = await getSession();
     if (session?.refreshToken) {
       try {
@@ -262,7 +274,7 @@ export default function App() {
     recordId: string,
     initialTab: CardDetailRequest["initialTab"] = "review",
     origin?: CardDetailRequest["origin"],
-    returnLabel?: string,
+    options?: { returnLabel?: string; showClozeOnboarding?: boolean },
   ): void {
     cardDetailRequestKeyRef.current += 1;
     setCardDetailRequest({
@@ -270,7 +282,8 @@ export default function App() {
       recordId,
       initialTab,
       origin,
-      returnLabel,
+      returnLabel: options?.returnLabel,
+      showClozeOnboarding: options?.showClozeOnboarding,
     });
   }
 
@@ -287,6 +300,7 @@ export default function App() {
 
   async function handleLoginSuccess(): Promise<void> {
     cancelDeleteAccountFlow();
+    setSessionRevision((value) => value + 1);
     setScreen("main");
     void loadChatContacts();
     void runPostLoginGuideFlow();
@@ -471,6 +485,9 @@ export default function App() {
       await clearAuthingAccessToken();
       await clearAccountScopedStorage();
       await markForceAuthingLogin();
+      setRecallVisible(false);
+      setMemoryRoundVisible(false);
+      setMemoryRoundResumeAvailable(false);
       setScreen("login");
       Alert.alert(t("app.delete.done"));
     } catch {
@@ -765,6 +782,8 @@ export default function App() {
               setRecallLaunchRequest(mode ? { key: Date.now(), mode } : null);
               setRecallVisible(true);
             }}
+            onOpenMemoryRound={() => setMemoryRoundVisible(true)}
+            memoryRoundResumeAvailable={memoryRoundResumeAvailable}
             onOpenAccount={() => setAccountSheetVisible(true)}
           />
         </FadingScreen>
@@ -780,6 +799,24 @@ export default function App() {
                 setRecallVisible(false);
                 setRecallLaunchRequest(null);
               }}
+              onOpenMemoryRound={() => setMemoryRoundVisible(true)}
+              memoryRoundResumeAvailable={memoryRoundResumeAvailable}
+            />
+          </View>
+        ) : null}
+        {memoryRoundVisible ? (
+          <View style={[styles.overlayScreen, styles.memoryRoundOverlay]}>
+            <MemoryRoundScreen
+              onClose={() => setMemoryRoundVisible(false)}
+              onOpenCard={(recordId) => openCardDetail(recordId, "cloze", undefined, { returnLabel: t("memory_round.title") })}
+              onOpenLibrary={() => {
+                setMemoryRoundVisible(false);
+                setRecallVisible(false);
+                setRecallLaunchRequest(null);
+                setScreen("main");
+              }}
+              onResumeStateChange={setMemoryRoundResumeAvailable}
+              onCardChanged={() => setCardDataRevision((value) => value + 1)}
             />
           </View>
         ) : null}
@@ -1079,6 +1116,8 @@ function TabScreens({
   onCardChanged,
   onOpenLibrary,
   onOpenRecall,
+  onOpenMemoryRound,
+  memoryRoundResumeAvailable,
   onOpenAccount,
 }: {
   activeTab: "main" | "practice" | "me";
@@ -1093,11 +1132,13 @@ function TabScreens({
   cardDataRevision: number;
   incomingCardDraft: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled: (id: number) => void;
-  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], returnLabel?: string) => void;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { returnLabel?: string; showClozeOnboarding?: boolean }) => void;
   onEditRecallCard: (recordId: string) => void;
   onCardChanged: () => void;
   onOpenLibrary: () => void;
   onOpenRecall: (mode?: "today" | "yesterday" | "blind") => void;
+  onOpenMemoryRound: () => void;
+  memoryRoundResumeAvailable: boolean;
   onOpenAccount: () => void;
 }) {
   return (
@@ -1110,6 +1151,8 @@ function TabScreens({
           onIncomingCardDraftHandled={onIncomingCardDraftHandled}
           onOpenCard={onOpenCard}
           onOpenRecall={onOpenRecall}
+          onOpenMemoryRound={onOpenMemoryRound}
+          memoryRoundResumeAvailable={memoryRoundResumeAvailable}
           onOpenAssistant={() => onOpenChat(contacts[0] ?? DEFAULT_CHAT_CONTACT)}
           onOpenAccount={onOpenAccount}
         />
@@ -1121,6 +1164,8 @@ function TabScreens({
           onEditCard={onEditRecallCard}
           onCardChanged={onCardChanged}
           onOpenLibrary={onOpenLibrary}
+          onOpenMemoryRound={onOpenMemoryRound}
+          memoryRoundResumeAvailable={memoryRoundResumeAvailable}
         />
       </View>
       <View style={[styles.tabPage, activeTab !== "me" && styles.tabPageHidden]}>
@@ -1160,6 +1205,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
     elevation: 1,
   },
+  memoryRoundOverlay: { zIndex: 2, elevation: 2 },
   fadingScreen: { flex: 1, backgroundColor: "#FCFCFD" },
   tabHost: { flex: 1 },
   tabPage: { ...StyleSheet.absoluteFillObject },

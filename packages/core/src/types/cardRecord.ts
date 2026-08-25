@@ -116,6 +116,22 @@ export interface CardPracticeQueueItemView {
   reason: "continue_cloze" | "retry" | "try_dictation" | "review";
 }
 
+export interface CardMemoryRoundCandidateView {
+  recordId: CardRecordId;
+  title: string | null;
+  displayTitle: string;
+  languageCode: string;
+  thumbnail: CardImageThumbnailView | null;
+  createdAt: string;
+  contentType: CardLearningContentType | null;
+  contentVersion: string | null;
+  segments: CardRewriteSegmentView[];
+  clozeState: CardClozeState;
+  clozeVersion: number;
+  clozeLastResult: CardPracticeResult | null;
+  clozeNextReviewAt: string | null;
+}
+
 export interface UpdateCardDictationInput {
   result: CardPracticeResult;
   contentType?: CardLearningContentType;
@@ -130,6 +146,7 @@ export type UpdateCardClozeInput = {
     | { type: "add"; segmentId: string; startUtf16: number; endUtf16: number }
     | { type: "remove"; blankId: string }
     | { type: "master"; blankId: string }
+    | { type: "memory_result"; blankIds: string[] }
     | { type: "result" };
   result?: CardPracticeResult;
 };

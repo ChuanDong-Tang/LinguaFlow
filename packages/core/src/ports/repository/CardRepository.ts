@@ -79,6 +79,7 @@ export interface CardPracticeStateEntity {
   dictationLastResult: CardPracticeResult | null;
   dictationCorrectStreak: number;
   dictationNextReviewAt: Date | null;
+  updatedAt: Date;
 }
 
 export interface CardContentPracticeStateEntity extends CardPracticeStateEntity {
@@ -262,6 +263,7 @@ export interface CardRepository {
   }>>;
   findEarliestCompletedDateKey(userId: string): Promise<string | null>;
   listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<CardEntryEntity[]>;
+  listMemoryRoundEntries(userId: string, limit: number, cardIds?: string[], allowOriginalPractice?: boolean): Promise<CardEntryEntity[]>;
   claimNextQueued(workerId: string, leaseExpiresAt: Date): Promise<CardEntryEntity | null>;
   renewLease(entryId: string, workerId: string, leaseExpiresAt: Date): Promise<boolean>;
   complete(input: CompleteCardEntryInput): Promise<CardEntryEntity>;

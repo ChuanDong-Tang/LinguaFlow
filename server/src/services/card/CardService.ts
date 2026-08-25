@@ -17,6 +17,7 @@ import type {
   CardRecordDetailView,
   CardRecordSummaryView,
   CardPracticeQueueItemView,
+  CardMemoryRoundCandidateView,
   CardPracticeResult,
   CardClozeState,
   UpdateCardClozeInput,
@@ -987,6 +988,9 @@ export class CardService {
     if (input.result !== undefined && !isPracticeResult(input.result)) {
       throw new CardValidationError("Invalid cloze result");
     }
+    if (input.operation.type === "memory_result" && input.result !== "correct" && input.result !== "incorrect") {
+      throw new CardValidationError("Memory result requires a first-attempt result");
+    }
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const detail = await this.detail(userId, recordId);
@@ -1046,6 +1050,8 @@ export class CardService {
       const blank = state.blanks.find((candidate) => candidate.id === operation.blankId);
       if (!blank) throw new CardValidationError("Cloze blank does not exist");
       blank.mastered = true;
+    } else if (operation.type === "memory_result") {
+      markMemoryResultBlanks(state, operation.blankIds);
     }
     const practicedAt = input.result ? new Date() : null;
     const correctStreak = input.result === "correct" ? (current?.clozeCorrectStreak ?? 0) + 1 : 0;
@@ -1124,6 +1130,8 @@ export class CardService {
       const blank = state.blanks.find((candidate) => candidate.id === operation.blankId);
       if (!blank) throw new CardValidationError("Cloze blank does not exist");
       blank.mastered = true;
+    } else if (operation.type === "memory_result") {
+      markMemoryResultBlanks(state, operation.blankIds);
     }
     const practicedAt = input.result ? new Date() : null;
     const correctStreak = input.result === "correct" ? (current?.clozeCorrectStreak ?? 0) + 1 : 0;
@@ -1183,6 +1191,106 @@ export class CardService {
     return items.filter((item): item is NonNullable<typeof item> => item !== null).slice(0, safeLimit);
   }
 
+  async memoryRoundCandidates(
+    userId: string,
+    limit: number,
+    requested?: Array<{ recordId: string; contentType: CardLearningContentType | null; contentVersion: string | null }>,
+  ): Promise<CardMemoryRoundCandidateView[]> {
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(60, Math.floor(limit))) : 40;
+    const requestedBySourceId = new Map<string, NonNullable<typeof requested>[number]>();
+    const sourceIds = requested?.flatMap((item) => {
+      const parsed = parseCardRecordId(item.recordId);
+      if (parsed?.source === "card") requestedBySourceId.set(parsed.sourceId, item);
+      return parsed?.source === "card" ? [parsed.sourceId] : [];
+    });
+    const entitlement = await this.entitlementService.getCurrentEntitlement(userId);
+    const entries = await this.repository.listMemoryRoundEntries(
+      userId,
+      sourceIds ? Math.min(60, sourceIds.length || 1) : 500,
+      sourceIds,
+      entitlement.isPro,
+    );
+    const eligibleEntries = entries.filter((entry) => !entry.isSample && !entry.deletedAt && entry.status === "completed");
+    const cardIds = eligibleEntries.map((entry) => entry.id);
+    const [legacyStates, contentStates] = await Promise.all([
+      this.repository.listPracticeStates(userId, cardIds),
+      this.repository.listContentPracticeStates(userId, cardIds),
+    ]);
+    const legacyByCard = new Map(legacyStates.map((state) => [state.cardId, state]));
+    const contentByCard = new Map<string, typeof contentStates>();
+    for (const state of contentStates) {
+      const states = contentByCard.get(state.cardId) ?? [];
+      states.push(state);
+      contentByCard.set(state.cardId, states);
+    }
+    const now = Date.now();
+    const ranked = eligibleEntries.flatMap((entry) => {
+      const requestedBinding = requestedBySourceId.get(entry.id);
+      const currentContentStates = (contentByCard.get(entry.id) ?? [])
+        .filter((state) => {
+          const cloze = normalizeClozeState(state.clozeState);
+          return (!requestedBinding || requestedBinding.contentType === state.contentType && requestedBinding.contentVersion === state.contentVersion)
+            && (state.contentType !== "original" || entitlement.isPro) && cloze.blanks.length > 0 && entry.contentSegments.some((segment) =>
+            segment.contentType === state.contentType && segment.contentVersion === state.contentVersion,
+          );
+        });
+      currentContentStates.sort((left, right) =>
+        memoryRoundPriority(left.clozeLastResult, left.clozeNextReviewAt, left.updatedAt, now)
+        - memoryRoundPriority(right.clozeLastResult, right.clozeNextReviewAt, right.updatedAt, now)
+        || memoryContentPriority(left.contentType) - memoryContentPriority(right.contentType),
+      );
+      const contentState = currentContentStates[0] ?? null;
+      const legacyState = contentState || requestedBinding?.contentType ? null : legacyByCard.get(entry.id) ?? null;
+      if (!contentState && legacyState && !entry.rewrittenText && !entitlement.isPro) return [];
+      const state = contentState ?? legacyState;
+      if (!state) return [];
+      const clozeState = normalizeClozeState(state.clozeState);
+      if (!clozeState.blanks.length) return [];
+      const contentType = contentState?.contentType ?? null;
+      const contentVersion = contentState?.contentVersion ?? null;
+      const segments = contentState
+        ? entry.contentSegments.filter((segment) => segment.contentType === contentState.contentType && segment.contentVersion === contentState.contentVersion)
+        : entry.segments;
+      if (!segments.length) return [];
+      return [{
+        entry,
+        state,
+        contentType,
+        contentVersion,
+        clozeState,
+        segments,
+        priority: memoryRoundPriority(state.clozeLastResult, state.clozeNextReviewAt, state.updatedAt, now),
+        random: Math.random(),
+      }];
+    }).sort((left, right) => left.priority - right.priority || left.random - right.random)
+      .slice(0, safeLimit);
+
+    return Promise.all(ranked.map(async ({ entry, state, contentType, contentVersion, clozeState, segments }) => {
+      const summary = await this.summaryWithImage(entry).catch(() => toSummary(entry, this.limits.topicMaxChars));
+      return {
+        recordId: summary.id,
+        title: summary.title,
+        displayTitle: summary.displayTitle,
+        languageCode: contentType ? contentLanguageCode(entry, contentType) : entry.rewrittenLanguageCode ?? entry.languageCode,
+        thumbnail: summary.thumbnail,
+        createdAt: summary.createdAt,
+        contentType,
+        contentVersion,
+        segments: segments.map((segment) => ({
+          id: segment.id,
+          ordinal: segment.ordinal,
+          text: segment.text,
+          startUtf16: segment.startUtf16,
+          endUtf16: segment.endUtf16,
+        })),
+        clozeState,
+        clozeVersion: state.clozeVersion,
+        clozeLastResult: state.clozeLastResult,
+        clozeNextReviewAt: state.clozeNextReviewAt?.toISOString() ?? null,
+      };
+    }));
+  }
+
   private async summaryWithImage(entry: CardEntryEntity): Promise<CardRecordSummaryView> {
     const summary = toSummary(entry, this.limits.topicMaxChars);
     const firstImage = entry.images[0];
@@ -1209,6 +1317,32 @@ function reviewDelayDays(result: CardPracticeResult, correctStreak: number): num
   if (correctStreak <= 1) return 3;
   if (correctStreak === 2) return 7;
   return 14;
+}
+
+function memoryContentPriority(contentType: CardLearningContentType): number {
+  if (contentType === "rewrite") return 0;
+  if (contentType === "reply") return 1;
+  return 2;
+}
+
+function memoryRoundPriority(
+  lastResult: CardPracticeResult | null,
+  nextReviewAt: Date | null,
+  updatedAt: Date,
+  now: number,
+): number {
+  if (nextReviewAt && nextReviewAt.getTime() <= now) return 0;
+  if (lastResult === "incorrect" || lastResult === "revealed") return 1;
+  if (lastResult === null) return 2;
+  if (updatedAt.getTime() <= now - 30 * 86_400_000) return 3;
+  return 4;
+}
+
+export function markMemoryResultBlanks(state: CardClozeState, blankIds: string[]): void {
+  const blanks = new Map(state.blanks.map((blank) => [blank.id, blank]));
+  const targets = blankIds.map((blankId) => blanks.get(blankId));
+  if (targets.some((blank) => !blank)) throw new CardPracticeConflictError();
+  for (const blank of targets) blank!.mastered = true;
 }
 
 function normalizePatchedText(
@@ -1293,6 +1427,7 @@ function isClozeOperation(value: unknown): value is UpdateCardClozeInput["operat
   if (value.type === "result") return true;
   if (value.type === "master") return "blankId" in value && typeof value.blankId === "string" && Boolean(value.blankId.trim());
   if (value.type === "remove") return "blankId" in value && typeof value.blankId === "string" && Boolean(value.blankId.trim());
+  if (value.type === "memory_result") return "blankIds" in value && Array.isArray(value.blankIds) && value.blankIds.length > 0 && value.blankIds.length <= 100 && value.blankIds.every((blankId) => typeof blankId === "string" && Boolean(blankId.trim()));
   return value.type === "add" &&
     "segmentId" in value && typeof value.segmentId === "string" && Boolean(value.segmentId.trim()) &&
     "startUtf16" in value && Number.isInteger(value.startUtf16) &&

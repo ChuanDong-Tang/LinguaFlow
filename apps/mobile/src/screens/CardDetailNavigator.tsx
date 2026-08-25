@@ -35,6 +35,7 @@ export type CardDetailRequest = {
   closeAfterEditing?: boolean;
   origin?: { x: number; y: number; width: number; height: number };
   returnLabel?: string;
+  showClozeOnboarding?: boolean;
 };
 
 type DetailImage = NonNullable<CardRecordDetail["images"]>[number];
@@ -317,6 +318,7 @@ export function CardDetailNavigator({
       initialTab={request.initialTab}
       initialEditing={request.initialEditing}
       closeAfterEditing={request.closeAfterEditing}
+      showClozeOnboarding={historyIndex === 0 && request.showClozeOnboarding === true}
         onClose={close}
         returnLabel={request?.returnLabel}
       canGoBack={canNavigateBack}

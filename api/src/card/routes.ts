@@ -25,7 +25,13 @@ import {
   TokenRequestAlreadyExistsError,
   TokenQuotaExceededError,
 } from "@lf/server/services/usage/UsageV2Service.js";
-import type { CreateCardEntryInput, SaveCardContentInput, UpdateCardClozeInput, UpdateCardContentInput } from "@lf/core/types/cardRecord.js";
+import type {
+  CardLearningContentType,
+  CreateCardEntryInput,
+  SaveCardContentInput,
+  UpdateCardClozeInput,
+  UpdateCardContentInput,
+} from "@lf/core/types/cardRecord.js";
 import {
   AccountDisabledError,
   AccountPendingDeleteError,
@@ -763,6 +769,60 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const limit = Number((req.query as { limit?: unknown })?.limit ?? 20);
     const data = await deps.cardService.practiceQueue(userId, limit);
     return reply.status(200).send({ ok: true, request_id: requestId, data });
+  });
+
+  app.get("/cards/practice/memory-round", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/practice/memory-round");
+    if (!userId) return;
+    const limit = Number((req.query as { limit?: unknown })?.limit ?? 40);
+    try {
+      if (!await consumeLimits(deps.rateLimiter, [
+        [`memory-round:read:user:${userId}`, rateConfig.recallSeedUserRateLimit, rateConfig.recallRateWindowMs],
+      ])) return failure(reply, 429, requestId, "RATE_LIMITED", "Too many requests");
+      const data = await deps.cardService.memoryRoundCandidates(userId, limit);
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
+  app.post("/cards/practice/memory-round/validate", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/practice/memory-round/validate");
+    if (!userId) return;
+    const candidates: Array<{
+      recordId: string;
+      contentType: CardLearningContentType | null;
+      contentVersion: string | null;
+    }> = Array.isArray((req.body as { candidates?: unknown } | null)?.candidates)
+      ? (req.body as { candidates: unknown[] }).candidates.slice(0, 60).flatMap((value) => {
+          if (!value || typeof value !== "object" || !("recordId" in value) || typeof value.recordId !== "string" || value.recordId.length > 200) return [];
+          const contentType = "contentType" in value ? value.contentType : null;
+          const contentVersion = "contentVersion" in value ? value.contentVersion : null;
+          if (contentType !== null && contentType !== "original" && contentType !== "rewrite" && contentType !== "reply") return [];
+          if (contentVersion !== null && (typeof contentVersion !== "string" || contentVersion.length > 300)) return [];
+          if ((contentType === null) !== (contentVersion === null)) return [];
+          return [{
+            recordId: value.recordId,
+            contentType: contentType as CardLearningContentType | null,
+            contentVersion: contentVersion as string | null,
+          }];
+        })
+      : [];
+    try {
+      if (!await consumeLimits(deps.rateLimiter, [
+        [`memory-round:validate:user:${userId}`, rateConfig.recallSeedUserRateLimit, rateConfig.recallRateWindowMs],
+      ])) return failure(reply, 429, requestId, "RATE_LIMITED", "Too many requests");
+      const data = await deps.cardService.memoryRoundCandidates(userId, Math.max(1, candidates.length), candidates);
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
   });
 
   app.put("/cards/:cardId/practice/dictation", async (req, reply) => {

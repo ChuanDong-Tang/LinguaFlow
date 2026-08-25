@@ -74,9 +74,9 @@ function initialClozeInteractionMode(autoStart: boolean, blankCount: number): Cl
 type ClozeChoiceOption = { value: string; incorrect: boolean };
 type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; height: number };
 type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
-const CARD_CLOZE_ONBOARDING_KEY = "linguaflow.card_detail.cloze_onboarding.v2";
+const CARD_TEXT_SELECTION_ONBOARDING_KEY = "linguaflow.card_detail.cloze_onboarding.v2";
 
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, showClozeOnboarding = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -92,6 +92,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   initialTab?: DetailTab;
   initialEditing?: boolean;
   closeAfterEditing?: boolean;
+  showClozeOnboarding?: boolean;
   onClose: () => void;
   returnLabel?: string;
   onReplaceImage?: (source: "camera" | "library", asset?: { uri: string; width: number; height: number }) => void;
@@ -151,7 +152,6 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   const [clozeOwnerKey, setClozeOwnerKey] = useState<string | null>(null);
   const clozeStateCacheRef = useRef(new Map<string, { state: CardClozeState; version: number }>());
   const [hasProAccess, setHasProAccess] = useState<boolean | null>(null);
-  const [showClozeTipButton, setShowClozeTipButton] = useState(false);
   const [clozeTipVisible, setClozeTipVisible] = useState(false);
   const [recallHandoff, setRecallHandoff] = useState<{
     direction: "next" | "previous";
@@ -242,12 +242,18 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     if (hasProAccess === false && tab === "dictation") setTab("review");
   }, [hasProAccess, tab]);
   useEffect(() => {
+    if (
+      !showClozeOnboarding
+      || !detail
+      || activeBlock?.contentType !== "rewrite"
+      || pendingGenerationTargets.includes("expression")
+    ) return;
     let active = true;
-    void AsyncStorage.getItem(CARD_CLOZE_ONBOARDING_KEY)
-      .then((seen) => { if (active) setShowClozeTipButton(!seen); })
-      .catch(() => { if (active) setShowClozeTipButton(true); });
+    void AsyncStorage.getItem(CARD_TEXT_SELECTION_ONBOARDING_KEY)
+      .then((seen) => { if (active && !seen) setClozeTipVisible(true); })
+      .catch(() => { if (active) setClozeTipVisible(true); });
     return () => { active = false; };
-  }, []);
+  }, [activeBlock?.contentType, detail?.id, pendingGenerationTargets, showClozeOnboarding]);
   useEffect(() => {
     if (!detail || enteredRef.current) return;
     enteredRef.current = true;
@@ -415,24 +421,24 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           </View>
           <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>
           <View style={styles.headerEnd}>
-            {tab === "review" && canPracticeActiveBlock && showClozeTipButton ? <Pressable accessibilityLabel={t("card_detail.cloze.tip_button")} style={styles.iconHeaderButton} onPress={() => setClozeTipVisible(true)}><Ionicons name="bulb-outline" size={21} color="#B98516" /></Pressable> : null}
             {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel={t("card_detail.a11y.edit_card")} style={styles.iconHeaderButton} onPress={onEditCard ?? (() => setEditing(true))}><Ionicons name="pencil-outline" size={21} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
         {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
-        {clozeTipVisible ? <View pointerEvents="box-none" style={styles.clozeTipOverlay}>
-          <View style={styles.clozeTipCard}>
-            <View style={styles.clozeTipIcon}><Ionicons name="bulb-outline" size={20} color="#9A6B08" /></View>
-            <Text style={styles.clozeTipText}>{t("card_detail.cloze.onboarding")}</Text>
-            <Pressable style={styles.clozeTipDone} onPress={() => {
-              setClozeTipVisible(false);
-              setShowClozeTipButton(false);
-              void AsyncStorage.setItem(CARD_CLOZE_ONBOARDING_KEY, "1");
-            }}><Text style={styles.clozeTipDoneText}>{t("common.got_it")}</Text></Pressable>
-          </View>
-        </View> : null}
+        {clozeTipVisible ? <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("card_detail.cloze.onboarding")}
+          style={styles.clozeTipOverlay}
+          onPress={() => {
+            setClozeTipVisible(false);
+            void AsyncStorage.setItem(CARD_TEXT_SELECTION_ONBOARDING_KEY, "1");
+          }}
+        >
+          <Text style={styles.clozeTipText}>{t("card_detail.cloze.onboarding")}</Text>
+          <Text style={styles.clozeTipDoneText}>{t("common.got_it")}</Text>
+        </Pressable> : null}
         {returnLabel ? <Pressable accessibilityLabel={t("card_detail.a11y.back_to_map")} style={styles.recallMapReturnButton} onPress={() => animateExit(onClose, false)}><Ionicons name="map-outline" size={22} color="#fff" /></Pressable> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
@@ -2906,12 +2912,9 @@ const styles = StyleSheet.create({
   recallMapReturnButton: { position: "absolute", right: 22, bottom: 88, width: 48, height: 48, borderRadius: 24, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: .18, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   headerEnd: { width: 82, flexDirection: "row", justifyContent: "flex-end" },
   iconHeaderButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
-  clozeTipOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 80, justifyContent: "flex-start", alignItems: "flex-end", paddingTop: 48, paddingRight: 14 },
-  clozeTipCard: { width: 286, padding: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: "#E8D8A9", borderRadius: 14, backgroundColor: "#FFFDF7", flexDirection: "row", alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 12 },
-  clozeTipIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#FFF1C7", alignItems: "center", justifyContent: "center" },
-  clozeTipText: { flex: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19 },
-  clozeTipDone: { alignSelf: "stretch", minWidth: 48, alignItems: "center", justifyContent: "center" },
-  clozeTipDoneText: { color: theme.colors.accentStrong, fontSize: 13, fontWeight: "600" },
+  clozeTipOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 80, elevation: 80, paddingHorizontal: 38, backgroundColor: "rgba(0,0,0,0.88)", alignItems: "center", justifyContent: "center" },
+  clozeTipText: { maxWidth: 300, color: "#fff", fontSize: 20, lineHeight: 30, fontWeight: "600", textAlign: "center" },
+  clozeTipDoneText: { marginTop: 22, color: "rgba(255,255,255,0.68)", fontSize: 14, lineHeight: 20 },
   draftHeaderSide: { width: 82, minHeight: 44, justifyContent: "center" },
   draftCloseButton: { width: 44, height: 44, alignItems: "flex-start", justifyContent: "center" },
   draftCreateTitle: { flex: 1, color: theme.colors.text, fontSize: 18, fontWeight: "700", textAlign: "center" },
