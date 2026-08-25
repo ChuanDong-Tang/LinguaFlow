@@ -12,6 +12,7 @@ import {
   getCardDateKeys,
   getCardRecord,
   getCardRecords,
+  removeCardRecordImageById,
   searchRecallCards,
   updateRecallNode,
   type CardRecordDetail,
@@ -21,12 +22,14 @@ import {
 import { theme } from "../theme";
 import { CardCalendarScreen } from "./CardCalendarScreen";
 import { CardDetailModal } from "./CardDetailModal";
+import { hasGeneratedContent, type CardGenerationTarget } from "../services/card/cardContentGeneration";
+import { getCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
 
 type Stage = "home" | "deck" | "summary";
 type BlindPeriod = "week" | "month" | "quarter" | "year" | "all";
 const BLIND_BOX_SETTINGS_KEY = "linguaflow.recall.blind_box.settings.v1";
 
-export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: { isActive: boolean; onOpenLibrary: () => void; launchRequest?: { key: number; mode: "today" | "yesterday" | "blind" } | null }) {
+export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChanged, refreshRevision = 0, launchRequest = null }: { isActive: boolean; onOpenLibrary: () => void; onEditCard: (recordId: string) => void; onCardChanged: () => void; refreshRevision?: number; launchRequest?: { key: number; mode: "today" | "yesterday" | "blind" } | null }) {
   const [stage, setStage] = useState<Stage>("home");
   const [loading, setLoading] = useState(false);
   const [todayCards, setTodayCards] = useState<CardRecordSummary[]>([]);
@@ -35,6 +38,8 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
   const [activeSession, setActiveSession] = useState<RecallSession | null>(null);
   const [session, setSession] = useState<RecallSession | null>(null);
   const [cards, setCards] = useState<Record<string, CardRecordDetail>>({});
+  const [pendingGenerationTargets, setPendingGenerationTargets] = useState<CardGenerationTarget[]>([]);
+  const [failedGenerationTargets, setFailedGenerationTargets] = useState<CardGenerationTarget[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [attempts, setAttempts] = useState<Record<string, boolean>>({});
   const [summary, setSummary] = useState({ cards: 0, attempted: 0, correct: 0 });
@@ -49,6 +54,26 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
   const [blindCount, setBlindCount] = useState(5);
   const [directLaunchPending, setDirectLaunchPending] = useState(Boolean(launchRequest));
   const handledLaunchRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isActive || stage !== "deck") return;
+    const recordId = session?.nodes[currentIndex]?.recordId;
+    if (!recordId) return;
+    let active = true;
+    void Promise.all([getCardRecord(recordId), getCardGenerationState(recordId)]).then(([detail, generationState]) => {
+      if (!active) return;
+      setCards((current) => ({ ...current, [recordId]: detail }));
+      setPendingGenerationTargets((generationState?.pendingTargets ?? []).filter((target) => !hasGeneratedContent(detail, target)));
+      setFailedGenerationTargets((generationState?.failedTargets ?? []).filter((target) => !hasGeneratedContent(detail, target)));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [refreshRevision, isActive, stage, session?.id, currentIndex]);
+
+  useEffect(() => subscribeCardGenerationState((recordId, state) => {
+    if (stage !== "deck" || session?.nodes[currentIndex]?.recordId !== recordId) return;
+    setPendingGenerationTargets(state?.pendingTargets ?? []);
+    setFailedGenerationTargets(state?.failedTargets ?? []);
+  }), [stage, session?.id, currentIndex]);
 
   useEffect(() => {
     void AsyncStorage.getItem(BLIND_BOX_SETTINGS_KEY).then((raw) => {
@@ -296,12 +321,36 @@ export function RecallScreen({ isActive, onOpenLibrary, launchRequest = null }: 
 
   const currentNode = session?.nodes[currentIndex];
   const currentDetail = currentNode ? cards[currentNode.recordId] ?? null : null;
+  function confirmRemoveCurrentImage(imageId?: string): void {
+    if (!currentDetail) return;
+    const images = currentDetail.images ?? [];
+    const image = images.find((candidate) => candidate.id === imageId) ?? images[0] ?? currentDetail.image;
+    if (!image) return;
+    const recordId = currentDetail.id;
+    Alert.alert(t("card_detail.photo.remove_title"), undefined, [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("common.remove"),
+        style: "destructive",
+        onPress: () => void removeCardRecordImageById(recordId, image.id)
+          .then((updated) => {
+            setCards((current) => ({ ...current, [recordId]: updated }));
+            onCardChanged();
+          })
+          .catch(() => Alert.alert(t("card_detail.photo.remove_failed_title"), t("card_detail.photo.remove_failed_message"))),
+      },
+    ]);
+  }
   if (stage === "deck" && session && currentNode) return <View style={styles.deckPage}>
     <CardDetailModal
       detail={currentDetail}
       loading={!currentDetail}
       initialTab={hasRecallCloze(currentDetail) ? "cloze" : "review"}
       hideRelations
+      onEditCard={() => onEditCard(currentNode.recordId)}
+      pendingGenerationTargets={pendingGenerationTargets}
+      failedGenerationTargets={failedGenerationTargets}
+      onRemoveImage={currentDetail && ((currentDetail.images?.length ?? 0) > 0 || currentDetail.image) ? confirmRemoveCurrentImage : undefined}
       onClose={leaveDeck}
       recallPosition={{ index: currentIndex, total: session.nodes.length }}
       recallPreviousDetail={currentIndex > 0 ? cards[session.nodes[currentIndex - 1]!.recordId] ?? null : null}

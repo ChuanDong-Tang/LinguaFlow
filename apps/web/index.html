@@ -212,6 +212,33 @@
         margin-top: 7px;
         color: var(--muted);
       }
+      .product-kpis {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(150px, 1fr));
+        gap: 10px;
+      }
+      .product-kpi {
+        padding: 16px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: linear-gradient(180deg, #fff, #fbfcfe);
+      }
+      .product-kpi span, .chart-legend, .chart-note { color: var(--muted); font-size: 12px; }
+      .product-kpi strong { display: block; margin-top: 9px; font-size: 28px; }
+      .product-kpi small { display: block; margin-top: 7px; color: var(--muted); }
+      .chart-grid { display: grid; grid-template-columns: 1.35fr 0.65fr; gap: 12px; }
+      .chart-panel { min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+      .chart-title { margin: 0 0 4px; font-size: 14px; }
+      .chart-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 9px 0; }
+      .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+      .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+      .line-chart { width: 100%; height: 260px; display: block; overflow: visible; }
+      .chart-axis { stroke: #e4e7ec; stroke-width: 1; }
+      .chart-label { fill: #98a2b3; font-size: 10px; }
+      .feature-bars { display: grid; gap: 14px; margin-top: 16px; }
+      .feature-row-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+      .feature-track { height: 8px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: #eef1f5; }
+      .feature-fill { height: 100%; border-radius: inherit; background: #6d5dfc; }
       .two-col {
         display: grid;
         grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
@@ -343,7 +370,7 @@
       }
       .mt { margin-top: 12px; }
       @media (max-width: 980px) {
-        .topbar-inner, .auth-grid, .two-col, .form-row, .form-row.three, .metrics {
+        .topbar-inner, .auth-grid, .two-col, .form-row, .form-row.three, .metrics, .product-kpis, .chart-grid {
           grid-template-columns: 1fr;
         }
         .top-actions, .inline-actions {
@@ -850,6 +877,47 @@
                 <span class="muted">最多查询 90 天，默认近 14 天。</span>
               </div>
               <div id="metrics" class="metrics"></div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">用户增长与留存</h2>
+                  <p class="section-subtitle">活跃用户=当天创建卡片、练习、打开回忆或使用 AI 助手的去重用户；流失=昨日活跃但今日未活跃。</p>
+                </div>
+              </div>
+              <div id="productKpis" class="product-kpis"></div>
+              <div class="chart-grid mt">
+                <div class="chart-panel">
+                  <h3 class="chart-title">用户趋势</h3>
+                  <div id="growthLegend" class="chart-legend"></div>
+                  <div id="growthChart"></div>
+                </div>
+                <div class="chart-panel">
+                  <h3 class="chart-title">新增用户次日留存</h3>
+                  <p class="chart-note">昨日注册用户中，今天发生核心行为的比例。</p>
+                  <div id="retentionChart"></div>
+                </div>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">功能使用情况</h2>
+                  <p class="section-subtitle">展示所选时间范围内各核心功能的去重用户和行为量；练习、回忆和查词历史由状态更新时间推算。</p>
+                </div>
+              </div>
+              <div class="chart-grid">
+                <div class="chart-panel">
+                  <h3 class="chart-title">每日功能用户趋势</h3>
+                  <div id="featureLegend" class="chart-legend"></div>
+                  <div id="featureChart"></div>
+                </div>
+                <div class="chart-panel">
+                  <h3 class="chart-title">功能渗透</h3>
+                  <p class="chart-note">功能日活合计 ÷ 全部核心日活合计，用于比较功能相对热度。</p>
+                  <div id="featureBars" class="feature-bars"></div>
+                </div>
+              </div>
             </div>
             <div class="section">
               <div class="section-head">
@@ -2682,37 +2750,110 @@
         return formatDuration(value / 1000);
       }
 
+      function renderLineChart(targetId, rows, series, options = {}) {
+        const target = $(targetId);
+        if (!target) return;
+        if (!rows.length) {
+          target.innerHTML = '<div class="muted" style="padding:70px 0;text-align:center">暂无趋势数据</div>';
+          return;
+        }
+        const width = 720;
+        const height = 260;
+        const padding = { left: 42, right: 16, top: 18, bottom: 30 };
+        const plotWidth = width - padding.left - padding.right;
+        const plotHeight = height - padding.top - padding.bottom;
+        const values = rows.flatMap((row) => series.map((item) => Number(item.value(row))).filter(Number.isFinite));
+        const maxValue = Math.max(Number(options.maxValue || 0), ...values, 1);
+        const roundedMax = options.maxValue || Math.ceil(maxValue / Math.max(1, Math.pow(10, Math.floor(Math.log10(maxValue)) - 1))) * Math.max(1, Math.pow(10, Math.floor(Math.log10(maxValue)) - 1));
+        const x = (index) => padding.left + (rows.length === 1 ? plotWidth / 2 : index * plotWidth / (rows.length - 1));
+        const y = (value) => padding.top + plotHeight - Math.max(0, Number(value || 0)) / roundedMax * plotHeight;
+        const grid = [0, .25, .5, .75, 1].map((ratio) => {
+          const gridY = padding.top + plotHeight * (1 - ratio);
+          const label = options.percent ? `${Math.round(roundedMax * ratio)}%` : Math.round(roundedMax * ratio);
+          return `<line class="chart-axis" x1="${padding.left}" y1="${gridY}" x2="${width - padding.right}" y2="${gridY}"/><text class="chart-label" x="${padding.left - 7}" y="${gridY + 3}" text-anchor="end">${label}</text>`;
+        }).join("");
+        const lines = series.map((item) => {
+          const points = rows.map((row, index) => {
+            const value = Number(item.value(row));
+            return Number.isFinite(value) ? `${x(index)},${y(value)}` : null;
+          }).filter(Boolean).join(" ");
+          return points ? `<polyline points="${points}" fill="none" stroke="${item.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : "";
+        }).join("");
+        const labelIndexes = [...new Set([0, Math.floor((rows.length - 1) / 2), rows.length - 1])];
+        const labels = labelIndexes.map((index) => `<text class="chart-label" x="${x(index)}" y="${height - 8}" text-anchor="middle">${escapeHtml(String(rows[index].dateKey || "").slice(5))}</text>`).join("");
+        target.innerHTML = `<svg class="line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="趋势折线图">${grid}${lines}${labels}</svg>`;
+      }
+
+      function renderLegend(targetId, series) {
+        $(targetId).innerHTML = series.map((item) => `<span class="legend-item"><i class="legend-dot" style="background:${item.color}"></i>${escapeHtml(item.label)}</span>`).join("");
+      }
+
+      function renderProductAnalytics(data) {
+        const rows = Array.isArray(data.productDailyMetrics) ? data.productDailyMetrics : [];
+        const latest = rows.at(-1) || {};
+        const totalNewUsers = rows.reduce((sum, row) => sum + Number(row.newUsers || 0), 0);
+        const retention = latest.newUserD1RetentionRate == null ? "—" : `${Number(latest.newUserD1RetentionRate).toFixed(1)}%`;
+        $("productKpis").innerHTML = [
+          ["期间新增用户", totalNewUsers, `${rows.length || 0} 天合计`],
+          ["最新日活跃", latest.activeUsers || 0, latest.dateKey || "—"],
+          ["最新日回访用户", latest.returningUsers || 0, "注册早于当天的活跃用户"],
+          ["最新日流失", latest.churnedUsers || 0, "昨日活跃、今日未活跃"],
+          ["新增用户次留", retention, `${latest.newUserD1RetainedUsers || 0} / ${latest.previousNewUsers || 0} 人`],
+        ].map(([label, value, hint]) => `<div class="product-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+
+        const growthSeries = [
+          { label: "活跃用户", color: "#2563eb", value: (row) => row.activeUsers },
+          { label: "新增用户", color: "#12b76a", value: (row) => row.newUsers },
+          { label: "回访用户", color: "#7f56d9", value: (row) => row.returningUsers },
+          { label: "流失用户", color: "#f04438", value: (row) => row.churnedUsers },
+        ];
+        renderLegend("growthLegend", growthSeries);
+        renderLineChart("growthChart", rows, growthSeries);
+        renderLineChart("retentionChart", rows, [
+          { label: "新增用户次留", color: "#f79009", value: (row) => row.newUserD1RetentionRate },
+        ], { maxValue: 100, percent: true });
+
+        const featureDefinitions = [
+          { key: "card", label: "创建卡片", color: "#2563eb" },
+          { key: "practice", label: "练习", color: "#7f56d9" },
+          { key: "recall", label: "回忆", color: "#f79009" },
+          { key: "assistant", label: "AI 助手", color: "#12b76a" },
+          { key: "tts", label: "语音播放", color: "#06aed4" },
+          { key: "dictionary", label: "查词", color: "#ee46bc" },
+          { key: "image", label: "图片", color: "#6172f3" },
+        ];
+        const featureSeries = featureDefinitions.map((item) => ({
+          ...item,
+          value: (row) => row.features?.[item.key]?.users || 0,
+        }));
+        renderLegend("featureLegend", featureSeries);
+        renderLineChart("featureChart", rows, featureSeries);
+        const featureTotals = featureDefinitions.map((item) => ({
+          ...item,
+          users: rows.reduce((sum, row) => sum + Number(row.features?.[item.key]?.users || 0), 0),
+          actions: rows.reduce((sum, row) => sum + Number(row.features?.[item.key]?.actions || 0), 0),
+        }));
+        const allFeatureUsers = featureTotals.reduce((sum, item) => sum + item.users, 0);
+        $("featureBars").innerHTML = featureTotals.map((item) => {
+          const ratio = allFeatureUsers ? item.users / allFeatureUsers * 100 : 0;
+          return `<div><div class="feature-row-head"><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.users)} 日活人次 · ${escapeHtml(item.actions)} 条记录</span></div><div class="feature-track"><div class="feature-fill" style="width:${ratio.toFixed(2)}%;background:${item.color}"></div></div></div>`;
+        }).join("") || '<span class="muted">暂无功能使用数据</span>';
+      }
+
       function renderOverview(data) {
         const summary = data.summary || {};
-        const todayActivity = (data.dailyUserActivity || [])[0] || {};
         const ttsCost = data.ttsCost || {};
         const memberUsers = summary.memberUsers ?? summary.proUsers;
         const nonMemberUsers = summary.nonMemberUsers ?? summary.nonProUsers;
         $("overviewClock").textContent = data.clock
           ? `${data.range?.fromDate || ""} 至 ${data.range?.toDate || ""} · ${data.clock.businessTimeZone} · ${fmtDate(data.clock.serverNowIso)}`
           : "未加载";
+        renderProductAnalytics(data);
         const cards = [
-          ["总用户", summary.totalUsers, "active users"],
-          ["当前会员", memberUsers, "plus + pro"],
-          ["当前 Plus", summary.plusUsers, "active plus"],
-          ["当前 Pro", summary.proUsers, "active pro"],
-          ["非会员", nonMemberUsers, "active users - members"],
-          ["今日卡片活跃", todayActivity.activeUsers, "create + practice + recall"],
-          ["今日新增卡片", todayActivity.cardsCreated, `${todayActivity.cardCreatingUsers ?? 0} users`],
-          ["今日练习用户", todayActivity.practiceUsers, "cloze + dictation"],
-          ["今日回忆用户", todayActivity.recallUsers, "recall opened"],
-          ["今日 AI 助手", todayActivity.assistantUsers, "not included in card active"],
-          ["今日额度用户", summary.todayQuotaUsers, "daily + free_trial"],
-          ["今日平均累计", summary.todayAvgUsedChars, "quota pool / user"],
-          ["今日累计合计", summary.todayTotalUsedChars, "quota pool total"],
-          ["今日用满", summary.todayQuotaFullUsers, "member + free"],
-          ["会员用满", summary.todayProQuotaFullUsers, "daily quota"],
-          ["免费用满", summary.todayFreeQuotaFullUsers, "free trial"],
-          ["会员占比", percent(memberUsers, summary.totalUsers), "current"],
-          ["TTS 估算成本", ttsCost.estimatedCost || "USD 0.00", `rate ${ttsCost.costPerMillionCharsCents ?? 0} cents / 1M chars`],
-          ["TTS 生成字符", ttsCost.generatedChars, "new synthesis only"],
-          ["TTS 新生成", ttsCost.generatedRequests, "cache/dedupe excluded"],
-          ["TTS 缓存/复用", `${ttsCost.cacheHitRequests ?? 0} / ${ttsCost.dedupedRequests ?? 0}`, "cacheHit / deduped"],
+          ["累计有效用户", summary.totalUsers, `${nonMemberUsers ?? 0} 位非会员`],
+          ["当前付费会员", memberUsers, `Plus ${summary.plusUsers ?? 0} · Pro ${summary.proUsers ?? 0}`],
+          ["会员转化率", percent(memberUsers, summary.totalUsers), "当前有效会员 ÷ 有效用户"],
+          ["期间 TTS 成本", ttsCost.estimatedCost || "USD 0.00", `${ttsCost.generatedRequests ?? 0} 次真实新生成`],
         ];
         $("metrics").innerHTML = cards.map(([label, value, hint]) => `
           <div class="metric">

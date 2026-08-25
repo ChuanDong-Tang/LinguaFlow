@@ -71,7 +71,7 @@ import type { AutoCopyMode } from "../services/preferences/assistantPreferences"
 import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
 import { getLanguage, t, tf } from "../i18n";
 import { stopTtsAudio } from "../services/tts/ttsPlayback";
-import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
+import { dictionaryLookupErrorKey, lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api/sttRealtimeApi";
 import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
 import { calculatePcmAudioLevel } from "../services/stt/pcmAudioLevel";
@@ -867,7 +867,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
         if (!isMountedRef.current || controller.signal.aborted || dictionaryRequestSeqRef.current !== requestSeq) return;
         console.warn("dictionary lookup failed", error);
         setDictionaryLookup((current) => current
-          ? { ...current, loading: false, error: (error as { code?: string }).code === "DICTIONARY_NOT_FOUND" ? t("dictionary.error.not_found") : t("dictionary.error.failed") }
+          ? { ...current, loading: false, error: t(dictionaryLookupErrorKey(error)) }
           : current);
       }).finally(() => {
         if (dictionaryAbortRef.current === controller) {

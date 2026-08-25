@@ -639,7 +639,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const toDate = requestedToDate ?? clock.businessDateKey;
     const fromDate = clampFromDateKey(requestedFromDate ?? addDateKeyDays(toDate, -13), toDate, 90);
 
-    const [summaryRows, recentUsage, dailyUserActivity, dailyTtsUsage, autoRenewSummary] = await Promise.all([
+    const [summaryRows, recentUsage, dailyUserActivity, dailyTtsUsage, autoRenewSummary, productDailyMetrics] = await Promise.all([
       deps.prisma.$queryRawUnsafe(
         `WITH active_users AS (
            SELECT id FROM "users" WHERE status = 'active'
@@ -866,6 +866,114 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
          GROUP BY provider, status
          ORDER BY provider, status`
       ),
+      deps.prisma.$queryRawUnsafe(
+        `WITH days AS (
+           SELECT generate_series($1::date, $2::date, interval '1 day')::date AS day
+         ),
+         activity_events AS (
+           SELECT to_char(c."createdAt" AT TIME ZONE $3, 'YYYY-MM-DD') AS "dateKey",
+                  c."userId", 'card'::text AS feature, 1::int AS actions
+           FROM "cards" c
+           WHERE c."isSample" = false
+             AND c."deletedAt" IS NULL
+             AND c."createdAt" >= (($1::date - 1)::timestamp AT TIME ZONE $3)
+             AND c."createdAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+           UNION ALL
+           SELECT to_char(p."updatedAt" AT TIME ZONE $3, 'YYYY-MM-DD'),
+                  p."userId", 'practice'::text, 1::int
+           FROM "card_practice_states" p
+           WHERE p."updatedAt" >= (($1::date - 1)::timestamp AT TIME ZONE $3)
+             AND p."updatedAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+           UNION ALL
+           SELECT to_char(p."updatedAt" AT TIME ZONE $3, 'YYYY-MM-DD'),
+                  p."userId", 'practice'::text, 1::int
+           FROM "card_content_practice_states" p
+           WHERE p."updatedAt" >= (($1::date - 1)::timestamp AT TIME ZONE $3)
+             AND p."updatedAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+           UNION ALL
+           SELECT to_char(r."lastOpenedAt" AT TIME ZONE $3, 'YYYY-MM-DD'),
+                  r."userId", 'recall'::text, 1::int
+           FROM "recall_sessions" r
+           WHERE r."lastOpenedAt" >= (($1::date - 1)::timestamp AT TIME ZONE $3)
+             AND r."lastOpenedAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+           UNION ALL
+           SELECT COALESCE(m."conversationDateKey", to_char(m."createdAt" AT TIME ZONE $3, 'YYYY-MM-DD')),
+                  m."userId", 'assistant'::text, 1::int
+           FROM "messages" m
+           WHERE m.role = 'user'
+             AND m."createdAt" >= (($1::date - 1)::timestamp AT TIME ZONE $3)
+             AND m."createdAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+           UNION ALL
+           SELECT to_char(t."createdAt" AT TIME ZONE $3, 'YYYY-MM-DD'),
+                  t."userId", 'tts'::text, 1::int
+           FROM "tts_request_logs" t
+           WHERE t."userId" IS NOT NULL
+             AND t."createdAt" >= (($1::date - 1)::timestamp AT TIME ZONE $3)
+             AND t."createdAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+           UNION ALL
+           SELECT to_char(l."updatedAt" AT TIME ZONE $3, 'YYYY-MM-DD'),
+                  l."userId", 'dictionary'::text, 1::int
+           FROM "dictionary_lookup_caches" l
+           WHERE l."updatedAt" >= (($1::date - 1)::timestamp AT TIME ZONE $3)
+             AND l."updatedAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+           UNION ALL
+           SELECT to_char(i."createdAt" AT TIME ZONE $3, 'YYYY-MM-DD'),
+                  i."userId", 'image'::text, 1::int
+           FROM "card_image_assets" i
+           WHERE i."createdAt" >= (($1::date - 1)::timestamp AT TIME ZONE $3)
+             AND i."createdAt" < (($2::date + 1)::timestamp AT TIME ZONE $3)
+         ),
+         daily_users AS (
+           SELECT DISTINCT "dateKey", "userId"
+           FROM activity_events
+           WHERE feature IN ('card', 'practice', 'recall', 'assistant')
+         ),
+         daily_features AS (
+           SELECT "dateKey", feature,
+                  COUNT(DISTINCT "userId")::int AS users,
+                  SUM(actions)::int AS actions
+           FROM activity_events
+           GROUP BY "dateKey", feature
+         )
+         SELECT
+           to_char(d.day, 'YYYY-MM-DD') AS "dateKey",
+           (SELECT COUNT(*)::int FROM "users" u
+             WHERE u."createdAt" >= (d.day::timestamp AT TIME ZONE $3)
+               AND u."createdAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)) AS "newUsers",
+           (SELECT COUNT(*)::int FROM daily_users a
+             WHERE a."dateKey" = to_char(d.day, 'YYYY-MM-DD')) AS "activeUsers",
+           (SELECT COUNT(*)::int FROM daily_users a JOIN "users" u ON u.id = a."userId"
+             WHERE a."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+               AND u."createdAt" < (d.day::timestamp AT TIME ZONE $3)) AS "returningUsers",
+           (SELECT COUNT(*)::int FROM daily_users current_day
+             WHERE current_day."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+               AND EXISTS (SELECT 1 FROM daily_users previous_day
+                 WHERE previous_day."dateKey" = to_char(d.day - 1, 'YYYY-MM-DD')
+                   AND previous_day."userId" = current_day."userId")) AS "retainedUsers",
+           (SELECT COUNT(*)::int FROM daily_users previous_day
+             WHERE previous_day."dateKey" = to_char(d.day - 1, 'YYYY-MM-DD')
+               AND NOT EXISTS (SELECT 1 FROM daily_users current_day
+                 WHERE current_day."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+                   AND current_day."userId" = previous_day."userId")) AS "churnedUsers",
+           (SELECT COUNT(*)::int FROM daily_users previous_day
+             WHERE previous_day."dateKey" = to_char(d.day - 1, 'YYYY-MM-DD')) AS "previousActiveUsers",
+           (SELECT COUNT(*)::int FROM "users" u
+             WHERE u."createdAt" >= ((d.day - 1)::timestamp AT TIME ZONE $3)
+               AND u."createdAt" < (d.day::timestamp AT TIME ZONE $3)) AS "previousNewUsers",
+           (SELECT COUNT(*)::int FROM "users" u
+             WHERE u."createdAt" >= ((d.day - 1)::timestamp AT TIME ZONE $3)
+               AND u."createdAt" < (d.day::timestamp AT TIME ZONE $3)
+               AND EXISTS (SELECT 1 FROM daily_users current_day
+                 WHERE current_day."dateKey" = to_char(d.day, 'YYYY-MM-DD')
+                   AND current_day."userId" = u.id)) AS "newUserD1RetainedUsers",
+           COALESCE((SELECT jsonb_object_agg(f.feature, jsonb_build_object('users', f.users, 'actions', f.actions))
+             FROM daily_features f WHERE f."dateKey" = to_char(d.day, 'YYYY-MM-DD')), '{}'::jsonb) AS features
+         FROM days d
+         ORDER BY d.day ASC`,
+        fromDate,
+        toDate,
+        clock.businessTimeZone
+      ),
     ]);
 
     const ttsUsageRows = Array.isArray(dailyTtsUsage) ? dailyTtsUsage as any[] : [];
@@ -891,6 +999,15 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       })),
       ttsCost,
       autoRenewSummary,
+      productDailyMetrics: (Array.isArray(productDailyMetrics) ? productDailyMetrics as any[] : []).map((row) => ({
+        ...row,
+        retentionRate: Number(row.previousActiveUsers) > 0
+          ? Math.round((Number(row.retainedUsers) / Number(row.previousActiveUsers)) * 10_000) / 100
+          : null,
+        newUserD1RetentionRate: Number(row.previousNewUsers) > 0
+          ? Math.round((Number(row.newUserD1RetainedUsers) / Number(row.previousNewUsers)) * 10_000) / 100
+          : null,
+      })),
     };
 
     return reply.status(200).send({ ok: true, request_id: requestId, data });

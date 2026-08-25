@@ -16,6 +16,17 @@ export type DictionaryLookupResult = {
   nativeMeaning: string;
 };
 
+export function dictionaryLookupErrorKey(error: unknown) {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
+  if (code === "DICTIONARY_NOT_FOUND") return "dictionary.error.not_found" as const;
+  if (code === "TOKEN_QUOTA_EXCEEDED" || code === "DAILY_QUOTA_EXCEEDED") {
+    return "dictionary.error.quota_exceeded" as const;
+  }
+  return "dictionary.error.failed" as const;
+}
+
 export async function lookupDictionary(input: {
   term: string;
   context: string;

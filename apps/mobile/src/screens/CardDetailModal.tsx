@@ -53,12 +53,11 @@ import {
   type NativeTextSelectionPayload,
 } from "./chat/SelectableMessageText";
 import { DictionaryPopover } from "./chat/DictionaryPopover";
-import { lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
+import { dictionaryLookupErrorKey, lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { getLanguage, t, tf } from "../i18n";
 import { expandSelectionToCardBlankRange, getCardClozeActualUnitMatches, splitCardClozeAnswerUnits } from "../domain/cloze/clozeUtils";
 import { useRealtimeSttInput, type RealtimeSttInputStatus } from "../hooks/useRealtimeSttInput";
 import { CollectionPickerModal, collectionPathName } from "./shared/CollectionPickerModal";
-import { normalizeCardBodyText } from "@lf/core/text/cardText";
 import { hasLocalStrictProAccess } from "../services/entitlement/proAccess";
 import { copyTextToClipboard } from "../services/device/clipboardService";
 import { useFloatingNotice } from "./shared/FloatingNotice";
@@ -77,7 +76,7 @@ type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; heig
 type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
 const CARD_CLOZE_ONBOARDING_KEY = "linguaflow.card_detail.cloze_onboarding.v2";
 
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -91,6 +90,8 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   draftLimits?: CardCapabilities["limits"];
   draftCollections?: CardCollection[];
   initialTab?: DetailTab;
+  initialEditing?: boolean;
+  closeAfterEditing?: boolean;
   onClose: () => void;
   returnLabel?: string;
   onReplaceImage?: (source: "camera" | "library", asset?: { uri: string; width: number; height: number }) => void;
@@ -114,6 +115,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onOpenRelated?: (recordId: string, reasons: CardRelationReason[]) => void;
   hideRelations?: boolean;
   onUpdateContent?: (input: { title: string | null; originalText: string; collectionId: string | null; selectedTargets: Array<"expression" | "translation" | "reply"> }) => Promise<boolean | void>;
+  onEditCard?: () => void;
   pendingGenerationTargets?: CardGenerationTarget[];
   failedGenerationTargets?: CardGenerationTarget[];
   retryingGenerationTarget?: CardGenerationTarget | null;
@@ -142,7 +144,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   if ((detail?.id ?? null) !== clozeEntryModeRef.current.recordId) {
     clozeEntryModeRef.current = { recordId: detail?.id ?? null, autoStart: initialTab === "cloze" };
   }
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initialEditing);
   const practiceMode = tab === "dictation";
   const [clozeState, setClozeState] = useState<CardClozeState>({ schemaVersion: 1, blanks: [] });
   const [clozeVersion, setClozeVersion] = useState(0);
@@ -266,10 +268,10 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   }, [detail?.id, transitionOrigin?.x, transitionOrigin?.y, transitionOrigin?.width, transitionOrigin?.height]);
   useEffect(() => {
     if (detail) {
-      setEditing(false);
+      setEditing(initialEditing);
       setTab(initialTab === "cloze" ? "review" : initialTab);
     }
-  }, [detail?.id, initialTab]);
+  }, [detail?.id, initialEditing, initialTab]);
   useEffect(() => {
     if (!detail || !activeClozeOwnerKey) return;
     const incoming = {
@@ -379,11 +381,12 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       imageAdding={imageAdding}
       onAddImage={onReplaceImage}
       onRemoveImage={onRemoveImage}
-      onCancel={() => setEditing(false)}
+      onCancel={() => closeAfterEditing ? onClose() : setEditing(false)}
       onSave={async (input) => {
         const accepted = await onUpdateContent?.(input);
         if (accepted === false) return;
-        setEditing(false);
+        if (closeAfterEditing) onClose();
+        else setEditing(false);
       }}
     />;
   }
@@ -407,14 +410,13 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       <SafeAreaView style={styles.page}>
         <View style={styles.header}>
           <View style={styles.historyButtons}>
-            {recallPosition && tab === "review" ? <View style={styles.historyButton} /> : returnLabel && tab === "review" ? <View style={styles.historyButton} /> : <Pressable accessibilityLabel={tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close")} style={styles.historyButton} onPress={tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? onBack : () => animateExit(onClose, false)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>}
+            {returnLabel && tab === "review" ? <View style={styles.historyButton} /> : <Pressable accessibilityLabel={recallPosition && tab === "review" ? t("recall.exit") : tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close")} style={styles.historyButton} onPress={recallPosition && tab === "review" ? onClose : tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? onBack : () => animateExit(onClose, false)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>}
             {practiceMode && canGoForward && onForward ? <Pressable accessibilityLabel={t("card_detail.a11y.forward")} style={styles.historyButton} onPress={onForward}><Ionicons name="chevron-forward" size={22} color={theme.colors.text} /></Pressable> : null}
           </View>
           <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>
           <View style={styles.headerEnd}>
-            {recallPosition && tab === "review" ? <Pressable accessibilityLabel={t("recall.exit")} style={styles.iconHeaderButton} onPress={onClose}><Ionicons name="close" size={23} color={theme.colors.text} /></Pressable> : null}
             {tab === "review" && canPracticeActiveBlock && showClozeTipButton ? <Pressable accessibilityLabel={t("card_detail.cloze.tip_button")} style={styles.iconHeaderButton} onPress={() => setClozeTipVisible(true)}><Ionicons name="bulb-outline" size={21} color="#B98516" /></Pressable> : null}
-            {tab === "review" && onUpdateContent ? <Pressable accessibilityLabel={t("card_detail.a11y.edit_card")} style={styles.iconHeaderButton} onPress={() => setEditing(true)}><Ionicons name="pencil-outline" size={21} color={theme.colors.text} /></Pressable> : null}
+            {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel={t("card_detail.a11y.edit_card")} style={styles.iconHeaderButton} onPress={onEditCard ?? (() => setEditing(true))}><Ionicons name="pencil-outline" size={21} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
@@ -537,7 +539,6 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
     || selectedTargets.translation !== Boolean(detail.translationText)
     || selectedTargets.reply !== Boolean(detail.replyText)
     || collectionId !== (detail.collectionId ?? null);
-  const originalChanged = normalizeCardBodyText(originalText) !== normalizeCardBodyText(detail.originalText);
   const contentCount = countGraphemes(originalText);
   const canSave = contentCount > 0 && contentCount <= limits.contentChars && !saving;
   async function save(): Promise<void> {
@@ -606,13 +607,12 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
       <KeyboardAvoidingView style={styles.draftContentPage} behavior="height">
         <>
           <ScrollView style={styles.draftEditorScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.draftEditorContent} showsVerticalScrollIndicator={false} alwaysBounceVertical={false} bounces={false}>
-            <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={(imageId) => onRemoveImage?.(imageId)} />
+            <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} />
             <CollectionPickerRow collections={collections} value={collectionId} onChange={setCollectionId} />
             <TextInput value={title} editable={!saving} maxLength={limits.titleChars} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.draftTitleInput} onChangeText={setTitle} />
             <View style={styles.draftOriginalEditor}>
               <TextInput multiline scrollEnabled={false} value={originalText} editable={!saving} onChangeText={originalStt.onChangeText} onSelectionChange={(event) => originalStt.onSelectionChange(event.nativeEvent.selection)} maxLength={limits.contentChars} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={[styles.draftBlockInput, styles.draftBlockInputFeatured]} textAlignVertical="top" />
             </View>
-            {originalChanged && Object.values(selectedTargets).some(Boolean) ? <View style={styles.staleContentNotice}><Ionicons name="sparkles-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.staleContentNoticeText}>{t("card_detail.stale_content_notice")}</Text></View> : null}
           </ScrollView>
           {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} onDismiss={() => setPhotoRailVisible(false)} onSelect={(asset) => void selectRecentPhoto(asset)} onTakePhoto={() => { setPhotoRailVisible(false); onAddImage?.("camera"); }} onOpenAll={() => { setPhotoRailVisible(false); onAddImage?.("library"); }} /> : null}
         </>
@@ -1524,7 +1524,6 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     durationMs: number;
   }>>([]);
   const toggleSection = (section: keyof typeof collapsedSections) => setCollapsedSections((current) => ({ ...current, [section]: !current[section] }));
-  const replySelectionRef = useRef(false);
   const playback = React.useSyncExternalStore(subscribeTtsPlayback, getTtsPlaybackState, getTtsPlaybackState);
   const articleNavigationPrefix = `card:${detail.id}:article:`;
   const sentenceNavigationPrefix = `card:${detail.id}:sentence:`;
@@ -1540,6 +1539,11 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const hasBlanks = clozeState.blanks.length > 0;
   const articleRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, true), [detail, clozeState]);
   const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
+  const expressionPending = pendingGenerationTargets.includes("expression");
+  const expressionFailed = failedGenerationTargets.includes("expression");
+  const rewriteIsPrimary = contentBinding.contentType === "rewrite" || expressionPending || expressionFailed;
+  const rewriteIsReady = contentBinding.contentType === "rewrite";
+  const frontLearningReady = rewriteIsReady || !rewriteIsPrimary;
   const learningText = detail.contentBlocks.find((candidate) =>
     candidate.contentType === contentBinding.contentType
     && candidate.contentVersion === contentBinding.contentVersion,
@@ -1559,6 +1563,8 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       || playback.activeNavigationKey?.startsWith(articleReplyNavigationPrefix)
       || (activeArticleMarkIndex !== null && activeArticleMarkIndex >= articleRows.length)),
   );
+  const replyPlaybackLoading = replyPlaybackActive && playback.status === "loading";
+  const replyPlaying = replyPlaybackActive && playback.status === "playing";
   const activeSentenceKey = (() => {
     if (!playback.hasActiveAudio || !playback.activeNavigationKey) return null;
     if (playback.activeNavigationKey.startsWith(sentenceNavigationPrefix)) {
@@ -2018,7 +2024,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     }).catch((error) => {
       if (dictionaryRequestRef.current !== sequence) return;
       console.warn("[card] dictionary lookup failed", error);
-      setDictionary((current) => current ? { ...current, loading: false, error: (error as { code?: string }).code === "DICTIONARY_NOT_FOUND" ? t("dictionary.error.not_found") : t("dictionary.error.failed") } : null);
+      setDictionary((current) => current ? { ...current, loading: false, error: t(dictionaryLookupErrorKey(error)) } : null);
     });
   }
 
@@ -2081,27 +2087,33 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
             <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
           </View>
           <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
-          <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={(imageId) => onRemoveImage?.(imageId)} />
+          <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} />
           <View style={styles.flipCardTextBlock}>
-            <CollapsibleCardSection label={contentBinding.contentType === "rewrite" ? t("card_detail.module.expression_description") : t("card_detail.my_record")} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
-              {practiceEnabled
-                ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
-                : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
-              <CardSectionCopyButton onPress={() => void copySection(learningText)} />
-            </CollapsibleCardSection>
+            {frontLearningReady ? <CollapsibleCardSection label={rewriteIsReady ? t("card_detail.module.expression_description") : t("card_detail.my_record")} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
+                {practiceEnabled
+                  ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
+                  : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
+                <CardSectionCopyButton onPress={() => void copySection(learningText)} />
+              </CollapsibleCardSection>
+              : expressionPending
+                ? <PendingGenerationSection target="expression" />
+                : <FailedGenerationSection target="expression" retrying={retryingGenerationTarget === "expression"} onRetry={onRetryGeneration} />}
           </View>
-          {pendingGenerationTargets.includes("expression") ? <PendingGenerationSection target="expression" /> : failedGenerationTargets.includes("expression") ? <FailedGenerationSection target="expression" retrying={retryingGenerationTarget === "expression"} onRetry={onRetryGeneration} /> : null}
           {detail.replyText ? <CollapsibleCardSection label={t("card_detail.reply")} collapsed={collapsedSections.reply} onToggle={() => toggleSection("reply")}>
-            <Pressable accessibilityLabel={t("card_detail.a11y.play_reply")} style={[styles.replyPlaybackArea, replyPlaybackActive && styles.replyPlaybackAreaActive]} onPress={() => {
-              if (replySelectionRef.current) return;
-              playReply();
-            }}>
-              <SelectableMessageText text={detail.replyText} style={styles.secondaryContent} enableDictionaryMenu enableClozeMenu={false} onSelectionStart={() => {
-                lockForTextSelection();
-                replySelectionRef.current = true;
-                setTimeout(() => { replySelectionRef.current = false; }, 600);
-              }} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(detail.replyText!, payload)} />
-            </Pressable>
+            <View style={styles.replyContentRow}>
+              <View style={styles.replyTextContent}>
+                <SelectableMessageText text={detail.replyText} style={styles.secondaryContent} enableDictionaryMenu enableClozeMenu={false} onSelectionStart={() => {
+                  lockForTextSelection();
+                }} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(detail.replyText!, payload)} />
+              </View>
+              <Pressable accessibilityLabel={t("card_detail.a11y.play_reply")} disabled={replyPlaybackLoading} style={styles.inlineSentencePlay} onPress={playReply}>
+                {replyPlaybackLoading
+                  ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                  : replyPlaying
+                    ? <Ionicons name="stop" size={18} color={theme.colors.textSecondary} />
+                    : <Ionicons name="play" size={17} color={theme.colors.textSecondary} />}
+              </Pressable>
+            </View>
             <CardSectionCopyButton onPress={() => void copySection(detail.replyText!)} />
           </CollapsibleCardSection> : pendingGenerationTargets.includes("reply") ? <PendingGenerationSection target="reply" /> : failedGenerationTargets.includes("reply") ? <FailedGenerationSection target="reply" retrying={retryingGenerationTarget === "reply"} onRetry={onRetryGeneration} /> : null}
           {relatedContent}
@@ -2113,7 +2125,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
             <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
           </View>
           <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
-          {detail.originalText.trim() ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => toggleSection("original")}>
+          {rewriteIsPrimary && detail.originalText.trim() ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => toggleSection("original")}>
             <Text selectable style={styles.original}>{detail.originalText}</Text>
             <CardSectionCopyButton onPress={() => void copySection(detail.originalText)} />
           </CollapsibleCardSection> : null}
@@ -2126,7 +2138,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       </Animated.View>
     </View>
     {onRecallFinish ? <Pressable style={styles.recallFinishButton} onPress={onRecallFinish}><Text style={styles.recallFinishButtonText}>{t("recall.end_node")}</Text><Ionicons name="checkmark" size={18} color={theme.colors.surface} /></Pressable> : null}
-    {cardFace === "front" && fillMode && clozeInputMode === "choice" && choiceTrayOptions.length ? <View style={styles.detailChoiceTray}>
+    {cardFace === "front" && frontLearningReady && fillMode && clozeInputMode === "choice" && choiceTrayOptions.length ? <View style={styles.detailChoiceTray}>
       {choiceTrayOptions.map((option) => <Pressable
         key={option.value}
         disabled={savingCloze}
@@ -2138,11 +2150,11 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     </View> : null}
     <View style={styles.detailActionBar}>
       <DetailActionButton label={t("card_detail.flip")} icon="swap-horizontal-outline" active={cardFace === "back"} onPress={flipCard} />
-      <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={cardFace !== "front" || !practiceEnabled || !canUseDictation} onPress={onOpenDictation} />
-      <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks} onPress={() => setAnswersVisible((current) => !current)} />
-      <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks} onPress={() => toggleClozeMode("keyboard")} />
-      <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || blankCount < 2} onPress={() => toggleClozeMode("choice")} />
-      <DetailActionButton label={t("card_detail.a11y.play_all")} icon={articlePlaying ? "pause" : "play"} loading={articlePlaybackLoading} disabled={cardFace !== "front" || detail.source !== "card"} onPress={() => articlePlaybackActive ? toggleTtsPlayback() : void playArticle()} />
+      <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={cardFace !== "front" || !practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} />
+      <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => setAnswersVisible((current) => !current)} />
+      <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => toggleClozeMode("keyboard")} />
+      <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || blankCount < 2 || !frontLearningReady} onPress={() => toggleClozeMode("choice")} />
+      <DetailActionButton label={t("card_detail.a11y.play_all")} icon={articlePlaying ? "pause" : "play"} loading={frontLearningReady ? articlePlaybackLoading : false} disabled={cardFace !== "front" || detail.source !== "card" || !frontLearningReady} onPress={() => articlePlaybackActive ? toggleTtsPlayback() : void playArticle()} />
     </View>
     <DictionaryPopover
       visible={Boolean(dictionary)}
@@ -2504,7 +2516,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
         if (dictionaryRequestRef.current === sequence) setDictionary((current) => current ? { ...current, loading: false, result: lookupResult, error: null } : null);
       })
       .catch((error) => {
-        if (dictionaryRequestRef.current === sequence) setDictionary((current) => current ? { ...current, loading: false, error: (error as { code?: string }).code === "DICTIONARY_NOT_FOUND" ? t("dictionary.error.not_found") : t("dictionary.error.failed") } : null);
+        if (dictionaryRequestRef.current === sequence) setDictionary((current) => current ? { ...current, loading: false, error: t(dictionaryLookupErrorKey(error)) } : null);
       });
   }
   const practice = !embedded && !clozeState.blanks.length ? (
@@ -2939,8 +2951,8 @@ const styles = StyleSheet.create({
   practiceContent: { padding: 20, paddingBottom: 44 }, practiceHint: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 }, answerInput: { marginTop: 18, minHeight: 50, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 16 }, dictationInput: { minHeight: 120, paddingTop: 13 }, primaryButton: { marginTop: 14, minHeight: 48, borderRadius: theme.radius.control, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.accentStrong }, primaryButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" }, secondaryButton: { marginTop: 10, minHeight: 44, alignItems: "center", justifyContent: "center" }, secondaryButtonText: { color: theme.colors.accentStrong, fontSize: 14 }, result: { marginTop: 16, fontSize: 14, textAlign: "center" }, correct: { color: theme.colors.success }, incorrect: { color: theme.colors.danger }, answerReveal: { marginTop: 16, padding: 14, borderRadius: theme.radius.control, backgroundColor: theme.colors.accentSoft, color: theme.colors.text, fontSize: 16, lineHeight: 24 }, audioPlaceholder: { minHeight: 88, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }, audioText: { marginTop: 7, color: theme.colors.textMuted, fontSize: 12 },
   sectionHeading: { marginTop: 18, minHeight: 30, flexDirection: "row", alignItems: "center" },
   sectionLabelInline: { flex: 1, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" },
-  replyPlaybackArea: { borderRadius: 7 },
-  replyPlaybackAreaActive: { backgroundColor: theme.colors.surfaceMuted },
+  replyContentRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  replyTextContent: { flex: 1, minWidth: 0 },
   dictationSentenceList: { gap: 12 },
   dictationSentenceRow: { flexDirection: "row", alignItems: "flex-start" },
   dictationSentenceBody: { flex: 1 },
@@ -3065,8 +3077,6 @@ const styles = StyleSheet.create({
   draftPublishButtonDisabled: { backgroundColor: theme.colors.surfaceMuted },
   draftPublishButtonText: { color: theme.colors.surface, fontSize: 14, fontWeight: "700" },
   draftPublishButtonTextDisabled: { color: theme.colors.textMuted },
-  staleContentNotice: { marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: theme.radius.control, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 7 },
-  staleContentNoticeText: { flex: 1, color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
   draftAiOptionsRow: { minHeight: 46, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 4 },
   draftAiOption: { flex: 1, minWidth: 0, height: 38, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
   draftAiOptionLabel: { flexShrink: 1, color: theme.colors.textSecondary, fontSize: 12, fontWeight: "500" },

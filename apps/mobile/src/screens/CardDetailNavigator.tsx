@@ -31,6 +31,8 @@ export type CardDetailRequest = {
   key: number;
   recordId: string;
   initialTab?: "review" | "cloze" | "dictation";
+  initialEditing?: boolean;
+  closeAfterEditing?: boolean;
   origin?: { x: number; y: number; width: number; height: number };
   returnLabel?: string;
 };
@@ -117,6 +119,9 @@ export function CardDetailNavigator({
       setPendingGenerationTargets([]);
       return;
     }
+    setDetail(null);
+    setPendingGenerationTargets([]);
+    setFailedGenerationTargets([]);
     setHistory([request.recordId]);
     setHistoryIndex(0);
     void loadDetail(request.recordId);
@@ -299,6 +304,7 @@ export function CardDetailNavigator({
   const canNavigateForward = historyIndex >= 0 && historyIndex < history.length - 1 && Boolean(history[historyIndex + 1]);
   return (
       <CardDetailModal
+        key={request.key}
         detail={detail}
         loading={loading}
         imageAdding={imageAdding}
@@ -309,6 +315,8 @@ export function CardDetailNavigator({
       onRetryGeneration={(target) => void retryGeneration(target)}
       transitionOrigin={historyIndex === 0 ? request.origin : undefined}
       initialTab={request.initialTab}
+      initialEditing={request.initialEditing}
+      closeAfterEditing={request.closeAfterEditing}
         onClose={close}
         returnLabel={request?.returnLabel}
       canGoBack={canNavigateBack}

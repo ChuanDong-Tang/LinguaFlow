@@ -274,6 +274,17 @@ export default function App() {
     });
   }
 
+  function editRecallCard(recordId: string): void {
+    cardDetailRequestKeyRef.current += 1;
+    setCardDetailRequest({
+      key: cardDetailRequestKeyRef.current,
+      recordId,
+      initialTab: "review",
+      initialEditing: true,
+      closeAfterEditing: true,
+    });
+  }
+
   async function handleLoginSuccess(): Promise<void> {
     cancelDeleteAccountFlow();
     setScreen("main");
@@ -747,6 +758,8 @@ export default function App() {
             incomingCardDraft={incomingCardDraft}
             onIncomingCardDraftHandled={(id) => setIncomingCardDraft((current) => current?.id === id ? null : current)}
             onOpenCard={openCardDetail}
+            onEditRecallCard={editRecallCard}
+            onCardChanged={() => setCardDataRevision((value) => value + 1)}
             onOpenLibrary={() => setScreen("main")}
             onOpenRecall={(mode) => {
               setRecallLaunchRequest(mode ? { key: Date.now(), mode } : null);
@@ -760,6 +773,9 @@ export default function App() {
             <RecallScreen
               isActive
               launchRequest={recallLaunchRequest}
+              refreshRevision={cardDataRevision}
+              onEditCard={editRecallCard}
+              onCardChanged={() => setCardDataRevision((value) => value + 1)}
               onOpenLibrary={() => {
                 setRecallVisible(false);
                 setRecallLaunchRequest(null);
@@ -1059,6 +1075,8 @@ function TabScreens({
   incomingCardDraft,
   onIncomingCardDraftHandled,
   onOpenCard,
+  onEditRecallCard,
+  onCardChanged,
   onOpenLibrary,
   onOpenRecall,
   onOpenAccount,
@@ -1076,6 +1094,8 @@ function TabScreens({
   incomingCardDraft: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled: (id: number) => void;
   onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], returnLabel?: string) => void;
+  onEditRecallCard: (recordId: string) => void;
+  onCardChanged: () => void;
   onOpenLibrary: () => void;
   onOpenRecall: (mode?: "today" | "yesterday" | "blind") => void;
   onOpenAccount: () => void;
@@ -1097,6 +1117,9 @@ function TabScreens({
       <View style={[styles.tabPage, activeTab !== "practice" && styles.tabPageHidden]}>
         <RecallScreen
           isActive={activeTab === "practice"}
+          refreshRevision={cardDataRevision}
+          onEditCard={onEditRecallCard}
+          onCardChanged={onCardChanged}
           onOpenLibrary={onOpenLibrary}
         />
       </View>
