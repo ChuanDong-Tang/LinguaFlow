@@ -528,6 +528,7 @@ export function MemoryRoundScreen({
       setMeaningStatus("ready");
     } catch {
       if (!mountedRef.current || meaningRequestRef.current !== requestId) return;
+      setMeaningExpanded(false);
       setMeaningStatus("error");
     }
   };
@@ -578,13 +579,6 @@ export function MemoryRoundScreen({
     if (ownerId) await persistRound(ownerId, next);
   };
 
-  const meaningDisclosure = meaningUnavailable ? null : <MeaningDisclosure
-    expanded={meaningExpanded}
-    status={meaningStatus}
-    meaning={nativeMeaning}
-    dots={meaningDots}
-    onPress={() => void revealNativeMeaning()}
-  />;
   const speechBusy = question?.kind === "speech" && (pronunciation.status === "recording" || pronunciation.status === "evaluating");
 
   if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color="#5E7C6A" /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
@@ -601,22 +595,38 @@ export function MemoryRoundScreen({
     <Animated.View style={[styles.questionPage, { opacity: transition, transform: [{ translateY: transition.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }]}>
       <ScrollView contentContainerStyle={[styles.questionScroll, compactLayout && styles.questionScrollCompact]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         {question.thumbnailUrl && !failedImageQuestionIds.has(question.id) ? <Image source={{ uri: question.thumbnailUrl }} resizeMode="cover" style={[styles.memoryImage, compactLayout && styles.memoryImageCompact]} onError={() => setFailedImageQuestionIds((current) => new Set(current).add(question.id))} /> : <View style={[styles.titlePrompt, compactLayout && styles.titlePromptCompact]}><View style={[styles.titleDot, { backgroundColor: currentColor }]} /><Text style={styles.titlePromptText}>{question.title}</Text></View>}
-        <View style={[styles.coachStage, compactLayout && styles.coachStageCompact, { borderColor: `${currentColor}90`, backgroundColor: `${currentColor}24` }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <View style={[styles.coachStage, compactLayout && styles.coachStageCompact, meaningExpanded && meaningStatus === "ready" && styles.coachStageExpanded, { borderColor: `${currentColor}90`, backgroundColor: `${currentColor}24` }]}>
           <View style={[styles.coachGlow, { backgroundColor: `${currentColor}4D` }]} />
-          <Animated.View style={{ transform: [{ translateX: reduceMotion ? 0 : wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-4, 4] }) }] }}>
+          <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.coachCharacter}>
+            <Animated.View style={{ transform: [{ translateX: reduceMotion ? 0 : wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-4, 4] }) }] }}>
             <Animated.View style={{ transform: [{ translateY: question.completed && !reduceMotion ? success.interpolate({ inputRange: [0, 0.55, 1], outputRange: [5, -7, -2] }) : reduceMotion ? 0 : pulse.interpolate({ inputRange: [0, 1], outputRange: [0, -2.5] }) }, { scale: question.completed && !reduceMotion ? success.interpolate({ inputRange: [0, 0.65, 1], outputRange: [0.96, 1.07, 1] }) : 1 }] }}>
-              <OioCharacter width={compactLayout ? 66 : 78} height={compactLayout ? 61 : 72} />
+              <OioCharacter width={compactLayout ? 52 : 58} height={compactLayout ? 48 : 54} />
+            </Animated.View>
             </Animated.View>
           </Animated.View>
-          <View style={[styles.coachBubble, feedbackState === "correct" && styles.coachBubbleSuccess, feedbackState === "wrong" && styles.coachBubbleWrong]}>
-            {feedbackState === "correct" ? <Ionicons name="sparkles" size={19} color="#43816E" /> : feedbackState === "wrong" ? <Ionicons name="refresh" size={19} color="#B75F5F" /> : <View style={styles.coachDots}><View style={styles.coachDot} /><View style={styles.coachDot} /><View style={styles.coachDot} /></View>}
+          <View style={[styles.coachBubble, meaningExpanded && meaningStatus === "ready" && styles.coachBubbleExpanded, feedbackState === "correct" && styles.coachBubbleSuccess, feedbackState === "wrong" && styles.coachBubbleWrong]}>
+            {feedbackState === "correct" ? <Ionicons name="sparkles" size={19} color="#43816E" /> : feedbackState === "wrong" ? <Ionicons name="refresh" size={19} color="#B75F5F" /> : <>
+              <Text style={styles.coachHintTitle}>{t("memory_round.coach_hint")}</Text>
+              <View style={styles.coachHintActions}>
+                <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.play_audio")} disabled={audioLoading || speechBusy} style={({ pressed }) => [styles.coachHintButton, (audioLoading || speechBusy) && styles.buttonDisabled, pressed && styles.controlPressed]} onPress={() => void playSentence()}>
+                  {audioLoading ? <ActivityIndicator size="small" color="#59636E" /> : <Ionicons name="volume-medium-outline" size={17} color="#596F65" />}
+                  <Text style={styles.coachHintButtonText}>{t("memory_round.listen_hint")}</Text>
+                </Pressable>
+                {!meaningUnavailable ? <Pressable accessibilityRole="button" accessibilityState={{ expanded: meaningExpanded, busy: meaningStatus === "loading" }} style={({ pressed }) => [styles.coachHintButton, pressed && styles.controlPressed]} onPress={() => void revealNativeMeaning()}>
+                  {meaningStatus === "loading" ? <View style={styles.meaningDots}>{meaningDots.map((dot, index) => <Animated.View key={index} style={[styles.meaningDot, { opacity: dot }]} />)}</View> : <Ionicons name={meaningStatus === "error" ? "refresh" : "language-outline"} size={16} color={meaningStatus === "error" ? "#8A6F68" : "#596F65"} />}
+                  <Text style={[styles.coachHintButtonText, meaningStatus === "error" && styles.meaningRetry]}>{meaningStatus === "error" ? t("memory_round.meaning_retry") : t("memory_round.native_meaning")}</Text>
+                </Pressable> : null}
+              </View>
+              {audioUnavailable ? <Text style={styles.coachHintError}>{t("memory_round.audio_unavailable")}</Text> : null}
+              {meaningExpanded && meaningStatus === "ready" && nativeMeaning ? <ScrollView style={styles.coachMeaningScroll} contentContainerStyle={styles.coachMeaningScrollContent} nestedScrollEnabled showsVerticalScrollIndicator persistentScrollbar>
+                <Text style={styles.coachMeaningText}>{nativeMeaning}</Text>
+              </ScrollView> : null}
+            </>}
           </View>
         </View>
-        <View style={[styles.questionHeading, compactLayout && styles.questionHeadingCompact]}><View style={styles.audioArea}><Pressable accessibilityLabel={t("memory_round.play_audio")} disabled={audioLoading || speechBusy} style={({ pressed }) => [styles.audioButton, (audioLoading || speechBusy) && styles.buttonDisabled, pressed && styles.controlPressed]} onPress={() => void playSentence()}>{audioLoading ? <ActivityIndicator size="small" color="#59636E" /> : <Ionicons name="volume-medium-outline" size={21} color="#59636E" />}</Pressable>{audioUnavailable ? <Text style={styles.audioError}>{t("memory_round.audio_unavailable")}</Text> : null}</View></View>
         <Animated.View style={{ transform: [{ translateX: wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }] }}>
-        {question.kind === "speech" ? question.completed ? <><View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View>{meaningDisclosure}</> : <>
+        {question.kind === "speech" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
           <View style={styles.speechSentenceCard}><Text style={[styles.sentence, sentenceTypography]}>{question.sentence}</Text></View>
-          {meaningDisclosure}
           <View style={styles.speechPanel}>
             <View style={[styles.speechPulseOuter, pronunciation.status === "recording" && { transform: [{ scale: 1 + Math.min(0.12, pronunciation.audioLevel * 0.5) }], borderColor: "#79B9A3" }]}>
               <Ionicons name={pronunciation.status === "recording" ? "mic" : pronunciation.status === "evaluating" ? "hourglass-outline" : "mic-outline"} size={29} color={pronunciation.status === "retry" || pronunciation.status === "error" ? "#B75F5F" : "#4E786A"} />
@@ -631,15 +641,13 @@ export function MemoryRoundScreen({
           </View>
         </> : question.kind === "choice" ? <>
           <View style={styles.sentenceSurface}><Text accessibilityLabel={question.completed ? question.sentence : `${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={[styles.blank, !question.completed && styles.blankHidden]}>{question.answer}</Text>{question.after}</Text></View>
-          {meaningDisclosure}
           <View style={styles.options}>{question.options.map((option) => {
             const disabled = question.disabledOptions.includes(option);
             const isAnswer = question.completed && normalizeAnswer(option) === normalizeAnswer(question.answer);
             return <Pressable key={option} disabled={disabled || question.completed || checking} style={({ pressed }) => [styles.option, pressed && styles.optionPressed, disabled && styles.optionWrong, isAnswer && styles.optionCorrect]} onPress={() => void chooseOption(option)}><Text style={[styles.optionText, memoryOptionTypography(option), disabled && styles.optionWrongText, isAnswer && styles.optionCorrectText]}>{option}</Text>{disabled ? <Ionicons name="close" size={20} color="#D56E6E" /> : isAnswer ? <Ionicons name="checkmark" size={20} color="#43816E" /> : null}</Pressable>;
           })}</View>
-        </> : question.kind === "input" ? question.completed ? <><View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View>{meaningDisclosure}</> : <>
+        </> : question.kind === "input" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
           <View style={styles.sentenceSurface}><Text accessibilityLabel={`${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={styles.inputBlank}>______</Text>{question.after}</Text></View>
-          {meaningDisclosure}
           <View style={[styles.inputAnswerShell, sentenceIncorrect && styles.inputAnswerShellWrong]}>
             <TextInput
               ref={inputAnswerRef}
@@ -660,8 +668,7 @@ export function MemoryRoundScreen({
             {inputAnswer ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#87938D" /></Pressable> : null}
           </View>
           <Pressable disabled={!inputAnswer.trim() || checking} style={({ pressed }) => [styles.checkButton, !inputAnswer.trim() && styles.buttonDisabled, sentenceIncorrect && styles.checkButtonWrong, pressed && styles.primaryPressed]} onPress={checkInputAnswer}><Text style={styles.checkButtonText}>{sentenceIncorrect ? t("memory_round.try_again") : t("memory_round.check")}</Text></Pressable>
-        </> : question.completed ? <><View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View>{meaningDisclosure}</> : <>
-          {meaningDisclosure}
+        </> : question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
           <View style={[styles.sentenceTray, sentenceIncorrect && styles.sentenceTrayWrong]}>{selectedTokens.length ? <View style={styles.tokenWrap}>{selectedTokens.map((token) => <Pressable key={token.id} style={({ pressed }) => [styles.selectedToken, pressed && styles.tokenPressed]} onPress={() => changeSentenceToken(token.id, false)}><Text style={styles.selectedTokenText}>{token.text.trim()}</Text></Pressable>)}</View> : <Text style={styles.trayHint}>{t("memory_round.tap_words")}</Text>}</View>
           <View style={styles.tokenWrap}>{availableTokens.map((token) => <Pressable key={token.id} style={({ pressed }) => [styles.token, pressed && styles.tokenPressed]} onPress={() => changeSentenceToken(token.id, true)}><Text style={styles.tokenText}>{token.text.trim()}</Text></Pressable>)}</View>
           <Pressable disabled={selectedTokens.length !== question.tokens.length || checking} style={({ pressed }) => [styles.checkButton, selectedTokens.length !== question.tokens.length && styles.buttonDisabled, sentenceIncorrect && styles.checkButtonWrong, pressed && styles.primaryPressed]} onPress={() => void checkSentence()}><Text style={styles.checkButtonText}>{sentenceIncorrect ? t("memory_round.try_again") : t("memory_round.check")}</Text></Pressable>
@@ -671,29 +678,6 @@ export function MemoryRoundScreen({
       </ScrollView>
     </Animated.View>
   </SafeAreaView>;
-}
-
-function MeaningDisclosure({
-  expanded,
-  status,
-  meaning,
-  dots,
-  onPress,
-}: {
-  expanded: boolean;
-  status: "idle" | "loading" | "ready" | "error";
-  meaning: string | null;
-  dots: Animated.Value[];
-  onPress: () => void;
-}) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ expanded, busy: status === "loading" }} style={({ pressed }) => [styles.meaningDisclosure, expanded && styles.meaningDisclosureExpanded, pressed && styles.controlPressed]} onPress={onPress}>
-    <View style={styles.meaningHeader}>
-      <Ionicons name="language-outline" size={16} color="#718078" />
-      <Text style={styles.meaningLabel}>{status === "error" ? t("memory_round.meaning_retry") : t("memory_round.native_meaning")}</Text>
-      {status === "loading" ? <View style={styles.meaningDots}>{dots.map((dot, index) => <Animated.View key={index} style={[styles.meaningDot, { opacity: dot, transform: [{ scale: dot.interpolate({ inputRange: [0.28, 1], outputRange: [0.82, 1] }) }] }]} />)}</View> : <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={15} color="#849089" />}
-    </View>
-    {expanded && status === "ready" && meaning ? <Text style={styles.meaningText}>{meaning}</Text> : null}
-  </Pressable>;
 }
 
 function Header({ onClose, onOpenCard }: { onClose: () => void; onOpenCard?: () => void }) {
@@ -1088,20 +1072,24 @@ const styles = StyleSheet.create({
   titlePromptCompact: { minHeight: 58, paddingVertical: 10, borderRadius: 17 },
   titleDot: { width: 10, height: 10, borderRadius: 5 },
   titlePromptText: { flex: 1, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
-  coachStage: { height: 82, marginTop: 12, borderRadius: 24, borderWidth: 1, paddingHorizontal: 20, overflow: "hidden", flexDirection: "row", alignItems: "flex-end", justifyContent: "center" },
-  coachStageCompact: { height: 66, marginTop: 8, borderRadius: 19 },
-  coachGlow: { position: "absolute", width: 96, height: 46, bottom: -25, borderRadius: 48 },
-  coachBubble: { position: "absolute", top: 12, left: "50%", marginLeft: 31, minWidth: 42, height: 32, paddingHorizontal: 11, borderRadius: 16, borderBottomLeftRadius: 5, borderWidth: 1, borderColor: "rgba(80,100,92,0.13)", backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center", shadowColor: "#52645D", shadowOpacity: 0.08, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  coachStage: { minHeight: 84, marginTop: 10, marginBottom: 12, borderRadius: 20, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, overflow: "hidden", flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  coachStageCompact: { minHeight: 76, marginTop: 7, marginBottom: 9, borderRadius: 17, paddingVertical: 8 },
+  coachStageExpanded: { minHeight: 122, alignItems: "center" },
+  coachGlow: { position: "absolute", left: 16, width: 78, height: 38, bottom: -23, borderRadius: 39 },
+  coachCharacter: { width: 62, alignSelf: "stretch", alignItems: "center", justifyContent: "flex-end" },
+  coachBubble: { flex: 1, minHeight: 58, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 16, borderBottomLeftRadius: 5, borderWidth: 1, borderColor: "rgba(80,100,92,0.13)", backgroundColor: "rgba(255,255,255,0.92)", alignItems: "stretch", justifyContent: "center", shadowColor: "#52645D", shadowOpacity: 0.08, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  coachBubbleExpanded: { alignSelf: "stretch" },
   coachBubbleSuccess: { borderColor: "#A9D7C8", backgroundColor: "#ECF8F3" },
   coachBubbleWrong: { borderColor: "#EDBBB4", backgroundColor: "#FFF2F0" },
-  coachDots: { flexDirection: "row", gap: 3 },
-  coachDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#819189" },
-  questionHeading: { marginTop: 12, marginBottom: 7, flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
-  questionHeadingCompact: { marginTop: 7, marginBottom: 5 },
-  audioButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.76)", alignItems: "center", justifyContent: "center" },
+  coachHintTitle: { color: "#6B7872", fontSize: 12, lineHeight: 16, fontWeight: "500" },
+  coachHintActions: { marginTop: 5, flexDirection: "row", alignItems: "center", gap: 6 },
+  coachHintButton: { minHeight: 29, paddingHorizontal: 8, borderRadius: 10, backgroundColor: "#F1F6F3", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
+  coachHintButtonText: { color: "#596F65", fontSize: 12, fontWeight: "600" },
+  coachHintError: { marginTop: 5, color: theme.colors.textMuted, fontSize: 11 },
+  coachMeaningScroll: { maxHeight: 92, marginTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(80,100,92,0.13)" },
+  coachMeaningScrollContent: { paddingTop: 8, paddingRight: 5, paddingBottom: 2 },
+  coachMeaningText: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20 },
   controlPressed: { opacity: 0.76, transform: [{ translateY: 1 }, { scale: 0.96 }] },
-  audioArea: { alignItems: "flex-end" },
-  audioError: { position: "absolute", top: 40, right: 0, width: 120, color: theme.colors.textMuted, fontSize: 11, textAlign: "right" },
   sentenceSurface: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(78,98,89,0.13)", backgroundColor: "rgba(255,255,255,0.76)" },
   sentence: { color: theme.colors.text, fontSize: 20, lineHeight: 31, fontWeight: "400" },
   blank: { color: "#397461", textDecorationLine: "underline", textDecorationColor: "#72A18F" },
@@ -1111,11 +1099,7 @@ const styles = StyleSheet.create({
   inputAnswerShellWrong: { borderColor: "#DF8A82", backgroundColor: "#FFF4F2" },
   inputAnswer: { flex: 1, minHeight: 54, paddingVertical: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "500" },
   inputClear: { width: 34, height: 40, alignItems: "flex-end", justifyContent: "center" },
-  meaningDisclosure: { minHeight: 36, marginTop: 8, alignSelf: "flex-start", maxWidth: "100%", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(91,111,101,0.12)", backgroundColor: "rgba(255,255,255,0.48)" },
-  meaningDisclosureExpanded: { alignSelf: "stretch", backgroundColor: "rgba(255,255,255,0.72)" },
-  meaningHeader: { minHeight: 19, flexDirection: "row", alignItems: "center", gap: 6 },
-  meaningLabel: { color: "#718078", fontSize: 13, fontWeight: "500" },
-  meaningText: { marginTop: 7, color: theme.colors.textSecondary, fontSize: 15, lineHeight: 22 },
+  meaningRetry: { color: "#8A6F68", fontSize: 12, fontWeight: "500" },
   meaningDots: { height: 12, marginLeft: 2, flexDirection: "row", alignItems: "center", gap: 4 },
   meaningDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#739889" },
   speechSentenceCard: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: 1, borderColor: "#CFE0DA", backgroundColor: "rgba(255,255,255,0.86)" },

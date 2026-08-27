@@ -1,6 +1,6 @@
 import { clearSession, getSession, setSession } from "./authStorage";
 import { clearAccountScopedStorage } from "./accountScopedStorage";
-import { refreshAccessToken } from "../api/authApi";
+import { ApiError, refreshAccessToken } from "../api/authApi";
 import { emitSessionInvalid } from "./authSessionEvents";
 
 const REFRESH_AHEAD_SECONDS = 60;
@@ -47,16 +47,31 @@ async function ensureFreshSession(): Promise<void> {
         accessToken: refreshed.accessToken,
         refreshToken: refreshed.refreshToken,
       });
-    } catch {
-      await clearSession();
-      await clearAccountScopedStorage();
-      emitSessionInvalid();
+    } catch (error) {
+      // A refresh can fail because the API is temporarily unreachable (for
+      // example on a slow cross-region connection). Keep the refresh token in
+      // that case so a later request can retry instead of forcing a login.
+      if (isTerminalRefreshError(error)) {
+        await clearSession();
+        await clearAccountScopedStorage();
+        emitSessionInvalid();
+      }
     } finally {
       refreshingPromise = null;
     }
   })();
 
   await refreshingPromise;
+}
+
+const TERMINAL_REFRESH_ERROR_CODES = new Set([
+  "AUTH_INVALID",
+  "ACCOUNT_DISABLED",
+  "ACCOUNT_PENDING_DELETE",
+]);
+
+function isTerminalRefreshError(error: unknown): boolean {
+  return error instanceof ApiError && TERMINAL_REFRESH_ERROR_CODES.has(error.code);
 }
 
 function decodeJwtPayload(token: string): { exp?: number } | null {
