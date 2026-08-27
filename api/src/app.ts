@@ -6,6 +6,7 @@ import { PrismaUserProfileRepository } from "@lf/server/infrastructure/repositor
 import { PrismaCardRepository } from "@lf/server/infrastructure/repository/PrismaCardRepository.js";
 import { PrismaUserPreferenceRepository } from "@lf/server/infrastructure/repository/PrismaUserPreferenceRepository.js";
 import { PrismaDictionaryLookupCacheRepository } from "@lf/server/infrastructure/repository/PrismaDictionaryLookupCacheRepository.js";
+import { PrismaMemorySentenceMeaningCacheRepository } from "@lf/server/infrastructure/repository/PrismaMemorySentenceMeaningCacheRepository.js";
 import { PrismaUserSessionRepository } from "@lf/server/infrastructure/repository/PrismaUserSessionRepository.js";
 import { PrismaTtsAssetRepository } from "@lf/server/infrastructure/repository/PrismaTtsAssetRepository.js";
 import { PrismaTtsRequestLogRepository } from "@lf/server/infrastructure/repository/PrismaTtsRequestLogRepository.js";
@@ -16,6 +17,7 @@ import { AccountEmailBindingService } from "@lf/server/services/auth/AccountEmai
 import { UserProfileService } from "@lf/server/services/auth/UserProfileService.js";
 import { UserAvatarService } from "@lf/server/services/auth/UserAvatarService.js";
 import { CardService } from "@lf/server/services/card/CardService.js";
+import { MemorySentenceMeaningService } from "@lf/server/services/card/MemorySentenceMeaningService.js";
 import { CardSpeechService } from "@lf/server/services/card/CardSpeechService.js";
 import { CardImageService } from "@lf/server/services/card/CardImageService.js";
 import { AzureEmbeddingProvider } from "@lf/server/providers/ai/AzureEmbeddingProvider.js";
@@ -160,6 +162,7 @@ export function createApp() {
   const cardRepository = new PrismaCardRepository(prisma);
   const userPreferenceRepository = new PrismaUserPreferenceRepository(prisma);
   const dictionaryLookupCacheRepository = new PrismaDictionaryLookupCacheRepository(prisma);
+  const memorySentenceMeaningCacheRepository = new PrismaMemorySentenceMeaningCacheRepository(prisma);
   const userSessionRepository = new PrismaUserSessionRepository(prisma);
   const ttsAssetRepository = new PrismaTtsAssetRepository(prisma);
   const ttsRequestLogRepository = new PrismaTtsRequestLogRepository(prisma);
@@ -412,6 +415,12 @@ export function createApp() {
     },
     usageV2Service,
   );
+  const memorySentenceMeaningService = new MemorySentenceMeaningService(
+    aiProvider,
+    userPreferenceRepository,
+    memorySentenceMeaningCacheRepository,
+    usageV2Service,
+  );
   const cardCollectionService = new CardCollectionService(new PrismaCardCollectionRepository(prisma));
   const recallService = new RecallService(
     new PrismaRecallRepository(prisma),
@@ -483,6 +492,7 @@ export function createApp() {
     });
     registerCardRoutes(app, {
       cardService,
+      memorySentenceMeaningService,
       cardImageService,
       cardCollectionService,
       recallService,

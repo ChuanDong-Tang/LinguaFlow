@@ -1,12 +1,15 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Haptics from "expo-haptics";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, AppState, Easing, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, ActivityIndicator, Animated, AppState, Easing, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import OioCharacter from "../../assets/app/oio-character.svg";
 import { t } from "../i18n";
 import {
   CardApiError,
   getCardMemoryRoundCandidates,
+  getCardMemorySentenceMeaning,
   getCardSegmentAudio,
   saveCardClozeUpdate,
   validateCardMemoryRoundCandidates,
@@ -14,10 +17,11 @@ import {
   type CardLearningContentType,
   type CardMemoryRoundCandidate,
 } from "../services/api/cardApi";
-import { playTtsAudio } from "../services/tts/ttsPlayback";
+import { playTtsAudio, stopTtsAudio } from "../services/tts/ttsPlayback";
 import { getSession } from "../services/auth/authStorage";
 import { theme } from "../theme";
 import { canBuildMemorySentencePuzzle, isDenseMemoryCloze, memorySentenceTokens, sameMemoryLanguageFamily } from "./memoryRoundRules";
+import { useMemoryPronunciation } from "../hooks/useMemoryPronunciation";
 
 export const MEMORY_ROUND_STORAGE_KEY = "linguaflow.memory_round.active.v2";
 const MEMORY_ROUND_PENDING_KEY = "linguaflow.memory_round.pending.v1";
@@ -36,7 +40,8 @@ type MemoryQuestion = {
   segmentId: string;
   blankIds: string[];
   sentence: string;
-  kind: "choice" | "sentence";
+  kind: "choice" | "sentence" | "input" | "speech";
+  speechFallbackKind?: "choice" | "sentence" | "input";
   before: string;
   answer: string;
   after: string;
@@ -92,13 +97,22 @@ export function MemoryRoundScreen({
   onCurrentCardChange: (recordId: string | null) => void;
   refreshRevision: number;
 }) {
+  const { height: viewportHeight } = useWindowDimensions();
+  const compactLayout = viewportHeight < 720;
   const [phase, setPhase] = useState<ScreenPhase>("loading");
   const [round, setRound] = useState<StoredMemoryRound | null>(null);
   const [summaryTotal, setSummaryTotal] = useState(0);
   const [checking, setChecking] = useState(false);
   const [sentenceIncorrect, setSentenceIncorrect] = useState(false);
+  const [inputAnswer, setInputAnswer] = useState("");
+  const [feedbackState, setFeedbackState] = useState<"idle" | "wrong" | "correct">("idle");
+  const [meaningExpanded, setMeaningExpanded] = useState(false);
+  const [meaningStatus, setMeaningStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [nativeMeaning, setNativeMeaning] = useState<string | null>(null);
+  const [meaningUnavailable, setMeaningUnavailable] = useState(false);
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioUnavailable, setAudioUnavailable] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [failedImageQuestionIds, setFailedImageQuestionIds] = useState<Set<string>>(new Set());
   const transition = useRef(new Animated.Value(0)).current;
@@ -110,6 +124,10 @@ export function MemoryRoundScreen({
   const mountedRef = useRef(true);
   const startRunIdRef = useRef(0);
   const refreshRevisionRef = useRef(refreshRevision);
+  const inputAnswerRef = useRef<TextInput | null>(null);
+  const meaningDots = useRef([new Animated.Value(0.28), new Animated.Value(0.28), new Animated.Value(0.28)]).current;
+  const meaningRequestRef = useRef(0);
+  const sentenceAudioRequestRef = useRef(0);
 
   const start = async (showLoading = true) => {
     const runId = ++startRunIdRef.current;
@@ -179,7 +197,7 @@ export function MemoryRoundScreen({
         return;
       }
       const pendingRecordIds = new Set(pendingResults.map((result) => result.recordId));
-      const questions = shuffle(buildQuestions(candidates.filter((candidate) => !pendingRecordIds.has(candidate.recordId))).slice(0, MAX_QUESTIONS));
+      const questions = assignSpeechQuestions(shuffle(buildQuestions(candidates.filter((candidate) => !pendingRecordIds.has(candidate.recordId))).slice(0, MAX_QUESTIONS)));
       if (!questions.length) {
         await clearStoredRound(resolvedOwnerId);
         onResumeStateChange(false);
@@ -218,6 +236,13 @@ export function MemoryRoundScreen({
       startRunIdRef.current += 1;
     };
   }, []);
+  useEffect(() => {
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mountedRef.current) setReduceMotion(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (refreshRevisionRef.current === refreshRevision) return;
@@ -231,7 +256,7 @@ export function MemoryRoundScreen({
   }, [onCurrentCardChange, question?.recordId]);
   useEffect(() => () => onCurrentCardChange(null), [onCurrentCardChange]);
   useEffect(() => {
-    if (!question || question.completed || phase !== "playing") {
+    if (!question || question.completed || phase !== "playing" || reduceMotion) {
       pulse.stopAnimation();
       pulse.setValue(0);
       return;
@@ -257,7 +282,7 @@ export function MemoryRoundScreen({
       animation?.stop();
       pulse.stopAnimation();
     };
-  }, [phase, pulse, question?.completed, question?.id, refreshRevision]);
+  }, [phase, pulse, question?.completed, question?.id, reduceMotion, refreshRevision]);
   useEffect(() => {
     if (!question) return;
     transition.stopAnimation();
@@ -265,7 +290,7 @@ export function MemoryRoundScreen({
     const frame = requestAnimationFrame(() => {
       Animated.timing(transition, {
         toValue: 1,
-        duration: 280,
+        duration: reduceMotion ? 120 : 280,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
@@ -274,16 +299,37 @@ export function MemoryRoundScreen({
       cancelAnimationFrame(frame);
       transition.stopAnimation();
     };
-  }, [question?.id, transition]);
+  }, [question?.id, reduceMotion, transition]);
   useEffect(() => {
     setAudioUnavailable(false);
+    setInputAnswer("");
+    setMeaningExpanded(false);
+    setMeaningStatus("idle");
+    setNativeMeaning(null);
+    setMeaningUnavailable(false);
+    meaningRequestRef.current += 1;
+    sentenceAudioRequestRef.current += 1;
+    stopTtsAudio({ resetControls: true });
     answerActionLocked.current = false;
     setChecking(false);
+    setFeedbackState(question?.completed ? "correct" : "idle");
     wrongOffset.stopAnimation();
     wrongOffset.setValue(0);
     success.stopAnimation();
     success.setValue(question?.completed ? 1 : 0);
   }, [question?.id, success, wrongOffset]);
+  useEffect(() => {
+    if (meaningStatus !== "loading" || reduceMotion) {
+      meaningDots.forEach((dot) => { dot.stopAnimation(); dot.setValue(meaningStatus === "loading" ? 0.72 : 0.28); });
+      return;
+    }
+    const animation = Animated.loop(Animated.sequence([
+      Animated.stagger(120, meaningDots.map((dot) => Animated.timing(dot, { toValue: 1, duration: 260, useNativeDriver: true }))),
+      Animated.stagger(120, meaningDots.map((dot) => Animated.timing(dot, { toValue: 0.28, duration: 260, useNativeDriver: true }))),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [meaningDots, meaningStatus, reduceMotion]);
   const selectedTokens = useMemo(() => question?.selectedTokenIds
     .map((id) => question.tokens.find((token) => token.id === id))
     .filter((token): token is MemoryQuestion["tokens"][number] => Boolean(token)) ?? [], [question]);
@@ -300,9 +346,24 @@ export function MemoryRoundScreen({
     });
   };
 
+  const changeSentenceToken = (tokenId: string, selected: boolean): void => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    setSentenceIncorrect(false);
+    setFeedbackState("idle");
+    updateQuestion((current) => ({
+      ...current,
+      selectedTokenIds: selected
+        ? [...current.selectedTokenIds, tokenId]
+        : current.selectedTokenIds.filter((id) => id !== tokenId),
+    }));
+  };
+
   const playWrongFeedback = (): void => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => undefined);
+    setFeedbackState("wrong");
     wrongOffset.stopAnimation();
     wrongOffset.setValue(0);
+    if (reduceMotion) return;
     Animated.sequence([
       Animated.timing(wrongOffset, { toValue: 1, duration: 55, useNativeDriver: true }),
       Animated.timing(wrongOffset, { toValue: -1, duration: 75, useNativeDriver: true }),
@@ -320,6 +381,8 @@ export function MemoryRoundScreen({
 
   const completeQuestion = (firstAttemptCorrect: boolean) => {
     if (!question || !ownerId) return;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    setFeedbackState("correct");
     setSentenceIncorrect(false);
     const completed = { ...question, firstAttemptCorrect, completed: true, resultSynced: false };
     updateQuestion(() => completed);
@@ -333,7 +396,8 @@ export function MemoryRoundScreen({
       })
       .catch(() => undefined);
     success.setValue(0);
-    Animated.spring(success, { toValue: 1, friction: 5, tension: 90, useNativeDriver: true }).start();
+    if (reduceMotion) success.setValue(1);
+    else Animated.spring(success, { toValue: 1, friction: 5, tension: 90, useNativeDriver: true }).start();
   };
 
   const chooseOption = async (option: string) => {
@@ -372,8 +436,28 @@ export function MemoryRoundScreen({
     }, 220);
   };
 
+  const checkInputAnswer = (): void => {
+    if (!question || question.kind !== "input" || question.completed || answerActionLocked.current || !inputAnswer.trim()) return;
+    answerActionLocked.current = true;
+    setChecking(true);
+    const correct = normalizeAnswer(inputAnswer) === normalizeAnswer(question.answer);
+    recordFirstAttempt(correct);
+    if (correct) completeQuestion(question.firstAttemptCorrect ?? true);
+    else {
+      setSentenceIncorrect(true);
+      playWrongFeedback();
+      requestAnimationFrame(() => inputAnswerRef.current?.focus());
+    }
+    setTimeout(() => {
+      if (!mountedRef.current) return;
+      answerActionLocked.current = false;
+      setChecking(false);
+    }, 220);
+  };
+
   const continueRound = async () => {
     if (!round || !question?.completed) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
     const nextIndex = round.currentIndex + 1;
     if (nextIndex >= round.questions.length) {
       setSummaryTotal(round.questions.length);
@@ -392,6 +476,9 @@ export function MemoryRoundScreen({
 
   const playSentence = async () => {
     if (!question || audioLoading) return;
+    const requestId = sentenceAudioRequestRef.current + 1;
+    sentenceAudioRequestRef.current = requestId;
+    void Haptics.selectionAsync().catch(() => undefined);
     setAudioLoading(true);
     setAudioUnavailable(false);
     try {
@@ -402,15 +489,108 @@ export function MemoryRoundScreen({
         contentType: question.contentType ?? undefined,
         contentVersion: question.contentVersion ?? undefined,
       });
+      if (!mountedRef.current || sentenceAudioRequestRef.current !== requestId) return;
       await playTtsAudio({ url: audio.audioUrl });
-    } catch { if (mountedRef.current) setAudioUnavailable(true); }
-    finally { if (mountedRef.current) setAudioLoading(false); }
+    } catch { if (mountedRef.current && sentenceAudioRequestRef.current === requestId) setAudioUnavailable(true); }
+    finally { if (mountedRef.current && sentenceAudioRequestRef.current === requestId) setAudioLoading(false); }
   };
 
+  const revealNativeMeaning = async (): Promise<void> => {
+    if (!question || meaningStatus === "loading") return;
+    if (meaningExpanded && meaningStatus === "ready") {
+      setMeaningExpanded(false);
+      return;
+    }
+    setMeaningExpanded(true);
+    if (nativeMeaning) {
+      setMeaningStatus("ready");
+      return;
+    }
+    setMeaningStatus("loading");
+    const requestId = meaningRequestRef.current + 1;
+    meaningRequestRef.current = requestId;
+    void Haptics.selectionAsync().catch(() => undefined);
+    try {
+      const result = await getCardMemorySentenceMeaning({
+        recordId: question.recordId,
+        contentType: question.contentType,
+        contentVersion: question.contentVersion,
+        segmentId: question.segmentId,
+      });
+      if (!mountedRef.current || meaningRequestRef.current !== requestId) return;
+      if (!result.meaning) {
+        setMeaningExpanded(false);
+        setMeaningStatus("idle");
+        setMeaningUnavailable(true);
+        return;
+      }
+      setNativeMeaning(result.meaning);
+      setMeaningStatus("ready");
+    } catch {
+      if (!mountedRef.current || meaningRequestRef.current !== requestId) return;
+      setMeaningStatus("error");
+    }
+  };
+
+  const pronunciation = useMemoryPronunciation({
+    active: phase === "playing" && question?.kind === "speech" && !question.completed,
+    referenceText: question?.kind === "speech" ? question.sentence : "",
+    languageCode: question?.kind === "speech" ? question.languageCode : "en-US",
+    onPassed: () => {
+      if (!question || question.kind !== "speech") return;
+      completeQuestion(question.firstAttemptCorrect ?? true);
+    },
+    onNeedsRetry: (assessment) => {
+      if (!question || question.kind !== "speech" || !assessment) return;
+      recordFirstAttempt(false);
+      playWrongFeedback();
+    },
+  });
+
+  const skipSpeechQuestion = async (): Promise<void> => {
+    if (!round || !question || question.kind !== "speech") return;
+    pronunciation.cancel();
+    sentenceAudioRequestRef.current += 1;
+    stopTtsAudio({ resetControls: true });
+    const nextIndex = round.currentIndex + 1;
+    if (nextIndex >= round.questions.length) {
+      setSummaryTotal(round.questions.length);
+      setPhase("summary");
+      setRound(null);
+      if (ownerId) await clearStoredRound(ownerId);
+      onResumeStateChange(false);
+      return;
+    }
+    transition.setValue(0);
+    const next = {
+      ...round,
+      currentIndex: nextIndex,
+      questions: round.questions.map((item, index) => index > round.currentIndex && item.kind === "speech"
+        ? {
+            ...item,
+            kind: item.speechFallbackKind ?? "choice",
+            answer: item.answer === item.sentence ? recoverSpeechFallbackAnswer(item) : item.answer,
+            speechFallbackKind: undefined,
+          }
+        : item),
+    };
+    setRound(next);
+    if (ownerId) await persistRound(ownerId, next);
+  };
+
+  const meaningDisclosure = meaningUnavailable ? null : <MeaningDisclosure
+    expanded={meaningExpanded}
+    status={meaningStatus}
+    meaning={nativeMeaning}
+    dots={meaningDots}
+    onPress={() => void revealNativeMeaning()}
+  />;
+  const speechBusy = question?.kind === "speech" && (pronunciation.status === "recording" || pronunciation.status === "evaluating");
+
   if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color="#5E7C6A" /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
-  if (phase === "error") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><Text style={styles.emptyTitle}>{t("memory_round.load_failed")}</Text><Pressable style={styles.lightButton} onPress={() => void start()}><Text style={styles.lightButtonText}>{t("common.retry")}</Text></Pressable></View></SafeAreaView>;
-  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Ionicons name="sparkles-outline" size={28} color="#7A6E9D" /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={styles.lightButton} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Ionicons name="arrow-forward" size={17} color="#4F6557" /></Pressable></View></SafeAreaView>;
-  if (phase === "summary") return <SafeAreaView style={styles.summaryPage}><Header onClose={onClose} /><View style={styles.summaryBody}><View style={styles.finishRoute}>{Array.from({ length: Math.max(1, summaryTotal) }, (_, index) => { const color = ["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"][index % 4]!; return <React.Fragment key={index}>{index ? <View style={[styles.finishConnector, { backgroundColor: color }]} /> : null}<View style={[styles.finishNode, { backgroundColor: color }]} /></React.Fragment>; })}</View><Text style={styles.summaryTitle}>{t("memory_round.finished")}</Text><Pressable style={styles.primaryButton} onPress={onClose}><Text style={styles.primaryButtonText}>{t("memory_round.done")}</Text></Pressable><Pressable style={styles.againButton} onPress={() => void start()}><Text style={styles.againButtonText}>{t("memory_round.again")}</Text></Pressable></View></SafeAreaView>;
+  if (phase === "error") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><Text style={styles.emptyTitle}>{t("memory_round.load_failed")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={() => void start()}><Text style={styles.lightButtonText}>{t("common.retry")}</Text></Pressable></View></SafeAreaView>;
+  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Ionicons name="sparkles-outline" size={28} color="#7A6E9D" /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Ionicons name="arrow-forward" size={17} color="#4F6557" /></Pressable></View></SafeAreaView>;
+  if (phase === "summary") return <SafeAreaView style={styles.summaryPage}><Header onClose={onClose} /><View style={styles.summaryBody}><View style={styles.finishRoute}>{Array.from({ length: Math.max(1, summaryTotal) }, (_, index) => { const color = ["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"][index % 4]!; return <React.Fragment key={index}>{index ? <View style={[styles.finishConnector, { backgroundColor: color }]} /> : null}<View style={[styles.finishNode, { backgroundColor: color }]} /></React.Fragment>; })}</View><Text style={styles.summaryTitle}>{t("memory_round.finished")}</Text><Pressable style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryPressed]} onPress={onClose}><Text style={styles.primaryButtonText}>{t("memory_round.done")}</Text></Pressable><Pressable style={({ pressed }) => [styles.againButton, pressed && styles.secondaryPressed]} onPress={() => void start()}><Text style={styles.againButtonText}>{t("memory_round.again")}</Text></Pressable></View></SafeAreaView>;
   if (!round || !question) return null;
 
   const currentColor = ["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"][round.currentIndex % 4]!;
@@ -419,31 +599,105 @@ export function MemoryRoundScreen({
     <Header onClose={onClose} onOpenCard={() => onOpenCard(question.recordId)} />
     <Progress total={round.questions.length} current={round.currentIndex} currentCompleted={question.completed} pulse={pulse} completion={success} colors={["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"]} />
     <Animated.View style={[styles.questionPage, { opacity: transition, transform: [{ translateY: transition.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }]}>
-      <ScrollView contentContainerStyle={styles.questionScroll} showsVerticalScrollIndicator={false}>
-        {question.thumbnailUrl && !failedImageQuestionIds.has(question.id) ? <Image source={{ uri: question.thumbnailUrl }} resizeMode="cover" style={styles.memoryImage} onError={() => setFailedImageQuestionIds((current) => new Set(current).add(question.id))} /> : <View style={styles.titlePrompt}><View style={[styles.titleDot, { backgroundColor: currentColor }]} /><Text style={styles.titlePromptText}>{question.title}</Text></View>}
-        <View style={styles.questionHeading}><View style={styles.audioArea}><Pressable accessibilityLabel={t("memory_round.play_audio")} style={styles.audioButton} onPress={() => void playSentence()}>{audioLoading ? <ActivityIndicator size="small" color="#59636E" /> : <Ionicons name="volume-medium-outline" size={21} color="#59636E" />}</Pressable>{audioUnavailable ? <Text style={styles.audioError}>{t("memory_round.audio_unavailable")}</Text> : null}</View></View>
+      <ScrollView contentContainerStyle={[styles.questionScroll, compactLayout && styles.questionScrollCompact]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+        {question.thumbnailUrl && !failedImageQuestionIds.has(question.id) ? <Image source={{ uri: question.thumbnailUrl }} resizeMode="cover" style={[styles.memoryImage, compactLayout && styles.memoryImageCompact]} onError={() => setFailedImageQuestionIds((current) => new Set(current).add(question.id))} /> : <View style={[styles.titlePrompt, compactLayout && styles.titlePromptCompact]}><View style={[styles.titleDot, { backgroundColor: currentColor }]} /><Text style={styles.titlePromptText}>{question.title}</Text></View>}
+        <View style={[styles.coachStage, compactLayout && styles.coachStageCompact, { borderColor: `${currentColor}90`, backgroundColor: `${currentColor}24` }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <View style={[styles.coachGlow, { backgroundColor: `${currentColor}4D` }]} />
+          <Animated.View style={{ transform: [{ translateX: reduceMotion ? 0 : wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-4, 4] }) }] }}>
+            <Animated.View style={{ transform: [{ translateY: question.completed && !reduceMotion ? success.interpolate({ inputRange: [0, 0.55, 1], outputRange: [5, -7, -2] }) : reduceMotion ? 0 : pulse.interpolate({ inputRange: [0, 1], outputRange: [0, -2.5] }) }, { scale: question.completed && !reduceMotion ? success.interpolate({ inputRange: [0, 0.65, 1], outputRange: [0.96, 1.07, 1] }) : 1 }] }}>
+              <OioCharacter width={compactLayout ? 66 : 78} height={compactLayout ? 61 : 72} />
+            </Animated.View>
+          </Animated.View>
+          <View style={[styles.coachBubble, feedbackState === "correct" && styles.coachBubbleSuccess, feedbackState === "wrong" && styles.coachBubbleWrong]}>
+            {feedbackState === "correct" ? <Ionicons name="sparkles" size={19} color="#43816E" /> : feedbackState === "wrong" ? <Ionicons name="refresh" size={19} color="#B75F5F" /> : <View style={styles.coachDots}><View style={styles.coachDot} /><View style={styles.coachDot} /><View style={styles.coachDot} /></View>}
+          </View>
+        </View>
+        <View style={[styles.questionHeading, compactLayout && styles.questionHeadingCompact]}><View style={styles.audioArea}><Pressable accessibilityLabel={t("memory_round.play_audio")} disabled={audioLoading || speechBusy} style={({ pressed }) => [styles.audioButton, (audioLoading || speechBusy) && styles.buttonDisabled, pressed && styles.controlPressed]} onPress={() => void playSentence()}>{audioLoading ? <ActivityIndicator size="small" color="#59636E" /> : <Ionicons name="volume-medium-outline" size={21} color="#59636E" />}</Pressable>{audioUnavailable ? <Text style={styles.audioError}>{t("memory_round.audio_unavailable")}</Text> : null}</View></View>
         <Animated.View style={{ transform: [{ translateX: wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }] }}>
-        {question.kind === "choice" ? <>
+        {question.kind === "speech" ? question.completed ? <><View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View>{meaningDisclosure}</> : <>
+          <View style={styles.speechSentenceCard}><Text style={[styles.sentence, sentenceTypography]}>{question.sentence}</Text></View>
+          {meaningDisclosure}
+          <View style={styles.speechPanel}>
+            <View style={[styles.speechPulseOuter, pronunciation.status === "recording" && { transform: [{ scale: 1 + Math.min(0.12, pronunciation.audioLevel * 0.5) }], borderColor: "#79B9A3" }]}>
+              <Ionicons name={pronunciation.status === "recording" ? "mic" : pronunciation.status === "evaluating" ? "hourglass-outline" : "mic-outline"} size={29} color={pronunciation.status === "retry" || pronunciation.status === "error" ? "#B75F5F" : "#4E786A"} />
+            </View>
+            <Text style={styles.speechStatus}>{t(`memory_round.speech_${pronunciation.status}`)}</Text>
+            {pronunciation.status === "evaluating" || pronunciation.status === "preparing" ? <ActivityIndicator size="small" color="#668C7E" style={styles.speechSpinner} /> : null}
+            <Pressable disabled={pronunciation.status === "preparing" || pronunciation.status === "evaluating"} style={({ pressed }) => [styles.speechButton, (pronunciation.status === "preparing" || pronunciation.status === "evaluating") && styles.buttonDisabled, pronunciation.status === "recording" && styles.speechButtonRecording, pressed && styles.primaryPressed]} onPress={() => { if (pronunciation.status === "recording") void pronunciation.stop(); else { sentenceAudioRequestRef.current += 1; stopTtsAudio({ resetControls: true }); setAudioLoading(false); void pronunciation.start(); } }}>
+              <Ionicons name={pronunciation.status === "recording" ? "stop" : "mic"} size={19} color="#FFFFFF" />
+              <Text style={styles.checkButtonText}>{pronunciation.status === "recording" ? t("memory_round.speech_finish") : pronunciation.status === "retry" || pronunciation.status === "error" ? t("memory_round.try_again") : t("memory_round.speech_start")}</Text>
+            </Pressable>
+            <Pressable style={({ pressed }) => [styles.speechSkip, pressed && styles.secondaryPressed]} onPress={() => void skipSpeechQuestion()}><Text style={styles.speechSkipText}>{t("memory_round.speech_skip")}</Text></Pressable>
+          </View>
+        </> : question.kind === "choice" ? <>
           <View style={styles.sentenceSurface}><Text accessibilityLabel={question.completed ? question.sentence : `${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={[styles.blank, !question.completed && styles.blankHidden]}>{question.answer}</Text>{question.after}</Text></View>
+          {meaningDisclosure}
           <View style={styles.options}>{question.options.map((option) => {
             const disabled = question.disabledOptions.includes(option);
             const isAnswer = question.completed && normalizeAnswer(option) === normalizeAnswer(question.answer);
             return <Pressable key={option} disabled={disabled || question.completed || checking} style={({ pressed }) => [styles.option, pressed && styles.optionPressed, disabled && styles.optionWrong, isAnswer && styles.optionCorrect]} onPress={() => void chooseOption(option)}><Text style={[styles.optionText, memoryOptionTypography(option), disabled && styles.optionWrongText, isAnswer && styles.optionCorrectText]}>{option}</Text>{disabled ? <Ionicons name="close" size={20} color="#D56E6E" /> : isAnswer ? <Ionicons name="checkmark" size={20} color="#43816E" /> : null}</Pressable>;
           })}</View>
-        </> : question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
-          <View style={[styles.sentenceTray, sentenceIncorrect && styles.sentenceTrayWrong]}>{selectedTokens.length ? <View style={styles.tokenWrap}>{selectedTokens.map((token) => <Pressable key={token.id} style={styles.selectedToken} onPress={() => { setSentenceIncorrect(false); updateQuestion((current) => ({ ...current, selectedTokenIds: current.selectedTokenIds.filter((id) => id !== token.id) })); }}><Text style={styles.selectedTokenText}>{token.text.trim()}</Text></Pressable>)}</View> : <Text style={styles.trayHint}>{t("memory_round.tap_words")}</Text>}</View>
-          <View style={styles.tokenWrap}>{availableTokens.map((token) => <Pressable key={token.id} style={styles.token} onPress={() => { setSentenceIncorrect(false); updateQuestion((current) => ({ ...current, selectedTokenIds: [...current.selectedTokenIds, token.id] })); }}><Text style={styles.tokenText}>{token.text.trim()}</Text></Pressable>)}</View>
-          <Pressable disabled={selectedTokens.length !== question.tokens.length || checking} style={[styles.checkButton, selectedTokens.length !== question.tokens.length && styles.buttonDisabled, sentenceIncorrect && styles.checkButtonWrong]} onPress={() => void checkSentence()}><Text style={styles.checkButtonText}>{sentenceIncorrect ? t("memory_round.try_again") : t("memory_round.check")}</Text></Pressable>
+        </> : question.kind === "input" ? question.completed ? <><View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View>{meaningDisclosure}</> : <>
+          <View style={styles.sentenceSurface}><Text accessibilityLabel={`${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={styles.inputBlank}>______</Text>{question.after}</Text></View>
+          {meaningDisclosure}
+          <View style={[styles.inputAnswerShell, sentenceIncorrect && styles.inputAnswerShellWrong]}>
+            <TextInput
+              ref={inputAnswerRef}
+              value={inputAnswer}
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect={false}
+              blurOnSubmit={false}
+              enterKeyHint="done"
+              returnKeyType="done"
+              placeholder={t("memory_round.type_answer")}
+              placeholderTextColor="#9AA49F"
+              selectionColor="#6FAE99"
+              style={styles.inputAnswer}
+              onChangeText={(value) => { setInputAnswer(value); setSentenceIncorrect(false); setFeedbackState("idle"); }}
+              onSubmitEditing={checkInputAnswer}
+            />
+            {inputAnswer ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#87938D" /></Pressable> : null}
+          </View>
+          <Pressable disabled={!inputAnswer.trim() || checking} style={({ pressed }) => [styles.checkButton, !inputAnswer.trim() && styles.buttonDisabled, sentenceIncorrect && styles.checkButtonWrong, pressed && styles.primaryPressed]} onPress={checkInputAnswer}><Text style={styles.checkButtonText}>{sentenceIncorrect ? t("memory_round.try_again") : t("memory_round.check")}</Text></Pressable>
+        </> : question.completed ? <><View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View>{meaningDisclosure}</> : <>
+          {meaningDisclosure}
+          <View style={[styles.sentenceTray, sentenceIncorrect && styles.sentenceTrayWrong]}>{selectedTokens.length ? <View style={styles.tokenWrap}>{selectedTokens.map((token) => <Pressable key={token.id} style={({ pressed }) => [styles.selectedToken, pressed && styles.tokenPressed]} onPress={() => changeSentenceToken(token.id, false)}><Text style={styles.selectedTokenText}>{token.text.trim()}</Text></Pressable>)}</View> : <Text style={styles.trayHint}>{t("memory_round.tap_words")}</Text>}</View>
+          <View style={styles.tokenWrap}>{availableTokens.map((token) => <Pressable key={token.id} style={({ pressed }) => [styles.token, pressed && styles.tokenPressed]} onPress={() => changeSentenceToken(token.id, true)}><Text style={styles.tokenText}>{token.text.trim()}</Text></Pressable>)}</View>
+          <Pressable disabled={selectedTokens.length !== question.tokens.length || checking} style={({ pressed }) => [styles.checkButton, selectedTokens.length !== question.tokens.length && styles.buttonDisabled, sentenceIncorrect && styles.checkButtonWrong, pressed && styles.primaryPressed]} onPress={() => void checkSentence()}><Text style={styles.checkButtonText}>{sentenceIncorrect ? t("memory_round.try_again") : t("memory_round.check")}</Text></Pressable>
         </>}
         </Animated.View>
-        {question.completed ? <Animated.View style={[styles.completionActions, { opacity: success, transform: [{ translateY: success.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }]}><Pressable style={styles.continueButton} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Ionicons name="arrow-forward" size={18} color="#FFFFFF" /></Pressable></Animated.View> : null}
+        {question.completed ? <Animated.View style={[styles.completionActions, { opacity: success, transform: [{ translateY: success.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }, { scale: success.interpolate({ inputRange: [0, 0.65, 1], outputRange: [0.97, 1.015, 1] }) }] }]}><View style={styles.successMark}><Ionicons name="checkmark" size={20} color="#FFFFFF" /></View><Pressable style={({ pressed }) => [styles.continueButton, pressed && styles.primaryPressed]} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Ionicons name="arrow-forward" size={18} color="#FFFFFF" /></Pressable></Animated.View> : null}
       </ScrollView>
     </Animated.View>
   </SafeAreaView>;
 }
 
+function MeaningDisclosure({
+  expanded,
+  status,
+  meaning,
+  dots,
+  onPress,
+}: {
+  expanded: boolean;
+  status: "idle" | "loading" | "ready" | "error";
+  meaning: string | null;
+  dots: Animated.Value[];
+  onPress: () => void;
+}) {
+  return <Pressable accessibilityRole="button" accessibilityState={{ expanded, busy: status === "loading" }} style={({ pressed }) => [styles.meaningDisclosure, expanded && styles.meaningDisclosureExpanded, pressed && styles.controlPressed]} onPress={onPress}>
+    <View style={styles.meaningHeader}>
+      <Ionicons name="language-outline" size={16} color="#718078" />
+      <Text style={styles.meaningLabel}>{status === "error" ? t("memory_round.meaning_retry") : t("memory_round.native_meaning")}</Text>
+      {status === "loading" ? <View style={styles.meaningDots}>{dots.map((dot, index) => <Animated.View key={index} style={[styles.meaningDot, { opacity: dot, transform: [{ scale: dot.interpolate({ inputRange: [0.28, 1], outputRange: [0.82, 1] }) }] }]} />)}</View> : <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={15} color="#849089" />}
+    </View>
+    {expanded && status === "ready" && meaning ? <Text style={styles.meaningText}>{meaning}</Text> : null}
+  </Pressable>;
+}
+
 function Header({ onClose, onOpenCard }: { onClose: () => void; onOpenCard?: () => void }) {
-  return <View style={styles.header}><Pressable accessibilityRole="button" style={styles.headerButton} onPress={onClose}><Ionicons name="close" size={24} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{t("memory_round.title")}</Text>{onOpenCard ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.view_card")} style={styles.headerCardButton} onPress={onOpenCard}><Text style={styles.headerCardButtonText}>{t("memory_round.original_card")}</Text></Pressable> : <View style={styles.headerButton} />}</View>;
+  return <View style={styles.header}><Pressable accessibilityRole="button" style={({ pressed }) => [styles.headerButton, pressed && styles.headerPressed]} onPress={onClose}><Ionicons name="close" size={24} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{t("memory_round.title")}</Text>{onOpenCard ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.view_card")} style={({ pressed }) => [styles.headerCardButton, pressed && styles.headerPressed]} onPress={onOpenCard}><Text style={styles.headerCardButtonText}>{t("memory_round.original_card")}</Text></Pressable> : <View style={styles.headerButton} />}</View>;
 }
 
 function Progress({ total, current, currentCompleted, pulse, completion, colors }: { total: number; current: number; currentCompleted: boolean; pulse: Animated.Value; completion: Animated.Value; colors: string[] }) {
@@ -481,7 +735,7 @@ function buildQuestions(candidates: CardMemoryRoundCandidate[]): MemoryQuestion[
     })).filter((group): group is { segment: CardMemoryRoundCandidate["segments"][number]; blanks: CardClozeBlank[]; hasUnmastered: boolean } => Boolean(group.segment && group.blanks.length));
     const preferredGroups = groups.some((group) => group.hasUnmastered) ? groups.filter((group) => group.hasUnmastered) : groups;
     const dense = shuffle(preferredGroups.filter((group) =>
-      canBuildMemorySentencePuzzle(group.segment.text) && isDenseMemoryCloze(group.segment.text, group.blanks),
+      canBuildMemorySentencePuzzle(group.segment.text) && (group.blanks.length >= 2 || isDenseMemoryCloze(group.segment.text, group.blanks)),
     ))[0];
     if (dense) return [baseQuestion(candidate, dense.segment.id, dense.segment.text, {
       kind: "sentence",
@@ -491,22 +745,30 @@ function buildQuestions(candidates: CardMemoryRoundCandidate[]): MemoryQuestion[
     })];
     const regular = shuffle(preferredGroups.flatMap((group) => group.blanks.map((blank) => ({ segment: group.segment, blank })) ))[0];
     if (!regular) return [];
+    const start = Math.max(0, Math.min(regular.segment.text.length, regular.blank.startUtf16));
+    const end = Math.max(start, Math.min(regular.segment.text.length, regular.blank.endUtf16));
+    const answer = regular.segment.text.slice(start, end) || regular.blank.answer;
     const normalizedSentence = normalizeAnswer(regular.segment.text);
     const distractors = shuffle(blanks
       .filter((item) => item.candidate.recordId !== candidate.recordId && sameMemoryLanguageFamily(item.candidate.languageCode, candidate.languageCode))
       .map((item) => item.blank.answer)
       .filter((answer, index, all) => isCompatibleDistractor(regular.blank.answer, answer) && !normalizedSentence.includes(normalizeAnswer(answer)) && all.findIndex((item) => normalizeAnswer(item) === normalizeAnswer(answer)) === index))
       .slice(0, 2);
+    if (isSingleMemoryWord(answer, candidate.languageCode) && (!distractors.length || Math.random() < 0.5)) return [baseQuestion(candidate, regular.segment.id, regular.segment.text, {
+      kind: "input",
+      blankIds: [regular.blank.id],
+      before: regular.segment.text.slice(0, start),
+      answer,
+      after: regular.segment.text.slice(end),
+    })];
     if (!distractors.length) return [];
-    const start = Math.max(0, Math.min(regular.segment.text.length, regular.blank.startUtf16));
-    const end = Math.max(start, Math.min(regular.segment.text.length, regular.blank.endUtf16));
     return [baseQuestion(candidate, regular.segment.id, regular.segment.text, {
       kind: "choice",
       blankIds: [regular.blank.id],
       before: regular.segment.text.slice(0, start),
-      answer: regular.segment.text.slice(start, end) || regular.blank.answer,
+      answer,
       after: regular.segment.text.slice(end),
-      options: shuffle([regular.segment.text.slice(start, end) || regular.blank.answer, ...distractors]),
+      options: shuffle([answer, ...distractors]),
     })];
   });
   return questions;
@@ -553,6 +815,37 @@ function isCompatibleDistractor(answer: string, candidate: string): boolean {
 
 function normalizeAnswer(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+}
+
+function isSingleMemoryWord(value: string, languageCode: string): boolean {
+  const answer = value.normalize("NFKC").trim();
+  if (!answer || /\s/u.test(answer)) return false;
+  const length = Array.from(answer.replace(/[\p{P}\p{S}]/gu, "")).length;
+  const language = languageCode.toLowerCase().split("-")[0];
+  if (language === "zh") return length >= 1 && length <= 4;
+  if (language === "ja") return length >= 1 && length <= 7;
+  return length >= 1 && length <= 32;
+}
+
+function assignSpeechQuestions(questions: MemoryQuestion[]): MemoryQuestion[] {
+  if (questions.length < 3) return questions;
+  const targetCount = questions.length >= 6 && Math.random() < 0.5 ? 2 : 1;
+  const selected = new Set<number>();
+  for (const index of shuffle(questions.map((_, index) => index))) {
+    if ([...selected].some((current) => Math.abs(current - index) <= 1)) continue;
+    selected.add(index);
+    if (selected.size >= targetCount) break;
+  }
+  return questions.map((question, index) => selected.has(index) && question.kind !== "speech"
+    ? { ...question, kind: "speech", speechFallbackKind: question.kind, selectedTokenIds: [], disabledOptions: [] }
+    : question);
+}
+
+function recoverSpeechFallbackAnswer(question: MemoryQuestion): string {
+  if (question.speechFallbackKind === "sentence") return question.sentence;
+  const start = question.before.length;
+  const end = Math.max(start, question.sentence.length - question.after.length);
+  return question.sentence.slice(start, end);
 }
 
 function shuffle<T>(values: T[]): T[] {
@@ -751,7 +1044,8 @@ function isStoredMemoryQuestion(value: unknown): value is MemoryQuestion {
   const question = value as Partial<MemoryQuestion>;
   return typeof question.id === "string" && typeof question.recordId === "string" && typeof question.segmentId === "string"
     && typeof question.sentence === "string" && typeof question.answer === "string"
-    && (question.kind === "choice" || question.kind === "sentence")
+    && (question.kind === "choice" || question.kind === "sentence" || question.kind === "input" || question.kind === "speech")
+    && (question.speechFallbackKind === undefined || question.speechFallbackKind === "choice" || question.speechFallbackKind === "sentence" || question.speechFallbackKind === "input")
     && Array.isArray(question.blankIds) && question.blankIds.every((id) => typeof id === "string")
     && Array.isArray(question.options) && Array.isArray(question.tokens) && Array.isArray(question.selectedTokenIds)
     && Array.isArray(question.disabledOptions) && (question.firstAttemptCorrect === null || typeof question.firstAttemptCorrect === "boolean")
@@ -772,6 +1066,7 @@ const styles = StyleSheet.create({
   header: { height: 54, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerButton: { width: 56, height: 40, alignItems: "flex-start", justifyContent: "center" },
   headerCardButton: { width: 56, height: 40, alignItems: "flex-end", justifyContent: "center" },
+  headerPressed: { opacity: 0.55, transform: [{ scale: 0.94 }] },
   headerCardButtonText: { color: "#52645D", fontSize: 14, fontWeight: "600" },
   headerTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "600" },
   center: { flex: 1, paddingHorizontal: 42, alignItems: "center", justifyContent: "center" },
@@ -786,21 +1081,55 @@ const styles = StyleSheet.create({
   progressNode: { width: 15, height: 15, borderRadius: 8, backgroundColor: "#DCE2E0", alignItems: "center", justifyContent: "center" },
   questionPage: { flex: 1 },
   questionScroll: { paddingHorizontal: 20, paddingBottom: 48 },
+  questionScrollCompact: { paddingBottom: 32 },
   memoryImage: { width: "100%", height: 164, marginTop: 8, borderRadius: 22, backgroundColor: "#E8ECEB" },
+  memoryImageCompact: { height: 128, borderRadius: 18 },
   titlePrompt: { minHeight: 72, marginTop: 8, paddingHorizontal: 18, paddingVertical: 14, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.72)", flexDirection: "row", alignItems: "center", gap: 12 },
+  titlePromptCompact: { minHeight: 58, paddingVertical: 10, borderRadius: 17 },
   titleDot: { width: 10, height: 10, borderRadius: 5 },
   titlePromptText: { flex: 1, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
+  coachStage: { height: 82, marginTop: 12, borderRadius: 24, borderWidth: 1, paddingHorizontal: 20, overflow: "hidden", flexDirection: "row", alignItems: "flex-end", justifyContent: "center" },
+  coachStageCompact: { height: 66, marginTop: 8, borderRadius: 19 },
+  coachGlow: { position: "absolute", width: 96, height: 46, bottom: -25, borderRadius: 48 },
+  coachBubble: { position: "absolute", top: 12, left: "50%", marginLeft: 31, minWidth: 42, height: 32, paddingHorizontal: 11, borderRadius: 16, borderBottomLeftRadius: 5, borderWidth: 1, borderColor: "rgba(80,100,92,0.13)", backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center", shadowColor: "#52645D", shadowOpacity: 0.08, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  coachBubbleSuccess: { borderColor: "#A9D7C8", backgroundColor: "#ECF8F3" },
+  coachBubbleWrong: { borderColor: "#EDBBB4", backgroundColor: "#FFF2F0" },
+  coachDots: { flexDirection: "row", gap: 3 },
+  coachDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#819189" },
   questionHeading: { marginTop: 12, marginBottom: 7, flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
+  questionHeadingCompact: { marginTop: 7, marginBottom: 5 },
   audioButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.76)", alignItems: "center", justifyContent: "center" },
+  controlPressed: { opacity: 0.76, transform: [{ translateY: 1 }, { scale: 0.96 }] },
   audioArea: { alignItems: "flex-end" },
   audioError: { position: "absolute", top: 40, right: 0, width: 120, color: theme.colors.textMuted, fontSize: 11, textAlign: "right" },
   sentenceSurface: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(78,98,89,0.13)", backgroundColor: "rgba(255,255,255,0.76)" },
   sentence: { color: theme.colors.text, fontSize: 20, lineHeight: 31, fontWeight: "400" },
   blank: { color: "#397461", textDecorationLine: "underline", textDecorationColor: "#72A18F" },
   blankHidden: { color: "transparent" },
+  inputBlank: { color: "#78A493", letterSpacing: 1 },
+  inputAnswerShell: { minHeight: 56, marginTop: 14, paddingLeft: 17, paddingRight: 12, borderRadius: 17, borderWidth: 1.5, borderColor: "#9FC7B9", backgroundColor: "rgba(255,255,255,0.94)", flexDirection: "row", alignItems: "center", shadowColor: "#52645D", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  inputAnswerShellWrong: { borderColor: "#DF8A82", backgroundColor: "#FFF4F2" },
+  inputAnswer: { flex: 1, minHeight: 54, paddingVertical: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "500" },
+  inputClear: { width: 34, height: 40, alignItems: "flex-end", justifyContent: "center" },
+  meaningDisclosure: { minHeight: 36, marginTop: 8, alignSelf: "flex-start", maxWidth: "100%", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(91,111,101,0.12)", backgroundColor: "rgba(255,255,255,0.48)" },
+  meaningDisclosureExpanded: { alignSelf: "stretch", backgroundColor: "rgba(255,255,255,0.72)" },
+  meaningHeader: { minHeight: 19, flexDirection: "row", alignItems: "center", gap: 6 },
+  meaningLabel: { color: "#718078", fontSize: 13, fontWeight: "500" },
+  meaningText: { marginTop: 7, color: theme.colors.textSecondary, fontSize: 15, lineHeight: 22 },
+  meaningDots: { height: 12, marginLeft: 2, flexDirection: "row", alignItems: "center", gap: 4 },
+  meaningDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#739889" },
+  speechSentenceCard: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: 1, borderColor: "#CFE0DA", backgroundColor: "rgba(255,255,255,0.86)" },
+  speechPanel: { marginTop: 16, paddingHorizontal: 18, paddingTop: 20, paddingBottom: 12, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.72)", alignItems: "center" },
+  speechPulseOuter: { width: 66, height: 66, borderRadius: 33, borderWidth: 5, borderColor: "#CFE5DD", backgroundColor: "#EEF7F3", alignItems: "center", justifyContent: "center" },
+  speechStatus: { minHeight: 42, marginTop: 12, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: "center" },
+  speechSpinner: { position: "absolute", top: 99 },
+  speechButton: { alignSelf: "stretch", minHeight: 52, marginTop: 10, borderRadius: 17, backgroundColor: "#5E7E72", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
+  speechButtonRecording: { backgroundColor: "#B96F68" },
+  speechSkip: { minHeight: 42, marginTop: 5, paddingHorizontal: 18, alignItems: "center", justifyContent: "center" },
+  speechSkipText: { color: "#718078", fontSize: 14, fontWeight: "500" },
   options: { marginTop: 14, gap: 10 },
-  option: { minHeight: 54, paddingHorizontal: 17, paddingVertical: 10, borderRadius: 17, borderWidth: 1.25, borderColor: "rgba(93,113,104,0.17)", backgroundColor: "rgba(255,255,255,0.88)", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  optionPressed: { opacity: 0.82, transform: [{ scale: 0.985 }] },
+  option: { minHeight: 54, paddingHorizontal: 17, paddingVertical: 10, borderRadius: 17, borderWidth: 1.25, borderColor: "rgba(93,113,104,0.17)", backgroundColor: "rgba(255,255,255,0.88)", flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#52645D", shadowOpacity: 0.055, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  optionPressed: { opacity: 0.86, transform: [{ translateY: 2 }, { scale: 0.975 }], shadowOpacity: 0.01, elevation: 0 },
   optionText: { flex: 1, paddingRight: 10, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "400" },
   optionWrong: { borderColor: "#E59A91", backgroundColor: "#FBE8E5" },
   optionWrongText: { color: "#B75F5F", textDecorationLine: "line-through" },
@@ -810,17 +1139,21 @@ const styles = StyleSheet.create({
   sentenceTrayWrong: { borderColor: "#DF8A82", backgroundColor: "#FBEAE7" },
   trayHint: { color: theme.colors.textMuted, fontSize: 15, textAlign: "center" },
   tokenWrap: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
-  token: { minHeight: 44, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: "#D7DBE3", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+  token: { minHeight: 44, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: "#D7DBE3", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#53615B", shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   tokenText: { color: theme.colors.text, fontSize: 16, fontWeight: "400" },
   selectedToken: { minHeight: 38, paddingHorizontal: 10, borderRadius: 11, backgroundColor: "#DCEDE8", alignItems: "center", justifyContent: "center" },
   selectedTokenText: { color: "#365E52", fontSize: 16, fontWeight: "400" },
+  tokenPressed: { opacity: 0.78, transform: [{ translateY: 2 }, { scale: 0.96 }] },
   checkButton: { minHeight: 52, marginTop: 22, borderRadius: 17, backgroundColor: "#687E75", alignItems: "center", justifyContent: "center" },
   checkButtonWrong: { backgroundColor: "#C77870" },
   checkButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
   buttonDisabled: { opacity: 0.35 },
+  primaryPressed: { opacity: 0.88, transform: [{ translateY: 2 }, { scale: 0.985 }] },
+  secondaryPressed: { opacity: 0.62, transform: [{ scale: 0.97 }] },
   completedSentenceCard: { marginTop: 8, padding: 18, borderRadius: 20, borderWidth: 1, borderColor: "#CFE5DC", backgroundColor: "rgba(255,255,255,0.84)" },
   completedSentence: { color: "#397461", fontSize: 20, lineHeight: 31, fontWeight: "400" },
-  completionActions: { marginTop: 24 },
+  completionActions: { marginTop: 24, position: "relative" },
+  successMark: { position: "absolute", zIndex: 1, top: -13, alignSelf: "center", width: 34, height: 34, borderRadius: 17, borderWidth: 3, borderColor: "#F7FBF9", backgroundColor: "#64AE96", alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   continueButton: { minHeight: 54, paddingHorizontal: 22, borderRadius: 18, backgroundColor: "#566C63", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
   primaryButton: { minHeight: 54, marginTop: 20, paddingHorizontal: 28, borderRadius: 18, backgroundColor: "#566C63", alignItems: "center", justifyContent: "center" },
   primaryButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },

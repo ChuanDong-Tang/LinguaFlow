@@ -6,6 +6,7 @@ export type StartSttSessionInput = {
   bitsPerSample: number;
   candidateLanguages: string[];
   languageIdMode?: "at_start" | "continuous";
+  pronunciationReferenceText?: string;
   onEvent: (event: SttRecognitionEvent) => void;
 };
 

@@ -4,6 +4,7 @@ import type {
   StartRealtimeSttInput,
   SttProvider,
   StopRealtimeSttSessionResult,
+  PronunciationAssessmentView,
 } from "../../services/stt/SttProvider.js";
 
 type SpeechSdkModule = typeof SpeechSDKTypes;
@@ -38,7 +39,19 @@ export class AzureGlobalSttProvider implements SttProvider {
     const recognizer = languages.length === 1
       ? createSingleLanguageRecognizer(SpeechSDK, speechConfig, audioConfig, languages[0])
       : createAutoDetectRecognizer(SpeechSDK, speechConfig, audioConfig, languages, input.languageIdMode);
+    if (input.pronunciationReferenceText) {
+      if (languages.length !== 1) throw new Error("Pronunciation assessment requires one fixed language");
+      const assessmentConfig = new SpeechSDK.PronunciationAssessmentConfig(
+        input.pronunciationReferenceText,
+        SpeechSDK.PronunciationAssessmentGradingSystem.HundredMark,
+        SpeechSDK.PronunciationAssessmentGranularity.Phoneme,
+        true,
+      );
+      assessmentConfig.enableProsodyAssessment = languages[0]?.toLowerCase() === "en-us";
+      assessmentConfig.applyTo(recognizer);
+    }
     let finalText = "";
+    let pronunciationAssessment: PronunciationAssessmentView | undefined;
 
     recognizer.recognizing = (_sender, event) => {
       const text = String(event.result.text ?? "").trim();
@@ -52,10 +65,15 @@ export class AzureGlobalSttProvider implements SttProvider {
     recognizer.recognized = (_sender, event) => {
       const text = String(event.result.text ?? "").trim();
       if (!text) return;
+      if (input.pronunciationReferenceText) {
+        const candidate = readPronunciationAssessment(SpeechSDK, event.result);
+        if (candidate && isBetterAssessment(candidate, pronunciationAssessment)) pronunciationAssessment = candidate;
+      }
       finalText = joinTranscript(finalText, text);
       input.onEvent({
         type: "final",
         text,
+        ...(pronunciationAssessment ? { pronunciationAssessment } : {}),
         ...readDetectedLanguage(SpeechSDK, event.result),
       });
     };
@@ -77,12 +95,12 @@ export class AzureGlobalSttProvider implements SttProvider {
         pushStream.write(chunk);
       },
       async stop(): Promise<StopRealtimeSttSessionResult> {
-        if (closed) return { finalText };
+        if (closed) return { finalText, ...(pronunciationAssessment ? { pronunciationAssessment } : {}) };
         closed = true;
         pushStream.close();
         await stopContinuousRecognition(recognizer);
         recognizer.close();
-        return { finalText };
+        return { finalText, ...(pronunciationAssessment ? { pronunciationAssessment } : {}) };
       },
       close() {
         if (closed) return;
@@ -92,6 +110,42 @@ export class AzureGlobalSttProvider implements SttProvider {
       },
     };
   }
+}
+
+function readPronunciationAssessment(
+  SpeechSDK: SpeechSdkModule,
+  result: SpeechSDKTypes.SpeechRecognitionResult,
+): PronunciationAssessmentView | undefined {
+  try {
+    const assessment = SpeechSDK.PronunciationAssessmentResult.fromResult(result);
+    const detail = assessment.detailResult;
+    const value: PronunciationAssessmentView = {
+      accuracyScore: finiteScore(assessment.accuracyScore),
+      pronunciationScore: finiteScore(assessment.pronunciationScore),
+      completenessScore: finiteScore(assessment.completenessScore),
+      fluencyScore: finiteScore(assessment.fluencyScore),
+      prosodyScore: Number.isFinite(assessment.prosodyScore) ? assessment.prosodyScore : null,
+      words: (detail?.Words ?? []).map((word) => ({
+        word: String(word.Word ?? ""),
+        accuracyScore: Number.isFinite(word.PronunciationAssessment?.AccuracyScore) ? word.PronunciationAssessment!.AccuracyScore : null,
+        errorType: word.PronunciationAssessment?.ErrorType ? String(word.PronunciationAssessment.ErrorType) : null,
+      })).filter((word) => word.word),
+    };
+    if (value.accuracyScore <= 0 && value.completenessScore <= 0 && value.fluencyScore <= 0 && !value.words.length) return undefined;
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+function isBetterAssessment(candidate: PronunciationAssessmentView, current?: PronunciationAssessmentView): boolean {
+  if (!current) return true;
+  return candidate.completenessScore > current.completenessScore
+    || candidate.completenessScore === current.completenessScore && candidate.pronunciationScore > current.pronunciationScore;
+}
+
+function finiteScore(value: number): number {
+  return Number.isFinite(value) ? value : 0;
 }
 
 function createSpeechConfig(

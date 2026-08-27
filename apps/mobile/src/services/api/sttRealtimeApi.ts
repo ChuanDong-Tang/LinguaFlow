@@ -10,8 +10,8 @@ export type RealtimeSttEvent =
   | { type: "hello"; requestId: string }
   | { type: "ready"; sessionId: string }
   | { type: "partial"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; finalText?: string }
-  | { type: "final"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; finalText?: string }
-  | { type: "done"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null }
+  | { type: "final"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; finalText?: string; pronunciationAssessment?: PronunciationAssessment }
+  | { type: "done"; text: string; detectedLanguage?: string | null; languageDetectionConfidence?: string | null; pronunciationAssessment?: PronunciationAssessment }
   | { type: "error"; code: string; message: string }
   | { type: "canceled"; reason: string; errorCode?: string | null; errorDetails?: string | null };
 
@@ -22,10 +22,20 @@ export type RealtimeSttSession = {
   close: () => void;
 };
 
+export type PronunciationAssessment = {
+  accuracyScore: number;
+  pronunciationScore: number;
+  completenessScore: number;
+  fluencyScore: number;
+  prosodyScore: number | null;
+  words: Array<{ word: string; accuracyScore: number | null; errorType: string | null }>;
+};
+
 export async function openRealtimeSttSession(input: {
   frameLength: number;
   languageIdMode?: "at_start" | "continuous";
   candidateLanguages?: string[];
+  pronunciationReferenceText?: string;
   onEvent: (event: RealtimeSttEvent) => void;
   onError: (error: Error) => void;
   onClose?: () => void;
@@ -50,6 +60,7 @@ export async function openRealtimeSttSession(input: {
         frameLength: input.frameLength,
         languageIdMode: input.languageIdMode ?? "at_start",
         candidateLanguages: input.candidateLanguages?.slice(0, input.languageIdMode === "continuous" ? 10 : 4),
+        pronunciationReferenceText: input.pronunciationReferenceText,
       }));
     };
     const timeout = setTimeout(() => {

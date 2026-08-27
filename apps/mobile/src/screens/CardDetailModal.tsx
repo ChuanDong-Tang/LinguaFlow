@@ -1185,15 +1185,17 @@ function DraftAiOptionsRow({ selected, disabled, onToggle }: {
   disabled: boolean;
   onToggle: (key: "expression" | "translation" | "reply") => void;
 }) {
+  const { width, fontScale } = useWindowDimensions();
+  const stacked = width < 360 || fontScale > 1.15;
   const items = [
     { key: "translation" as const, label: t("card_detail.module.translation_description") },
     { key: "reply" as const, label: t("card_detail.module.reply_description") },
     { key: "expression" as const, label: t("card_detail.module.expression_description") },
   ];
-  return <View style={styles.draftAiOptionsRow}>
-    {items.map((item) => <Pressable key={item.key} disabled={disabled} style={styles.draftAiOption} onPress={() => onToggle(item.key)}>
+  return <View style={[styles.draftAiOptionsRow, stacked && styles.draftAiOptionsRowStacked]}>
+    {items.map((item) => <Pressable key={item.key} disabled={disabled} style={[styles.draftAiOption, stacked && styles.draftAiOptionStacked]} onPress={() => onToggle(item.key)}>
       <Ionicons name={selected[item.key] ? "checkmark-circle" : "ellipse-outline"} size={18} color={selected[item.key] ? theme.colors.accentStrong : theme.colors.textMuted} />
-      <Text numberOfLines={1} style={[styles.draftAiOptionLabel, selected[item.key] && styles.draftAiOptionLabelSelected]}>{item.label}</Text>
+      <Text numberOfLines={stacked ? undefined : 1} style={[styles.draftAiOptionLabel, stacked && styles.draftAiOptionLabelStacked, selected[item.key] && styles.draftAiOptionLabelSelected]}>{item.label}</Text>
     </Pressable>)}
   </View>;
 }
@@ -1212,6 +1214,8 @@ function DraftComposerToolbar({ imageCount, sttStatus, sttAudioLevel, disabled, 
   onInvalidSave?: () => void;
   onSave?: () => void;
 }) {
+  const { width, fontScale } = useWindowDimensions();
+  const compact = width < 360 || fontScale > 1.15;
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(progress, { toValue: 1, duration: 170, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
@@ -1226,21 +1230,21 @@ function DraftComposerToolbar({ imageCount, sttStatus, sttAudioLevel, disabled, 
     { key: "camera", label: t("card_detail.photo.camera"), icon: "camera-outline", onPress: onCamera },
     { key: "recent", label: t("card_detail.photo.recent"), icon: "images-outline", count: imageCount, onPress: onRecentPhotos },
   ];
-  return <Animated.View style={[styles.draftComposerToolbar, { opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }] }>
+  return <Animated.View style={[styles.draftComposerToolbar, compact && styles.draftComposerToolbarCompact, { opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }] }>
     {tools.map((tool) => <Pressable
       key={tool.key}
       accessibilityLabel={tool.label}
       disabled={disabled}
-      style={styles.draftComposerTool}
+      style={[styles.draftComposerTool, compact && styles.draftComposerToolCompact]}
       onPress={tool.onPress}
     >
       <Ionicons name={tool.icon} size={21} color={theme.colors.text} />
       {tool.count ? <View style={styles.draftComposerBadge}><Text style={styles.draftComposerBadgeText}>{tool.count}</Text></View> : null}
     </Pressable>)}
-    <RealtimeSttButton status={sttStatus} audioLevel={sttAudioLevel} disabled={disabled} style={styles.draftComposerTool} onPress={onStt} />
+    <RealtimeSttButton status={sttStatus} audioLevel={sttAudioLevel} disabled={disabled} style={[styles.draftComposerTool, compact && styles.draftComposerToolCompact]} onPress={onStt} />
     <View style={styles.draftComposerSpacer} />
-    {typeof characterCount === "number" && typeof characterLimit === "number" ? <Text style={[styles.draftCharacterCount, characterCount > characterLimit && styles.draftCharacterCountOver]}>{characterCount}/{characterLimit}</Text> : null}
-    {onSave ? <Pressable accessibilityLabel={t("card_detail.done")} disabled={disabled || (!canSave && !onInvalidSave)} style={[styles.draftPublishButton, (disabled || !canSave) && styles.draftPublishButtonDisabled]} onPress={canSave ? onSave : onInvalidSave}>
+    {typeof characterCount === "number" && typeof characterLimit === "number" ? <Text accessibilityLabel={`${characterCount}/${characterLimit}`} style={[styles.draftCharacterCount, characterCount > characterLimit && styles.draftCharacterCountOver]}>{compact ? characterCount : `${characterCount}/${characterLimit}`}</Text> : null}
+    {onSave ? <Pressable accessibilityLabel={t("card_detail.done")} disabled={disabled || (!canSave && !onInvalidSave)} style={[styles.draftPublishButton, compact && styles.draftPublishButtonCompact, (disabled || !canSave) && styles.draftPublishButtonDisabled]} onPress={canSave ? onSave : onInvalidSave}>
       <Text style={[styles.draftPublishButtonText, (disabled || !canSave) && styles.draftPublishButtonTextDisabled]}>{t("card_detail.done")}</Text>
     </Pressable> : null}
   </Animated.View>;
@@ -3241,20 +3245,26 @@ const styles = StyleSheet.create({
   draftOriginalEditor: { minHeight: 108, marginTop: 12, paddingHorizontal: 2, paddingTop: 2 },
   draftBlockInput: { minHeight: 86, padding: 0, color: theme.colors.text, fontSize: 17, lineHeight: 27, fontWeight: "400" },
   draftBlockInputFeatured: { minHeight: 76, fontSize: 17, lineHeight: 27 },
-  draftComposerToolbar: { minHeight: 50, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 8 },
+  draftComposerToolbar: { minHeight: 50, marginHorizontal: -22, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 8 },
+  draftComposerToolbarCompact: { paddingHorizontal: 6, gap: 4 },
   draftComposerTool: { width: 42, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  draftComposerToolCompact: { width: 40 },
   draftComposerSpacer: { flex: 1 },
   draftCharacterCount: { color: theme.colors.textMuted, fontSize: 12, fontVariant: ["tabular-nums"] },
   draftCharacterCountOver: { color: theme.colors.danger, fontWeight: "600" },
   draftComposerBadge: { position: "absolute", top: 2, right: 2, minWidth: 15, height: 15, paddingHorizontal: 3, borderRadius: 8, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
   draftComposerBadgeText: { color: theme.colors.surface, fontSize: 9, fontWeight: "700" },
   draftPublishButton: { minWidth: 78, height: 40, paddingHorizontal: 18, borderRadius: 20, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
+  draftPublishButtonCompact: { minWidth: 68, paddingHorizontal: 14 },
   draftPublishButtonDisabled: { backgroundColor: theme.colors.surfaceMuted },
   draftPublishButtonText: { color: theme.colors.surface, fontSize: 14, fontWeight: "700" },
   draftPublishButtonTextDisabled: { color: theme.colors.textMuted },
-  draftAiOptionsRow: { minHeight: 46, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 4 },
+  draftAiOptionsRow: { minHeight: 46, marginHorizontal: -22, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 4 },
+  draftAiOptionsRowStacked: { paddingVertical: 6, alignItems: "stretch", flexDirection: "column", gap: 0 },
   draftAiOption: { flex: 1, minWidth: 0, height: 38, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  draftAiOptionStacked: { flex: 0, width: "100%", minHeight: 42, height: "auto", paddingHorizontal: 12, justifyContent: "flex-start" },
   draftAiOptionLabel: { flexShrink: 1, color: theme.colors.textSecondary, fontSize: 12, fontWeight: "500" },
+  draftAiOptionLabelStacked: { flexShrink: 0 },
   draftAiOptionLabelSelected: { color: theme.colors.text, fontWeight: "600" },
   draftImage: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted },
   draftImageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(30,35,38,0.34)", alignItems: "center", justifyContent: "center" },

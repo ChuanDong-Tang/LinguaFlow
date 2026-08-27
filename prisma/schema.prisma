@@ -45,6 +45,7 @@ model User {
   cardEnrichmentJobs     CardEnrichmentJob[]
   recallSessions         RecallSession[]
   dictionaryLookupCaches DictionaryLookupCache[]
+  memorySentenceMeaningCaches MemorySentenceMeaningCache[]
   aiTokenCycles          AiTokenCycle[]
   aiTokenTransactions    AiTokenTransaction[]
   imageStorageAccount    ImageStorageAccount?
@@ -77,6 +78,27 @@ model DictionaryLookupCache {
   @@index([userId, updatedAt])
   @@index([targetLanguage, uiLanguage, updatedAt])
   @@map("dictionary_lookup_caches")
+}
+
+model MemorySentenceMeaningCache {
+  id             String   @id @default(cuid())
+  userId         String
+  cacheKey       String   @unique
+  sentenceHash   String
+  sourceLanguage String
+  nativeLanguage String
+  promptVersion  String
+  provider       String
+  model          String
+  meaning        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+  @@index([sourceLanguage, nativeLanguage, updatedAt])
+  @@map("memory_sentence_meaning_caches")
 }
 
 model UserProfile {

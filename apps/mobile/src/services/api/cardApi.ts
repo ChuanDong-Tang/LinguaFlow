@@ -581,6 +581,18 @@ export async function validateCardMemoryRoundCandidates(candidates: Array<{ reco
   });
 }
 
+export async function getCardMemorySentenceMeaning(input: {
+  recordId: string;
+  contentType: CardLearningContentType | null;
+  contentVersion: string | null;
+  segmentId: string;
+}): Promise<{ meaning: string | null; nativeLanguage: string; cacheStatus: "hit" | "miss" | "same_language" }> {
+  return request("/cards/practice/memory-round/meaning", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function saveCardDictationResult(
   recordId: string,
   result: "correct" | "incorrect" | "revealed",

@@ -25,6 +25,7 @@ type RealtimeStartMessage = {
   frameLength?: number;
   languageIdMode?: "at_start" | "continuous";
   candidateLanguages?: string[];
+  pronunciationReferenceText?: string;
 };
 
 export interface SttRouteDeps {
@@ -62,6 +63,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
     let finalText = "";
     let detectedLanguage: string | null = null;
     let languageDetectionConfidence: string | null = null;
+    let pronunciationAssessment: unknown = null;
     let candidateLanguages = runtimeConfig.sttRealtimeCandidateLanguages;
     let languageIdMode: "at_start" | "continuous" = "at_start";
     let settled = false;
@@ -101,6 +103,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
           finalText = stopped.finalText;
           transcriptChars = finalText.length;
         }
+        if (stopped?.pronunciationAssessment) pronunciationAssessment = stopped.pronunciationAssessment;
       } catch {
         sttSession?.close();
       }
@@ -275,6 +278,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
           bitsPerSample: message.bitsPerSample,
           candidateLanguages,
           languageIdMode,
+          pronunciationReferenceText: message.pronunciationReferenceText,
           onEvent: (event) => {
             if (event.type === "partial" || event.type === "final") {
               if (event.detectedLanguage) detectedLanguage = event.detectedLanguage;
@@ -282,6 +286,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
               if (event.type === "final") {
                 finalText = joinTranscript(finalText, event.text);
                 transcriptChars = finalText.length;
+                if (event.pronunciationAssessment) pronunciationAssessment = event.pronunciationAssessment;
               }
               sendJson({ ...event, finalText });
               return;
@@ -304,7 +309,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
       }
       if (isStopMessage(message)) {
         await closeSession({ status: "success" });
-        sendJson({ type: "done", text: finalText, detectedLanguage, languageDetectionConfidence });
+        sendJson({ type: "done", text: finalText, detectedLanguage, languageDetectionConfidence, pronunciationAssessment });
         socket.close(1000, "done");
       }
     }
@@ -337,7 +342,14 @@ function isRealtimeStartMessage(value: unknown): value is RealtimeStartMessage {
     v.channels === 1 &&
     v.bitsPerSample === 16 &&
     (v.candidateLanguages === undefined || isCandidateLanguageList(v.candidateLanguages)) &&
-    (v.languageIdMode === undefined || v.languageIdMode === "at_start" || v.languageIdMode === "continuous")
+    (v.languageIdMode === undefined || v.languageIdMode === "at_start" || v.languageIdMode === "continuous") &&
+    (v.pronunciationReferenceText === undefined || (
+      typeof v.pronunciationReferenceText === "string" &&
+      v.pronunciationReferenceText.trim().length > 0 &&
+      Array.from(v.pronunciationReferenceText).length <= 1000 &&
+      Array.isArray(v.candidateLanguages) && v.candidateLanguages.length === 1 &&
+      (v.languageIdMode === undefined || v.languageIdMode === "at_start")
+    ))
   );
 }
 

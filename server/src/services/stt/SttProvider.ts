@@ -1,3 +1,12 @@
+export type PronunciationAssessmentView = {
+  accuracyScore: number;
+  pronunciationScore: number;
+  completenessScore: number;
+  fluencyScore: number;
+  prosodyScore: number | null;
+  words: Array<{ word: string; accuracyScore: number | null; errorType: string | null }>;
+};
+
 export type SttRecognitionEvent =
   | {
       type: "partial";
@@ -10,6 +19,7 @@ export type SttRecognitionEvent =
       text: string;
       detectedLanguage: string | null;
       languageDetectionConfidence: string | null;
+      pronunciationAssessment?: PronunciationAssessmentView;
     }
   | {
       type: "canceled";
@@ -24,11 +34,13 @@ export type StartRealtimeSttInput = {
   bitsPerSample: number;
   candidateLanguages: string[];
   languageIdMode: "at_start" | "continuous";
+  pronunciationReferenceText?: string;
   onEvent: (event: SttRecognitionEvent) => void;
 };
 
 export type StopRealtimeSttSessionResult = {
   finalText: string;
+  pronunciationAssessment?: PronunciationAssessmentView;
 };
 
 export type RealtimeSttSession = {

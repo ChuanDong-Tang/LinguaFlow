@@ -1200,10 +1200,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       </View> : null}
       {!selectingRecords ? <Pressable
         accessibilityLabel={t("quick_note.a11y.make_card")}
-        style={styles.floatingRecordButton}
+        style={[styles.floatingRecordButton, { bottom: Math.max(screenInsets.bottom + 24, 28) }]}
+        hitSlop={6}
         onPress={openCardComposer}
       >
-        <Ionicons name="add-outline" size={34} color="#171717" />
+        <Ionicons name="add-outline" size={28} color="#171717" />
       </Pressable> : null}
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}><Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Ionicons name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable><Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Ionicons name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
@@ -1386,6 +1387,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   const windowDimensions = useWindowDimensions();
   const sidebarCollectionContentWidth = Math.min(windowDimensions.width * 0.84, 360) - 20;
   const [creatingParentId, setCreatingParentId] = useState<string | null | undefined>(undefined);
+  const [sidebarInlineCreating, setSidebarInlineCreating] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [savingCollection, setSavingCollection] = useState(false);
   const [renamingCollectionId, setRenamingCollectionId] = useState<string | null>(null);
@@ -1430,16 +1432,23 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
     () => collectionManagerRows.filter(({ collection }) => !unavailableMoveTargetIds.has(collection.id)),
     [collectionManagerRows, unavailableMoveTargetIds],
   );
-  const managerInlineCreating = Boolean(editingCollectionId) && creatingParentId !== undefined && renamingCollectionId === null;
-  const collectionNameEditing = (creatingParentId !== undefined && !managerInlineCreating) || renamingCollectionId !== null;
+  const managerInlineCreating = !sidebarInlineCreating && Boolean(editingCollectionId) && creatingParentId !== undefined && renamingCollectionId === null;
+  const collectionNameEditing = (!sidebarInlineCreating && creatingParentId !== undefined && !managerInlineCreating) || renamingCollectionId !== null;
   const collectionManagerWidth = Math.max(280, windowDimensions.width - 32);
   useEffect(() => {
     if (!draggingCollectionId && !reorderSavingId) setOrderedCollections(collections);
   }, [collections, draggingCollectionId, reorderSavingId]);
 
   useEffect(() => {
-    if (!visible) setCollectionActionMenu(null);
-  }, [visible]);
+    if (!visible) {
+      setCollectionActionMenu(null);
+      if (sidebarInlineCreating) {
+        setSidebarInlineCreating(false);
+        setCreatingParentId(undefined);
+        setNewCollectionName("");
+      }
+    }
+  }, [sidebarInlineCreating, visible]);
 
   useEffect(() => {
     const subscription = Keyboard.addListener("keyboardDidShow", () => {
@@ -1539,8 +1548,9 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   }
 
   function runCollectionAction(collection: CardCollection, index: number): void {
-    if (index === 0) beginRenaming(collection);
-    else if (index === 1) confirmDeleteCollection(collection);
+    if (index === 0) beginSidebarCreating(collection.id);
+    else if (index === 1) beginRenaming(collection);
+    else if (index === 2) confirmDeleteCollection(collection);
   }
 
   function openCollectionActions(collection: CardCollection, anchor: RecordActionAnchor): void {
@@ -1555,7 +1565,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
 
   function collectionActionMenuPosition(): { top: number; right: number } {
     const anchor = collectionActionMenu?.anchor;
-    const menuHeight = 113;
+    const menuHeight = 131;
     const gap = 4;
     const safeTop = Math.max(insets.top, 8) + 8;
     const safeBottom = windowDimensions.height - Math.max(insets.bottom, 8) - 8;
@@ -1564,7 +1574,9 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
     const preferredTop = anchorBottom + gap;
     return {
       top: Math.max(safeTop, Math.min(preferredTop, safeBottom - menuHeight)),
-      right: Math.max(12, windowDimensions.width - ((anchor?.x ?? 0) + (anchor?.width ?? 0))),
+      // Keep the popover clear of the trailing ellipsis. A fixed sidebar-relative
+      // offset also prevents it jumping while the sidebar is still sliding in.
+      right: 48,
     };
   }
 
@@ -1579,6 +1591,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
       }
       setNewCollectionName("");
       setCreatingParentId(undefined);
+      setSidebarInlineCreating(false);
     } catch (error) {
       Alert.alert(t("main.collection.create_failed"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
     } finally {
@@ -1587,6 +1600,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   }
 
   function beginCreating(parentId: string | null): void {
+    setSidebarInlineCreating(false);
     setRenamingCollectionId(null);
     setRenameValue("");
     setCreatingParentId(parentId);
@@ -1594,7 +1608,21 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
     onClose();
   }
 
+  function beginSidebarCreating(parentId: string | null): void {
+    setCollectionActionMenu(null);
+    setEditingCollectionId(null);
+    setRenamingCollectionId(null);
+    setRenameValue("");
+    setCreatingParentId(parentId);
+    setNewCollectionName("");
+    setSidebarInlineCreating(true);
+    if (parentId) {
+      setExpandedCollectionIds((current) => new Set(current).add(parentId));
+    }
+  }
+
   function beginRenaming(collection: CardCollection): void {
+    setSidebarInlineCreating(false);
     setCreatingParentId(undefined);
     setNewCollectionName("");
     setEditingCollectionId(collection.id);
@@ -1604,6 +1632,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   }
 
   function startRenaming(collection: CardCollection): void {
+    setSidebarInlineCreating(false);
     setEditingCollectionId(collection.id);
     setCreatingParentId(undefined);
     setNewCollectionName("");
@@ -1659,6 +1688,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   }
 
   function closeCollectionEditor(): void {
+    setSidebarInlineCreating(false);
     setCreatingParentId(undefined);
     setNewCollectionName("");
     cancelRenaming();
@@ -1745,6 +1775,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
           onPress={() => {
             setCreatingParentId(undefined);
             setNewCollectionName("");
+            setSidebarInlineCreating(false);
           }}
         >
           <Ionicons name="close-outline" size={22} color={theme.colors.textMuted} />
@@ -1761,13 +1792,14 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   function renderCollectionNode(collection: CardCollection, depth: number): React.ReactNode {
     const children = orderedCollections.filter((candidate) => candidate.parentId === collection.id);
     const expanded = expandedCollectionIds.has(collection.id);
+    const creatingChildHere = sidebarInlineCreating && creatingParentId === collection.id;
     return (
         <React.Fragment key={collection.id}>
           <SidebarRow
             label={collection.name}
             selected={activeView === collection.id}
             depth={depth}
-            expandable={children.length > 0}
+            expandable={children.length > 0 || creatingChildHere}
             expanded={expanded}
             onToggle={() => toggleExpanded(collection.id)}
             favorite={collection.isFavorite}
@@ -1776,6 +1808,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
             onMore={(anchor) => openCollectionActions(collection, anchor)}
             onPress={() => onSelect(collection.id)}
           />
+          {expanded && creatingChildHere ? renderCreateRow(depth + 1) : null}
           {expanded ? renderCollectionTree(collection.id, depth + 1) : null}
         </React.Fragment>
     );
@@ -1950,7 +1983,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                         accessibilityLabel={t("sidebar.a11y.new_collection")}
                         style={styles.sidebarSectionAction}
                         hitSlop={8}
-                        onPress={() => { setCollectionsExpanded(true); beginCreating(null); }}
+                        onPress={() => { setCollectionsExpanded(true); beginSidebarCreating(null); }}
                       >
                         <Ionicons name="add-outline" size={23} color={theme.colors.text} />
                       </Pressable>
@@ -1958,6 +1991,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                   </View>
                   {collectionsExpanded ? (
                     <>
+                      {sidebarInlineCreating && creatingParentId === null ? renderCreateRow(0) : null}
                       <SidebarRow label={t("sidebar.unclassified")} selected={activeView === UNCLASSIFIED_VIEW} depth={0} onPress={() => onSelect(UNCLASSIFIED_VIEW)} />
                       <Sortable.Flex
                         flexDirection="column"
@@ -1982,34 +2016,31 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                   ) : null}
             </Reanimated.ScrollView>
           </View>
+          {collectionActionMenu ? (
+            <Pressable style={styles.collectionActionBackdrop} onPress={() => setCollectionActionMenu(null)}>
+              <Pressable
+                style={[styles.collectionActionMenu, collectionActionMenuPosition()]}
+                onPress={(event) => event.stopPropagation()}
+              >
+                {[
+                  ["add-circle-outline", t("main.collection.add")],
+                  ["create-outline", t("main.collection.edit")],
+                ].map(([icon, label], index) => (
+                  <Pressable key={label} style={styles.collectionActionRow} onPress={() => selectCollectionAction(index)}>
+                    <Ionicons name={icon as React.ComponentProps<typeof Ionicons>["name"]} size={18} color={theme.colors.textSecondary} />
+                    <Text style={styles.collectionActionText}>{label}</Text>
+                  </Pressable>
+                ))}
+                <View style={styles.collectionActionDivider} />
+                <Pressable style={styles.collectionActionRow} onPress={() => selectCollectionAction(2)}>
+                  <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
+                  <Text style={[styles.collectionActionText, styles.collectionActionDanger]}>{t("common.delete")}</Text>
+                </Pressable>
+              </Pressable>
+            </Pressable>
+          ) : null}
         </KeyboardAvoidingView>
     </AnimatedSidebarModal>
-    <Modal
-      visible={Boolean(collectionActionMenu)}
-      transparent
-      animationType="fade"
-      statusBarTranslucent
-      onRequestClose={() => setCollectionActionMenu(null)}
-    >
-      <Pressable style={styles.collectionActionBackdrop} onPress={() => setCollectionActionMenu(null)}>
-        <Pressable
-          style={[styles.collectionActionMenu, collectionActionMenuPosition()]}
-          onPress={(event) => event.stopPropagation()}
-        >
-          {[["create-outline", t("main.collection.edit")]].map(([icon, label], index) => (
-            <Pressable key={label} style={styles.collectionActionRow} onPress={() => selectCollectionAction(index)}>
-              <Ionicons name={icon as React.ComponentProps<typeof Ionicons>["name"]} size={21} color={theme.colors.textSecondary} />
-              <Text style={styles.collectionActionText}>{label}</Text>
-            </Pressable>
-          ))}
-          <View style={styles.collectionActionDivider} />
-          <Pressable style={styles.collectionActionRow} onPress={() => selectCollectionAction(1)}>
-            <Ionicons name="trash-outline" size={21} color={theme.colors.danger} />
-            <Text style={[styles.collectionActionText, styles.collectionActionDanger]}>{t("common.delete")}</Text>
-          </Pressable>
-        </Pressable>
-      </Pressable>
-    </Modal>
     <Modal
       visible={Boolean(editingCollectionId) || collectionNameEditing}
       animationType="slide"
@@ -2681,7 +2712,7 @@ const styles = StyleSheet.create({
   rewrittenText: { color: "#171717", fontSize: 17, lineHeight: 25, fontWeight: "400" },
   cardDate: { marginTop: 9, color: theme.colors.textMuted, fontSize: 11 },
   processingText: { marginTop: 6, color: "#999999", fontSize: 11, lineHeight: 17 },
-  floatingRecordButton: { position: "absolute", right: 24, bottom: 52, width: 66, height: 66, borderRadius: 33, borderWidth: StyleSheet.hairlineWidth, borderColor: "#DDDDDD", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.18, shadowRadius: 14, shadowOffset: { width: 0, height: 7 }, elevation: 9 },
+  floatingRecordButton: { position: "absolute", right: 24, width: 56, height: 56, borderRadius: 28, borderWidth: StyleSheet.hairlineWidth, borderColor: "#DDDDDD", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 8 },
   modalPage: { flex: 1, backgroundColor: theme.colors.canvas },
   modalHeader: { minHeight: 58, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
   modalHeaderButton: { width: 62, minHeight: 44, alignItems: "center", justifyContent: "center" },
@@ -2741,10 +2772,10 @@ const styles = StyleSheet.create({
   sidebarRowCount: { minWidth: 24, color: "#8A8A8A", fontSize: 12, textAlign: "right" },
   sidebarRowFavorite: { width: 28, height: 34, marginHorizontal: -4, zIndex: 2, elevation: 2, alignItems: "center", justifyContent: "center" },
   sidebarRowAction: { width: 28, height: 34, marginHorizontal: -5, zIndex: 2, elevation: 2, alignItems: "center", justifyContent: "center" },
-  collectionActionBackdrop: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.08)" },
-  collectionActionMenu: { position: "absolute", width: 168, paddingVertical: 4, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
-  collectionActionRow: { minHeight: 52, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 12 },
-  collectionActionText: { flex: 1, color: theme.colors.text, fontSize: 15, lineHeight: 21 },
+  collectionActionBackdrop: { ...StyleSheet.absoluteFillObject, zIndex: 20, elevation: 20 },
+  collectionActionMenu: { position: "absolute", width: 132, paddingVertical: 2, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 8, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 8 },
+  collectionActionRow: { minHeight: 42, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  collectionActionText: { flex: 1, color: theme.colors.text, fontSize: 14, lineHeight: 20 },
   collectionActionDanger: { color: theme.colors.danger },
   collectionActionDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 8, backgroundColor: theme.colors.border },
   sidebarSectionHeader: { minHeight: 46, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

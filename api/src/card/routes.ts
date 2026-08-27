@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CardService } from "@lf/server/services/card/CardService.js";
+import type { MemorySentenceMeaningService } from "@lf/server/services/card/MemorySentenceMeaningService.js";
 import type { CardImageService } from "@lf/server/services/card/CardImageService.js";
 import type { CardRelationService } from "@lf/server/services/card/CardRelationService.js";
 import type { CardCollectionService } from "@lf/server/services/card/CardCollectionService.js";
@@ -47,6 +48,7 @@ import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 
 export interface CardRouteDeps {
   cardService: CardService;
+  memorySentenceMeaningService?: MemorySentenceMeaningService;
   cardImageService: CardImageService;
   cardCollectionService: CardCollectionService;
   recallService: RecallService;
@@ -819,6 +821,46 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         [`memory-round:validate:user:${userId}`, rateConfig.recallSeedUserRateLimit, rateConfig.recallRateWindowMs],
       ])) return failure(reply, 429, requestId, "RATE_LIMITED", "Too many requests");
       const data = await deps.cardService.memoryRoundCandidates(userId, Math.max(1, candidates.length), candidates);
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
+  app.post("/cards/practice/memory-round/meaning", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled || !deps.memorySentenceMeaningService) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/practice/memory-round/meaning");
+    if (!userId) return;
+    const body = req.body as { recordId?: unknown; contentType?: unknown; contentVersion?: unknown; segmentId?: unknown } | null;
+    const recordId = typeof body?.recordId === "string" ? body.recordId : "";
+    const segmentId = typeof body?.segmentId === "string" ? body.segmentId : "";
+    const contentType = body?.contentType;
+    const contentVersion = body?.contentVersion;
+    if (!recordId || recordId.length > 200 || !segmentId || segmentId.length > 200
+      || (contentType !== null && contentType !== "original" && contentType !== "rewrite" && contentType !== "reply")
+      || (contentVersion !== null && (typeof contentVersion !== "string" || contentVersion.length > 300))
+      || ((contentType === null) !== (contentVersion === null))) {
+      return failure(reply, 400, requestId, "INVALID_MEMORY_MEANING_REQUEST", "Invalid memory meaning request");
+    }
+    try {
+      if (!await consumeLimits(deps.rateLimiter, [
+        [`memory-round:meaning:user:${userId}`, rateConfig.recallSeedUserRateLimit, rateConfig.recallRateWindowMs],
+      ])) return failure(reply, 429, requestId, "RATE_LIMITED", "Too many requests");
+      const [candidate] = await deps.cardService.memoryRoundCandidates(userId, 1, [{
+        recordId,
+        contentType: contentType as CardLearningContentType | null,
+        contentVersion: contentVersion as string | null,
+      }]);
+      const segment = candidate?.segments.find((item) => item.id === segmentId);
+      if (!candidate || !segment) return failure(reply, 404, requestId, "MEMORY_SENTENCE_NOT_FOUND", "Memory sentence not found");
+      const data = await deps.memorySentenceMeaningService.resolve({
+        userId,
+        requestId,
+        sentence: segment.text,
+        sourceLanguage: candidate.languageCode,
+      });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       return handleCardError(reply, requestId, error);
