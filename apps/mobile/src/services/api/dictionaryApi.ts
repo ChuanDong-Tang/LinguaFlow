@@ -1,4 +1,5 @@
 import { getAuthHeaders } from "../auth/authHeaders";
+import { notifyQuotaExhaustion, quotaExhaustionKindForCode } from "../usage/quotaExhaustion";
 import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -59,6 +60,8 @@ export async function lookupDictionary(input: {
   });
   const json = (await res.json()) as ApiResult<DictionaryLookupResult>;
   if (!json.ok) {
+    const quotaKind = quotaExhaustionKindForCode(json.error.code);
+    if (quotaKind) notifyQuotaExhaustion(quotaKind);
     const error = new Error(json.error.message) as Error & { code?: string; status?: number };
     error.code = json.error.code;
     error.status = res.status;

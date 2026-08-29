@@ -80,6 +80,7 @@ import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api
 import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
 import { calculatePcmAudioLevel } from "../services/stt/pcmAudioLevel";
 import type { PcmAudioFrame, RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
+import { notifyQuotaExhaustion } from "../services/usage/quotaExhaustion";
 
 const STT_PREBUFFER_MAX_FRAMES = 180;
 
@@ -140,7 +141,6 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
   const canConfigureCompanionMode = contact.capabilities?.companionMode === true;
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
-  const [quotaRefreshAt, setQuotaRefreshAt] = useState<string | null>(null);
   const [dialog, setDialog] = useState<InfoDialogConfig | null>(null);
   const [isTodaySyncing, setIsTodaySyncing] = useState(false);
   const [syncingDateKey, setSyncingDateKey] = useState<string | null>(null);
@@ -298,9 +298,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
   }, [activeGenerationContactId, inputText, isTodaySyncing, isViewingBusinessToday, remainingChars, sttStatus]);
   const showChatSendFailureAlert = React.useCallback((error?: { code?: string; stage?: "input" | "output" }) => {
     if (error?.code === "DAILY_QUOTA_EXCEEDED" || error?.code === "TOKEN_QUOTA_EXCEEDED") {
-      Alert.alert(isProEntitledRef.current
-        ? tf("chat.error.quota_member_empty", { time: formatQuotaRefreshTime(quotaRefreshAt) })
-        : t("chat.error.quota_free_empty"));
+      notifyQuotaExhaustion("token");
       return;
     }
     if (error?.code === "CONTENT_BLOCKED") {
@@ -308,7 +306,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
       return;
     }
     Alert.alert(t("chat.error.send_failed_retry"));
-  }, [quotaRefreshAt]);
+  }, []);
   const selectedDateKey = toDateKey(selectedDate);
   const isSelectedDateSyncing = syncingDateKey === selectedDateKey;
   const isAnotherContactGenerating = !!activeGenerationContactId && activeGenerationContactId !== contactId;
@@ -441,7 +439,6 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
       if (!isMountedRef.current) return;
       setRemainingChars(null);
       setIsProEntitled(false);
-      setQuotaRefreshAt(null);
       return;
     }
 
@@ -452,7 +449,6 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
     if (!isMountedRef.current) return;
     setRemainingChars(usage?.token.remaining ?? entitlement?.remainingChars ?? null);
     setIsProEntitled((entitlement?.features?.highQualityTts ?? entitlement?.isMember ?? entitlement?.isPro) === true);
-    setQuotaRefreshAt(usage?.token.periodEnd ?? null);
   }, []);
 
   // 启动初始化：加载本地权益快照，用于额度和 Pro 历史同步开关。
@@ -928,6 +924,11 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
       }).catch((error) => {
         if (!isMountedRef.current || controller.signal.aborted || dictionaryRequestSeqRef.current !== requestSeq) return;
         console.warn("dictionary lookup failed", error);
+        const errorCode = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+        if (errorCode === "TOKEN_QUOTA_EXCEEDED" || errorCode === "DAILY_QUOTA_EXCEEDED") {
+          setDictionaryLookup(null);
+          return;
+        }
         setDictionaryLookup((current) => current
           ? { ...current, loading: false, error: t(dictionaryLookupErrorKey(error)) }
           : current);
@@ -937,7 +938,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
         }
       });
     },
-    [contactId],
+    [contactId, showChatSendFailureAlert],
   );
 
   async function listStoredChatDateKeysForHistory(): Promise<string[]> {
@@ -1720,13 +1721,6 @@ function ChatContentFrame({
 
 function isSttInactive(status: "idle" | "connecting" | "recording" | "stopping"): boolean {
   return status === "idle" || status === "stopping";
-}
-
-function formatQuotaRefreshTime(value: string | null): string {
-  if (!value) return t("me.quota.next_period");
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return t("me.quota.next_period");
-  return date.toLocaleString(getLanguage(), { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 const styles = StyleSheet.create({

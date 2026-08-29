@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Alert, Animated, AppState, Image, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import * as AuthSession from "expo-auth-session";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
@@ -19,6 +20,8 @@ import { clearAccountScopedStorage } from "./services/auth/accountScopedStorage"
 import { reconcileLocalInstallState } from "./services/storage/installState";
 import { ApiError, confirmBindEmail, confirmDeleteAccount, logout, prepareBindEmail, prepareDeleteAccount } from "./services/api/authApi";
 import {
+  getCurrentEntitlement,
+  getUsageV2,
   getUserPreference,
   updateUserPreference,
   type AppLocale,
@@ -26,6 +29,7 @@ import {
   type PromptDifficulty,
   type UserPreference,
 } from "./services/api/meApi";
+import { setQuotaExhaustionHandler, type QuotaExhaustionKind } from "./services/usage/quotaExhaustion";
 import { MainScreen } from "./screens/MainScreen";
 import { MeScreen } from "./screens/MeScreen";
 import { ChatScreen } from "./screens/ChatScreen";
@@ -97,6 +101,7 @@ export default function App() {
   const [incomingCardDraft, setIncomingCardDraft] = useState<{ id: number; draft: CardDraft } | null>(null);
   const incomingCardDraftIdRef = useRef(0);
   const [accountSheetVisible, setAccountSheetVisible] = useState(false);
+  const [quotaDialog, setQuotaDialog] = useState<{ message: string; showMembership: boolean } | null>(null);
   const [recallVisible, setRecallVisible] = useState(false);
   const [memoryRoundVisible, setMemoryRoundVisible] = useState(false);
   const [memoryRoundResumeAvailable, setMemoryRoundResumeAvailable] = useState(false);
@@ -711,6 +716,39 @@ export default function App() {
     return session?.user.id === userId;
   }
 
+  async function handleQuotaExhaustion(kind: QuotaExhaustionKind): Promise<void> {
+    setMemoryRoundVisible(false);
+    setRecallVisible(false);
+    setRecallLaunchRequest(null);
+    setCardDetailRequest(null);
+    setScreen("main");
+    setSelectedTab("main");
+    const [entitlement, usage] = await Promise.all([
+      getCurrentEntitlement().catch(() => null),
+      getUsageV2().catch(() => null),
+    ]);
+    const isMember = (entitlement?.isMember ?? entitlement?.isPro) === true;
+    if (!isMember) {
+      setQuotaDialog({
+        message: t(kind === "token" ? "chat.error.quota_free_empty" : "image.error.quota_free_empty"),
+        showMembership: true,
+      });
+      return;
+    }
+    const refreshAt = kind === "token" ? usage?.token.periodEnd : usage?.images.periodEnd;
+    setQuotaDialog({
+      message: tf(
+        kind === "token" ? "chat.error.quota_member_empty" : "image.error.quota_member_empty",
+        { time: formatQuotaRefreshTime(refreshAt ?? null) },
+      ),
+      showMembership: false,
+    });
+  }
+
+  useEffect(() => setQuotaExhaustionHandler((kind) => {
+    void handleQuotaExhaustion(kind);
+  }), []);
+
   const activeTab = screen === "main" || screen === "practice" || screen === "me" ? screen : selectedTab;
 
   let content: React.ReactNode;
@@ -903,6 +941,14 @@ export default function App() {
                 onSubmit={() => void submitBindEmail()}
               />
             </Modal>
+            <QuotaExhaustionDialog
+              value={quotaDialog}
+              onClose={() => setQuotaDialog(null)}
+              onViewMembership={() => {
+                setQuotaDialog(null);
+                setAccountSheetVisible(true);
+              }}
+            />
             <UiLocaleSetupModal
               visible={uiLocaleSetupVisible}
               value={uiLocaleDraft}
@@ -926,6 +972,35 @@ export default function App() {
       </KeyboardProvider>
     </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+function QuotaExhaustionDialog({
+  value,
+  onClose,
+  onViewMembership,
+}: {
+  value: { message: string; showMembership: boolean } | null;
+  onClose: () => void;
+  onViewMembership: () => void;
+}) {
+  return (
+    <Modal visible={Boolean(value)} transparent animationType="none" presentationStyle="overFullScreen" onRequestClose={onClose}>
+      <View style={styles.quotaDialogBackdrop}>
+        <Pressable accessibilityLabel={t("common.cancel")} style={StyleSheet.absoluteFillObject} onPress={onClose} />
+        <View style={styles.quotaDialogPanel}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={10} style={styles.quotaDialogClose} onPress={onClose}>
+            <Ionicons name="close" size={21} color={theme.colors.textSecondary} />
+          </Pressable>
+          <Text style={styles.quotaDialogMessage}>{value?.message ?? ""}</Text>
+          {value?.showMembership ? (
+            <Pressable accessibilityRole="button" style={({ pressed }) => [styles.quotaDialogMembershipButton, pressed && styles.quotaDialogButtonPressed]} onPress={onViewMembership}>
+              <Text style={styles.quotaDialogMembershipText}>{t("quota.action.view_membership")}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -1203,7 +1278,26 @@ async function preloadImages(images: Array<ReturnType<typeof require>>): Promise
   );
 }
 
+function formatQuotaRefreshTime(value: string | null): string {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(getLanguage(), {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 const styles = StyleSheet.create({
+  quotaDialogBackdrop: { flex: 1, paddingHorizontal: 28, backgroundColor: "rgba(26,31,29,0.28)", alignItems: "center", justifyContent: "center" },
+  quotaDialogPanel: { width: "100%", maxWidth: 360, paddingHorizontal: 22, paddingTop: 42, paddingBottom: 20, borderRadius: 24, backgroundColor: theme.colors.surface, shadowColor: "#1B2822", shadowOpacity: 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  quotaDialogClose: { position: "absolute", top: 14, right: 14, width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  quotaDialogMessage: { color: theme.colors.text, fontSize: 16, lineHeight: 24, fontWeight: "500" },
+  quotaDialogMembershipButton: { height: 48, marginTop: 22, borderRadius: 15, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  quotaDialogMembershipText: { color: theme.colors.surface, fontSize: 16, fontWeight: "600" },
+  quotaDialogButtonPressed: { opacity: 0.82 },
   screen: { flex: 1, backgroundColor: "#FFFFFF" },
   content: { flex: 1 },
   appStack: { flex: 1 },

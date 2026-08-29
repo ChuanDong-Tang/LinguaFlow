@@ -81,7 +81,7 @@ import { registerClozeOnboardingCandidate } from "../services/card/clozeOnboardi
 import { getLanguage, t, tf } from "../i18n";
 import { CollectionPickerModal } from "./shared/CollectionPickerModal";
 import { CalendarSidebarPreview, CardCalendarScreen } from "./CardCalendarScreen";
-import { getCurrentEntitlement, getUsageV2, getUserProfile, type CurrentEntitlement, type UserProfile } from "../services/api/meApi";
+import { getCurrentEntitlement, getUserProfile, type CurrentEntitlement, type UserProfile } from "../services/api/meApi";
 import { getSession } from "../services/auth/authStorage";
 import { getCachedEntitlementForUser, setCachedEntitlement } from "../services/entitlement/entitlementCache";
 import { stabilizeProfileAvatar, stabilizeSignedImage } from "../services/image/signedImageCache";
@@ -740,7 +740,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       };
       await commitDraft(retryable);
       if (error instanceof CardApiError && error.code === "TOKEN_QUOTA_EXCEEDED") {
-        await showUsageQuotaExhausted("token");
         return;
       }
       if (isCardResourceLimitedError(error)) {
@@ -775,7 +774,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     } catch (error) {
       console.warn("[card] image upload failed", error);
       if (error instanceof CardApiError && (error.code === "IMAGE_STORAGE_QUOTA_EXCEEDED" || error.code === "CARD_IMAGE_QUOTA_EXCEEDED")) {
-        void showUsageQuotaExhausted("image");
+        return;
       } else if (error instanceof CardImageModerationRejectedError) {
         Alert.alert(t("card_detail.photo.add_failed_title"), t("card_detail.photo.moderation_rejected_message"));
       } else {
@@ -791,23 +790,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         return next;
       });
     }
-  }
-
-  async function showUsageQuotaExhausted(kind: "token" | "image"): Promise<void> {
-    const [entitlement, usage] = await Promise.all([
-      getCurrentEntitlement().catch(() => null),
-      getUsageV2().catch(() => null),
-    ]);
-    const isMember = (entitlement?.isMember ?? entitlement?.isPro) === true;
-    if (!isMember) {
-      Alert.alert(t(kind === "token" ? "chat.error.quota_free_empty" : "image.error.quota_free_empty"));
-      return;
-    }
-    const refreshAt = kind === "token" ? usage?.token.periodEnd : usage?.images.periodEnd;
-    Alert.alert(tf(
-      kind === "token" ? "chat.error.quota_member_empty" : "image.error.quota_member_empty",
-      { time: formatQuotaRefreshTime(refreshAt ?? null) },
-    ));
   }
 
   async function pickImage(source: "camera" | "library"): Promise<void> {
@@ -2484,13 +2466,6 @@ function formatSearchResultDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString(getLanguage(), { month: "short", day: "numeric" });
-}
-
-function formatQuotaRefreshTime(value: string | null): string {
-  if (!value) return t("me.quota.next_period");
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return t("me.quota.next_period");
-  return date.toLocaleString(getLanguage(), { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function collectionTreeRows(collections: CardCollection[]): Array<{ collection: CardCollection; depth: number }> {

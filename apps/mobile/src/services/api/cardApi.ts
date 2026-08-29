@@ -1,4 +1,5 @@
 import { getAuthHeaders } from "../auth/authHeaders";
+import { notifyQuotaExhaustion, quotaExhaustionKindForCode } from "../usage/quotaExhaustion";
 import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -753,6 +754,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (response.status === 204) return undefined as T;
   const result = (await response.json()) as ApiResult<T>;
-  if (!result.ok) throw new CardApiError(result.error.code, result.error.message, response.status);
+  if (!result.ok) {
+    const quotaKind = quotaExhaustionKindForCode(result.error.code);
+    if (quotaKind) notifyQuotaExhaustion(quotaKind);
+    throw new CardApiError(result.error.code, result.error.message, response.status);
+  }
   return result.data;
 }

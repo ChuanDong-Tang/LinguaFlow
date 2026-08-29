@@ -208,11 +208,11 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
     <SafeAreaView style={styles.container}>
       {onClose ? (
         <View style={styles.sheetHeader}>
-          <Pressable accessibilityLabel={t("me.a11y.close")} style={styles.sheetClose} onPress={onClose}>
-            <Ionicons name="chevron-down" size={24} color={theme.colors.text} />
-          </Pressable>
-          <Text style={styles.sheetTitle}>{t("me.title")}</Text>
           <View style={styles.sheetClose} />
+          <Text style={styles.sheetTitle}>{t("me.title")}</Text>
+          <Pressable accessibilityLabel={t("me.a11y.close")} style={styles.sheetClose} onPress={onClose}>
+            <Ionicons name="close" size={24} color={theme.colors.text} />
+          </Pressable>
         </View>
       ) : null}
       <ScrollView style={styles.scroller} contentContainerStyle={styles.content} showsVerticalScrollIndicator alwaysBounceVertical={false}>
