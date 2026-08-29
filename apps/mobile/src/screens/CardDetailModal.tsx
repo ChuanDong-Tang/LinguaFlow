@@ -20,11 +20,13 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Haptics from "expo-haptics";
 import * as MediaLibrary from "expo-media-library";
 import { File, Paths } from "expo-file-system";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView, KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Svg, { Defs, Mask, Path, Rect } from "react-native-svg";
+import { playIncorrectFeedbackSound, playSuccessFeedbackSound } from "../services/audio/gameFeedbackAudio";
 import {
   saveCardClozeUpdate,
   getCardArticleAudio,
@@ -76,7 +78,7 @@ type ClozeChoiceOption = { value: string; incorrect: boolean };
 type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; height: number };
 type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
 type ClozeOnboardingTarget = { x: number; y: number; width: number; height: number };
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -94,8 +96,9 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   closeAfterEditing?: boolean;
   onClose: () => void;
   returnLabel?: string;
-  onReplaceImage?: (source: "camera" | "library", asset?: { uri: string; width: number; height: number }) => void;
+  onReplaceImage?: (source: "camera" | "library", asset?: { uri: string; width: number; height: number }) => Promise<void> | void;
   onRemoveImage?: (imageId?: string) => void;
+  onCoverPositionChange?: (imageId: string, focusX: number, focusY: number) => Promise<void>;
   onDraftChange?: (text: string) => void;
   onDraftFieldChange?: (field: "title" | "rewrittenText" | "translationText" | "replyText", value: string) => void;
   onDraftEnabledLayersChange?: (layers: CardDraft["enabledLayers"]) => void;
@@ -106,7 +109,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onDraftSave?: (initialTab?: DetailTab) => void;
   onDraftChooseImage?: () => void;
   onDraftTakePhoto?: () => void;
-  onDraftSelectImage?: (asset: { uri: string; width: number; height: number }) => void;
+  onDraftSelectImage?: (asset: { uri: string; width: number; height: number }) => Promise<void> | void;
   onDraftRemoveImage?: (localUri?: string) => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -401,6 +404,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       imageAdding={imageAdding}
       onAddImage={onReplaceImage}
       onRemoveImage={onRemoveImage}
+      onCoverPositionChange={onCoverPositionChange}
       onCancel={() => closeAfterEditing ? onClose() : setEditing(false)}
       onSave={async (input) => {
         const accepted = await onUpdateContent?.(input);
@@ -612,24 +616,25 @@ function contentPractice(detail: CardRecordDetail, binding: CardContentBinding):
   )?.practice ?? null;
 }
 
-function CardEditorHeader({ title, disabled, onClose }: { title: string; disabled: boolean; onClose: () => void }) {
+function CardEditorHeader({ title, disabled, onClose, hideClose = false }: { title: string; disabled: boolean; onClose: () => void; hideClose?: boolean }) {
   return <View style={styles.header}>
     <View style={styles.draftHeaderSide}>
-      <Pressable accessibilityLabel={t("card_detail.a11y.close")} style={styles.draftCloseButton} disabled={disabled} onPress={onClose}>
+      {!hideClose ? <Pressable accessibilityLabel={t("card_detail.a11y.close")} style={styles.draftCloseButton} disabled={disabled} onPress={onClose}>
         <Ionicons name="close-outline" size={30} color={theme.colors.text} />
-      </Pressable>
+      </Pressable> : null}
     </View>
     <Text style={styles.draftCreateTitle}>{title}</Text>
     <View style={styles.draftHeaderSide} />
   </View>;
 }
 
-function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveImage, onCancel, onSave }: {
+function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveImage, onCoverPositionChange, onCancel, onSave }: {
   detail: CardRecordDetail;
   limits: CardCapabilities["limits"];
   imageAdding: boolean;
-  onAddImage?: (source: "camera" | "library", asset?: { uri: string; width: number; height: number }) => void;
+  onAddImage?: (source: "camera" | "library", asset?: { uri: string; width: number; height: number }) => Promise<void> | void;
   onRemoveImage?: (imageId?: string) => void;
+  onCoverPositionChange?: (imageId: string, focusX: number, focusY: number) => Promise<void>;
   onCancel: () => void;
   onSave: (input: { title: string | null; originalText: string; collectionId: string | null; selectedTargets: Array<"expression" | "translation" | "reply"> }) => Promise<void>;
 }) {
@@ -705,7 +710,8 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
     } finally { setPhotosLoading(false); }
   }
   function openImageActions(): void {
-    if (images.length >= limits.imagesPerCard) {
+    const recentPhotoLimit = Platform.OS === "ios" ? Math.min(8, limits.imagesPerCard) : limits.imagesPerCard;
+    if (images.length >= recentPhotoLimit) {
       Alert.alert(t("card_detail.photo.limit_title"), t("card_detail.photo.limit_message"));
       return;
     }
@@ -713,10 +719,12 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
     if (Platform.OS === "ios") void togglePhotoRail();
     else onAddImage?.("library");
   }
-  async function selectRecentPhoto(asset: MediaLibrary.Asset): Promise<void> {
+  async function selectRecentPhotos(assets: MediaLibrary.Asset[]): Promise<void> {
     try {
-      const info = await MediaLibrary.getAssetInfoAsync(asset);
-      onAddImage?.("library", { uri: info.localUri || info.uri, width: info.width, height: info.height });
+      for (const asset of assets.slice(0, Math.max(0, limits.imagesPerCard - images.length))) {
+        const info = await MediaLibrary.getAssetInfoAsync(asset);
+        await onAddImage?.("library", { uri: info.localUri || info.uri, width: info.width, height: info.height });
+      }
       setPhotoRailVisible(false);
     } catch {
       Alert.alert(t("card_detail.photo.asset_failed_title"), t("card_detail.photo.asset_failed_message"));
@@ -728,14 +736,14 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
       <KeyboardAvoidingView style={styles.draftContentPage} behavior="height">
         <>
           <ScrollView style={styles.draftEditorScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.draftEditorContent} showsVerticalScrollIndicator={false} alwaysBounceVertical={false} bounces={false}>
-            <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} />
+            <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} />
             <CollectionPickerRow collections={collections} value={collectionId} onChange={setCollectionId} />
             <TextInput value={title} editable={!saving} maxLength={limits.titleChars} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.draftTitleInput} onChangeText={setTitle} />
             <View style={styles.draftOriginalEditor}>
               <TextInput multiline scrollEnabled={false} value={originalText} editable={!saving} onChangeText={originalStt.onChangeText} onSelectionChange={(event) => originalStt.onSelectionChange(event.nativeEvent.selection)} maxLength={limits.contentChars} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={[styles.draftBlockInput, styles.draftBlockInputFeatured]} textAlignVertical="top" />
             </View>
           </ScrollView>
-          {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} onDismiss={() => setPhotoRailVisible(false)} onSelect={(asset) => void selectRecentPhoto(asset)} onTakePhoto={() => { setPhotoRailVisible(false); onAddImage?.("camera"); }} onOpenAll={() => { setPhotoRailVisible(false); onAddImage?.("library"); }} /> : null}
+          {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onAddImage?.("camera"); }} onOpenAll={() => { setPhotoRailVisible(false); onAddImage?.("library"); }} /> : null}
         </>
         <DraftAiOptionsRow
           selected={selectedTargets}
@@ -781,7 +789,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   onSave?: (initialTab?: DetailTab) => void;
   onChooseImage?: () => void;
   onTakePhoto?: () => void;
-  onSelectImage?: (asset: { uri: string; width: number; height: number }) => void;
+  onSelectImage?: (asset: { uri: string; width: number; height: number }) => Promise<void> | void;
   onRemoveImage?: (localUri?: string) => void;
 }) {
   const { showNotice } = useFloatingNotice();
@@ -818,7 +826,8 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
     } finally { setPhotosLoading(false); }
   }
   function openImageActions(): void {
-    if (draft.images.length >= limits.imagesPerCard) {
+    const recentPhotoLimit = Platform.OS === "ios" ? Math.min(8, limits.imagesPerCard) : limits.imagesPerCard;
+    if (draft.images.length >= recentPhotoLimit) {
       Alert.alert(t("card_detail.photo.limit_title"), t("card_detail.photo.limit_message"));
       return;
     }
@@ -826,10 +835,12 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
     if (Platform.OS === "ios") void togglePhotoRail();
     else onChooseImage?.();
   }
-  async function selectRecentPhoto(asset: MediaLibrary.Asset): Promise<void> {
+  async function selectRecentPhotos(assets: MediaLibrary.Asset[]): Promise<void> {
     try {
-      const info = await MediaLibrary.getAssetInfoAsync(asset);
-      onSelectImage?.({ uri: info.localUri || info.uri, width: info.width, height: info.height });
+      for (const asset of assets.slice(0, Math.max(0, limits.imagesPerCard - draft.images.length))) {
+        const info = await MediaLibrary.getAssetInfoAsync(asset);
+        await onSelectImage?.({ uri: info.localUri || info.uri, width: info.width, height: info.height });
+      }
       setPhotoRailVisible(false);
     } catch {
       Alert.alert(t("card_detail.photo.asset_failed_title"), t("card_detail.photo.asset_failed_message"));
@@ -906,7 +917,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                 />
               </View>
             </ScrollView>
-            {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} onDismiss={() => setPhotoRailVisible(false)} onSelect={(asset) => void selectRecentPhoto(asset)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
+            {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - draft.images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
             </>
             <DraftAiOptionsRow
               selected={draft.enabledLayers}
@@ -937,17 +948,19 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   );
 }
 
-function RecentPhotoLayer({ assets, loading, onDismiss, onSelect, onTakePhoto, onOpenAll }: {
+function RecentPhotoLayer({ assets, loading, maxSelection, onDismiss, onSelect, onTakePhoto, onOpenAll }: {
   assets: MediaLibrary.Asset[];
   loading: boolean;
+  maxSelection: number;
   onDismiss: () => void;
-  onSelect: (asset: MediaLibrary.Asset) => void;
+  onSelect: (assets: MediaLibrary.Asset[]) => void;
   onTakePhoto: () => void;
   onOpenAll: () => void;
 }) {
   const { height } = useWindowDimensions();
   const progress = useRef(new Animated.Value(0)).current;
   const dismissingRef = useRef(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   useEffect(() => {
     Animated.timing(progress, {
       toValue: 1,
@@ -980,15 +993,18 @@ function RecentPhotoLayer({ assets, loading, onDismiss, onSelect, onTakePhoto, o
     <Animated.View style={[styles.photoLayerPanel, { transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [Math.max(330, height * 0.58), 0] }) }] }]}>
       <View style={styles.photoLayerHeader}>
         <Text style={styles.photoLayerTitle}>{t("card_detail.photo.recent")}</Text>
-        <Pressable accessibilityLabel={t("card_detail.a11y.close_recent_photos")} hitSlop={8} style={styles.photoLayerClose} onPress={() => dismiss()}>
-          <Ionicons name="close" size={21} color={theme.colors.text} />
-        </Pressable>
+        {selectedIds.length ? <Pressable hitSlop={8} style={styles.photoLayerDone} onPress={() => dismiss(() => onSelect(selectedIds.map((id) => assets.find((asset) => asset.id === id)).filter((asset): asset is MediaLibrary.Asset => Boolean(asset))))}><Text style={styles.photoLayerDoneText}>{t("common.confirm")} ({selectedIds.length})</Text></Pressable> : <Pressable accessibilityLabel={t("card_detail.a11y.close_recent_photos")} hitSlop={8} style={styles.photoLayerClose} onPress={() => dismiss()}><Ionicons name="close" size={21} color={theme.colors.text} /></Pressable>}
       </View>
       <ScrollView style={styles.photoGridScroll} contentContainerStyle={styles.photoGrid} showsVerticalScrollIndicator={false}>
         {loading ? <View style={styles.photoGridLoading}><ActivityIndicator color={theme.colors.textMuted} /></View> : null}
-        {assets.map((asset) => <Pressable key={asset.id} accessibilityLabel={tf("card_detail.a11y.choose_photo", { filename: asset.filename })} style={styles.photoGridItem} onPress={() => dismiss(() => onSelect(asset))}>
+        {assets.map((asset) => { const selectedIndex = selectedIds.indexOf(asset.id); return <Pressable key={asset.id} accessibilityLabel={tf("card_detail.a11y.choose_photo", { filename: asset.filename })} style={[styles.photoGridItem, selectedIndex >= 0 && styles.photoGridItemSelected]} onPress={() => setSelectedIds((current) => {
+          if (current.includes(asset.id)) return current.filter((id) => id !== asset.id);
+          if (current.length >= maxSelection) { Alert.alert(tf("card_detail.photo.selection_limited", { count: maxSelection })); return current; }
+          return [...current, asset.id];
+        })}>
           <Image source={{ uri: asset.uri }} style={styles.photoRailImage} />
-        </Pressable>)}
+          {selectedIndex >= 0 ? <View style={styles.photoSelectionBadge}><Text style={styles.photoSelectionBadgeText}>{selectedIndex + 1}</Text></View> : null}
+        </Pressable>; })}
       </ScrollView>
       <View style={styles.photoLayerActions}>
         <Pressable accessibilityLabel={t("card_detail.a11y.take_photo")} style={styles.photoLayerAction} onPress={() => dismiss(onTakePhoto)}>
@@ -1295,17 +1311,64 @@ type GalleryImage = {
   thumbnailUrl: string;
   width?: number;
   height?: number;
+  focusX?: number;
+  focusY?: number;
   status?: "uploading" | "moderating" | "failed";
   placeholder?: boolean;
 };
 type ImagePreviewOrigin = { x: number; y: number; width: number; height: number };
 const CARD_IMAGE_ASPECT_RATIO = 16 / 9;
 
-const CardImageGallery = React.memo(function CardImageGallery({ images, loading = false, dateLabel, onRemove }: {
+function AdjustableCoverImage({ image, frameWidth, onCommit }: {
+  image: GalleryImage;
+  frameWidth: number;
+  onCommit: (focusY: number) => Promise<void>;
+}) {
+  const frameHeight = frameWidth / CARD_IMAGE_ASPECT_RATIO;
+  const sourceRatio = Math.max(0.01, (image.width ?? 1) / Math.max(1, image.height ?? 1));
+  const renderedHeight = Math.max(frameHeight, frameWidth / sourceRatio);
+  const travel = Math.max(0, renderedHeight - frameHeight);
+  const [focusY, setFocusY] = useState(clampUnit(image.focusY ?? 0.5));
+  const focusRef = useRef(focusY);
+  const dragStartRef = useRef(focusY);
+  useEffect(() => {
+    const next = clampUnit(image.focusY ?? 0.5);
+    focusRef.current = next;
+    setFocusY(next);
+  }, [image.focusY, image.key]);
+  const responder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_event, gesture) => travel > 1 && Math.abs(gesture.dy) > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onPanResponderGrant: () => { dragStartRef.current = focusRef.current; },
+    onPanResponderMove: (_event, gesture) => {
+      const next = clampUnit(dragStartRef.current - gesture.dy / Math.max(1, travel));
+      focusRef.current = next;
+      setFocusY(next);
+    },
+    onPanResponderRelease: () => { void onCommit(focusRef.current); },
+    onPanResponderTerminate: () => { void onCommit(focusRef.current); },
+  }), [onCommit, travel]);
+  return <View style={StyleSheet.absoluteFill} {...responder.panHandlers}>
+    <Image
+      source={{ uri: image.thumbnailUrl }}
+      style={{ position: "absolute", left: 0, top: -focusY * travel, width: frameWidth, height: renderedHeight }}
+      resizeMode="stretch"
+      fadeDuration={0}
+      progressiveRenderingEnabled
+    />
+    {travel > 1 ? <View pointerEvents="none" style={styles.coverMoveHint}><Ionicons name="swap-vertical" size={17} color={theme.colors.surface} /></View> : null}
+  </View>;
+}
+
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
+}
+
+const CardImageGallery = React.memo(function CardImageGallery({ images, loading = false, dateLabel, onRemove, onCoverPositionChange }: {
   images: GalleryImage[];
   loading?: boolean;
   dateLabel?: string;
   onRemove?: (imageKey: string) => void;
+  onCoverPositionChange?: (imageKey: string, focusX: number, focusY: number) => Promise<void>;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const pageWidth = windowWidth - 44;
@@ -1364,7 +1427,7 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
               });
             }}
           >
-            {image.placeholder ? <View style={styles.imageAddingPlaceholder}><ActivityIndicator color={theme.colors.textMuted} /><Text style={styles.imageAddingText}>{t("card_detail.photo.adding")}</Text></View> : <Image
+            {image.placeholder ? <View style={styles.imageAddingPlaceholder}><ActivityIndicator color={theme.colors.textMuted} /><Text style={styles.imageAddingText}>{t("card_detail.photo.adding")}</Text></View> : index === 0 && onCoverPositionChange ? <AdjustableCoverImage image={image} frameWidth={pageWidth} onCommit={(focusY) => onCoverPositionChange(image.key, image.focusX ?? 0.5, focusY)} /> : <Image
               source={{ uri: image.thumbnailUrl }}
               style={styles.carouselImageLayer}
               resizeMode="cover"
@@ -1588,6 +1651,8 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
     thumbnailUrl: image.thumbnail?.url || (index === 0 ? legacyThumbnailUrl : undefined) || image.url,
     width: image.width,
     height: image.height,
+    focusX: image.focusX,
+    focusY: image.focusY,
   }));
 }
 
@@ -2556,6 +2621,8 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     const submittedAnswer = answerOverride ?? (blank ? answers[blank.id] : undefined) ?? "";
     if (!blank || !submittedAnswer.trim() || saving) return;
     const answerCorrect = normalizeAnswer(submittedAnswer) === normalizeAnswer(blank.answer);
+    void Haptics.notificationAsync(answerCorrect ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error).catch(() => undefined);
+    void (answerCorrect ? playSuccessFeedbackSound() : playIncorrectFeedbackSound()).catch(() => undefined);
     onClozeAttempt?.({ recordId: detail.id, blankId: blank.id, correct: answerCorrect });
     const nextChecked = {
       ...checkedAnswers,
@@ -2675,11 +2742,11 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   }, [onChoiceAnswerHandlerChange]);
   useEffect(() => () => onChoiceOptionsChange?.([]), [onChoiceOptionsChange]);
 
-  function lookupInSentence(row: CardClozeSentenceRow, term: string, start: number, end: number): void {
+  function lookupInSentence(row: CardClozeSentenceRow, term: string, start: number, end: number, anchor?: NativeTextSelectionPayload["selectionRect"]): void {
     Keyboard.dismiss();
     const sequence = dictionaryRequestRef.current + 1;
     dictionaryRequestRef.current = sequence;
-    setDictionary({ term, loading: true, error: null, result: null, segmentId: row.segmentId, start, end });
+    setDictionary({ term, loading: true, error: null, result: null, anchor, segmentId: row.segmentId, start, end });
     void lookupDictionary({ term, context: row.text, selectionStart: start, selectionEnd: end, targetLanguage: detail.languageCode, uiLanguage: getLanguage(), contactId: "curious_companion", messageId: null })
       .then((lookupResult) => {
         if (dictionaryRequestRef.current === sequence) setDictionary((current) => current ? { ...current, loading: false, result: lookupResult, error: null } : null);
@@ -2710,7 +2777,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                   fillMode={fillMode}
                   inputMode={inputMode}
                   activeChoiceBlankIndex={effectiveActiveChoiceBlankIndex}
-                  onLookup={(term, start, end) => lookupInSentence(row, term, start, end)}
+                  onLookup={(term, start, end, anchor) => lookupInSentence(row, term, start, end, anchor)}
                   onAddBlank={!fillMode && segment && !saving ? (payload) => onAddBlank?.(segment, payload) : undefined}
                   onBlankLongPress={onBlankLongPress}
                   onPlay={() => onPlaySentence?.(row)}
@@ -2740,7 +2807,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
           </View> : null}
           </View>
       );
-  const dictionaryPopover = <DictionaryPopover visible={Boolean(dictionary)} term={dictionary?.term ?? ""} loading={dictionary?.loading ?? false} error={dictionary?.error} result={dictionary?.result} canUseTts onClose={() => { dictionaryRequestRef.current += 1; setDictionary(null); }} />;
+  const dictionaryPopover = <DictionaryPopover visible={Boolean(dictionary)} anchor={dictionary?.anchor} term={dictionary?.term ?? ""} loading={dictionary?.loading ?? false} error={dictionary?.error} result={dictionary?.result} canUseTts onClose={() => { dictionaryRequestRef.current += 1; setDictionary(null); }} />;
   if (embedded) return <View style={styles.inlineClozePractice}>{practice}{dictionaryPopover}</View>;
   return <View style={styles.reviewPage}><KeyboardAwareScrollView bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.practiceContent} alwaysBounceVertical={false}>{practice}</KeyboardAwareScrollView>{dictionaryPopover}</View>;
 }
@@ -2756,7 +2823,7 @@ function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, ac
   fillMode: boolean;
   inputMode: ClozeInputMode;
   activeChoiceBlankIndex: number | null;
-  onLookup: (term: string, start: number, end: number) => void;
+  onLookup: (term: string, start: number, end: number, anchor?: NativeTextSelectionPayload["selectionRect"]) => void;
   onAddBlank?: (payload: NativeTextSelectionPayload) => void;
   onBlankLongPress?: (blank: CardClozeState["blanks"][number], anchor?: CardBlankActionAnchor) => void;
   onPlay: () => void;
@@ -2783,7 +2850,7 @@ function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, ac
       onTextSelectionStart?.();
     }}
     onSelectionEnd={onTextSelectionEnd}
-    onDictionarySelection={(payload) => onLookup(payload.selectedText, row.textStart + payload.start, row.textStart + payload.end)}
+    onDictionarySelection={(payload) => onLookup(payload.selectedText, row.textStart + payload.start, row.textStart + payload.end, payload.selectionRect)}
     onSelectionChange={(payload) => {
       if (fillMode) return;
       onAddBlank?.({ ...payload, start: row.textStart + payload.start, end: row.textStart + payload.end });
@@ -2875,11 +2942,34 @@ function ClozePracticeBlank({ expectedText, answer, checked, mastered = false, r
   onActivateChoice?: () => void;
 }) {
   const inputRef = useRef<TextInput>(null);
+  const feedbackMotion = useRef(new Animated.Value(0)).current;
+  const previousChecked = useRef<typeof checked>(undefined);
   const underlineUnits = useMemo(() => splitCardClozeAnswerUnits(expectedText), [expectedText]);
   const showInput = fillEnabled && editing && inputMode === "keyboard" && !revealed;
   const choiceEnabled = fillEnabled && editing && inputMode === "choice" && !revealed;
   const coloredAnswer = !revealed && checked === "incorrect" ? renderCheckedClozeAnswer(expectedText, answer) : null;
-  return <View style={styles.cardBlankUnit}>
+  useEffect(() => {
+    if (!checked || checked === previousChecked.current) return;
+    previousChecked.current = checked;
+    feedbackMotion.stopAnimation();
+    feedbackMotion.setValue(0);
+    if (checked === "correct") {
+      Animated.sequence([
+        Animated.spring(feedbackMotion, { toValue: 1, friction: 4, tension: 180, useNativeDriver: true }),
+        Animated.spring(feedbackMotion, { toValue: 0, friction: 5, tension: 150, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.sequence([
+        Animated.timing(feedbackMotion, { toValue: 1, duration: 55, useNativeDriver: true }),
+        Animated.timing(feedbackMotion, { toValue: -1, duration: 70, useNativeDriver: true }),
+        Animated.timing(feedbackMotion, { toValue: 0.55, duration: 60, useNativeDriver: true }),
+        Animated.timing(feedbackMotion, { toValue: 0, duration: 55, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [checked, feedbackMotion]);
+  return <Animated.View style={[styles.cardBlankUnit, { transform: checked === "correct"
+    ? [{ scale: feedbackMotion.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) }]
+    : [{ translateX: feedbackMotion.interpolate({ inputRange: [-1, 1], outputRange: [-7, 7] }) }] }] }>
     <Pressable
       style={styles.cardBlankField}
       onPress={showInput || choiceEnabled ? () => {
@@ -2930,7 +3020,7 @@ function ClozePracticeBlank({ expectedText, answer, checked, mastered = false, r
     >
       <Ionicons name="checkmark" size={13} color={theme.colors.textMuted} />
     </Pressable>
-  </View>;
+  </Animated.View>;
 }
 
 function renderCheckedClozeAnswer(expectedText: string, answer: string): React.ReactNode[] {
@@ -3097,7 +3187,7 @@ const styles = StyleSheet.create({
   cardTitleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   cardDisplayTitleInRow: { flex: 1 },
   articlePlayButton: { width: 36, height: 32, marginTop: -1, alignItems: "flex-end", justifyContent: "center" },
-  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.surface }, flipCardFaceHidden: { opacity: 0 }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#D2D2D2" }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
+  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.surface }, flipCardFaceHidden: { opacity: 0 }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", right: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#D2D2D2" }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
   recallFinishButton: { height: 42, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 18, borderRadius: 21, backgroundColor: theme.colors.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, recallFinishButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
   imagePreviewPage: { flex: 1, backgroundColor: "transparent" },
   imagePreviewBackdrop: { backgroundColor: theme.colors.canvas },
@@ -3274,9 +3364,14 @@ const styles = StyleSheet.create({
   photoLayerHeader: { height: 54, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
   photoLayerTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "600" },
   photoLayerClose: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surfaceMuted },
+  photoLayerDone: { minHeight: 34, paddingHorizontal: 13, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.accentSoft },
+  photoLayerDoneText: { color: theme.colors.accentStrong, fontSize: 14, fontWeight: "600" },
   photoGridScroll: { flex: 1 },
   photoGrid: { padding: 10, flexDirection: "row", flexWrap: "wrap", gap: 6 },
   photoGridItem: { width: "32%", aspectRatio: 1, borderRadius: 7, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
+  photoGridItemSelected: { borderWidth: 3, borderColor: theme.colors.accentStrong },
+  photoSelectionBadge: { position: "absolute", right: 6, top: 6, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.accentStrong },
+  photoSelectionBadgeText: { color: theme.colors.surface, fontSize: 12, fontWeight: "700" },
   photoGridLoading: { width: "100%", height: 100, alignItems: "center", justifyContent: "center" },
   photoLayerActions: { minHeight: 58, paddingHorizontal: 12, paddingVertical: 7, flexDirection: "row", gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },
   photoLayerAction: { flex: 1, minHeight: 44, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: theme.colors.surfaceMuted },

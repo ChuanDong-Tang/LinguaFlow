@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
 import { getDictionaryTermAudio, type DictionaryLookupResult } from "../../services/api/dictionaryApi";
@@ -32,6 +32,7 @@ const POPOVER_MARGIN = 12;
 const POPOVER_BODY_HEIGHT = 260;
 const POPOVER_ESTIMATED_HEIGHT = 340;
 const BOTTOM_CHROME_HEIGHT = 96;
+const ANCHOR_GAP = 8;
 
 export function DictionaryPopover({
   visible,
@@ -47,6 +48,7 @@ export function DictionaryPopover({
   onClose,
 }: DictionaryPopoverProps) {
   const window = useWindowDimensions();
+  const [measuredCardHeight, setMeasuredCardHeight] = React.useState(0);
   const [playingDictionaryAudio, setPlayingDictionaryAudio] = React.useState(false);
   const audioRequestRef = React.useRef<AbortController | null>(null);
 
@@ -54,6 +56,7 @@ export function DictionaryPopover({
     audioRequestRef.current?.abort();
     audioRequestRef.current = null;
     setPlayingDictionaryAudio(false);
+    setMeasuredCardHeight(0);
   }, [visible, term]);
 
   React.useEffect(() => () => audioRequestRef.current?.abort(), []);
@@ -85,22 +88,37 @@ export function DictionaryPopover({
   }
 
   const position = React.useMemo(() => {
-    const maximumTop = Math.max(POPOVER_MARGIN, window.height - BOTTOM_CHROME_HEIGHT - POPOVER_ESTIMATED_HEIGHT);
-    const fixedTop = clamp(window.height * 0.12, POPOVER_MARGIN, maximumTop);
+    const cardHeight = measuredCardHeight || POPOVER_ESTIMATED_HEIGHT;
+    const maximumTop = Math.max(POPOVER_MARGIN, window.height - BOTTOM_CHROME_HEIGHT - cardHeight);
+    const fallbackTop = clamp(window.height * 0.12, POPOVER_MARGIN, maximumTop);
     const fallbackLeft = Math.max(POPOVER_MARGIN, (window.width - POPOVER_WIDTH) / 2);
-    if (!anchor) return { left: fallbackLeft, top: fixedTop };
+    if (!anchor) return { left: fallbackLeft, top: fallbackTop };
     const left = clamp(anchor.pageX + anchor.width / 2 - POPOVER_WIDTH / 2, POPOVER_MARGIN, window.width - POPOVER_WIDTH - POPOVER_MARGIN);
-    return { left, top: fixedTop };
-  }, [anchor, window.height, window.width]);
+    const below = anchor.pageY + anchor.height + ANCHOR_GAP;
+    const above = anchor.pageY - cardHeight - ANCHOR_GAP;
+    const top = below <= maximumTop
+      ? below
+      : above >= POPOVER_MARGIN
+        ? above
+        : clamp(below, POPOVER_MARGIN, maximumTop);
+    return { left, top };
+  }, [anchor, measuredCardHeight, window.height, window.width]);
   const bodyHeight = clamp(POPOVER_BODY_HEIGHT, 120, window.height - position.top - POPOVER_MARGIN - 92);
   const useExistingMessageAudio = !isShortDictionaryExpression(term) && Boolean(messageId) && textStart !== undefined && textEnd !== undefined;
 
   if (!visible) return null;
 
   return (
-    <View style={styles.overlay} pointerEvents="box-none">
+    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
+    <View style={styles.overlay}>
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={[styles.card, { left: position.left, top: position.top }]}>
+      <View
+        style={[styles.card, { left: position.left, top: position.top }]}
+        onLayout={(event) => {
+          const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+          if (nextHeight > 0 && Math.abs(nextHeight - measuredCardHeight) >= 1) setMeasuredCardHeight(nextHeight);
+        }}
+      >
         <View style={styles.headerRow}>
           <Text style={styles.term} numberOfLines={2}>{term}</Text>
           <View style={styles.headerActions}>
@@ -149,6 +167,7 @@ export function DictionaryPopover({
         </ScrollView>
       </View>
     </View>
+    </Modal>
   );
 }
 
@@ -168,7 +187,7 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(17, 17, 17, 0.05)",
+    backgroundColor: "transparent",
   },
   card: {
     position: "absolute",

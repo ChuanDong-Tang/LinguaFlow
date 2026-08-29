@@ -256,6 +256,8 @@ export class CardImageService {
         urlExpiresAt: original.expiresAt.toISOString(),
         width: resolved.width,
         height: resolved.height,
+        focusX: resolved.focusX,
+        focusY: resolved.focusY,
         aspect: landscape ? "3:2" as const : "4:5" as const,
       },
     };

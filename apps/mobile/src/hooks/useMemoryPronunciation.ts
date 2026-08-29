@@ -9,7 +9,7 @@ export type MemoryPronunciationStatus = "preparing" | "ready" | "recording" | "e
 
 const FRAME_LENGTH = 512;
 const VOICE_LEVEL = 0.12;
-const AUTO_STOP_SILENCE_MS = 850;
+const AUTO_STOP_SILENCE_MS = 1_800;
 const EVALUATION_TIMEOUT_MS = 8_000;
 
 export function useMemoryPronunciation(input: {
@@ -21,6 +21,7 @@ export function useMemoryPronunciation(input: {
 }) {
   const [status, setStatus] = useState<MemoryPronunciationStatus>("preparing");
   const [audioLevel, setAudioLevel] = useState(0);
+  const [recognizedText, setRecognizedText] = useState("");
   const sessionRef = useRef<RealtimeSttSession | null>(null);
   const sourceRef = useRef<RealtimeAudioSource | null>(null);
   const generationRef = useRef(0);
@@ -40,6 +41,7 @@ export function useMemoryPronunciation(input: {
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     doneHandledRef.current = false;
+    setRecognizedText("");
     if (evaluationTimerRef.current) clearTimeout(evaluationTimerRef.current);
     evaluationTimerRef.current = null;
     void sourceRef.current?.stop().catch(() => undefined);
@@ -55,14 +57,19 @@ export function useMemoryPronunciation(input: {
         pronunciationReferenceText: input.referenceText,
         onEvent: (event) => {
           if (generationRef.current !== generation) return;
+          if (event.type === "partial" || event.type === "final") {
+            setRecognizedText(event.finalText || event.text);
+          }
           if (event.type === "done") {
+            setRecognizedText(event.text);
             doneHandledRef.current = true;
             if (evaluationTimerRef.current) clearTimeout(evaluationTimerRef.current);
             evaluationTimerRef.current = null;
             sessionRef.current = null;
             setAudioLevel(0);
             const assessment = event.pronunciationAssessment ?? null;
-            if (assessment && passesPronunciation(assessment)) callbacksRef.current.onPassed(assessment);
+            const recordingDurationMs = Math.max(0, Date.now() - recordingStartedAtRef.current);
+            if (assessment && passesPronunciation(assessment, event.text, input.referenceText, recordingDurationMs)) callbacksRef.current.onPassed(assessment);
             else {
               updateStatus("retry");
               callbacksRef.current.onNeedsRetry(assessment);
@@ -176,6 +183,7 @@ export function useMemoryPronunciation(input: {
     sessionRef.current?.close();
     sessionRef.current = null;
     setAudioLevel(0);
+    setRecognizedText("");
   }, []);
 
   const start = useCallback(async () => {
@@ -243,11 +251,46 @@ export function useMemoryPronunciation(input: {
     }
   }, [prepare, updateStatus]);
 
-  return { status, audioLevel, start, stop, cancel };
+  return { status, audioLevel, recognizedText, start, stop, cancel };
 }
 
-function passesPronunciation(value: PronunciationAssessment): boolean {
-  return value.completenessScore >= 68 && value.accuracyScore >= 52;
+function passesPronunciation(value: PronunciationAssessment, recognizedText: string, referenceText: string, recordingDurationMs: number): boolean {
+  return value.completenessScore >= 85
+    && value.accuracyScore >= 58
+    && speechCoverage(recognizedText, referenceText) >= 0.82
+    && recordingDurationMs >= minimumSpeechDurationMs(referenceText);
+}
+
+function speechCoverage(recognizedText: string, referenceText: string): number {
+  const recognized = speechUnits(recognizedText);
+  const reference = speechUnits(referenceText);
+  if (!reference.length || !recognized.length) return 0;
+  const row = new Array<number>(reference.length + 1).fill(0);
+  for (const unit of recognized) {
+    let previous = 0;
+    for (let index = 1; index <= reference.length; index += 1) {
+      const saved = row[index]!;
+      row[index] = unit === reference[index - 1]
+        ? previous + 1
+        : Math.max(row[index]!, row[index - 1]!);
+      previous = saved;
+    }
+  }
+  return row[reference.length]! / reference.length;
+}
+
+function speechUnits(value: string): string[] {
+  const normalized = value.normalize("NFKC").toLocaleLowerCase();
+  const words = normalized.match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (words.length > 1 || words.some((word) => /^[a-z0-9]+$/iu.test(word))) return words;
+  return Array.from(normalized.replace(/[^\p{L}\p{N}]/gu, ""));
+}
+
+function minimumSpeechDurationMs(referenceText: string): number {
+  const units = speechUnits(referenceText);
+  const usesWords = /\s/u.test(referenceText.trim());
+  const estimatedMs = units.length * (usesWords ? 330 : 190);
+  return Math.max(900, Math.min(5_000, Math.round(estimatedMs * 0.55)));
 }
 
 function normalizeSpeechLanguage(value: string): string {

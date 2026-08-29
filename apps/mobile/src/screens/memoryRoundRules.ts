@@ -21,16 +21,25 @@ export function canBuildMemorySentencePuzzle(sentence: string): boolean {
 
 export function memorySentenceTokens(sentence: string): Array<{ id: string; text: string }> {
   const whitespaceParts = sentence.match(/\S+\s*/gu) ?? [];
-  let parts = whitespaceParts.length > 1 ? whitespaceParts : Array.from(sentence);
+  let parts = whitespaceParts.length > 1 ? whitespaceParts : memoryWordParts(sentence);
   const leadingWhitespace = sentence.match(/^\s+/u)?.[0] ?? "";
   if (leadingWhitespace && parts.length) parts[0] = `${leadingWhitespace}${parts[0]}`;
-  const targetCount = Math.min(9, Math.max(4, Math.ceil(Math.sqrt(parts.length) * 1.7)));
-  const groupSize = Math.max(1, Math.ceil(parts.length / targetCount));
-  if (groupSize > 1) {
-    parts = Array.from(
-      { length: Math.ceil(parts.length / groupSize) },
-      (_, index) => parts.slice(index * groupSize, (index + 1) * groupSize).join(""),
-    );
-  }
+  const targetCount = Math.min(4, Math.max(2, parts.length));
+  parts = Array.from({ length: targetCount }, (_, index) => {
+    const start = Math.floor(index * parts.length / targetCount);
+    const end = Math.floor((index + 1) * parts.length / targetCount);
+    return parts.slice(start, end).join("");
+  }).filter(Boolean);
   return parts.map((text, index) => ({ id: `token-${index}`, text }));
+}
+
+function memoryWordParts(sentence: string): string[] {
+  if (typeof Intl.Segmenter !== "function") return Array.from(sentence);
+  const segments = [...new Intl.Segmenter(undefined, { granularity: "word" }).segment(sentence)].map((item) => item.segment);
+  const parts: string[] = [];
+  for (const segment of segments) {
+    if (/^[\p{P}\p{S}\s]+$/u.test(segment) && parts.length) parts[parts.length - 1] += segment;
+    else parts.push(segment);
+  }
+  return parts.length ? parts : Array.from(sentence);
 }

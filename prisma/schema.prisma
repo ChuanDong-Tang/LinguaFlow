@@ -260,6 +260,8 @@ model CardImageAsset {
   fileSize             Int
   width                Int
   height               Int
+  focusX               Float     @default(0.5)
+  focusY               Float     @default(0.5)
   fileMd5              String?
   moderationRequestId  String?
   moderationSuggestion String?

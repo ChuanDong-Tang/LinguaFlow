@@ -706,19 +706,23 @@
   safeRange.length = safeEnd > safeRange.location ? safeEnd - safeRange.location : 0;
   if (safeRange.length == 0) return CGRectZero;
 
-  NSLayoutManager *layoutManager = self.textView.layoutManager;
-  NSTextContainer *container = self.textView.textContainer;
-  NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:safeRange actualCharacterRange:nil];
+  UITextPosition *beginning = self.textView.beginningOfDocument;
+  UITextPosition *start = [self.textView positionFromPosition:beginning offset:(NSInteger)safeRange.location];
+  UITextPosition *end = [self.textView positionFromPosition:beginning offset:(NSInteger)NSMaxRange(safeRange)];
+  if (!start || !end) return CGRectZero;
+  UITextRange *textRange = [self.textView textRangeFromPosition:start toPosition:end];
+  if (!textRange) return CGRectZero;
+
   __block CGRect unionRect = CGRectNull;
-  [layoutManager enumerateEnclosingRectsForGlyphRange:glyphRange
-                            withinSelectedGlyphRange:NSMakeRange(NSNotFound, 0)
-                                     inTextContainer:container
-                                          usingBlock:^(CGRect rect, BOOL *stop) {
-    CGRect adjusted = CGRectOffset(rect, self.textView.textContainerInset.left, self.textView.textContainerInset.top);
-    unionRect = CGRectIsNull(unionRect) ? adjusted : CGRectUnion(unionRect, adjusted);
-  }];
+  for (UITextSelectionRect *selectionRect in [self.textView selectionRectsForRange:textRange]) {
+    CGRect rect = selectionRect.rect;
+    if (CGRectIsEmpty(rect) || CGRectIsNull(rect) || CGRectIsInfinite(rect)) continue;
+    unionRect = CGRectIsNull(unionRect) ? rect : CGRectUnion(unionRect, rect);
+  }
   if (CGRectIsNull(unionRect)) return CGRectZero;
-  return [self.textView convertRect:unionRect toView:nil];
+  UIScreen *screen = self.textView.window.screen ?: UIScreen.mainScreen;
+  CGRect screenRect = [self.textView convertRect:unionRect toCoordinateSpace:screen.coordinateSpace];
+  return CGRectIsInfinite(screenRect) || isnan(screenRect.origin.x) || isnan(screenRect.origin.y) ? CGRectZero : screenRect;
 }
 
 - (NSArray<NSDictionary *> *)parseRanges:(NSString *)json

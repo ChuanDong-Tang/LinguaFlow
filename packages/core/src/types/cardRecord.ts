@@ -49,6 +49,8 @@ export interface CardImageThumbnailView {
   urlExpiresAt: string | null;
   width: number;
   height: number;
+  focusX?: number;
+  focusY?: number;
 }
 
 export interface CardImageDetailView extends CardImageThumbnailView {

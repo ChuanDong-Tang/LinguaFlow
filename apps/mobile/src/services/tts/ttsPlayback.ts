@@ -6,7 +6,6 @@ let activePlayer: AudioPlayer | null = null;
 let activeStopTimer: ReturnType<typeof setInterval> | null = null;
 let activeLoadTimer: ReturnType<typeof setTimeout> | null = null;
 let activePlaybackSubscription: { remove: () => void } | null = null;
-let audioModeReady = false;
 let cacheDirectoryReady = false;
 let playbackRequestId = 0;
 let lastCachePruneAt = 0;
@@ -89,13 +88,14 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
   if (resolvedSource.sessionId !== undefined && resolvedSource.sessionId !== playbackRequestId) return;
   playbackRequestId = requestId;
 
-  if (!audioModeReady) {
-    await setAudioModeAsync({
-      playsInSilentMode: true,
-      interruptionMode: "mixWithOthers",
-    });
-    audioModeReady = true;
-  }
+  // Recording switches the shared iOS audio session into record mode. Restore
+  // playback on every request so a sentence still plays after a speech task.
+  await setAudioModeAsync({
+    allowsRecording: false,
+    playsInSilentMode: true,
+    shouldPlayInBackground: false,
+    interruptionMode: "mixWithOthers",
+  });
 
   stopActivePlayer();
 

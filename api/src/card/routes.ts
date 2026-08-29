@@ -1123,6 +1123,25 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     } catch (error) { return handleCardError(reply, requestId, error); }
   });
 
+  app.patch("/cards/:recordId/images/:imageId/cover-position", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/images/:imageId/cover-position");
+    if (!userId) return;
+    const params = req.params as { recordId?: unknown; imageId?: unknown };
+    const body = req.body as { focusX?: unknown; focusY?: unknown } | null;
+    try {
+      const data = await deps.cardService.updateCoverFocus(
+        userId,
+        `card:${String(params.recordId ?? "")}`,
+        String(params.imageId ?? ""),
+        Number(body?.focusX),
+        Number(body?.focusY),
+      );
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
   app.delete("/cards/:recordId/image", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);

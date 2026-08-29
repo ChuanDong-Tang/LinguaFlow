@@ -122,6 +122,8 @@ export interface CardImageAssetEntity {
   fileSize: number;
   width: number;
   height: number;
+  focusX: number;
+  focusY: number;
   fileMd5: string | null;
   moderationRequestId: string | null;
   moderationSuggestion: string | null;
@@ -400,4 +402,5 @@ export interface CardRepository {
   }): Promise<CardEntryEntity | null>;
   appendEntryImage(input: { entryId: string; userId: string; imageUploadId: string }): Promise<CardEntryEntity | null>;
   removeEntryImage(input: { entryId: string; userId: string; imageId: string }): Promise<CardEntryEntity | null>;
+  updateEntryCoverFocus(input: { entryId: string; userId: string; imageId: string; focusX: number; focusY: number }): Promise<CardEntryEntity | null>;
 }

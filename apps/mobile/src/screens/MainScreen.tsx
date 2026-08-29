@@ -88,12 +88,13 @@ type MainScreenProps = {
   incomingCardDraft?: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled?: (id: number) => void;
   onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"]) => void;
-  onOpenRecall: (mode?: "today" | "yesterday" | "blind") => void;
+  onOpenRecall: (mode?: "today" | "yesterday" | "recent" | "blind") => void;
   onOpenMemoryRound: () => void;
   memoryRoundResumeAvailable: boolean;
   onOpenAssistant: () => void;
   onOpenAccount: () => void;
 };
+
 type LibraryView = "all" | string;
 type RecordActionAnchor = { x: number; y: number; width: number; height: number };
 
@@ -1115,9 +1116,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           ? <Text style={styles.selectionHeaderTitle}>{selectedRecordIds.size}</Text>
           : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Ionicons name="chevron-down" size={15} color={theme.colors.textSecondary} /></Pressable>}
         <View style={styles.headerActions}>
-          {selectingRecords ? <View style={styles.headerIconButton} /> : <><Pressable accessibilityLabel={t("contact.curious_companion.name")} style={[styles.headerIconButton, !assistantAvailable && styles.headerAssistantUnavailable]} onPress={() => void openAssistant()}>
-            <OioCharacter width={27} height={25} />
-          </Pressable><Pressable
+          {selectingRecords ? <View style={styles.headerIconButton} /> : <Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}
             onPress={() => {
@@ -1126,9 +1125,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             }}
           >
             <Ionicons name="search-outline" size={23} color={theme.colors.text} />
-          </Pressable></>}
+          </Pressable>}
         </View>
       </View>
+
+      <View style={styles.recallShortcuts}><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("recent")}><Text style={styles.recallShortcutTitle}>{t("recall.recent_shortcut")}</Text></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("blind")}><Text style={styles.recallShortcutTitle}>{t("recall.blind_box")}</Text></Pressable><MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /></View>
 
       <FlatList
         style={styles.libraryList}
@@ -1159,7 +1160,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </View>
         )}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : null}
-        ListHeaderComponent={<View style={styles.recallShortcuts}><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("today")}><Text style={styles.recallShortcutTitle}>{t("recall.today_shortcut")}</Text></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("yesterday")}><Text style={styles.recallShortcutTitle}>{t("recall.yesterday_shortcut")}</Text></Pressable><MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /></View>}
       />
       {recordActionMenu ? <View style={styles.recordActionLayer}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setRecordActionMenu(null)} />
@@ -1198,14 +1198,17 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </Pressable>
         </View>
       </View> : null}
-      {!selectingRecords ? <Pressable
-        accessibilityLabel={t("quick_note.a11y.make_card")}
-        style={[styles.floatingRecordButton, { bottom: Math.max(screenInsets.bottom + 24, 28) }]}
-        hitSlop={6}
-        onPress={openCardComposer}
-      >
-        <Ionicons name="add-outline" size={28} color="#171717" />
-      </Pressable> : null}
+      {!selectingRecords ? <View style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
+        <View style={styles.unifiedComposerBar}>
+          <View style={styles.unifiedComposerInput}>
+            <Pressable accessibilityLabel={t("card_detail.create_card")} style={styles.unifiedComposerAdd} onPress={openCardComposer}><Ionicons name="create-outline" size={19} color={theme.colors.textSecondary} /></Pressable>
+            <Pressable accessibilityLabel={t("quick_note.a11y.make_card")} style={styles.unifiedComposerTextButton} onPress={openCardComposer}><Text numberOfLines={1} style={styles.unifiedComposerPlaceholder}>{t("quick_note.placeholder")}</Text></Pressable>
+          </View>
+          <Pressable accessibilityLabel={t("pro.compact.assistant")} style={styles.unifiedComposerAi} onPress={() => void openAssistant()}>
+            <OioCharacter width={22} height={21} />
+          </Pressable>
+        </View>
+      </View> : null}
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}><Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Ionicons name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable><Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Ionicons name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
         <Pressable style={styles.libraryMenuBackdrop} onPress={() => setLibraryMenuVisible(false)}>
@@ -1282,7 +1285,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             onDraftSave={(initialTab) => void submit(initialTab)}
             onDraftChooseImage={() => void pickImage("library")}
             onDraftTakePhoto={() => void pickImage("camera")}
-            onDraftSelectImage={(asset) => void applyDraftImage(asset)}
+            onDraftSelectImage={(asset) => applyDraftImage(asset)}
             onDraftRemoveImage={removeDraftImage}
           />
         </Modal>
@@ -2540,7 +2543,7 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
     <Pressable ref={cardRef} style={[styles.card, selected && styles.cardSelected]} disabled={processing} accessibilityState={{ disabled: processing, selected }} onPress={open}>
       <View style={styles.cardContent}>
         {selecting ? <View style={styles.cardSelectionIcon}><Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
-        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={styles.thumbnailFrame}><Image source={{ uri: record.thumbnail.url }} resizeMode="cover" style={styles.thumbnail} onError={onThumbnailError} /></View> : null}
+        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={styles.thumbnailFrame}><FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} /></View> : null}
         <View style={styles.cardTextColumn}>
           {processing ? (
             <>
@@ -2571,6 +2574,20 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
       </View>
     </Pressable>
   );
+}
+
+function FocusedCardThumbnail({ thumbnail, onError }: {
+  thumbnail: NonNullable<CardRecordSummary["thumbnail"]>;
+  onError: () => void;
+}) {
+  const frameWidth = 108;
+  const frameHeight = 72;
+  const scale = Math.max(frameWidth / Math.max(1, thumbnail.width), frameHeight / Math.max(1, thumbnail.height));
+  const width = thumbnail.width * scale;
+  const height = thumbnail.height * scale;
+  const focusX = Math.max(0, Math.min(1, thumbnail.focusX ?? 0.5));
+  const focusY = Math.max(0, Math.min(1, thumbnail.focusY ?? 0.5));
+  return <Image source={{ uri: thumbnail.url }} resizeMode="stretch" style={{ position: "absolute", left: -(width - frameWidth) * focusX, top: -(height - frameHeight) * focusY, width, height }} onError={onError} />;
 }
 
 function countGraphemes(value: string): number {
@@ -2642,7 +2659,7 @@ const styles = StyleSheet.create({
   searchSubmitText: { color: theme.colors.surface, fontSize: 13, fontWeight: "600" },
   libraryList: { flex: 1 },
   list: { paddingHorizontal: 22, paddingTop: 4, paddingBottom: 96 },
-  recallShortcuts: { marginBottom: 8, paddingVertical: 6, flexDirection: "row", gap: 7 },
+  recallShortcuts: { marginHorizontal: 22, marginBottom: 8, paddingVertical: 6, flexDirection: "row", gap: 7 },
   recallShortcut: { flex: 1, minHeight: 44, paddingHorizontal: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   memoryRoundShortcut: { borderColor: "#BBDCD1", backgroundColor: "#EAF6F1" },
   memoryRoundShortcutText: { color: "#446A5D" },
@@ -2712,7 +2729,14 @@ const styles = StyleSheet.create({
   rewrittenText: { color: "#171717", fontSize: 17, lineHeight: 25, fontWeight: "400" },
   cardDate: { marginTop: 9, color: theme.colors.textMuted, fontSize: 11 },
   processingText: { marginTop: 6, color: "#999999", fontSize: 11, lineHeight: 17 },
-  floatingRecordButton: { position: "absolute", right: 24, width: 56, height: 56, borderRadius: 28, borderWidth: StyleSheet.hairlineWidth, borderColor: "#DDDDDD", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 8 },
+  unifiedComposerDock: { position: "absolute", left: 18, right: 18 },
+  unifiedComposerBar: { minHeight: 50, padding: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DEDC", borderRadius: 25, backgroundColor: "rgba(255,255,255,0.97)", flexDirection: "row", alignItems: "center", gap: 7, shadowColor: "#000000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9 },
+  unifiedComposerInput: { flex: 1, height: 40, paddingHorizontal: 5, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 8 },
+  unifiedComposerAdd: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  unifiedComposerTextButton: { flex: 1, alignSelf: "stretch", justifyContent: "center" },
+  unifiedComposerPlaceholder: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20 },
+  unifiedComposerAi: { width: 30, height: 30, marginHorizontal: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE4DC", borderRadius: 15, backgroundColor: "#EAF6F1", alignItems: "center", justifyContent: "center" },
+  unifiedComposerAiText: { color: "#446A5D", fontSize: 12, fontWeight: "700" },
   modalPage: { flex: 1, backgroundColor: theme.colors.canvas },
   modalHeader: { minHeight: 58, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
   modalHeaderButton: { width: 62, minHeight: 44, alignItems: "center", justifyContent: "center" },

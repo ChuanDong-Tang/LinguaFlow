@@ -102,7 +102,7 @@ export default function App() {
   const [memoryRoundResumeAvailable, setMemoryRoundResumeAvailable] = useState(false);
   const [memoryRoundRefreshRevision, setMemoryRoundRefreshRevision] = useState(0);
   const [memoryRoundCurrentRecordId, setMemoryRoundCurrentRecordId] = useState<string | null>(null);
-  const [recallLaunchRequest, setRecallLaunchRequest] = useState<{ key: number; mode: "today" | "yesterday" | "blind" } | null>(null);
+  const [recallLaunchRequest, setRecallLaunchRequest] = useState<{ key: number; mode: "today" | "yesterday" | "recent" | "blind" } | null>(null);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteAccountAuthingToken, setDeleteAccountAuthingToken] = useState("");
   const [deleteAccountMethod, setDeleteAccountMethod] = useState<"PHONE_PASSCODE" | "EMAIL_PASSCODE" | null>(null);
@@ -1144,7 +1144,7 @@ function TabScreens({
   onEditRecallCard: (recordId: string) => void;
   onCardChanged: () => void;
   onOpenLibrary: () => void;
-  onOpenRecall: (mode?: "today" | "yesterday" | "blind") => void;
+  onOpenRecall: (mode?: "today" | "yesterday" | "recent" | "blind") => void;
   onOpenMemoryRound: () => void;
   memoryRoundResumeAvailable: boolean;
   onOpenAccount: () => void;

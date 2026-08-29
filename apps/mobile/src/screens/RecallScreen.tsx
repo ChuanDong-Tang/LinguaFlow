@@ -29,7 +29,7 @@ type Stage = "home" | "deck" | "summary";
 type BlindPeriod = "week" | "month" | "quarter" | "year" | "all";
 const BLIND_BOX_SETTINGS_KEY = "linguaflow.recall.blind_box.settings.v1";
 
-export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChanged, onOpenMemoryRound, memoryRoundResumeAvailable, refreshRevision = 0, launchRequest = null }: { isActive: boolean; onOpenLibrary: () => void; onEditCard: (recordId: string) => void; onCardChanged: () => void; onOpenMemoryRound: () => void; memoryRoundResumeAvailable: boolean; refreshRevision?: number; launchRequest?: { key: number; mode: "today" | "yesterday" | "blind" } | null }) {
+export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChanged, onOpenMemoryRound, memoryRoundResumeAvailable, refreshRevision = 0, launchRequest = null }: { isActive: boolean; onOpenLibrary: () => void; onEditCard: (recordId: string) => void; onCardChanged: () => void; onOpenMemoryRound: () => void; memoryRoundResumeAvailable: boolean; refreshRevision?: number; launchRequest?: { key: number; mode: "today" | "yesterday" | "recent" | "blind" } | null }) {
   const [stage, setStage] = useState<Stage>("home");
   const [loading, setLoading] = useState(false);
   const [todayCards, setTodayCards] = useState<CardRecordSummary[]>([]);
@@ -114,14 +114,20 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
           setDirectLaunchPending(false);
         }
         else {
-          const rows = launchRequest.mode === "today" ? completedCards(todayRows) : completedCards(yesterdayRows);
+          const rows = launchRequest.mode === "today"
+            ? completedCards(todayRows)
+            : launchRequest.mode === "yesterday"
+              ? completedCards(yesterdayRows)
+              : [...completedCards(yesterdayRows), ...completedCards(todayRows)]
+                .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
           if (!rows.length) {
             setDirectLaunchPending(false);
             Alert.alert(t("recall.error.empty"));
             onOpenLibrary();
             return;
           }
-          await beginRecords(rows.map((row) => row.id), launchRequest.mode === "today" ? today : yesterday);
+          const query = launchRequest.mode === "today" ? today : launchRequest.mode === "yesterday" ? yesterday : `recent:${yesterday}:${today}`;
+          await beginRecords(rows.map((row) => row.id), query);
           setDirectLaunchPending(false);
         }
       }

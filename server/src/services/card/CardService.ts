@@ -930,6 +930,23 @@ export class CardService {
     return this.detail(userId, recordId);
   }
 
+  async updateCoverFocus(userId: string, recordId: string, imageId: string, focusX: number, focusY: number): Promise<CardRecordDetailView> {
+    const parsed = parseCardRecordId(recordId);
+    if (!parsed || parsed.source !== "card" || !imageId.trim()) throw new CardValidationError("Invalid image");
+    if (![focusX, focusY].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) {
+      throw new CardValidationError("Invalid cover position");
+    }
+    const updated = await this.repository.updateEntryCoverFocus({
+      entryId: parsed.sourceId,
+      userId,
+      imageId: imageId.trim(),
+      focusX,
+      focusY,
+    });
+    if (!updated) throw new CardNotFoundError();
+    return this.detail(userId, recordId);
+  }
+
   async updateDictation(
     userId: string,
     recordId: string,
@@ -1296,7 +1313,7 @@ export class CardService {
     const firstImage = entry.images[0];
     if (!firstImage || !this.imageService) return summary;
     const views = await this.imageService.views(firstImage);
-    return { ...summary, thumbnail: views.thumbnail };
+    return { ...summary, thumbnail: { ...views.thumbnail, focusX: firstImage.focusX, focusY: firstImage.focusY } };
   }
 }
 

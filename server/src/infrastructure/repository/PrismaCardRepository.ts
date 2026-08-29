@@ -1532,6 +1532,22 @@ export class PrismaCardRepository implements CardRepository {
     });
   }
 
+  async updateEntryCoverFocus(input: { entryId: string; userId: string; imageId: string; focusX: number; focusY: number }): Promise<CardEntryEntity | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.card.findFirst({
+        where: { id: input.entryId, userId: input.userId, status: "completed" },
+        include: includeSegments,
+      });
+      if (!entry || entry.images[0]?.id !== input.imageId) return null;
+      await tx.cardImageAsset.update({
+        where: { id: input.imageId },
+        data: { focusX: input.focusX, focusY: input.focusY },
+      });
+      const updated = await tx.card.findFirst({ where: { id: entry.id }, include: includeSegments });
+      return updated ? toEntry(updated) : null;
+    });
+  }
+
   async refreshContentSegments(input: {
     entryId: string;
     userId: string;
@@ -2027,6 +2043,8 @@ function toImageAsset(row: any): CardImageAssetEntity {
     fileSize: row.fileSize,
     width: row.width,
     height: row.height,
+    focusX: Number.isFinite(row.focusX) ? row.focusX : 0.5,
+    focusY: Number.isFinite(row.focusY) ? row.focusY : 0.5,
     fileMd5: row.fileMd5 ?? null,
     moderationRequestId: row.moderationRequestId ?? null,
     moderationSuggestion: row.moderationSuggestion ?? null,

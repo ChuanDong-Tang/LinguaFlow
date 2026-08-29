@@ -8,6 +8,7 @@ import {
   updateCardContent,
   appendCardRecordImage,
   removeCardRecordImageById,
+  updateCardCoverPosition,
   DEFAULT_CARD_CAPABILITIES,
   type CardRecordDetail,
   type CardCapabilities,
@@ -414,8 +415,15 @@ export function CardDetailNavigator({
         });
         return true;
       }}
-      onReplaceImage={detail ? (source, asset) => void pickImage(detail.id, source, asset) : undefined}
+      onReplaceImage={detail ? (source, asset) => pickImage(detail.id, source, asset) : undefined}
       onRemoveImage={(detail?.images?.length ?? 0) > 0 || detail?.image ? confirmRemoveImage : undefined}
+      onCoverPositionChange={detail ? async (imageId, focusX, focusY) => {
+        const updated = await updateCardCoverPosition(detail.id, imageId, focusX, focusY);
+        const stableDetail = await stabilizeCardDetailImages(detail, updated);
+        setDetail(stableDetail);
+        detailCacheRef.current.set(detail.id, { detail: stableDetail, loadedAt: Date.now() });
+        onChanged();
+      } : undefined}
     />
   );
 }

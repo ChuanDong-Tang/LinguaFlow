@@ -2,11 +2,15 @@ import { useNetInfo } from "@react-native-community/netinfo";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
+  Easing,
   FlatList,
   Keyboard,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
@@ -106,6 +110,9 @@ const MULTILINGUAL_STT_LANGUAGES = ["zh-CN", "ja-JP", "ko-KR", "en-US"];
 
 export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
+  const window = useWindowDimensions();
+  const screenTranslateX = useRef(new Animated.Value(window.width)).current;
+  const exitAnimationRunningRef = useRef(false);
   const contactId = contact.id;
   const [inputText, setInputText] = useState("");
   const [sttStatus, setSttStatus] = useState<"idle" | "connecting" | "recording" | "stopping">("idle");
@@ -140,6 +147,61 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
   const [businessTodayKey, setBusinessTodayKey] = useState<string | null>(null);
   const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
   const [dictionaryLookup, setDictionaryLookup] = useState<DictionaryLookupState | null>(null);
+  useEffect(() => {
+    screenTranslateX.setValue(window.width);
+    Animated.timing(screenTranslateX, {
+      toValue: 0,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [screenTranslateX, window.width]);
+  const exitScreen = React.useCallback((velocity = 0) => {
+    if (exitAnimationRunningRef.current) return;
+    exitAnimationRunningRef.current = true;
+    Keyboard.dismiss();
+    Animated.timing(screenTranslateX, {
+      toValue: window.width,
+      duration: velocity > 0.65 ? 180 : 240,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) onBack();
+      else exitAnimationRunningRef.current = false;
+    });
+  }, [onBack, screenTranslateX, window.width]);
+  const swipeBackDisabled = isDateSheetOpen || isAutoCopyMenuOpen || Boolean(dictionaryLookup);
+  const swipeBackResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponderCapture: (_event, gesture) => Boolean(
+      !swipeBackDisabled
+      && gesture.x0 <= 24
+      && gesture.dx > 14
+      && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.6
+    ),
+    onPanResponderMove: (_event, gesture) => {
+      screenTranslateX.setValue(Math.max(0, gesture.dx));
+    },
+    onPanResponderRelease: (_event, gesture) => {
+      if (gesture.dx > 70 || gesture.vx > 0.65) {
+        exitScreen(gesture.vx);
+        return;
+      }
+      Animated.spring(screenTranslateX, {
+        toValue: 0,
+        speed: 24,
+        bounciness: 0,
+        useNativeDriver: true,
+      }).start();
+    },
+    onPanResponderTerminate: () => {
+      Animated.spring(screenTranslateX, {
+        toValue: 0,
+        speed: 24,
+        bounciness: 0,
+        useNativeDriver: true,
+      }).start();
+    },
+  }), [exitScreen, screenTranslateX, swipeBackDisabled]);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const contactIdRef = useRef(contactId);
   const inputTextRef = useRef("");
@@ -1431,14 +1493,15 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
   }, [localDateKeys, cloudDateKeys]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <Animated.View style={[styles.transitionScreen, { transform: [{ translateX: screenTranslateX }] }]}>
+    <SafeAreaView style={styles.container} {...swipeBackResponder.panHandlers}>
       <ChatContentFrame
         onAndroidTouchStart={handleRootTouchStart}
         onAndroidTouchEnd={handleRootTouchEnd}
       >
         <ChatHeader
           contact={contact}
-          onBack={onBack}
+          onBack={() => exitScreen()}
           onOpenCalendar={() => {
             prepareForCommand();
             setMonthCursor(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
@@ -1582,6 +1645,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
         onClose={closeDictionaryLookup}
       />
     </SafeAreaView>
+    </Animated.View>
   );
 }
 
@@ -1666,6 +1730,10 @@ function formatQuotaRefreshTime(value: string | null): string {
 }
 
 const styles = StyleSheet.create({
+  transitionScreen: {
+    flex: 1,
+    backgroundColor: "#FAFAFA",
+  },
   container: {
     flex: 1,
     backgroundColor: "#FAFAFA",

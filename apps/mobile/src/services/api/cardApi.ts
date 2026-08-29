@@ -38,7 +38,7 @@ export type CardRecordSummary = {
   rewrittenPreview: string | null;
   languageCode: string;
   status: Exclude<CardStatus, "failed">;
-  thumbnail: { url: string; urlExpiresAt?: string | null; width: number; height: number } | null;
+  thumbnail: { url: string; urlExpiresAt?: string | null; width: number; height: number; focusX?: number; focusY?: number } | null;
   practiceSummary: unknown | null;
   isSample: boolean;
   createdAt: string;
@@ -74,6 +74,8 @@ export type CardRecordDetail = CardRecordSummary & {
     urlExpiresAt?: string | null;
     width: number;
     height: number;
+    focusX: number;
+    focusY: number;
     thumbnail?: { id: string; url: string; urlExpiresAt?: string | null; width: number; height: number } | null;
   }>;
   image: {
@@ -82,6 +84,8 @@ export type CardRecordDetail = CardRecordSummary & {
     urlExpiresAt?: string | null;
     width: number;
     height: number;
+    focusX: number;
+    focusY: number;
     thumbnail?: { id: string; url: string; urlExpiresAt?: string | null; width: number; height: number } | null;
   } | null;
   practice: {
@@ -648,6 +652,13 @@ export async function appendCardRecordImage(recordId: string, imageUploadId: str
 export async function removeCardRecordImageById(recordId: string, imageId: string): Promise<CardRecordDetail> {
   return request(`/cards/${encodeURIComponent(requireCardId(recordId))}/images/${encodeURIComponent(imageId)}`, {
     method: "DELETE",
+  });
+}
+
+export async function updateCardCoverPosition(recordId: string, imageId: string, focusX: number, focusY: number): Promise<CardRecordDetail> {
+  return request(`/cards/${encodeURIComponent(requireCardId(recordId))}/images/${encodeURIComponent(imageId)}/cover-position`, {
+    method: "PATCH",
+    body: JSON.stringify({ focusX, focusY }),
   });
 }
 
