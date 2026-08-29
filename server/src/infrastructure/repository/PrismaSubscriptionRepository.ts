@@ -27,6 +27,9 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
       where: {
         userId,
         status: "active",
+        startedAt: {
+          lte: now,
+        },
         expiresAt: {
           gt: now,
         },

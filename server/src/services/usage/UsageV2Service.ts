@@ -121,7 +121,7 @@ export class UsageV2Service {
     const quotaTokens = period.prorated
       ? prorateTokens(fullQuotaTokens, subscriptionPeriod.start, subscriptionPeriod.end, period.start)
       : fullQuotaTokens;
-    const cycle = await this.prisma.aiTokenCycle.upsert({
+    let cycle = await this.prisma.aiTokenCycle.upsert({
       where: {
         userId_apiVersion_periodStart: {
           userId,
@@ -144,6 +144,7 @@ export class UsageV2Service {
       // A paid cycle keeps the grant snapshot it was created with.
       update: {},
     });
+    cycle = await this.reconcilePrematureTokenUsage(userId, cycle, now);
     const capacityBytes = BigInt(monthlyImageUploadLimit(subscription.tier));
     const imageAccount = await this.ensureImageUploadCycle({
       userId,
@@ -189,6 +190,77 @@ export class UsageV2Service {
     };
   }
 
+  private async reconcilePrematureTokenUsage(
+    userId: string,
+    currentCycle: TokenCycleRow,
+    now: Date,
+  ): Promise<TokenCycleRow> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
+        `token-cycle-repair:${userId}`,
+      );
+      const premature = await tx.$queryRawUnsafe(
+        `SELECT
+           t."cycleId",
+           COALESCE(SUM(t."totalTokens") FILTER (WHERE t."status" = 'settled'), 0)::int AS "usedTokens",
+           COALESCE(SUM(t."reservedTokens") FILTER (WHERE t."status" = 'reserved'), 0)::int AS "reservedTokens"
+         FROM "ai_token_transactions" t
+         JOIN "ai_token_cycles" source ON source."id" = t."cycleId"
+         WHERE t."userId" = $1
+           AND t."cycleId" <> $2
+           AND source."periodStart" > $3
+           AND t."createdAt" < source."periodStart"
+         GROUP BY t."cycleId"`,
+        userId,
+        currentCycle.id,
+        now,
+      ) as Array<{ cycleId: string; usedTokens: number; reservedTokens: number }>;
+      for (const source of premature) {
+        const changed = await tx.$executeRawUnsafe(
+          `UPDATE "ai_token_cycles"
+              SET "usedTokens" = "usedTokens" + $1,
+                  "reservedTokens" = "reservedTokens" + $2,
+                  "updatedAt" = NOW()
+            WHERE "id" = $3
+              AND "usedTokens" + "reservedTokens" + $1 + $2 <= "quotaTokens"`,
+          source.usedTokens,
+          source.reservedTokens,
+          currentCycle.id,
+        );
+        if (changed === 0) continue;
+        const sourceChanged = await tx.$executeRawUnsafe(
+          `UPDATE "ai_token_cycles"
+              SET "usedTokens" = "usedTokens" - $1,
+                  "reservedTokens" = "reservedTokens" - $2,
+                  "updatedAt" = NOW()
+            WHERE "id" = $3`,
+          source.usedTokens,
+          source.reservedTokens,
+          source.cycleId,
+        );
+        if (sourceChanged === 0) throw new Error("TOKEN_PREMATURE_CYCLE_REPAIR_FAILED");
+        await tx.$executeRawUnsafe(
+          `UPDATE "ai_token_transactions" t
+              SET "cycleId" = $1, "updatedAt" = NOW()
+             FROM "ai_token_cycles" source
+            WHERE t."cycleId" = source."id"
+              AND t."cycleId" = $2
+              AND t."userId" = $3
+              AND source."periodStart" > $4
+              AND t."createdAt" < source."periodStart"`,
+          currentCycle.id,
+          source.cycleId,
+          userId,
+          now,
+        );
+      }
+      const refreshed = await tx.aiTokenCycle.findUnique({ where: { id: currentCycle.id } });
+      if (!refreshed) throw new Error("TOKEN_CYCLE_NOT_FOUND");
+      return refreshed;
+    });
+  }
+
   private async ensureImageUploadCycle(input: {
     userId: string;
     tier: MembershipTier;
@@ -200,7 +272,7 @@ export class UsageV2Service {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRawUnsafe(
         'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
-        `image-cycle:${input.userId}`,
+        imageUsageLockKey(input.userId),
       );
       const existing = await tx.imageStorageAccount.findUnique({ where: { userId: input.userId } });
       if (!existing) {
@@ -217,6 +289,22 @@ export class UsageV2Service {
       }
       const periodChanged = existing.periodStart?.getTime() !== input.periodStart.getTime()
         || existing.periodEnd?.getTime() !== input.periodEnd.getTime();
+      let reconciledUsage: { usedBytes: bigint; reservedBytes: bigint } | null = null;
+      if (periodChanged || existing.reservedBytes > 0n) {
+        const rows = await tx.$queryRawUnsafe(
+          `SELECT
+             COALESCE(SUM("bytes") FILTER (WHERE "kind" = 'upload' AND "status" = 'committed'), 0)::bigint AS "usedBytes",
+             COALESCE(SUM("bytes") FILTER (WHERE "kind" = 'upload' AND "status" = 'reserved'), 0)::bigint AS "reservedBytes"
+           FROM "image_storage_transactions"
+           WHERE "accountId" = $1
+             AND "createdAt" >= $2
+             AND "createdAt" < $3`,
+          existing.id,
+          input.periodStart,
+          input.periodEnd,
+        ) as Array<{ usedBytes: bigint; reservedBytes: bigint }>;
+        reconciledUsage = rows[0] ?? { usedBytes: 0n, reservedBytes: 0n };
+      }
       return tx.imageStorageAccount.update({
         where: { id: existing.id },
         data: {
@@ -225,7 +313,7 @@ export class UsageV2Service {
           periodEnd: input.periodEnd,
           capacityBytes: input.capacityBytes,
           configVersion: input.configVersion,
-          ...(periodChanged ? { usedBytes: 0n, reservedBytes: 0n } : {}),
+          ...(reconciledUsage ?? {}),
         },
       });
     });
@@ -364,6 +452,7 @@ export class UsageV2Service {
     const usage = await this.getCurrentUsage(input.userId);
     const dateKey = formatDateKey(new Date(), getRuntimeConfig().quotaTimeZone);
     await this.prisma.$transaction(async (tx) => {
+      await lockImageUsage(tx, input.userId);
       const existing = await tx.imageStorageTransaction.findUnique({
         where: { userId_requestId_kind: { userId: input.userId, requestId: input.requestId, kind: "upload" } },
       });
@@ -407,6 +496,7 @@ export class UsageV2Service {
   async commitImageBytes(input: { userId: string; requestId: string; actualBytes: number }): Promise<void> {
     assertPositiveInteger(input.actualBytes, "actualBytes");
     await this.prisma.$transaction(async (tx) => {
+      await lockImageUsage(tx, input.userId);
       const transaction = await tx.imageStorageTransaction.findUnique({
         where: { userId_requestId_kind: { userId: input.userId, requestId: input.requestId, kind: "upload" } },
       });
@@ -442,6 +532,7 @@ export class UsageV2Service {
 
   async releaseImageReservation(userId: string, requestId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      await lockImageUsage(tx, userId);
       const transaction = await tx.imageStorageTransaction.findUnique({
         where: { userId_requestId_kind: { userId, requestId, kind: "upload" } },
       });
@@ -611,6 +702,17 @@ async function lockUsageRequest(tx: any, userId: string, requestId: string): Pro
   await tx.$queryRawUnsafe(
     'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
     `usage-v2:${userId}:${requestId}`,
+  );
+}
+
+function imageUsageLockKey(userId: string): string {
+  return `image-usage-v2:${userId}`;
+}
+
+async function lockImageUsage(tx: any, userId: string): Promise<void> {
+  await tx.$queryRawUnsafe(
+    'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
+    imageUsageLockKey(userId),
   );
 }
 

@@ -315,8 +315,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            ar.provider AS "autoRenewProvider",
            ar.status AS "autoRenewStatus",
            CASE
-             WHEN s.status = 'active' AND s."expiresAt" > now() AND s.plan = 'plus_monthly' THEN 'plus'
-             WHEN s.status = 'active' AND s."expiresAt" > now() AND s.plan = 'pro_monthly' THEN 'pro'
+             WHEN s.status = 'active' AND s."startedAt" <= now() AND s."expiresAt" > now() AND s.plan = 'plus_monthly' THEN 'plus'
+             WHEN s.status = 'active' AND s."startedAt" <= now() AND s."expiresAt" > now() AND s.plan = 'pro_monthly' THEN 'pro'
              WHEN s.id IS NULL THEN 'non_member'
              WHEN s.status = 'cancelled' THEN 'cancelled'
              ELSE 'expired'
@@ -327,7 +327,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            FROM "subscriptions" sub
            WHERE sub."userId" = u.id
            ORDER BY
-             CASE WHEN sub.status = 'active' AND sub."expiresAt" > now() THEN 0 ELSE 1 END,
+             CASE WHEN sub.status = 'active' AND sub."startedAt" <= now() AND sub."expiresAt" > now() THEN 0 ELSE 1 END,
              sub."updatedAt" DESC,
              sub."expiresAt" DESC
            LIMIT 1
@@ -594,12 +594,16 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     }
 
     const now = new Date();
-    const currentSubscription =
-      subscriptions.find((item) => item.status === "active" && item.expiresAt > now) ?? null;
+    const currentSubscription = subscriptions
+      .filter((item) => item.status === "active" && item.startedAt <= now && item.expiresAt > now)
+      .sort((left, right) => right.expiresAt.getTime() - left.expiresAt.getTime())[0] ?? null;
     const currentAutoRenew =
       (autoRenewSubscriptions as any[]).find((item) =>
         ["pending", "active", "billing_retry"].includes(String(item.status))
       ) ?? null;
+    const currentAiTokenCycle = (aiTokenCycles as any[])
+      .filter((item) => item.periodStart <= now && item.periodEnd > now)
+      .sort((left, right) => right.periodStart.getTime() - left.periodStart.getTime())[0] ?? null;
     const paymentEventProviderOrderIds = uniqueNonEmptyStrings([
       ...orders.map((item) => item.providerOrderId),
       ...subscriptions.map((item) => item.sourceOrderId),
@@ -634,6 +638,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       systemEventLogs,
       adminAuditLogs,
       aiTokenCycles,
+      currentAiTokenCycleId: currentAiTokenCycle?.id ?? null,
       aiTokenTransactions,
       aiTokenFeatureUsage,
     };

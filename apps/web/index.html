@@ -1256,6 +1256,54 @@
                 </table>
               </div>
             </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">AI Token 用量监控</h2>
+                  <p class="section-subtitle">当前额度只显示实际正在扣减的周期；旧额度作为历史记录，不计入当前可用额度。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>状态</th><th>周期</th><th>套餐</th><th>已用</th><th>预留</th><th>额度</th><th>剩余</th><th>使用率</th><th>来源</th></tr></thead>
+                  <tbody id="currentTokenCycleTbody"></tbody>
+                </table>
+              </div>
+              <details id="historicalTokenCycles" class="mt">
+                <summary id="historicalTokenCyclesSummary">历史额度周期</summary>
+                <p class="section-subtitle">仅用于核对历史消耗，不会叠加到当前额度，也不会继续扣减。</p>
+                <div class="table-wrap mt">
+                  <table>
+                    <thead><tr><th>状态</th><th>周期</th><th>套餐</th><th>已用</th><th>预留</th><th>额度</th><th>剩余</th><th>使用率</th><th>来源</th></tr></thead>
+                    <tbody id="historicalTokenCyclesTbody"></tbody>
+                  </table>
+                </div>
+              </details>
+              <div class="section-head mt">
+                <div>
+                  <h2 class="section-title">近 30 天按功能汇总</h2>
+                  <p class="section-subtitle">只把 settled 流水计入实际 token；released 表示失败后已释放，pending 表示仍在预留。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>功能</th><th>请求</th><th>成功</th><th>释放</th><th>待结算</th><th>输入</th><th>输出</th><th>总计</th><th>单次峰值</th><th>最近使用</th></tr></thead>
+                  <tbody id="tokenFeatureUsageTbody"></tbody>
+                </table>
+              </div>
+              <div class="section-head mt">
+                <div>
+                  <h2 class="section-title">最近 200 条 Token 流水</h2>
+                  <p class="section-subtitle">可按 requestId 对照服务日志，排查重复请求、计量来源和模型消耗。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>时间</th><th>功能</th><th>状态</th><th>输入</th><th>输出</th><th>总计</th><th>预留</th><th>计量</th><th>模型</th><th>requestId</th></tr></thead>
+                  <tbody id="tokenTransactionsTbody"></tbody>
+                </table>
+              </div>
+            </div>
             <div class="section two-col">
               <div>
                 <div class="section-head">
@@ -1309,44 +1357,6 @@
                     <tbody id="appleLinksTbody"></tbody>
                   </table>
                 </div>
-              </div>
-            </div>
-            <div class="section">
-              <div class="section-head">
-                <div>
-                  <h2 class="section-title">AI Token 用量监控</h2>
-                  <p class="section-subtitle">真实计量流水：用于判断额度是否不足、异常预留、失败释放及高消耗功能。</p>
-                </div>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>周期</th><th>套餐</th><th>已用</th><th>预留</th><th>额度</th><th>剩余</th><th>来源</th></tr></thead>
-                  <tbody id="tokenCyclesTbody"></tbody>
-                </table>
-              </div>
-              <div class="section-head mt">
-                <div>
-                  <h2 class="section-title">近 30 天按功能汇总</h2>
-                  <p class="section-subtitle">只把 settled 流水计入实际 token；released 表示失败后已释放，pending 表示仍在预留。</p>
-                </div>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>功能</th><th>请求</th><th>成功</th><th>释放</th><th>待结算</th><th>输入</th><th>输出</th><th>总计</th><th>单次峰值</th><th>最近使用</th></tr></thead>
-                  <tbody id="tokenFeatureUsageTbody"></tbody>
-                </table>
-              </div>
-              <div class="section-head mt">
-                <div>
-                  <h2 class="section-title">最近 200 条 Token 流水</h2>
-                  <p class="section-subtitle">可按 requestId 对照服务日志，排查重复请求、计量来源和模型消耗。</p>
-                </div>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>时间</th><th>功能</th><th>状态</th><th>输入</th><th>输出</th><th>总计</th><th>预留</th><th>计量</th><th>模型</th><th>requestId</th></tr></thead>
-                  <tbody id="tokenTransactionsTbody"></tbody>
-                </table>
               </div>
             </div>
             <div class="section">
@@ -3162,17 +3172,37 @@
             <td class="mono">${escapeHtml(row.latestTransactionId)}</td>
           </tr>
         `).join("") || rowEmpty(3);
-        $("tokenCyclesTbody").innerHTML = (data.aiTokenCycles || []).map((row) => `
+        const tokenCycles = data.aiTokenCycles || [];
+        const currentTokenCycle = tokenCycles.find((row) => row.id === data.currentAiTokenCycleId) || null;
+        const historicalTokenCycles = tokenCycles.filter((row) => row.id !== data.currentAiTokenCycleId);
+        const tokenCycleRow = (row, current) => {
+          const quota = Number(row.quotaTokens || 0);
+          const used = Number(row.usedTokens || 0);
+          const reserved = Number(row.reservedTokens || 0);
+          const remaining = Math.max(0, quota - used - reserved);
+          const usagePercent = quota > 0 ? `${((used + reserved) * 100 / quota).toFixed(1)}%` : "-";
+          const isFuture = !current && new Date(row.periodStart).getTime() > Date.now();
+          return `
           <tr>
+            <td><span class="pill ${current ? "status-pass" : isFuture ? "status-warn" : ""}">${current ? "当前扣减" : isFuture ? "未来周期" : "历史"}</span></td>
             <td>${escapeHtml(`${fmtDate(row.periodStart)} - ${fmtDate(row.periodEnd)}`)}</td>
             <td>${escapeHtml(row.tier)}</td>
-            <td>${escapeHtml(row.usedTokens)}</td>
-            <td>${escapeHtml(row.reservedTokens)}</td>
-            <td>${escapeHtml(row.quotaTokens)}</td>
-            <td>${escapeHtml(Math.max(0, Number(row.quotaTokens || 0) - Number(row.usedTokens || 0) - Number(row.reservedTokens || 0)))}</td>
+            <td>${escapeHtml(used)}</td>
+            <td>${escapeHtml(reserved)}</td>
+            <td>${escapeHtml(quota)}</td>
+            <td>${escapeHtml(remaining)}</td>
+            <td>${escapeHtml(usagePercent)}</td>
             <td>${escapeHtml(row.grantSource)}</td>
           </tr>
-        `).join("") || rowEmpty(7);
+        `;
+        };
+        $("currentTokenCycleTbody").innerHTML = currentTokenCycle
+          ? tokenCycleRow(currentTokenCycle, true)
+          : rowEmpty(9);
+        $("historicalTokenCyclesTbody").innerHTML = historicalTokenCycles
+          .map((row) => tokenCycleRow(row, false)).join("") || rowEmpty(9);
+        $("historicalTokenCyclesSummary").textContent = `历史额度周期（${historicalTokenCycles.length}）`;
+        $("historicalTokenCycles").style.display = historicalTokenCycles.length ? "block" : "none";
         $("tokenFeatureUsageTbody").innerHTML = (data.aiTokenFeatureUsage || []).map((row) => `
           <tr>
             <td>${escapeHtml(row.feature)}</td>
