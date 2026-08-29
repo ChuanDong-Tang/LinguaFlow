@@ -2042,7 +2042,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                       </Sortable.Flex>
                     </>
                   ) : null}
-                  <SidebarRow label="回收站" selected={activeView === TRASH_VIEW} depth={0} onPress={() => onSelect(TRASH_VIEW)} />
+                  <SidebarRow icon="trash-outline" label="回收站" selected={activeView === TRASH_VIEW} depth={0} onPress={() => onSelect(TRASH_VIEW)} />
             </Reanimated.ScrollView>
           </View>
           {collectionActionMenu ? (

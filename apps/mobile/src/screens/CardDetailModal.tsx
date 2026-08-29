@@ -151,6 +151,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     clozeEntryModeRef.current = { recordId: detail?.id ?? null, autoStart: initialTab === "cloze" };
   }
   const [editing, setEditing] = useState(initialEditing);
+  const [detailActionMenuVisible, setDetailActionMenuVisible] = useState(false);
   const practiceMode = tab === "dictation";
   const [clozeState, setClozeState] = useState<CardClozeState>({ schemaVersion: 1, blanks: [] });
   const [clozeVersion, setClozeVersion] = useState(0);
@@ -440,9 +441,10 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           </View>
           <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>
           <View style={styles.headerEnd}>
-            {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => Alert.alert("卡片操作", undefined, [{ text: "编辑", onPress: onEditCard ?? (() => setEditing(true)) }, { text: "删除", style: "destructive", onPress: () => Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]) }, { text: t("common.cancel"), style: "cancel" }])}><Ionicons name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
+            {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Ionicons name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
+        {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
         {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
@@ -3197,6 +3199,11 @@ const styles = StyleSheet.create({
   historyButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
   headerEnd: { width: 82, flexDirection: "row", justifyContent: "flex-end" },
   iconHeaderButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
+  detailActionLayer: { ...StyleSheet.absoluteFillObject, zIndex: 80, elevation: 80 },
+  detailActionMenu: { position: "absolute", top: 49, right: 14, width: 132, paddingVertical: 4, borderRadius: 11, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 12 },
+  detailActionItem: { minHeight: 43, paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 9 },
+  detailActionText: { color: theme.colors.text, fontSize: 15, lineHeight: 20 },
+  detailActionDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 10, backgroundColor: theme.colors.border },
   clozeGuideOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 90, elevation: 90 },
   clozeGuideCopy: { position: "absolute", left: 32, right: 32, alignItems: "center" },
   clozeGuideProgress: { marginBottom: 10, color: "rgba(255,255,255,0.7)", fontSize: 12, lineHeight: 17, fontWeight: "600", letterSpacing: 1.1 },
