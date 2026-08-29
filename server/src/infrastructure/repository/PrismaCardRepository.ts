@@ -927,8 +927,8 @@ export class PrismaCardRepository implements CardRepository {
     });
   }
 
-  async listDeletedByUser(userId: string, limit: number): Promise<CardEntryEntity[]> {
-    const rows = await this.prisma.card.findMany({ where: { userId, status: "deleted" }, orderBy: { deletedAt: "desc" }, take: limit, include: includeSegments });
+  async listDeletedByUser(userId: string): Promise<CardEntryEntity[]> {
+    const rows = await this.prisma.card.findMany({ where: { userId, status: "deleted" }, orderBy: { deletedAt: "desc" }, include: includeSegments });
     return rows.map(toEntry);
   }
 

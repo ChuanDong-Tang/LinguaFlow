@@ -870,9 +870,12 @@ export class CardService {
     if (!deleted) throw new CardNotFoundError();
   }
 
-  async trash(userId: string, limit = 100): Promise<CardRecordSummaryView[]> {
-    await this.repository.deleteExpiredTrash(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
-    const entries = await this.repository.listDeletedByUser(userId, Math.max(1, Math.min(200, limit)));
+  async trash(userId: string): Promise<CardRecordSummaryView[]> {
+    const expiresBefore = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    while (await this.repository.deleteExpiredTrash(expiresBefore) === 500) {
+      // Expired cards are deleted in bounded batches to keep each transaction small.
+    }
+    const entries = await this.repository.listDeletedByUser(userId);
     return Promise.all(entries.map((entry) => {
       // Deleted cards are still valid, user-visible cards while they are in the
       // trash. The regular summary mapper intentionally rejects `deleted`, so

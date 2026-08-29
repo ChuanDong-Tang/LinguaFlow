@@ -279,7 +279,7 @@ export interface CardRepository {
   markDeleted(entryId: string, userId: string, deletedAt: Date): Promise<boolean>;
   restoreDeleted(entryId: string, userId: string): Promise<boolean>;
   permanentlyDelete(entryId: string, userId: string): Promise<boolean>;
-  listDeletedByUser(userId: string, limit: number): Promise<CardEntryEntity[]>;
+  listDeletedByUser(userId: string): Promise<CardEntryEntity[]>;
   deleteExpiredTrash(before: Date): Promise<number>;
   findPracticeState(userId: string, cardId: string): Promise<CardPracticeStateEntity | null>;
   listPracticeStates(userId: string, cardIds: string[]): Promise<CardPracticeStateEntity[]>;
