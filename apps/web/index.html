@@ -1314,6 +1314,44 @@
             <div class="section">
               <div class="section-head">
                 <div>
+                  <h2 class="section-title">AI Token 用量监控</h2>
+                  <p class="section-subtitle">真实计量流水：用于判断额度是否不足、异常预留、失败释放及高消耗功能。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>周期</th><th>套餐</th><th>已用</th><th>预留</th><th>额度</th><th>剩余</th><th>来源</th></tr></thead>
+                  <tbody id="tokenCyclesTbody"></tbody>
+                </table>
+              </div>
+              <div class="section-head mt">
+                <div>
+                  <h2 class="section-title">近 30 天按功能汇总</h2>
+                  <p class="section-subtitle">只把 settled 流水计入实际 token；released 表示失败后已释放，pending 表示仍在预留。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>功能</th><th>请求</th><th>成功</th><th>释放</th><th>待结算</th><th>输入</th><th>输出</th><th>总计</th><th>单次峰值</th><th>最近使用</th></tr></thead>
+                  <tbody id="tokenFeatureUsageTbody"></tbody>
+                </table>
+              </div>
+              <div class="section-head mt">
+                <div>
+                  <h2 class="section-title">最近 200 条 Token 流水</h2>
+                  <p class="section-subtitle">可按 requestId 对照服务日志，排查重复请求、计量来源和模型消耗。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>时间</th><th>功能</th><th>状态</th><th>输入</th><th>输出</th><th>总计</th><th>预留</th><th>计量</th><th>模型</th><th>requestId</th></tr></thead>
+                  <tbody id="tokenTransactionsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
                   <h2 class="section-title">用户最近记录</h2>
                   <p class="section-subtitle">订单、订阅、自动续费、支付事件、系统日志</p>
                 </div>
@@ -3124,6 +3162,45 @@
             <td class="mono">${escapeHtml(row.latestTransactionId)}</td>
           </tr>
         `).join("") || rowEmpty(3);
+        $("tokenCyclesTbody").innerHTML = (data.aiTokenCycles || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(`${fmtDate(row.periodStart)} - ${fmtDate(row.periodEnd)}`)}</td>
+            <td>${escapeHtml(row.tier)}</td>
+            <td>${escapeHtml(row.usedTokens)}</td>
+            <td>${escapeHtml(row.reservedTokens)}</td>
+            <td>${escapeHtml(row.quotaTokens)}</td>
+            <td>${escapeHtml(Math.max(0, Number(row.quotaTokens || 0) - Number(row.usedTokens || 0) - Number(row.reservedTokens || 0)))}</td>
+            <td>${escapeHtml(row.grantSource)}</td>
+          </tr>
+        `).join("") || rowEmpty(7);
+        $("tokenFeatureUsageTbody").innerHTML = (data.aiTokenFeatureUsage || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.feature)}</td>
+            <td>${escapeHtml(row.requestCount)}</td>
+            <td>${escapeHtml(row.settledCount)}</td>
+            <td>${escapeHtml(row.releasedCount)}</td>
+            <td>${escapeHtml(row.pendingCount)}</td>
+            <td>${escapeHtml(row.inputTokens)}</td>
+            <td>${escapeHtml(row.outputTokens)}</td>
+            <td>${escapeHtml(row.totalTokens)}</td>
+            <td>${escapeHtml(row.maxTokens)}</td>
+            <td>${escapeHtml(fmtDate(row.lastUsedAt))}</td>
+          </tr>
+        `).join("") || rowEmpty(10);
+        $("tokenTransactionsTbody").innerHTML = (data.aiTokenTransactions || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td>${escapeHtml(row.feature)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.inputTokens)}</td>
+            <td>${escapeHtml(row.outputTokens)}</td>
+            <td>${escapeHtml(row.totalTokens)}</td>
+            <td>${escapeHtml(row.reservedTokens)}</td>
+            <td>${escapeHtml(row.meteringSource || "-")}</td>
+            <td>${escapeHtml([row.provider, row.model].filter(Boolean).join(" / ") || "-")}</td>
+            <td class="mono">${escapeHtml(row.requestId)}</td>
+          </tr>
+        `).join("") || rowEmpty(10);
         renderDiagTables(data);
       }
 

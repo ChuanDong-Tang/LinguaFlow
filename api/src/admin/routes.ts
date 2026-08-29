@@ -500,6 +500,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       appleIapAccountLinks,
       systemEventLogs,
       adminAuditLogs,
+      aiTokenCycles,
+      aiTokenTransactions,
+      aiTokenFeatureUsage,
     ] = await Promise.all([
       deps.prisma.user.findUnique({ where: { id } }),
       deps.prisma.paymentOrder.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
@@ -543,6 +546,41 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            AND "targetId" = $1
          ORDER BY "createdAt" DESC
          LIMIT 100`,
+        id
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT "id","apiVersion","tier","periodStart","periodEnd","quotaTokens","reservedTokens","usedTokens","grantSource","configVersion","createdAt","updatedAt"
+         FROM "ai_token_cycles"
+         WHERE "userId" = $1
+         ORDER BY "periodStart" DESC
+         LIMIT 12`,
+        id
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT "requestId","feature","status","reservedTokens","inputTokens","outputTokens","totalTokens","meteringSource","provider","model","metadata","settledAt","createdAt","updatedAt"
+         FROM "ai_token_transactions"
+         WHERE "userId" = $1
+         ORDER BY "createdAt" DESC
+         LIMIT 200`,
+        id
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT
+           "feature",
+           COUNT(*)::int AS "requestCount",
+           COUNT(*) FILTER (WHERE "status" = 'settled')::int AS "settledCount",
+           COUNT(*) FILTER (WHERE "status" = 'released')::int AS "releasedCount",
+           COUNT(*) FILTER (WHERE "status" = 'reserved')::int AS "pendingCount",
+           COALESCE(SUM("inputTokens") FILTER (WHERE "status" = 'settled'), 0)::int AS "inputTokens",
+           COALESCE(SUM("outputTokens") FILTER (WHERE "status" = 'settled'), 0)::int AS "outputTokens",
+           COALESCE(SUM("totalTokens") FILTER (WHERE "status" = 'settled'), 0)::int AS "totalTokens",
+           COALESCE(MAX("totalTokens") FILTER (WHERE "status" = 'settled'), 0)::int AS "maxTokens",
+           MAX("createdAt") AS "lastUsedAt"
+         FROM "ai_token_transactions"
+         WHERE "userId" = $1
+           AND "createdAt" >= NOW() - INTERVAL '30 days'
+         GROUP BY "feature"
+         ORDER BY "totalTokens" DESC`,
         id
       ),
     ]);
@@ -595,6 +633,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       paymentEvents,
       systemEventLogs,
       adminAuditLogs,
+      aiTokenCycles,
+      aiTokenTransactions,
+      aiTokenFeatureUsage,
     };
 
     return reply.status(200).send({ ok: true, request_id: requestId, data });

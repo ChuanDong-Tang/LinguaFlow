@@ -1060,13 +1060,18 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
   function confirmBatchDelete(): void {
     if (!selectedRecordIds.size) return;
-    Alert.alert(tf("library.delete_selected_title", { count: selectedRecordIds.size }), t("library.delete_selected_message"), [
+    const deletingPermanently = libraryView === TRASH_VIEW;
+    const count = selectedRecordIds.size;
+    Alert.alert(
+      deletingPermanently ? `彻底删除 ${count} 张卡片？` : tf("library.delete_selected_title", { count }),
+      deletingPermanently ? "删除后无法恢复。" : t("library.delete_selected_message"), [
       { text: t("common.cancel"), style: "cancel" },
-      { text: t("common.delete"), style: "destructive", onPress: () => void (async () => {
+      { text: deletingPermanently ? "彻底删除" : t("common.delete"), style: "destructive", onPress: () => void (async () => {
         const ids = [...selectedRecordIds];
         try {
-          await Promise.all(ids.map((id) => deleteCardRecord(id)));
-          setRecords((current) => current.filter((record) => !selectedRecordIds.has(record.id)));
+          await Promise.all(ids.map((id) => deletingPermanently ? permanentlyDeleteCardRecord(id) : deleteCardRecord(id)));
+          const deletedIds = new Set(ids);
+          setRecords((current) => current.filter((record) => !deletedIds.has(record.id)));
           leaveRecordSelection();
         } catch {
           Alert.alert(t("library.delete_failed"), t("card_detail.error.try_again"));
@@ -1157,7 +1162,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         data={records}
         keyExtractor={(record) => record.id}
         renderItem={({ item: record }) => (
-          <CardCard record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => libraryView === TRASH_VIEW ? undefined : selectingRecords ? toggleRecordSelection(record.id) : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onThumbnailError={recoverFailedThumbnail} />
+          <CardCard record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onThumbnailError={recoverFailedThumbnail} />
         )}
         contentContainerStyle={styles.list}
         alwaysBounceVertical={false}
@@ -1230,7 +1235,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </Pressable>
         </View>
       </View> : null}
-      {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}><Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Ionicons name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable><Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Ionicons name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{t("common.delete")}</Text></Pressable></View> : null}
+      {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Ionicons name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Ionicons name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
         <Pressable style={styles.libraryMenuBackdrop} onPress={() => setLibraryMenuVisible(false)}>
           <Pressable style={[styles.libraryMenuPanel, { top: screenInsets.top + 55 }]} onPress={() => undefined}>
@@ -2693,6 +2698,7 @@ const styles = StyleSheet.create({
   memoryRoundDot: { position: "absolute", top: 8, right: 9, width: 6, height: 6, borderRadius: 3, backgroundColor: "#72BEA6" },
   recallShortcutTitle: { color: theme.colors.text, fontSize: 12, fontWeight: "500" },
   batchActionBar: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 64, paddingTop: 8, paddingHorizontal: 62, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", justifyContent: "space-between" },
+  batchActionBarCentered: { justifyContent: "center" },
   batchAction: { minWidth: 72, minHeight: 46, alignItems: "center", justifyContent: "center", gap: 2 },
   batchActionText: { color: theme.colors.text, fontSize: 11 },
   loader: { marginVertical: 32 },
