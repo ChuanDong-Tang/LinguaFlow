@@ -870,6 +870,22 @@ export class CardService {
     if (!deleted) throw new CardNotFoundError();
   }
 
+  async trash(userId: string, limit = 100): Promise<CardRecordSummaryView[]> {
+    await this.repository.deleteExpiredTrash(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+    const entries = await this.repository.listDeletedByUser(userId, Math.max(1, Math.min(200, limit)));
+    return Promise.all(entries.map((entry) => this.summaryWithImage(entry).catch(() => toSummary(entry, this.limits.topicMaxChars))));
+  }
+
+  async restore(userId: string, recordId: string): Promise<void> {
+    const parsed = parseCardRecordId(recordId);
+    if (!parsed || parsed.source !== "card" || !await this.repository.restoreDeleted(parsed.sourceId, userId)) throw new CardNotFoundError();
+  }
+
+  async permanentlyDelete(userId: string, recordId: string): Promise<void> {
+    const parsed = parseCardRecordId(recordId);
+    if (!parsed || parsed.source !== "card" || !await this.repository.permanentlyDelete(parsed.sourceId, userId)) throw new CardNotFoundError();
+  }
+
   async replaceImage(userId: string, recordId: string, imageUploadId: string | null): Promise<CardRecordDetailView> {
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();

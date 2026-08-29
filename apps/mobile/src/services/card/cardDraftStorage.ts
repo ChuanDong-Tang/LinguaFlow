@@ -13,6 +13,8 @@ export type CardDraftImage = {
   status: "pending" | "uploading" | "moderating" | "ready" | "failed";
   width: number;
   height: number;
+  focusX?: number;
+  focusY?: number;
   fileSize: number;
   mimeType: "image/jpeg" | "image/png";
 };
@@ -117,9 +119,16 @@ function normalizeImage(value: unknown): CardDraftImage | null {
     status: status === "uploading" || status === "moderating" || status === "ready" || status === "failed" ? status : "pending",
     width: Number(row.width) || 0,
     height: Number(row.height) || 0,
+    focusX: clampUnit(row.focusX),
+    focusY: clampUnit(row.focusY),
     fileSize: Number(row.fileSize) || 0,
     mimeType: row.mimeType === "image/png" ? "image/png" : "image/jpeg",
   };
+}
+
+function clampUnit(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : 0.5;
 }
 
 export async function saveCardDraft(draft: CardDraft): Promise<void> {

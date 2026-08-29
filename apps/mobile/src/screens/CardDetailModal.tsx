@@ -44,6 +44,7 @@ import {
   type CardCollection,
   type CardCapabilities,
   CardApiError,
+  deleteCardRecord,
 } from "../services/api/cardApi";
 import type { CardDraft } from "../services/card/cardDraftStorage";
 import { theme } from "../theme";
@@ -78,7 +79,7 @@ type ClozeChoiceOption = { value: string; incorrect: boolean };
 type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; height: number };
 type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
 type ClozeOnboardingTarget = { x: number; y: number; width: number; height: number };
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -111,6 +112,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onDraftTakePhoto?: () => void;
   onDraftSelectImage?: (asset: { uri: string; width: number; height: number }) => Promise<void> | void;
   onDraftRemoveImage?: (localUri?: string) => void;
+  onDraftCoverPositionChange?: (localUri: string, focusX: number, focusY: number) => Promise<void> | void;
   canGoBack?: boolean;
   canGoForward?: boolean;
   onBack?: () => void;
@@ -394,6 +396,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         onTakePhoto={onDraftTakePhoto}
         onSelectImage={onDraftSelectImage}
         onRemoveImage={onDraftRemoveImage}
+        onCoverPositionChange={onDraftCoverPositionChange}
       />
     );
   }
@@ -437,11 +440,11 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           </View>
           <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>
           <View style={styles.headerEnd}>
-            {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel={t("card_detail.a11y.edit_card")} style={styles.iconHeaderButton} onPress={onEditCard ?? (() => setEditing(true))}><Ionicons name="pencil-outline" size={21} color={theme.colors.text} /></Pressable> : null}
+            {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => Alert.alert("卡片操作", undefined, [{ text: "编辑", onPress: onEditCard ?? (() => setEditing(true)) }, { text: "删除", style: "destructive", onPress: () => Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]) }, { text: t("common.cancel"), style: "cancel" }])}><Ionicons name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
@@ -771,7 +774,7 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
   </View>;
 }
 
-function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onCollectionChange, onCreateCollection, onRenameCollection, onDeleteCollection, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage }: {
+function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onCollectionChange, onCreateCollection, onRenameCollection, onDeleteCollection, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage, onCoverPositionChange }: {
   draft: CardDraft;
   sending: boolean;
   imageAdding: boolean;
@@ -791,6 +794,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   onTakePhoto?: () => void;
   onSelectImage?: (asset: { uri: string; width: number; height: number }) => Promise<void> | void;
   onRemoveImage?: (localUri?: string) => void;
+  onCoverPositionChange?: (localUri: string, focusX: number, focusY: number) => Promise<void> | void;
 }) {
   const { showNotice } = useFloatingNotice();
   const processing = draft.submitted;
@@ -893,11 +897,14 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                   thumbnailUrl: image.localUri,
                   width: image.width,
                   height: image.height,
+                  focusX: image.focusX,
+                  focusY: image.focusY,
                   status: image.status === "pending" ? "uploading" : image.status === "uploading" || image.status === "moderating" || image.status === "failed" ? image.status : undefined,
                 }))}
                 loading={imageAdding}
                 dateLabel={formatDraftDate()}
                 onRemove={confirmRemoveDraftImage}
+                onCoverPositionChange={onCoverPositionChange ? async (localUri, focusX, focusY) => { await onCoverPositionChange(localUri, focusX, focusY); } : undefined}
               />
               <View style={styles.draftOriginalEditor}>
                 <TextInput
@@ -1319,15 +1326,40 @@ type GalleryImage = {
 type ImagePreviewOrigin = { x: number; y: number; width: number; height: number };
 const CARD_IMAGE_ASPECT_RATIO = 16 / 9;
 
-function AdjustableCoverImage({ image, frameWidth, onCommit }: {
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
+}
+
+function FocusedCoverImage({ image, frameWidth }: { image: GalleryImage; frameWidth: number }) {
+  const frameHeight = frameWidth / CARD_IMAGE_ASPECT_RATIO;
+  const sourceRatio = Math.max(0.01, (image.width ?? frameWidth) / Math.max(1, image.height ?? frameHeight));
+  const renderedWidth = sourceRatio >= CARD_IMAGE_ASPECT_RATIO ? frameHeight * sourceRatio : frameWidth;
+  const renderedHeight = sourceRatio >= CARD_IMAGE_ASPECT_RATIO ? frameHeight : frameWidth / sourceRatio;
+  const left = -clampUnit(image.focusX ?? 0.5) * Math.max(0, renderedWidth - frameWidth);
+  const top = -clampUnit(image.focusY ?? 0.5) * Math.max(0, renderedHeight - frameHeight);
+  return <Image source={{ uri: image.thumbnailUrl }} resizeMode="stretch" fadeDuration={0} progressiveRenderingEnabled style={{ position: "absolute", left, top, width: renderedWidth, height: renderedHeight }} />;
+}
+
+function PreviewCoverCropOverlay({ image, width, height, onCommit }: {
   image: GalleryImage;
-  frameWidth: number;
+  width: number;
+  height: number;
   onCommit: (focusY: number) => Promise<void>;
 }) {
+  const sourceWidth = Math.max(1, image.width ?? width);
+  const sourceHeight = Math.max(1, image.height ?? height);
+  const scale = Math.min(width / sourceWidth, height / sourceHeight);
+  const displayWidth = sourceWidth * scale;
+  const displayHeight = sourceHeight * scale;
+  const displayX = (width - displayWidth) / 2;
+  // The preview item is explicitly top-aligned (`justifyContent: flex-start`).
+  // Keep the crop geometry in that same coordinate system.
+  const displayY = 0;
+  const frameHeightFromWidth = displayWidth / CARD_IMAGE_ASPECT_RATIO;
+  const frameWidth = frameHeightFromWidth <= displayHeight ? displayWidth : displayHeight * CARD_IMAGE_ASPECT_RATIO;
   const frameHeight = frameWidth / CARD_IMAGE_ASPECT_RATIO;
-  const sourceRatio = Math.max(0.01, (image.width ?? 1) / Math.max(1, image.height ?? 1));
-  const renderedHeight = Math.max(frameHeight, frameWidth / sourceRatio);
-  const travel = Math.max(0, renderedHeight - frameHeight);
+  const frameX = displayX + (displayWidth - frameWidth) / 2;
+  const travel = Math.max(0, displayHeight - frameHeight);
   const [focusY, setFocusY] = useState(clampUnit(image.focusY ?? 0.5));
   const focusRef = useRef(focusY);
   const dragStartRef = useRef(focusY);
@@ -1337,30 +1369,28 @@ function AdjustableCoverImage({ image, frameWidth, onCommit }: {
     setFocusY(next);
   }, [image.focusY, image.key]);
   const responder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_event, gesture) => travel > 1 && Math.abs(gesture.dy) > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onStartShouldSetPanResponderCapture: () => travel > 1,
+    onStartShouldSetPanResponder: () => travel > 1,
+    onMoveShouldSetPanResponderCapture: (_event, gesture) => travel > 1 && Math.abs(gesture.dy) > 3 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onMoveShouldSetPanResponder: (_event, gesture) => travel > 1 && Math.abs(gesture.dy) > 3 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: () => { dragStartRef.current = focusRef.current; },
     onPanResponderMove: (_event, gesture) => {
-      const next = clampUnit(dragStartRef.current - gesture.dy / Math.max(1, travel));
+      const next = clampUnit(dragStartRef.current + gesture.dy / Math.max(1, travel));
       focusRef.current = next;
       setFocusY(next);
     },
-    onPanResponderRelease: () => { void onCommit(focusRef.current); },
-    onPanResponderTerminate: () => { void onCommit(focusRef.current); },
+    onPanResponderRelease: () => { void onCommit(focusRef.current).catch(() => undefined); },
+    onPanResponderTerminate: () => { void onCommit(focusRef.current).catch(() => undefined); },
   }), [onCommit, travel]);
-  return <View style={StyleSheet.absoluteFill} {...responder.panHandlers}>
-    <Image
-      source={{ uri: image.thumbnailUrl }}
-      style={{ position: "absolute", left: 0, top: -focusY * travel, width: frameWidth, height: renderedHeight }}
-      resizeMode="stretch"
-      fadeDuration={0}
-      progressiveRenderingEnabled
-    />
-    {travel > 1 ? <View pointerEvents="none" style={styles.coverMoveHint}><Ionicons name="swap-vertical" size={17} color={theme.colors.surface} /></View> : null}
+  const frameY = displayY + focusY * travel;
+  return <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, styles.previewCropOverlay]}>
+    <View pointerEvents="none" style={[styles.cropShade, { left: displayX, top: displayY, width: displayWidth, height: Math.max(0, frameY - displayY) }]} />
+    <View pointerEvents="none" style={[styles.cropShade, { left: displayX, top: frameY + frameHeight, width: displayWidth, height: Math.max(0, displayY + displayHeight - frameY - frameHeight) }]} />
+    <View pointerEvents="none" style={[styles.cropShade, { left: displayX, top: frameY, width: Math.max(0, frameX - displayX), height: frameHeight }]} />
+    <View pointerEvents="none" style={[styles.cropShade, { left: frameX + frameWidth, top: frameY, width: Math.max(0, displayX + displayWidth - frameX - frameWidth), height: frameHeight }]} />
+    <View accessibilityRole="adjustable" {...responder.panHandlers} style={[styles.previewCropFrame, { left: frameX, top: frameY, width: frameWidth, height: frameHeight }]} />
   </View>;
-}
-
-function clampUnit(value: number): number {
-  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
 }
 
 const CardImageGallery = React.memo(function CardImageGallery({ images, loading = false, dateLabel, onRemove, onCoverPositionChange }: {
@@ -1427,7 +1457,7 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
               });
             }}
           >
-            {image.placeholder ? <View style={styles.imageAddingPlaceholder}><ActivityIndicator color={theme.colors.textMuted} /><Text style={styles.imageAddingText}>{t("card_detail.photo.adding")}</Text></View> : index === 0 && onCoverPositionChange ? <AdjustableCoverImage image={image} frameWidth={pageWidth} onCommit={(focusY) => onCoverPositionChange(image.key, image.focusX ?? 0.5, focusY)} /> : <Image
+            {image.placeholder ? <View style={styles.imageAddingPlaceholder}><ActivityIndicator color={theme.colors.textMuted} /><Text style={styles.imageAddingText}>{t("card_detail.photo.adding")}</Text></View> : index === 0 ? <FocusedCoverImage image={image} frameWidth={pageWidth} /> : <Image
               source={{ uri: image.thumbnailUrl }}
               style={styles.carouselImageLayer}
               resizeMode="cover"
@@ -1469,6 +1499,7 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
         visible={previewIndex !== null}
         origin={previewOrigin}
         dateLabel={dateLabel}
+        onCoverPositionChange={onCoverPositionChange}
         onClose={() => { setPreviewIndex(null); setPreviewOrigin(null); }}
         onRemove={onRemove}
       />
@@ -1476,7 +1507,7 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
   );
 });
 
-function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, onClose, onRemove }: {
+function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, onClose, onRemove, onCoverPositionChange }: {
   images: GalleryImage[];
   initialIndex: number;
   visible: boolean;
@@ -1484,6 +1515,7 @@ function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, on
   dateLabel?: string;
   onClose: () => void;
   onRemove?: (imageKey: string) => void;
+  onCoverPositionChange?: (imageKey: string, focusX: number, focusY: number) => Promise<void>;
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -1624,7 +1656,7 @@ function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, on
           setIndex(nextIndex);
           if (nextIndex !== initialIndex) handoffOpacity.setValue(0);
         }}
-      /></Animated.View>
+      />{index === 0 && images[0] && onCoverPositionChange ? <PreviewCoverCropOverlay image={images[0]} width={width} height={imageAreaHeight} onCommit={(focusY) => onCoverPositionChange(images[0]!.key, images[0]!.focusX ?? 0.5, focusY)} /> : null}</Animated.View>
       <Animated.View style={[styles.imagePreviewFooter, { opacity: chromeOpacity }]}><Text style={styles.imagePreviewDate}>{dateLabel ?? ""}</Text></Animated.View>
       {openingImage ? <Animated.View
         pointerEvents="none"
@@ -1656,7 +1688,7 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
@@ -1667,6 +1699,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   clozeVersion: number;
   onClozeChange: (state: CardClozeState, version: number) => void;
   onRemoveImage?: (imageId?: string) => void;
+  onCoverPositionChange?: (imageId: string, focusX: number, focusY: number) => Promise<void>;
   relations: Array<{ recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] }>;
   onOpenRelated?: (recordId: string, reasons: CardRelationReason[]) => void;
   onOpenDictation: () => void;
@@ -2321,7 +2354,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
             <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
           </View>
           <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
-          <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} />
+          <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} />
           <View ref={learningTargetRef} style={styles.flipCardTextBlock} onLayout={(event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; }}>
             {frontLearningReady ? <CollapsibleCardSection label={rewriteIsReady ? t("card_detail.module.expression_description") : t("card_detail.my_record")} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
                 {practiceEnabled
@@ -3198,6 +3231,9 @@ const styles = StyleSheet.create({
   imagePreviewCounter: { flex: 1, color: theme.colors.textSecondary, fontSize: 14, fontWeight: "500", textAlign: "center" },
   imagePreviewPageItem: { alignItems: "center", justifyContent: "flex-start", backgroundColor: theme.colors.canvas },
   imagePreviewImage: { backgroundColor: theme.colors.canvas },
+  cropShade: { position: "absolute", backgroundColor: "rgba(0,0,0,0.48)" },
+  previewCropOverlay: { zIndex: 20, elevation: 20 },
+  previewCropFrame: { position: "absolute", zIndex: 20, elevation: 20, borderWidth: 2, borderColor: "#FFFFFF", shadowColor: "#000000", shadowOpacity: 0.28, shadowRadius: 5, shadowOffset: { width: 0, height: 1 } },
   imagePreviewTransitionImage: { position: "absolute", overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   imagePreviewTransitionFill: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   imagePreviewFooter: { minHeight: 76, paddingHorizontal: 24, paddingTop: 18, alignItems: "center" },

@@ -202,6 +202,7 @@ model Card {
   @@unique([userId, clientId])
   @@index([userId, dateKey, createdAt])
   @@index([userId, status, createdAt])
+  @@index([status, deletedAt])
   @@index([userId, collectionId, createdAt(sort: Desc)])
   @@index([collectionId])
   @@index([status, leaseExpiresAt, createdAt])

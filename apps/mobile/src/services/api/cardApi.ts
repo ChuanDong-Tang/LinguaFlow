@@ -570,6 +570,19 @@ export async function deleteCardRecord(recordId: string): Promise<void> {
   await request<void>(`/cards/${encodeURIComponent(recordId)}`, { method: "DELETE" });
 }
 
+export async function getCardTrash(): Promise<CardRecordSummary[]> {
+  const items = await request<CardRecordSummary[]>("/cards/trash");
+  return items.map((item) => ({ ...item, status: "completed" }));
+}
+
+export async function restoreCardRecord(recordId: string): Promise<void> {
+  await request<void>(`/cards/${encodeURIComponent(recordId)}/restore`, { method: "POST", body: "{}" });
+}
+
+export async function permanentlyDeleteCardRecord(recordId: string): Promise<void> {
+  await request<void>(`/cards/${encodeURIComponent(recordId)}/permanent`, { method: "DELETE" });
+}
+
 export async function getCardPracticeQueue(limit = 20): Promise<CardPracticeQueueItem[]> {
   return request(`/cards/practice/queue?limit=${encodeURIComponent(String(limit))}`);
 }

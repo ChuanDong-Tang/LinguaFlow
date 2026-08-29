@@ -908,69 +908,37 @@ export class PrismaCardRepository implements CardRepository {
   }
 
   async markDeleted(entryId: string, userId: string, deletedAt: Date): Promise<boolean> {
+    const result = await this.prisma.card.updateMany({ where: { id: entryId, userId, status: "completed" }, data: { status: "deleted", deletedAt } });
+    return result.count === 1;
+  }
+
+  async restoreDeleted(entryId: string, userId: string): Promise<boolean> {
+    const result = await this.prisma.card.updateMany({ where: { id: entryId, userId, status: "deleted" }, data: { status: "completed", deletedAt: null } });
+    return result.count === 1;
+  }
+
+  async permanentlyDelete(entryId: string, userId: string): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      const result = await tx.card.updateMany({
-        where: { id: entryId, userId, status: "completed" },
-        data: {
-          status: "deleted",
-          originalText: null,
-          rewrittenText: null,
-          deletedAt,
-        },
-      });
-      if (result.count !== 1) return false;
-      const affectedPhrases = await tx.phraseOccurrence.findMany({
-        where: { userId, cardId: entryId },
-        select: { phraseId: true },
-        distinct: ["phraseId"],
-      });
-      const affectedPhraseIds = affectedPhrases.map((item: { phraseId: string }) => item.phraseId);
-      const sessionsContainingCard = await tx.recallSessionNode.findMany({
-        where: { cardId: entryId, session: { userId } },
-        select: { sessionId: true },
-        distinct: ["sessionId"],
-      });
-      if (sessionsContainingCard.length) {
-        // Recall sessions are temporary snapshots and may contain the deleted text in edge reasons.
-        await tx.recallSession.deleteMany({
-          where: { id: { in: sessionsContainingCard.map((item: { sessionId: string }) => item.sessionId) }, userId },
-        });
-      }
-      await tx.cardEnrichmentJob.deleteMany({ where: { userId, sourceKind: "card", sourceId: entryId } });
-      await tx.cardEmbedding.deleteMany({ where: { userId, cardId: entryId } });
-      await tx.phraseOccurrence.deleteMany({ where: { userId, cardId: entryId } });
-      if (affectedPhraseIds.length) {
-        const orphanedPhrases = await tx.phrase.findMany({
-          where: { id: { in: affectedPhraseIds }, userId, occurrences: { none: {} } },
-          select: { id: true },
-        });
-        const orphanedPhraseIds = orphanedPhrases.map((item: { id: string }) => item.id);
-        await tx.cardEnrichmentJob.deleteMany({
-          where: { userId, sourceKind: "phrase", sourceId: { in: orphanedPhraseIds } },
-        });
-        await tx.phrase.deleteMany({
-          where: { id: { in: orphanedPhraseIds }, userId },
-        });
-      }
-      await tx.cardRewriteSegment.deleteMany({ where: { entryId } });
-      await tx.cardImageAsset.updateMany({
-        where: { entryId },
-        data: { entryId: null, status: "cleanup_pending" },
-      });
-      await tx.cardPracticeState.deleteMany({
-        where: { userId, cardId: entryId },
-      });
-      await tx.cardContentPracticeState.deleteMany({
-        where: { userId, cardId: entryId },
-      });
-      await tx.cardSpeechAsset.updateMany({
-        where: {
-          entryId,
-          sourceKind: { in: ["review_segment", "review_article", "dictation_sentence"] },
-        },
-        data: { status: "cleanup_pending", objectUrl: null, objectUrlExpiresAt: null },
-      });
+      const card = await tx.card.findFirst({ where: { id: entryId, userId, status: "deleted" }, select: { id: true } });
+      if (!card) return false;
+      await tx.cardImageAsset.updateMany({ where: { entryId }, data: { status: "cleanup_pending" } });
+      await tx.card.delete({ where: { id: entryId } });
       return true;
+    });
+  }
+
+  async listDeletedByUser(userId: string, limit: number): Promise<CardEntryEntity[]> {
+    const rows = await this.prisma.card.findMany({ where: { userId, status: "deleted" }, orderBy: { deletedAt: "desc" }, take: limit, include: includeSegments });
+    return rows.map(toEntry);
+  }
+
+  async deleteExpiredTrash(before: Date): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const cards = await tx.card.findMany({ where: { status: "deleted", deletedAt: { lt: before } }, select: { id: true }, take: 500 });
+      if (!cards.length) return 0;
+      const ids = cards.map((card: { id: string }) => card.id);
+      await tx.cardImageAsset.updateMany({ where: { entryId: { in: ids } }, data: { status: "cleanup_pending" } });
+      return (await tx.card.deleteMany({ where: { id: { in: ids }, status: "deleted" } })).count;
     });
   }
 

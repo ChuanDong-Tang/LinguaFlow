@@ -277,6 +277,10 @@ export interface CardRepository {
   ): Promise<CardEntryEntity | null>;
   listExpiredProcessing(now: Date, limit: number): Promise<CardEntryEntity[]>;
   markDeleted(entryId: string, userId: string, deletedAt: Date): Promise<boolean>;
+  restoreDeleted(entryId: string, userId: string): Promise<boolean>;
+  permanentlyDelete(entryId: string, userId: string): Promise<boolean>;
+  listDeletedByUser(userId: string, limit: number): Promise<CardEntryEntity[]>;
+  deleteExpiredTrash(before: Date): Promise<number>;
   findPracticeState(userId: string, cardId: string): Promise<CardPracticeStateEntity | null>;
   listPracticeStates(userId: string, cardIds: string[]): Promise<CardPracticeStateEntity[]>;
   findContentPracticeState(

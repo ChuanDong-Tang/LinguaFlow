@@ -34,12 +34,16 @@ import {
   createCardCollection,
   deleteCardCollection,
   deleteCardRecord,
+  getCardTrash,
+  restoreCardRecord,
+  permanentlyDeleteCardRecord,
   getCardCollections,
   getCardRecordPage,
   getCardTaskStatus,
   getCardRecord,
   getCardCapabilities,
   updateCardContent,
+  updateCardCoverPosition,
   saveCardClozeUpdate,
   moveCardToCollection,
   moveCardsToCollection,
@@ -99,6 +103,7 @@ type LibraryView = "all" | string;
 type RecordActionAnchor = { x: number; y: number; width: number; height: number };
 
 const UNCLASSIFIED_VIEW = "unclassified";
+const TRASH_VIEW = "trash";
 const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: false, translation: false, reply: false }, images: [] };
 const LIBRARY_PAGE_SIZE = 40;
 const BACKGROUND_REFRESH_INTERVAL_MS = 60_000;
@@ -248,9 +253,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     setLoadingMore(false);
     setLoading(true);
     try {
-      const collectionId = libraryView === "all" || libraryView === UNCLASSIFIED_VIEW ? undefined : libraryView;
+      const collectionId = libraryView === "all" || libraryView === UNCLASSIFIED_VIEW || libraryView === TRASH_VIEW ? undefined : libraryView;
       const [rows, collectionResult] = await Promise.all([
-        getCardRecordPage({
+        libraryView === TRASH_VIEW ? getCardTrash().then((items) => ({ items, nextCursor: null })) : getCardRecordPage({
           collectionId,
           unclassified: libraryView === UNCLASSIFIED_VIEW,
           limit: LIBRARY_PAGE_SIZE,
@@ -267,7 +272,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       setNextCursor(rows.nextCursor);
       hasLoadedRef.current = true;
       lastRefreshAtRef.current = Date.now();
-      if (libraryView !== "all" && libraryView !== UNCLASSIFIED_VIEW && !collectionResult.collections.some((collection) => collection.id === libraryView)) {
+      if (libraryView !== "all" && libraryView !== UNCLASSIFIED_VIEW && libraryView !== TRASH_VIEW && !collectionResult.collections.some((collection) => collection.id === libraryView)) {
         setLibraryView("all");
       }
     } catch {
@@ -631,6 +636,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             generateRewrite: false,
             imageUploadIds: snapshot.images.map((image) => image.uploadId).filter((uploadId): uploadId is string => Boolean(uploadId)),
           });
+      const firstDraftImage = snapshot.images[0];
+      if (firstDraftImage?.uploadId && ((firstDraftImage.focusX ?? 0.5) !== 0.5 || (firstDraftImage.focusY ?? 0.5) !== 0.5)) {
+        const createdDetail = await getCardRecord(created.id);
+        const coverImageId = createdDetail.images?.[0]?.id;
+        if (coverImageId) {
+          created = await updateCardCoverPosition(created.id, coverImageId, firstDraftImage.focusX ?? 0.5, firstDraftImage.focusY ?? 0.5);
+        }
+      }
       persistedRecordId = created.id;
       if (isNewCard && selectedTargets.includes("expression")) {
         await registerClozeOnboardingCandidate(created.id);
@@ -638,7 +651,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       await commitDraft({ ...submitting, recordId: persistedRecordId });
 
       await setCardGenerationState(created.id, { pendingTargets: selectedTargets, failedTargets: [] });
-      const firstDraftImage = snapshot.images[0];
       const optimisticRecord: CardRecordSummary = {
         ...created,
         status: "processing",
@@ -750,7 +762,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   function persistDraftImage(image: CardDraftImage): void {
     void updateCommittedDraft((current) => {
       const images = current.images.some((candidate) => candidate.localUri === image.localUri)
-        ? current.images.map((candidate) => candidate.localUri === image.localUri ? image : candidate)
+        ? current.images.map((candidate) => candidate.localUri === image.localUri ? { ...image, focusX: candidate.focusX ?? image.focusX, focusY: candidate.focusY ?? image.focusY } : candidate)
         : current.images.length < cardLimits.imagesPerCard ? [...current.images, image] : current.images;
       return { ...current, images, clientId: current.recordId ? current.clientId : null, submitted: false };
     });
@@ -901,7 +913,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }
 
   function confirmDelete(recordId: string): void {
-    Alert.alert(t("main.card.delete_title"), t("main.card.delete_message"), [
+    if (libraryView === TRASH_VIEW) {
+      Alert.alert("彻底删除这张卡片？", "删除后无法恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "彻底删除", style: "destructive", onPress: () => void permanentlyDeleteCardRecord(recordId).then(() => setRecords((rows) => rows.filter((row) => row.id !== recordId))).catch(() => Alert.alert(t("main.error.delete_failed"))) }]);
+      return;
+    }
+    Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复，也可以在回收站中彻底删除。", [
       { text: t("common.cancel"), style: "cancel" },
       {
         text: t("common.delete"),
@@ -915,6 +931,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
   function openRecordActions(record: CardRecordSummary, anchor: RecordActionAnchor): void {
     setRecordActionMenu({ record, anchor });
+  }
+
+  function restoreFromTrash(recordId: string): void {
+    void restoreCardRecord(recordId).then(() => setRecords((rows) => rows.filter((row) => row.id !== recordId))).catch(() => Alert.alert("恢复失败", t("card_detail.error.try_again")));
   }
 
   function openMoveActions(record: CardRecordSummary): void {
@@ -1005,6 +1025,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         ? t("sidebar.collections")
         : libraryView === UNCLASSIFIED_VIEW
           ? t("sidebar.unclassified")
+        : libraryView === TRASH_VIEW ? "回收站"
         : activeCollection?.name ?? t("sidebar.collections");
 
   function chooseLibraryAction(): void {
@@ -1136,7 +1157,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         data={records}
         keyExtractor={(record) => record.id}
         renderItem={({ item: record }) => (
-          <CardCard record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onThumbnailError={recoverFailedThumbnail} />
+          <CardCard record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => libraryView === TRASH_VIEW ? undefined : selectingRecords ? toggleRecordSelection(record.id) : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onThumbnailError={recoverFailedThumbnail} />
         )}
         contentContainerStyle={styles.list}
         alwaysBounceVertical={false}
@@ -1154,9 +1175,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               <Text style={styles.emptyTitle}>{t("quick_note.empty_cards")}</Text>
               <Text style={styles.emptyText}>{t("quick_note.empty_cards_hint")}</Text>
             </> : null}
-            <Pressable style={styles.emptyAction} onPress={openCardComposer}>
+            {libraryView !== TRASH_VIEW ? <Pressable style={styles.emptyAction} onPress={openCardComposer}>
               <Text style={styles.emptyActionText}>{t("quick_note.first_card")}</Text>
-            </Pressable>
+            </Pressable> : <Text style={styles.emptyText}>回收站是空的</Text>}
           </View>
         )}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : null}
@@ -1177,7 +1198,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             left: Math.min(windowSize.width - 140, Math.max(12, recordActionMenu.anchor.x + recordActionMenu.anchor.width - 128)),
           },
         ]}>
-          {recordActionMenu.record.source === "card" ? <>
+          {libraryView === TRASH_VIEW ? <><Pressable style={styles.recordActionItem} onPress={() => { const id = recordActionMenu.record.id; setRecordActionMenu(null); restoreFromTrash(id); }}><Ionicons name="arrow-undo-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.recordActionText}>恢复</Text></Pressable><View style={styles.recordActionDivider} /></> : recordActionMenu.record.source === "card" ? <>
             <Pressable style={styles.recordActionItem} onPress={() => {
               const record = recordActionMenu.record;
               setRecordActionMenu(null);
@@ -1198,7 +1219,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </Pressable>
         </View>
       </View> : null}
-      {!selectingRecords ? <View style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
+      {!selectingRecords && libraryView !== TRASH_VIEW ? <View style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
         <View style={styles.unifiedComposerBar}>
           <View style={styles.unifiedComposerInput}>
             <Pressable accessibilityLabel={t("card_detail.create_card")} style={styles.unifiedComposerAdd} onPress={openCardComposer}><Ionicons name="create-outline" size={19} color={theme.colors.textSecondary} /></Pressable>
@@ -1287,6 +1308,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             onDraftTakePhoto={() => void pickImage("camera")}
             onDraftSelectImage={(asset) => applyDraftImage(asset)}
             onDraftRemoveImage={removeDraftImage}
+            onDraftCoverPositionChange={(localUri, focusX, focusY) => updateCommittedDraft((current) => ({
+              ...current,
+              images: current.images.map((image) => image.localUri === localUri ? { ...image, focusX, focusY } : image),
+            }))}
           />
         </Modal>
       ) : null}
@@ -2017,6 +2042,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                       </Sortable.Flex>
                     </>
                   ) : null}
+                  <SidebarRow label="回收站" selected={activeView === TRASH_VIEW} depth={0} onPress={() => onSelect(TRASH_VIEW)} />
             </Reanimated.ScrollView>
           </View>
           {collectionActionMenu ? (
@@ -2515,7 +2541,7 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
   collectionName?: string;
   selecting?: boolean;
   selected?: boolean;
-  onPress: (origin?: CardDetailRequest["origin"]) => void;
+  onPress?: (origin?: CardDetailRequest["origin"]) => void;
   onOpenActions: (anchor: RecordActionAnchor) => void;
   onThumbnailError: () => void;
 }) {
@@ -2531,7 +2557,7 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
     });
   }
   function open(): void {
-    if (processing) return;
+    if (processing || !onPress) return;
     const target = record.thumbnail ? thumbnailRef.current : cardRef.current;
     if (!target) {
       onPress();

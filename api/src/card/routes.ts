@@ -1072,6 +1072,27 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     }
   });
 
+  app.get("/cards/trash", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]); reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/trash"); if (!userId) return;
+    try { return reply.status(200).send({ ok: true, request_id: requestId, data: await deps.cardService.trash(userId) }); }
+    catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
+  app.post("/cards/:recordId/restore", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]); reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/restore"); if (!userId) return;
+    try { await deps.cardService.restore(userId, decodeURIComponent(String((req.params as { recordId?: unknown }).recordId ?? ""))); return reply.status(204).send(); }
+    catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
+  app.delete("/cards/:recordId/permanent", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]); reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/permanent"); if (!userId) return;
+    try { await deps.cardService.permanentlyDelete(userId, decodeURIComponent(String((req.params as { recordId?: unknown }).recordId ?? ""))); return reply.status(204).send(); }
+    catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
   app.post("/cards/:recordId/image", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
