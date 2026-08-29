@@ -873,7 +873,14 @@ export class CardService {
   async trash(userId: string, limit = 100): Promise<CardRecordSummaryView[]> {
     await this.repository.deleteExpiredTrash(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
     const entries = await this.repository.listDeletedByUser(userId, Math.max(1, Math.min(200, limit)));
-    return Promise.all(entries.map((entry) => this.summaryWithImage(entry).catch(() => toSummary(entry, this.limits.topicMaxChars))));
+    return Promise.all(entries.map((entry) => {
+      // Deleted cards are still valid, user-visible cards while they are in the
+      // trash. The regular summary mapper intentionally rejects `deleted`, so
+      // expose them as completed summaries without mutating the stored state.
+      const visibleEntry: CardEntryEntity = { ...entry, status: "completed" };
+      return this.summaryWithImage(visibleEntry)
+        .catch(() => toSummary(visibleEntry, this.limits.topicMaxChars));
+    }));
   }
 
   async restore(userId: string, recordId: string): Promise<void> {
