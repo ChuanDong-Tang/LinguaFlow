@@ -7,7 +7,7 @@ import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
-import { isPlatformMigrationBillingExempt, reserveLlmTokenUsage, settleLlmTokenUsage, settleOrReleaseFailedLlmUsage } from "../usage/LlmTokenMeter.js";
+import { reserveLlmTokenUsage, settleLlmTokenUsage, settleOrReleaseFailedLlmUsage } from "../usage/LlmTokenMeter.js";
 
 export class CardTopicWorkerService {
   constructor(
@@ -35,7 +35,9 @@ export class CardTopicWorkerService {
     let output = "";
     let meteredPrompt = "";
     const requestId = `card_topic_${job.id}:attempt:${job.attempts}`;
-    let tokenMetered = !isPlatformMigrationBillingExempt(job.payload);
+    // Topic generation is platform-owned enrichment. It must never consume the
+    // user's AI allowance, regardless of how the card was created.
+    const tokenMetered = false;
     let tokenUsage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     try {
       const source = await this.repository.loadTopicSource(job);
@@ -43,7 +45,6 @@ export class CardTopicWorkerService {
         await this.repository.completeWithoutResult(job, "CARD_TOPIC_SOURCE_MISSING_OR_STALE");
         return;
       }
-      if (source.billingExemptReason === "chat_history_migration") tokenMetered = false;
       const topicMaxChars = this.options.topicMaxChars ?? CARD_TOPIC_MAX_CHARS;
       const prompt = buildCardTopicPrompt({ text: source.originalText, appLocale: source.appLocale, topicMaxChars });
       meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;

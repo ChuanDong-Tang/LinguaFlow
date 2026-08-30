@@ -8,7 +8,7 @@ import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
-import { isPlatformMigrationBillingExempt, reserveLlmTokenUsage, settleLlmTokenUsage, settleOrReleaseFailedLlmUsage } from "../usage/LlmTokenMeter.js";
+import { reserveLlmTokenUsage, settleLlmTokenUsage, settleOrReleaseFailedLlmUsage } from "../usage/LlmTokenMeter.js";
 import { TokenQuotaExceededError } from "../usage/UsageV2Service.js";
 
 export class PhraseNormalizationWorkerService {
@@ -31,7 +31,9 @@ export class PhraseNormalizationWorkerService {
     let rawOutput = "";
     let tokenUsage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     const requestId = `phrase_normalization_${job.id}:attempt:${job.attempts}`;
-    let tokenMetered = !isPlatformMigrationBillingExempt(job.payload);
+    // Phrase normalization is automatic platform enrichment, not a user AI
+    // action, so it must not consume the user's AI allowance.
+    const tokenMetered = false;
     try {
       source = await this.repository.loadPhraseNormalizationSource(job);
       if (!source) {
@@ -39,7 +41,6 @@ export class PhraseNormalizationWorkerService {
         return true;
       }
       const normalizationSource = source;
-      if (normalizationSource.billingExemptReason === "chat_history_migration") tokenMetered = false;
       const prompt = buildPhraseNormalizationPrompt(normalizationSource);
       meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
       if (tokenMetered && !this.usageV2Service) throw new Error("V2 usage is unavailable");
