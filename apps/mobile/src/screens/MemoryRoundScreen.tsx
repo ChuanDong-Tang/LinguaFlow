@@ -711,32 +711,34 @@ export function MemoryRoundScreen({
     finally { if (mountedRef.current && sentenceAudioRequestRef.current === requestId) setAudioLoading(false); }
   };
 
-  const revealNativeMeaning = async (): Promise<void> => {
-    if (!question || meaningStatus === "loading") return;
-    if (meaningExpanded && meaningStatus === "ready") {
+  const revealNativeMeaning = async (options: { force?: boolean; target?: MemoryQuestion } = {}): Promise<void> => {
+    const target = options.target ?? question;
+    if (!target || (!options.force && meaningStatus === "loading")) return;
+    if (!options.force && meaningExpanded && meaningStatus === "ready") {
       setMeaningExpanded(false);
       return;
     }
     setMeaningExpanded(true);
-    if (nativeMeaning) {
+    if (!options.force && nativeMeaning) {
       setMeaningStatus("ready");
       return;
     }
     setMeaningStatus("loading");
+    setMeaningUnavailable(false);
     const requestId = meaningRequestRef.current + 1;
     meaningRequestRef.current = requestId;
     void Haptics.selectionAsync().catch(() => undefined);
     try {
       const result = await getCardMemorySentenceMeaning({
-        recordId: question.recordId,
-        contentType: question.contentType,
-        contentVersion: question.contentVersion,
-        segmentId: question.segmentId,
+        recordId: target.recordId,
+        contentType: target.contentType,
+        contentVersion: target.contentVersion,
+        segmentId: target.segmentId,
       });
       if (!mountedRef.current || meaningRequestRef.current !== requestId) return;
       if (!result.meaning) {
         setMeaningExpanded(false);
-        setMeaningStatus("idle");
+        setMeaningStatus("error");
         setMeaningUnavailable(true);
         return;
       }
@@ -746,12 +748,16 @@ export function MemoryRoundScreen({
       if (!mountedRef.current || meaningRequestRef.current !== requestId) return;
       setMeaningExpanded(false);
       setMeaningStatus("error");
+      setMeaningUnavailable(true);
     }
   };
 
   useEffect(() => {
     if (!question || question.completed || phase !== "playing") return;
-    if (question.task === "meaning_sentence") void revealNativeMeaning();
+    // Question-reset effects run after render, so this callback can still see
+    // the previous question's loading/expanded state. Force a fresh request
+    // bound to the visible question instead of letting stale state suppress it.
+    if (question.task === "meaning_sentence") void revealNativeMeaning({ force: true, target: question });
     if (question.task === "listening_sentence" || question.task === "guided_speech" || question.task === "blind_speech") {
       const timer = setTimeout(() => void playSentence(), 260);
       return () => clearTimeout(timer);
@@ -820,6 +826,7 @@ export function MemoryRoundScreen({
                 </Pressable>
               </View> : meaningStatus === "loading" ? <View style={styles.meaningDots}>{meaningDots.map((dot, index) => <Animated.View key={index} style={[styles.meaningDot, { opacity: dot }]} />)}</View> : meaningStatus === "error" ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.meaning_retry")} style={({ pressed }) => [styles.meaningRetryIcon, pressed && styles.controlPressed]} onPress={() => void revealNativeMeaning()}><Ionicons name="refresh" size={17} color="#8A6F68" /></Pressable> : null}
               {audioUnavailable ? <Text style={styles.coachHintError}>{t("memory_round.audio_unavailable")}</Text> : null}
+              {meaningUnavailable ? <Text style={styles.coachHintError}>{t("memory_round.meaning_unavailable")}</Text> : null}
               {meaningExpanded && meaningStatus === "ready" && nativeMeaning ? <ScrollView style={styles.coachMeaningScroll} contentContainerStyle={styles.coachMeaningScrollContent} nestedScrollEnabled showsVerticalScrollIndicator persistentScrollbar>
                 <Text style={styles.coachMeaningText}>{nativeMeaning}</Text>
               </ScrollView> : null}

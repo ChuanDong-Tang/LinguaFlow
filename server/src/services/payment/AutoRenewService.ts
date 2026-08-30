@@ -1269,7 +1269,7 @@ function createWechatAutoRenewTradeNo(autoRenewSubscriptionId: string, periodKey
   return `LFR${digest}`.slice(0, 32);
 }
 
-function createAutoRenewEntitlementSourceOrderId(
+export function createAutoRenewEntitlementSourceOrderId(
   provider: AutoRenewProvider,
   providerChargeId: string
 ): string {

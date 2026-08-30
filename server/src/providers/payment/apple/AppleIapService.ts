@@ -6,7 +6,10 @@ import type { AppleIapAccountLinkRepository } from "@lf/core/ports/repository/Ap
 import type { PaymentOrderStatus, PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
-import type { AutoRenewService } from "../../../services/payment/AutoRenewService.js";
+import {
+  createAutoRenewEntitlementSourceOrderId,
+  type AutoRenewService,
+} from "../../../services/payment/AutoRenewService.js";
 import type { SubscriptionService } from "../../../services/subscription/SubscriptionService.js";
 import { ProRenewalTooEarlyError } from "../../../services/payment/ProPrepaidLimit.js";
 import { createEntitlementGrantPayload } from "../../../services/payment/EntitlementGrantSnapshot.js";
@@ -506,12 +509,18 @@ export class AppleIapService {
       },
     });
 
-    const sourceOrderId = order.id;
+    // Apple can deliver its server notification while the client verification
+    // request is still running. Both paths must use the same provider-scoped
+    // transaction key or one purchase can create two subscription rows.
+    const entitlementSourceOrderId = createAutoRenewEntitlementSourceOrderId(
+      "apple",
+      transaction.transactionId
+    );
     let alreadyApplied = false;
     try {
       const result = await this.paymentEntitlementService.grantAfterPayment({
         userId: input.userId,
-        sourceOrderId,
+        sourceOrderId: entitlementSourceOrderId,
         productCode,
         channel: "ios_iap",
         grantMode,
@@ -526,7 +535,7 @@ export class AppleIapService {
       }
       const queued = await this.benefitGrantService.enqueueGrant({
         userId: input.userId,
-        sourceOrderId,
+        sourceOrderId: entitlementSourceOrderId,
         productCode,
         channel: "ios_iap",
         payload: createEntitlementGrantPayload({
@@ -550,7 +559,7 @@ export class AppleIapService {
       productId: transaction.productId,
       productCode,
       purchaseKind,
-      sourceOrderId,
+      sourceOrderId: order.id,
       alreadyApplied,
     };
   }
