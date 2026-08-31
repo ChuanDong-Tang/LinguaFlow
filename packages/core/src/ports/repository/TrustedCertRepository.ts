@@ -1,6 +1,6 @@
 export interface TrustedCertEntity {
   id: string;
-  provider: "wechat" | "apple";
+  provider: "apple";
   keyId: string;
   materialType: string;
   pem: string;
@@ -15,7 +15,7 @@ export interface TrustedCertEntity {
 }
 
 export interface UpsertTrustedCertInput {
-  provider: "wechat" | "apple";
+  provider: "apple";
   keyId: string;
   materialType: string;
   pem: string;
@@ -29,6 +29,6 @@ export interface UpsertTrustedCertInput {
 
 export interface TrustedCertRepository {
   upsert(input: UpsertTrustedCertInput): Promise<TrustedCertEntity>;
-  listActiveByProvider(provider: "wechat" | "apple"): Promise<TrustedCertEntity[]>;
-  deleteExpiredBefore(input: { provider?: "wechat" | "apple"; before: Date }): Promise<number>;
+  listActiveByProvider(provider: "apple"): Promise<TrustedCertEntity[]>;
+  deleteExpiredBefore(input: { provider?: "apple"; before: Date }): Promise<number>;
 }

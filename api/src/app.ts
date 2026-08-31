@@ -52,14 +52,13 @@ import { PrismaBenefitGrantRepository } from "@lf/server/infrastructure/reposito
 import { EntitlementService } from "@lf/server/services/entitlement/EntitlementService.js";
 import { UsageV2Service } from "@lf/server/services/usage/UsageV2Service.js";
 import { SubscriptionService } from "@lf/server/services/subscription/SubscriptionService.js";
-import { PaymentOrderService } from "@lf/server/services/payment/PaymentOrderService.js";
-import { PaymentNotifyService } from "@lf/server/services/payment/PaymentNotifyService.js";
 import { AppleIapService } from "@lf/server/providers/payment/apple/AppleIapService.js";
 import { GooglePlayBillingService } from "@lf/server/providers/payment/google/GooglePlayBillingService.js";
 import { PaymentEntitlementService } from "@lf/server/services/payment/PaymentEntitlementService.js";
 import { BenefitGrantService } from "@lf/server/services/payment/BenefitGrantService.js";
-import { WeChatPaymentProvider } from "@lf/server/providers/payment/wechat/WeChatPaymentProvider.js";
-import { WeChatAutoRenewProvider } from "@lf/server/providers/payment/wechat/WeChatAutoRenewProvider.js";
+import { AlipayAutoRenewClient } from "@lf/server/providers/payment/alipay/AlipayClient.js";
+import { AlipayAutoRenewService } from "@lf/server/providers/payment/alipay/AlipayAutoRenewService.js";
+import { isAlipayAutoRenewConfigured } from "@lf/server/providers/payment/alipay/AlipayConfig.js";
 import { PrismaAiRequestLogRepository } from "@lf/server/infrastructure/repository/PrismaAiRequestLogRepository.js";
 import { PrismaSystemEventLogRepository } from "@lf/server/infrastructure/repository/PrismaSystemEventLogRepository.js";
 import { PrismaTrustedCertRepository } from "@lf/server/infrastructure/repository/PrismaTrustedCertRepository.js";
@@ -80,7 +79,6 @@ import { registerAppVersionRoutes } from "./appVersion/routes.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 import { writeSystemEventLog } from "./lib/systemEventLog.js";
-import { PaymentCertSyncService } from "@lf/server/services/payment/PaymentCertSyncService.js";
 import { AutoRenewService } from "@lf/server/services/payment/AutoRenewService.js";
 import { PaymentEntitlementRefreshService } from "@lf/server/services/payment/PaymentEntitlementRefreshService.js";
 import { getBusinessClockSnapshot } from "@lf/server/services/time/businessClock.js";
@@ -95,13 +93,6 @@ import { TencentTmsClient } from "@lf/server/services/contentSafety/TencentTmsCl
 import { ApiRequestMetrics, resolveApiSlowRequestThresholdMs } from "@lf/server/services/observability/ApiRequestMetrics.js";
 import { DatabaseQueryMetrics } from "@lf/server/services/observability/DatabaseQueryMetrics.js";
 import websocket from "@fastify/websocket";
-import type {
-  CreateProviderOrderInput,
-  CreateProviderOrderResult,
-  PaymentProvider,
-  QueryProviderOrderInput,
-  QueryProviderOrderResult,
-} from "@lf/core/ports/payment/index.js";
 
 const prisma = new PrismaClient({
   log: [
@@ -150,6 +141,17 @@ export function createApp() {
       try {
         const rawBody = String(body);
         done(null, Object.assign(JSON.parse(rawBody), { __rawBody: rawBody }));
+      } catch (error) {
+        done(error as Error);
+      }
+    }
+  );
+  app.addContentTypeParser(
+    "application/x-www-form-urlencoded",
+    { parseAs: "string" },
+    (_req, body, done) => {
+      try {
+        done(null, Object.fromEntries(new URLSearchParams(String(body)).entries()));
       } catch (error) {
         done(error as Error);
       }
@@ -323,45 +325,25 @@ export function createApp() {
   const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
   const appleIapAccountLinkRepository = new PrismaAppleIapAccountLinkRepository(prisma);
   const googlePlayAccountLinkRepository = new PrismaGooglePlayAccountLinkRepository(prisma);
-  const paymentProvider = runtimeConfig.payment.wechatPayEnabled
-    ? new WeChatPaymentProvider()
-    : new DisabledWeChatPaymentProvider();
-  const weChatAutoRenewProvider = runtimeConfig.payment.wechatPayEnabled
-    ? new WeChatAutoRenewProvider()
-    : undefined;
-  const paymentOrderService = new PaymentOrderService(
-    paymentOrderRepository,
-    paymentProvider,
-    subscriptionService
-  );
   const paymentEntitlementService = new PaymentEntitlementService(
     subscriptionService,
     autoRenewRepository
   );
   const benefitGrantService = new BenefitGrantService(benefitGrantRepository);
-  const paymentCertSyncService = new PaymentCertSyncService(trustedCertRepository);
-  const paymentNotifyService = new PaymentNotifyService(
-    paymentEventRepository,
-    paymentOrderRepository,
-    benefitGrantService,
-    paymentEntitlementService,
-    trustedCertRepository,
-    paymentCertSyncService
-  );
   const autoRenewService = new AutoRenewService(
     autoRenewRepository,
     paymentEntitlementService,
-    weChatAutoRenewProvider,
     systemEventLogRepository,
     subscriptionService
   );
-  const paymentEntitlementRefreshService = new PaymentEntitlementRefreshService(
-    paymentOrderService,
+  const alipayAutoRenewService = new AlipayAutoRenewService(
+    prisma,
+    autoRenewRepository,
     autoRenewService,
-    entitlementService,
     paymentEntitlementService,
-    benefitGrantService
+    isAlipayAutoRenewConfigured() ? new AlipayAutoRenewClient() : undefined,
   );
+  const paymentEntitlementRefreshService = new PaymentEntitlementRefreshService(entitlementService);
   const appleIapService = new AppleIapService(
     benefitGrantService,
     paymentEntitlementService,
@@ -515,11 +497,10 @@ export function createApp() {
       systemEventLogRepository,
     });
     registerPaymentRoutes(app, {
-      paymentOrderService,
-      paymentNotifyService,
       autoRenewService,
       appleIapService,
       googlePlayBillingService,
+      alipayAutoRenewService,
       userRepository,
       systemEventLogRepository,
     });
@@ -624,16 +605,4 @@ function resolvePositiveInteger(value: string | undefined, fallback: number): nu
 
 export async function disconnectApp() {
   await prisma.$disconnect();
-}
-
-class DisabledWeChatPaymentProvider implements PaymentProvider {
-  readonly providerName = "wechat" as const;
-
-  createOrder(_input: CreateProviderOrderInput): Promise<CreateProviderOrderResult> {
-    throw new Error("WECHAT_PAY_DISABLED");
-  }
-
-  queryOrder(_input: QueryProviderOrderInput): Promise<QueryProviderOrderResult> {
-    throw new Error("WECHAT_PAY_DISABLED");
-  }
 }

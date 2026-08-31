@@ -48,9 +48,6 @@ export class PaymentCertSyncWorker {
     try {
       const now = new Date();
       const cfg = getRuntimeConfig();
-      if (cfg.payment.wechatPayEnabled) {
-        await this.syncWeChat(now);
-      }
       if (cfg.payment.appleIap.enabled) {
         await this.syncApple(now);
       }
@@ -72,24 +69,6 @@ export class PaymentCertSyncWorker {
     } finally {
       this.running = false;
     }
-  }
-
-  private async syncWeChat(now: Date): Promise<void> {
-    const syncedCount = await this.syncService.syncWeChatPlatformCerts();
-
-    await this.writeLog({
-      event: "payment.worker.cert_sync_wechat_synced",
-      level: "info",
-      status: "success",
-      metadata: {
-        worker: "payment_cert_sync",
-        batchSize: null,
-        lockKey: null,
-        skipReason: null,
-        serialCount: syncedCount,
-        syncedAt: now.toISOString(),
-      },
-    });
   }
 
   private async syncApple(now: Date): Promise<void> {
@@ -194,10 +173,9 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function getEnabledCertProviders(): Array<"wechat" | "apple"> {
+function getEnabledCertProviders(): Array<"apple"> {
   const cfg = getRuntimeConfig();
-  const providers: Array<"wechat" | "apple"> = [];
-  if (cfg.payment.wechatPayEnabled) providers.push("wechat");
+  const providers: Array<"apple"> = [];
   if (cfg.payment.appleIap.enabled) providers.push("apple");
   return providers;
 }

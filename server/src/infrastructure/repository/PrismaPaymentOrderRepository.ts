@@ -23,7 +23,7 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
   async findRecentPending(input: {
     userId: string;
     productCode: PaymentProductCode;
-    provider: "wechat";
+    provider: PaymentProviderName;
     since: Date;
   }): Promise<PaymentOrderEntity | null> {
     const row = await this.prisma.paymentOrder.findFirst({
@@ -99,7 +99,7 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
   async findPendingByUserProductProvider(input: {
     userId: string;
     productCode: PaymentProductCode;
-    provider: "wechat";
+    provider: PaymentProviderName;
   }): Promise<PaymentOrderEntity | null> {
     // 配合 payment_orders 的 pending 部分唯一索引使用：
     // 并发创建时失败的一方回查这里，拿到已经存在的待支付单并复用。

@@ -10,12 +10,10 @@ import {
   useIAP,
   type Purchase,
 } from "expo-iap";
-import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   cancelAutoRenewSubscription,
-  createWeChatAutoRenewPreSign,
-  createProMonthlyOrder,
+  createAlipayAutoRenewSubscription,
   getCurrentAutoRenewSubscription,
   getPlusMonthlyProductQuote,
   getProMonthlyProductQuote,
@@ -27,17 +25,7 @@ import {
   type MobileAutoRenewSubscription,
   type MobilePaymentProductCode,
   type MobilePaymentProductQuote,
-  type MobileWeChatAutoRenewPreSignResult,
 } from "../services/api/paymentApi";
-import {
-  clearPendingAutoRenewFlow,
-  clearPendingPaymentOrder,
-  pollPaymentOrderUntilSettled,
-  recoverPendingAutoRenewIfAny,
-  recoverPendingPaymentIfAny,
-  savePendingAutoRenewFlow,
-  savePendingPaymentOrder,
-} from "../services/payment/paymentRecovery";
 import { refreshEntitlementAndSession } from "../services/entitlement/entitlementSync";
 import { getCachedEntitlementForUser, isSameEntitlement, setCachedEntitlement } from "../services/entitlement/entitlementCache";
 import { getCurrentEntitlement, type CurrentEntitlement } from "../services/api/meApi";
@@ -78,10 +66,11 @@ type AppleIapBridgeProps = {
 };
 
 const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_TIME_PURCHASE === "true";
-const ENABLE_WECHAT_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_WECHAT_ONE_TIME_PURCHASE === "true";
-const ENABLE_WECHAT_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_WECHAT_AUTO_RENEW === "true";
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
 const ENABLE_GOOGLE_PLAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW === "true";
+const ENABLE_ALIPAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW === "true";
+const DISTRIBUTION_CHANNEL = process.env.EXPO_PUBLIC_DISTRIBUTION_CHANNEL?.trim().toLowerCase();
+const IS_CHINA_ANDROID = Platform.OS === "android" && DISTRIBUTION_CHANNEL === "china";
 const PRODUCT_PRICE_CACHE_KEY = environmentStorageKey(
   Platform.OS === "android" ? "lf_membership_product_price_v3" : "lf_membership_product_price_v2"
 );
@@ -118,7 +107,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   const googlePlayPurchaseFinishingRef = useRef(false);
   const handledGooglePlayPurchaseTokensRef = useRef(new Set<string>());
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
-  const manageableAutoRenew = isRenew && activeAutoRenew;
+  const manageableAutoRenew = isRenew && activeAutoRenew && !autoRenew.cancelAtPeriodEnd;
   const liveProductPrices = resolveMembershipPriceLabels(appleIap);
   const productPrices = hasAnyProductPrice(liveProductPrices) ? liveProductPrices : cachedProductPrices ?? liveProductPrices;
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
@@ -139,7 +128,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     !isRenew &&
     hasLoadedAutoRenew &&
     ((Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
-      (Platform.OS === "android" && ENABLE_GOOGLE_PLAY_AUTO_RENEW));
+      (Platform.OS === "android" && ((IS_CHINA_ANDROID && ENABLE_ALIPAY_AUTO_RENEW) || (!IS_CHINA_ANDROID && ENABLE_GOOGLE_PLAY_AUTO_RENEW))));
   const shouldShowPurchaseActions = !isRenew || manageableAutoRenew;
   const shouldReservePurchaseActionSpace = shouldShowPurchaseActions || (isRenew && !hasLoadedAutoRenew);
 
@@ -297,36 +286,6 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
         setAutoRenew(cachedAutoRenew);
       }
 
-      // 页面打开时先恢复未完成订单，处理用户支付后返回 App 的场景。
-      const recovered = await recoverPendingPaymentIfAny();
-      if (!isScreenAlive()) return;
-      if (recovered.status === "paid") {
-        setIsRenew(true);
-        const entitlementResult = await refreshProEntitlementState();
-        didRefreshEntitlement = true;
-        if (!isScreenAlive()) return;
-        alertOpenSuccess({ entitlement: entitlementResult?.entitlement });
-      }
-      const recoveredAutoRenew = await recoverPendingAutoRenewIfAny();
-      if (!isScreenAlive()) return;
-      if (recoveredAutoRenew.subscription) {
-        applyAutoRenewToState(recoveredAutoRenew.subscription);
-      }
-      if (recoveredAutoRenew.entitlementIsPro === true) {
-        setIsRenew(true);
-        const entitlementResult = await refreshProEntitlementState();
-        didRefreshEntitlement = true;
-        if (!isScreenAlive()) return;
-        alertOpenSuccess({ entitlement: entitlementResult?.entitlement });
-      }
-      try {
-        const currentAutoRenew = await getCurrentAutoRenewSubscription();
-        if (!isScreenAlive()) return;
-        applyAutoRenewToState(currentAutoRenew);
-      } catch {
-      } finally {
-        if (isScreenAlive()) setHasLoadedAutoRenew(true);
-      }
       if (!didRefreshEntitlement) {
         await loadProEntitlementState();
       }
@@ -399,47 +358,6 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     safeAlert(t("pro.alert.unsupported_title"), t("pro.alert.unsupported_purchase"));
   }
 
-  async function startWechatOneTimePurchase(): Promise<void> {
-    assertWechatPayAvailable();
-    setIsPaying(true);
-    try {
-      const order = await createProMonthlyOrder();
-      await savePendingPaymentOrder({
-        orderId: order.id,
-        providerOrderId: order.providerOrderId,
-        productCode: order.productCode,
-      });
-
-      await payWithWechatParams(order.clientPayParams);
-      if (!isScreenAlive()) return;
-
-      // 支付完成通常需要后端确认，这里轮询到终态再更新本地展示。
-      const settled = await pollPaymentOrderUntilSettled(order.id);
-      if (!isScreenAlive()) return;
-      if (settled.status === "paid") {
-        await clearPendingPaymentOrder();
-        const entitlementResult = await refreshProEntitlementState();
-        if (!isScreenAlive()) return;
-        setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
-        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productCode: order.productCode });
-        return;
-      }
-      if (settled.status === "pending") {
-        safeAlert(t("pro.alert.payment_processing_title"), t("pro.alert.payment_processing_message"));
-        return;
-      }
-      await clearPendingPaymentOrder();
-      if (!isScreenAlive()) return;
-      safeAlert(t("pro.alert.payment_unfinished_title"), tf("pro.alert.payment_status", { status: settled.status }));
-    } catch (error) {
-      if (!isScreenAlive()) return;
-      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
-      safeAlert(t("pro.alert.payment_start_failed"), message);
-    } finally {
-      if (isScreenAlive()) setIsPaying(false);
-    }
-  }
-
   async function handleStartAutoRenew(productCode: MobilePaymentProductCode): Promise<void> {
     if (isAutoRenewLoading) return;
     if (isRenew) {
@@ -462,6 +380,14 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     }
 
     if (Platform.OS === "android") {
+      if (IS_CHINA_ANDROID) {
+        if (!ENABLE_ALIPAY_AUTO_RENEW) {
+          safeAlert(t("pro.not_open"), t("pro.alert.unsupported_auto"));
+          return;
+        }
+        await startAlipayAutoRenew(productCode);
+        return;
+      }
       if (!ENABLE_GOOGLE_PLAY_AUTO_RENEW) {
         safeAlert(t("pro.not_open"), t("pro.alert.unsupported_auto"));
         return;
@@ -473,45 +399,28 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     safeAlert(t("pro.alert.unsupported_title"), t("pro.alert.unsupported_auto"));
   }
 
-  async function startWechatAutoRenew(productCode: MobilePaymentProductCode): Promise<void> {
-    assertWechatPayAvailable();
+  async function startAlipayAutoRenew(productCode: MobilePaymentProductCode): Promise<void> {
     setIsAutoRenewLoading(true);
-    let preSign: MobileWeChatAutoRenewPreSignResult | null = null;
-
+    setIsPaying(true);
     try {
-      preSign = await createWeChatAutoRenewPreSign(productCode);
-      await savePendingAutoRenewFlow({
-        autoRenewSubscriptionId: preSign.autoRenewSubscriptionId,
-        provider: preSign.provider,
-        providerOrderId: preSign.providerOrderId,
-      });
-
-      if (preSign.clientPayParams) {
-        // App-with-contract：用户支付首期时同时完成微信自动续费签约。
-        await payWithWechatParams(preSign.clientPayParams);
-      } else {
-        await openWechatContractOnlyFlow(preSign.redirectUrl);
-      }
+      const created = await createAlipayAutoRenewSubscription(productCode);
+      await Linking.openURL(created.jumpSchema);
       if (!isScreenAlive()) return;
-
-      const currentAutoRenew = await getCurrentAutoRenewSubscription();
+      safeAlert(t("pro.alert.payment_processing_title"), t("pro.alert.payment_processing_message"));
+      const current = await pollAlipayAutoRenewResult(created.autoRenewSubscriptionId);
+      if (!isScreenAlive()) return;
+      applyAutoRenewToState(current);
       const entitlementResult = await refreshProEntitlementState();
-      if (!isScreenAlive()) return;
-      applyAutoRenewToState(currentAutoRenew);
       if (entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro) {
         setIsRenew(true);
-        await clearPendingAutoRenewFlow();
-        alertOpenSuccess({ entitlement: entitlementResult.entitlement, productCode });
-      } else if (currentAutoRenew?.status === "active" || currentAutoRenew?.status === "pending") {
-        safeAlert(t("pro.alert.contract_processing_title"), t("pro.alert.contract_processing_message"));
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productCode });
       }
     } catch (error) {
-      if (preSign && isWechatUserCancelError(error)) {
-        await cancelAutoRenewSubscription(preSign.autoRenewSubscriptionId).catch(() => { });
-        await clearPendingAutoRenewFlow();
-      }
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.payment_start_failed"), message);
     } finally {
-      if (isScreenAlive()) setIsAutoRenewLoading(false);
+      if (isScreenAlive()) { setIsAutoRenewLoading(false); setIsPaying(false); }
     }
   }
 
@@ -578,15 +487,6 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     }
   }
 
-  async function openWechatContractOnlyFlow(redirectUrl: string | null): Promise<void> {
-    if (redirectUrl) {
-      // 已有 Pro 时不能再扣首期，走 H5 预签约只建立下周期自动续费协议。
-      await WebBrowser.openBrowserAsync(redirectUrl);
-    }
-    if (!isScreenAlive()) return;
-    safeAlert(t("pro.alert.contract_processing_title"), t("pro.alert.contract_pending_only"));
-  }
-
   async function handleManageAutoRenew(): Promise<void> {
     if (!autoRenew) return;
     if (autoRenew.provider === "apple") {
@@ -609,7 +509,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
       if (!isScreenAlive()) return;
       applyAutoRenewToState(
         autoRenew.id === cancelled.id
-          ? { ...autoRenew, status: cancelled.status, cancelledAt: cancelled.cancelledAt }
+          ? { ...autoRenew, status: cancelled.status, cancelledAt: cancelled.cancelledAt, cancelAtPeriodEnd: cancelled.cancelAtPeriodEnd }
           : autoRenew
       );
       safeAlert(t("pro.alert.auto_cancelled_title"), t("pro.alert.auto_cancelled_message"));
@@ -1320,21 +1220,16 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError, onStoreEr
   return null;
 }
 
-function assertWechatPayAvailable(): void {
-  if (Platform.OS !== "android") {
-    throw new Error(t("pro.alert.wechat_pay_unsupported"));
-  }
-}
-
-async function payWithWechatParams(clientPayParams: Record<string, unknown>): Promise<void> {
-  assertWechatPayAvailable();
-  const { payWithWechat, toWeChatClientPayParams } = await import("../services/payment/wechatPay");
-  await payWithWechat(toWeChatClientPayParams(clientPayParams));
+function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): string {
+  if (provider === "apple") return "Apple";
+  if (provider === "google_play") return "Google Play";
+  if (provider === "alipay") return "支付宝";
+  return provider;
 }
 
 type MembershipTierInput = {
   entitlement?: CurrentEntitlement | null;
-  productCode?: MobilePaymentProductCode;
+  productCode?: MobilePaymentProductCode | null;
   productId?: string | null;
 };
 
@@ -1343,18 +1238,15 @@ function resolveMembershipTier(input?: MembershipTierInput): "plus" | "pro" {
     input?.productCode === "plus_monthly" ||
     input?.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
     input?.productId === GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
-  ) {
-    return "plus";
-  }
+  ) return "plus";
   if (
     input?.productCode === "pro_monthly" ||
     input?.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
     input?.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID ||
     input?.productId === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
-  ) {
-    return "pro";
-  }
-  return input?.entitlement?.tier === "plus" ? "plus" : "pro";
+  ) return "pro";
+  if (input?.entitlement?.tier === "plus") return "plus";
+  return "pro";
 }
 
 function resolveAutoRenewDescription(input: {
@@ -1363,12 +1255,8 @@ function resolveAutoRenewDescription(input: {
   autoRenew: MobileAutoRenewSubscription | null;
   hasLoadedAutoRenew: boolean;
 }): string {
-  if (!input.hasLoadedAutoRenew) {
-    return t("pro.auto.desc.syncing");
-  }
-  if (input.autoRenew?.status === "pending") {
-    return t("pro.auto.desc.pending");
-  }
+  if (!input.hasLoadedAutoRenew) return t("pro.auto.desc.syncing");
+  if (input.autoRenew?.status === "pending") return t("pro.auto.desc.pending");
   if (hasActiveAutoRenew(input.autoRenew)) {
     return tf("pro.auto.desc.active", { provider: formatProviderName(input.autoRenew.provider) });
   }
@@ -1378,14 +1266,10 @@ function resolveAutoRenewDescription(input: {
   return tf("pro.auto.desc.first_payment", { provider: formatAutoRenewProviderLabel() });
 }
 
-function resolveMembershipStatusLabel(input: {
-  isMember: boolean;
-  expiresAt: string | null;
-}): string | null {
-  if (input.isMember && input.expiresAt) {
-    return tf("pro.valid_until", { date: formatDate(input.expiresAt) });
-  }
-  return null;
+function resolveMembershipStatusLabel(input: { isMember: boolean; expiresAt: string | null }): string | null {
+  return input.isMember && input.expiresAt
+    ? tf("pro.valid_until", { date: formatDate(input.expiresAt) })
+    : null;
 }
 
 function formatDate(value: string): string {
@@ -1394,10 +1278,13 @@ function formatDate(value: string): string {
   return tf("pro.date_full", { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() });
 }
 
-function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): string {
-  if (provider === "apple") return "Apple";
-  if (provider === "google_play") return "Google Play";
-  return t("pro.provider.wechat");
+async function pollAlipayAutoRenewResult(id: string): Promise<MobileAutoRenewSubscription | null> {
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const current = await getCurrentAutoRenewSubscription();
+    if (current?.id === id && current.status !== "pending") return current;
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  return getCurrentAutoRenewSubscription();
 }
 
 function readPositiveIntEnv(value: string | undefined, fallback: number): number {
@@ -1561,7 +1448,7 @@ function isValidCachedAutoRenewSubscription(value: unknown): value is MobileAuto
   const candidate = value as Partial<MobileAutoRenewSubscription>;
   return (
     typeof candidate.id === "string" &&
-    (candidate.provider === "apple" || candidate.provider === "wechat" || candidate.provider === "google_play") &&
+    (candidate.provider === "apple" || candidate.provider === "alipay" || candidate.provider === "google_play") &&
     (candidate.productCode === "plus_monthly" || candidate.productCode === "pro_monthly") &&
     typeof candidate.status === "string"
   );
@@ -1704,10 +1591,6 @@ function isAppleUserCancelledPurchase(error: unknown): boolean {
   );
 }
 
-function isWechatUserCancelError(error: unknown): boolean {
-  return error instanceof Error && error.name === "WECHAT_PAY_USER_CANCELLED";
-}
-
 function formatAutoRenewProviderLabel(): string {
   if (Platform.OS === "ios") return "Apple ";
   if (Platform.OS === "android") return "Google Play";
@@ -1716,14 +1599,15 @@ function formatAutoRenewProviderLabel(): string {
 
 function formatAutoRenewButtonLabel(): string {
   if (Platform.OS === "ios") return t("pro.auto.apple_subscription");
-  if (Platform.OS === "android") return "Google Play";
+  if (Platform.OS === "android") return IS_CHINA_ANDROID ? "支付宝自动续费" : "Google Play";
   return t("pro.auto.start");
 }
 
 function formatAutoRenewCancelButtonLabel(provider: MobileAutoRenewSubscription["provider"]): string {
   if (provider === "apple") return t("pro.auto.cancel_apple");
   if (provider === "google_play") return "Manage in Google Play";
-  return t("pro.auto.cancel_wechat");
+  if (provider === "alipay") return "取消支付宝自动续费";
+  return t("pro.auto.start");
 }
 
 function BenefitItem({

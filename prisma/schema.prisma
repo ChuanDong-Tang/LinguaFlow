@@ -8,48 +8,49 @@ datasource db {
 }
 
 model User {
-  id                     String                  @id @default(cuid())
-  nickname               String?
-  email                  String?
-  phone                  String?
-  avatarUrl              String?
-  status                 UserStatus              @default(active)
-  role                   UserRole                @default(user)
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
-  authIdentities         UserAuthIdentity[]
-  sessions               UserSession[]
-  conversations          Conversation[]
-  messages               Message[]
-  ttsAssets              TtsAsset[]
-  ttsRequestLogs         TtsRequestLog[]
-  sttRequestLogs         SttRequestLog[]
-  entitlements           Entitlement[]
-  subscriptions          Subscription[]
-  autoRenewSubscriptions AutoRenewSubscription[]
-  appleIapAccountLinks   AppleIapAccountLink[]
-  googlePlayAccountLinks GooglePlayAccountLink[]
-  preference             UserPreference?
-  profile                UserProfile?
-  avatarAssets           UserAvatarAsset[]
-  cards                  Card[]
-  cardImageAssets        CardImageAsset[]
-  cardPracticeStates     CardPracticeState[]
-  cardContentPracticeStates CardContentPracticeState[]
-  cardSpeechAssets       CardSpeechAsset[]
-  cardCollections        CardCollection[]
-  cardEmbeddings         CardEmbedding[]
-  phrases                Phrase[]
-  phraseVariants         PhraseVariant[]
-  phraseOccurrences      PhraseOccurrence[]
-  cardEnrichmentJobs     CardEnrichmentJob[]
-  recallSessions         RecallSession[]
-  dictionaryLookupCaches DictionaryLookupCache[]
+  id                          String                       @id @default(cuid())
+  nickname                    String?
+  email                       String?
+  phone                       String?
+  avatarUrl                   String?
+  status                      UserStatus                   @default(active)
+  role                        UserRole                     @default(user)
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  authIdentities              UserAuthIdentity[]
+  sessions                    UserSession[]
+  conversations               Conversation[]
+  messages                    Message[]
+  ttsAssets                   TtsAsset[]
+  ttsRequestLogs              TtsRequestLog[]
+  sttRequestLogs              SttRequestLog[]
+  entitlements                Entitlement[]
+  subscriptions               Subscription[]
+  autoRenewSubscriptions      AutoRenewSubscription[]
+  appleIapAccountLinks        AppleIapAccountLink[]
+  alipayAccountLink           AlipayAccountLink?
+  googlePlayAccountLinks      GooglePlayAccountLink[]
+  preference                  UserPreference?
+  profile                     UserProfile?
+  avatarAssets                UserAvatarAsset[]
+  cards                       Card[]
+  cardImageAssets             CardImageAsset[]
+  cardPracticeStates          CardPracticeState[]
+  cardContentPracticeStates   CardContentPracticeState[]
+  cardSpeechAssets            CardSpeechAsset[]
+  cardCollections             CardCollection[]
+  cardEmbeddings              CardEmbedding[]
+  phrases                     Phrase[]
+  phraseVariants              PhraseVariant[]
+  phraseOccurrences           PhraseOccurrence[]
+  cardEnrichmentJobs          CardEnrichmentJob[]
+  recallSessions              RecallSession[]
+  dictionaryLookupCaches      DictionaryLookupCache[]
   memorySentenceMeaningCaches MemorySentenceMeaningCache[]
-  aiTokenCycles          AiTokenCycle[]
-  aiTokenTransactions    AiTokenTransaction[]
-  imageStorageAccount    ImageStorageAccount?
-  imageStorageTransactions ImageStorageTransaction[]
+  aiTokenCycles               AiTokenCycle[]
+  aiTokenTransactions         AiTokenTransaction[]
+  imageStorageAccount         ImageStorageAccount?
+  imageStorageTransactions    ImageStorageTransaction[]
 
   @@index([email])
   @@index([phone])
@@ -186,18 +187,18 @@ model Card {
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 
-  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  collection         CardCollection?      @relation(fields: [collectionId], references: [id], onDelete: SetNull)
-  segments           CardRewriteSegment[]
-  contentSegments    CardContentSegment[]
+  user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  collection            CardCollection?            @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  segments              CardRewriteSegment[]
+  contentSegments       CardContentSegment[]
   contentPracticeStates CardContentPracticeState[]
-  images             CardImageAsset[]
-  practiceState      CardPracticeState?
-  speechAssets       CardSpeechAsset[]
-  embeddings         CardEmbedding[]
-  phraseOccurrences  PhraseOccurrence[]
-  recallNodes        RecallSessionNode[]
-  seedRecallSessions RecallSession[]      @relation("RecallSeedCard")
+  images                CardImageAsset[]
+  practiceState         CardPracticeState?
+  speechAssets          CardSpeechAsset[]
+  embeddings            CardEmbedding[]
+  phraseOccurrences     PhraseOccurrence[]
+  recallNodes           RecallSessionNode[]
+  seedRecallSessions    RecallSession[]            @relation("RecallSeedCard")
 
   @@unique([userId, clientId])
   @@index([userId, dateKey, createdAt])
@@ -307,21 +308,21 @@ model CardPracticeState {
 }
 
 model CardContentPracticeState {
-  id                     String   @id @default(cuid())
+  id                     String    @id @default(cuid())
   userId                 String
   cardId                 String
   contentType            String
   contentVersion         String
   clozeState             Json?
-  clozeVersion           Int      @default(0)
+  clozeVersion           Int       @default(0)
   clozeLastResult        String?
-  clozeCorrectStreak     Int      @default(0)
+  clozeCorrectStreak     Int       @default(0)
   clozeNextReviewAt      DateTime?
   dictationLastResult    String?
-  dictationCorrectStreak Int      @default(0)
+  dictationCorrectStreak Int       @default(0)
   dictationNextReviewAt  DateTime?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
@@ -366,19 +367,19 @@ model CardSpeechAsset {
 }
 
 model CardCollection {
-  id             String   @id @default(cuid())
-  userId         String
-  parentId       String?
-  sortOrder      Int      @default(0)
-  isFavorite     Boolean  @default(false)
+  id                String   @id @default(cuid())
+  userId            String
+  parentId          String?
+  sortOrder         Int      @default(0)
+  isFavorite        Boolean  @default(false)
   favoriteSortOrder Int?
-  name           String
-  normalizedName String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  name              String
+  normalizedName    String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  cards Card[]
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards    Card[]
   parent   CardCollection?  @relation("CardCollectionTree", fields: [parentId], references: [id], onDelete: Cascade)
   children CardCollection[] @relation("CardCollectionTree")
 
@@ -835,32 +836,32 @@ model AiTokenCycle {
 }
 
 model UsageV2SystemState {
-  key       String   @id
+  key        String   @id
   launchedAt DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@map("usage_v2_system_state")
 }
 
 model AiTokenTransaction {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
   cycleId        String
   requestId      String
   feature        String
   status         String
-  reservedTokens Int      @default(0)
-  inputTokens    Int      @default(0)
-  outputTokens   Int      @default(0)
-  totalTokens    Int      @default(0)
+  reservedTokens Int       @default(0)
+  inputTokens    Int       @default(0)
+  outputTokens   Int       @default(0)
+  totalTokens    Int       @default(0)
   meteringSource String?
   provider       String?
   model          String?
   metadata       Json?
   settledAt      DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   cycle AiTokenCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
@@ -872,17 +873,17 @@ model AiTokenTransaction {
 }
 
 model ImageStorageAccount {
-  id            String   @id @default(cuid())
-  userId        String   @unique
+  id            String    @id @default(cuid())
+  userId        String    @unique
   tier          String
   periodStart   DateTime?
   periodEnd     DateTime?
   capacityBytes BigInt
-  reservedBytes BigInt   @default(0)
-  usedBytes     BigInt   @default(0)
+  reservedBytes BigInt    @default(0)
+  usedBytes     BigInt    @default(0)
   configVersion String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   user         User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions ImageStorageTransaction[]
@@ -891,19 +892,19 @@ model ImageStorageAccount {
 }
 
 model ImageStorageTransaction {
-  id          String   @id @default(cuid())
-  userId      String
-  accountId   String
-  requestId   String
-  kind        String
-  status      String
-  dateKey     String
-  bytes       BigInt
-  imageId     String?
-  objectKey   String?
-  metadata    Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  userId    String
+  accountId String
+  requestId String
+  kind      String
+  status    String
+  dateKey   String
+  bytes     BigInt
+  imageId   String?
+  objectKey String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   account ImageStorageAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
@@ -1017,6 +1018,17 @@ model GooglePlayAccountLink {
   @@unique([purchaseToken])
   @@index([userId])
   @@map("google_play_account_links")
+}
+
+model AlipayAccountLink {
+  userId     String   @id
+  customerId String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("alipay_account_links")
 }
 
 model AiRequestLog {
@@ -1234,6 +1246,7 @@ enum SubscriptionStatus {
 
 enum AutoRenewProvider {
   wechat
+  alipay
   apple
   google_play
 }

@@ -6,11 +6,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MOBILE_DIR="$REPO_ROOT/apps/mobile"
 CONFIG_FILE="$SCRIPT_DIR/android-play.env"
-ARTIFACT_DIR="$SCRIPT_DIR/artifacts/android"
 
 ASSUME_YES=false
 BUILD_ONLY=false
 CHECK_ONLY=false
+ANDROID_TARGET="${OIO_ANDROID_TARGET:-google}"
+if [[ "$ANDROID_TARGET" == "china" ]]; then
+  ARTIFACT_DIR="$SCRIPT_DIR/artifacts/android-china"
+else
+  ARTIFACT_DIR="$SCRIPT_DIR/artifacts/android"
+fi
 
 usage() {
   cat <<'USAGE'
@@ -75,7 +80,7 @@ resolve_android_tools() {
 }
 
 preflight() {
-  log "Running Android production preflight"
+  log "Running Android $ANDROID_TARGET production preflight"
   require_command node
   require_command npm
   require_command npx
@@ -87,6 +92,21 @@ preflight() {
   load_dotenv "$MOBILE_DIR/.env"
   export NODE_ENV=production
 
+  case "$ANDROID_TARGET" in
+    google)
+      export EXPO_PUBLIC_DISTRIBUTION_CHANNEL=google
+      export EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW=true
+      export EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW=false
+      ;;
+    china)
+      export EXPO_PUBLIC_DISTRIBUTION_CHANNEL=china
+      export EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW=false
+      export EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW=true
+      BUILD_ONLY=true
+      ;;
+    *) fail "Unsupported Android target: $ANDROID_TARGET (expected google or china)" ;;
+  esac
+
   [[ "${EXPO_PUBLIC_API_BASE_URL:-}" == "$EXPECTED_API_URL" ]] || \
     fail "Local API URL is not production: ${EXPO_PUBLIC_API_BASE_URL:-<unset>}"
   [[ "${EXPO_PUBLIC_ENABLE_TEST_PASSWORD_LOGIN:-}" == "false" ]] || \
@@ -94,9 +114,9 @@ preflight() {
   [[ "${EXPO_PUBLIC_SHOW_DEBUG_PROMPT_PANEL:-}" == "false" ]] || \
     fail "Debug prompt panel must be false."
 
-  node - "$MOBILE_DIR/eas.json" "$BUILD_PROFILE" "$SUBMIT_PROFILE" "$EXPECTED_CHANNEL" "$EXPECTED_PLAY_TRACK" <<'NODE'
+  node - "$MOBILE_DIR/eas.json" "$BUILD_PROFILE" "$SUBMIT_PROFILE" "$EXPECTED_CHANNEL" "$EXPECTED_PLAY_TRACK" "$ANDROID_TARGET" <<'NODE'
 const fs = require('fs');
-const [file, buildProfileName, submitProfileName, expectedChannel, expectedTrack] = process.argv.slice(2);
+const [file, buildProfileName, submitProfileName, expectedChannel, expectedTrack, target] = process.argv.slice(2);
 const config = JSON.parse(fs.readFileSync(file, 'utf8'));
 const build = config.build?.[buildProfileName];
 if (!build) throw new Error(`Missing EAS build profile: ${buildProfileName}`);
@@ -104,15 +124,18 @@ if (build.environment !== 'production') throw new Error('EAS environment must be
 if (build.channel !== expectedChannel) throw new Error(`EAS channel must be ${expectedChannel}`);
 if (build.distribution !== 'store') throw new Error('EAS distribution must be store');
 if (build.android?.buildType !== 'app-bundle') throw new Error('Android buildType must be app-bundle');
-const submit = config.submit?.[submitProfileName]?.android;
-if (!submit) throw new Error(`Missing Android submit profile: ${submitProfileName}`);
-if (submit.track !== expectedTrack) throw new Error(`Google Play track must be ${expectedTrack}`);
-if (submit.releaseStatus !== 'completed') throw new Error('Google Play internal releaseStatus must be completed');
+if (target === 'google') {
+  const submit = config.submit?.[submitProfileName]?.android;
+  if (!submit) throw new Error(`Missing Android submit profile: ${submitProfileName}`);
+  if (submit.track !== expectedTrack) throw new Error(`Google Play track must be ${expectedTrack}`);
+  if (submit.releaseStatus !== 'completed') throw new Error('Google Play internal releaseStatus must be completed');
+}
 NODE
 
   log "Preflight passed"
-  printf 'Profile: %s\nChannel: %s\nAPI: %s\nPackage: %s\nPlay track: %s\n' \
-    "$BUILD_PROFILE" "$EXPECTED_CHANNEL" "$EXPECTED_API_URL" "$EXPECTED_PACKAGE_ID" "$EXPECTED_PLAY_TRACK"
+  printf 'Target: %s\nProfile: %s\nChannel: %s\nAPI: %s\nPackage: %s\nPayment: %s\nArtifacts: %s\n' \
+    "$ANDROID_TARGET" "$BUILD_PROFILE" "$EXPECTED_CHANNEL" "$EXPECTED_API_URL" "$EXPECTED_PACKAGE_ID" \
+    "$([[ "$ANDROID_TARGET" == china ]] && printf Alipay || printf 'Google Play')" "$ARTIFACT_DIR"
 }
 
 validate_aab() {
@@ -183,7 +206,7 @@ mkdir -p "$ARTIFACT_DIR"
 timestamp="$(date '+%Y%m%d-%H%M%S')"
 raw_aab="$ARTIFACT_DIR/OIO-pending-$timestamp.aab"
 
-log "Building production AAB locally with EAS"
+log "Building $ANDROID_TARGET production AAB locally with EAS"
 (
   cd "$MOBILE_DIR"
   # Expo/RN release builds load many Gradle and Kotlin compiler classes. The

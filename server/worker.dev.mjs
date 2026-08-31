@@ -4,13 +4,10 @@ import { PrismaPaymentEventRepository } from "./src/infrastructure/repository/Pr
 import { PrismaBenefitGrantRepository } from "./src/infrastructure/repository/PrismaBenefitGrantRepository.ts";
 import { PrismaSubscriptionRepository } from "./src/infrastructure/repository/PrismaSubscriptionRepository.ts";
 import { PrismaGooglePlayAccountLinkRepository } from "./src/infrastructure/repository/PrismaGooglePlayAccountLinkRepository.ts";
-import { WeChatPaymentProvider } from "./src/providers/payment/index.ts";
 import { GooglePlayBillingService } from "./src/providers/payment/google/GooglePlayBillingService.ts";
-import { PaymentOrderService } from "./src/services/payment/PaymentOrderService.ts";
 import { PaymentEntitlementService } from "./src/services/payment/PaymentEntitlementService.ts";
 import { BenefitGrantService } from "./src/services/payment/BenefitGrantService.ts";
 import { SubscriptionService } from "./src/services/subscription/SubscriptionService.ts";
-import { PaymentReconcileWorker } from "./src/workers/payment/PaymentReconcileWorker.ts";
 import { BenefitGrantWorker } from "./src/workers/payment/BenefitGrantWorker.ts";
 import { PrismaSystemEventLogRepository } from "./src/infrastructure/repository/PrismaSystemEventLogRepository.ts";
 import { PrismaTrustedCertRepository } from "./src/infrastructure/repository/PrismaTrustedCertRepository.ts";
@@ -20,13 +17,11 @@ import { AccountDeletionCleanupWorker } from "./src/workers/auth/AccountDeletion
 import { SystemEventLogCleanupWorker } from "./src/workers/system/SystemEventLogCleanupWorker.ts";
 import { AiRequestLogCleanupWorker } from "./src/workers/ai/AiRequestLogCleanupWorker.ts";
 import { PaymentCertSyncWorker } from "./src/workers/payment/PaymentCertSyncWorker.ts";
-import { WeChatAutoRenewBillingWorker } from "./src/workers/payment/WeChatAutoRenewBillingWorker.ts";
 import { GooglePlayAcknowledgeWorker } from "./src/workers/payment/GooglePlayAcknowledgeWorker.ts";
 import { GooglePlaySubscriptionReconcileWorker } from "./src/workers/payment/GooglePlaySubscriptionReconcileWorker.ts";
 import { getRuntimeConfig } from "./src/config/runtimeConfig.ts";
 import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
 import { AutoRenewService } from "./src/services/payment/AutoRenewService.ts";
-import { WeChatAutoRenewProvider } from "./src/providers/payment/index.ts";
 import { CosStorageProvider } from "./src/providers/storage/CosStorageProvider.ts";
 import { TtsAssetCleanupWorker } from "./src/workers/tts/TtsAssetCleanupWorker.ts";
 import { TtsRequestLogCleanupWorker } from "./src/workers/tts/TtsRequestLogCleanupWorker.ts";
@@ -83,23 +78,15 @@ const googlePlayAccountLinkRepository = new PrismaGooglePlayAccountLinkRepositor
 const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
 const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
 const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
-const paymentProvider = new WeChatPaymentProvider();
 const subscriptionService = new SubscriptionService(subscriptionRepository);
 const usageV2Service = new UsageV2Service(prisma, subscriptionService);
-const paymentOrderService = new PaymentOrderService(
-  paymentOrderRepository,
-  paymentProvider,
-  subscriptionService
-);
 const paymentEntitlementService = new PaymentEntitlementService(
   subscriptionService,
   autoRenewRepository
 );
-const weChatAutoRenewProvider = new WeChatAutoRenewProvider();
 const autoRenewService = new AutoRenewService(
   autoRenewRepository,
   paymentEntitlementService,
-  weChatAutoRenewProvider,
   systemEventLogRepository,
   subscriptionService
 );
@@ -112,12 +99,6 @@ const googlePlayBillingService = new GooglePlayBillingService(
   subscriptionRepository,
   benefitGrantService,
   googlePlayAccountLinkRepository
-);
-const worker = new PaymentReconcileWorker(
-  paymentOrderService,
-  benefitGrantService,
-  paymentEntitlementService,
-  systemEventLogRepository
 );
 const benefitGrantWorker = new BenefitGrantWorker(
   benefitGrantRepository,
@@ -139,10 +120,6 @@ const ttsAssetCleanupWorker = new TtsAssetCleanupWorker(prisma, systemEventLogRe
 const ttsRequestLogCleanupWorker = new TtsRequestLogCleanupWorker(prisma, systemEventLogRepository);
 const paymentCertSyncWorker = new PaymentCertSyncWorker(
   trustedCertRepository,
-  systemEventLogRepository
-);
-const weChatAutoRenewBillingWorker = new WeChatAutoRenewBillingWorker(
-  autoRenewService,
   systemEventLogRepository
 );
 const googlePlayAcknowledgeWorker = new GooglePlayAcknowledgeWorker(
@@ -353,10 +330,8 @@ const userAvatarCleanupWorker = new UserAvatarCleanupWorker(
 const workerGroup = (process.env.LF_WORKER_GROUP || "all").trim().toLowerCase();
 const workerGroups = {
   payment: [
-    worker,
     benefitGrantWorker,
     paymentCertSyncWorker,
-    weChatAutoRenewBillingWorker,
     googlePlayAcknowledgeWorker,
     googlePlaySubscriptionReconcileWorker,
   ],
@@ -420,7 +395,6 @@ try {
   await prisma.$disconnect();
   process.exit(1);
 }
-
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;

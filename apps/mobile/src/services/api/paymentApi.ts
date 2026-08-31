@@ -19,18 +19,6 @@ export class MobileApiError extends Error {
 export type MobilePaymentOrderStatus = "pending" | "paid" | "closed" | "failed" | "refunded";
 export type MobilePaymentProductCode = "plus_monthly" | "pro_monthly";
 
-export type MobileCreatePaymentOrderResult = {
-  id: string;
-  provider: string;
-  providerOrderId: string;
-  productCode: MobilePaymentProductCode;
-  amount: number;
-  currency: "CNY";
-  status: "pending";
-  reused: boolean;
-  clientPayParams: Record<string, unknown>;
-};
-
 export type MobilePaymentProductQuote = {
   productCode: MobilePaymentProductCode;
   amount: number;
@@ -54,22 +42,21 @@ export type MobilePaymentOrderResult = {
 
 export type MobileAutoRenewSubscription = {
   id: string;
-  provider: "wechat" | "apple" | "google_play";
+  provider: "alipay" | "apple" | "google_play";
   productCode: MobilePaymentProductCode;
   status: "pending" | "active" | "cancelled" | "expired" | "billing_retry" | "paused";
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
   nextBillingAt: string | null;
   cancelledAt: string | null;
+  cancelAtPeriodEnd: boolean;
 };
 
-export type MobileWeChatAutoRenewPreSignResult = {
+export type MobileAlipayAutoRenewCreateResult = {
   autoRenewSubscriptionId: string;
-  provider: "wechat";
-  outContractCode: string;
-  providerOrderId: string | null;
-  clientPayParams: Record<string, unknown> | null;
-  redirectUrl: string | null;
+  provider: "alipay";
+  jumpSchema: string;
+  reused: boolean;
 };
 
 export type MobileAppleVerifyTransactionResult = {
@@ -91,26 +78,6 @@ export type MobileGooglePlayVerifyPurchaseResult = {
   acknowledgementPending?: boolean;
 };
 
-export async function createMembershipMonthlyOrder(productCode: MobilePaymentProductCode): Promise<MobileCreatePaymentOrderResult> {
-  const res = await fetchWithTimeout(`${BASE_URL}/payment/orders`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(await getAuthHeaders()),
-    },
-    body: JSON.stringify({ productCode }),
-  });
-  const json = (await res.json()) as ApiResult<MobileCreatePaymentOrderResult>;
-  if (!json.ok) {
-    throw new MobileApiError(json.error.code, json.error.message);
-  }
-  return json.data;
-}
-
-export async function createProMonthlyOrder(): Promise<MobileCreatePaymentOrderResult> {
-  return createMembershipMonthlyOrder("pro_monthly");
-}
-
 export async function getProMonthlyProductQuote(): Promise<MobilePaymentProductQuote> {
   const res = await fetchWithTimeout(`${BASE_URL}/payment/products/pro-monthly`);
   const json = (await res.json()) as ApiResult<MobilePaymentProductQuote>;
@@ -129,17 +96,6 @@ export async function getPlusMonthlyProductQuote(): Promise<MobilePaymentProduct
   return json.data;
 }
 
-export async function queryPaymentOrder(orderId: string): Promise<MobilePaymentOrderResult> {
-  const res = await fetchWithTimeout(`${BASE_URL}/payment/orders/${encodeURIComponent(orderId)}`, {
-    headers: await getAuthHeaders(),
-  });
-  const json = (await res.json()) as ApiResult<MobilePaymentOrderResult>;
-  if (!json.ok) {
-    throw new MobileApiError(json.error.code, json.error.message);
-  }
-  return json.data;
-}
-
 export async function getCurrentAutoRenewSubscription(): Promise<MobileAutoRenewSubscription | null> {
   const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/current`, {
     headers: await getAuthHeaders(),
@@ -151,27 +107,22 @@ export async function getCurrentAutoRenewSubscription(): Promise<MobileAutoRenew
   return json.data.subscription;
 }
 
-export async function createWeChatAutoRenewPreSign(
+export async function createAlipayAutoRenewSubscription(
   productCode: MobilePaymentProductCode
-): Promise<MobileWeChatAutoRenewPreSignResult> {
-  const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/wechat/pre-sign`, {
+): Promise<MobileAlipayAutoRenewCreateResult> {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/alipay/create`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(await getAuthHeaders()),
-    },
+    headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify({ productCode }),
   });
-  const json = (await res.json()) as ApiResult<MobileWeChatAutoRenewPreSignResult>;
-  if (!json.ok) {
-    throw new MobileApiError(json.error.code, json.error.message);
-  }
+  const json = (await res.json()) as ApiResult<MobileAlipayAutoRenewCreateResult>;
+  if (!json.ok && "error" in json) throw new MobileApiError(json.error.code, json.error.message);
   return json.data;
 }
 
 export async function cancelAutoRenewSubscription(
   autoRenewSubscriptionId: string
-): Promise<Pick<MobileAutoRenewSubscription, "id" | "provider" | "status" | "cancelledAt">> {
+): Promise<Pick<MobileAutoRenewSubscription, "id" | "provider" | "status" | "cancelledAt" | "cancelAtPeriodEnd">> {
   const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/cancel`, {
     method: "POST",
     headers: {
@@ -182,7 +133,7 @@ export async function cancelAutoRenewSubscription(
   });
   const json = (await res.json()) as ApiResult<Pick<
     MobileAutoRenewSubscription,
-    "id" | "provider" | "status" | "cancelledAt"
+    "id" | "provider" | "status" | "cancelledAt" | "cancelAtPeriodEnd"
   >>;
   if (!json.ok) {
     throw new MobileApiError(json.error.code, json.error.message);

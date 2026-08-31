@@ -62,3 +62,26 @@ bash ci/cd/android-play.sh --yes
 The Android workflow validates the package ID, version name/code, release
 signature, production Expo Updates channel, and embedded production API URL
 before upload.
+
+Payment selection is enforced by the workflow and does not depend on leftover
+values in `apps/mobile/.env`:
+
+- `android-play.sh` builds the Google distribution with Google Play Billing
+  enabled and Alipay disabled.
+- `android-china.sh` builds the China distribution with Alipay enabled and
+  Google Play Billing disabled. It only produces a validated AAB and never
+  uploads to Google Play. China artifacts are written to
+  `ci/cd/artifacts/android-china/`; Google Play artifacts remain in
+  `ci/cd/artifacts/android/`.
+
+```bash
+# China-store build: Alipay, build and validate only.
+bash ci/cd/android-china.sh
+
+# China-store preflight only.
+bash ci/cd/android-china.sh --check
+```
+
+Do not invoke the underlying Expo/EAS Android production build directly for a
+release. Use one of these target-specific scripts so the payment provider and
+distribution channel cannot drift apart.

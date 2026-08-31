@@ -24,7 +24,6 @@ import {
 } from "../services/api/meApi";
 import { getCachedEntitlementForUser, isSameEntitlement } from "../services/entitlement/entitlementCache";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
-import { recoverPendingPaymentIfAny } from "../services/payment/paymentRecovery";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import { t, tf } from "../i18n";
 import { DebugPromptModal } from "./shared/DebugPromptModal";
@@ -106,9 +105,7 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
     if (!isActive) return;
     let cancelled = false;
     async function loadProfile() {
-      // 先恢复支付状态，再读取会话和权益，保证个人页展示尽量接近最新状态。
       if (isMounted()) setIsLoadingEntitlement(true);
-      await recoverPendingPaymentIfAny();
       const localSession = await getSession();
       const [cached, localPreference, remoteProfile, remoteBindings, remoteUsage] = await Promise.all([
         localSession?.user.id ? getCachedEntitlementForUser(localSession.user.id) : Promise.resolve(null),

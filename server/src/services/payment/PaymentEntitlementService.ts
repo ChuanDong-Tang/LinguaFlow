@@ -5,7 +5,7 @@ import type { PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js"
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import { assertCanGrantSingleProMonthly } from "./ProPrepaidLimit.js";
 
-export type PaymentChannel = "wechat" | "ios_iap" | "android_iap";
+export type PaymentChannel = "wechat" | "alipay" | "ios_iap" | "android_iap";
 export type EntitlementGrantMode = "fixed_duration" | "subscription_period";
 export type PrepaidLimitMode = "enforce" | "skip";
 
@@ -139,8 +139,7 @@ function resolveGrantPeriod(input: {
 }
 
 function computeEarlyBillingAt(periodEnd: Date): Date {
-  const leadMs = getRuntimeConfig().payment.wechatAutoRenew.billingLeadMs;
-  return new Date(periodEnd.getTime() - leadMs);
+  return new Date(periodEnd.getTime() - 172_800_000);
 }
 
 function mergeMetadata(existing: unknown, patch: Record<string, unknown>): Record<string, unknown> {

@@ -1,13 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { timingSafeEqual } from "node:crypto";
-import type { CreatePaymentOrderRequest } from "@lf/core/contracts/payment/CreatePaymentOrderContract.js";
-import {
-  PaymentOrderAccessDeniedError,
-  PaymentOrderNotFoundError,
-  ProRenewalTooEarlyError,
-  type PaymentOrderService,
-} from "@lf/server/services/payment/PaymentOrderService.js";
-import type { PaymentNotifyService } from "@lf/server/services/payment/PaymentNotifyService.js";
+import { ProRenewalTooEarlyError } from "@lf/server/services/payment/ProPrepaidLimit.js";
 import {
   AutoRenewAccessDeniedError,
   AutoRenewAlreadyActiveError,
@@ -30,7 +23,7 @@ import {
   GooglePlaySubscriptionAlreadyBoundError,
 } from "@lf/server/providers/payment/google/GooglePlayBillingErrors.js";
 import { fetchGoogleApi } from "@lf/server/providers/payment/google/GoogleApiHttpClient.js";
-import { checkWeChatPayConfig } from "@lf/server/providers/payment/wechat/WeChatPayConfig.js";
+import type { AlipayAutoRenewService } from "@lf/server/providers/payment/alipay/AlipayAutoRenewService.js";
 import {
   AccountDisabledError,
   resolveActiveUserContext,
@@ -42,14 +35,16 @@ import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { checkIpPathRateLimit } from "../lib/rateLimit.js";
 
 export interface PaymentRouteDeps {
-  paymentOrderService: PaymentOrderService;
-  paymentNotifyService: PaymentNotifyService;
   autoRenewService: AutoRenewService;
   appleIapService: AppleIapService;
   googlePlayBillingService: GooglePlayBillingService;
+  alipayAutoRenewService: AlipayAutoRenewService;
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
+      nickname: string | null;
+      email: string | null;
+      phone: string | null;
       status: "active" | "disabled" | "pending_delete";
     } | null>;
   };
@@ -141,12 +136,6 @@ function isGooglePlayNotificationRequest(
   return Boolean(value && typeof value === "object");
 }
 
-function isCreatePaymentOrderRequest(value: unknown): value is CreatePaymentOrderRequest {
-  if (!value || typeof value !== "object") return false;
-  const v = value as Record<string, unknown>;
-  return isPaymentProductCode(v.productCode);
-}
-
 function isCancelAutoRenewRequest(value: unknown): value is { autoRenewSubscriptionId: string } {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
@@ -156,11 +145,10 @@ function isCancelAutoRenewRequest(value: unknown): value is { autoRenewSubscript
   );
 }
 
-function isCreateWechatAutoRenewRequest(value: unknown): value is { productCode: "plus_monthly" | "pro_monthly" } {
+const isCreateAlipayAutoRenewRequest = (value: unknown): value is { productCode: "plus_monthly" | "pro_monthly" } => {
   if (!value || typeof value !== "object") return false;
-  const v = value as Record<string, unknown>;
-  return isPaymentProductCode(v.productCode);
-}
+  return isPaymentProductCode((value as Record<string, unknown>).productCode);
+};
 
 function isPaymentProductCode(value: unknown): value is "plus_monthly" | "pro_monthly" {
   return value === "plus_monthly" || value === "pro_monthly";
@@ -169,7 +157,6 @@ function isPaymentProductCode(value: unknown): value is "plus_monthly" | "pro_mo
 export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDeps): void {
   const config = getRuntimeConfig();
   app.get("/payment/health", async (_req, reply) => {
-    const wechat = checkWeChatPayConfig();
     const appleIap = { ok: deps.appleIapService.isConfigured() };
     const googlePlayBillingConfigured = deps.googlePlayBillingService.isConfigured();
     const googlePlayNotificationOidcConfigured = Boolean(
@@ -186,11 +173,6 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       notificationOidcConfigured: googlePlayNotificationOidcConfigured,
     };
     const providers = {
-      wechat: {
-        ok: !config.payment.wechatPayEnabled || wechat.ok,
-        enabled: config.payment.wechatPayEnabled,
-        detail: config.payment.wechatPayEnabled ? wechat : { disabled: true },
-      },
       ios: {
         ok: !config.payment.appleIap.enabled || appleIap.ok,
         enabled: config.payment.appleIap.enabled,
@@ -201,8 +183,13 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         enabled: config.payment.googlePlayBilling.enabled,
         detail: config.payment.googlePlayBilling.enabled ? googlePlay : { disabled: true },
       },
+      alipay: {
+        ok: !config.payment.alipayAutoRenew.enabled || deps.alipayAutoRenewService.isConfigured(),
+        enabled: config.payment.alipayAutoRenew.enabled,
+        detail: deps.alipayAutoRenewService.isConfigured() ? { configured: true } : { configured: false },
+      },
     };
-    const ok = providers.wechat.ok && providers.ios.ok && providers.googlePlay.ok;
+    const ok = providers.ios.ok && providers.googlePlay.ok && providers.alipay.ok;
 
     return reply.status(ok ? 200 : 503).send({
       ok,
@@ -318,101 +305,67 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
               currentPeriodEnd: data.subscription.currentPeriodEnd?.toISOString() ?? null,
               nextBillingAt: data.subscription.nextBillingAt?.toISOString() ?? null,
               cancelledAt: data.subscription.cancelledAt?.toISOString() ?? null,
+              cancelAtPeriodEnd: readCancelAtPeriodEnd(data.subscription.metadata),
             }
           : null,
       },
     });
   });
 
-  app.post("/payment/autorenew/wechat/pre-sign", async (req, reply) => {
+  app.post("/payment/autorenew/alipay/create", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
-    if (!isCreateWechatAutoRenewRequest(req.body)) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        module: "payment",
-        event: "payment.autorenew.wechat.pre_sign_invalid_payload",
-        level: "warn",
-        status: "failed",
-        errorCode: "VALIDATION_FAILED",
-      });
-      return reply.status(400).send({
-        ok: false,
-        request_id: requestId,
-        error: { code: "VALIDATION_FAILED", message: "Invalid auto renew payload" },
-      });
+    const allowed = await checkPaymentRateLimit({
+      req, reply, requestId,
+      rule: { routeKey: "alipay_create", path: "/payment/autorenew/alipay/create", limit: config.payment.rateLimitOrdersCreateLimit, windowSec: config.payment.rateLimitOrdersCreateWindowSec, responseType: "api" },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+    if (!isCreateAlipayAutoRenewRequest(req.body)) {
+      return reply.status(400).send({ ok: false, request_id: requestId, error: { code: "VALIDATION_FAILED", message: "Invalid Alipay subscription payload" } });
     }
     const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
     if (!userContext) return;
-
+    const user = await deps.userRepository.findById(userContext.userId);
+    if (!user) return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "USER_NOT_FOUND", message: "User not found" } });
     try {
-      const data = await deps.autoRenewService.createWeChatPreSign({
-        userId: userContext.userId,
-        productCode: req.body.productCode,
+      const result = await deps.alipayAutoRenewService.create({
+        userId: user.id, nickname: user.nickname, email: user.email, phone: user.phone, productCode: req.body.productCode,
       });
       return reply.status(200).send({
-        ok: true,
-        request_id: requestId,
-        data: {
-          autoRenewSubscriptionId: data.subscription.id,
-          provider: data.subscription.provider,
-          outContractCode: data.outContractCode,
-          providerOrderId: data.providerOrderId,
-          clientPayParams: data.clientPayParams,
-          redirectUrl: data.redirectUrl,
-        },
+        ok: true, request_id: requestId,
+        data: { autoRenewSubscriptionId: result.subscription.id, provider: "alipay", jumpSchema: result.jumpSchema, reused: result.reused },
       });
     } catch (error) {
-      if (
-        error instanceof AutoRenewAlreadyActiveError ||
-        error instanceof AutoRenewConcurrentCreateError ||
-        error instanceof AutoRenewSwitchBlockedError ||
-        error instanceof ProRenewalTooEarlyError
-      ) {
-        return reply.status(409).send({
-          ok: false,
-          request_id: requestId,
-          error: {
-            code: error.code,
-            message:
-              error instanceof AutoRenewAlreadyActiveError
-                ? `Auto renew is already active via ${error.provider}.`
-                : error instanceof AutoRenewSwitchBlockedError
-                  // 用户取消自动续费后，当前会员仍未过期；这里明确返回业务冲突，不当成支付/签约失败。
-                  ? CLIENT_ERROR_MESSAGES.AUTO_RENEW_SWITCH_BLOCKED
-                  : error instanceof ProRenewalTooEarlyError
-                    ? CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY
-                  : "Auto renew is already active.",
-            ...(error instanceof AutoRenewSwitchBlockedError
-              ? {
-                  provider: error.provider,
-                  currentPeriodEnd: error.currentPeriodEnd.toISOString(),
-                }
-              : {}),
-            ...(error instanceof ProRenewalTooEarlyError
-              ? {
-                  expiresAt: error.expiresAt.toISOString(),
-                }
-              : {}),
-          },
-        });
-      }
-      const message = error instanceof Error ? error.message : "Auto renew pre sign failed";
+      const message = error instanceof Error ? error.message : String(error);
+      const conflict = error instanceof AutoRenewAlreadyActiveError || error instanceof AutoRenewConcurrentCreateError || error instanceof ProRenewalTooEarlyError;
+      const errorCode = error instanceof AutoRenewAlreadyActiveError || error instanceof AutoRenewConcurrentCreateError || error instanceof ProRenewalTooEarlyError
+        ? error.code
+        : message.split(":")[0] || "ALIPAY_AUTORENEW_CREATE_FAILED";
+      await writeSystemEventLog(deps.systemEventLogRepository, { requestId, userId: user.id, module: "payment", event: "payment.autorenew.alipay.create_failed", level: conflict ? "warn" : "error", status: "failed", errorCode, errorMessage: message });
+      return reply.status(conflict ? 409 : 502).send({ ok: false, request_id: requestId, error: { code: errorCode, message: error instanceof ProRenewalTooEarlyError ? CLIENT_ERROR_MESSAGES.AUTO_RENEW_SWITCH_BLOCKED : conflict ? "Unable to start another subscription right now." : "Alipay subscription request failed" } });
+    }
+  });
+
+  app.post("/payment/autorenew/alipay/notify", async (req, reply) => {
+    const allowed = await checkPaymentRateLimit({
+      req, reply,
+      rule: { routeKey: "alipay_notify", path: "/payment/autorenew/alipay/notify", limit: config.payment.rateLimitWebhookLimit, windowSec: config.payment.rateLimitWebhookWindowSec, responseType: "webhook" },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+    const fields = req.body && typeof req.body === "object" ? req.body as Record<string, string> : null;
+    if (!fields) return reply.type("text/plain").status(400).send("fail");
+    try {
+      await deps.alipayAutoRenewService.handleNotification(fields);
+      return reply.type("text/plain").status(200).send("success");
+    } catch (error) {
       await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        userId: userContext.userId,
-        module: "payment",
-        event: "payment.autorenew.wechat.pre_sign_failed",
-        level: "error",
-        status: "failed",
-        errorCode: "AUTO_RENEW_PRE_SIGN_FAILED",
-        errorMessage: message,
+        requestId: resolveRequestId(req.headers["x-request-id"]), module: "payment", event: "payment.autorenew.alipay.notify_failed",
+        level: "error", status: "failed", errorCode: error instanceof Error ? error.message.split(":")[0] : "ALIPAY_NOTIFY_FAILED",
+        errorMessage: error instanceof Error ? error.message : String(error), metadata: { notifyId: fields.notify_id ?? null },
       });
-      return reply.status(502).send({
-        ok: false,
-        request_id: requestId,
-        error: { code: "AUTO_RENEW_PRE_SIGN_FAILED", message: "Auto renew request failed" },
-      });
+      return reply.type("text/plain").status(500).send("fail");
     }
   });
 
@@ -439,10 +392,10 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     if (!userContext) return;
 
     try {
-      const subscription = await deps.autoRenewService.cancelWithProvider({
-        userId: userContext.userId,
-        autoRenewSubscriptionId: req.body.autoRenewSubscriptionId.trim(),
-      });
+      const current = await deps.autoRenewService.getCurrent(userContext.userId);
+      const subscription = current.subscription?.provider === "alipay"
+        ? await deps.alipayAutoRenewService.cancelAtPeriodEnd({ userId: userContext.userId, subscriptionId: req.body.autoRenewSubscriptionId.trim() })
+        : await deps.autoRenewService.cancelWithProvider({ userId: userContext.userId, autoRenewSubscriptionId: req.body.autoRenewSubscriptionId.trim() });
 
       return reply.status(200).send({
         ok: true,
@@ -452,6 +405,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
           provider: subscription.provider,
           status: subscription.status,
           cancelledAt: subscription.cancelledAt?.toISOString() ?? null,
+          cancelAtPeriodEnd: readCancelAtPeriodEnd(subscription.metadata),
         },
       });
     } catch (error) {
@@ -485,366 +439,6 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         request_id: requestId,
         error: { code: "AUTO_RENEW_CANCEL_FAILED", message: "Auto renew cancel failed" },
       });
-    }
-  });
-
-  app.post("/payment/autorenew/wechat/contract-notify", async (req, reply) => {
-    const requestId = resolveRequestId(req.headers["x-request-id"]);
-    reply.header("x-request-id", requestId);
-    const body = req.body as Partial<{ __rawBody: string }> | null;
-    const rawBody = body?.__rawBody;
-    if (!rawBody) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        module: "payment",
-        event: "payment.autorenew.wechat.contract_notify_missing_raw_body",
-        level: "warn",
-        status: "failed",
-        errorCode: "PAYMENT_NOTIFY_INVALID",
-        metadata: { path: "/payment/autorenew/wechat/contract-notify" },
-      });
-      return reply.status(400).send({ code: "FAIL", message: "Missing raw body" });
-    }
-
-    try {
-      await deps.paymentNotifyService.verifyWeChatNotifySignature({
-        headers: {
-          timestamp: firstHeaderValue(req.headers["wechatpay-timestamp"]),
-          nonce: firstHeaderValue(req.headers["wechatpay-nonce"]),
-          signature: firstHeaderValue(req.headers["wechatpay-signature"]),
-          serial: firstHeaderValue(req.headers["wechatpay-serial"]),
-        },
-        rawBody,
-      });
-      await deps.autoRenewService.handleWeChatContractRawNotify(rawBody);
-      return reply.status(200).send({ code: "SUCCESS", message: "成功" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "WeChat contract notify failed";
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        module: "payment",
-        event: "payment.autorenew.wechat.contract_notify_failed",
-        level: "error",
-        status: "failed",
-        errorCode: "AUTO_RENEW_NOTIFY_FAILED",
-        errorMessage: message,
-      });
-      return reply.status(500).send({ code: "FAIL", message: "失败" });
-    }
-  });
-
-  app.post("/payment/autorenew/wechat/debit-notify", async (req, reply) => {
-    const requestId = resolveRequestId(req.headers["x-request-id"]);
-    reply.header("x-request-id", requestId);
-    const body = req.body as Partial<{ __rawBody: string }> | null;
-    const rawBody = body?.__rawBody;
-    if (!rawBody) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        module: "payment",
-        event: "payment.autorenew.wechat.debit_notify_missing_raw_body",
-        level: "warn",
-        status: "failed",
-        errorCode: "PAYMENT_NOTIFY_INVALID",
-        metadata: { path: "/payment/autorenew/wechat/debit-notify" },
-      });
-      return reply.status(400).send({ code: "FAIL", message: "Missing raw body" });
-    }
-
-    try {
-      await deps.paymentNotifyService.verifyWeChatNotifySignature({
-        headers: {
-          timestamp: firstHeaderValue(req.headers["wechatpay-timestamp"]),
-          nonce: firstHeaderValue(req.headers["wechatpay-nonce"]),
-          signature: firstHeaderValue(req.headers["wechatpay-signature"]),
-          serial: firstHeaderValue(req.headers["wechatpay-serial"]),
-        },
-        rawBody,
-      });
-      await deps.autoRenewService.handleWeChatDebitRawNotify(rawBody);
-      return reply.status(200).send({ code: "SUCCESS", message: "成功" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "WeChat debit notify failed";
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        module: "payment",
-        event: "payment.autorenew.wechat.debit_notify_failed",
-        level: "error",
-        status: "failed",
-        errorCode: "AUTO_RENEW_NOTIFY_FAILED",
-        errorMessage: message,
-      });
-      return reply.status(500).send({ code: "FAIL", message: "失败" });
-    }
-  });
-
-  app.post("/payment/orders", async (req, reply) => {
-    const requestId = resolveRequestId(req.headers["x-request-id"]);
-    reply.header("x-request-id", requestId);
-    const allowed = await checkPaymentRateLimit({
-      req,
-      reply,
-      requestId,
-      rule: {
-        routeKey: "orders_create",
-        path: "/payment/orders",
-        limit: config.payment.rateLimitOrdersCreateLimit,
-        windowSec: config.payment.rateLimitOrdersCreateWindowSec,
-        responseType: "api",
-      },
-      systemEventLogRepository: deps.systemEventLogRepository,
-    });
-    if (!allowed) return;
-
-    if (!isCreatePaymentOrderRequest(req.body)) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        module: "payment",
-        event: "payment.orders.invalid_payload",
-        level: "warn",
-        status: "failed",
-        errorCode: "VALIDATION_FAILED",
-      });
-      return reply.status(400).send({
-        ok: false,
-        request_id: requestId,
-        error: { code: "VALIDATION_FAILED", message: "Invalid payment order payload" },
-      });
-    }
-
-    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
-    if (!userContext) return;
-
-    try {
-      const data = await deps.paymentOrderService.createMembershipOrder({
-        userId: userContext.userId,
-        productCode: req.body.productCode,
-      });
-      return reply.status(200).send({ ok: true, request_id: requestId, data });
-    } catch (error) {
-      if (error instanceof ProRenewalTooEarlyError) {
-        // 已有 Pro 时不创建新的单次月卡订单，避免单买和订阅叠加。
-        return reply.status(409).send({
-          ok: false,
-          request_id: requestId,
-          error: {
-            code: error.code,
-            message: CLIENT_ERROR_MESSAGES.PRO_RENEWAL_TOO_EARLY,
-            expiresAt: error.expiresAt.toISOString(),
-          },
-        });
-      }
-      const message = error instanceof Error ? error.message : "Payment order failed";
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        userId: userContext.userId,
-        module: "payment",
-        event: "payment.orders.create_failed",
-        level: "error",
-        status: "failed",
-        errorCode: "PAYMENT_FAILED",
-        errorMessage: message,
-      });
-      return reply.status(502).send({
-        ok: false,
-        request_id: requestId,
-        error: { code: "PAYMENT_FAILED", message: CLIENT_ERROR_MESSAGES.PAYMENT_FAILED },
-      });
-    }
-  });
-
-  app.get("/payment/orders/:id", async (req, reply) => {
-    const requestId = resolveRequestId(req.headers["x-request-id"]);
-    reply.header("x-request-id", requestId);
-    const allowed = await checkPaymentRateLimit({
-      req,
-      reply,
-      requestId,
-      rule: {
-        routeKey: "orders_query",
-        path: "/payment/orders/:id",
-        limit: config.payment.rateLimitOrdersQueryLimit,
-        windowSec: config.payment.rateLimitOrdersQueryWindowSec,
-        responseType: "api",
-      },
-      systemEventLogRepository: deps.systemEventLogRepository,
-    });
-    if (!allowed) return;
-    const params = req.params as Partial<{ id: string }>;
-    const id = params.id?.trim();
-
-    if (!id) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        requestId,
-        module: "payment",
-        event: "payment.orders.missing_id",
-        level: "warn",
-        status: "failed",
-        errorCode: "VALIDATION_FAILED",
-      });
-      return reply.status(400).send({
-        ok: false,
-        request_id: requestId,
-        error: { code: "VALIDATION_FAILED", message: "Payment order id is required" },
-      });
-    }
-
-    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
-    if (!userContext) return;
-
-    try {
-      const data = await deps.paymentOrderService.getOrder({
-        id,
-        userId: userContext.userId,
-      });
-      return reply.status(200).send({ ok: true, request_id: requestId, data });
-    } catch (error) {
-      if (
-        error instanceof PaymentOrderNotFoundError ||
-        error instanceof PaymentOrderAccessDeniedError
-      ) {
-        await writeSystemEventLog(deps.systemEventLogRepository, {
-          requestId,
-          userId: userContext.userId,
-          module: "payment",
-          event: "payment.orders.query_failed",
-          level: "warn",
-          status: "failed",
-          errorCode: "RESOURCE_NOT_FOUND",
-          errorMessage: error.message,
-          metadata: { orderId: id },
-        });
-        return reply.status(404).send({
-          ok: false,
-          request_id: requestId,
-          error: {
-            code: "RESOURCE_NOT_FOUND",
-            message: CLIENT_ERROR_MESSAGES.RESOURCE_NOT_FOUND,
-          },
-        });
-      }
-
-      throw error;
-    }
-  });
-
-  app.post("/payment/wechat/notify", async (req, reply) => {
-    const requestId = resolveRequestId(req.headers["x-request-id"]);
-    reply.header("x-request-id", requestId);
-    const allowed = await checkPaymentRateLimit({
-      req,
-      reply,
-      requestId,
-      rule: {
-        routeKey: "wechat_notify",
-        path: "/payment/wechat/notify",
-        limit: config.payment.rateLimitWebhookLimit,
-        windowSec: config.payment.rateLimitWebhookWindowSec,
-        responseType: "webhook",
-      },
-      systemEventLogRepository: deps.systemEventLogRepository,
-    });
-    if (!allowed) return;
-    const body = req.body as Partial<{ __rawBody: string }> | null;
-    const rawBody = body?.__rawBody;
-
-    if (!rawBody) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        module: "payment",
-        event: "payment.notify.missing_raw_body",
-        level: "warn",
-        status: "failed",
-        errorCode: "PAYMENT_NOTIFY_INVALID",
-        metadata: { path: "/payment/wechat/notify" },
-      });
-      return reply.status(400).send({ code: "FAIL", message: "Missing raw body" });
-    }
-
-    try {
-      await deps.paymentNotifyService.handleWeChatNotify({
-        headers: {
-          timestamp: firstHeaderValue(req.headers["wechatpay-timestamp"]),
-          nonce: firstHeaderValue(req.headers["wechatpay-nonce"]),
-          signature: firstHeaderValue(req.headers["wechatpay-signature"]),
-          serial: firstHeaderValue(req.headers["wechatpay-serial"]),
-        },
-        rawBody,
-      });
-
-      return reply.status(200).send({ code: "SUCCESS", message: "成功" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "WeChat payment notify failed";
-      req.log.error({ error }, "wechat payment notify failed");
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        module: "payment",
-        event: "payment.notify.failed",
-        level: "error",
-        status: "failed",
-        errorCode: "PAYMENT_NOTIFY_FAILED",
-        errorMessage: message,
-        metadata: { path: "/payment/wechat/notify" },
-      });
-      return reply.status(500).send({ code: "FAIL", message: "失败" });
-    }
-  });
-
-  app.post("/payment/wechat/refund-notify", async (req, reply) => {
-    const requestId = resolveRequestId(req.headers["x-request-id"]);
-    reply.header("x-request-id", requestId);
-    const allowed = await checkPaymentRateLimit({
-      req,
-      reply,
-      requestId,
-      rule: {
-        routeKey: "wechat_refund_notify",
-        path: "/payment/wechat/refund-notify",
-        limit: config.payment.rateLimitWebhookLimit,
-        windowSec: config.payment.rateLimitWebhookWindowSec,
-        responseType: "webhook",
-      },
-      systemEventLogRepository: deps.systemEventLogRepository,
-    });
-    if (!allowed) return;
-    const body = req.body as Partial<{ __rawBody: string }> | null;
-    const rawBody = body?.__rawBody;
-
-    if (!rawBody) {
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        module: "payment",
-        event: "payment.refund_notify.missing_raw_body",
-        level: "warn",
-        status: "failed",
-        errorCode: "PAYMENT_NOTIFY_INVALID",
-        metadata: { path: "/payment/wechat/refund-notify" },
-      });
-      return reply.status(400).send({ code: "FAIL", message: "Missing raw body" });
-    }
-
-    try {
-      await deps.paymentNotifyService.handleWeChatRefundNotify({
-        headers: {
-          timestamp: firstHeaderValue(req.headers["wechatpay-timestamp"]),
-          nonce: firstHeaderValue(req.headers["wechatpay-nonce"]),
-          signature: firstHeaderValue(req.headers["wechatpay-signature"]),
-          serial: firstHeaderValue(req.headers["wechatpay-serial"]),
-        },
-        rawBody,
-      });
-
-      return reply.status(200).send({ code: "SUCCESS", message: "成功" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "WeChat refund notify failed";
-      req.log.error({ error }, "wechat refund notify failed");
-      await writeSystemEventLog(deps.systemEventLogRepository, {
-        module: "payment",
-        event: "payment.refund_notify.failed",
-        level: "error",
-        status: "failed",
-        errorCode: "PAYMENT_NOTIFY_FAILED",
-        errorMessage: message,
-        metadata: { path: "/payment/wechat/refund-notify" },
-      });
-      return reply.status(500).send({ code: "FAIL", message: "失败" });
     }
   });
 
@@ -1370,7 +964,6 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     return reply.status(200).send({ ok: true, request_id: requestId });
   });
 }
-
 function isGooglePlayNotifyTokenValid(req: FastifyRequest, expectedToken: string | null): boolean {
   // Never expose a mutation-capable webhook without an authentication secret.
   if (!expectedToken) return false;
@@ -1378,6 +971,10 @@ function isGooglePlayNotifyTokenValid(req: FastifyRequest, expectedToken: string
   const query = req.query && typeof req.query === "object" ? (req.query as Record<string, unknown>) : {};
   const queryToken = typeof query.token === "string" ? query.token : null;
   return tokensEqual(headerToken, expectedToken) || tokensEqual(queryToken, expectedToken);
+}
+
+function readCancelAtPeriodEnd(metadata: unknown): boolean {
+  return Boolean(metadata && typeof metadata === "object" && !Array.isArray(metadata) && (metadata as Record<string, unknown>).cancelAtPeriodEnd === true);
 }
 
 function tokensEqual(actual: string | null | undefined, expected: string): boolean {
@@ -1499,20 +1096,8 @@ async function resolvePaymentUserContext(
 }
 
 type PaymentRateLimitRule = {
-  routeKey:
-    | "wechat_notify"
-    | "wechat_refund_notify"
-    | "ios_notify"
-    | "google_play_notify"
-    | "orders_create"
-    | "orders_query";
-  path:
-    | "/payment/wechat/notify"
-    | "/payment/wechat/refund-notify"
-    | "/payment/ios/notify"
-    | "/payment/google-play/notify"
-    | "/payment/orders"
-    | "/payment/orders/:id";
+  routeKey: "ios_notify" | "google_play_notify" | "alipay_notify" | "alipay_create";
+  path: "/payment/ios/notify" | "/payment/google-play/notify" | "/payment/autorenew/alipay/notify" | "/payment/autorenew/alipay/create";
   limit: number;
   windowSec: number;
   responseType: "webhook" | "api";

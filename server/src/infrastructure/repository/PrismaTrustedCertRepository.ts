@@ -49,7 +49,7 @@ export class PrismaTrustedCertRepository implements TrustedCertRepository {
     return this.toEntity(row);
   }
 
-  async listActiveByProvider(provider: "wechat" | "apple"): Promise<TrustedCertEntity[]> {
+  async listActiveByProvider(provider: "apple"): Promise<TrustedCertEntity[]> {
     const rows = await this.prisma.trustedCert.findMany({
       where: {
         provider,
@@ -63,7 +63,7 @@ export class PrismaTrustedCertRepository implements TrustedCertRepository {
   }
 
   async deleteExpiredBefore(input: {
-    provider?: "wechat" | "apple";
+    provider?: "apple";
     before: Date;
   }): Promise<number> {
     const result = await this.prisma.trustedCert.deleteMany({

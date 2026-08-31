@@ -5,7 +5,6 @@ export type AiProviderName = "deepseek" | "openai" | "grok";
 export type MembershipFeatureTier = "free" | "plus" | "pro";
 
 export interface PaymentRuntimeConfig {
-  wechatPayEnabled: boolean;
   plusMonthlyPriceCents: number;
   proMonthlyPriceCents: number;
   descriptionPlusMonthly: string;
@@ -24,21 +23,6 @@ export interface PaymentRuntimeConfig {
   rateLimitOrdersCreateWindowSec: number;
   rateLimitOrdersQueryLimit: number;
   rateLimitOrdersQueryWindowSec: number;
-  wechatPayNotifyUrl: string | null;
-  wechatAutoRenew: {
-    enabled: boolean;
-    contractNotifyUrl: string | null;
-    debitNotifyUrl: string | null;
-    planId: string | null;
-    plusPlanId: string | null;
-    proPlanId: string | null;
-    contractReturnUrl: string | null;
-    intervalMs: number;
-    batchSize: number;
-    chargeDescription: string;
-    billingLeadMs: number;
-    reconcileGraceMs: number;
-  };
   appleIap: {
     enabled: boolean;
     issuerId: string | null;
@@ -69,6 +53,17 @@ export interface PaymentRuntimeConfig {
     notifyToken: string | null;
     notifyOidcAudience: string | null;
     notifyOidcServiceAccountEmail: string | null;
+  };
+  alipayAutoRenew: {
+    enabled: boolean;
+    appId: string | null;
+    privateKey: string | null;
+    alipayPublicKey: string | null;
+    gatewayUrl: string;
+    notifyUrl: string | null;
+    plusMonthlyPriceId: string | null;
+    proMonthlyPriceId: string | null;
+    requestTimeoutMs: number;
   };
 }
 
@@ -484,7 +479,6 @@ function readTencentTmsReviewMode(value: string | undefined, fallback: "suspect"
 
 function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): PaymentRuntimeConfig {
   return {
-    wechatPayEnabled: readBoolean(env.WECHAT_PAY_ENABLED, false),
     plusMonthlyPriceCents: readPositiveInt(env.LF_PLUS_MONTHLY_PRICE_CENTS, 1500),
     proMonthlyPriceCents: readPositiveInt(env.LF_PRO_MONTHLY_PRICE_CENTS, 3000),
     descriptionPlusMonthly: env.LF_PAYMENT_DESC_PLUS_MONTHLY?.trim() || "OIO Plus 月卡",
@@ -512,21 +506,6 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       env.LF_RL_PAYMENT_ORDERS_QUERY_WINDOW_SEC,
       60
     ),
-    wechatPayNotifyUrl: trimToNull(env.WECHAT_PAY_NOTIFY_URL),
-    wechatAutoRenew: {
-      enabled: readBoolean(env.WECHAT_AUTORENEW_ENABLED, false),
-      contractNotifyUrl: trimToNull(env.WECHAT_AUTORENEW_CONTRACT_NOTIFY_URL),
-      debitNotifyUrl: trimToNull(env.WECHAT_AUTORENEW_DEBIT_NOTIFY_URL),
-      planId: trimToNull(env.WECHAT_AUTORENEW_PLAN_ID),
-      plusPlanId: trimToNull(env.WECHAT_AUTORENEW_PLUS_PLAN_ID),
-      proPlanId: trimToNull(env.WECHAT_AUTORENEW_PRO_PLAN_ID),
-      contractReturnUrl: trimToNull(env.WECHAT_AUTORENEW_CONTRACT_RETURN_URL),
-      intervalMs: readPositiveInt(env.WECHAT_AUTORENEW_INTERVAL_MS, 300_000),
-      batchSize: readPositiveInt(env.WECHAT_AUTORENEW_BATCH_SIZE, 20),
-      chargeDescription: env.WECHAT_AUTORENEW_CHARGE_DESC?.trim() || "OIO Pro 自动续费",
-      billingLeadMs: readPositiveInt(env.WECHAT_AUTORENEW_BILLING_LEAD_MS, 172_800_000),
-      reconcileGraceMs: readPositiveInt(env.WECHAT_AUTORENEW_RECONCILE_GRACE_MS, 600_000),
-    },
     appleIap: {
       enabled: readBoolean(env.APPLE_IAP_ENABLED, false),
       issuerId: trimToNull(env.APPLE_IAP_ISSUER_ID),
@@ -557,6 +536,17 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       notifyToken: trimToNull(env.GOOGLE_PLAY_NOTIFY_TOKEN),
       notifyOidcAudience: trimToNull(env.GOOGLE_PLAY_NOTIFY_OIDC_AUDIENCE),
       notifyOidcServiceAccountEmail: trimToNull(env.GOOGLE_PLAY_NOTIFY_OIDC_SERVICE_ACCOUNT_EMAIL),
+    },
+    alipayAutoRenew: {
+      enabled: readBoolean(env.ALIPAY_AUTORENEW_ENABLED, false),
+      appId: trimToNull(env.ALIPAY_APP_ID),
+      privateKey: trimToNull(env.ALIPAY_APP_PRIVATE_KEY),
+      alipayPublicKey: trimToNull(env.ALIPAY_PUBLIC_KEY),
+      gatewayUrl: env.ALIPAY_GATEWAY_URL?.trim() || "https://openapi.alipay.com/gateway.do",
+      notifyUrl: trimToNull(env.ALIPAY_NOTIFY_URL),
+      plusMonthlyPriceId: trimToNull(env.ALIPAY_PLUS_MONTHLY_PRICE_ID),
+      proMonthlyPriceId: trimToNull(env.ALIPAY_PRO_MONTHLY_PRICE_ID),
+      requestTimeoutMs: readPositiveInt(env.ALIPAY_REQUEST_TIMEOUT_MS, 15_000),
     },
   };
 }
@@ -591,10 +581,7 @@ function trimToNull(value: string | undefined): string | null {
 function readCsv(value: string | undefined, fallback: string[]): string[] {
   const raw = value?.trim();
   if (!raw) return fallback;
-  return raw
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return raw.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
 function readTierCsv(value: string | undefined, fallback: MembershipFeatureTier[]): MembershipFeatureTier[] {
