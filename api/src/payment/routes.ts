@@ -290,6 +290,36 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       });
     }
 
+    try {
+      const reconcileResult = await deps.alipayAutoRenewService.reconcileCurrentAutoRenewForUser(
+        userContext.userId
+      );
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.alipay.autorenew.reconcile_checked",
+        level: "info",
+        status:
+          reconcileResult.status === "checked" && reconcileResult.action !== "unchanged"
+            ? "success"
+            : "ignored",
+        errorCode: "ALIPAY_AUTORENEW_RECONCILE_CHECKED",
+        metadata: { alipayAutoRenewReconcile: reconcileResult },
+      });
+    } catch (error) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.alipay.autorenew.reconcile_failed",
+        level: "warn",
+        status: "failed",
+        errorCode: "ALIPAY_AUTORENEW_RECONCILE_FAILED",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     const data = await deps.autoRenewService.getCurrent(userContext.userId);
     return reply.status(200).send({
       ok: true,

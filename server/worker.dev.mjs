@@ -5,6 +5,9 @@ import { PrismaBenefitGrantRepository } from "./src/infrastructure/repository/Pr
 import { PrismaSubscriptionRepository } from "./src/infrastructure/repository/PrismaSubscriptionRepository.ts";
 import { PrismaGooglePlayAccountLinkRepository } from "./src/infrastructure/repository/PrismaGooglePlayAccountLinkRepository.ts";
 import { GooglePlayBillingService } from "./src/providers/payment/google/GooglePlayBillingService.ts";
+import { AlipayAutoRenewClient } from "./src/providers/payment/alipay/AlipayClient.ts";
+import { AlipayAutoRenewService } from "./src/providers/payment/alipay/AlipayAutoRenewService.ts";
+import { isAlipayAutoRenewConfigured } from "./src/providers/payment/alipay/AlipayConfig.ts";
 import { PaymentEntitlementService } from "./src/services/payment/PaymentEntitlementService.ts";
 import { BenefitGrantService } from "./src/services/payment/BenefitGrantService.ts";
 import { SubscriptionService } from "./src/services/subscription/SubscriptionService.ts";
@@ -19,6 +22,7 @@ import { AiRequestLogCleanupWorker } from "./src/workers/ai/AiRequestLogCleanupW
 import { PaymentCertSyncWorker } from "./src/workers/payment/PaymentCertSyncWorker.ts";
 import { GooglePlayAcknowledgeWorker } from "./src/workers/payment/GooglePlayAcknowledgeWorker.ts";
 import { GooglePlaySubscriptionReconcileWorker } from "./src/workers/payment/GooglePlaySubscriptionReconcileWorker.ts";
+import { AlipaySubscriptionReconcileWorker } from "./src/workers/payment/AlipaySubscriptionReconcileWorker.ts";
 import { getRuntimeConfig } from "./src/config/runtimeConfig.ts";
 import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
 import { AutoRenewService } from "./src/services/payment/AutoRenewService.ts";
@@ -100,6 +104,14 @@ const googlePlayBillingService = new GooglePlayBillingService(
   benefitGrantService,
   googlePlayAccountLinkRepository
 );
+const alipayAutoRenewService = new AlipayAutoRenewService(
+  prisma,
+  autoRenewRepository,
+  autoRenewService,
+  paymentEntitlementService,
+  isAlipayAutoRenewConfigured() ? new AlipayAutoRenewClient() : undefined,
+  paymentEventRepository,
+);
 const benefitGrantWorker = new BenefitGrantWorker(
   benefitGrantRepository,
   paymentEntitlementService,
@@ -112,7 +124,7 @@ const accountDeletionCleanupWorker = new AccountDeletionCleanupWorker(
   prisma,
   systemEventLogRepository,
   ttsStorageProvider,
-  { googlePlayBillingService, imageStorageProvider: cardImageStorageProvider }
+  { googlePlayBillingService, alipayAutoRenewService, imageStorageProvider: cardImageStorageProvider }
 );
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);
@@ -131,6 +143,11 @@ const googlePlaySubscriptionReconcileWorker = new GooglePlaySubscriptionReconcil
   prisma,
   googlePlayBillingService,
   systemEventLogRepository
+);
+const alipaySubscriptionReconcileWorker = new AlipaySubscriptionReconcileWorker(
+  prisma,
+  alipayAutoRenewService,
+  systemEventLogRepository,
 );
 const cardRepository = new PrismaCardRepository(prisma);
 const cardEnrichmentRepository = new PrismaCardEnrichmentRepository(prisma);
@@ -334,6 +351,7 @@ const workerGroups = {
     paymentCertSyncWorker,
     googlePlayAcknowledgeWorker,
     googlePlaySubscriptionReconcileWorker,
+    alipaySubscriptionReconcileWorker,
   ],
   card: [
     cardRewriteWorker,

@@ -1,6 +1,6 @@
 import { loadAlipayAutoRenewConfig, type AlipayAutoRenewConfig } from "./AlipayConfig.js";
 import { signAlipayFields, verifyAlipayFields, verifyAlipayResponseContent, type AlipayFormFields } from "./AlipaySignature.js";
-import type { AlipaySubscriptionChanged, AlipaySubscriptionSnapshot } from "./AlipayTypes.js";
+import type { AlipaySubscriptionChanged, AlipaySubscriptionQueryResponse, AlipaySubscriptionSnapshot } from "./AlipayTypes.js";
 
 export class AlipayApiError extends Error {
   constructor(readonly code: string, message: string, readonly details?: unknown) { super(message); }
@@ -39,10 +39,26 @@ export class AlipayAutoRenewClient {
   }
 
   async querySubscription(input: { customerId: string; subscriptionId: string }): Promise<AlipaySubscriptionSnapshot> {
-    return (await this.call("alipay.trade.subscription.query", {
+    const result = (await this.call("alipay.trade.subscription.query", {
       customer_id: input.customerId,
       subscription_id: input.subscriptionId,
-    })) as unknown as AlipaySubscriptionSnapshot;
+    })) as unknown as AlipaySubscriptionQueryResponse;
+    const subscription = result.subscriptions?.find((item) => item.subscription_id === input.subscriptionId);
+    if (!subscription) {
+      throw new AlipayApiError(
+        "ALIPAY_SUBSCRIPTION_QUERY_NOT_FOUND",
+        "Alipay subscription query response did not contain the requested subscription",
+        result,
+      );
+    }
+    if (subscription.customer_id && subscription.customer_id !== input.customerId) {
+      throw new AlipayApiError(
+        "ALIPAY_SUBSCRIPTION_CUSTOMER_MISMATCH",
+        "Alipay subscription query response customer mismatch",
+        result,
+      );
+    }
+    return subscription;
   }
 
   async cancelAtPeriodEnd(subscriptionId: string): Promise<void> {

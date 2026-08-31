@@ -15,6 +15,16 @@ export interface AlipaySubscriptionSnapshot {
   }>;
 }
 
+export interface AlipaySubscriptionQueryResponse {
+  subscriptions?: AlipaySubscriptionSnapshot[];
+}
+
+export type AlipaySubscriptionStatus =
+  | "INCOMPLETE"
+  | "ACTIVE"
+  | "CANCELED"
+  | "INCOMPLETE_EXPIRED";
+
 export interface AlipaySubscriptionChanged {
   notifyId: string;
   appId: string;

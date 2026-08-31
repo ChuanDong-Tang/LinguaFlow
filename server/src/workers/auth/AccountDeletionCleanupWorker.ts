@@ -3,12 +3,14 @@ import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { TtsStorageProvider } from "../../services/tts/TtsStorageProvider.js";
 import type { GooglePlayBillingService } from "../../providers/payment/google/GooglePlayBillingService.js";
+import type { AlipayAutoRenewService } from "../../providers/payment/alipay/AlipayAutoRenewService.js";
 import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
 
 export interface AccountDeletionCleanupWorkerOptions {
   intervalMs?: number;
   batchSize?: number;
   googlePlayBillingService?: GooglePlayBillingService;
+  alipayAutoRenewService?: AlipayAutoRenewService;
   imageStorageProvider?: CardImageStorageProvider;
 }
 
@@ -118,6 +120,7 @@ export class AccountDeletionCleanupWorker {
 
   private async disableUserAndDeleteData(userId: string): Promise<void> {
     const googlePlayRenewalsStopped = await this.stopGooglePlayRenewalsBeforeDeletion(userId);
+    const alipayRenewalsStopped = await this.stopAlipayRenewalsBeforeDeletion(userId);
     const ttsObjectKeys = await this.prisma.ttsAsset.findMany({
       where: { userId, status: "ready" },
       select: { objectKey: true },
@@ -203,6 +206,7 @@ export class AccountDeletionCleanupWorker {
           : 0,
         imageCosCleanupSkipped: !this.options.imageStorageProvider,
         googlePlayRenewalsStopped,
+        alipayRenewalsStopped,
       },
     });
   }
@@ -227,6 +231,27 @@ export class AccountDeletionCleanupWorker {
       const status = await service.stopSubscriptionRenewalForAccountDeletion(
         subscription.providerAgreementId
       );
+      if (status === "cancelled") stopped += 1;
+    }
+    return stopped;
+  }
+
+  private async stopAlipayRenewalsBeforeDeletion(userId: string): Promise<number> {
+    const subscriptions = await this.prisma.autoRenewSubscription.findMany({
+      where: {
+        userId,
+        provider: "alipay",
+        status: { in: ["pending", "active", "billing_retry", "paused"] },
+      },
+      select: { providerAgreementId: true },
+    });
+    if (subscriptions.length === 0) return 0;
+    const service = this.options.alipayAutoRenewService;
+    if (!service) throw new Error("ALIPAY_ACCOUNT_DELETION_CANCEL_SERVICE_NOT_CONFIGURED");
+
+    let stopped = 0;
+    for (const subscription of subscriptions) {
+      const status = await service.stopSubscriptionRenewalForAccountDeletion(subscription.providerAgreementId);
       if (status === "cancelled") stopped += 1;
     }
     return stopped;

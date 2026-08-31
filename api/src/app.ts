@@ -342,6 +342,7 @@ export function createApp() {
     autoRenewService,
     paymentEntitlementService,
     isAlipayAutoRenewConfigured() ? new AlipayAutoRenewClient() : undefined,
+    paymentEventRepository,
   );
   const paymentEntitlementRefreshService = new PaymentEntitlementRefreshService(entitlementService);
   const appleIapService = new AppleIapService(
