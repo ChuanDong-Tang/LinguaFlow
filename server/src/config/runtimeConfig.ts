@@ -225,6 +225,9 @@ export interface RuntimeConfig {
   dictionaryLookupUserRateLimit: number;
   dictionaryLookupRateWindowMs: number;
   dictionaryLookupMaxOutputTokens: number;
+  dictionaryLookupAiAttemptTimeoutMs: number;
+  dictionaryLookupAiMaxAttempts: number;
+  dictionaryLookupAiRetryBaseDelayMs: number;
   sttRealtimeGlobalRateLimit: number;
   sttRealtimeUserRateLimit: number;
   sttRealtimeRateWindowMs: number;
@@ -431,6 +434,9 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     dictionaryLookupUserRateLimit: readPositiveInt(env.DICTIONARY_LOOKUP_USER_RATE_LIMIT, 80),
     dictionaryLookupRateWindowMs: readPositiveInt(env.DICTIONARY_LOOKUP_RATE_WINDOW_MS, 60_000),
     dictionaryLookupMaxOutputTokens: readPositiveInt(env.DICTIONARY_LOOKUP_MAX_OUTPUT_TOKENS, 180),
+    dictionaryLookupAiAttemptTimeoutMs: readPositiveInt(env.DICTIONARY_LOOKUP_AI_ATTEMPT_TIMEOUT_MS, 15_000),
+    dictionaryLookupAiMaxAttempts: Math.min(2, readPositiveInt(env.DICTIONARY_LOOKUP_AI_MAX_ATTEMPTS, 2)),
+    dictionaryLookupAiRetryBaseDelayMs: readPositiveInt(env.DICTIONARY_LOOKUP_AI_RETRY_BASE_DELAY_MS, 250),
     sttRealtimeGlobalRateLimit: resourcePolicies.stt.globalRequestsPerMinute,
     sttRealtimeUserRateLimit: resourcePolicies.stt.userRequestsPerMinute,
     sttRealtimeRateWindowMs: readPositiveInt(env.STT_REALTIME_RATE_WINDOW_MS, 60_000),

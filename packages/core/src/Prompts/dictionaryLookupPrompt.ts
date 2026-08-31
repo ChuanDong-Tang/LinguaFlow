@@ -20,9 +20,10 @@ export function buildDictionarySystemPrompt(input: {
 Explain only the selected word or phrase's meaning in this exact context.
 
 Return only minified JSON with this exact shape:
-{"queryType":"word|phrase|sentence","term":"...","phonetic":"/.../ or null","targetMeaning":"...","nativeMeaning":"..."}
+{"queryType":"word","term":"...","phonetic":"/.../","targetMeaning":"...","nativeMeaning":"..."}
 
 Rules:
+* queryType must be exactly one of: word, phrase, sentence. The JSON example uses word only as an example.
 * targetMeaning must be a concise, learner-friendly explanation in ${targetLanguage}.
 * nativeMeaning must be the same contextual meaning translated naturally into ${uiLanguage}.
 * Set queryType to word only for one lexical word. Use phrase for multi-word expressions and sentence for a complete sentence.
