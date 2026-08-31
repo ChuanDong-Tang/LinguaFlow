@@ -1,9 +1,10 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import type { SubscriptionService } from "@lf/server/services/subscription/SubscriptionService.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { getRedisClient } from "@lf/server/infrastructure/redis/redisClient.js";
 import { dateKeyRangeInBusinessTimeZone, formatDateKeyInTimeZone } from "@lf/server/services/time/businessClock.js";
+import { addCalendarMonthsClamped } from "@lf/server/services/time/calendarMath.js";
 import { requireAdmin } from "../auth/adminAuth.js";
 import { resolveRequestId } from "../lib/httpResult.js";
 import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
@@ -1323,7 +1324,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     return reply.status(200).send({ ok: true, request_id: requestId, data: updated });
   });
 
-  app.post("/admin/users/:id/grant-pro-monthly", async (req, reply) => {
+  const grantMembershipHandler = async (req: FastifyRequest, reply: FastifyReply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
 
@@ -1331,14 +1332,23 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const userId = String((req.params as Record<string, unknown>)?.id ?? "").trim();
     const body = (req.body ?? {}) as Record<string, unknown>;
     const reason = String(body.reason ?? "").trim();
+    const plan = String(body.plan ?? "pro_monthly").trim();
     const monthsRaw = Number(body.months ?? 1);
     const months = Number.isFinite(monthsRaw) ? Math.trunc(monthsRaw) : 1;
+    const allowedPlans = new Set(["plus_monthly", "pro_monthly"]);
 
     if (!userId || !reason) {
       return reply.status(400).send({
         ok: false,
         request_id: requestId,
         error: { code: "REQUEST_INVALID", message: "user id and reason are required" },
+      });
+    }
+    if (!allowedPlans.has(plan)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "REQUEST_INVALID", message: "plan must be plus_monthly or pro_monthly" },
       });
     }
 
@@ -1369,41 +1379,141 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       });
     }
 
-    const sourceOrderId = `admin_grant:${userId}:${Date.now()}:${randomUUID()}`;
-    const result = await deps.subscriptionService.openOrRenewMembership({
-      userId,
-      plan: "pro_monthly",
-      sourceOrderId,
-      months,
-    });
+    const sourceOrderId = `admin_grant:${userId}:${requestId}`;
+    let result: {
+      subscription: any;
+      scheduledAfterSubscriptionId: string | null;
+      scheduledAfter: Date;
+      alreadyApplied: boolean;
+    };
+    try {
+      result = await deps.prisma.$transaction(async (tx) => {
+        // Serialize grants for one user so repeated clicks cannot create overlapping periods.
+        await tx.$queryRawUnsafe(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
+          `admin-membership:${userId}`,
+        );
 
-    await writeAuditLog(deps, {
-      adminId: admin.adminId,
-      action: "admin.users.grant_pro_monthly",
-      targetType: "user",
-      targetId: userId,
-      requestId,
-      ip: req.ip,
-      reason,
-      afterData: {
-        months,
-        sourceOrderId,
-        subscriptionId: result.subscription.id,
-        expiresAt: result.subscription.expiresAt,
-      },
-    });
+        const existingByRequest = await tx.subscription.findUnique({ where: { sourceOrderId } });
+        if (existingByRequest) {
+          const expectedExpiresAt = addCalendarMonthsClamped(existingByRequest.startedAt, months);
+          if (
+            existingByRequest.userId !== userId ||
+            existingByRequest.plan !== plan ||
+            existingByRequest.expiresAt.getTime() !== expectedExpiresAt.getTime()
+          ) {
+            throw new AdminBusinessError(
+              409,
+              "IDEMPOTENCY_KEY_REUSED",
+              "The request id has already been used for another membership grant",
+            );
+          }
+          return {
+            subscription: existingByRequest,
+            scheduledAfterSubscriptionId: null,
+            scheduledAfter: existingByRequest.startedAt,
+            alreadyApplied: true,
+          };
+        }
+
+        const now = new Date();
+        const autoRenewRows = await tx.autoRenewSubscription.findMany({
+          where: {
+            userId,
+            status: { in: ["pending", "active", "billing_retry", "paused"] },
+          },
+          orderBy: { updatedAt: "desc" },
+        });
+        const renewable = autoRenewRows.find((row: any) => autoRenewMayChargeAgain(row));
+        if (renewable) {
+          throw new AdminBusinessError(
+            409,
+            "AUTO_RENEW_CONFLICT",
+            `The user still has a renewable ${renewable.provider} subscription; cancel renewal before granting manual membership`,
+          );
+        }
+
+        const latestScheduled = await tx.subscription.findFirst({
+          where: {
+            userId,
+            status: "active",
+            expiresAt: { gt: now },
+          },
+          orderBy: [{ expiresAt: "desc" }, { createdAt: "desc" }],
+        });
+        const scheduledAfter = latestScheduled?.expiresAt && latestScheduled.expiresAt > now
+          ? latestScheduled.expiresAt
+          : now;
+        const expiresAt = addCalendarMonthsClamped(scheduledAfter, months);
+        const subscription = await tx.subscription.create({
+          data: {
+            userId,
+            plan,
+            status: "active",
+            startedAt: scheduledAfter,
+            expiresAt,
+            sourceOrderId,
+          },
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            id: randomUUID(),
+            adminId: admin.adminId,
+            action: "admin.users.grant_membership",
+            targetType: "user",
+            targetId: userId,
+            requestId,
+            ip: req.ip,
+            reason,
+            afterData: {
+              plan,
+              months,
+              sourceOrderId,
+              subscriptionId: subscription.id,
+              startedAt: subscription.startedAt,
+              expiresAt: subscription.expiresAt,
+              scheduledAfterSubscriptionId: latestScheduled?.id ?? null,
+            },
+          },
+        });
+
+        return {
+          subscription,
+          scheduledAfterSubscriptionId: latestScheduled?.id ?? null,
+          scheduledAfter,
+          alreadyApplied: false,
+        };
+      });
+    } catch (error) {
+      if (error instanceof AdminBusinessError) {
+        return reply.status(error.status).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
+    }
 
     return reply.status(200).send({
       ok: true,
       request_id: requestId,
       data: {
         userId,
+        plan,
         months,
         sourceOrderId,
         subscription: result.subscription,
+        scheduledAfterSubscriptionId: result.scheduledAfterSubscriptionId,
+        alreadyApplied: result.alreadyApplied,
       },
     });
-  });
+  };
+
+  app.post("/admin/users/:id/grant-membership", grantMembershipHandler);
+  // Kept for old admin pages and scripts; omitting plan still defaults to Pro.
+  app.post("/admin/users/:id/grant-pro-monthly", grantMembershipHandler);
 
   app.post("/admin/users/:id/cancel-pro-next-day", async (req, reply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
@@ -2081,6 +2191,14 @@ function uniqueNonEmptyStrings(values: unknown[]): string[] {
         .filter(Boolean)
     )
   );
+}
+
+function autoRenewMayChargeAgain(row: { status?: unknown; metadata?: unknown }): boolean {
+  if (row.status === "pending") return true;
+  const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+    ? row.metadata as Record<string, unknown>
+    : {};
+  return metadata.cancelAtPeriodEnd !== true;
 }
 
 async function writeAuditLog(

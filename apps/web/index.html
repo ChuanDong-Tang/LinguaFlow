@@ -1312,8 +1312,13 @@
                     <p id="diagnosticsMeta" class="section-subtitle">未加载</p>
                   </div>
                   <div class="inline-actions">
-                    <button id="btnGrantPro" class="btn secondary">补 1 个月 Pro</button>
-                    <button id="btnCancelPro" class="btn danger">取消 Pro</button>
+                    <select id="manualGrantPlan" aria-label="手动开通套餐">
+                      <option value="pro_monthly">Pro</option>
+                      <option value="plus_monthly">Plus</option>
+                    </select>
+                    <input id="manualGrantMonths" type="number" min="1" max="12" step="1" value="1" aria-label="手动开通月数" style="width:72px" />
+                    <button id="btnGrantMembership" class="btn secondary">手动开通会员</button>
+                    <button id="btnCancelPro" class="btn danger">取消会员</button>
                   </div>
                 </div>
                 <div id="userFacts" class="mini-grid"></div>
@@ -3265,17 +3270,33 @@
         `;
       }
 
-      async function grantPro() {
+      async function grantMembership() {
         const userId = state.activeUserId || $("userSearch").value.trim();
         if (!userId) throw new Error("请先选择用户");
-        const reason = prompt("补 1 个月 Pro 的原因（必填）");
+        const button = $("btnGrantMembership");
+        if (button.disabled) return;
+        const plan = $("manualGrantPlan").value;
+        const months = Number($("manualGrantMonths").value);
+        if (!Number.isInteger(months) || months < 1 || months > 12) {
+          throw new Error("开通月数必须是 1 到 12 的整数");
+        }
+        const planLabel = plan === "plus_monthly" ? "Plus" : "Pro";
+        const reason = prompt(`手动开通 ${months} 个月 ${planLabel} 的原因（必填）`);
         if (!reason) return;
-        await request(`/admin/users/${encodeURIComponent(userId)}/grant-pro-monthly`, {
-          method: "POST",
-          body: JSON.stringify({ reason, months: 1 }),
-        });
-        await loadDiagnostics(userId);
-        alert("已补 1 个月 Pro");
+        const requestId = `admin_grant_${crypto.randomUUID()}`;
+        button.disabled = true;
+        try {
+          const res = await request(`/admin/users/${encodeURIComponent(userId)}/grant-membership`, {
+            method: "POST",
+            headers: { "X-Request-Id": requestId },
+            body: JSON.stringify({ reason, months, plan }),
+          });
+          await loadDiagnostics(userId);
+          const startsAt = res.data?.subscription?.startedAt;
+          alert(`已开通 ${months} 个月 ${planLabel}${startsAt ? `，开始时间：${fmtDate(startsAt)}` : ""}`);
+        } finally {
+          button.disabled = false;
+        }
       }
 
       async function cancelProNextDay() {
@@ -3853,7 +3874,7 @@
           await setContactUserEmail(userId, target.dataset.userEmail || "");
         }));
         $("btnLoadDiagnostics").addEventListener("click", guard(() => loadDiagnostics()));
-        $("btnGrantPro").addEventListener("click", guard(grantPro));
+        $("btnGrantMembership").addEventListener("click", guard(grantMembership));
         $("btnCancelPro").addEventListener("click", guard(cancelProNextDay));
         $("btnLoadOrders").addEventListener("click", guard(loadOrders));
         $("btnLoadSubscriptions").addEventListener("click", guard(loadSubscriptions));
