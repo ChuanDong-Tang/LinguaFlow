@@ -76,7 +76,11 @@ import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock"
 import { getLanguage, t, tf } from "../i18n";
 import { stopTtsAudio } from "../services/tts/ttsPlayback";
 import { dictionaryLookupErrorKey, lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
-import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api/sttRealtimeApi";
+import {
+  openRealtimeSttSession,
+  STT_INPUT_MAX_RECORDING_MS,
+  type RealtimeSttSession,
+} from "../services/api/sttRealtimeApi";
 import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
 import { calculatePcmAudioLevel } from "../services/stt/pcmAudioLevel";
 import type { PcmAudioFrame, RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
@@ -771,16 +775,30 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
         frameLength,
         languageIdMode,
         candidateLanguages,
+        autoStopAfterMs: STT_INPUT_MAX_RECORDING_MS,
+        onAutoStop: () => {
+          if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
+          const activeSource = sttAudioSourceRef.current;
+          sttAudioSourceRef.current = null;
+          void activeSource?.stop().catch(() => undefined);
+          sttStatusRef.current = "stopping";
+          setSttStatus("stopping");
+          setSttAudioLevel(0);
+        },
         onEvent: (event) => {
           if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
           if (event.type === "ready") {
-            sttStatusRef.current = "recording";
-            setSttStatus("recording");
+            if (sttStatusRef.current !== "stopping") {
+              sttStatusRef.current = "recording";
+              setSttStatus("recording");
+            }
             return;
           }
           if (event.type === "partial") {
-            sttStatusRef.current = "recording";
-            setSttStatus("recording");
+            if (sttStatusRef.current !== "stopping") {
+              sttStatusRef.current = "recording";
+              setSttStatus("recording");
+            }
             const finalText = event.finalText ?? sttFinalTextRef.current;
             sttPartialTextRef.current = event.text;
             const merged = mergeSttDraftResult(sttDraftBaseRef.current, finalText, event.text, sttInsertRangeRef.current);
@@ -789,8 +807,10 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
             return;
           }
           if (event.type === "final") {
-            sttStatusRef.current = "recording";
-            setSttStatus("recording");
+            if (sttStatusRef.current !== "stopping") {
+              sttStatusRef.current = "recording";
+              setSttStatus("recording");
+            }
             sttFinalTextRef.current = event.finalText ?? mergeSttDraft("", sttFinalTextRef.current, event.text);
             sttPartialTextRef.current = "";
             const merged = mergeSttDraftResult(sttDraftBaseRef.current, sttFinalTextRef.current, "", sttInsertRangeRef.current);
@@ -799,6 +819,9 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
             return;
           }
           if (event.type === "done") {
+            const activeSource = sttAudioSourceRef.current;
+            sttAudioSourceRef.current = null;
+            void activeSource?.stop().catch(() => undefined);
             sttFinalTextRef.current = event.text || sttFinalTextRef.current;
             const merged = mergeSttDraftResult(
               sttDraftBaseRef.current,
@@ -839,6 +862,9 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
         },
         onClose: () => {
           if (!isMountedRef.current || sttGenerationRef.current !== generation) return;
+          const activeSource = sttAudioSourceRef.current;
+          sttAudioSourceRef.current = null;
+          void activeSource?.stop().catch(() => undefined);
           sttSessionRef.current = null;
           sttStatusRef.current = "idle";
           setSttStatus("idle");

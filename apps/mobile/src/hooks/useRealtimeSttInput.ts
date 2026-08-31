@@ -3,7 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
 import { getLanguage, t } from "../i18n";
 import { getUserPreference } from "../services/api/meApi";
-import { openRealtimeSttSession, type RealtimeSttSession } from "../services/api/sttRealtimeApi";
+import {
+  openRealtimeSttSession,
+  STT_INPUT_MAX_RECORDING_MS,
+  type RealtimeSttSession,
+} from "../services/api/sttRealtimeApi";
 import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRealtimeAudioSource";
 import type { PcmAudioFrame, RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
 import { stopTtsAudio } from "../services/tts/ttsPlayback";
@@ -161,20 +165,36 @@ export function useRealtimeSttInput(input: {
         frameLength: FRAME_LENGTH,
         languageIdMode: multilingual ? "continuous" : "at_start",
         candidateLanguages,
+        autoStopAfterMs: STT_INPUT_MAX_RECORDING_MS,
+        onAutoStop: () => {
+          if (!mountedRef.current || generationRef.current !== generation) return;
+          const activeSource = sourceRef.current;
+          sourceRef.current = null;
+          void activeSource?.stop().catch(() => undefined);
+          statusRef.current = "stopping";
+          setStatus("stopping");
+          setAudioLevel(0);
+        },
         onEvent: (event) => {
           if (!mountedRef.current || generationRef.current !== generation) return;
           if (event.type === "ready") {
-            statusRef.current = "recording";
-            setStatus("recording");
+            if (statusRef.current !== "stopping") {
+              statusRef.current = "recording";
+              setStatus("recording");
+            }
           } else if (event.type === "partial") {
-            statusRef.current = "recording";
-            setStatus("recording");
+            if (statusRef.current !== "stopping") {
+              statusRef.current = "recording";
+              setStatus("recording");
+            }
             const finalText = event.finalText ?? finalTextRef.current;
             partialTextRef.current = event.text;
             applyRecognition(finalText, event.text);
           } else if (event.type === "final") {
-            statusRef.current = "recording";
-            setStatus("recording");
+            if (statusRef.current !== "stopping") {
+              statusRef.current = "recording";
+              setStatus("recording");
+            }
             finalTextRef.current = event.finalText ?? joinRecognition(finalTextRef.current, event.text);
             partialTextRef.current = "";
             applyRecognition(finalTextRef.current, "");

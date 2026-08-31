@@ -5,6 +5,8 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const SAMPLE_RATE = 16000;
 const CHANNELS = 1;
 const BITS_PER_SAMPLE = 16;
+export const STT_INPUT_MAX_RECORDING_MS = 50_000;
+const STT_STOP_RESPONSE_TIMEOUT_MS = 8_000;
 
 export type RealtimeSttEvent =
   | { type: "hello"; requestId: string }
@@ -36,14 +38,64 @@ export async function openRealtimeSttSession(input: {
   languageIdMode?: "at_start" | "continuous";
   candidateLanguages?: string[];
   pronunciationReferenceText?: string;
+  autoStopAfterMs?: number;
+  onAutoStop?: () => void;
   onEvent: (event: RealtimeSttEvent) => void;
   onError: (error: Error) => void;
   onClose?: () => void;
 }): Promise<RealtimeSttSession> {
+  const autoStopStartedAt = Date.now();
   const sessionId = createSessionId();
   const accessToken = await getAuthAccessToken();
   const ws = new WebSocket(buildSttWsUrl(accessToken));
   ws.binaryType = "arraybuffer";
+  let autoStopTimer: ReturnType<typeof setTimeout> | null = null;
+  let stopResponseTimer: ReturnType<typeof setTimeout> | null = null;
+  let stopRequested = false;
+
+  const clearAutoStopTimer = () => {
+    if (!autoStopTimer) return;
+    clearTimeout(autoStopTimer);
+    autoStopTimer = null;
+  };
+  const clearStopResponseTimer = () => {
+    if (!stopResponseTimer) return;
+    clearTimeout(stopResponseTimer);
+    stopResponseTimer = null;
+  };
+  const clearSessionTimers = () => {
+    clearAutoStopTimer();
+    clearStopResponseTimer();
+  };
+  const requestStop = (automatic: boolean) => {
+    if (stopRequested) return;
+    stopRequested = true;
+    clearAutoStopTimer();
+    if (automatic) {
+      try {
+        input.onAutoStop?.();
+      } catch (error) {
+        input.onError(error instanceof Error ? error : new Error("STT auto-stop callback failed"));
+      }
+    }
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "stop" }));
+        stopResponseTimer = setTimeout(() => ws.close(), STT_STOP_RESPONSE_TIMEOUT_MS);
+      } catch (error) {
+        ws.close();
+        input.onError(error instanceof Error ? error : new Error("STT stop request failed"));
+      }
+      return;
+    }
+    ws.close();
+  };
+  const scheduleAutoStop = () => {
+    const configuredMs = input.autoStopAfterMs;
+    if (typeof configuredMs !== "number" || !Number.isFinite(configuredMs) || configuredMs <= 0) return;
+    const remainingMs = Math.max(1, Math.floor(configuredMs) - (Date.now() - autoStopStartedAt));
+    autoStopTimer = setTimeout(() => requestStop(true), remainingMs);
+  };
 
   await new Promise<void>((resolve, reject) => {
     let ready = false;
@@ -78,6 +130,7 @@ export async function openRealtimeSttSession(input: {
         message = JSON.parse(event.data) as RealtimeSttEvent;
       } catch {
         clearTimeout(timeout);
+        ws.close();
         reject(new Error("Invalid STT event"));
         return;
       }
@@ -89,12 +142,14 @@ export async function openRealtimeSttSession(input: {
       if (message.type === "ready") {
         ready = true;
         clearTimeout(timeout);
+        scheduleAutoStop();
         input.onEvent(message);
         resolve();
         return;
       }
       if (message.type === "error") {
         clearTimeout(timeout);
+        ws.close();
         reject(new Error(message.message));
       }
     };
@@ -102,33 +157,53 @@ export async function openRealtimeSttSession(input: {
       clearTimeout(timeout);
       reject(new Error("STT connection failed"));
     };
+    ws.onclose = () => {
+      clearTimeout(timeout);
+      if (!ready) reject(new Error("STT connection closed before ready"));
+    };
   });
 
   ws.onmessage = (event) => {
     if (typeof event.data !== "string") return;
+    let message: RealtimeSttEvent;
     try {
-      input.onEvent(JSON.parse(event.data) as RealtimeSttEvent);
+      message = JSON.parse(event.data) as RealtimeSttEvent;
     } catch {
+      stopRequested = true;
+      clearSessionTimers();
+      ws.close();
       input.onError(new Error("Invalid STT event"));
+      return;
     }
+    if (message.type === "done" || message.type === "error" || message.type === "canceled") {
+      stopRequested = true;
+      clearSessionTimers();
+    }
+    input.onEvent(message);
   };
-  ws.onerror = () => input.onError(new Error("STT connection failed"));
-  ws.onclose = () => input.onClose?.();
+  ws.onerror = () => {
+    stopRequested = true;
+    clearSessionTimers();
+    input.onError(new Error("STT connection failed"));
+  };
+  ws.onclose = () => {
+    stopRequested = true;
+    clearSessionTimers();
+    input.onClose?.();
+  };
 
   return {
     sessionId,
     sendFrame(frame) {
-      if (ws.readyState !== WebSocket.OPEN) return;
+      if (stopRequested || ws.readyState !== WebSocket.OPEN) return;
       ws.send(frame.pcm.buffer.slice(frame.pcm.byteOffset, frame.pcm.byteOffset + frame.pcm.byteLength));
     },
     stop() {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "stop" }));
-        return;
-      }
-      ws.close();
+      requestStop(false);
     },
     close() {
+      stopRequested = true;
+      clearSessionTimers();
       ws.close();
     },
   };
