@@ -1,6 +1,11 @@
 import { loadAlipayAutoRenewConfig, type AlipayAutoRenewConfig } from "./AlipayConfig.js";
 import { signAlipayFields, verifyAlipayFields, verifyAlipayResponseContent, type AlipayFormFields } from "./AlipaySignature.js";
-import type { AlipaySubscriptionChanged, AlipaySubscriptionQueryResponse, AlipaySubscriptionSnapshot } from "./AlipayTypes.js";
+import type {
+  AlipayPriceSnapshot,
+  AlipaySubscriptionChanged,
+  AlipaySubscriptionQueryResponse,
+  AlipaySubscriptionSnapshot,
+} from "./AlipayTypes.js";
 
 export class AlipayApiError extends Error {
   constructor(readonly code: string, message: string, readonly details?: unknown) { super(message); }
@@ -36,6 +41,33 @@ export class AlipayAutoRenewClient {
     const jumpSchema = stringValue(result.alipay_jump_schema);
     if (!subscriptionId || !jumpSchema) throw new AlipayApiError("ALIPAY_SUBSCRIPTION_RESPONSE_INVALID", "Alipay subscription response missing id or jump schema", result);
     return { subscriptionId, jumpSchema, orderNo: stringValue(result.order_no), schemaEffectiveEnd: stringValue(result.schema_effective_end), raw: result };
+  }
+
+  async queryPrice(priceId: string): Promise<AlipayPriceSnapshot> {
+    const result = await this.call("alipay.trade.price.query", { price_id: priceId });
+    const id = stringValue(result.id ?? result.price_id);
+    const unitAmount = positiveIntegerValue(result.unit_amount);
+    const active = booleanValue(result.active);
+    if (id !== priceId) {
+      throw new AlipayApiError("ALIPAY_PRICE_ID_MISMATCH", "Alipay price query response id mismatch", result);
+    }
+    if (unitAmount === null || active === null) {
+      throw new AlipayApiError("ALIPAY_PRICE_RESPONSE_INVALID", "Alipay price query response is incomplete", result);
+    }
+    const recurring = objectValue(result.recurring);
+    return {
+      id,
+      active,
+      productId: stringValue(result.product_id),
+      unitAmount,
+      type: stringValue(result.type),
+      recurring: Object.keys(recurring).length > 0
+        ? {
+            interval: stringValue(recurring.interval),
+            intervalCount: positiveIntegerValue(recurring.interval_count),
+          }
+        : null,
+    };
   }
 
   async querySubscription(input: { customerId: string; subscriptionId: string }): Promise<AlipaySubscriptionSnapshot> {
@@ -137,6 +169,15 @@ function parseObjectValue(value: unknown): Record<string, unknown> {
 }
 function stringValue(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : value === undefined || value === null ? null : String(value); }
 function numberValue(value: unknown): number | null { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
+function positiveIntegerValue(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+function booleanValue(value: unknown): boolean | null {
+  if (value === true || value === "true" || value === "TRUE" || value === 1 || value === "1") return true;
+  if (value === false || value === "false" || value === "FALSE" || value === 0 || value === "0") return false;
+  return null;
+}
 function formatAlipayTimestamp(date: Date): string { return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(date).replace("T", " "); }
 
 function extractTopLevelObject(json: string, key: string): string | null {

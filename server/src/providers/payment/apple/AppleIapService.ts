@@ -338,6 +338,7 @@ export class AppleIapService {
       });
     }
     const { purchaseKind, productCode } = purchase;
+    const appleAmount = resolveApplePaymentOrderAmount(transaction, productCode);
 
     const originalTransactionId = transaction.originalTransactionId || transaction.transactionId;
     if (!originalTransactionId) {
@@ -485,7 +486,6 @@ export class AppleIapService {
 
     // Apple 已经支付成功，但 OIO 仍要先确认订阅链可归当前账号，再创建内部 paid order。
     // 否则 originalTransactionId 认领失败时，会留下“订单已 paid、权益没发”的半状态。
-    const appleAmount = resolveApplePaymentOrderAmount(transaction, productCode);
     const order = await this.paymentOrderRepository.findOrCreatePaidExternalOrder({
       userId: input.userId,
       productCode,
@@ -1030,24 +1030,21 @@ function resolveApplePaymentOrderAmount(
 ): {
   amount: number;
   currency: string;
-  source: "apple_transaction" | "runtime_config";
+  source: "apple_transaction";
 } {
   const currency = transaction.currency?.trim().toUpperCase();
-  if (currency && typeof transaction.price === "number" && Number.isFinite(transaction.price)) {
+  if (currency && typeof transaction.price === "number" && Number.isFinite(transaction.price) && transaction.price >= 0) {
     const amount = convertAppleMilliUnitsToMinorUnits(transaction.price, currency);
-    if (amount > 0) {
+    if (amount >= 0) {
       return { amount, currency, source: "apple_transaction" };
     }
   }
 
-  return {
-    amount:
-      productCode === "plus_monthly"
-        ? getRuntimeConfig().payment.plusMonthlyPriceCents
-        : getRuntimeConfig().payment.proMonthlyPriceCents,
-    currency: "CNY",
-    source: "runtime_config",
-  };
+  throw new AppleIapVerifyError("Apple transaction price is missing or invalid", "APPLE_IAP_PRICE_MISSING", {
+    productCode,
+    price: transaction.price,
+    currency: transaction.currency,
+  });
 }
 
 function convertAppleMilliUnitsToMinorUnits(priceInMilliUnits: number, currency: string): number {

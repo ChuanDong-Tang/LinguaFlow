@@ -71,14 +71,7 @@ const ENABLE_GOOGLE_PLAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_GOOGLE_PLAY
 const ENABLE_ALIPAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW === "true";
 const DISTRIBUTION_CHANNEL = process.env.EXPO_PUBLIC_DISTRIBUTION_CHANNEL?.trim().toLowerCase();
 const IS_CHINA_ANDROID = Platform.OS === "android" && DISTRIBUTION_CHANNEL === "china";
-const PRODUCT_PRICE_CACHE_KEY = environmentStorageKey(
-  Platform.OS === "android" ? "lf_membership_product_price_v3" : "lf_membership_product_price_v2"
-);
 const AUTO_RENEW_CACHE_KEY = environmentStorageKey("lf_current_auto_renew_v1");
-const PRODUCT_PRICE_CACHE_TTL_MS = readPositiveIntEnv(
-  process.env.EXPO_PUBLIC_PRO_PRICE_CACHE_TTL_MS,
-  24 * 60 * 60 * 1000
-);
 const AUTO_RENEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const APPLE_PURCHASE_TIMEOUT_MS = 120 * 1000;
 
@@ -96,7 +89,6 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   const [isRedeemingAppleOffer, setIsRedeemingAppleOffer] = useState(false);
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
   const [storeError, setStoreError] = useState<string | null>(null);
-  const [cachedProductPrices, setCachedProductPrices] = useState<ProductPriceLabels | null>(null);
   const [productQuotes, setProductQuotes] = useState<Partial<Record<MobilePaymentProductCode, MobilePaymentProductQuote>>>({});
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(initialEntitlement);
   const applePurchaseIntentRef = useRef(false);
@@ -108,8 +100,8 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   const handledGooglePlayPurchaseTokensRef = useRef(new Set<string>());
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
   const manageableAutoRenew = isRenew && activeAutoRenew && !autoRenew.cancelAtPeriodEnd;
-  const liveProductPrices = resolveMembershipPriceLabels(appleIap);
-  const productPrices = hasAnyProductPrice(liveProductPrices) ? liveProductPrices : cachedProductPrices ?? liveProductPrices;
+  const liveProductPrices = resolveMembershipPriceLabels(appleIap, productQuotes);
+  const productPrices = liveProductPrices;
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
   const membershipStatusLabel = resolveMembershipStatusLabel({
     isMember: isRenew,
@@ -293,19 +285,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   }, [isScreenAlive, safeAlert]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const cached = await loadCachedProductPrices();
-      if (!cancelled && cached && isScreenAlive()) {
-        setCachedProductPrices(cached);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isScreenAlive]);
-
-  useEffect(() => {
+    if (!IS_CHINA_ANDROID) return;
     let cancelled = false;
     void Promise.allSettled([getPlusMonthlyProductQuote(), getProMonthlyProductQuote()]).then((results) => {
       if (cancelled || !isScreenAlive()) return;
@@ -319,12 +299,6 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
       cancelled = true;
     };
   }, [isScreenAlive]);
-
-  useEffect(() => {
-    if (!hasAnyProductPrice(liveProductPrices)) return;
-    setCachedProductPrices(liveProductPrices);
-    void saveCachedProductPrices(liveProductPrices);
-  }, [liveProductPrices.plus, liveProductPrices.pro, liveProductPrices.monthSuffix]);
 
   useEffect(() => {
     if (appleIap?.connected) setStoreError(null);
@@ -873,7 +847,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     }
   }
 
-  const iapBridge = Platform.OS === "ios" || Platform.OS === "android" ? (
+  const iapBridge = Platform.OS === "ios" || (Platform.OS === "android" && !IS_CHINA_ANDROID) ? (
     <AppleIapBridge
       onReady={setAppleIap}
       onStoreError={(error) => setStoreError(formatStoreErrorMessage(error))}
@@ -1287,11 +1261,6 @@ async function pollAlipayAutoRenewResult(id: string): Promise<MobileAutoRenewSub
   return getCurrentAutoRenewSubscription();
 }
 
-function readPositiveIntEnv(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-}
-
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
@@ -1356,48 +1325,12 @@ type ProductPriceLabels = {
   monthSuffix: string;
 };
 
-type CachedProductPriceLabels = ProductPriceLabels & {
-  platform: typeof Platform.OS;
-  cachedAt: number;
-};
-
 type CachedAutoRenewSubscription = {
   userId: string;
   platform: typeof Platform.OS;
   subscription: MobileAutoRenewSubscription | null;
   cachedAt: number;
 };
-
-async function loadCachedProductPrices(): Promise<ProductPriceLabels | null> {
-  const raw = await AsyncStorage.getItem(PRODUCT_PRICE_CACHE_KEY);
-  if (!raw) return null;
-
-  try {
-    const cached = JSON.parse(raw) as Partial<CachedProductPriceLabels>;
-    const isFresh = typeof cached.cachedAt === "number" && Date.now() - cached.cachedAt <= PRODUCT_PRICE_CACHE_TTL_MS;
-    if (!isFresh || cached.platform !== Platform.OS) {
-      return null;
-    }
-    return {
-      plus: typeof cached.plus === "string" ? cached.plus : null,
-      pro: typeof cached.pro === "string" ? cached.pro : null,
-      monthSuffix: typeof cached.monthSuffix === "string" ? cached.monthSuffix : "",
-    };
-  } catch {
-    await AsyncStorage.removeItem(PRODUCT_PRICE_CACHE_KEY);
-    return null;
-  }
-}
-
-async function saveCachedProductPrices(prices: ProductPriceLabels): Promise<void> {
-  if (!hasAnyProductPrice(prices)) return;
-  const cached: CachedProductPriceLabels = {
-    ...prices,
-    platform: Platform.OS,
-    cachedAt: Date.now(),
-  };
-  await AsyncStorage.setItem(PRODUCT_PRICE_CACHE_KEY, JSON.stringify(cached));
-}
 
 async function loadCachedAutoRenewSubscription(userId: string): Promise<MobileAutoRenewSubscription | null> {
   const raw = await AsyncStorage.getItem(AUTO_RENEW_CACHE_KEY);
@@ -1454,7 +1387,10 @@ function isValidCachedAutoRenewSubscription(value: unknown): value is MobileAuto
   );
 }
 
-function resolveMembershipPriceLabels(appleIap: AppleIapBridgeState | null): ProductPriceLabels {
+function resolveMembershipPriceLabels(
+  appleIap: AppleIapBridgeState | null,
+  productQuotes: Partial<Record<MobilePaymentProductCode, MobilePaymentProductQuote>>
+): ProductPriceLabels {
   if (Platform.OS === "ios") {
     const plusSubscriptionPrice = appleIap?.subscriptions.find(
       (product) => product.id === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
@@ -1465,6 +1401,14 @@ function resolveMembershipPriceLabels(appleIap: AppleIapBridgeState | null): Pro
     return {
       plus: plusSubscriptionPrice ?? null,
       pro: proSubscriptionPrice ?? null,
+      monthSuffix: t("pro.price.month_suffix"),
+    };
+  }
+
+  if (IS_CHINA_ANDROID) {
+    return {
+      plus: productQuotes.plus_monthly?.displayPrice ?? null,
+      pro: productQuotes.pro_monthly?.displayPrice ?? null,
       monthSuffix: t("pro.price.month_suffix"),
     };
   }
@@ -1490,9 +1434,6 @@ function resolveMembershipPriceLabels(appleIap: AppleIapBridgeState | null): Pro
   };
 }
 
-function hasAnyProductPrice(prices: ProductPriceLabels): boolean {
-  return Boolean(prices.plus || prices.pro);
-}
 
 function hasLoadedAppleProduct(appleIap: AppleIapBridgeState, source: ApplePurchaseSource, productId: string): boolean {
   const rows = source === "single_purchase" ? appleIap.products : appleIap.subscriptions;

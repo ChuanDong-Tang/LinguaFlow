@@ -19,6 +19,18 @@ export interface AlipaySubscriptionQueryResponse {
   subscriptions?: AlipaySubscriptionSnapshot[];
 }
 
+export interface AlipayPriceSnapshot {
+  id: string;
+  active: boolean;
+  productId: string | null;
+  unitAmount: number;
+  type: string | null;
+  recurring: {
+    interval: string | null;
+    intervalCount: number | null;
+  } | null;
+}
+
 export type AlipaySubscriptionStatus =
   | "INCOMPLETE"
   | "ACTIVE"

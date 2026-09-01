@@ -5,8 +5,6 @@ export type AiProviderName = "deepseek" | "openai" | "grok";
 export type MembershipFeatureTier = "free" | "plus" | "pro";
 
 export interface PaymentRuntimeConfig {
-  plusMonthlyPriceCents: number;
-  proMonthlyPriceCents: number;
   descriptionPlusMonthly: string;
   descriptionProMonthly: string;
   pendingReuseWindowMs: number;
@@ -487,8 +485,6 @@ function readTencentTmsReviewMode(value: string | undefined, fallback: "suspect"
 
 function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): PaymentRuntimeConfig {
   return {
-    plusMonthlyPriceCents: readPositiveInt(env.LF_PLUS_MONTHLY_PRICE_CENTS, 1500),
-    proMonthlyPriceCents: readPositiveInt(env.LF_PRO_MONTHLY_PRICE_CENTS, 3000),
     descriptionPlusMonthly: env.LF_PAYMENT_DESC_PLUS_MONTHLY?.trim() || "OIO Plus 月卡",
     descriptionProMonthly: env.LF_PAYMENT_DESC_PRO_MONTHLY?.trim() || "OIO Pro 月卡",
     pendingReuseWindowMs: readPositiveInt(env.LF_PAYMENT_PENDING_REUSE_WINDOW_MS, 300_000),

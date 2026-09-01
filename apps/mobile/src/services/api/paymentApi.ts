@@ -21,9 +21,9 @@ export type MobilePaymentProductCode = "plus_monthly" | "pro_monthly";
 
 export type MobilePaymentProductQuote = {
   productCode: MobilePaymentProductCode;
-  amount: number;
+  amount: number | null;
   currency: "CNY";
-  displayPrice: string;
+  displayPrice: string | null;
   monthlyTokenLimit: number;
   monthlyImageUploadBytes: number;
 };
@@ -34,7 +34,7 @@ export type MobilePaymentOrderResult = {
   providerOrderId: string;
   productCode: MobilePaymentProductCode;
   amount: number;
-  currency: "CNY";
+  currency: string;
   status: MobilePaymentOrderStatus;
   createdAt: string;
   updatedAt: string;

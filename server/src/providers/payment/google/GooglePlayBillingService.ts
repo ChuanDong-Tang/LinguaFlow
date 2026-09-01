@@ -875,22 +875,21 @@ function createGoogleObfuscatedAccountId(userId: string): string {
 function resolveGooglePaymentOrderAmount(
   lineItem: NonNullable<GoogleSubscriptionPurchaseV2["lineItems"]>[number],
   productCode: PaymentProductCode
-): { amount: number; currency: string; source: "google_recurring_price" | "runtime_config" } {
+): { amount: number; currency: string; source: "google_recurring_price" } {
   const price = lineItem.autoRenewingPlan?.recurringPrice;
   const currency = price?.currencyCode?.trim().toUpperCase();
   const amount = moneyToMinorUnits(price, currency);
-  if (currency && amount !== null && amount > 0) {
+  if (currency && amount !== null && amount >= 0) {
     return { amount, currency, source: "google_recurring_price" };
   }
-  const runtime = getRuntimeConfig();
-  return {
-    amount:
-      productCode === "plus_monthly"
-        ? runtime.payment.plusMonthlyPriceCents
-        : runtime.payment.proMonthlyPriceCents,
-    currency: "CNY",
-    source: "runtime_config",
-  };
+  throw new GooglePlayBillingVerifyError(
+    "Google Play recurring price is missing or invalid",
+    "GOOGLE_PLAY_PRICE_MISSING",
+    {
+      productCode,
+      recurringPrice: price ?? null,
+    },
+  );
 }
 
 function moneyToMinorUnits(

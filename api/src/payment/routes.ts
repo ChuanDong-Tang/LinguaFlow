@@ -200,13 +200,14 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
   });
 
   app.get("/payment/products/pro-monthly", async (_req, reply) => {
+    const quote = await getAlipayProductQuoteOrNull(app, deps, "pro_monthly");
     return reply.status(200).send({
       ok: true,
       data: {
         productCode: "pro_monthly",
-        amount: config.payment.proMonthlyPriceCents,
-        currency: "CNY",
-        displayPrice: formatCnyPrice(config.payment.proMonthlyPriceCents),
+        amount: quote?.amount ?? null,
+        currency: quote?.currency ?? "CNY",
+        displayPrice: quote ? formatCnyPrice(quote.amount) : null,
         monthlyTokenLimit: config.proMonthlyTokenLimit,
         monthlyImageUploadBytes: config.proImageStorageBytes,
       },
@@ -214,13 +215,14 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
   });
 
   app.get("/payment/products/plus-monthly", async (_req, reply) => {
+    const quote = await getAlipayProductQuoteOrNull(app, deps, "plus_monthly");
     return reply.status(200).send({
       ok: true,
       data: {
         productCode: "plus_monthly",
-        amount: config.payment.plusMonthlyPriceCents,
-        currency: "CNY",
-        displayPrice: formatCnyPrice(config.payment.plusMonthlyPriceCents),
+        amount: quote?.amount ?? null,
+        currency: quote?.currency ?? "CNY",
+        displayPrice: quote ? formatCnyPrice(quote.amount) : null,
         monthlyTokenLimit: config.plusMonthlyTokenLimit,
         monthlyImageUploadBytes: config.plusImageStorageBytes,
       },
@@ -993,6 +995,22 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     });
     return reply.status(200).send({ ok: true, request_id: requestId });
   });
+}
+
+async function getAlipayProductQuoteOrNull(
+  app: FastifyInstance,
+  deps: PaymentRouteDeps,
+  productCode: "plus_monthly" | "pro_monthly",
+) {
+  try {
+    return await deps.alipayAutoRenewService.getProductQuote(productCode);
+  } catch (error) {
+    app.log.warn(
+      { error: error instanceof Error ? error.message : String(error), productCode },
+      "Unable to load Alipay product price",
+    );
+    return null;
+  }
 }
 function isGooglePlayNotifyTokenValid(req: FastifyRequest, expectedToken: string | null): boolean {
   // Never expose a mutation-capable webhook without an authentication secret.
