@@ -1027,7 +1027,7 @@ async function getAlipayProductQuoteOrNull(
 function sanitizeAlipayErrorDetails(details: unknown): Record<string, string> | undefined {
   if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;
   const source = details as Record<string, unknown>;
-  const allowedKeys = ["code", "msg", "sub_code", "sub_msg"] as const;
+  const allowedKeys = ["code", "msg", "sub_code", "sub_msg", "trace_id"] as const;
   const sanitized: Record<string, string> = {};
   for (const key of allowedKeys) {
     const value = source[key];

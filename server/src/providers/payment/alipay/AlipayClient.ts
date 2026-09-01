@@ -151,7 +151,12 @@ export class AlipayAutoRenewClient {
       }
       const payload = objectValue(body[responseKey]);
       if (String(payload.code ?? "") !== "10000") {
-        throw new AlipayApiError(stringValue(payload.sub_code) ?? stringValue(payload.code) ?? "ALIPAY_API_ERROR", stringValue(payload.sub_msg) ?? stringValue(payload.msg) ?? "Alipay API failed", payload);
+        const traceId = response.headers.get("trace_id");
+        throw new AlipayApiError(
+          stringValue(payload.sub_code) ?? stringValue(payload.code) ?? "ALIPAY_API_ERROR",
+          stringValue(payload.sub_msg) ?? stringValue(payload.msg) ?? "Alipay API failed",
+          traceId ? { ...payload, trace_id: traceId } : payload,
+        );
       }
       return payload;
     } finally { clearTimeout(timeout); }
