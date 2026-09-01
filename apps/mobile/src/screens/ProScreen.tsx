@@ -989,10 +989,17 @@ export function ProScreen({
 
   async function handleRedeemAppleOfferCode(): Promise<void> {
     if (Platform.OS !== "ios") return;
+    if (isRenew) return;
     if (isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading) return;
 
     setIsRedeemingAppleOffer(true);
     try {
+      const latestEntitlement = await refreshProEntitlementState();
+      if (!isScreenAlive()) return;
+      if (latestEntitlement?.entitlement.isMember ?? latestEntitlement?.entitlement.isPro) {
+        setIsRenew(true);
+        return;
+      }
       await ensureAppleAppAccountTokenRegistered();
       const presented = await presentCodeRedemptionSheetIOS();
       if (!presented || !isScreenAlive()) return;
@@ -1161,7 +1168,7 @@ export function ProScreen({
             );
           })}
         </View>
-        {Platform.OS === "ios" ? (
+        {Platform.OS === "ios" && currentTier === "free" ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("pro.redeem.button")}
