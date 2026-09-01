@@ -138,14 +138,6 @@ export class AlipayAutoRenewService {
     const created = await this.client.createSubscription({
       customerId,
       priceId: quote.priceId,
-      title: titleFor(input.productCode),
-      metadata: {
-        userId: input.userId,
-        productCode: input.productCode,
-        priceId: quote.priceId,
-        unitAmount: quote.amount,
-        currency: quote.currency,
-      },
     });
     const subscription = await this.autoRenewService.register({
       userId: input.userId, provider: "alipay", productCode: input.productCode, providerAgreementId: created.subscriptionId,
@@ -466,7 +458,6 @@ function createAlipayPeriodKey(snapshot: AlipaySubscriptionSnapshot): string {
 function createAlipayPeriodChargeId(subscriptionId: string, periodKey: string): string {
   return `${subscriptionId}:${periodKey}`;
 }
-function titleFor(productCode: AutoRenewProductCode): string { return productCode === "plus_monthly" ? "OIO Plus 月度会员" : "OIO Pro 月度会员"; }
 function objectValue(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function stringValue(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
 function positiveIntegerValue(value: unknown): number | null {

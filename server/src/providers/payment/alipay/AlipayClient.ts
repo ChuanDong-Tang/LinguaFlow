@@ -27,15 +27,12 @@ export class AlipayAutoRenewClient {
     return customerId;
   }
 
-  async createSubscription(input: { customerId: string; priceId: string; title: string; metadata: Record<string, unknown> }): Promise<{
+  async createSubscription(input: { customerId: string; priceId: string }): Promise<{
     subscriptionId: string; orderNo: string | null; jumpSchema: string; schemaEffectiveEnd: string | null; raw: Record<string, unknown>;
   }> {
     const result = await this.call("alipay.trade.subscription.create", {
       customer_id: input.customerId,
       items: [{ price_id: input.priceId }],
-      subscribe_title: input.title,
-      deduct_type: "SUBSCRIBE_DEDUCT",
-      metadata: JSON.stringify(input.metadata),
     });
     const subscriptionId = stringValue(result.subscription_id);
     const jumpSchema = stringValue(result.alipay_jump_schema);

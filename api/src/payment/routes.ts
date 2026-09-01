@@ -24,6 +24,7 @@ import {
 } from "@lf/server/providers/payment/google/GooglePlayBillingErrors.js";
 import { fetchGoogleApi } from "@lf/server/providers/payment/google/GoogleApiHttpClient.js";
 import type { AlipayAutoRenewService } from "@lf/server/providers/payment/alipay/AlipayAutoRenewService.js";
+import { AlipayApiError } from "@lf/server/providers/payment/alipay/AlipayClient.js";
 import {
   AccountDisabledError,
   resolveActiveUserContext,
@@ -374,7 +375,17 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       const errorCode = error instanceof AutoRenewAlreadyActiveError || error instanceof AutoRenewConcurrentCreateError || error instanceof ProRenewalTooEarlyError
         ? error.code
         : message.split(":")[0] || "ALIPAY_AUTORENEW_CREATE_FAILED";
-      await writeSystemEventLog(deps.systemEventLogRepository, { requestId, userId: user.id, module: "payment", event: "payment.autorenew.alipay.create_failed", level: conflict ? "warn" : "error", status: "failed", errorCode, errorMessage: message });
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: user.id,
+        module: "payment",
+        event: "payment.autorenew.alipay.create_failed",
+        level: conflict ? "warn" : "error",
+        status: "failed",
+        errorCode,
+        errorMessage: message,
+        metadata: error instanceof AlipayApiError ? sanitizeAlipayErrorDetails(error.details) : undefined,
+      });
       return reply.status(conflict ? 409 : 502).send({ ok: false, request_id: requestId, error: { code: errorCode, message: error instanceof ProRenewalTooEarlyError ? CLIENT_ERROR_MESSAGES.AUTO_RENEW_SWITCH_BLOCKED : conflict ? "Unable to start another subscription right now." : "Alipay subscription request failed" } });
     }
   });
@@ -1012,6 +1023,19 @@ async function getAlipayProductQuoteOrNull(
     return null;
   }
 }
+
+function sanitizeAlipayErrorDetails(details: unknown): Record<string, string> | undefined {
+  if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;
+  const source = details as Record<string, unknown>;
+  const allowedKeys = ["code", "msg", "sub_code", "sub_msg"] as const;
+  const sanitized: Record<string, string> = {};
+  for (const key of allowedKeys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) sanitized[key] = value.trim().slice(0, 500);
+  }
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
 function isGooglePlayNotifyTokenValid(req: FastifyRequest, expectedToken: string | null): boolean {
   // Never expose a mutation-capable webhook without an authentication secret.
   if (!expectedToken) return false;

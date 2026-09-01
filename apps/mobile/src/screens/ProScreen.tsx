@@ -266,22 +266,37 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
-      let didRefreshEntitlement = false;
       const session = await getSession();
       const cached = session?.user.id ? await getCachedEntitlementForUser(session.user.id) : null;
-      if (cached && isScreenAlive()) {
+      if (cached && !cancelled && isScreenAlive()) {
         applyEntitlementToState(cached.data);
       }
       const cachedAutoRenew = session?.user.id ? await loadCachedAutoRenewSubscription(session.user.id) : null;
-      if (cachedAutoRenew && isScreenAlive()) {
+      if (cachedAutoRenew && !cancelled && isScreenAlive()) {
         setAutoRenew(cachedAutoRenew);
       }
 
-      if (!didRefreshEntitlement) {
-        await loadProEntitlementState();
+      try {
+        const currentAutoRenew = await getCurrentAutoRenewSubscription();
+        if (!cancelled && isScreenAlive()) {
+          applyAutoRenewToState(currentAutoRenew);
+        }
+      } catch {
+        // The create endpoint still rejects duplicate subscriptions server-side.
+        // Do not leave the purchase controls permanently loading on a transient sync failure.
+      } finally {
+        if (!cancelled && isScreenAlive()) {
+          setHasLoadedAutoRenew(true);
+        }
       }
+
+      await loadProEntitlementState();
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [isScreenAlive, safeAlert]);
 
   useEffect(() => {

@@ -99,7 +99,7 @@ export async function getPlusMonthlyProductQuote(): Promise<MobilePaymentProduct
 export async function getCurrentAutoRenewSubscription(): Promise<MobileAutoRenewSubscription | null> {
   const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/current`, {
     headers: await getAuthHeaders(),
-  });
+  }, 15_000);
   const json = (await res.json()) as ApiResult<{ subscription: MobileAutoRenewSubscription | null }>;
   if (!json.ok) {
     throw new MobileApiError(json.error.code, json.error.message);
