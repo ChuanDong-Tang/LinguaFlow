@@ -1050,6 +1050,14 @@ export function ProScreen({
     const currentTier = currentEntitlement?.tier ?? "free";
     const visibleTiers: Array<"plus" | "pro"> = currentTier === "free" ? ["plus", "pro"] : [currentTier];
     const purchaseBusy = isAutoRenewLoading || isPaying || !hasLoadedAutoRenew;
+    const compactAutoRenewStatus = resolveCompactAutoRenewStatus({ autoRenew, hasLoadedAutoRenew });
+    const compactAutoRenewTone = !hasLoadedAutoRenew || autoRenew?.status === "pending"
+      ? "neutral"
+      : activeAutoRenew && autoRenew.cancelAtPeriodEnd
+        ? "warning"
+        : activeAutoRenew
+          ? "active"
+          : "neutral";
     return (
       <View style={styles.compactContainer}>
         {iapBridge}
@@ -1088,6 +1096,51 @@ export function ProScreen({
                 {currentTier === tier && proExpiresAt ? (
                   <Text style={styles.compactExpiry}>{tf("pro.valid_until", { date: formatDate(proExpiresAt) })}</Text>
                 ) : null}
+                {currentTier === tier ? (
+                  <View style={styles.compactAutoRenewRow}>
+                    <View style={styles.compactAutoRenewStatus}>
+                      <View
+                        style={[
+                          styles.compactAutoRenewDot,
+                          compactAutoRenewTone === "active"
+                            ? styles.compactAutoRenewDotActive
+                            : compactAutoRenewTone === "warning"
+                              ? styles.compactAutoRenewDotWarning
+                              : styles.compactAutoRenewDotNeutral,
+                        ]}
+                      />
+                      <Text numberOfLines={2} style={styles.compactAutoRenewStatusText}>
+                        {compactAutoRenewStatus}
+                      </Text>
+                    </View>
+                    {manageableAutoRenew || restorableAutoRenew ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={restorableAutoRenew ? t("pro.auto.resume") : t("pro.auto.cancel")}
+                        style={[
+                          styles.compactAutoRenewAction,
+                          restorableAutoRenew && styles.compactAutoRenewActionPrimary,
+                          isAutoRenewLoading && styles.subscribeButtonDisabled,
+                        ]}
+                        disabled={isAutoRenewLoading}
+                        onPress={() => void (restorableAutoRenew ? handleResumeAutoRenew() : handleManageAutoRenew())}
+                      >
+                        {isAutoRenewLoading ? (
+                          <ActivityIndicator size="small" color={restorableAutoRenew ? "#8A6218" : "#666666"} />
+                        ) : (
+                          <Text
+                            style={[
+                              styles.compactAutoRenewActionText,
+                              restorableAutoRenew && styles.compactAutoRenewActionTextPrimary,
+                            ]}
+                          >
+                            {restorableAutoRenew ? t("pro.auto.resume") : t("pro.auto.cancel")}
+                          </Text>
+                        )}
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
                 {currentTier === "free" ? (
                   <Pressable
                     accessibilityRole="button"
@@ -1108,27 +1161,6 @@ export function ProScreen({
             );
           })}
         </View>
-        {currentTier !== "free" ? (
-          <View style={styles.compactSubscriptionBox}>
-            <Text style={styles.compactSubscriptionTitle}>{t("pro.subscription_status")}</Text>
-            <Text style={styles.compactSubscriptionText}>{autoRenewDescription}</Text>
-            {manageableAutoRenew || restorableAutoRenew ? (
-              <Pressable
-                style={[styles.compactSubscriptionButton, isAutoRenewLoading && styles.subscribeButtonDisabled]}
-                disabled={isAutoRenewLoading}
-                onPress={() => void (restorableAutoRenew ? handleResumeAutoRenew() : handleManageAutoRenew())}
-              >
-                {isAutoRenewLoading ? (
-                  <ActivityIndicator size="small" color="#111111" />
-                ) : (
-                  <Text style={styles.compactSubscriptionButtonText}>
-                    {restorableAutoRenew ? t("pro.auto.resume") : t("pro.auto.cancel")}
-                  </Text>
-                )}
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
         {Platform.OS === "ios" ? (
           <Pressable
             accessibilityRole="button"
@@ -1434,6 +1466,21 @@ function resolveAutoRenewDescription(input: {
     return tf("pro.auto.desc.after_expiry", { provider: formatAutoRenewProviderLabel() });
   }
   return tf("pro.auto.desc.first_payment", { provider: formatAutoRenewProviderLabel() });
+}
+
+function resolveCompactAutoRenewStatus(input: {
+  autoRenew: MobileAutoRenewSubscription | null;
+  hasLoadedAutoRenew: boolean;
+}): string {
+  if (!input.hasLoadedAutoRenew) return t("pro.auto.status.syncing");
+  if (input.autoRenew?.status === "pending") return t("pro.auto.status.pending");
+  if (hasActiveAutoRenew(input.autoRenew) && input.autoRenew.cancelAtPeriodEnd) {
+    return tf("pro.auto.status.cancelled", { provider: formatProviderName(input.autoRenew.provider) });
+  }
+  if (hasActiveAutoRenew(input.autoRenew)) {
+    return tf("pro.auto.status.active", { provider: formatProviderName(input.autoRenew.provider) });
+  }
+  return t("pro.auto.status.none");
 }
 
 function resolveMembershipStatusLabel(input: { isMember: boolean; expiresAt: string | null }): string | null {
@@ -1837,36 +1884,62 @@ const styles = StyleSheet.create({
     color: "#777777",
     fontSize: 11,
   },
-  compactSubscriptionBox: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: "#F7F7F7",
-  },
-  compactSubscriptionTitle: {
-    color: "#111111",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  compactSubscriptionText: {
-    marginTop: 4,
-    color: "#666666",
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  compactSubscriptionButton: {
-    minHeight: 36,
+  compactAutoRenewRow: {
+    minHeight: 38,
     marginTop: 10,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: "#111111",
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E8E8E8",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  compactAutoRenewStatus: {
+    minWidth: 0,
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  compactAutoRenewDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+  },
+  compactAutoRenewDotActive: {
+    backgroundColor: "#63A785",
+  },
+  compactAutoRenewDotWarning: {
+    backgroundColor: "#C49338",
+  },
+  compactAutoRenewDotNeutral: {
+    backgroundColor: "#B8B8B8",
+  },
+  compactAutoRenewStatusText: {
+    minWidth: 0,
+    flex: 1,
+    color: "#666666",
+    fontSize: 10.5,
+    lineHeight: 15,
+  },
+  compactAutoRenewAction: {
+    minHeight: 28,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: "#F3F3F3",
     alignItems: "center",
     justifyContent: "center",
   },
-  compactSubscriptionButtonText: {
-    color: "#111111",
-    fontSize: 12,
+  compactAutoRenewActionPrimary: {
+    backgroundColor: "#FFF2D7",
+  },
+  compactAutoRenewActionText: {
+    color: "#666666",
+    fontSize: 10,
     fontWeight: "600",
+  },
+  compactAutoRenewActionTextPrimary: {
+    color: "#8A6218",
   },
   compactPriceButton: {
     minHeight: 38,
