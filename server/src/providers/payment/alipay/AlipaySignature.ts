@@ -2,9 +2,16 @@ import { createSign, createVerify } from "node:crypto";
 
 export type AlipayFormFields = Record<string, string>;
 
-export function buildAlipaySignContent(fields: AlipayFormFields): string {
+export function buildAlipaySignContent(
+  fields: AlipayFormFields,
+  options: { excludeSignType?: boolean } = {},
+): string {
   return Object.entries(fields)
-    .filter(([key, value]) => key !== "sign" && key !== "sign_type" && value !== "")
+    .filter(([key, value]) => (
+      key !== "sign" &&
+      (!options.excludeSignType || key !== "sign_type") &&
+      value !== ""
+    ))
     // Alipay requires byte-wise dictionary order; localeCompare is locale-dependent.
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([key, value]) => `${key}=${value}`)
@@ -21,7 +28,9 @@ export function signAlipayFields(fields: AlipayFormFields, privateKey: string): 
 export function verifyAlipayFields(fields: AlipayFormFields, publicKey: string): boolean {
   if (!fields.sign) return false;
   const verifier = createVerify("RSA-SHA256");
-  verifier.update(buildAlipaySignContent(fields), "utf8");
+  // Alipay async notifications exclude both sign and sign_type from the
+  // verification content; outbound OpenAPI requests only exclude sign.
+  verifier.update(buildAlipaySignContent(fields, { excludeSignType: true }), "utf8");
   verifier.end();
   return verifier.verify(normalizePem(publicKey, "PUBLIC KEY"), fields.sign, "base64");
 }
