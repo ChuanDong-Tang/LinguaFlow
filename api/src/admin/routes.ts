@@ -928,8 +928,29 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         clock.businessTimeZone
       ),
       deps.prisma.$queryRawUnsafe(
-        `SELECT provider, status, COUNT(*)::int AS count
-         FROM "auto_renew_subscriptions"
+        `WITH current_members AS (
+           SELECT DISTINCT "userId"
+           FROM "subscriptions"
+           WHERE status = 'active'
+             AND "startedAt" <= NOW()
+             AND "expiresAt" > NOW()
+         ),
+         current_agreements AS (
+           SELECT DISTINCT ON (ar."userId")
+             ar."userId",
+             ar.provider,
+             CASE
+               WHEN ar.metadata->>'cancelAtPeriodEnd' = 'true' THEN 'cancelled'
+               ELSE 'active'
+             END AS status,
+             ar."updatedAt"
+           FROM "auto_renew_subscriptions" ar
+           INNER JOIN current_members member ON member."userId" = ar."userId"
+           WHERE ar.status IN ('active', 'billing_retry')
+           ORDER BY ar."userId", ar."updatedAt" DESC
+         )
+         SELECT provider, status, COUNT(*)::int AS count
+         FROM current_agreements
          GROUP BY provider, status
          ORDER BY provider, status`
       ),
