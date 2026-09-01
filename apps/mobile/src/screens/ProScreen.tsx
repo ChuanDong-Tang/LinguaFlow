@@ -119,8 +119,13 @@ export function ProScreen({
   const isSyncingAlipayReturnRef = useRef(false);
   const isSyncingStoreManagementRef = useRef(false);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
-  const manageableAutoRenew = isRenew && activeAutoRenew && !autoRenew.cancelAtPeriodEnd;
-  const restorableAutoRenew = isRenew && activeAutoRenew && autoRenew.cancelAtPeriodEnd;
+  const autoRenewBelongsToCurrentPlatform = Boolean(
+    autoRenew && canManageAutoRenewOnCurrentPlatform(autoRenew.provider)
+  );
+  const manageableAutoRenew =
+    isRenew && activeAutoRenew && autoRenewBelongsToCurrentPlatform && !autoRenew.cancelAtPeriodEnd;
+  const restorableAutoRenew =
+    isRenew && activeAutoRenew && autoRenewBelongsToCurrentPlatform && autoRenew.cancelAtPeriodEnd;
   const liveProductPrices = resolveMembershipPriceLabels(appleIap, productQuotes);
   const productPrices = liveProductPrices;
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
@@ -562,7 +567,7 @@ export function ProScreen({
   }
 
   async function handleManageAutoRenew(): Promise<void> {
-    if (!autoRenew) return;
+    if (!autoRenew || !manageableAutoRenew || !canManageAutoRenewOnCurrentPlatform(autoRenew.provider)) return;
     if (autoRenew.provider !== "alipay") {
       await openStoreSubscriptionManagement(autoRenew, "cancel");
       return;
@@ -587,7 +592,11 @@ export function ProScreen({
   }
 
   async function handleResumeAutoRenew(): Promise<void> {
-    if (!autoRenew || !restorableAutoRenew) return;
+    if (
+      !autoRenew ||
+      !restorableAutoRenew ||
+      !canManageAutoRenewOnCurrentPlatform(autoRenew.provider)
+    ) return;
     if (autoRenew.provider !== "alipay") {
       await openStoreSubscriptionManagement(autoRenew, "resume");
       return;
@@ -1372,6 +1381,16 @@ function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): 
   if (provider === "google_play") return "Google Play";
   if (provider === "alipay") return "支付宝";
   return provider;
+}
+
+function canManageAutoRenewOnCurrentPlatform(
+  provider: MobileAutoRenewSubscription["provider"]
+): boolean {
+  if (Platform.OS === "ios") return provider === "apple";
+  if (Platform.OS === "android") {
+    return IS_CHINA_ANDROID ? provider === "alipay" : provider === "google_play";
+  }
+  return false;
 }
 
 type MembershipTierInput = {
