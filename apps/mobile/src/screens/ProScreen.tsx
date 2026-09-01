@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -80,6 +80,8 @@ const IS_CHINA_ANDROID = Platform.OS === "android" && DISTRIBUTION_CHANNEL === "
 const AUTO_RENEW_CACHE_KEY = environmentStorageKey("lf_current_auto_renew_v1");
 const AUTO_RENEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const APPLE_PURCHASE_TIMEOUT_MS = 120 * 1000;
+const ALIPAY_ANDROID_MARKET_URL = "market://details?id=com.eg.android.AlipayGphone";
+const ALIPAY_DOWNLOAD_FALLBACK_URL = "https://www.alipay.cn/";
 
 export function ProScreen({
   onBack = () => {},
@@ -460,7 +462,9 @@ export function ProScreen({
         productCode,
         operation: "create",
       };
-      await Linking.openURL(created.jumpSchema);
+      if (!await openAlipayOrPromptInstall(created.jumpSchema)) {
+        pendingAlipayReturnRef.current = null;
+      }
     } catch (error) {
       pendingAlipayReturnRef.current = null;
       if (!isScreenAlive()) return;
@@ -610,7 +614,9 @@ export function ProScreen({
         productCode: autoRenew.productCode,
         operation: "resume",
       };
-      await Linking.openURL(resumed.jumpSchema);
+      if (!await openAlipayOrPromptInstall(resumed.jumpSchema)) {
+        pendingAlipayReturnRef.current = null;
+      }
     } catch (error) {
       pendingAlipayReturnRef.current = null;
       if (!isScreenAlive()) return;
@@ -637,6 +643,41 @@ export function ProScreen({
       pendingStoreManagementReturnRef.current = null;
       const message = error instanceof Error ? error.message : t("app.delete.retry_later");
       safeAlert(t("pro.alert.subscription_manage_failed_title"), message);
+    }
+  }
+
+  async function openAlipayOrPromptInstall(jumpSchema: string): Promise<boolean> {
+    try {
+      await Linking.openURL(jumpSchema);
+      return true;
+    } catch {
+      if (!isScreenAlive()) return false;
+      Alert.alert(
+        t("pro.alert.alipay_required_title"),
+        t("pro.alert.alipay_required_message"),
+        [
+          { text: t("common.cancel"), style: "cancel" },
+          {
+            text: t("pro.alert.alipay_install"),
+            onPress: () => void openAlipayInstallPage(),
+          },
+        ]
+      );
+      return false;
+    }
+  }
+
+  async function openAlipayInstallPage(): Promise<void> {
+    try {
+      await Linking.openURL(ALIPAY_ANDROID_MARKET_URL);
+    } catch {
+      try {
+        await Linking.openURL(ALIPAY_DOWNLOAD_FALLBACK_URL);
+      } catch {
+        if (isScreenAlive()) {
+          safeAlert(t("pro.alert.alipay_install_failed_title"), t("pro.alert.alipay_install_failed_message"));
+        }
+      }
     }
   }
 
