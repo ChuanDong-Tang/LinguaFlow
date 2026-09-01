@@ -146,6 +146,8 @@ function isCancelAutoRenewRequest(value: unknown): value is { autoRenewSubscript
   );
 }
 
+const isResumeAutoRenewRequest = isCancelAutoRenewRequest;
+
 const isCreateAlipayAutoRenewRequest = (value: unknown): value is { productCode: "plus_monthly" | "pro_monthly" } => {
   if (!value || typeof value !== "object") return false;
   return isPaymentProductCode((value as Record<string, unknown>).productCode);
@@ -243,8 +245,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         userId: userContext.userId,
         module: "payment",
         event: "payment.ios.autorenew.reconcile_checked",
-        level: "warn",
-        status: reconcileResult.status === "checked" && reconcileResult.action === "cancelled"
+        level: "info",
+        status: reconcileResult.status === "checked" && reconcileResult.action !== "kept"
           ? "success"
           : "ignored",
         errorCode: "APPLE_AUTORENEW_RECONCILE_CHECKED",
@@ -498,6 +500,82 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         ok: false,
         request_id: requestId,
         error: { code: "AUTO_RENEW_CANCEL_FAILED", message: "Auto renew cancel failed" },
+      });
+    }
+  });
+
+  app.post("/payment/autorenew/resume", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!isResumeAutoRenewRequest(req.body)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid auto renew resume payload" },
+      });
+    }
+
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+
+    try {
+      const result = await deps.alipayAutoRenewService.revertCancellation({
+        userId: userContext.userId,
+        subscriptionId: req.body.autoRenewSubscriptionId.trim(),
+      });
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.autorenew.resume_requested",
+        level: "info",
+        status: "success",
+        metadata: {
+          autoRenewSubscriptionId: result.subscription.id,
+          provider: result.subscription.provider,
+          productCode: result.subscription.productCode,
+          source: "alipay_autorenew",
+        },
+      });
+      return reply.status(200).send({
+        ok: true,
+        request_id: requestId,
+        data: {
+          id: result.subscription.id,
+          provider: result.subscription.provider,
+          status: result.subscription.status,
+          cancelAtPeriodEnd: readCancelAtPeriodEnd(result.subscription.metadata),
+          jumpSchema: result.jumpSchema,
+        },
+      });
+    } catch (error) {
+      if (error instanceof AutoRenewNotFoundError || error instanceof AutoRenewAccessDeniedError) {
+        return reply.status(404).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "AUTO_RENEW_NOT_FOUND", message: CLIENT_ERROR_MESSAGES.AUTO_RENEW_NOT_FOUND },
+        });
+      }
+      const message = error instanceof Error ? error.message : "Auto renew resume failed";
+      const notAllowed = message === "ALIPAY_AUTORENEW_RESUME_NOT_ALLOWED";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.autorenew.resume_failed",
+        level: notAllowed ? "warn" : "error",
+        status: "failed",
+        errorCode: notAllowed ? message : "AUTO_RENEW_RESUME_FAILED",
+        errorMessage: message,
+        metadata: { autoRenewSubscriptionId: req.body.autoRenewSubscriptionId.trim() },
+      });
+      return reply.status(notAllowed ? 409 : 502).send({
+        ok: false,
+        request_id: requestId,
+        error: {
+          code: notAllowed ? message : "AUTO_RENEW_RESUME_FAILED",
+          message: notAllowed ? "Subscription can no longer be resumed" : "Auto renew resume failed",
+        },
       });
     }
   });

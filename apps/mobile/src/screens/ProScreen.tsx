@@ -20,6 +20,7 @@ import {
   MobileApiError,
   registerAppleAppAccountToken,
   registerGooglePlayObfuscatedAccountId,
+  resumeAlipayAutoRenewSubscription,
   verifyGooglePlaySubscriptionPurchase,
   verifyAppleProMonthlyTransaction,
   type MobileAutoRenewSubscription,
@@ -112,10 +113,14 @@ export function ProScreen({
   const pendingAlipayReturnRef = useRef<{
     autoRenewSubscriptionId: string;
     productCode: MobilePaymentProductCode;
+    operation: "create" | "resume";
   } | null>(null);
+  const pendingStoreManagementReturnRef = useRef<"cancel" | "resume" | null>(null);
   const isSyncingAlipayReturnRef = useRef(false);
+  const isSyncingStoreManagementRef = useRef(false);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
   const manageableAutoRenew = isRenew && activeAutoRenew && !autoRenew.cancelAtPeriodEnd;
+  const restorableAutoRenew = isRenew && activeAutoRenew && autoRenew.cancelAtPeriodEnd;
   const liveProductPrices = resolveMembershipPriceLabels(appleIap, productQuotes);
   const productPrices = liveProductPrices;
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
@@ -129,7 +134,6 @@ export function ProScreen({
     autoRenew,
     hasLoadedAutoRenew,
   });
-  const shouldShowAutoRenewInfo = !isRenew || Boolean(autoRenew);
   const canStartOneTimePurchase =
     Platform.OS === "ios" && ENABLE_APPLE_ONE_TIME_PURCHASE;
   const canStartAutoRenew =
@@ -137,7 +141,7 @@ export function ProScreen({
     hasLoadedAutoRenew &&
     ((Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
       (Platform.OS === "android" && ((IS_CHINA_ANDROID && ENABLE_ALIPAY_AUTO_RENEW) || (!IS_CHINA_ANDROID && ENABLE_GOOGLE_PLAY_AUTO_RENEW))));
-  const shouldShowPurchaseActions = !isRenew || manageableAutoRenew;
+  const shouldShowPurchaseActions = !isRenew || manageableAutoRenew || restorableAutoRenew;
   const shouldReservePurchaseActionSpace = shouldShowPurchaseActions || (isRenew && !hasLoadedAutoRenew);
 
   function applyEntitlementToState(entitlement: CurrentEntitlement): void {
@@ -333,22 +337,30 @@ export function ProScreen({
   }, [isScreenAlive]);
 
   useEffect(() => {
-    if (!IS_CHINA_ANDROID) return;
     const subscription = AppState.addEventListener("change", (nextState) => {
       const previousState = appStateRef.current;
       appStateRef.current = nextState;
-      if (
-        nextState !== "active" ||
-        previousState === "active" ||
-        !pendingAlipayReturnRef.current ||
-        isSyncingAlipayReturnRef.current
-      ) return;
+      if (nextState !== "active" || previousState === "active") return;
+
+      if (pendingStoreManagementReturnRef.current && !isSyncingStoreManagementRef.current) {
+        const operation = pendingStoreManagementReturnRef.current;
+        pendingStoreManagementReturnRef.current = null;
+        isSyncingStoreManagementRef.current = true;
+        setIsAutoRenewLoading(true);
+        void syncAutoRenewAfterStoreManagement(operation).finally(() => {
+          isSyncingStoreManagementRef.current = false;
+          if (isScreenAlive()) setIsAutoRenewLoading(false);
+        });
+        return;
+      }
+
+      if (!pendingAlipayReturnRef.current || isSyncingAlipayReturnRef.current) return;
 
       const pending = pendingAlipayReturnRef.current;
       pendingAlipayReturnRef.current = null;
       isSyncingAlipayReturnRef.current = true;
       setIsAutoRenewLoading(true);
-      setIsPaying(true);
+      if (pending.operation === "create") setIsPaying(true);
       void syncAlipayAutoRenewAfterReturn(pending).finally(() => {
         isSyncingAlipayReturnRef.current = false;
         if (isScreenAlive()) {
@@ -441,6 +453,7 @@ export function ProScreen({
       pendingAlipayReturnRef.current = {
         autoRenewSubscriptionId: created.autoRenewSubscriptionId,
         productCode,
+        operation: "create",
       };
       await Linking.openURL(created.jumpSchema);
     } catch (error) {
@@ -456,6 +469,7 @@ export function ProScreen({
   async function syncAlipayAutoRenewAfterReturn(input: {
     autoRenewSubscriptionId: string;
     productCode: MobilePaymentProductCode;
+    operation: "create" | "resume";
   }): Promise<void> {
     try {
       const current = await getCurrentAutoRenewSubscription(8_000);
@@ -463,6 +477,12 @@ export function ProScreen({
       applyAutoRenewToState(current);
       const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
+      if (input.operation === "resume") {
+        if (current?.id === input.autoRenewSubscriptionId && hasActiveAutoRenew(current) && !current.cancelAtPeriodEnd) {
+          safeAlert(t("pro.alert.resume_success_title"), t("pro.alert.resume_success_message"));
+        }
+        return;
+      }
       if (entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro) {
         setIsRenew(true);
         alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productCode: input.productCode });
@@ -543,18 +563,8 @@ export function ProScreen({
 
   async function handleManageAutoRenew(): Promise<void> {
     if (!autoRenew) return;
-    if (autoRenew.provider === "apple") {
-      // Apple 订阅只能去 Apple ID 订阅管理里取消，服务端不能替用户直接取消平台订阅。
-      safeAlert(t("pro.alert.apple_manage_title"), t("pro.alert.apple_manage_message"));
-      return;
-    }
-    if (autoRenew.provider === "google_play") {
-      const productId = getGooglePlayProductId(autoRenew.productCode);
-      const url =
-        "https://play.google.com/store/account/subscriptions" +
-        `?sku=${encodeURIComponent(productId)}` +
-        "&package=com.yueyantech.oio";
-      await Linking.openURL(url);
+    if (autoRenew.provider !== "alipay") {
+      await openStoreSubscriptionManagement(autoRenew, "cancel");
       return;
     }
     setIsAutoRenewLoading(true);
@@ -573,6 +583,66 @@ export function ProScreen({
       safeAlert(t("pro.alert.cancel_failed_title"), message);
     } finally {
       if (isScreenAlive()) setIsAutoRenewLoading(false);
+    }
+  }
+
+  async function handleResumeAutoRenew(): Promise<void> {
+    if (!autoRenew || !restorableAutoRenew) return;
+    if (autoRenew.provider !== "alipay") {
+      await openStoreSubscriptionManagement(autoRenew, "resume");
+      return;
+    }
+
+    setIsAutoRenewLoading(true);
+    try {
+      const resumed = await resumeAlipayAutoRenewSubscription(autoRenew.id);
+      pendingAlipayReturnRef.current = {
+        autoRenewSubscriptionId: autoRenew.id,
+        productCode: autoRenew.productCode,
+        operation: "resume",
+      };
+      await Linking.openURL(resumed.jumpSchema);
+    } catch (error) {
+      pendingAlipayReturnRef.current = null;
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.resume_failed_title"), message);
+    } finally {
+      if (isScreenAlive()) setIsAutoRenewLoading(false);
+    }
+  }
+
+  async function openStoreSubscriptionManagement(
+    subscription: MobileAutoRenewSubscription,
+    operation: "cancel" | "resume",
+  ): Promise<void> {
+    const url = subscription.provider === "apple"
+      ? "https://apps.apple.com/account/subscriptions"
+      : "https://play.google.com/store/account/subscriptions" +
+        `?sku=${encodeURIComponent(getGooglePlayProductId(subscription.productCode))}` +
+        "&package=com.yueyantech.oio";
+    pendingStoreManagementReturnRef.current = operation;
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      pendingStoreManagementReturnRef.current = null;
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.subscription_manage_failed_title"), message);
+    }
+  }
+
+  async function syncAutoRenewAfterStoreManagement(operation: "cancel" | "resume"): Promise<void> {
+    try {
+      const current = await getCurrentAutoRenewSubscription(8_000);
+      if (!isScreenAlive()) return;
+      applyAutoRenewToState(current);
+      await refreshProEntitlementState();
+      if (!isScreenAlive()) return;
+      if (operation === "resume" && current && hasActiveAutoRenew(current) && !current.cancelAtPeriodEnd) {
+        safeAlert(t("pro.alert.resume_success_title"), t("pro.alert.resume_success_message"));
+      }
+    } catch {
+      // Store notifications and the payment worker remain the fallback if the provider is briefly stale.
     }
   }
 
@@ -1029,6 +1099,27 @@ export function ProScreen({
             );
           })}
         </View>
+        {currentTier !== "free" ? (
+          <View style={styles.compactSubscriptionBox}>
+            <Text style={styles.compactSubscriptionTitle}>{t("pro.subscription_status")}</Text>
+            <Text style={styles.compactSubscriptionText}>{autoRenewDescription}</Text>
+            {manageableAutoRenew || restorableAutoRenew ? (
+              <Pressable
+                style={[styles.compactSubscriptionButton, isAutoRenewLoading && styles.subscribeButtonDisabled]}
+                disabled={isAutoRenewLoading}
+                onPress={() => void (restorableAutoRenew ? handleResumeAutoRenew() : handleManageAutoRenew())}
+              >
+                {isAutoRenewLoading ? (
+                  <ActivityIndicator size="small" color="#111111" />
+                ) : (
+                  <Text style={styles.compactSubscriptionButtonText}>
+                    {restorableAutoRenew ? t("pro.auto.resume") : t("pro.auto.cancel")}
+                  </Text>
+                )}
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
         {Platform.OS === "ios" ? (
           <Pressable
             accessibilityRole="button"
@@ -1047,7 +1138,7 @@ export function ProScreen({
               : <Text style={styles.compactRedeemText}>{t("pro.redeem.button")}</Text>}
           </Pressable>
         ) : null}
-        {currentTier === "free" && (Platform.OS === "ios" || Platform.OS === "android") ? (
+        {currentTier === "free" && (Platform.OS === "ios" || (Platform.OS === "android" && !IS_CHINA_ANDROID)) ? (
           <Pressable
             style={styles.compactRestoreButton}
             disabled={isRestoringApplePurchases || isRestoringGooglePlayPurchases}
@@ -1105,12 +1196,8 @@ export function ProScreen({
           <View style={styles.autoRenewBox}>
             <View style={styles.autoRenewCopy}>
               {membershipStatusLabel ? <Text style={styles.membershipStatus}>{membershipStatusLabel}</Text> : null}
-              {shouldShowAutoRenewInfo ? (
-                <>
-                  <Text style={styles.autoRenewTitle}>{t("pro.auto_renew")}</Text>
-                  <Text style={styles.autoRenewText}>{autoRenewDescription}</Text>
-                </>
-              ) : null}
+              <Text style={styles.autoRenewTitle}>{t("pro.auto_renew")}</Text>
+              <Text style={styles.autoRenewText}>{autoRenewDescription}</Text>
             </View>
           </View>
 
@@ -1118,7 +1205,7 @@ export function ProScreen({
             <View style={[styles.actionSlot, !shouldShowPurchaseActions && styles.actionSlotReserved]}>
               {shouldShowPurchaseActions ? (
                 <View style={styles.actionRow}>
-                  {!manageableAutoRenew ? (
+                  {!manageableAutoRenew && !restorableAutoRenew ? (
                     <Pressable
                       style={[
                         styles.secondaryButton,
@@ -1142,18 +1229,24 @@ export function ProScreen({
                     style={[
                       styles.subscribeButton,
                       styles.actionButton,
-                      ((!canStartAutoRenew && !manageableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew) &&
+                      ((!canStartAutoRenew && !manageableAutoRenew && !restorableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew) &&
                         styles.subscribeButtonDisabled,
                     ]}
-                    onPress={manageableAutoRenew ? () => void handleManageAutoRenew() : () => void handleStartAutoRenew("pro_monthly")}
-                    disabled={(!canStartAutoRenew && !manageableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
+                    onPress={restorableAutoRenew
+                      ? () => void handleResumeAutoRenew()
+                      : manageableAutoRenew
+                        ? () => void handleManageAutoRenew()
+                        : () => void handleStartAutoRenew("pro_monthly")}
+                    disabled={(!canStartAutoRenew && !manageableAutoRenew && !restorableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
                   >
                     {isAutoRenewLoading || !hasLoadedAutoRenew ? (
                       <ActivityIndicator color="#FFFFFF" />
                     ) : (
                       <Text style={styles.subscribeText}>
-                        {manageableAutoRenew
-                          ? formatAutoRenewCancelButtonLabel(autoRenew.provider)
+                        {restorableAutoRenew
+                          ? t("pro.auto.resume")
+                          : manageableAutoRenew
+                            ? t("pro.auto.cancel")
                           : canStartAutoRenew
                             ? t("pro.pro.subscribe")
                             : t("pro.not_open")}
@@ -1162,7 +1255,7 @@ export function ProScreen({
                   </Pressable>
                 </View>
               ) : null}
-              {Platform.OS === "ios" && shouldShowPurchaseActions && !manageableAutoRenew ? (
+              {Platform.OS === "ios" && shouldShowPurchaseActions && !manageableAutoRenew && !restorableAutoRenew ? (
                 <Pressable
                   style={[
                     styles.redeemButton,
@@ -1181,7 +1274,7 @@ export function ProScreen({
               ) : null}
             </View>
           ) : null}
-          {Platform.OS === "ios" || Platform.OS === "android" ? (
+          {Platform.OS === "ios" || (Platform.OS === "android" && !IS_CHINA_ANDROID) ? (
             <Pressable
               style={[
                 styles.restoreButton,
@@ -1317,6 +1410,7 @@ function resolveAutoRenewDescription(input: {
   if (hasActiveAutoRenew(input.autoRenew)) {
     return tf("pro.auto.desc.active", { provider: formatProviderName(input.autoRenew.provider) });
   }
+  if (input.isPro && !input.autoRenew) return t("pro.auto.desc.none");
   if (input.isPro && input.expiresAt) {
     return tf("pro.auto.desc.after_expiry", { provider: formatAutoRenewProviderLabel() });
   }
@@ -1618,13 +1712,6 @@ function formatAutoRenewButtonLabel(): string {
   return t("pro.auto.start");
 }
 
-function formatAutoRenewCancelButtonLabel(provider: MobileAutoRenewSubscription["provider"]): string {
-  if (provider === "apple") return t("pro.auto.cancel_apple");
-  if (provider === "google_play") return "Manage in Google Play";
-  if (provider === "alipay") return "取消支付宝自动续费";
-  return t("pro.auto.start");
-}
-
 function BenefitItem({
   icon,
   title,
@@ -1730,6 +1817,37 @@ const styles = StyleSheet.create({
     borderTopColor: "#E8E8E8",
     color: "#777777",
     fontSize: 11,
+  },
+  compactSubscriptionBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "#F7F7F7",
+  },
+  compactSubscriptionTitle: {
+    color: "#111111",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  compactSubscriptionText: {
+    marginTop: 4,
+    color: "#666666",
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  compactSubscriptionButton: {
+    minHeight: 36,
+    marginTop: 10,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#111111",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compactSubscriptionButtonText: {
+    color: "#111111",
+    fontSize: 12,
+    fontWeight: "600",
   },
   compactPriceButton: {
     minHeight: 38,

@@ -241,6 +241,40 @@ export class AutoRenewService {
       metadata: { cancelSource: "local", cancelledAt: new Date().toISOString() } });
   }
 
+  async updateProviderRenewalPreference(input: {
+    provider: AutoRenewProvider;
+    providerAgreementId: string;
+    cancelAtPeriodEnd: boolean;
+    rawPayload?: unknown;
+  }): Promise<{ status: "processed" | "ignored" }> {
+    const subscription = await this.autoRenewRepository.findByProviderAgreement({
+      provider: input.provider,
+      providerAgreementId: input.providerAgreementId,
+    });
+    if (!subscription) return { status: "ignored" };
+
+    const periodIsCurrent = Boolean(
+      subscription.currentPeriodEnd && subscription.currentPeriodEnd > new Date()
+    );
+    if (["cancelled", "expired"].includes(subscription.status) && !periodIsCurrent) {
+      return { status: "ignored" };
+    }
+
+    await this.autoRenewRepository.updateSubscription({
+      id: subscription.id,
+      ...(periodIsCurrent
+        ? { status: "active" as const, cancelledAt: null, allowReactivation: true }
+        : {}),
+      metadata: mergeMetadata(subscription.metadata, {
+        cancelAtPeriodEnd: input.cancelAtPeriodEnd,
+        renewalPreferenceUpdatedAt: new Date().toISOString(),
+        renewalPreferenceSource: input.provider,
+        renewalPreferencePayload: input.rawPayload ?? null,
+      }),
+    });
+    return { status: "processed" };
+  }
+
   async handleApplePaidTransaction(input: {
     originalTransactionId: string;
     transactionId: string;

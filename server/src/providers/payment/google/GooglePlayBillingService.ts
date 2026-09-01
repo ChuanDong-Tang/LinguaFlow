@@ -44,7 +44,7 @@ export type GooglePlayAutoRenewReconcileResult =
   | { status: "skipped"; reason: "service_unavailable" | "no_current_google_play_subscription" }
   | {
       status: "checked";
-      action: "unchanged" | "paid_period_recorded" | "cancelled" | "suspended";
+      action: "unchanged" | "paid_period_recorded" | "cancel_scheduled" | "cancel_reverted" | "cancelled" | "suspended";
       subscriptionState: string;
       autoRenewEnabled: boolean;
       currentPeriodEnd: string | null;
@@ -249,6 +249,7 @@ export class GooglePlayBillingService {
     const periodStart = parseGoogleDate(subscription.startTime);
     const providerChargeId = subscription.latestOrderId ?? local.latestTransactionId ?? purchaseToken;
     let paidPeriodRecorded = false;
+    const hadCancelAtPeriodEnd = asRecord(local.metadata).cancelAtPeriodEnd === true;
 
     if (resolvedProduct && periodEnd) {
       assertGoogleLineItemMatchesConfiguredBasePlan(
@@ -287,25 +288,32 @@ export class GooglePlayBillingService {
       state === "SUBSCRIPTION_STATE_PAUSED" ||
       state === "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED";
 
-    if (mustStopAutoRenew) {
+    if (mustSuspendEntitlement) {
       await this.autoRenewService.handleGooglePlayCancelled({
         purchaseToken,
         rawPayload: { source: "google_play_active_reconcile", subscription },
       });
-    }
-    if (mustSuspendEntitlement) {
       await this.suspendCurrentEntitlementForPurchaseToken(
         purchaseToken,
         periodEnd && periodEnd <= new Date() ? periodEnd : new Date()
       );
+    } else {
+      await this.autoRenewService.updateProviderRenewalPreference({
+        provider: "google_play",
+        providerAgreementId: purchaseToken,
+        cancelAtPeriodEnd: mustStopAutoRenew,
+        rawPayload: { source: "google_play_active_reconcile", subscription },
+      });
     }
 
     return {
       status: "checked",
       action: mustSuspendEntitlement
         ? "suspended"
-        : mustStopAutoRenew
-          ? "cancelled"
+        : mustStopAutoRenew && !hadCancelAtPeriodEnd
+          ? "cancel_scheduled"
+          : !mustStopAutoRenew && hadCancelAtPeriodEnd
+            ? "cancel_reverted"
           : paidPeriodRecorded
             ? "paid_period_recorded"
             : "unchanged",
@@ -466,6 +474,15 @@ export class GooglePlayBillingService {
     }
 
     if (notificationAction === "cancel") {
+      if (periodEnd && periodEnd > new Date() && googlePlayStateGrantsEntitlement(subscription.subscriptionState)) {
+        await this.autoRenewService?.updateProviderRenewalPreference({
+          provider: "google_play",
+          providerAgreementId: decoded.purchaseToken,
+          cancelAtPeriodEnd: true,
+          rawPayload: { notification: decoded.rawNotification, subscription },
+        });
+        return { status: "processed", action: "auto_renew_cancel_scheduled" };
+      }
       await this.autoRenewService?.handleGooglePlayCancelled({
         purchaseToken: decoded.purchaseToken,
         rawPayload: { notification: decoded.rawNotification, subscription },
@@ -477,6 +494,12 @@ export class GooglePlayBillingService {
       if (!periodEnd || periodEnd <= new Date()) {
         return { status: "ignored", reason: "subscription_period_expired" };
       }
+      await this.autoRenewService?.updateProviderRenewalPreference({
+        provider: "google_play",
+        providerAgreementId: decoded.purchaseToken,
+        cancelAtPeriodEnd: false,
+        rawPayload: { notification: decoded.rawNotification, subscription },
+      });
       if (await this.hasInitialPurchaseGrantCoveringPeriod(decoded.purchaseToken, periodEnd)) {
         return { status: "processed", action: "initial_purchase_already_applied" };
       }

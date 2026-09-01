@@ -59,6 +59,11 @@ export type MobileAlipayAutoRenewCreateResult = {
   reused: boolean;
 };
 
+export type MobileAlipayAutoRenewResumeResult = Pick<
+  MobileAutoRenewSubscription,
+  "id" | "provider" | "status" | "cancelAtPeriodEnd"
+> & { jumpSchema: string };
+
 export type MobileAppleVerifyTransactionResult = {
   transactionId: string;
   productId: string;
@@ -135,6 +140,24 @@ export async function cancelAutoRenewSubscription(
     MobileAutoRenewSubscription,
     "id" | "provider" | "status" | "cancelledAt" | "cancelAtPeriodEnd"
   >>;
+  if (!json.ok) {
+    throw new MobileApiError(json.error.code, json.error.message);
+  }
+  return json.data;
+}
+
+export async function resumeAlipayAutoRenewSubscription(
+  autoRenewSubscriptionId: string
+): Promise<MobileAlipayAutoRenewResumeResult> {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/resume`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await getAuthHeaders()),
+    },
+    body: JSON.stringify({ autoRenewSubscriptionId }),
+  });
+  const json = (await res.json()) as ApiResult<MobileAlipayAutoRenewResumeResult>;
   if (!json.ok) {
     throw new MobileApiError(json.error.code, json.error.message);
   }

@@ -18,7 +18,7 @@ export type AlipayAutoRenewReconcileResult =
   | { status: "skipped"; reason: "not_configured" | "no_current_alipay_subscription" | "customer_link_missing" }
   | {
       status: "checked";
-      action: "unchanged" | "paid_period_recorded" | "cancel_scheduled" | "billing_retry" | "cancelled";
+      action: "unchanged" | "paid_period_recorded" | "cancel_scheduled" | "cancel_reverted" | "billing_retry" | "cancelled";
       subscriptionStatus: string;
       currentPeriodEnd: string | null;
       cancelAtPeriodEnd: boolean;
@@ -246,6 +246,27 @@ export class AlipayAutoRenewService {
       await this.repository.updateSubscription({ id: subscription.id, metadata: { ...metadata, lastAlipayNotifyId: event.notifyId, lastAlipayChangeAt: event.changeDate, lastAlipayChangeType: event.changeType, cancelAtPeriodEnd: true } });
       return "processed";
     }
+    if (event.changeType === "item_cancel_revert") {
+      if (stale) return "ignored";
+      assertSubscriptionMatchesProduct(event.subscription, resolveExpectedPrice(subscription));
+      await this.repository.updateSubscription({
+        id: subscription.id,
+        status: "active",
+        currentPeriodStart: parseDate(event.subscription.current_period_start) ?? subscription.currentPeriodStart,
+        currentPeriodEnd: parseDate(event.subscription.current_period_end) ?? subscription.currentPeriodEnd,
+        cancelledAt: null,
+        allowReactivation: true,
+        metadata: {
+          ...metadata,
+          lastAlipayNotifyId: event.notifyId,
+          lastAlipayChangeAt: event.changeDate,
+          lastAlipayChangeType: event.changeType,
+          cancelAtPeriodEnd: false,
+          resumeConfirmedAt: event.changeDate ?? new Date().toISOString(),
+        },
+      });
+      return "processed";
+    }
     return "ignored";
   }
 
@@ -328,6 +349,8 @@ export class AlipayAutoRenewService {
             ? "billing_retry"
             : cancelAtPeriodEnd && !hadCancelAtPeriodEnd
               ? "cancel_scheduled"
+              : !cancelAtPeriodEnd && hadCancelAtPeriodEnd
+                ? "cancel_reverted"
               : "unchanged",
         subscriptionStatus,
         currentPeriodEnd: periodEnd.toISOString(),
@@ -375,6 +398,31 @@ export class AlipayAutoRenewService {
     if (subscription.userId !== input.userId) throw new AutoRenewAccessDeniedError();
     await this.client.cancelAtPeriodEnd(subscription.providerAgreementId);
     return this.repository.updateSubscription({ id: subscription.id, metadata: { ...objectValue(subscription.metadata), cancelAtPeriodEnd: true, cancelRequestedAt: new Date().toISOString() } });
+  }
+
+  async revertCancellation(input: { userId: string; subscriptionId: string }) {
+    if (!this.client) throw new Error("ALIPAY_AUTORENEW_NOT_CONFIGURED");
+    const subscription = await this.repository.findById(input.subscriptionId);
+    if (!subscription || subscription.provider !== "alipay") throw new AutoRenewNotFoundError();
+    if (subscription.userId !== input.userId) throw new AutoRenewAccessDeniedError();
+    const metadata = objectValue(subscription.metadata);
+    if (
+      subscription.status !== "active" ||
+      metadata.cancelAtPeriodEnd !== true ||
+      !subscription.currentPeriodEnd ||
+      subscription.currentPeriodEnd <= new Date()
+    ) {
+      throw new Error("ALIPAY_AUTORENEW_RESUME_NOT_ALLOWED");
+    }
+    const result = await this.client.revertCancellation(subscription.providerAgreementId);
+    const updated = await this.repository.updateSubscription({
+      id: subscription.id,
+      metadata: {
+        ...metadata,
+        resumeRequestedAt: new Date().toISOString(),
+      },
+    });
+    return { subscription: updated, jumpSchema: result.jumpSchema };
   }
 
   async stopSubscriptionRenewalForAccountDeletion(

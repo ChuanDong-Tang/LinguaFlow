@@ -94,6 +94,24 @@ export class AlipayAutoRenewClient {
     await this.call("alipay.trade.subscription.modify", { subscription_id: subscriptionId, modify_type: "CANCEL", cancel_at_period_end: true });
   }
 
+  async revertCancellation(subscriptionId: string): Promise<{ jumpSchema: string }> {
+    const result = await this.call("alipay.trade.subscription.modify", {
+      subscription_id: subscriptionId,
+      modify_type: "REVERT_CANCEL",
+      cancel_at_period_end: false,
+    });
+    const returnedSubscriptionId = stringValue(result.subscription_id);
+    const jumpSchema = stringValue(result.alipay_jump_schema);
+    if (returnedSubscriptionId !== subscriptionId || !jumpSchema) {
+      throw new AlipayApiError(
+        "ALIPAY_SUBSCRIPTION_RESUME_RESPONSE_INVALID",
+        "Alipay subscription resume response missing id or jump schema",
+        result,
+      );
+    }
+    return { jumpSchema };
+  }
+
   parseAndVerifyNotification(fields: AlipayFormFields): AlipaySubscriptionChanged {
     if (!fields.notify_id || !fields.biz_content || !fields.utc_timestamp) {
       throw new AlipayApiError("ALIPAY_NOTIFY_FIELDS_MISSING", "Alipay notification is missing required fields");
