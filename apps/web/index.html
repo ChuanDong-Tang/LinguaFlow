@@ -1362,6 +1362,24 @@
                     <tbody id="appleLinksTbody"></tbody>
                   </table>
                 </div>
+                <div class="section-head mt">
+                  <div>
+                    <h2 class="section-title">支付宝绑定</h2>
+                    <p class="section-subtitle">商户客户 ID / 更新时间</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>customerId</th>
+                        <th>创建时间</th>
+                        <th>更新时间</th>
+                      </tr>
+                    </thead>
+                    <tbody id="alipayLinksTbody"></tbody>
+                  </table>
+                </div>
               </div>
             </div>
             <div class="section">
@@ -1375,12 +1393,14 @@
                 <button class="tab active" data-user-subtab="diagOrders">订单</button>
                 <button class="tab" data-user-subtab="diagSubs">订阅</button>
                 <button class="tab" data-user-subtab="diagAutoRenew">自动续费</button>
+                <button class="tab" data-user-subtab="diagAutoRenewCharges">续费扣款</button>
                 <button class="tab" data-user-subtab="diagPaymentEvents">支付事件</button>
                 <button class="tab" data-user-subtab="diagEvents">系统日志</button>
               </div>
               <div id="diagOrders" class="diag-subpanel table-wrap"></div>
               <div id="diagSubs" class="diag-subpanel table-wrap" style="display:none"></div>
               <div id="diagAutoRenew" class="diag-subpanel table-wrap" style="display:none"></div>
+              <div id="diagAutoRenewCharges" class="diag-subpanel table-wrap" style="display:none"></div>
               <div id="diagPaymentEvents" class="diag-subpanel table-wrap" style="display:none"></div>
               <div id="diagEvents" class="diag-subpanel table-wrap" style="display:none"></div>
             </div>
@@ -1568,6 +1588,7 @@
                       <th>ID</th>
                       <th>用户</th>
                       <th>状态</th>
+                      <th>来源</th>
                       <th>开始</th>
                       <th>到期</th>
                       <th>sourceOrderId</th>
@@ -3153,6 +3174,7 @@
           ["邮箱/手机", `${user.email || "-"} / ${user.phone || "-"}`],
           ["账号状态", user.status],
           ["当前 Pro", sub ? `是，到期 ${fmtDate(sub.expiresAt)}` : "否"],
+          ["会员来源", sub ? subscriptionSourceLabel(sub.sourceOrderId, autoRenew?.provider) : "-"],
           ["自动续费", autoRenew ? `${autoRenew.provider} / ${autoRenew.status}` : "无"],
         ].map(([label, value]) => `
           <div class="fact"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
@@ -3177,6 +3199,14 @@
             <td class="mono">${escapeHtml(row.latestTransactionId)}</td>
           </tr>
         `).join("") || rowEmpty(3);
+        const alipayLink = data.alipayAccountLink;
+        $("alipayLinksTbody").innerHTML = alipayLink ? `
+          <tr>
+            <td class="mono">${escapeHtml(alipayLink.customerId)}</td>
+            <td>${escapeHtml(fmtDate(alipayLink.createdAt))}</td>
+            <td>${escapeHtml(fmtDate(alipayLink.updatedAt))}</td>
+          </tr>
+        ` : rowEmpty(3);
         const tokenCycles = data.aiTokenCycles || [];
         const currentTokenCycle = tokenCycles.find((row) => row.id === data.currentAiTokenCycleId) || null;
         const historicalTokenCycles = tokenCycles.filter((row) => row.id !== data.currentAiTokenCycleId);
@@ -3243,11 +3273,14 @@
         $("diagOrders").innerHTML = tableHtml(["ID", "状态", "金额", "渠道单号", "创建时间"], (data.orders || []).map((row) => [
           mono(row.id), statusPill(row.status), `${row.amount} ${row.currency}`, mono(row.providerOrderId), fmtDate(row.createdAt),
         ]));
-        $("diagSubs").innerHTML = tableHtml(["ID", "状态", "开始", "到期", "sourceOrderId"], (data.subscriptions || []).map((row) => [
-          mono(row.id), statusPill(row.status), fmtDate(row.startedAt), fmtDate(row.expiresAt), mono(row.sourceOrderId),
+        $("diagSubs").innerHTML = tableHtml(["ID", "状态", "来源", "开始", "到期", "sourceOrderId"], (data.subscriptions || []).map((row) => [
+          mono(row.id), statusPill(row.status), subscriptionSourceLabel(row.sourceOrderId), fmtDate(row.startedAt), fmtDate(row.expiresAt), mono(row.sourceOrderId),
         ]));
         $("diagAutoRenew").innerHTML = tableHtml(["ID", "渠道", "状态", "agreement", "latest", "周期结束"], (data.autoRenewSubscriptions || []).map((row) => [
-          mono(row.id), row.provider, statusPill(row.status), mono(row.providerAgreementId), mono(row.latestTransactionId), fmtDate(row.currentPeriodEnd),
+          mono(row.id), paymentProviderLabel(row.provider), statusPill(row.status), mono(row.providerAgreementId), mono(row.latestTransactionId), fmtDate(row.currentPeriodEnd),
+        ]));
+        $("diagAutoRenewCharges").innerHTML = tableHtml(["支付时间", "渠道", "套餐", "状态", "金额", "周期结束", "扣款标识"], (data.autoRenewCharges || []).map((row) => [
+          fmtDate(row.paidAt || row.createdAt), paymentProviderLabel(row.provider), row.productCode, statusPill(row.status), formatPaymentAmount(row.amount, row.currency), fmtDate(row.periodEnd), mono(row.providerChargeId),
         ]));
         $("diagPaymentEvents").innerHTML = tableHtml(["时间", "渠道", "事件", "状态", "providerOrderId", "错误"], (data.paymentEvents || []).map((row) => [
           fmtDate(row.createdAt), row.provider, mono(row.eventType), statusPill(row.status), mono(row.providerOrderId), row.errorMessage || "",
@@ -3259,6 +3292,28 @@
 
       function mono(value) {
         return `<span class="mono">${escapeHtml(value)}</span>`;
+      }
+
+      function paymentProviderLabel(provider) {
+        const labels = { alipay: "支付宝", apple: "Apple", google_play: "Google Play", wechat: "微信支付" };
+        return labels[String(provider || "").toLowerCase()] || provider || "-";
+      }
+
+      function subscriptionSourceLabel(sourceOrderId, provider) {
+        const source = String(sourceOrderId || "").toLowerCase();
+        if (source.startsWith("alipay_autorenew:")) return "支付宝自动续费";
+        if (source.startsWith("apple_autorenew:") || source.startsWith("apple_iap:")) return "Apple IAP";
+        if (source.startsWith("google_play_autorenew:") || source.startsWith("google_play_iap:")) return "Google Play";
+        if (source.startsWith("wechat_autorenew:")) return "微信支付自动续费";
+        if (source.startsWith("admin_")) return "后台手动开通";
+        return provider ? paymentProviderLabel(provider) : sourceOrderId || "-";
+      }
+
+      function formatPaymentAmount(amount, currency) {
+        if (amount == null) return "-";
+        const value = Number(amount);
+        if (!Number.isFinite(value)) return `${amount} ${currency || ""}`.trim();
+        return `${(value / 100).toFixed(2)} ${currency || ""}`.trim();
       }
 
       function tableHtml(headers, rows) {
@@ -3348,11 +3403,12 @@
             <td class="mono">${escapeHtml(row.id)}</td>
             <td class="mono">${escapeHtml(row.userId)}</td>
             <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(subscriptionSourceLabel(row.sourceOrderId))}</td>
             <td>${escapeHtml(fmtDate(row.startedAt))}</td>
             <td>${escapeHtml(fmtDate(row.expiresAt))}</td>
             <td class="mono">${escapeHtml(row.sourceOrderId)}</td>
           </tr>
-        `).join("") || rowEmpty(6);
+        `).join("") || rowEmpty(7);
         setStatus(`订阅查询完成：${state.subscriptions.length} 条`);
       }
 

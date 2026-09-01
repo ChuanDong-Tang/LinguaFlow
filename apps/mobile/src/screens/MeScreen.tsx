@@ -201,6 +201,25 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
     ? bindings.email.maskedValue ?? t("me.bindings.bound")
     : bindings?.phone.maskedValue ?? t("me.bindings.view");
 
+  function handleEntitlementChanged(next: CurrentEntitlement): void {
+    const changed = !isSameEntitlement(entitlement, next);
+    if (changed) setEntitlement(next);
+    setSession((current) => {
+      if (!current) return current;
+      const isPro = next.isMember ?? next.isPro;
+      if (current.sessionFlags?.isPro === isPro) return current;
+      return {
+        ...current,
+        sessionFlags: { ...(current.sessionFlags ?? {}), isPro },
+      };
+    });
+    if (changed) {
+      void getUsageV2()
+        .then((usage) => { if (isMounted()) setUsageV2(usage); })
+        .catch(() => undefined);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       {onClose ? (
@@ -271,7 +290,7 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
           {isActive ? (
             isLoadingEntitlement
               ? <ActivityIndicator size="small" color={theme.colors.accentStrong} style={styles.membershipLoading} />
-              : <ProScreen compact initialEntitlement={entitlement} />
+              : <ProScreen compact initialEntitlement={entitlement} onEntitlementChanged={handleEntitlementChanged} />
           ) : null}
         </View>
 

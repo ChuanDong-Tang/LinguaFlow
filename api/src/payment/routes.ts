@@ -440,6 +440,23 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         ? await deps.alipayAutoRenewService.cancelAtPeriodEnd({ userId: userContext.userId, subscriptionId: req.body.autoRenewSubscriptionId.trim() })
         : await deps.autoRenewService.cancelWithProvider({ userId: userContext.userId, autoRenewSubscriptionId: req.body.autoRenewSubscriptionId.trim() });
 
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.autorenew.cancel_scheduled",
+        level: "info",
+        status: "success",
+        metadata: {
+          autoRenewSubscriptionId: subscription.id,
+          provider: subscription.provider,
+          productCode: subscription.productCode,
+          source: `${subscription.provider}_autorenew`,
+          cancelAtPeriodEnd: readCancelAtPeriodEnd(subscription.metadata),
+          currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
+        },
+      });
+
       return reply.status(200).send({
         ok: true,
         request_id: requestId,

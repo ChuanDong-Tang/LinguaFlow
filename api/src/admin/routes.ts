@@ -498,6 +498,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       subscriptions,
       entitlements,
       autoRenewSubscriptions,
+      autoRenewCharges,
+      alipayAccountLink,
       appleIapAccountLinks,
       systemEventLogs,
       adminAuditLogs,
@@ -522,6 +524,21 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
          WHERE "userId" = $1
          ORDER BY "updatedAt" DESC
          LIMIT 50`,
+        id
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT "id","autoRenewSubscriptionId","provider","productCode","providerChargeId","periodKey","status","amount","currency","periodStart","periodEnd","paidAt","failedAt","refundedAt","errorCode","errorMessage","createdAt","updatedAt"
+         FROM "auto_renew_charges"
+         WHERE "userId" = $1
+         ORDER BY "createdAt" DESC
+         LIMIT 50`,
+        id
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT "userId","customerId","createdAt","updatedAt"
+         FROM "alipay_account_links"
+         WHERE "userId" = $1
+         LIMIT 1`,
         id
       ),
       deps.prisma.$queryRawUnsafe(
@@ -613,6 +630,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         item.latestTransactionId,
         item.sourceOrderId,
       ]),
+      ...(autoRenewCharges as any[]).map((item) => item.providerChargeId),
       ...(appleIapAccountLinks as any[]).flatMap((item) => [
         item.originalTransactionId,
         item.latestTransactionId,
@@ -634,6 +652,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       subscriptions,
       entitlements,
       autoRenewSubscriptions,
+      autoRenewCharges,
+      alipayAccountLink: (alipayAccountLink as any[])[0] ?? null,
       appleIapAccountLinks,
       paymentEvents,
       systemEventLogs,

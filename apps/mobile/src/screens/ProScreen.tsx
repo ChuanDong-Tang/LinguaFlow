@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -53,7 +53,12 @@ import { useMountedGuard } from "../hooks/useMountedGuard";
 import { environmentStorageKey } from "../services/storage/environmentStorageKey";
 import { t, tf } from "../i18n";
 
-type ProScreenProps = { onBack?: () => void; compact?: boolean; initialEntitlement?: CurrentEntitlement | null };
+type ProScreenProps = {
+  onBack?: () => void;
+  compact?: boolean;
+  initialEntitlement?: CurrentEntitlement | null;
+  onEntitlementChanged?: (entitlement: CurrentEntitlement) => void;
+};
 type AppleIapBridgeState = Pick<
   ReturnType<typeof useIAP>,
   "connected" | "fetchProducts" | "finishTransaction" | "products" | "reconnect" | "requestPurchase" | "subscriptions"
@@ -75,7 +80,12 @@ const AUTO_RENEW_CACHE_KEY = environmentStorageKey("lf_current_auto_renew_v1");
 const AUTO_RENEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const APPLE_PURCHASE_TIMEOUT_MS = 120 * 1000;
 
-export function ProScreen({ onBack = () => {}, compact = false, initialEntitlement = null }: ProScreenProps) {
+export function ProScreen({
+  onBack = () => {},
+  compact = false,
+  initialEntitlement = null,
+  onEntitlementChanged,
+}: ProScreenProps) {
   const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
   const [isPaying, setIsPaying] = useState(false);
   const [isRenew, setIsRenew] = useState(initialEntitlement?.isMember ?? initialEntitlement?.isPro ?? false);
@@ -98,6 +108,12 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   const googlePlayPurchaseIntentRef = useRef(false);
   const googlePlayPurchaseFinishingRef = useRef(false);
   const handledGooglePlayPurchaseTokensRef = useRef(new Set<string>());
+  const appStateRef = useRef(AppState.currentState);
+  const pendingAlipayReturnRef = useRef<{
+    autoRenewSubscriptionId: string;
+    productCode: MobilePaymentProductCode;
+  } | null>(null);
+  const isSyncingAlipayReturnRef = useRef(false);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
   const manageableAutoRenew = isRenew && activeAutoRenew && !autoRenew.cancelAtPeriodEnd;
   const liveProductPrices = resolveMembershipPriceLabels(appleIap, productQuotes);
@@ -128,6 +144,7 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     setIsRenew(entitlement.isMember ?? entitlement.isPro);
     setProExpiresAt(entitlement.expiresAt);
     setCurrentEntitlement(entitlement);
+    onEntitlementChanged?.(entitlement);
   }
 
   function applyAutoRenewToState(subscription: MobileAutoRenewSubscription | null): void {
@@ -316,6 +333,34 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
   }, [isScreenAlive]);
 
   useEffect(() => {
+    if (!IS_CHINA_ANDROID) return;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const previousState = appStateRef.current;
+      appStateRef.current = nextState;
+      if (
+        nextState !== "active" ||
+        previousState === "active" ||
+        !pendingAlipayReturnRef.current ||
+        isSyncingAlipayReturnRef.current
+      ) return;
+
+      const pending = pendingAlipayReturnRef.current;
+      pendingAlipayReturnRef.current = null;
+      isSyncingAlipayReturnRef.current = true;
+      setIsAutoRenewLoading(true);
+      setIsPaying(true);
+      void syncAlipayAutoRenewAfterReturn(pending).finally(() => {
+        isSyncingAlipayReturnRef.current = false;
+        if (isScreenAlive()) {
+          setIsAutoRenewLoading(false);
+          setIsPaying(false);
+        }
+      });
+    });
+    return () => subscription.remove();
+  }, [isScreenAlive]);
+
+  useEffect(() => {
     if (appleIap?.connected) setStoreError(null);
   }, [appleIap?.connected]);
 
@@ -393,23 +438,43 @@ export function ProScreen({ onBack = () => {}, compact = false, initialEntitleme
     setIsPaying(true);
     try {
       const created = await createAlipayAutoRenewSubscription(productCode);
+      pendingAlipayReturnRef.current = {
+        autoRenewSubscriptionId: created.autoRenewSubscriptionId,
+        productCode,
+      };
       await Linking.openURL(created.jumpSchema);
-      if (!isScreenAlive()) return;
-      safeAlert(t("pro.alert.payment_processing_title"), t("pro.alert.payment_processing_message"));
-      const current = await pollAlipayAutoRenewResult(created.autoRenewSubscriptionId);
-      if (!isScreenAlive()) return;
-      applyAutoRenewToState(current);
-      const entitlementResult = await refreshProEntitlementState();
-      if (entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro) {
-        setIsRenew(true);
-        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productCode });
-      }
     } catch (error) {
+      pendingAlipayReturnRef.current = null;
       if (!isScreenAlive()) return;
       const message = error instanceof Error ? error.message : t("app.delete.retry_later");
       safeAlert(t("pro.alert.payment_start_failed"), message);
     } finally {
       if (isScreenAlive()) { setIsAutoRenewLoading(false); setIsPaying(false); }
+    }
+  }
+
+  async function syncAlipayAutoRenewAfterReturn(input: {
+    autoRenewSubscriptionId: string;
+    productCode: MobilePaymentProductCode;
+  }): Promise<void> {
+    try {
+      const current = await getCurrentAutoRenewSubscription(8_000);
+      if (!isScreenAlive()) return;
+      applyAutoRenewToState(current);
+      const entitlementResult = await refreshProEntitlementState();
+      if (!isScreenAlive()) return;
+      if (entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro) {
+        setIsRenew(true);
+        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productCode: input.productCode });
+        return;
+      }
+      if (current?.id === input.autoRenewSubscriptionId && current.status === "pending") {
+        safeAlert(t("pro.alert.payment_unfinished_title"), t("pro.alert.alipay_unfinished_message"));
+      }
+    } catch {
+      if (isScreenAlive()) {
+        safeAlert(t("pro.alert.payment_processing_title"), t("pro.alert.payment_processing_message"));
+      }
     }
   }
 
@@ -1246,6 +1311,9 @@ function resolveAutoRenewDescription(input: {
 }): string {
   if (!input.hasLoadedAutoRenew) return t("pro.auto.desc.syncing");
   if (input.autoRenew?.status === "pending") return t("pro.auto.desc.pending");
+  if (hasActiveAutoRenew(input.autoRenew) && input.autoRenew.cancelAtPeriodEnd) {
+    return tf("pro.auto.desc.cancelled", { provider: formatProviderName(input.autoRenew.provider) });
+  }
   if (hasActiveAutoRenew(input.autoRenew)) {
     return tf("pro.auto.desc.active", { provider: formatProviderName(input.autoRenew.provider) });
   }
@@ -1265,15 +1333,6 @@ function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return tf("pro.date_full", { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() });
-}
-
-async function pollAlipayAutoRenewResult(id: string): Promise<MobileAutoRenewSubscription | null> {
-  for (let attempt = 0; attempt < 15; attempt += 1) {
-    const current = await getCurrentAutoRenewSubscription();
-    if (current?.id === id && current.status !== "pending") return current;
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-  }
-  return getCurrentAutoRenewSubscription();
 }
 
 function formatNumber(value: number): string {
