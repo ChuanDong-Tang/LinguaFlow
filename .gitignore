@@ -34,6 +34,7 @@ agent.md
 /ecosystem.production.config.cjs
 /build_mobile_aab.bat
 
-# Local release configuration, scripts, runbooks, and generated artifacts.
+# Local agent skills and release outputs.
+/skills/
 /ci/cd/
 /apps/mobile/*.ipa
