@@ -61,6 +61,8 @@ export interface PaymentRuntimeConfig {
     notifyUrl: string | null;
     plusMonthlyPriceId: string | null;
     proMonthlyPriceId: string | null;
+    proSpecialPriceId: string | null;
+    proSpecialPriceIdentifiers: string[];
     requestTimeoutMs: number;
     reconcileIntervalMs: number;
     reconcileBatchSize: number;
@@ -550,6 +552,8 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       notifyUrl: trimToNull(env.ALIPAY_NOTIFY_URL),
       plusMonthlyPriceId: trimToNull(env.ALIPAY_PLUS_MONTHLY_PRICE_ID),
       proMonthlyPriceId: trimToNull(env.ALIPAY_PRO_MONTHLY_PRICE_ID),
+      proSpecialPriceId: trimToNull(env.ALIPAY_PRO_SPECIAL_PRICE_ID),
+      proSpecialPriceIdentifiers: readCsv(env.ALIPAY_PRO_SPECIAL_PRICE_IDENTIFIERS, []),
       requestTimeoutMs: readPositiveInt(env.ALIPAY_REQUEST_TIMEOUT_MS, 15_000),
       reconcileIntervalMs: readPositiveInt(env.ALIPAY_RECONCILE_INTERVAL_MS, 300_000),
       reconcileBatchSize: readPositiveInt(env.ALIPAY_RECONCILE_BATCH_SIZE, 50),

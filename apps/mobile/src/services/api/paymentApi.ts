@@ -84,7 +84,9 @@ export type MobileGooglePlayVerifyPurchaseResult = {
 };
 
 export async function getProMonthlyProductQuote(): Promise<MobilePaymentProductQuote> {
-  const res = await fetchWithTimeout(`${BASE_URL}/payment/products/pro-monthly`);
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/products/pro-monthly`, {
+    headers: await getAuthHeaders(),
+  });
   const json = (await res.json()) as ApiResult<MobilePaymentProductQuote>;
   if (!json.ok) {
     throw new MobileApiError(json.error.code, json.error.message);

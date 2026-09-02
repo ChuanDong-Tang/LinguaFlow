@@ -202,8 +202,17 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     });
   });
 
-  app.get("/payment/products/pro-monthly", async (_req, reply) => {
-    const quote = await getAlipayProductQuoteOrNull(app, deps, "pro_monthly");
+  app.get("/payment/products/pro-monthly", async (req, reply) => {
+    let identity: { email: string | null; phone: string | null } | undefined;
+    if (req.headers.authorization) {
+      const requestId = resolveRequestId(req.headers["x-request-id"]);
+      const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+      if (!userContext) return;
+      const user = await deps.userRepository.findById(userContext.userId);
+      if (!user) return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "USER_NOT_FOUND", message: "User not found" } });
+      identity = { email: user.email, phone: user.phone };
+    }
+    const quote = await getAlipayProductQuoteOrNull(app, deps, "pro_monthly", identity);
     return reply.status(200).send({
       ok: true,
       data: {
@@ -1107,9 +1116,10 @@ async function getAlipayProductQuoteOrNull(
   app: FastifyInstance,
   deps: PaymentRouteDeps,
   productCode: "plus_monthly" | "pro_monthly",
+  identity?: { email?: string | null; phone?: string | null },
 ) {
   try {
-    return await deps.alipayAutoRenewService.getProductQuote(productCode);
+    return await deps.alipayAutoRenewService.getProductQuote(productCode, identity);
   } catch (error) {
     app.log.warn(
       { error: error instanceof Error ? error.message : String(error), productCode },

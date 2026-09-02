@@ -31,6 +31,8 @@ export type AlipayProductQuote = {
   currency: "CNY";
 };
 
+type AlipayPriceIdentity = { email?: string | null; phone?: string | null };
+
 const ALIPAY_PRICE_CACHE_TTL_MS = 300_000;
 const ALIPAY_PRICE_FAILURE_CACHE_TTL_MS = 10_000;
 
@@ -50,9 +52,9 @@ export class AlipayAutoRenewService {
 
   isConfigured(): boolean { return Boolean(this.client); }
 
-  async getProductQuote(productCode: AutoRenewProductCode): Promise<AlipayProductQuote> {
+  async getProductQuote(productCode: AutoRenewProductCode, identity?: AlipayPriceIdentity): Promise<AlipayProductQuote> {
     if (!this.client) throw new Error("ALIPAY_AUTORENEW_NOT_CONFIGURED");
-    const priceId = resolvePriceId(productCode);
+    const priceId = resolvePriceId(productCode, identity);
     const cacheKey = `${productCode}:${priceId}`;
     const cached = this.priceCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.quote;
@@ -119,7 +121,7 @@ export class AlipayAutoRenewService {
       const jumpSchema = stringValue(metadata.jumpSchema);
       const expiresAt = parseDate(metadata.schemaEffectiveEnd);
       const storedPriceId = stringValue(metadata.alipayPriceId);
-      const currentPriceId = resolvePriceId(input.productCode);
+      const currentPriceId = resolvePriceId(input.productCode, input);
       const isSameOffer = existingPending.productCode === input.productCode && (!storedPriceId || storedPriceId === currentPriceId);
       if (isSameOffer && jumpSchema && (!expiresAt || expiresAt > new Date())) {
         return { subscription: existingPending, jumpSchema, reused: true };
@@ -133,7 +135,7 @@ export class AlipayAutoRenewService {
         },
       });
     }
-    const quote = await this.getProductQuote(input.productCode);
+    const quote = await this.getProductQuote(input.productCode, input);
     const customerId = await this.resolveCustomer(input);
     const created = await this.client.createSubscription({
       customerId,
@@ -461,11 +463,38 @@ export class AlipayAutoRenewService {
   }
 }
 
-function resolvePriceId(productCode: AutoRenewProductCode): string {
+function resolvePriceId(productCode: AutoRenewProductCode, identity?: AlipayPriceIdentity): string {
   const config = getRuntimeConfig().payment.alipayAutoRenew;
-  const value = productCode === "plus_monthly" ? config.plusMonthlyPriceId : config.proMonthlyPriceId;
+  const isSpecialPro = productCode === "pro_monthly" && matchesSpecialProPriceIdentity(
+    identity,
+    config.proSpecialPriceIdentifiers,
+  );
+  const value = productCode === "plus_monthly"
+    ? config.plusMonthlyPriceId
+    : isSpecialPro
+      ? config.proSpecialPriceId
+      : config.proMonthlyPriceId;
   if (!value) throw new Error(`ALIPAY_${productCode.toUpperCase()}_PRICE_ID_MISSING`);
   return value;
+}
+
+function matchesSpecialProPriceIdentity(
+  identity: AlipayPriceIdentity | undefined,
+  configuredIdentifiers: string[],
+): boolean {
+  if (!identity || configuredIdentifiers.length === 0) return false;
+  const candidates = new Set(
+    [identity.email, identity.phone]
+      .map(normalizePriceIdentifier)
+      .filter((value): value is string => Boolean(value)),
+  );
+  return configuredIdentifiers.some((identifier) => candidates.has(normalizePriceIdentifier(identifier) ?? ""));
+}
+
+function normalizePriceIdentifier(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized.includes("@") ? normalized : normalized.replace(/[\s()-]/g, "");
 }
 function resolveExpectedPrice(subscription: AutoRenewSubscriptionEntity): { priceId: string; unitAmount: number | null } {
   const metadata = objectValue(subscription.metadata);
