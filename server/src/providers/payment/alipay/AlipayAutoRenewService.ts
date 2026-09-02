@@ -227,14 +227,28 @@ export class AlipayAutoRenewService {
         amount, currency: "CNY", periodStart, periodEnd,
         paidAt: parseDate(event.changeDate) ?? new Date(), rawPayload: sanitizeEvent(event),
       });
-      // A paid event must always grant the paid period, even if delivery was delayed
-      // until after a newer cancel event. It must not resurrect the agreement in that case.
-      if (stale || subscription.status === "cancelled") return "processed";
+      // A paid event must always grant the paid period. A locally cancelled pending
+      // agreement may still complete in Alipay after its jump schema expires, so that
+      // specific state can be reactivated. Real provider/user cancellations stay final.
+      const canReactivateExpiredJumpSchema = subscription.status === "cancelled"
+        && metadata.cancelSource === "expired_jump_schema";
+      if (stale || (subscription.status === "cancelled" && !canReactivateExpiredJumpSchema)) {
+        return "processed";
+      }
       await this.repository.updateSubscription({
         id: subscription.id, status: "active", latestTransactionId: providerTransactionId,
         currentPeriodStart: periodStart, currentPeriodEnd: periodEnd, nextBillingAt: null,
         cancelledAt: null, allowReactivation: true,
-        metadata: { ...metadata, lastAlipayNotifyId: event.notifyId, lastAlipayChangeAt: event.changeDate, lastAlipayChangeType: event.changeType, cancelAtPeriodEnd: Boolean(event.subscription.cancel_at_period_end) },
+        metadata: {
+          ...metadata,
+          ...(canReactivateExpiredJumpSchema
+            ? { cancelSource: null, reactivatedFromCancelSource: "expired_jump_schema" }
+            : {}),
+          lastAlipayNotifyId: event.notifyId,
+          lastAlipayChangeAt: event.changeDate,
+          lastAlipayChangeType: event.changeType,
+          cancelAtPeriodEnd: Boolean(event.subscription.cancel_at_period_end),
+        },
       });
       return "processed";
     }
