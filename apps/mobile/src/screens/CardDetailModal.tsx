@@ -2643,7 +2643,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   onTextSelectionEnd?: () => void;
 }) {
   const auxiliaryByOrdinal = useMemo(
-    () => new Map(detail.auxiliarySegments.map((segment) => [segment.ordinal, segment.text])),
+    () => new Map((detail.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text])),
     [detail.auxiliarySegments],
   );
   const { showNotice } = useFloatingNotice();
