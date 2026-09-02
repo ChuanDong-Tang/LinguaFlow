@@ -166,8 +166,12 @@ export class CardSpeechService {
       .filter((segment) => segment.contentType === input.contentType && segment.contentVersion === input.contentVersion)
       .sort((left, right) => left.ordinal - right.ordinal);
     if (!segments.length) throw new CardNotFoundError();
-    const languageCode = contentLanguageCode(entry, input.contentType);
-    const learningText = segments.map((segment) => segment.text.trim()).filter(Boolean).join(" ");
+    const rawText = segments.map((segment) => segment.text.trim()).filter(Boolean).join("\n\n");
+    const originalSpeech = input.contentType === "original"
+      ? selectEnglishOriginalSpeech(rawText, entry.languageCode)
+      : null;
+    const languageCode = originalSpeech?.languageCode ?? contentLanguageCode(entry, input.contentType);
+    const learningText = originalSpeech?.text ?? rawText;
     const sourceText = normalizeLearningText({ text: learningText, languageCode });
     const graphemeCount = countGraphemes(sourceText);
     if (!sourceText || graphemeCount > this.articleMaxChars) throw new CardValidationError("Article speech is too long");
@@ -436,6 +440,37 @@ function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningCo
   if (contentType === "original") return inferLearningTextLanguage(entry.originalText ?? "", entry.appLocaleSnapshot);
   if (contentType === "rewrite") return entry.rewrittenLanguageCode ?? entry.languageCode;
   return entry.replyLanguageCode ?? entry.languageCode;
+}
+
+export function selectEnglishOriginalSpeech(
+  text: string,
+  targetLanguageCode: string,
+): { text: string; languageCode: "en-US" } | null {
+  if (targetLanguageCode !== "en-US") return null;
+  const totalLatin = countScriptCharacters(text, /\p{Script=Latin}/u);
+  const totalHan = countScriptCharacters(text, /\p{Script=Han}/u);
+  // Keep genuinely Chinese or lightly mixed originals on the existing path.
+  // Filtering is only for bilingual records whose main body is clearly English.
+  if (totalHan === 0 || totalLatin < 20 || totalLatin <= totalHan) return null;
+  const englishParagraphs = text
+    .split(/\r?\n+/u)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .filter((paragraph) => {
+      const latin = countScriptCharacters(paragraph, /\p{Script=Latin}/u);
+      const han = countScriptCharacters(paragraph, /\p{Script=Han}/u);
+      return latin > 0 && latin > han;
+    });
+  if (!englishParagraphs.length) return null;
+  return { text: englishParagraphs.join("\n\n"), languageCode: "en-US" };
+}
+
+function countScriptCharacters(text: string, pattern: RegExp): number {
+  let count = 0;
+  for (const character of text) {
+    if (pattern.test(character)) count += 1;
+  }
+  return count;
 }
 
 function isShortDictionaryExpression(text: string): boolean {
