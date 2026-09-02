@@ -3441,7 +3441,7 @@ const styles = StyleSheet.create({
   clozeSentenceBody: { flex: 1, paddingTop: 1 },
   clozeFlow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
   clozeSentence: { color: theme.colors.text, fontSize: 17, lineHeight: 28 },
-  auxiliarySentence: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 21 },
+  auxiliarySentence: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 25 },
   cardBlankInput: { height: 28, paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, borderBottomWidth: 0, backgroundColor: "transparent", color: "transparent", fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", textAlignVertical: "center", includeFontPadding: false },
   cardBlankStaticText: { height: 28, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
   cardBlankPreview: { height: 28, marginHorizontal: 0, paddingHorizontal: 0, paddingVertical: 0, borderBottomWidth: 1, borderBottomColor: "#8C6D1F", borderRadius: 0, backgroundColor: "#FFF0B8", alignSelf: "center", justifyContent: "center" },
