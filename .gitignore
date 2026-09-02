@@ -34,9 +34,6 @@ agent.md
 /ecosystem.production.config.cjs
 /build_mobile_aab.bat
 
-# Local release configuration and generated artifacts. Keep the workflows and
-# runbooks versioned so a clean checkout can reproduce a release.
-/ci/cd/artifacts/
-/ci/cd/*.env
-/ci/cd/gradle-repositories.init.gradle
+# Local release configuration, scripts, runbooks, and generated artifacts.
+/ci/cd/
 /apps/mobile/*.ipa
