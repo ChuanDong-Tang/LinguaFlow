@@ -376,7 +376,6 @@ export function CardDetailNavigator({
             originalText: input.originalText,
             collectionId: input.collectionId,
             ...(!input.selectedTargets.includes("expression") ? { rewrittenText: null } : {}),
-            ...(!input.selectedTargets.includes("translation") ? { translationText: null } : {}),
             ...(!input.selectedTargets.includes("reply") ? { replyText: null } : {}),
           });
         } catch (error) {

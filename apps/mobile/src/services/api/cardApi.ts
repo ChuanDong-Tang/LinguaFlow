@@ -52,6 +52,8 @@ export type CardRecordDetail = CardRecordSummary & {
   rewrittenLanguageCode: string | null;
   translationText: string | null;
   translationLanguageCode: string | null;
+  auxiliarySegments: Array<{ ordinal: number; text: string }>;
+  auxiliaryLanguageCode: string | null;
   replyText: string | null;
   replyLanguageCode: string | null;
   rewriteSegments: Array<{
@@ -185,7 +187,7 @@ export async function updateCardContent(
 
 export async function generateCardContent(
   recordId: string,
-  target: "expression" | "translation" | "reply",
+  target: "expression" | "translation" | "auxiliary" | "reply",
 ): Promise<CardRecordDetail> {
   return request<CardRecordDetail>(`/cards/${encodeURIComponent(requireCardId(recordId))}/generate`, {
     method: "POST",

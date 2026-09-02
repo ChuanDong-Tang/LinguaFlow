@@ -559,7 +559,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     if (!userId) return;
     const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
     const target = (req.body as { target?: unknown } | null)?.target;
-    if (target !== "expression" && target !== "translation" && target !== "reply") {
+    if (target !== "expression" && target !== "translation" && target !== "auxiliary" && target !== "reply") {
       return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid generation target");
     }
     try {

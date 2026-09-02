@@ -21,6 +21,7 @@ import { countCardCharacters } from "@lf/core/text/cardText.js";
 import { isTargetLanguageCode, type TargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 import { CARD_TOPIC_PROMPT_VERSION } from "@lf/core/Prompts/cardTopicPrompt.js";
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 
 type PrismaCardClient = {
   card: {
@@ -466,6 +467,11 @@ export class PrismaCardRepository implements CardRepository {
           translationText: input.translationText,
           translationLanguageCode: input.translationLanguageCode,
           translationSourceHash: input.translationSourceHash,
+          ...(current.rewrittenText !== input.rewrittenText ? {
+            auxiliarySegments: Prisma.DbNull,
+            auxiliaryLanguageCode: null,
+            auxiliarySourceHash: null,
+          } : {}),
           replyText: input.replyText,
           replyLanguageCode: input.replyLanguageCode,
           replySourceHash: input.replySourceHash,
@@ -518,6 +524,33 @@ export class PrismaCardRepository implements CardRepository {
       const updated = await tx.card.findFirst({ where: { id: input.entryId }, include: includeSegments });
       return updated ? toEntry(updated) : null;
     });
+  }
+
+  async saveAuxiliarySegments(input: {
+    entryId: string;
+    userId: string;
+    expectedRewrittenText: string;
+    auxiliarySegments: Array<{ ordinal: number; text: string }>;
+    auxiliaryLanguageCode: string;
+    auxiliarySourceHash: string;
+  }): Promise<CardEntryEntity | null> {
+    const changed = await this.prisma.card.updateMany({
+      where: {
+        id: input.entryId,
+        userId: input.userId,
+        status: "completed",
+        deletedAt: null,
+        rewrittenText: input.expectedRewrittenText,
+      },
+      data: {
+        auxiliarySegments: input.auxiliarySegments,
+        auxiliaryLanguageCode: input.auxiliaryLanguageCode,
+        auxiliarySourceHash: input.auxiliarySourceHash,
+      },
+    });
+    if (changed.count !== 1) return null;
+    const updated = await this.prisma.card.findFirst({ where: { id: input.entryId }, include: includeSegments });
+    return updated ? toEntry(updated) : null;
   }
 
   async findByUserClientId(userId: string, clientId: string): Promise<CardEntryEntity | null> {
@@ -1845,6 +1878,9 @@ function toEntry(row: any): CardEntryEntity {
     translationText: row.translationText ?? null,
     translationLanguageCode: row.translationLanguageCode ?? null,
     translationSourceHash: row.translationSourceHash ?? null,
+    auxiliarySegments: row.auxiliarySegments ?? null,
+    auxiliaryLanguageCode: row.auxiliaryLanguageCode ?? null,
+    auxiliarySourceHash: row.auxiliarySourceHash ?? null,
     replyText: row.replyText ?? null,
     replyLanguageCode: row.replyLanguageCode ?? null,
     replySourceHash: row.replySourceHash ?? null,

@@ -685,7 +685,6 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
   const dirty = title !== (detail.title ?? "")
     || originalText !== detail.originalText
     || selectedTargets.expression !== Boolean(detail.rewrittenText)
-    || selectedTargets.translation !== Boolean(detail.translationText)
     || selectedTargets.reply !== Boolean(detail.replyText)
     || collectionId !== (detail.collectionId ?? null);
   const contentCount = countGraphemes(originalText);
@@ -698,7 +697,7 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
         title: title.trim() || null,
         originalText: originalText.trim(),
         collectionId,
-        selectedTargets: (["expression", "translation", "reply"] as const).filter((target) => selectedTargets[target]),
+        selectedTargets: (["expression", "reply"] as const).filter((target) => selectedTargets[target]),
       });
     } catch (error) {
       Alert.alert(t("card_detail.error.save"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
@@ -1245,7 +1244,6 @@ function DraftAiOptionsRow({ selected, disabled, onToggle }: {
   const { width, fontScale } = useWindowDimensions();
   const stacked = width < 360 || fontScale > 1.15;
   const items = [
-    { key: "translation" as const, label: t("card_detail.module.translation_description") },
     { key: "reply" as const, label: t("card_detail.module.reply_description") },
     { key: "expression" as const, label: t("card_detail.module.expression_description") },
   ];
@@ -2432,10 +2430,6 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
             <Text selectable style={styles.original}>{detail.originalText}</Text>
             <CardSectionCopyButton onPress={() => void copySection(detail.originalText)} />
           </CollapsibleCardSection> : null}
-          {detail.translationText ? <CollapsibleCardSection label={t("card_detail.translation")} collapsed={collapsedSections.translation} onToggle={() => toggleSection("translation")}>
-            <Text selectable style={styles.secondaryContent}>{detail.translationText}</Text>
-            <CardSectionCopyButton onPress={() => void copySection(detail.translationText!)} />
-          </CollapsibleCardSection> : pendingGenerationTargets.includes("translation") ? <PendingGenerationSection target="translation" /> : failedGenerationTargets.includes("translation") ? <FailedGenerationSection target="translation" retrying={retryingGenerationTarget === "translation"} onRetry={onRetryGeneration} /> : null}
         </ScrollView>
       </View>
       </Animated.View>
@@ -2648,6 +2642,10 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   onTextSelectionStart?: () => void;
   onTextSelectionEnd?: () => void;
 }) {
+  const auxiliaryByOrdinal = useMemo(
+    () => new Map(detail.auxiliarySegments.map((segment) => [segment.ordinal, segment.text])),
+    [detail.auxiliarySegments],
+  );
   const { showNotice } = useFloatingNotice();
   const sentenceRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, embedded), [detail, clozeState, embedded]);
   const orderedBlankIndexes = useMemo(
@@ -2931,6 +2929,9 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
       ) : (
           <View style={[styles.clozeSentenceList, embedded && styles.inlineClozeSentenceList]}>{sentenceRows.map((row) => {
             const segment = detail.rewriteSegments.find((candidate) => candidate.id === row.segmentId);
+            const auxiliaryText = contentBinding.contentType === "rewrite" && segment
+              ? auxiliaryByOrdinal.get(segment.ordinal)
+              : undefined;
             return <View key={row.key} style={[styles.clozeSentenceRow, embedded && styles.inlineClozeSentenceRow]}>
               <View style={styles.clozeSentenceBody}>
                 <StableCardSentence
@@ -2959,6 +2960,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                     setCheckedAnswers((current) => { const next = { ...current }; delete next[blankId]; return next; });
                   }}
                 />
+                {auxiliaryText ? <Text selectable style={styles.auxiliarySentence}>{auxiliaryText}</Text> : null}
               </View>
             </View>;
           })}
@@ -3439,6 +3441,7 @@ const styles = StyleSheet.create({
   clozeSentenceBody: { flex: 1, paddingTop: 1 },
   clozeFlow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
   clozeSentence: { color: theme.colors.text, fontSize: 17, lineHeight: 28 },
+  auxiliarySentence: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 21 },
   cardBlankInput: { height: 28, paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, borderBottomWidth: 0, backgroundColor: "transparent", color: "transparent", fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", textAlignVertical: "center", includeFontPadding: false },
   cardBlankStaticText: { height: 28, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
   cardBlankPreview: { height: 28, marginHorizontal: 0, paddingHorizontal: 0, paddingVertical: 0, borderBottomWidth: 1, borderBottomColor: "#8C6D1F", borderRadius: 0, backgroundColor: "#FFF0B8", alignSelf: "center", justifyContent: "center" },

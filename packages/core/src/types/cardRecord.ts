@@ -96,6 +96,8 @@ export interface CardRecordDetailView extends CardRecordSummaryView {
   rewrittenLanguageCode: string | null;
   translationText: string | null;
   translationLanguageCode: string | null;
+  auxiliarySegments: Array<{ ordinal: number; text: string }>;
+  auxiliaryLanguageCode: string | null;
   replyText: string | null;
   replyLanguageCode: string | null;
   rewriteSegments: CardRewriteSegmentView[];

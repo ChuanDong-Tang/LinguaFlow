@@ -36,7 +36,7 @@ import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text
 import { inferLearningTextLanguage } from "@lf/core/text/learningText.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
-import { buildCardContentGenerationPrompt, cardContentMaxOutputTokens, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
+import { buildCardContentGenerationPrompt, cardContentMaxOutputTokens, parseCardAuxiliaryOutput, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
 import { buildCardContentSegments } from "./cardContentSegments.js";
 import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
@@ -401,17 +401,24 @@ export class CardService {
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
     if (!current || current.status !== "completed") throw new CardNotFoundError();
-    const sourceText = input.target === "reply"
-      ? current.rewrittenText || current.originalText
-      : current.originalText;
+    const auxiliarySourceSegments = input.target === "auxiliary"
+      ? current.segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }))
+      : [];
+    const sourceText = input.target === "auxiliary"
+      ? JSON.stringify(auxiliarySourceSegments)
+      : input.target === "reply"
+        ? current.rewrittenText || current.originalText
+        : current.originalText;
     if (!sourceText) throw new CardValidationError("No source content to generate from");
-    const sourceHash = current.originalContentHash ?? (current.originalText ? cardContentHash(current.originalText) : null);
+    const sourceHash = input.target === "auxiliary"
+      ? (current.rewrittenText ? cardContentHash(current.rewrittenText) : null)
+      : current.originalContentHash ?? (current.originalText ? cardContentHash(current.originalText) : null);
     if (!sourceHash) throw new CardValidationError("No original content version is available");
     if (input.usageApiVersion !== "v2") {
       await this.entitlementService.assertCanUse(input.userId, countCardCharacters(sourceText), { dateKey: current.dateKey });
     }
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
-    const generationLanguageCode = input.target === "translation"
+    const generationLanguageCode = input.target === "translation" || input.target === "auxiliary"
       ? preference.appLocale
       : preference.learningLanguage;
     const prompt = buildCardContentGenerationPrompt({
@@ -502,6 +509,25 @@ export class CardService {
         countCardCharacters(sourceText) + countCardCharacters(output),
         { dateKey: current.dateKey },
       );
+    }
+    if (input.target === "auxiliary") {
+      if (!current.rewrittenText || !auxiliarySourceSegments.length) throw new CardValidationError("No finalized expression is available");
+      let auxiliarySegments: Array<{ ordinal: number; text: string }>;
+      try {
+        auxiliarySegments = parseCardAuxiliaryOutput(output, auxiliarySourceSegments.map((segment) => segment.ordinal));
+      } catch {
+        throw new CardValidationError("Generated auxiliary content does not match the finalized expression segments");
+      }
+      const updated = await this.repository.saveAuxiliarySegments({
+        entryId: current.id,
+        userId: input.userId,
+        expectedRewrittenText: current.rewrittenText,
+        auxiliarySegments,
+        auxiliaryLanguageCode: generationLanguageCode,
+        auxiliarySourceHash: sourceHash,
+      });
+      if (!updated) throw new CardContentConflictError("The Card expression changed while auxiliary text was being generated");
+      return this.detail(input.userId, input.recordId);
     }
     const patch: UpdateCardContentInput = input.target === "expression"
       ? { rewrittenText: output }
@@ -835,6 +861,8 @@ export class CardService {
       rewrittenLanguageCode: entry.rewrittenLanguageCode,
       translationText: entry.translationText,
       translationLanguageCode: entry.translationLanguageCode,
+      auxiliarySegments: normalizeAuxiliarySegments(entry.auxiliarySegments),
+      auxiliaryLanguageCode: entry.auxiliaryLanguageCode,
       replyText: entry.replyText,
       replyLanguageCode: entry.replyLanguageCode,
       rewriteSegments: entry.segments.map((segment) => ({
@@ -1594,6 +1622,18 @@ function normalizeCardContent(text: string | null): string {
   return normalizeCardLineEndings(text ?? "").normalize("NFKC").trim();
 }
 
+function normalizeAuxiliarySegments(value: unknown): Array<{ ordinal: number; text: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const ordinal = (row as { ordinal?: unknown }).ordinal;
+    const text = (row as { text?: unknown }).text;
+    return Number.isInteger(ordinal) && typeof text === "string" && text.trim()
+      ? [{ ordinal: ordinal as number, text: text.trim() }]
+      : [];
+  }).sort((left, right) => left.ordinal - right.ordinal);
+}
+
 export function taskGuardId(clientId: string): string {
   return `card:${clientId}`;
 }
@@ -1616,7 +1656,7 @@ function assertDateKey(value: string): void {
 
 function cardUsageFeature(target: CardGeneratedContentTarget): "rewrite" | "organization" | "reply" {
   if (target === "expression") return "rewrite";
-  if (target === "translation") return "organization";
+  if (target === "translation" || target === "auxiliary") return "organization";
   return "reply";
 }
 

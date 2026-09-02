@@ -163,6 +163,9 @@ model Card {
   translationText          String?
   translationLanguageCode  String?
   translationSourceHash    String?
+  auxiliarySegments        Json?
+  auxiliaryLanguageCode    String?
+  auxiliarySourceHash      String?
   replyText                String?
   replyLanguageCode        String?
   replySourceHash          String?

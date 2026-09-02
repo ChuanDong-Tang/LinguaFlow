@@ -48,6 +48,12 @@ export async function generateMissingCardContent(
   };
 }
 
+/** Generate hidden auxiliary text only after the expression has been finalized. */
+export async function generateCardAuxiliaryText(detail: CardRecordDetail): Promise<CardRecordDetail> {
+  if (!detail.rewrittenText?.trim()) return detail;
+  return generateCardContent(detail.id, "auxiliary");
+}
+
 export function isCardResourceLimitedError(error: unknown): boolean {
   return error instanceof CardApiError && (
     error.status === 429

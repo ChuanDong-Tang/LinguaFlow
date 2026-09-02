@@ -36,7 +36,7 @@ export type CardDraft = {
   images: CardDraftImage[];
 };
 
-const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: false, translation: false, reply: false }, images: [] };
+const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, images: [] };
 let draftStorageQueue: Promise<void> = Promise.resolve();
 
 async function key(): Promise<string | null> {

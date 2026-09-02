@@ -38,6 +38,9 @@ export interface CardEntryEntity {
   translationText: string | null;
   translationLanguageCode: string | null;
   translationSourceHash: string | null;
+  auxiliarySegments: unknown | null;
+  auxiliaryLanguageCode: string | null;
+  auxiliarySourceHash: string | null;
   replyText: string | null;
   replyLanguageCode: string | null;
   replySourceHash: string | null;
@@ -228,6 +231,14 @@ export interface CardRepository {
     segments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
     contentSegments: CardContentSegmentWrite[];
     clearPractice: boolean;
+  }): Promise<CardEntryEntity | null>;
+  saveAuxiliarySegments(input: {
+    entryId: string;
+    userId: string;
+    expectedRewrittenText: string;
+    auxiliarySegments: Array<{ ordinal: number; text: string }>;
+    auxiliaryLanguageCode: string;
+    auxiliarySourceHash: string;
   }): Promise<CardEntryEntity | null>;
   refreshContentSegments(input: {
     entryId: string;

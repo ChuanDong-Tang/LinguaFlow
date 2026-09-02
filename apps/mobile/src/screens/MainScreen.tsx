@@ -75,7 +75,7 @@ import {
   uploadCardDraftImage,
   CardImageModerationRejectedError,
 } from "../services/card/cardImageUpload";
-import { generateMissingCardContent, isCardResourceLimitedError, type CardGenerationTarget } from "../services/card/cardContentGeneration";
+import { generateCardAuxiliaryText, generateMissingCardContent, isCardResourceLimitedError, type CardGenerationTarget } from "../services/card/cardContentGeneration";
 import { isCardGenerationInProgress, isCardRecordGenerationInProgress, setCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
 import { registerClozeOnboardingCandidate } from "../services/card/clozeOnboarding";
 import { getLanguage, t, tf } from "../i18n";
@@ -104,7 +104,7 @@ type RecordActionAnchor = { x: number; y: number; width: number; height: number 
 
 const UNCLASSIFIED_VIEW = "unclassified";
 const TRASH_VIEW = "trash";
-const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: false, translation: false, reply: false }, images: [] };
+const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, images: [] };
 const LIBRARY_PAGE_SIZE = 40;
 const BACKGROUND_REFRESH_INTERVAL_MS = 60_000;
 const TOPIC_REFRESH_DELAYS_MS = [1_000, 2_000, 3_000, 5_000, 8_000] as const;
@@ -613,7 +613,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     setSending(true);
     let persistedRecordId = snapshot.recordId;
     let optimisticStarted = false;
-    const selectedTargets: CardGenerationTarget[] = (["expression", "translation", "reply"] as const)
+    const selectedTargets: CardGenerationTarget[] = (["expression", "reply"] as const)
       .filter((target) => snapshot.enabledLayers[target]);
     try {
       await commitDraft(submitting);
@@ -631,7 +631,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             title: snapshot.title.trim() || null,
             originalText: text || null,
             rewrittenText: existingContent.expression || null,
-            translationText: existingContent.translation || null,
+            translationText: null,
             replyText: existingContent.reply || null,
             generateRewrite: false,
             imageUploadIds: snapshot.images.map((image) => image.uploadId).filter((uploadId): uploadId is string => Boolean(uploadId)),
@@ -677,11 +677,20 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         originalText: text,
         collectionId: snapshot.collectionId,
         ...(!snapshot.enabledLayers.expression ? { rewrittenText: null } : {}),
-        ...(!snapshot.enabledLayers.translation ? { translationText: null } : {}),
+        translationText: null,
         ...(!snapshot.enabledLayers.reply ? { replyText: null } : {}),
       });
       const generation = await generateMissingCardContent(detail, selectedTargets);
       detail = generation.detail;
+      if (isNewCard && detail.rewrittenText?.trim()) {
+        try {
+          detail = await generateCardAuxiliaryText(detail);
+        } catch (error) {
+          // Auxiliary text is deliberately non-blocking: the finalized expression
+          // remains the successful result of creating a new Card.
+          console.warn("[card] auxiliary text generation failed", error);
+        }
+      }
       created = detail;
       const createdForDisplay = firstDraftImage && !created.thumbnail
         ? {
