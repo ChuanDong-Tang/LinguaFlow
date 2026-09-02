@@ -418,14 +418,16 @@ export class CardService {
       await this.entitlementService.assertCanUse(input.userId, countCardCharacters(sourceText), { dateKey: current.dateKey });
     }
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
-    const generationLanguageCode = input.target === "translation" || input.target === "auxiliary"
-      ? preference.appLocale
-      : preference.learningLanguage;
+    const generationLanguageCode = input.target === "auxiliary"
+      ? current.appLocaleSnapshot
+      : input.target === "translation"
+        ? preference.appLocale
+        : preference.learningLanguage;
     const prompt = buildCardContentGenerationPrompt({
       target: input.target,
       sourceText,
-      languageCode: preference.learningLanguage,
-      appLocale: preference.appLocale,
+      languageCode: input.target === "auxiliary" ? current.languageCode : preference.learningLanguage,
+      appLocale: input.target === "auxiliary" ? current.appLocaleSnapshot : preference.appLocale,
       difficulty: current.promptDifficultySnapshot,
     });
     const maxOutputTokens = cardContentMaxOutputTokens(input.target, sourceText);
@@ -449,8 +451,8 @@ export class CardService {
         // The provider prompt profile only accepts learning-language codes.
         // The explicit system prompt above controls the generated language;
         // translation/organization output is still stored with appLocale.
-        languageCode: preference.learningLanguage,
-        appLocale: preference.appLocale,
+        languageCode: input.target === "auxiliary" ? current.languageCode : preference.learningLanguage,
+        appLocale: input.target === "auxiliary" ? current.appLocaleSnapshot : preference.appLocale,
         promptDifficulty: current.promptDifficultySnapshot,
         companionMode: "rewrite_only",
         systemPrompt: prompt.systemPrompt,
@@ -534,11 +536,22 @@ export class CardService {
       : input.target === "translation"
         ? { translationText: output }
         : { replyText: output };
-    return this.updateContent(input.userId, input.recordId, patch, {
+    const updated = await this.updateContent(input.userId, input.recordId, patch, {
       target: input.target,
       languageCode: generationLanguageCode,
       sourceHash,
     });
+    if (input.target !== "expression" || !updated.rewrittenText) return updated;
+    try {
+      return await this.generateContent({
+        ...input,
+        requestId: `${input.requestId}_auxiliary`,
+        target: "auxiliary",
+      });
+    } catch (error) {
+      console.warn("[card] automatic auxiliary generation failed", error);
+      return updated;
+    }
   }
 
   async saveContent(input: {

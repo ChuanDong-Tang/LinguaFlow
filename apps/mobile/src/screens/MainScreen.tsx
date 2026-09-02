@@ -75,7 +75,7 @@ import {
   uploadCardDraftImage,
   CardImageModerationRejectedError,
 } from "../services/card/cardImageUpload";
-import { generateCardAuxiliaryText, generateMissingCardContent, isCardResourceLimitedError, type CardGenerationTarget } from "../services/card/cardContentGeneration";
+import { generateMissingCardContent, isCardResourceLimitedError, type CardGenerationTarget } from "../services/card/cardContentGeneration";
 import { isCardGenerationInProgress, isCardRecordGenerationInProgress, setCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
 import { registerClozeOnboardingCandidate } from "../services/card/clozeOnboarding";
 import { getLanguage, t, tf } from "../i18n";
@@ -682,15 +682,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       });
       const generation = await generateMissingCardContent(detail, selectedTargets);
       detail = generation.detail;
-      if (isNewCard && detail.rewrittenText?.trim()) {
-        try {
-          detail = await generateCardAuxiliaryText(detail);
-        } catch (error) {
-          // Auxiliary text is deliberately non-blocking: the finalized expression
-          // remains the successful result of creating a new Card.
-          console.warn("[card] auxiliary text generation failed", error);
-        }
-      }
       created = detail;
       const createdForDisplay = firstDraftImage && !created.thumbnail
         ? {
