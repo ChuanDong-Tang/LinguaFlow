@@ -70,6 +70,7 @@ import { completeClozeOnboarding, shouldShowClozeOnboarding } from "../services/
 type DetailTab = "review" | "cloze" | "dictation";
 type ClozeInputMode = "keyboard" | "choice";
 type ClozeInteractionMode = "edit" | ClozeInputMode;
+type PendingClozeCheckHandler = () => Promise<void>;
 
 function initialClozeInteractionMode(autoStart: boolean, blankCount: number): ClozeInteractionMode {
   if (!autoStart || blankCount === 0) return "edit";
@@ -138,6 +139,8 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   const mountedWithDetailRef = useRef(Boolean(detail));
   const exitProgress = useRef(new Animated.Value(detail || transitionOrigin ? 1 : 0)).current;
   const exitingRef = useRef(false);
+  const pendingClozeCheckRef = useRef<PendingClozeCheckHandler | null>(null);
+  const checkingClozeBeforeExitRef = useRef(false);
   const enteredRef = useRef(false);
   const recallTranslateX = useRef(new Animated.Value(0)).current;
   const recallNavigatingRef = useRef(false);
@@ -354,6 +357,21 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       }
     });
   }
+  const registerPendingClozeCheck = useCallback((handler: PendingClozeCheckHandler | null) => {
+    pendingClozeCheckRef.current = handler;
+  }, []);
+  function leaveCard(action: () => void, animated: boolean): void {
+    if (checkingClozeBeforeExitRef.current || exitingRef.current) return;
+    checkingClozeBeforeExitRef.current = true;
+    Keyboard.dismiss();
+    void Promise.resolve(pendingClozeCheckRef.current?.())
+      .catch(() => undefined)
+      .finally(() => {
+        checkingClozeBeforeExitRef.current = false;
+        if (animated) animateExit(action, false);
+        else action();
+      });
+  }
   const [relations, setRelations] = useState<Array<{ recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] }>>([]);
   const [cardCapabilities, setCardCapabilities] = useState<CardCapabilities>(DEFAULT_CARD_CAPABILITIES);
   const cardLimits = draftLimits ?? cardCapabilities.limits;
@@ -436,7 +454,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       <SafeAreaView style={styles.page}>
         <View style={styles.header}>
           <View style={styles.historyButtons}>
-            <Pressable accessibilityLabel={returnLabel ?? (recallPosition && tab === "review" ? t("recall.exit") : tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close"))} style={styles.historyButton} onPress={recallPosition && tab === "review" ? onClose : tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? onBack : () => animateExit(onClose, false)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>
+            <Pressable accessibilityLabel={returnLabel ?? (recallPosition && tab === "review" ? t("recall.exit") : tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close"))} style={styles.historyButton} onPress={recallPosition && tab === "review" ? () => leaveCard(onClose, false) : tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? () => leaveCard(onBack, false) : () => leaveCard(onClose, true)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>
             {practiceMode && canGoForward && onForward ? <Pressable accessibilityLabel={t("card_detail.a11y.forward")} style={styles.historyButton} onPress={onForward}><Ionicons name="chevron-forward" size={22} color={theme.colors.text} /></Pressable> : null}
           </View>
           <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>
@@ -446,7 +464,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         </View>
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
@@ -806,7 +824,10 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   const [photoRailVisible, setPhotoRailVisible] = useState(false);
   const [recentPhotos, setRecentPhotos] = useState<MediaLibrary.Asset[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
+  const editorScrollRef = useRef<ScrollView>(null);
   const originalInputRef = useRef<TextInput>(null);
+  const originalSelectionRef = useRef({ start: draft.text.length, end: draft.text.length });
+  const followOriginalInputRef = useRef(true);
   const originalStt = useRealtimeSttInput({ value: draft.text, onChangeText, disabled: sending });
   useEffect(() => {
     const timer = setTimeout(() => originalInputRef.current?.focus(), 320);
@@ -874,6 +895,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
           <KeyboardAvoidingView style={styles.draftContentPage} behavior="height">
             <>
             <ScrollView
+              ref={editorScrollRef}
               style={styles.draftEditorScroll}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
@@ -921,8 +943,18 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                   placeholderTextColor={theme.colors.textMuted}
                   style={[styles.draftBlockInput, styles.draftBlockInputFeatured]}
                   textAlignVertical="top"
-                  onChangeText={originalStt.onChangeText}
-                  onSelectionChange={(event) => originalStt.onSelectionChange(event.nativeEvent.selection)}
+                  onChangeText={(value) => {
+                    followOriginalInputRef.current = originalSelectionRef.current.end >= draft.text.length;
+                    originalStt.onChangeText(value);
+                  }}
+                  onSelectionChange={(event) => {
+                    originalSelectionRef.current = event.nativeEvent.selection;
+                    originalStt.onSelectionChange(event.nativeEvent.selection);
+                  }}
+                  onContentSizeChange={() => {
+                    if (!followOriginalInputRef.current) return;
+                    requestAnimationFrame(() => editorScrollRef.current?.scrollToEnd({ animated: false }));
+                  }}
                 />
               </View>
             </ScrollView>
@@ -1622,7 +1654,7 @@ function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, on
       <Animated.View
         style={[styles.imagePreviewHeader, { opacity: chromeOpacity }]}
       >
-        <View style={styles.imagePreviewHeaderStart}><Pressable accessibilityLabel={t("card_detail.a11y.close_image_preview")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close()}><Ionicons name="close" size={27} color={theme.colors.text} /></Pressable></View>
+        <View style={styles.imagePreviewHeaderStart}><Pressable accessibilityLabel={t("card_detail.a11y.back_from_image_preview")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close()}><Ionicons name="arrow-back" size={27} color={theme.colors.text} /></Pressable></View>
         <Text style={styles.imagePreviewCounter}>{images.length > 1 ? `${index + 1} / ${images.length}` : ""}</Text>
         <View style={styles.imagePreviewHeaderEnd}>
           <Pressable accessibilityLabel={t("card_detail.a11y.save_image")} disabled={savingImage} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => void saveCurrentImage()}>{savingImage ? <ActivityIndicator size="small" color={theme.colors.text} /> : <Ionicons name="download-outline" size={25} color={theme.colors.text} />}</Pressable>
@@ -1690,7 +1722,7 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
@@ -1711,6 +1743,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   onRetryGeneration?: (target: CardGenerationTarget) => void;
   onRecallFinish?: () => void;
   onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
+  onPendingClozeCheckHandlerChange?: (handler: PendingClozeCheckHandler | null) => void;
   onInteractionLockChange?: (locked: boolean) => void;
   focusLearningContent?: boolean;
   onLearningTargetReady?: (target: ClozeOnboardingTarget) => void;
@@ -2361,7 +2394,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
           <View ref={learningTargetRef} style={styles.flipCardTextBlock} onLayout={(event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; }}>
             {frontLearningReady ? <CollapsibleCardSection label={rewriteIsReady ? t("card_detail.module.expression_description") : t("card_detail.my_record")} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
                 {practiceEnabled
-                  ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
+                  ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                   : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
                 <CardSectionCopyButton onPress={() => void copySection(learningText)} />
               </CollapsibleCardSection>
@@ -2593,7 +2626,7 @@ function ReasonBadge({ reason }: { reason: CardRelationReason }) {
   return <View style={[styles.reasonBadge, reason.type === "progress" && styles.reasonProgress, reason.type === "phrase" && styles.reasonPhrase]}><Text style={styles.reasonText}>{label}</Text></View>;
 }
 
-function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange, onAddBlank, onBlankLongPress, onPlaySentence, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, activeSentenceKey = null, loadingSentenceKey = null, onChoiceOptionsChange, onChoiceAnswerHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
+function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange, onAddBlank, onBlankLongPress, onPlaySentence, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, activeSentenceKey = null, loadingSentenceKey = null, onChoiceOptionsChange, onChoiceAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
   detail: CardRecordDetail;
   contentBinding: CardContentBinding;
   clozeState: CardClozeState;
@@ -2610,6 +2643,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   loadingSentenceKey?: string | null;
   onChoiceOptionsChange?: (options: ClozeChoiceOption[]) => void;
   onChoiceAnswerHandlerChange?: (handler: ((value: string) => void) | null) => void;
+  onPendingClozeCheckHandlerChange?: (handler: PendingClozeCheckHandler | null) => void;
   onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
   onTextSelectionStart?: () => void;
   onTextSelectionEnd?: () => void;
@@ -2627,6 +2661,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   const [saving, setSaving] = useState(false);
   const [dictionary, setDictionary] = useState<DictionaryLookupState | null>(null);
   const dictionaryRequestRef = useRef(0);
+  const pendingCheckHandlerRef = useRef<PendingClozeCheckHandler>(async () => undefined);
   const effectiveActiveChoiceBlankIndex = fillMode && inputMode === "choice"
     ? activeChoiceBlankIndex
     : null;
@@ -2742,6 +2777,97 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     } finally { setSaving(false); }
   }
 
+  async function checkPendingAnswers(): Promise<void> {
+    if (!fillMode || saving) return;
+    const pending = clozeState.blanks
+      .map((blank, blankIndex) => ({ blank, blankIndex, answer: answers[blank.id] ?? "" }))
+      .filter(({ blank, answer }) => answer.trim() && !checkedAnswers[blank.id]);
+    if (!pending.length) return;
+
+    const nextChecked = { ...checkedAnswers };
+    const outcomes = pending.map(({ blank, blankIndex, answer }) => {
+      const correct = normalizeAnswer(answer) === normalizeAnswer(blank.answer);
+      nextChecked[blank.id] = correct ? "correct" : "incorrect";
+      onClozeAttempt?.({ recordId: detail.id, blankId: blank.id, correct });
+      return { blank, blankIndex, correct };
+    });
+    setCheckedAnswers(nextChecked);
+
+    let effectiveState = clozeState;
+    let effectiveVersion = clozeVersion;
+    const applyPractice = (practice: Awaited<ReturnType<typeof saveCardClozeUpdate>>): void => {
+      if (!practice) return;
+      effectiveState = asCardClozeState(practice.clozeState);
+      effectiveVersion = practice.clozeVersion;
+      onClozeChange(effectiveState, effectiveVersion);
+    };
+
+    setSaving(true);
+    try {
+      for (const { blank, correct } of outcomes) {
+        if (!correct || effectiveState.blanks.find((candidate) => candidate.id === blank.id)?.mastered) continue;
+        try {
+          const practice = await saveCardClozeUpdate(detail.id, {
+            ...contentBinding,
+            baseVersion: effectiveVersion,
+            operation: { type: "master", blankId: blank.id },
+          });
+          applyPractice(practice);
+        } catch (error) {
+          if (!(error instanceof CardApiError) || error.code !== "CARD_PRACTICE_CONFLICT") throw error;
+          const latest = await getCardRecord(detail.id);
+          const latestPractice = contentPractice(latest, contentBinding);
+          effectiveState = asCardClozeState(latestPractice?.clozeState);
+          effectiveVersion = latestPractice?.clozeVersion ?? 0;
+          const latestBlank = effectiveState.blanks.find((candidate) => candidate.id === blank.id);
+          if (!latestBlank || latestBlank.mastered) {
+            onClozeChange(effectiveState, effectiveVersion);
+            continue;
+          }
+          const practice = await saveCardClozeUpdate(detail.id, {
+            ...contentBinding,
+            baseVersion: effectiveVersion,
+            operation: { type: "master", blankId: blank.id },
+          });
+          applyPractice(practice);
+        }
+      }
+
+      const revealedBlankIndexes = new Set(answersVisible ? clozeState.blanks.map((_, index) => index) : []);
+      const allChecked = clozeState.blanks.every((blank, index) => nextChecked[blank.id] || revealedBlankIndexes.has(index));
+      if (!allChecked) return;
+      const result = revealedBlankIndexes.size > 0
+        ? "revealed" as const
+        : clozeState.blanks.every((blank) => nextChecked[blank.id] === "correct") ? "correct" as const : "incorrect" as const;
+      try {
+        const practice = await saveCardClozeUpdate(detail.id, {
+          ...contentBinding,
+          baseVersion: effectiveVersion,
+          operation: { type: "result" },
+          result,
+        });
+        applyPractice(practice);
+      } catch (error) {
+        if (!(error instanceof CardApiError) || error.code !== "CARD_PRACTICE_CONFLICT") throw error;
+        const latest = await getCardRecord(detail.id);
+        const latestVersion = contentPractice(latest, contentBinding)?.clozeVersion ?? 0;
+        const practice = await saveCardClozeUpdate(detail.id, {
+          ...contentBinding,
+          baseVersion: latestVersion,
+          operation: { type: "result" },
+          result,
+        });
+        applyPractice(practice);
+      }
+    } catch (error) {
+      showNotice({ message: error instanceof Error ? error.message : t("card_detail.practice_unsaved"), type: "error", position: "top-center" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  pendingCheckHandlerRef.current = checkPendingAnswers;
+
   function chooseAnswer(value: string): void {
     const blankIndex = effectiveActiveChoiceBlankIndex;
     if (blankIndex === null || saving) return;
@@ -2776,6 +2902,11 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     onChoiceAnswerHandlerChange((value) => chooseAnswerRef.current(value));
     return () => onChoiceAnswerHandlerChange(null);
   }, [onChoiceAnswerHandlerChange]);
+  useEffect(() => {
+    if (!onPendingClozeCheckHandlerChange) return undefined;
+    onPendingClozeCheckHandlerChange(() => pendingCheckHandlerRef.current());
+    return () => onPendingClozeCheckHandlerChange(null);
+  }, [onPendingClozeCheckHandlerChange]);
   useEffect(() => () => onChoiceOptionsChange?.([]), [onChoiceOptionsChange]);
 
   function lookupInSentence(row: CardClozeSentenceRow, term: string, start: number, end: number, anchor?: NativeTextSelectionPayload["selectionRect"]): void {

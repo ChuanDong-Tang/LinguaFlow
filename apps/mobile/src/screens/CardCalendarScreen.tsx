@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { getCardCalendarSummary, getCardRecordPage, type CardCalendarSummary, type CardRecordSummary } from "../services/api/cardApi";
 import { getLanguage, t, tf } from "../i18n";
+import { dateKeyToDate, getBusinessDateKey } from "../services/time/serverClock";
 import { theme } from "../theme";
 
 type MonthKey = `${number}-${string}`;
@@ -91,17 +92,82 @@ export function CardCalendarScreen({ visible, onClose, onOpenCard, onSelectDate 
 }
 
 export function CalendarSidebarPreview({ onPress }: { onPress: () => void }) {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth() - 2, 1);
   const [summary, setSummary] = useState<CardCalendarSummary | null>(null);
-  useEffect(() => { void getCardCalendarSummary(dateKey(from), dateKey(new Date(now.getFullYear(), now.getMonth() + 1, 0))).then(setSummary).catch(() => undefined); }, []);
+  const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadSummary(): Promise<void> {
+      const requestId = ++requestIdRef.current;
+      try {
+        const nextTodayKey = await getBusinessDateKey().catch(() => dateKey(new Date()));
+        const today = dateKeyToDate(nextTodayKey);
+        const oldestWeek = startOfWeekMonday(today);
+        oldestWeek.setDate(oldestWeek.getDate() - 12 * 7);
+        const nextSummary = await getCardCalendarSummary(dateKey(oldestWeek), nextTodayKey);
+        if (!alive || requestId !== requestIdRef.current) return;
+        setTodayKey(nextTodayKey);
+        setSummary(nextSummary);
+      } catch {
+        // Keep the last successful preview when the sidebar refresh fails.
+      }
+    }
+
+    void loadSummary();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void loadSummary();
+    });
+    return () => {
+      alive = false;
+      subscription.remove();
+    };
+  }, []);
+
+  const today = dateKeyToDate(todayKey);
+  const currentWeek = startOfWeekMonday(today);
+  const firstWeek = new Date(currentWeek);
+  firstWeek.setDate(firstWeek.getDate() - 12 * 7);
+  const weeks = Array.from({ length: 13 }, (_, weekIndex) => Array.from({ length: 7 }, (_, dayIndex) => {
+    const day = new Date(firstWeek);
+    day.setDate(firstWeek.getDate() + weekIndex * 7 + dayIndex);
+    return day;
+  }));
+  const monthLabels = Array.from({ length: 3 }, (_, index) => new Date(today.getFullYear(), today.getMonth() - 2 + index, 1)).map((month) => ({
+    month,
+    weekIndex: Math.max(0, Math.min(12, Math.round(calendarDayDistance(firstWeek, startOfWeekMonday(month)) / 7))),
+  }));
   const byDate = new Map(summary?.days.map((day) => [day.dateKey, day]) ?? []);
-  const cells = Array.from({ length: 91 }, (_, offset) => { const day = new Date(now); day.setDate(now.getDate() - 90 + offset); return day; });
-  const weeks = Array.from({ length: 13 }, (_, index) => cells.slice(index * 7, index * 7 + 7));
   return <Pressable style={styles.sidebarPreview} onPress={onPress}>
     <View style={styles.sidebarStats}><View style={styles.sidebarStatItem}><Text style={styles.sidebarStatValue}>{summary?.totals.cardCount ?? 0}</Text><Text style={styles.sidebarStatLabel}>{t("calendar.cards")}</Text></View><View style={[styles.sidebarStatItem, styles.sidebarStatItemRight]}><Text style={styles.sidebarStatValue}>{summary?.totals.recordedDays ?? 0}</Text><Text style={styles.sidebarStatLabel}>{t("calendar.recorded_days")}</Text></View></View>
-    <View style={styles.sidebarHeatmap}>{weeks.map((week, index) => <View key={`week:${index}`} style={styles.sidebarHeatWeek}>{week.map((day) => { const stat = byDate.get(dateKey(day)); return <View key={dateKey(day)} style={[styles.sidebarHeatCell, stat ? { backgroundColor: calendarHeatColor(stat) } : null]} />; })}</View>)}</View>
-    <View style={styles.sidebarMonths}>{Array.from({ length: 3 }, (_, index) => new Date(now.getFullYear(), now.getMonth() - 2 + index, 1)).map((month) => <Text key={monthKey(month)} style={styles.sidebarMonthText}>{new Intl.DateTimeFormat(getLanguage(), { month: "short" }).format(month)}</Text>)}</View>
+    <View style={calendarSidebarStyles.heatmap}>
+      {weeks.map((week, weekIndex) => <View key={`week:${weekIndex}`} style={calendarSidebarStyles.week}>
+        {week.map((day) => {
+          const key = dateKey(day);
+          const stat = byDate.get(key);
+          const isFuture = key > todayKey;
+          return <View key={key} style={[
+            calendarSidebarStyles.heatCell,
+            isFuture ? calendarSidebarStyles.heatCellFuture : null,
+            !isFuture && stat && stat.cardCount > 0 ? { backgroundColor: calendarHeatColor(stat) } : null,
+          ]} />;
+        })}
+      </View>)}
+    </View>
+    <View style={calendarSidebarStyles.monthLabels}>
+      {monthLabels.map(({ month, weekIndex }) => <Text
+        key={monthKey(month)}
+        style={[
+          calendarSidebarStyles.monthLabel,
+          weekIndex === 0
+            ? calendarSidebarStyles.monthLabelFirst
+            : weekIndex === 12
+              ? calendarSidebarStyles.monthLabelLast
+              : { left: `${(weekIndex / 12) * 100}%`, transform: [{ translateX: -20 }] },
+        ]}
+      >{new Intl.DateTimeFormat(getLanguage(), { month: "short" }).format(month)}</Text>)}
+    </View>
   </Pressable>;
 }
 
@@ -139,6 +205,8 @@ function monthKey(date: Date): MonthKey { return `${date.getFullYear()}-${String
 function dateKey(date: Date): string { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
 function monthDistance(from: Date, to: Date): number { return (to.getFullYear() - from.getFullYear()) * 12 + to.getMonth() - from.getMonth(); }
 function monthCells(month: Date): Array<Date | null> { const result: Array<Date | null> = Array(month.getDay()).fill(null); const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate(); for (let day = 1; day <= count; day += 1) result.push(new Date(month.getFullYear(), month.getMonth(), day)); while (result.length % 7) result.push(null); return result; }
+function startOfWeekMonday(date: Date): Date { const result = new Date(date.getFullYear(), date.getMonth(), date.getDate()); const weekday = result.getDay(); result.setDate(result.getDate() - (weekday === 0 ? 6 : weekday - 1)); return result; }
+function calendarDayDistance(from: Date, to: Date): number { return Math.round((Date.UTC(to.getFullYear(), to.getMonth(), to.getDate()) - Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) / 86_400_000); }
 function weekLabels(): string[] { const base = new Date(2026, 7, 2); return Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat(getLanguage(), { weekday: "narrow" }).format(new Date(base.getFullYear(), base.getMonth(), base.getDate() + index))); }
 
 function calendarHeatColor(day: CardCalendarSummary["days"][number]): string {
@@ -155,5 +223,48 @@ function calendarHeatColor(day: CardCalendarSummary["days"][number]): string {
   const opacity = 0.16 + 0.72 * quantityWeight * (0.3 + 0.7 * accuracy);
   return `rgba(73, 159, 96, ${Math.min(0.88, opacity)})`;
 }
+
+const calendarSidebarStyles = StyleSheet.create({
+  heatmap: {
+    width: "100%",
+    marginTop: 13,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  week: {
+    gap: 3,
+  },
+  heatCell: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    backgroundColor: theme.colors.surfaceMuted,
+  },
+  heatCellFuture: {
+    backgroundColor: theme.colors.surfaceMuted,
+  },
+  monthLabels: {
+    position: "relative",
+    width: "100%",
+    height: 16,
+    marginTop: 7,
+  },
+  monthLabel: {
+    position: "absolute",
+    width: 40,
+    color: theme.colors.textMuted,
+    fontSize: 10,
+    lineHeight: 14,
+    textAlign: "center",
+  },
+  monthLabelFirst: {
+    left: 0,
+    textAlign: "left",
+  },
+  monthLabelLast: {
+    right: 0,
+    textAlign: "right",
+  },
+});
 
 const styles = StyleSheet.create({ page: { flex: 1, backgroundColor: theme.colors.surface }, header: { height: 56, paddingHorizontal: 12, flexDirection: "row", alignItems: "center" }, headerButton: { width: 46, height: 46, alignItems: "center", justifyContent: "center" }, headerTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 18, fontWeight: "700" }, tabs: { alignSelf: "center", padding: 3, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row" }, tab: { minWidth: 110, paddingVertical: 9, borderRadius: 8, alignItems: "center" }, tabActive: { backgroundColor: theme.colors.surface }, tabText: { color: theme.colors.textMuted, fontSize: 15 }, tabTextActive: { color: theme.colors.text, fontWeight: "600" }, monthList: { paddingHorizontal: 22, paddingTop: 4, paddingBottom: 44 }, monthPanel: { paddingTop: 24, paddingBottom: 22 }, monthHeader: { minHeight: 30, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, monthTitle: { color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "700" }, summary: { marginTop: 4, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19 }, weekRow: { marginTop: 20, flexDirection: "row" }, weekLabel: { width: "14.285%", color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, textAlign: "center" }, grid: { marginTop: 8, flexDirection: "row", flexWrap: "wrap" }, dayCell: { width: "14.285%", height: 72, paddingHorizontal: 3, alignItems: "stretch" }, dayText: { height: 20, marginBottom: 3, color: theme.colors.textMuted, fontSize: 11, lineHeight: 17, textAlign: "center" }, daySquare: { width: "100%", aspectRatio: 1, borderRadius: 7, backgroundColor: theme.colors.surfaceMuted }, yearPage: { paddingHorizontal: 18, paddingBottom: 40 }, yearHeader: { marginTop: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 18 }, yearArrow: { width: 40, height: 40, alignItems: "center", justifyContent: "center" }, yearTitle: { color: theme.colors.text, fontSize: 24, fontWeight: "700" }, yearSummary: { marginTop: 6, color: theme.colors.textMuted, textAlign: "center", fontSize: 12 }, yearGrid: { marginTop: 22, flexDirection: "row", flexWrap: "wrap", gap: 12 }, miniMonth: { width: "47%", padding: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 10 }, miniMonthTitle: { color: theme.colors.text, fontSize: 13, fontWeight: "600" }, miniGrid: { marginTop: 8, flexDirection: "row", flexWrap: "wrap" }, miniDay: { width: "14.285%", aspectRatio: 1, borderWidth: 1.5, borderColor: theme.colors.surface, borderRadius: 2, backgroundColor: theme.colors.surfaceMuted }, miniMeta: { marginTop: 6, color: theme.colors.textMuted, fontSize: 10, textAlign: "right" }, sidebarPreview: { marginHorizontal: 12, paddingHorizontal: 8, paddingTop: 10, paddingBottom: 14 }, sidebarStats: { flexDirection: "row", justifyContent: "space-between" }, sidebarStatItem: { flex: 1 }, sidebarStatItemRight: { alignItems: "flex-end" }, sidebarStatValue: { color: theme.colors.text, fontSize: 23, lineHeight: 29, fontWeight: "500" }, sidebarStatLabel: { marginTop: 1, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16 }, sidebarHeatmap: { width: "100%", marginTop: 13, flexDirection: "row", justifyContent: "space-between" }, sidebarHeatWeek: { gap: 3 }, sidebarHeatCell: { width: 14, height: 14, borderRadius: 3, backgroundColor: theme.colors.surfaceMuted }, sidebarHeatCellActive: { backgroundColor: theme.colors.accentStrong }, sidebarMonths: { width: "100%", marginTop: 7, flexDirection: "row" }, sidebarMonthText: { width: "33.333%", color: theme.colors.textMuted, fontSize: 10, lineHeight: 14, textAlign: "center" }, dayPage: { flex: 1, backgroundColor: theme.colors.surface }, dayListScroller: { flex: 1 }, dayList: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 28, gap: 0 }, dayCard: { paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border }, dayCardTitle: { color: theme.colors.text, fontSize: 16, lineHeight: 23, fontWeight: "600" }, dayCardText: { marginTop: 5, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 21 } });

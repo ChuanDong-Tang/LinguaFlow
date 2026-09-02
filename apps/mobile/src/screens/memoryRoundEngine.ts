@@ -1,5 +1,18 @@
 export type MemoryTask = "cloze_input" | "cloze_choice" | "meaning_sentence" | "listening_sentence" | "guided_speech" | "blind_speech";
 
+export type MemoryTaskWeights = Readonly<Record<MemoryTask, number>>;
+
+// Keep the mix in one place so product tuning does not need to change question generation.
+// Cloze tasks intentionally dominate, sentence puzzles come next, and speaking is occasional.
+export const DEFAULT_MEMORY_TASK_WEIGHTS: MemoryTaskWeights = {
+  cloze_input: 32,
+  cloze_choice: 32,
+  meaning_sentence: 12,
+  listening_sentence: 12,
+  guided_speech: 6,
+  blind_speech: 6,
+};
+
 export type MemoryCandidateLike = {
   recordId: string;
   segments: Array<{ id: string; ordinal: number; text: string }>;
@@ -66,6 +79,7 @@ export function buildMemoryCardQuestions(
   candidate: MemoryCandidateLike,
   random: () => number = Math.random,
   previousTasksBySegment: ReadonlyMap<string, MemoryTask> = new Map(),
+  taskWeights: MemoryTaskWeights = DEFAULT_MEMORY_TASK_WEIGHTS,
 ): GeneratedMemoryQuestion[] {
   const bySegment = new Map<string, MemoryCandidateLike["clozeState"]["blanks"]>();
   for (const blank of candidate.clozeState.blanks) {
@@ -83,18 +97,12 @@ export function buildMemoryCardQuestions(
   if (!groups.length) return [];
 
   const shuffledGroups = shuffleWith(groups, random);
-  let taskPool: MemoryTask[] = [];
   return shuffledGroups.map((group) => {
     const supportedTasks: MemoryTask[] = ["cloze_input", "cloze_choice", "meaning_sentence", "listening_sentence", "guided_speech"];
     if (memoryWordCount(group.segment.text) <= 12) supportedTasks.push("blind_speech");
     const previousTask = previousTasksBySegment.get(group.segment.id);
     const allowedTasks = supportedTasks.filter((task) => task !== previousTask);
-    const available = taskPool.filter((task) => allowedTasks.includes(task));
-    if (!available.length) {
-      taskPool = shuffleWith(allowedTasks, random);
-    }
-    const task = (taskPool.find((item) => allowedTasks.includes(item)) ?? allowedTasks[0])!;
-    taskPool = taskPool.filter((item) => item !== task);
+    const task = pickWeightedTask(allowedTasks.length ? allowedTasks : supportedTasks, taskWeights, random);
     const eligibleBlanks = group.blanks.filter((blank) => !blank.mastered);
     const blankPool = eligibleBlanks.length ? eligibleBlanks : group.blanks;
     const selectedBlank = blankPool[Math.min(blankPool.length - 1, Math.floor(random() * blankPool.length))]!;
@@ -113,6 +121,18 @@ export function buildMemoryCardQuestions(
       affectsMastery: true,
     };
   });
+}
+
+function pickWeightedTask(tasks: MemoryTask[], weights: MemoryTaskWeights, random: () => number): MemoryTask {
+  const weighted = tasks.map((task) => ({ task, weight: Math.max(0, weights[task] ?? 0) }));
+  const total = weighted.reduce((sum, item) => sum + item.weight, 0);
+  if (total <= 0) return tasks[Math.min(tasks.length - 1, Math.floor(random() * tasks.length))]!;
+  let target = Math.min(0.999999999, Math.max(0, random())) * total;
+  for (const item of weighted) {
+    if (target < item.weight) return item.task;
+    target -= item.weight;
+  }
+  return weighted[weighted.length - 1]!.task;
 }
 
 function shuffleWith<T>(values: T[], random: () => number): T[] {

@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, Animated, AppState, Easing, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { AccessibilityInfo, ActivityIndicator, Animated, AppState, Easing, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import OioCharacter from "../../assets/app/oio-character.svg";
 import { t } from "../i18n";
@@ -20,6 +20,7 @@ import {
 import { getTtsPlaybackState, playTtsAudio, preloadTtsAudio, stopTtsAudio, subscribeTtsPlayback } from "../services/tts/ttsPlayback";
 import { getSession } from "../services/auth/authStorage";
 import { theme } from "../theme";
+import { splitCardClozeAnswerUnits } from "../domain/cloze/clozeUtils";
 import { memorySentenceTokens, sameMemoryLanguageFamily } from "./memoryRoundRules";
 import { buildMemoryCardQuestions, isMemoryCandidateDue, type MemoryTask } from "./memoryRoundEngine";
 import { useMemoryPronunciation } from "../hooks/useMemoryPronunciation";
@@ -108,9 +109,11 @@ export function MemoryRoundScreen({
   const [round, setRound] = useState<StoredMemoryRound | null>(null);
   const [summaryTotal, setSummaryTotal] = useState(0);
   const [summaryWrong, setSummaryWrong] = useState<MemoryQuestion[]>([]);
-  const [retryOfferDestination, setRetryOfferDestination] = useState<"card_complete" | "summary">("summary");
+  const [changingNextCard, setChangingNextCard] = useState(false);
   const [checking, setChecking] = useState(false);
   const [sentenceIncorrect, setSentenceIncorrect] = useState(false);
+  const [answerRevealed, setAnswerRevealed] = useState(false);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const [inputAnswer, setInputAnswer] = useState("");
   const [feedbackState, setFeedbackState] = useState<"idle" | "wrong" | "correct">("idle");
   const [meaningExpanded, setMeaningExpanded] = useState(false);
@@ -135,11 +138,13 @@ export function MemoryRoundScreen({
   const startRunIdRef = useRef(0);
   const refreshRevisionRef = useRef(refreshRevision);
   const inputAnswerRef = useRef<TextInput | null>(null);
+  const questionScrollerRef = useRef<ScrollView | null>(null);
   const meaningDots = useRef([new Animated.Value(0.28), new Animated.Value(0.28), new Animated.Value(0.28)]).current;
   const meaningRequestRef = useRef(0);
   const sentenceAudioRequestRef = useRef(0);
   const audioWaveProgress = useRef(new Animated.Value(0)).current;
   const candidatePoolRef = useRef<CardMemoryRoundCandidate[]>([]);
+  const nextCardSwapSequenceRef = useRef(0);
   const onClose = (): void => {
     sentenceAudioRequestRef.current += 1;
     stopTtsAudio({ resetControls: true });
@@ -218,7 +223,7 @@ export function MemoryRoundScreen({
         return;
       }
       const firstCandidate = availableCandidates[Math.floor(Math.random() * availableCandidates.length)];
-      const questions = firstCandidate ? buildQuestions([firstCandidate]) : [];
+      const questions = firstCandidate ? buildQuestions([firstCandidate], new Map(), new Map(), availableCandidates) : [];
       if (!questions.length) {
         await clearStoredRound(resolvedOwnerId);
         onResumeStateChange(false);
@@ -279,6 +284,20 @@ export function MemoryRoundScreen({
   }, [onCurrentCardChange, question?.recordId]);
   useEffect(() => () => onCurrentCardChange(null), [onCurrentCardChange]);
   useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      if (Platform.OS === "android") setKeyboardInset(event.endCoordinates.height);
+      requestAnimationFrame(() => questionScrollerRef.current?.scrollToEnd({ animated: true }));
+      setTimeout(() => questionScrollerRef.current?.scrollToEnd({ animated: true }), 180);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => setKeyboardInset(0));
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+  useEffect(() => {
     if (!question || question.completed || phase !== "playing" || reduceMotion) {
       pulse.stopAnimation();
       pulse.setValue(0);
@@ -327,6 +346,7 @@ export function MemoryRoundScreen({
     setAudioUnavailable(false);
     setBlindSubtitleRevealed(false);
     setInputAnswer("");
+    setAnswerRevealed(false);
     setMeaningExpanded(false);
     setMeaningStatus("idle");
     setNativeMeaning(null);
@@ -491,13 +511,21 @@ export function MemoryRoundScreen({
     else {
       setSentenceIncorrect(true);
       playWrongFeedback();
-      requestAnimationFrame(() => inputAnswerRef.current?.focus());
+      inputAnswerRef.current?.blur();
+      Keyboard.dismiss();
     }
     setTimeout(() => {
       if (!mountedRef.current) return;
       answerActionLocked.current = false;
       setChecking(false);
     }, 220);
+  };
+
+  const retryInputAnswer = (): void => {
+    setInputAnswer("");
+    setSentenceIncorrect(false);
+    setFeedbackState("idle");
+    requestAnimationFrame(() => inputAnswerRef.current?.focus());
   };
 
   const appendNextCard = async (currentRound: StoredMemoryRound, currentQuestion: MemoryQuestion): Promise<StoredMemoryRound | null> => {
@@ -529,7 +557,7 @@ export function MemoryRoundScreen({
     for (const item of currentRound.questions) {
       if (item.recordId === selected.recordId && item.task !== "legacy") previousTasksBySegment.set(item.segmentId, item.task);
     }
-    const generated = buildQuestions([selected], relationTopics, previousTasksBySegment).map((item, index) => ({
+    const generated = buildQuestions([selected], relationTopics, previousTasksBySegment, candidatePoolRef.current).map((item, index) => ({
       ...item,
       id: `${item.id}:chain:${currentRound.questions.length}:${index}`,
     }));
@@ -540,21 +568,20 @@ export function MemoryRoundScreen({
     return next;
   };
 
-  const advanceRound = async () => {
-    if (!round || !question?.completed) return;
-    let activeRound = round;
+  const advanceRound = async (sourceRound: StoredMemoryRound | null = round, sourceQuestion: MemoryQuestion | null = question) => {
+    if (!sourceRound || !sourceQuestion?.completed) return;
+    let activeRound = sourceRound;
     let nextIndex = activeRound.currentIndex + 1;
-    const skippedOnCurrentCard = round.questions.filter((item) => item.recordId === question.recordId && item.skipped && !item.retryOnly);
+    const wrongOnCurrentCard = sourceRound.questions.filter((item) => item.recordId === sourceQuestion.recordId && item.firstAttemptCorrect === false && !item.retryOnly);
     if (nextIndex >= activeRound.questions.length) {
-      const extended = await appendNextCard(activeRound, question);
+      const extended = await appendNextCard(activeRound, sourceQuestion);
       if (extended) activeRound = extended;
       nextIndex = activeRound.currentIndex + 1;
     }
     if (nextIndex >= activeRound.questions.length) {
       setSummaryTotal(activeRound.questions.length);
-      if (skippedOnCurrentCard.length && !question.retryOnly) {
-        setSummaryWrong(skippedOnCurrentCard);
-        setRetryOfferDestination("summary");
+      if (wrongOnCurrentCard.length && !sourceQuestion.retryOnly) {
+        setSummaryWrong(wrongOnCurrentCard);
         setPhase("retry_offer");
       } else {
         setSummaryWrong([]);
@@ -565,15 +592,14 @@ export function MemoryRoundScreen({
       }
       return;
     }
-    if (activeRound.questions[nextIndex]?.recordId !== question.recordId) {
-      if (skippedOnCurrentCard.length && !question.retryOnly) {
-        setSummaryWrong(skippedOnCurrentCard);
-        setRetryOfferDestination("card_complete");
+    if (activeRound.questions[nextIndex]?.recordId !== sourceQuestion.recordId) {
+      if (wrongOnCurrentCard.length && !sourceQuestion.retryOnly) {
+        setSummaryWrong(wrongOnCurrentCard);
         setPhase("retry_offer");
       } else setPhase("card_complete");
       return;
     }
-    await moveToQuestion(nextIndex);
+    await moveToQuestion(nextIndex, activeRound);
   };
 
   const continueRound = (): void => {
@@ -600,10 +626,10 @@ export function MemoryRoundScreen({
     });
   };
 
-  const moveToQuestion = async (nextIndex: number) => {
-    if (!round) return;
+  const moveToQuestion = async (nextIndex: number, sourceRound: StoredMemoryRound | null = round) => {
+    if (!sourceRound) return;
     transition.setValue(0);
-    const next = { ...round, currentIndex: nextIndex };
+    const next = { ...sourceRound, currentIndex: nextIndex };
     setRound(next);
     setSentenceIncorrect(false);
     setFeedbackState("idle");
@@ -616,6 +642,44 @@ export function MemoryRoundScreen({
     await moveToQuestion(round.currentIndex + 1);
   };
 
+  const changeNextCard = async (): Promise<void> => {
+    if (!round || !question || changingNextCard) return;
+    const nextQuestion = round.questions[round.currentIndex + 1];
+    if (!nextQuestion) return;
+    const usedRecordIds = new Set(round.questions.slice(0, round.currentIndex + 1).map((item) => item.recordId));
+    const alternatives = candidatePoolRef.current.filter((candidate) => candidate.recordId !== nextQuestion.recordId && !usedRecordIds.has(candidate.recordId));
+    if (!alternatives.length) return;
+    setChangingNextCard(true);
+    try {
+      const dueAlternatives = alternatives.filter((candidate) => isMemoryCandidateDue(candidate));
+      const pool = dueAlternatives.length ? dueAlternatives : alternatives;
+      const selected = pool[Math.floor(Math.random() * pool.length)]!;
+      let relationTopic: string | null = null;
+      try {
+        const related = await getRelatedTopicCards(question.recordId, 50);
+        relationTopic = related.find((item) => item.recordId === selected.recordId)?.topic ?? null;
+      } catch {
+        // Changing cards should still work when relation lookup is unavailable.
+      }
+      const relationTopics = relationTopic ? new Map([[selected.recordId, relationTopic]]) : new Map<string, string>();
+      const swapSequence = nextCardSwapSequenceRef.current + 1;
+      nextCardSwapSequenceRef.current = swapSequence;
+      const replacement = buildQuestions([selected], relationTopics, new Map(), candidatePoolRef.current).map((item, index) => ({
+        ...item,
+        id: `${item.id}:swap:${swapSequence}:${index}`,
+      }));
+      if (!replacement.length) return;
+      const next = {
+        ...round,
+        questions: [...round.questions.slice(0, round.currentIndex + 1), ...replacement],
+      };
+      setRound(next);
+      if (ownerId) await persistRound(ownerId, next);
+    } finally {
+      if (mountedRef.current) setChangingNextCard(false);
+    }
+  };
+
   const exitAfterCard = async (): Promise<void> => {
     setRound(null);
     if (ownerId) await clearStoredRound(ownerId);
@@ -623,11 +687,16 @@ export function MemoryRoundScreen({
     onClose();
   };
 
-  const skipCurrentQuestion = (): void => {
-    if (!question || question.completed || !ownerId) return;
+  const skipCurrentQuestion = (showAnswer = false): void => {
+    if (!round || !question || question.completed || !ownerId) return;
     attemptedQuestionIds.add(question.id);
     const completed = { ...question, firstAttemptCorrect: false, completed: true, skipped: true, resultSynced: question.retryOnly };
-    updateQuestion(() => completed);
+    const nextRound = {
+      ...round,
+      questions: round.questions.map((item) => item.id === question.id ? completed : item),
+    };
+    setRound(nextRound);
+    void persistRound(ownerId, nextRound);
     if (!question.retryOnly) {
       const pending = pendingResultFromQuestion(ownerId, completed);
       void enqueuePendingResult(ownerId, pending)
@@ -639,10 +708,18 @@ export function MemoryRoundScreen({
         })
         .catch(() => undefined);
     }
-    setFeedbackState("wrong");
-    setSentenceIncorrect(true);
-    success.setValue(1);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+    if (showAnswer) {
+      setFeedbackState("wrong");
+      setSentenceIncorrect(true);
+      success.setValue(1);
+      return;
+    }
+    setFeedbackState("idle");
+    setSentenceIncorrect(false);
+    setAnswerRevealed(false);
+    Keyboard.dismiss();
+    void advanceRound(nextRound, completed);
   };
 
   const retryWrongQuestions = async (): Promise<void> => {
@@ -674,6 +751,14 @@ export function MemoryRoundScreen({
     await persistRound(ownerId, next);
   };
 
+  const finishAfterRetryOffer = async (): Promise<void> => {
+    setSummaryWrong([]);
+    setRound(null);
+    if (ownerId) await clearStoredRound(ownerId);
+    onResumeStateChange(false);
+    onClose();
+  };
+
   const playSentence = async () => {
     if (!question || audioLoading) return;
     const requestId = sentenceAudioRequestRef.current + 1;
@@ -703,6 +788,7 @@ export function MemoryRoundScreen({
       await playTtsAudio({
         url: localAudioUrl,
         cacheKey,
+        allowLoop: false,
         onError: () => {
           if (mountedRef.current && sentenceAudioRequestRef.current === requestId) setAudioUnavailable(true);
         },
@@ -784,24 +870,78 @@ export function MemoryRoundScreen({
   if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color="#5E7C6A" /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
   if (phase === "error") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><Text style={styles.emptyTitle}>{t("memory_round.load_failed")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={() => void start()}><Text style={styles.lightButtonText}>{t("common.retry")}</Text></Pressable></View></SafeAreaView>;
   if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Ionicons name="sparkles-outline" size={28} color="#7A6E9D" /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Ionicons name="arrow-forward" size={17} color="#4F6557" /></Pressable></View></SafeAreaView>;
-  if (phase === "retry_offer") return <SafeAreaView style={styles.summaryPage}><Header onClose={onClose} /><View style={styles.summaryBody}><View style={styles.retryOfferIcon}><Ionicons name="play-skip-forward" size={30} color="#A15F54" /></View><Text style={styles.summaryTitle}>{t("memory_round.retry_skipped_title")}</Text><Text style={styles.summarySubtitle}>{t("memory_round.retry_skipped_detail").replace("{count}", String(summaryWrong.length))}</Text><Pressable style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryPressed]} onPress={() => void retryWrongQuestions()}><Text style={styles.primaryButtonText}>{t("memory_round.retry_skipped_action")}</Text></Pressable><Pressable style={({ pressed }) => [styles.againButton, pressed && styles.secondaryPressed]} onPress={() => { setSummaryWrong([]); if (retryOfferDestination === "card_complete") setPhase("card_complete"); else { setPhase("summary"); setRound(null); if (ownerId) void clearStoredRound(ownerId); onResumeStateChange(false); } }}><Text style={styles.againButtonText}>{t("memory_round.skip_retry")}</Text></Pressable></View></SafeAreaView>;
+  if (phase === "retry_offer") return (
+    <SafeAreaView style={styles.summaryPage}>
+      <Header onClose={onClose} />
+      <View style={styles.retryOfferBody}>
+        <View style={styles.retryCelebration}>
+          <View style={[styles.retryConfetti, styles.retryConfettiLeft]} />
+          <View style={[styles.retryConfetti, styles.retryConfettiRight]} />
+          <View style={styles.retryOfferIcon}><Ionicons name="flag" size={36} color="#FFFFFF" /></View>
+        </View>
+        <Text style={styles.retryOfferTitle}>{t("memory_round.retry_skipped_title")}</Text>
+        <Text style={styles.retryOfferDetail}>{t("memory_round.retry_skipped_detail").replace("{count}", String(summaryWrong.length))}</Text>
+        <View style={styles.retryOfferActions}>
+          <Pressable style={({ pressed }) => [styles.gamePrimaryButton, pressed && styles.gameButtonPressed]} onPress={() => void retryWrongQuestions()}>
+            <Ionicons name="refresh" size={20} color="#FFFFFF" />
+            <Text style={styles.gamePrimaryButtonText}>{t("memory_round.retry_skipped_action")}</Text>
+          </Pressable>
+          <Pressable style={({ pressed }) => [styles.gameSecondaryButton, pressed && styles.gameButtonPressed]} onPress={() => void finishAfterRetryOffer()}>
+            <Text style={styles.gameSecondaryButtonText}>{t("memory_round.skip_retry")}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
   if (phase === "summary") return <SafeAreaView style={styles.summaryPage}><Header onClose={onClose} /><View style={styles.summaryBody}><View style={styles.finishRoute}>{Array.from({ length: Math.max(1, summaryTotal) }, (_, index) => { const color = ["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"][index % 4]!; return <React.Fragment key={index}>{index ? <View style={[styles.finishConnector, { backgroundColor: color }]} /> : null}<View style={[styles.finishNode, { backgroundColor: color }]} /></React.Fragment>; })}</View><Text style={styles.summaryTitle}>{t("memory_round.finished")}</Text><Text style={styles.summarySubtitle}>{t("memory_round.correct_detail")}</Text><Pressable style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryPressed]} onPress={onClose}><Text style={styles.primaryButtonText}>{t("memory_round.done")}</Text></Pressable></View></SafeAreaView>;
   if (!round || !question) return null;
 
   if (phase === "card_complete") {
     const nextCard = round.questions[round.currentIndex + 1];
-    return <SafeAreaView style={styles.summaryPage}><Header onClose={onClose} /><ScrollView contentContainerStyle={styles.cardCompleteBody}><View style={styles.cardCompleteIcon}><Ionicons name="checkmark" size={34} color="#FFFFFF" /></View><Text style={styles.cardCompleteTitle}>{t("memory_round.card_complete")}</Text><Text style={styles.cardCompleteLabel}>{t("memory_round.reviewed_card")}</Text><Pressable style={({ pressed }) => [styles.cardRouteCard, pressed && styles.primaryPressed]} onPress={() => onOpenCard(question.recordId)}>{question.thumbnailUrl ? <Image source={{ uri: question.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Ionicons name="document-text-outline" size={25} color="#6D8178" /></View>}<View style={styles.cardRouteCopy}><Text numberOfLines={2} style={styles.cardRouteTitle}>{question.title}</Text><Text style={styles.cardRouteMeta}>{t("memory_round.reviewed_card_detail")}</Text></View><Ionicons name="chevron-forward" size={20} color="#829087" /></Pressable>{nextCard ? <><Text style={styles.cardCompleteLabel}>{nextCard.relationHint ? t("memory_round.next_related").replace("{topic}", nextCard.relationHint) : t("memory_round.next_card_ready")}</Text><Pressable style={({ pressed }) => [styles.cardRouteCard, styles.nextCardRouteCard, pressed && styles.primaryPressed]} onPress={() => void continueToNextCard()}>{nextCard.thumbnailUrl ? <Image source={{ uri: nextCard.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Ionicons name="sparkles-outline" size={25} color="#6D8178" /></View>}<View style={styles.cardRouteCopy}><Text numberOfLines={2} style={styles.cardRouteTitle}>{nextCard.title}</Text><Text style={styles.cardRouteMeta}>{t("memory_round.tap_to_continue")}</Text></View><Ionicons name="arrow-forward" size={20} color="#43816E" /></Pressable><Pressable style={({ pressed }) => [styles.cardExitButton, pressed && styles.secondaryPressed]} onPress={() => void exitAfterCard()}><Text style={styles.cardExitButtonText}>{t("memory_round.exit_after_card")}</Text></Pressable></> : null}</ScrollView></SafeAreaView>;
+    const completedRecordIds = new Set(round.questions.slice(0, round.currentIndex + 1).map((item) => item.recordId));
+    const canChangeCard = Boolean(nextCard && candidatePoolRef.current.some((candidate) => candidate.recordId !== nextCard.recordId && !completedRecordIds.has(candidate.recordId)));
+    return (
+      <SafeAreaView style={styles.summaryPage}>
+        <Header onClose={onClose} />
+        <ScrollView contentContainerStyle={styles.cardCompleteBody}>
+          <View style={styles.cardCompleteIcon}><Ionicons name="checkmark" size={36} color="#FFFFFF" /></View>
+          <Text style={styles.cardCompleteTitle}>{t("memory_round.card_complete")}</Text>
+          {nextCard ? <>
+            <Text style={styles.cardCompleteLabel}>{nextCard.relationHint ? t("memory_round.next_related").replace("{topic}", nextCard.relationHint) : t("memory_round.next_card_ready")}</Text>
+            <View style={[styles.cardRouteCard, styles.nextCardRouteCard]}>
+              {nextCard.thumbnailUrl ? <Image source={{ uri: nextCard.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Ionicons name="sparkles-outline" size={25} color="#6D8178" /></View>}
+              <View style={styles.cardRouteCopy}><Text numberOfLines={2} style={styles.cardRouteTitle}>{nextCard.title}</Text></View>
+            </View>
+            <View style={styles.cardCompleteActions}>
+              <Pressable style={({ pressed }) => [styles.gamePrimaryButton, pressed && styles.gameButtonPressed]} onPress={() => void continueToNextCard()}>
+                <Ionicons name="play" size={19} color="#FFFFFF" />
+                <Text style={styles.gamePrimaryButtonText}>{t("memory_round.continue_game")}</Text>
+              </Pressable>
+              {canChangeCard ? <Pressable disabled={changingNextCard} style={({ pressed }) => [styles.gameSecondaryButton, changingNextCard && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={() => void changeNextCard()}>
+                {changingNextCard ? <ActivityIndicator size="small" color="#625978" /> : <Ionicons name="shuffle" size={19} color="#625978" />}
+                <Text style={styles.gameSecondaryButtonText}>{t("memory_round.change_card")}</Text>
+              </Pressable> : null}
+              <Pressable style={({ pressed }) => [styles.gameExitButton, pressed && styles.gameButtonPressed]} onPress={() => void exitAfterCard()}>
+                <Ionicons name="exit-outline" size={19} color="#A45F56" />
+                <Text style={styles.gameExitButtonText}>{t("memory_round.exit_after_card")}</Text>
+              </Pressable>
+            </View>
+          </> : null}
+        </ScrollView>
+      </SafeAreaView>
+    );
   }
 
   const currentColor = ["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"][round.currentIndex % 4]!;
   const sentenceTypography = memorySentenceTypography(question.sentence);
+  const answerRevealCompletion = question.kind === "input" && question.skipped && answerRevealed;
   const currentCardQuestions = round.questions.filter((item) => item.recordId === question.recordId);
   const currentCardIndex = Math.max(0, currentCardQuestions.findIndex((item) => item.id === question.id));
   return <SafeAreaView style={[styles.page, { backgroundColor: `${currentColor}20` }]}>
     <Header onClose={onClose} onOpenCard={() => onOpenCard(question.recordId)} />
     <Progress total={currentCardQuestions.length} current={currentCardIndex} currentCompleted={question.completed} pulse={pulse} completion={success} colors={["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"]} />
     <Animated.View style={[styles.questionPage, { opacity: transition, transform: [{ translateY: transition.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }]}>
-      <ScrollView style={styles.questionScroller} contentContainerStyle={[styles.questionScroll, compactLayout && styles.questionScrollCompact]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <ScrollView ref={questionScrollerRef} style={styles.questionScroller} contentContainerStyle={[styles.questionScroll, compactLayout && styles.questionScrollCompact, keyboardInset > 0 && { paddingBottom: keyboardInset + 28 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <View style={styles.taskHeading}><Text style={styles.taskHeadingText}>{t(`memory_round.task_${question.task}`)}</Text><Text style={styles.cardQuestionCount}>{cardQuestionProgress(round, question)}</Text></View>
         {question.thumbnailUrl && !failedImageQuestionIds.has(question.id) ? <Image source={{ uri: question.thumbnailUrl }} resizeMode="cover" style={[styles.memoryImage, compactLayout && styles.memoryImageCompact]} onError={() => setFailedImageQuestionIds((current) => new Set(current).add(question.id))} /> : <View style={[styles.titlePrompt, compactLayout && styles.titlePromptCompact]}><View style={[styles.titleDot, { backgroundColor: currentColor }]} /><Text style={styles.titlePromptText}>{question.title}</Text></View>}
         <View style={[styles.coachStage, compactLayout && styles.coachStageCompact, meaningExpanded && meaningStatus === "ready" && styles.coachStageExpanded, { borderColor: `${currentColor}90`, backgroundColor: `${currentColor}24` }]}>
@@ -839,26 +979,26 @@ export function MemoryRoundScreen({
           <View style={styles.speechPanel}>
             <Text style={styles.speechStatus}>{t(`memory_round.speech_${pronunciation.status}`)}</Text>
             {pronunciation.status === "evaluating" || pronunciation.status === "preparing" ? <ActivityIndicator size="small" color="#668C7E" style={styles.speechSpinner} /> : null}
-            <Pressable disabled={pronunciation.status === "preparing" || pronunciation.status === "evaluating"} style={({ pressed }) => [styles.speechButton, (pronunciation.status === "preparing" || pronunciation.status === "evaluating") && styles.buttonDisabled, pronunciation.status === "recording" && styles.speechButtonRecording, pressed && styles.primaryPressed]} onPress={() => { if (pronunciation.status === "recording") void pronunciation.stop(); else { sentenceAudioRequestRef.current += 1; stopTtsAudio({ resetControls: true }); setAudioLoading(false); void pronunciation.start(); } }}>
+            <Pressable disabled={pronunciation.status === "preparing" || pronunciation.status === "evaluating"} style={({ pressed }) => [styles.speechButton, (pronunciation.status === "preparing" || pronunciation.status === "evaluating") && styles.buttonDisabled, pronunciation.status === "recording" && styles.speechButtonRecording, pressed && styles.gameButtonPressed]} onPress={() => { if (pronunciation.status === "recording") void pronunciation.stop(); else { sentenceAudioRequestRef.current += 1; stopTtsAudio({ resetControls: true }); setAudioLoading(false); void pronunciation.start(); } }}>
               <Ionicons name={pronunciation.status === "recording" ? "stop" : "mic"} size={19} color="#FFFFFF" />
               <Text style={styles.checkButtonText}>{pronunciation.status === "recording" ? t("memory_round.speech_finish") : pronunciation.status === "retry" || pronunciation.status === "error" ? t("memory_round.try_again") : t("memory_round.speech_start")}</Text>
             </Pressable>
-            <Pressable style={({ pressed }) => [styles.speechSkip, pressed && styles.secondaryPressed]} onPress={skipCurrentQuestion}><Text style={styles.speechSkipText}>{t("memory_round.speech_skip")}</Text></Pressable>
+            <Pressable style={({ pressed }) => [styles.speechSkip, pressed && styles.gameButtonPressed]} onPress={() => skipCurrentQuestion()}><Text style={styles.speechSkipText}>{t("memory_round.speech_skip")}</Text></Pressable>
           </View>
         </> : question.kind === "choice" ? <>
-          <View style={styles.sentenceSurface}><Text accessibilityLabel={question.completed ? question.sentence : `${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={[styles.blank, !question.completed && styles.blankHidden]}>{question.answer}</Text>{question.after}</Text></View>
+          <View style={styles.sentenceSurface}><Text accessibilityLabel={question.completed ? question.sentence : `${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={question.completed ? styles.blank : styles.inputBlank}>{question.completed ? question.answer : memoryAnswerBlank(question.answer)}</Text>{question.after}</Text></View>
           <View style={styles.options}>{question.options.map((option) => {
             const disabled = question.disabledOptions.includes(option);
             const isAnswer = question.completed && normalizeAnswer(option) === normalizeAnswer(question.answer);
             return <Pressable key={option} disabled={disabled || question.completed || checking} style={({ pressed }) => [styles.option, pressed && styles.optionPressed, disabled && styles.optionWrong, isAnswer && styles.optionCorrect]} onPress={() => void chooseOption(option)}><Text style={[styles.optionText, memoryOptionTypography(option), disabled && styles.optionWrongText, isAnswer && styles.optionCorrectText]}>{option}</Text>{disabled ? <Ionicons name="close" size={20} color="#D56E6E" /> : isAnswer ? <Ionicons name="checkmark" size={20} color="#43816E" /> : null}</Pressable>;
           })}</View>
-        </> : question.kind === "input" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
-          <View style={styles.sentenceSurface}><Text accessibilityLabel={`${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={styles.inputBlank}>______</Text>{question.after}</Text></View>
+        </> : question.kind === "input" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.before}<Text style={question.skipped ? styles.revealedInputAnswer : styles.blank}>{question.answer}</Text>{question.after}</Text></View> : <>
+          <View style={styles.sentenceSurface}><Text accessibilityLabel={`${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={styles.inputBlank}>{memoryAnswerBlank(question.answer)}</Text>{question.after}</Text></View>
           <View style={[styles.inputAnswerShell, sentenceIncorrect && styles.inputAnswerShellWrong]}>
             <TextInput
               ref={inputAnswerRef}
               value={inputAnswer}
-              autoFocus
+              editable={!sentenceIncorrect && !checking}
               autoCapitalize="none"
               autoCorrect={false}
               blurOnSubmit={false}
@@ -868,21 +1008,42 @@ export function MemoryRoundScreen({
               placeholderTextColor="#9AA49F"
               selectionColor="#6FAE99"
               style={styles.inputAnswer}
+              onFocus={() => {
+                requestAnimationFrame(() => questionScrollerRef.current?.scrollToEnd({ animated: true }));
+                setTimeout(() => questionScrollerRef.current?.scrollToEnd({ animated: true }), 180);
+              }}
               onChangeText={(value) => { setInputAnswer(value); setSentenceIncorrect(false); setFeedbackState("idle"); }}
               onSubmitEditing={checkInputAnswer}
             />
-            {inputAnswer ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#87938D" /></Pressable> : null}
+            {inputAnswer && !sentenceIncorrect ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#87938D" /></Pressable> : null}
           </View>
-          <Pressable disabled={!inputAnswer.trim() || checking} style={({ pressed }) => [styles.checkButton, !inputAnswer.trim() && styles.buttonDisabled, sentenceIncorrect && styles.checkButtonWrong, pressed && styles.primaryPressed]} onPress={checkInputAnswer}><Text style={styles.checkButtonText}>{sentenceIncorrect ? t("memory_round.try_again") : t("memory_round.check")}</Text></Pressable>
+          {sentenceIncorrect ? <View style={styles.inputWrongActions}>
+            <Pressable disabled={checking} style={({ pressed }) => [styles.inputRetryButton, checking && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={retryInputAnswer}><Text style={styles.inputRetryButtonText}>{t("memory_round.try_again")}</Text></Pressable>
+            <Pressable disabled={checking} style={({ pressed }) => [styles.inputShowAnswerButton, checking && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={() => { setAnswerRevealed(true); skipCurrentQuestion(true); }}><Text style={styles.inputShowAnswerButtonText}>{t("memory_round.show_answer")}</Text></Pressable>
+          </View> : <Pressable disabled={!inputAnswer.trim() || checking} style={({ pressed }) => [styles.checkButton, !inputAnswer.trim() && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={checkInputAnswer}><Text style={styles.checkButtonText}>{t("memory_round.check")}</Text></Pressable>}
         </> : question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
           <View style={[styles.sentenceTray, sentenceIncorrect && styles.sentenceTrayWrong]}>{selectedTokens.length ? <View style={styles.tokenWrap}>{selectedTokens.map((token) => <Pressable key={token.id} style={({ pressed }) => [styles.selectedToken, pressed && styles.tokenPressed]} onPress={() => changeSentenceToken(token.id, false)}><Text style={styles.selectedTokenText}>{token.text.trim()}</Text></Pressable>)}</View> : <Text style={styles.trayHint}>{t("memory_round.tap_words")}</Text>}</View>
           <View style={styles.tokenWrap}>{availableTokens.map((token) => <Pressable key={token.id} style={({ pressed }) => [styles.token, pressed && styles.tokenPressed]} onPress={() => changeSentenceToken(token.id, true)}><Text style={styles.tokenText}>{token.text.trim()}</Text></Pressable>)}</View>
-          <Pressable disabled={selectedTokens.length !== question.tokens.length || checking} style={({ pressed }) => [styles.checkButton, selectedTokens.length !== question.tokens.length && styles.buttonDisabled, sentenceIncorrect && styles.checkButtonWrong, pressed && styles.primaryPressed]} onPress={() => void checkSentence()}><Text style={styles.checkButtonText}>{sentenceIncorrect ? t("memory_round.try_again") : t("memory_round.check")}</Text></Pressable>
+          <Pressable disabled={selectedTokens.length !== question.tokens.length || checking} style={({ pressed }) => [styles.checkButton, selectedTokens.length !== question.tokens.length && styles.buttonDisabled, sentenceIncorrect && styles.checkButtonWrong, pressed && styles.gameButtonPressed]} onPress={() => void checkSentence()}><Text style={styles.checkButtonText}>{sentenceIncorrect ? t("memory_round.try_again") : t("memory_round.check")}</Text></Pressable>
         </>}
         </Animated.View>
-        {!question.completed && question.kind !== "speech" ? <Pressable style={({ pressed }) => [styles.skipButton, pressed && styles.secondaryPressed]} onPress={skipCurrentQuestion}><Text style={styles.skipButtonText}>{t("memory_round.skip")}</Text></Pressable> : null}
+        {!question.completed && question.kind !== "speech" && !(question.kind === "input" && sentenceIncorrect) ? <Pressable style={({ pressed }) => [styles.skipButton, pressed && styles.gameButtonPressed]} onPress={() => skipCurrentQuestion()}><Text style={styles.skipButtonText}>{t("memory_round.skip")}</Text></Pressable> : null}
       </ScrollView>
-      {question.completed ? <Animated.View accessibilityViewIsModal style={[styles.completionSheet, { opacity: success, transform: [{ translateY: success.interpolate({ inputRange: [0, 1], outputRange: [190, 0] }) }] }]}><View style={[styles.completionActions, question.skipped && styles.completionActionsSkipped]}><View style={styles.completionHandle} /><View style={styles.completionHeading}><View style={[styles.successMark, question.skipped && styles.skippedMark]}><Ionicons name={question.skipped ? "play-skip-forward" : "checkmark"} size={20} color="#FFFFFF" /></View><View style={styles.completionCopy}><Text style={[styles.completionTitle, question.skipped && styles.completionTitleSkipped]}>{question.skipped ? t("memory_round.skipped_feedback") : memoryPraise(question.id)}</Text><Text style={styles.completionDetail}>{question.skipped ? t("memory_round.skipped_detail") : t("memory_round.correct_detail")}</Text></View></View><Pressable style={({ pressed }) => [styles.continueButton, question.skipped && styles.skippedContinueButton, pressed && styles.primaryPressed]} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Ionicons name="arrow-forward" size={18} color="#FFFFFF" /></Pressable></View></Animated.View> : null}
+      {question.completed ? <Animated.View accessibilityViewIsModal style={[styles.completionSheet, { opacity: success, transform: [{ translateY: success.interpolate({ inputRange: [0, 1], outputRange: [190, 0] }) }] }]}>
+        <View style={[styles.completionActions, question.skipped && styles.completionActionsSkipped, answerRevealCompletion && styles.completionActionsAnswerReveal]}>
+          {!answerRevealCompletion ? <>
+            <View style={styles.completionHandle} />
+            <View style={styles.completionHeading}>
+              <View style={[styles.successMark, question.skipped && styles.skippedMark]}><Ionicons name={question.skipped ? "play-skip-forward" : "checkmark"} size={20} color="#FFFFFF" /></View>
+              <View style={styles.completionCopy}>
+                <Text style={[styles.completionTitle, question.skipped && styles.completionTitleSkipped]}>{question.skipped ? t("memory_round.skipped_feedback") : memoryPraise(question.id)}</Text>
+                <Text style={styles.completionDetail}>{question.skipped ? t("memory_round.skipped_detail") : t("memory_round.correct_detail")}</Text>
+              </View>
+            </View>
+          </> : null}
+          <Pressable style={({ pressed }) => [styles.continueButton, question.skipped && styles.skippedContinueButton, answerRevealCompletion && styles.answerRevealContinueButton, pressed && styles.gameButtonPressed]} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Ionicons name="arrow-forward" size={18} color="#FFFFFF" /></Pressable>
+        </View>
+      </Animated.View> : null}
     </Animated.View>
   </SafeAreaView>;
 }
@@ -970,6 +1131,15 @@ function memoryOptionTypography(text: string): { fontSize: number; lineHeight: n
   return { fontSize: 17, lineHeight: 24 };
 }
 
+function memoryAnswerBlank(answer: string): React.ReactNode {
+  const units = splitCardClozeAnswerUnits(answer);
+  const visibleUnits = units.length ? units : ["      "];
+  return visibleUnits.map((unit, index) => <React.Fragment key={`${index}:${unit}`}>
+    <Text style={styles.memoryBlankUnit}>{"\u00A0".repeat(Math.max(2, Math.min(10, Array.from(unit).length)))}</Text>
+    {index < visibleUnits.length - 1 ? " " : null}
+  </React.Fragment>);
+}
+
 function cardQuestionProgress(round: StoredMemoryRound, question: MemoryQuestion): string {
   const cardQuestions = round.questions.filter((item) => item.recordId === question.recordId);
   const index = cardQuestions.findIndex((item) => item.id === question.id);
@@ -980,8 +1150,9 @@ function buildQuestions(
   candidates: CardMemoryRoundCandidate[],
   relationTopics = new Map<string, string>(),
   previousTasksBySegment: ReadonlyMap<string, MemoryTask> = new Map(),
+  distractorCandidates: CardMemoryRoundCandidate[] = candidates,
 ): MemoryQuestion[] {
-  const answerPool = candidates.flatMap((candidate) => candidate.clozeState.blanks.map((blank) => ({ candidate, answer: blank.answer })));
+  const answerPool = distractorCandidates.flatMap((candidate) => candidate.clozeState.blanks.map((blank) => ({ candidate, answer: blank.answer })));
   return candidates.flatMap((candidate) => buildMemoryCardQuestions(candidate, Math.random, previousTasksBySegment).map((generated) => {
     let task = generated.task;
     let kind: MemoryQuestion["kind"] = generated.kind;
@@ -990,10 +1161,13 @@ function buildQuestions(
     let options: string[] = [];
     if (task === "cloze_input") kind = "input";
     if (task === "cloze_choice") {
-      const distractors = shuffle(answerPool
+      const pooledDistractors = answerPool
         .filter((item) => sameMemoryLanguageFamily(item.candidate.languageCode, candidate.languageCode))
         .map((item) => item.answer)
-        .filter((answer, index, all) => isCompatibleDistractor(generated.blankAnswer, answer) && all.findIndex((item) => normalizeAnswer(item) === normalizeAnswer(answer)) === index))
+        .filter((answer, index, all) => isCompatibleDistractor(generated.blankAnswer, answer) && all.findIndex((item) => normalizeAnswer(item) === normalizeAnswer(answer)) === index);
+      const sentenceDistractors = memorySentenceDistractors(generated.sentence, generated.blankAnswer);
+      const distractors = shuffle([...pooledDistractors, ...sentenceDistractors]
+        .filter((answer, index, all) => normalizeAnswer(answer) !== normalizeAnswer(generated.blankAnswer) && all.findIndex((item) => normalizeAnswer(item) === normalizeAnswer(answer)) === index))
         .slice(0, 3);
       if (distractors.length) {
         kind = "choice";
@@ -1017,6 +1191,21 @@ function buildQuestions(
       relationHint: relationTopics.get(candidate.recordId) ?? null,
     });
   }));
+}
+
+function memorySentenceDistractors(sentence: string, answer: string): string[] {
+  const answerUnits = splitCardClozeAnswerUnits(answer).filter((unit) => unit.trim());
+  const wordUnits = sentence.match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) ?? [];
+  const cjkUnits = sentence.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu) ?? [];
+  const units = cjkUnits.length ? cjkUnits : wordUnits;
+  if (!units.length) return [];
+  const windowSize = Math.max(1, Math.min(units.length, answerUnits.length || 1));
+  const windows = units
+    .slice(0, Math.max(0, units.length - windowSize + 1))
+    .map((_, index) => units.slice(index, index + windowSize).join(cjkUnits.length ? "" : " "))
+    .filter((value) => normalizeAnswer(value) !== normalizeAnswer(answer));
+  if (windows.length) return windows;
+  return units.filter((value) => normalizeAnswer(value) !== normalizeAnswer(answer));
 }
 
 function baseQuestion(candidate: CardMemoryRoundCandidate, segmentId: string, sentence: string, value: Partial<MemoryQuestion>): MemoryQuestion {
@@ -1374,12 +1563,17 @@ const styles = StyleSheet.create({
   sentenceSurface: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(78,98,89,0.13)", backgroundColor: "rgba(255,255,255,0.76)" },
   sentence: { color: theme.colors.text, fontSize: 20, lineHeight: 31, fontWeight: "400" },
   blank: { color: "#397461", textDecorationLine: "underline", textDecorationColor: "#72A18F" },
-  blankHidden: { color: "transparent" },
-  inputBlank: { color: "#78A493", letterSpacing: 1 },
+  inputBlank: { color: "#78A493" },
+  memoryBlankUnit: { color: "transparent", letterSpacing: 1, textDecorationLine: "underline", textDecorationColor: "#78A493" },
   inputAnswerShell: { minHeight: 56, marginTop: 14, paddingLeft: 17, paddingRight: 12, borderRadius: 17, borderWidth: 1.5, borderColor: "#9FC7B9", backgroundColor: "rgba(255,255,255,0.94)", flexDirection: "row", alignItems: "center", shadowColor: "#52645D", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   inputAnswerShellWrong: { borderColor: "#DF8A82", backgroundColor: "#FFF4F2" },
   inputAnswer: { flex: 1, minHeight: 54, paddingVertical: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "500" },
   inputClear: { width: 34, height: 40, alignItems: "flex-end", justifyContent: "center" },
+  inputWrongActions: { marginTop: 22, flexDirection: "row", gap: 10 },
+  inputRetryButton: { flex: 1, minHeight: 54, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: "#E2B2AB", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+  inputRetryButtonText: { color: "#A75F58", fontSize: 16, fontWeight: "800" },
+  inputShowAnswerButton: { flex: 1, minHeight: 54, borderRadius: 19, borderBottomWidth: 5, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", alignItems: "center", justifyContent: "center" },
+  inputShowAnswerButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
   meaningRetry: { color: "#8A6F68", fontSize: 12, fontWeight: "500" },
   meaningRetryIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#F1F6F3", alignItems: "center", justifyContent: "center" },
   meaningDots: { height: 12, marginLeft: 2, flexDirection: "row", alignItems: "center", gap: 4 },
@@ -1387,17 +1581,17 @@ const styles = StyleSheet.create({
   speechSentenceCard: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: 1, borderColor: "#CFE0DA", backgroundColor: "rgba(255,255,255,0.86)" },
   blindSpeechCard: { minHeight: 112, paddingHorizontal: 24, paddingVertical: 18, borderRadius: 20, borderWidth: 1, borderColor: "#CFE0DA", backgroundColor: "rgba(255,255,255,0.86)", alignItems: "center", justifyContent: "center", gap: 10 },
   blindSpeechText: { color: theme.colors.textSecondary, fontSize: 15, lineHeight: 21, fontWeight: "600", textAlign: "center" },
-  revealSubtitleButton: { minHeight: 36, marginTop: 2, paddingHorizontal: 13, borderRadius: 12, backgroundColor: "#EDF4F1", alignItems: "center", justifyContent: "center" },
+  revealSubtitleButton: { minHeight: 40, marginTop: 4, paddingHorizontal: 15, borderRadius: 14, borderWidth: 1.5, borderBottomWidth: 4, borderColor: "#CADBD4", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   revealSubtitleText: { color: "#5F7B70", fontSize: 13, fontWeight: "600" },
   guidedSentence: { color: "#A7AFAB", fontWeight: "500" },
   guidedWordMatched: { color: "#45A77F" },
   speechPanel: { marginTop: 16, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.72)", alignItems: "center" },
   speechStatus: { minHeight: 32, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: "center" },
   speechSpinner: { position: "absolute", top: 42 },
-  speechButton: { alignSelf: "stretch", minHeight: 52, marginTop: 10, borderRadius: 17, backgroundColor: "#5E7E72", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
-  speechButtonRecording: { backgroundColor: "#B96F68" },
-  speechSkip: { minHeight: 42, marginTop: 5, paddingHorizontal: 18, alignItems: "center", justifyContent: "center" },
-  speechSkipText: { color: "#718078", fontSize: 14, fontWeight: "500" },
+  speechButton: { alignSelf: "stretch", minHeight: 58, marginTop: 10, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
+  speechButtonRecording: { borderBottomColor: "#864A45", backgroundColor: "#C87068" },
+  speechSkip: { alignSelf: "stretch", minHeight: 52, marginTop: 12, paddingHorizontal: 18, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: "#D5DDD9", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+  speechSkipText: { color: "#5F6F67", fontSize: 15, fontWeight: "800" },
   options: { marginTop: 14, gap: 10 },
   option: { minHeight: 54, paddingHorizontal: 17, paddingVertical: 10, borderRadius: 17, borderWidth: 1.25, borderColor: "rgba(93,113,104,0.17)", backgroundColor: "rgba(255,255,255,0.88)", flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#52645D", shadowOpacity: 0.055, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   optionPressed: { opacity: 0.86, transform: [{ translateY: 2 }, { scale: 0.975 }], shadowOpacity: 0.01, elevation: 0 },
@@ -1415,55 +1609,74 @@ const styles = StyleSheet.create({
   selectedToken: { minHeight: 38, paddingHorizontal: 10, borderRadius: 11, backgroundColor: "#DCEDE8", alignItems: "center", justifyContent: "center" },
   selectedTokenText: { color: "#365E52", fontSize: 16, fontWeight: "400" },
   tokenPressed: { opacity: 0.78, transform: [{ translateY: 2 }, { scale: 0.96 }] },
-  checkButton: { minHeight: 52, marginTop: 22, borderRadius: 17, backgroundColor: "#687E75", alignItems: "center", justifyContent: "center" },
-  checkButtonWrong: { backgroundColor: "#C77870" },
-  checkButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
-  skipButton: { minHeight: 44, marginTop: 8, alignItems: "center", justifyContent: "center" },
-  skipButtonText: { color: "#78847F", fontSize: 14, fontWeight: "600" },
+  checkButton: { minHeight: 58, marginTop: 22, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", alignItems: "center", justifyContent: "center" },
+  checkButtonWrong: { borderBottomColor: "#8E514A", backgroundColor: "#C77870" },
+  checkButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
+  skipButton: { minHeight: 52, marginTop: 12, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: "#D5DDD9", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+  skipButtonText: { color: "#5F6F67", fontSize: 15, fontWeight: "800" },
   buttonDisabled: { opacity: 0.35 },
   primaryPressed: { opacity: 0.88, transform: [{ translateY: 2 }, { scale: 0.985 }] },
   secondaryPressed: { opacity: 0.62, transform: [{ scale: 0.97 }] },
   completedSentenceCard: { marginTop: 8, padding: 18, borderRadius: 20, borderWidth: 1, borderColor: "#CFE5DC", backgroundColor: "rgba(255,255,255,0.84)" },
   completedSentence: { color: "#397461", fontSize: 20, lineHeight: 31, fontWeight: "400" },
+  revealedInputAnswer: { color: "#8A5A2B", fontWeight: "700", backgroundColor: "#FFF0CE", textDecorationLine: "underline", textDecorationColor: "#D8A85C" },
   completionSheet: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 20, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, backgroundColor: "rgba(252,250,248,0.96)", borderTopLeftRadius: 28, borderTopRightRadius: 28, shadowColor: "#35473F", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: -7 }, elevation: 16 },
   completionActions: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, borderRadius: 22, borderWidth: 1, borderColor: "#B9E2D3", backgroundColor: "#E9F8F2" },
   completionHandle: { width: 38, height: 4, marginBottom: 10, borderRadius: 2, backgroundColor: "rgba(88,108,99,0.22)", alignSelf: "center" },
   completionActionsSkipped: { borderColor: "#EDC5BD", backgroundColor: "#FFF1EE" },
+  completionActionsAnswerReveal: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, borderWidth: 0, backgroundColor: "transparent" },
   completionHeading: { minHeight: 48, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 11 },
   completionCopy: { flex: 1 },
   completionTitle: { color: "#39806A", fontSize: 18, lineHeight: 24, fontWeight: "800" },
   completionTitleSkipped: { color: "#A15F54" },
+  completionTitleAnswerReveal: { color: "#8A5A2B" },
   completionDetail: { marginTop: 2, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 },
   successMark: { width: 38, height: 38, borderRadius: 19, borderWidth: 3, borderColor: "#F7FBF9", backgroundColor: "#64AE96", alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.16, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   skippedMark: { backgroundColor: "#D48778", shadowColor: "#985F55" },
-  continueButton: { minHeight: 54, paddingHorizontal: 22, borderRadius: 18, backgroundColor: "#566C63", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
-  skippedContinueButton: { backgroundColor: "#A7695E" },
+  answerRevealMark: { backgroundColor: "#D9A75C", shadowColor: "#9A743C" },
+  continueButton: { minHeight: 58, paddingHorizontal: 22, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
+  skippedContinueButton: { borderBottomColor: "#754941", backgroundColor: "#A7695E" },
+  answerRevealContinueButton: { borderBottomColor: "#654B2D", backgroundColor: "#8B6B43" },
   primaryButton: { minHeight: 54, marginTop: 20, paddingHorizontal: 28, borderRadius: 18, backgroundColor: "#566C63", alignItems: "center", justifyContent: "center" },
   primaryButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
   againButton: { minHeight: 48, marginTop: 10, alignItems: "center", justifyContent: "center" },
   againButtonText: { color: "#665C80", fontSize: 15, fontWeight: "500" },
   summaryBody: { flex: 1, paddingHorizontal: 36, alignItems: "stretch", justifyContent: "center" },
-  retryOfferIcon: { width: 68, height: 68, marginBottom: 22, borderRadius: 24, backgroundColor: "#FFF0EC", alignSelf: "center", alignItems: "center", justifyContent: "center" },
+  retryOfferBody: { flex: 1, paddingHorizontal: 30, paddingBottom: 48, alignItems: "stretch", justifyContent: "center" },
+  retryCelebration: { height: 112, marginBottom: 18, alignItems: "center", justifyContent: "center" },
+  retryOfferIcon: { width: 86, height: 86, borderRadius: 32, borderWidth: 5, borderColor: "#FFF8E8", backgroundColor: "#F3A968", alignItems: "center", justifyContent: "center", shadowColor: "#A8663D", shadowOpacity: 0.22, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
+  retryConfetti: { position: "absolute", width: 14, height: 14, borderRadius: 5, transform: [{ rotate: "18deg" }] },
+  retryConfettiLeft: { left: "22%", top: 16, backgroundColor: "#8CC8F0" },
+  retryConfettiRight: { right: "20%", bottom: 12, backgroundColor: "#B5A1E6", transform: [{ rotate: "-16deg" }] },
+  retryOfferTitle: { color: theme.colors.text, fontSize: 30, lineHeight: 38, fontWeight: "800", textAlign: "center" },
+  retryOfferDetail: { marginTop: 8, color: "#776F86", fontSize: 16, lineHeight: 23, fontWeight: "600", textAlign: "center" },
+  retryOfferActions: { marginTop: 36, gap: 14 },
+  gamePrimaryButton: { minHeight: 60, paddingHorizontal: 24, borderRadius: 22, borderBottomWidth: 6, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
+  gamePrimaryButtonText: { color: "#FFFFFF", fontSize: 17, lineHeight: 23, fontWeight: "800" },
+  gameSecondaryButton: { minHeight: 58, paddingHorizontal: 24, borderRadius: 22, borderWidth: 2, borderBottomWidth: 6, borderColor: "#D4CDE4", backgroundColor: "#FFFFFF", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
+  gameSecondaryButtonText: { color: "#625978", fontSize: 17, lineHeight: 23, fontWeight: "800" },
+  gameExitButton: { minHeight: 58, paddingHorizontal: 24, borderRadius: 22, borderWidth: 2, borderBottomWidth: 6, borderColor: "#E5B8B1", backgroundColor: "#FFF4F1", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
+  gameExitButtonText: { color: "#A45F56", fontSize: 17, lineHeight: 23, fontWeight: "800" },
+  gameButtonPressed: { transform: [{ translateY: 4 }, { scale: 0.99 }], borderBottomWidth: 2, opacity: 0.94 },
   finishRoute: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 42 },
   finishConnector: { flex: 1, maxWidth: 20, height: 4, borderRadius: 2 },
   finishNode: { width: 22, height: 22, borderRadius: 11, shadowColor: "#6E6584", shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 5 } },
   summaryTitle: { color: theme.colors.text, fontSize: 28, fontWeight: "700", textAlign: "center", marginBottom: 22 },
   summarySubtitle: { marginTop: -10, marginBottom: 8, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 23, textAlign: "center" },
-  cardCompleteBody: { flexGrow: 1, paddingHorizontal: 28, paddingVertical: 30, alignItems: "stretch", justifyContent: "center" },
-  cardCompleteIcon: { width: 72, height: 72, marginBottom: 24, borderRadius: 36, backgroundColor: "#68B99D", alignSelf: "center", alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 7 } },
-  cardCompleteTitle: { color: theme.colors.text, fontSize: 28, lineHeight: 36, fontWeight: "700", textAlign: "center" },
+  cardCompleteBody: { flexGrow: 1, paddingHorizontal: 28, paddingTop: 22, paddingBottom: 42, alignItems: "stretch", justifyContent: "center" },
+  cardCompleteIcon: { width: 82, height: 82, marginBottom: 20, borderRadius: 30, borderWidth: 5, borderColor: "#EBFAF4", backgroundColor: "#68B99D", alignSelf: "center", alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.2, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
+  cardCompleteTitle: { color: theme.colors.text, fontSize: 29, lineHeight: 37, fontWeight: "800", textAlign: "center" },
   cardCompleteName: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 23, textAlign: "center" },
   nextCardPreview: { marginTop: 34, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 18, borderWidth: 1, borderColor: "#DCD5EB", backgroundColor: "rgba(255,255,255,0.72)" },
-  cardCompleteLabel: { marginTop: 24, marginBottom: 8, color: theme.colors.textMuted, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  cardCompleteLabel: { marginTop: 24, marginBottom: 9, color: "#776F86", fontSize: 14, lineHeight: 19, fontWeight: "700", textAlign: "center" },
   cardRouteCard: { minHeight: 92, padding: 10, borderRadius: 20, borderWidth: 1, borderColor: "#D7E5DF", backgroundColor: "rgba(255,255,255,0.88)", flexDirection: "row", alignItems: "center", gap: 12 },
-  nextCardRouteCard: { borderColor: "#A9D7C8", backgroundColor: "#ECF8F3" },
+  nextCardRouteCard: { borderWidth: 2, borderBottomWidth: 5, borderColor: "#A9D7C8", backgroundColor: "#ECF8F3" },
   cardRouteImage: { width: 72, height: 72, borderRadius: 14, backgroundColor: "#E8ECEB" },
   cardRouteImageFallback: { alignItems: "center", justifyContent: "center" },
   cardRouteCopy: { flex: 1 },
   cardRouteTitle: { color: theme.colors.text, fontSize: 16, lineHeight: 22, fontWeight: "700" },
   cardRouteMeta: { marginTop: 5, color: theme.colors.textSecondary, fontSize: 12, lineHeight: 17 },
-  cardExitButton: { minHeight: 46, marginTop: 14, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  cardExitButtonText: { color: theme.colors.textSecondary, fontSize: 15, lineHeight: 21, fontWeight: "600" },
+  cardCompleteActions: { marginTop: 24, gap: 13 },
   nextCardEyebrow: { color: "#776C91", fontSize: 12, fontWeight: "700" },
   nextCardTitle: { marginTop: 6, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
 });

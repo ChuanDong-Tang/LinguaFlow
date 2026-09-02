@@ -1125,6 +1125,7 @@ export function ProScreen({
                   resolveTokenBenefit("pro", quote?.monthlyTokenLimit),
                   resolveImageBenefit("pro", quote?.monthlyImageUploadBytes),
                   t("pro.compact.assistant"),
+                  t("pro.compact.dictation"),
                   t("pro.compact.custom_material"),
                 ];
             return (

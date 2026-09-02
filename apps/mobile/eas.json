@@ -39,6 +39,15 @@
       "ios": {
         "simulator": false
       }
+    },
+    "china": {
+      "environment": "production",
+      "autoIncrement": true,
+      "distribution": "store",
+      "channel": "production",
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {

@@ -3,6 +3,8 @@ import { Platform } from "react-native";
 import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
+const DISTRIBUTION_CHANNEL = process.env.EXPO_PUBLIC_DISTRIBUTION_CHANNEL?.trim().toLowerCase();
+const CHINA_ANDROID_UPDATE_URL = "https://yueyantech.com";
 
 type AppVersionPolicy = {
   platform: "ios" | "android";
@@ -29,9 +31,11 @@ export async function getAvailableAppUpdate(): Promise<AvailableAppUpdate | null
   if (mockVersion && compareVersions(currentVersion, mockVersion) < 0) {
     return {
       latestVersion: mockVersion,
-      storeUrl: Platform.OS === "ios"
-        ? "https://apps.apple.com/app/id6776898160"
-        : "https://play.google.com/store/apps/details?id=com.yueyantech.oio",
+      storeUrl: resolveUpdateUrl(
+        Platform.OS === "ios"
+          ? "https://apps.apple.com/app/id6776898160"
+          : "https://play.google.com/store/apps/details?id=com.yueyantech.oio",
+      ),
     };
   }
 
@@ -45,8 +49,15 @@ export async function getAvailableAppUpdate(): Promise<AvailableAppUpdate | null
 
   return {
     latestVersion: result.data.latestVersion,
-    storeUrl: result.data.storeUrl,
+    storeUrl: resolveUpdateUrl(result.data.storeUrl),
   };
+}
+
+function resolveUpdateUrl(storeUrl: string): string {
+  if (Platform.OS === "android" && DISTRIBUTION_CHANNEL === "china") {
+    return CHINA_ANDROID_UPDATE_URL;
+  }
+  return storeUrl;
 }
 
 export function compareVersions(left: string, right: string): number {

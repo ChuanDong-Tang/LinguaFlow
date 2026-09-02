@@ -19,6 +19,7 @@ let playbackState: TtsPlaybackState = {
   loopEnabled: false,
   loopMode: "off",
   loopScope: "one",
+  loopAllowed: true,
   activeNavigationKey: null,
   positionMs: 0,
   durationMs: null,
@@ -47,6 +48,7 @@ export type TtsAudioSource = {
   playbackRange?: TtsPlaybackRange;
   navigationKey?: string | null;
   loopScope?: "all" | "one";
+  allowLoop?: boolean;
   onFinished?: () => void;
   onError?: () => void;
   sessionId?: number;
@@ -60,6 +62,7 @@ export type TtsPlaybackState = {
   loopEnabled: boolean;
   loopMode: "off" | "all" | "one";
   loopScope: "all" | "one";
+  loopAllowed: boolean;
   activeNavigationKey: string | null;
   positionMs: number;
   durationMs: number | null;
@@ -100,6 +103,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
   stopActivePlayer();
 
   const nextLoopScope = resolvedSource.loopScope ?? "one";
+  const loopAllowed = resolvedSource.allowLoop !== false;
   setPlaybackState({
     hasActiveAudio: true,
     status: "loading",
@@ -107,7 +111,8 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     positionMs: 0,
     durationMs: null,
     loopScope: nextLoopScope,
-    loopEnabled: playbackState.loopMode !== "off",
+    loopAllowed,
+    loopEnabled: loopAllowed && playbackState.loopMode !== "off",
   });
   let audioUri: string;
   try {
@@ -173,7 +178,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
       && typeof status.currentTime === "number"
       && status.currentTime >= status.duration - 0.06;
     if (status.didJustFinish || reachedNaturalEnd) {
-      if (playbackState.loopMode === "one") {
+      if (loopAllowed && playbackState.loopMode === "one") {
         void restartLoopFrom(effectivePlaybackRange ? Math.max(0, effectivePlaybackRange.startMs / 1000) : 0);
       } else {
         finishPlayback();
@@ -207,7 +212,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
       if (activePlayer !== player) return;
       const currentMs = player.currentStatus.currentTime * 1000;
       if (currentMs >= stopAtMs) {
-        if (playbackState.loopMode === "one") {
+        if (loopAllowed && playbackState.loopMode === "one") {
           void restartLoopFrom(startSeconds);
           return;
         }
@@ -275,6 +280,7 @@ export function setTtsNavigationControls(controls: TtsNavigationControls | null)
 }
 
 export function toggleTtsLoop(): void {
+  if (playbackState.hasActiveAudio && !playbackState.loopAllowed) return;
   const loopMode = playbackState.loopMode === "off"
     ? "one"
     : playbackState.loopMode === "one"
@@ -316,6 +322,7 @@ function stopActivePlayer(): void {
   setPlaybackState({
     hasActiveAudio: false,
     status: "idle",
+    loopAllowed: true,
     activeNavigationKey: null,
     positionMs: 0,
     durationMs: null,
@@ -336,6 +343,7 @@ function setPlaybackState(next: Partial<TtsPlaybackState>): void {
     merged.loopEnabled === playbackState.loopEnabled &&
     merged.loopMode === playbackState.loopMode &&
     merged.loopScope === playbackState.loopScope &&
+    merged.loopAllowed === playbackState.loopAllowed &&
     merged.activeNavigationKey === playbackState.activeNavigationKey &&
     merged.positionMs === playbackState.positionMs &&
     merged.durationMs === playbackState.durationMs &&

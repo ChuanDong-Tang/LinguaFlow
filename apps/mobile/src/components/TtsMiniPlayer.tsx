@@ -53,6 +53,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
   const isPlaying = playback.status === "playing";
   const canNavigatePrevious = playback.canNavigatePrevious;
   const canNavigateNext = playback.canNavigateNext;
+  const canLoop = active && playback.loopAllowed;
   const playerWidth = expanded ? EXPANDED_WIDTH : COLLAPSED_TOUCH_WIDTH;
   const dragMinX = expanded ? PLAYER_MARGIN : 0;
   const dragMaxX = expanded
@@ -71,7 +72,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
     dragging && clampedPosition.x + playerWidth / 2 > window.width / 2 ? "right" : dockSide;
   const opensLeft = visualDockSide === "right";
   React.useEffect(() => {
-    if (!active || !isPlaying || playback.loopMode === "off") {
+    if (!canLoop || !isPlaying || playback.loopMode === "off") {
       loopRotation.stopAnimation();
       loopRotation.setValue(0);
       return;
@@ -84,7 +85,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
     }));
     animation.start();
     return () => animation.stop();
-  }, [active, isPlaying, loopRotation, playback.loopMode]);
+  }, [canLoop, isPlaying, loopRotation, playback.loopMode]);
   React.useEffect(() => {
     positionRef.current = clampedPosition;
   }, [clampedPosition]);
@@ -227,20 +228,20 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           style={[
             styles.iconButton,
             styles.loopButton,
-            playback.loopMode !== "off" && styles.loopButtonActive,
-            !active && styles.disabled,
+            canLoop && playback.loopMode !== "off" && styles.loopButtonActive,
+            !canLoop && styles.disabled,
           ]}
-          disabled={!active}
+          disabled={!canLoop}
           onPress={toggleTtsLoop}
         >
           <Animated.View style={{ transform: [{ rotate: loopRotation.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }] }}>
             <Ionicons
               name="sync-outline"
               size={28}
-              color={playback.loopMode !== "off" && active ? "#FFFFFF" : active ? "#4D5361" : "#AEB4C0"}
+              color={canLoop && playback.loopMode !== "off" ? "#FFFFFF" : canLoop ? "#4D5361" : "#AEB4C0"}
             />
           </Animated.View>
-          {playback.loopMode === "one" ? <Text style={styles.loopOne}>1</Text> : null}
+          {canLoop && playback.loopMode === "one" ? <Text style={styles.loopOne}>1</Text> : null}
         </Pressable>
       );
     }

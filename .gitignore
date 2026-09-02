@@ -38,4 +38,5 @@ agent.md
 # runbooks versioned so a clean checkout can reproduce a release.
 /ci/cd/artifacts/
 /ci/cd/*.env
+/ci/cd/gradle-repositories.init.gradle
 /apps/mobile/*.ipa
