@@ -29,6 +29,16 @@ export interface CardTopicSource {
   billingExemptReason?: "chat_history_migration";
 }
 
+export interface CardAuxiliarySource {
+  userId: string;
+  sourceId: string;
+  rewrittenText: string;
+  languageCode: string;
+  appLocale: string;
+  difficulty: string;
+  segments: Array<{ ordinal: number; text: string }>;
+}
+
 export interface PhraseIndexSource {
   phraseId: string;
   userId: string;
@@ -87,6 +97,13 @@ export interface ProgressPhraseDetectionResult {
 }
 
 export interface CardEnrichmentRepository {
+  enqueueMissingAuxiliaryJobs(limit: number, createdBefore: Date): Promise<number>;
+  claimNextAuxiliaryJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  loadAuxiliarySource(job: CardEnrichmentJobEntity): Promise<CardAuxiliarySource | null>;
+  completeAuxiliaryJob(
+    job: CardEnrichmentJobEntity,
+    auxiliarySegments: Array<{ ordinal: number; text: string }>,
+  ): Promise<boolean>;
   claimNextTopicJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadTopicSource(job: CardEnrichmentJobEntity): Promise<CardTopicSource | null>;
   completeTopicJob(job: CardEnrichmentJobEntity, topic: string): Promise<boolean>;

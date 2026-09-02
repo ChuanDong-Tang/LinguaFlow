@@ -40,6 +40,8 @@ import { SerialCardJobWorker } from "./src/workers/card/SerialCardJobWorker.ts";
 import { RedisCardWorkerConcurrencyGuard } from "./src/workers/card/CardWorkerConcurrencyGuard.ts";
 import { CardEnrichmentWorkerService } from "./src/services/card/CardEnrichmentWorkerService.ts";
 import { CardTopicWorkerService } from "./src/services/card/CardTopicWorkerService.ts";
+import { CardAuxiliaryWorkerService } from "./src/services/card/CardAuxiliaryWorkerService.ts";
+import { CardAuxiliaryBackfillScanner } from "./src/workers/card/CardAuxiliaryBackfillScanner.ts";
 import { AzureEmbeddingProvider } from "./src/providers/ai/AzureEmbeddingProvider.ts";
 import { PhraseNormalizationWorkerService } from "./src/services/card/PhraseNormalizationWorkerService.ts";
 import { PhraseHistoryIndexWorkerService } from "./src/services/card/PhraseHistoryIndexWorkerService.ts";
@@ -242,6 +244,38 @@ const cardTopicWorker = new SerialCardJobWorker(
     concurrencyLimit: runtime.cardTopicGlobalConcurrency,
   },
 );
+const cardAuxiliaryBackfillScanner = runtime.cardAuxiliaryBackfillEnabled
+  ? new CardAuxiliaryBackfillScanner(
+      cardEnrichmentRepository,
+      systemEventLogRepository,
+      {
+        intervalMs: runtime.cardAuxiliaryBackfillScanIntervalMs,
+        batchSize: runtime.cardAuxiliaryBackfillBatchSize,
+        minimumAgeMs: runtime.cardAuxiliaryBackfillMinimumAgeMs,
+      },
+    )
+  : null;
+const cardAuxiliaryBackfillWorker = runtime.cardAuxiliaryBackfillEnabled
+  ? new SerialCardJobWorker(
+      new CardAuxiliaryWorkerService(
+        cardEnrichmentRepository,
+        cardAiProvider,
+        systemEventLogRepository,
+        {},
+        resourceGovernor,
+        cardContentSafetyService,
+      ),
+      {
+        workerIdPrefix: "card-auxiliary-backfill",
+        errorLabel: "card-auxiliary-backfill-worker",
+        intervalMs: runtime.cardAuxiliaryBackfillJobIntervalMs,
+        maxJobsPerRun: 1,
+        concurrencyGuard: cardWorkerConcurrencyGuard,
+        concurrencyScope: "auxiliary-backfill",
+        concurrencyLimit: 1,
+      },
+    )
+  : null;
 const phraseNormalizationWorker = new SerialCardJobWorker(
   new PhraseNormalizationWorkerService(cardEnrichmentRepository, cardAiProvider, {}, resourceGovernor, usageV2Service),
   {
@@ -356,6 +390,8 @@ const workerGroups = {
   card: [
     cardRewriteWorker,
     cardTopicWorker,
+    cardAuxiliaryBackfillScanner,
+    cardAuxiliaryBackfillWorker,
     cardEnrichmentWorker,
     phraseNormalizationWorker,
     phraseHistoryIndexWorker,

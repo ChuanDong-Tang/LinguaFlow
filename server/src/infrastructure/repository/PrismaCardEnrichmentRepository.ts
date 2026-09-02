@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
 import type {
   CardEmbeddingSource,
@@ -16,6 +16,159 @@ import type { EmbeddingResult } from "@lf/core/ports/ai/EmbeddingProvider.js";
 
 export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository {
   constructor(private readonly prisma: PrismaClient) {}
+
+  async enqueueMissingAuxiliaryJobs(limit: number, createdBefore: Date): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const lock = await tx.$queryRaw<Array<{ acquired: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(hashtext('card_auxiliary_backfill_scan')) AS "acquired"
+      `;
+      if (!lock[0]?.acquired) return 0;
+      const boundedLimit = Math.max(1, limit);
+      const outstanding = await tx.cardEnrichmentJob.count({
+        where: { jobType: "generate_auxiliary", status: { in: ["queued", "processing"] } },
+      });
+      const availableSlots = Math.max(0, boundedLimit - outstanding);
+      if (availableSlots === 0) return 0;
+      const cards = await tx.$queryRaw<Array<{
+        id: string;
+        userId: string;
+        rewrittenText: string;
+        appLocaleSnapshot: string;
+      }>>`
+        SELECT c."id", c."userId", c."rewrittenText", c."appLocaleSnapshot"
+          FROM "cards" c
+         WHERE c."status" = 'completed'
+           AND c."deletedAt" IS NULL
+           AND c."rewrittenText" IS NOT NULL
+           AND c."auxiliarySegments" IS NULL
+           AND c."createdAt" <= ${createdBefore}
+           AND EXISTS (SELECT 1 FROM "card_rewrite_segments" s WHERE s."entryId" = c."id")
+           AND NOT EXISTS (
+             SELECT 1 FROM "card_enrichment_jobs" j
+              WHERE j."userId" = c."userId"
+                AND j."sourceKind" = 'card'
+                AND j."sourceId" = c."id"
+                AND j."jobType" = 'generate_auxiliary'
+                AND j."status" IN ('queued', 'processing', 'failed')
+           )
+         ORDER BY c."createdAt" ASC, c."id" ASC
+         LIMIT ${availableSlots}
+      `;
+      for (const card of cards) {
+        const inputHash = cardContentHash(card.rewrittenText);
+        await tx.cardEnrichmentJob.upsert({
+          where: {
+            userId_sourceKind_sourceId_jobType_inputVersion: {
+              userId: card.userId,
+              sourceKind: "card",
+              sourceId: card.id,
+              jobType: "generate_auxiliary",
+              inputVersion: "card_auxiliary_v1",
+            },
+          },
+          create: {
+            userId: card.userId,
+            sourceKind: "card",
+            sourceId: card.id,
+            jobType: "generate_auxiliary",
+            inputHash,
+            inputVersion: "card_auxiliary_v1",
+            payload: { schemaVersion: 1, appLocale: card.appLocaleSnapshot },
+          },
+          update: {
+            status: "queued",
+            availableAt: new Date(),
+            inputHash,
+            payload: { schemaVersion: 1, appLocale: card.appLocaleSnapshot },
+            attempts: 0,
+            processingAt: null,
+            leaseExpiresAt: null,
+            workerId: null,
+            lastError: null,
+            completedAt: null,
+            failedAt: null,
+          },
+        });
+      }
+      return cards.length;
+    });
+  }
+
+  async claimNextAuxiliaryJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob("generate_auxiliary", workerId, leaseExpiresAt);
+  }
+
+  async loadAuxiliarySource(job: CardEnrichmentJobEntity) {
+    if (job.sourceKind !== "card") return null;
+    const card = await this.prisma.card.findFirst({
+      where: {
+        id: job.sourceId,
+        userId: job.userId,
+        status: "completed",
+        deletedAt: null,
+        auxiliarySegments: { equals: Prisma.DbNull },
+      },
+      select: {
+        rewrittenText: true,
+        languageCode: true,
+        appLocaleSnapshot: true,
+        promptDifficultySnapshot: true,
+        segments: { orderBy: { ordinal: "asc" }, select: { ordinal: true, text: true } },
+      },
+    });
+    if (!card?.rewrittenText || !card.segments.length || cardContentHash(card.rewrittenText) !== job.inputHash) return null;
+    return {
+      userId: job.userId,
+      sourceId: job.sourceId,
+      rewrittenText: card.rewrittenText,
+      languageCode: card.languageCode,
+      appLocale: card.appLocaleSnapshot,
+      difficulty: card.promptDifficultySnapshot,
+      segments: card.segments,
+    };
+  }
+
+  async completeAuxiliaryJob(
+    job: CardEnrichmentJobEntity,
+    auxiliarySegments: Array<{ ordinal: number; text: string }>,
+  ): Promise<boolean> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const current = await tx.card.findFirst({
+          where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
+          select: { rewrittenText: true },
+        });
+        if (!current?.rewrittenText || cardContentHash(current.rewrittenText) !== job.inputHash) {
+          throw new Error("CARD_AUXILIARY_SOURCE_STALE");
+        }
+        const card = await tx.card.updateMany({
+          where: {
+            id: job.sourceId,
+            userId: job.userId,
+            status: "completed",
+            deletedAt: null,
+            rewrittenText: { not: null },
+            auxiliarySegments: { equals: Prisma.DbNull },
+          },
+          data: {
+            auxiliarySegments,
+            auxiliaryLanguageCode: auxiliaryLocaleFromPayload(job.payload),
+            auxiliarySourceHash: job.inputHash,
+          },
+        });
+        if (card.count !== 1) throw new Error("CARD_AUXILIARY_SOURCE_STALE");
+        const claimed = await tx.cardEnrichmentJob.updateMany({
+          where: { id: job.id, status: "processing", workerId: job.workerId, inputHash: job.inputHash },
+          data: { status: "completed", completedAt: new Date(), leaseExpiresAt: null, workerId: null, lastError: null },
+        });
+        if (claimed.count !== 1) throw new Error("CARD_AUXILIARY_JOB_LEASE_LOST");
+      });
+      return true;
+    } catch (error) {
+      if (error instanceof Error && (error.message === "CARD_AUXILIARY_SOURCE_STALE" || error.message === "CARD_AUXILIARY_JOB_LEASE_LOST")) return false;
+      throw error;
+    }
+  }
 
   async claimNextTopicJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
     return this.claimNextJob("generate_topic", workerId, leaseExpiresAt);
@@ -873,6 +1026,19 @@ function phraseIdFromPayload(payload: unknown): string | null {
 function payloadAllowsObservedCard(payload: unknown): boolean {
   return Boolean(payload && typeof payload === "object" && "allowObservedCard" in payload
     && (payload as { allowObservedCard?: unknown }).allowObservedCard === true);
+}
+
+function auxiliaryLocaleFromPayload(payload: unknown): string {
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    const appLocale = (payload as { appLocale?: unknown }).appLocale;
+    if (typeof appLocale === "string" && appLocale.trim()) return appLocale;
+  }
+  throw new Error("CARD_AUXILIARY_LOCALE_MISSING");
+}
+
+function cardContentHash(text: string): string {
+  const normalized = text.normalize("NFKC").replace(/\r\n?/gu, "\n").trim();
+  return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
 function migrationBillingExemptionFromPayload(payload: unknown): string | null {

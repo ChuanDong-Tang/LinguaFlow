@@ -18,6 +18,7 @@ export class SerialCardJobWorker {
       concurrencyGuard?: CardWorkerConcurrencyGuard;
       concurrencyScope?: string;
       concurrencyLimit?: number;
+      maxJobsPerRun?: number;
     },
   ) {
     this.workerId = `${options.workerIdPrefix}-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
@@ -38,7 +39,9 @@ export class SerialCardJobWorker {
     if (this.running) return;
     this.running = true;
     try {
-      while (await this.claimAndProcess()) {
+      let processed = 0;
+      while (processed < (this.options.maxJobsPerRun ?? Number.POSITIVE_INFINITY) && await this.claimAndProcess()) {
+        processed += 1;
         // Drain serially; deploy more worker processes for controlled concurrency.
       }
     } catch (error) {

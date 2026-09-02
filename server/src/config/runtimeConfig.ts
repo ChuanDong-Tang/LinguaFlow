@@ -120,6 +120,11 @@ export interface RuntimeConfig {
   cardPhraseNormalizationGlobalConcurrency: number;
   cardPhraseHistoryGlobalConcurrency: number;
   cardPhraseIndexGlobalConcurrency: number;
+  cardAuxiliaryBackfillEnabled: boolean;
+  cardAuxiliaryBackfillBatchSize: number;
+  cardAuxiliaryBackfillScanIntervalMs: number;
+  cardAuxiliaryBackfillJobIntervalMs: number;
+  cardAuxiliaryBackfillMinimumAgeMs: number;
   cardWorkerConcurrencyLeaseMs: number;
   authingDomain: string | null;
   authingAppId: string | null;
@@ -313,6 +318,11 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardPhraseNormalizationGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_NORMALIZATION_GLOBAL_CONCURRENCY, 4),
     cardPhraseHistoryGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_HISTORY_GLOBAL_CONCURRENCY, 2),
     cardPhraseIndexGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_INDEX_GLOBAL_CONCURRENCY, 2),
+    cardAuxiliaryBackfillEnabled: readBoolean(env.CARD_AUXILIARY_BACKFILL_ENABLED, true),
+    cardAuxiliaryBackfillBatchSize: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_BATCH_SIZE, 20),
+    cardAuxiliaryBackfillScanIntervalMs: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_SCAN_INTERVAL_MS, 300_000),
+    cardAuxiliaryBackfillJobIntervalMs: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_JOB_INTERVAL_MS, 15_000),
+    cardAuxiliaryBackfillMinimumAgeMs: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_MINIMUM_AGE_MS, 86_400_000),
     cardWorkerConcurrencyLeaseMs: readPositiveInt(env.CARD_WORKER_CONCURRENCY_LEASE_MS, 300_000),
     authingDomain: trimToNull(env.AUTHING_DOMAIN),
     authingAppId: trimToNull(env.AUTHING_APP_ID),
