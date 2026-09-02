@@ -1,25 +1,24 @@
 import React from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatContact } from "../../domain/chat/contacts";
-import type { CompanionMode } from "../../services/preferences/assistantPreferences";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
 
 type AutoCopySheetProps = {
   visible: boolean;
   contact: ChatContact;
-  companionMode: CompanionMode;
+  replyEnabled: boolean;
   onClose: () => void;
-  onSelectCompanionMode: (mode: CompanionMode) => void;
+  onReplyEnabledChange: (enabled: boolean) => void;
 };
 
 export function AutoCopySheet({
   visible,
   contact,
-  companionMode,
+  replyEnabled,
   onClose,
-  onSelectCompanionMode,
+  onReplyEnabledChange,
 }: AutoCopySheetProps) {
   const showCompanionMode = contact.capabilities?.companionMode === true;
 
@@ -41,24 +40,23 @@ export function AutoCopySheet({
             <View style={styles.modeSection}>
               <Text style={styles.sectionLabel}>{t("chat.settings.companion_mode")}</Text>
               <View style={styles.options}>
-                {COMPANION_MODE_OPTIONS.map((option) => {
-                  const selected = companionMode === option.mode;
-                  return (
-                    <Pressable
-                      key={option.mode}
-                      style={[styles.option, selected && styles.optionSelected]}
-                      onPress={() => onSelectCompanionMode(option.mode)}
-                    >
-                      <View style={styles.optionTextWrap}>
-                        <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>{t(option.labelKey)}</Text>
-                        <Text style={styles.optionDescription}>{t(option.descriptionKey)}</Text>
-                      </View>
-                      <View style={[styles.radio, selected && styles.radioSelected]}>
-                        {selected ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
-                      </View>
-                    </Pressable>
-                  );
-                })}
+                <Pressable
+                  style={styles.option}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: replyEnabled }}
+                  onPress={() => onReplyEnabledChange(!replyEnabled)}
+                >
+                  <View style={styles.optionTextWrap}>
+                    <Text style={styles.optionLabel}>{t("chat.settings.generate_reply")}</Text>
+                    <Text style={styles.optionDescription}>{t("chat.settings.generate_reply_desc")}</Text>
+                  </View>
+                  <Switch
+                    pointerEvents="none"
+                    value={replyEnabled}
+                    trackColor={{ false: "#D8DDE7", true: theme.colors.accent }}
+                    thumbColor="#FFFFFF"
+                  />
+                </Pressable>
               </View>
             </View>
           ) : null}
@@ -68,16 +66,6 @@ export function AutoCopySheet({
     </Modal>
   );
 }
-
-const COMPANION_MODE_OPTIONS: Array<{
-  mode: CompanionMode;
-  labelKey: Parameters<typeof t>[0];
-  descriptionKey: Parameters<typeof t>[0];
-}> = [
-  { mode: "rewrite_only", labelKey: "chat.companion_mode.rewrite_only", descriptionKey: "chat.companion_mode.rewrite_only_desc" },
-  { mode: "native_note", labelKey: "chat.companion_mode.native_note", descriptionKey: "chat.companion_mode.native_note_desc" },
-  { mode: "simple_reply", labelKey: "chat.companion_mode.simple_reply", descriptionKey: "chat.companion_mode.simple_reply_desc" },
-];
 
 const styles = StyleSheet.create({
   scrim: {

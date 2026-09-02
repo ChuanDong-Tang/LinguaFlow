@@ -20,7 +20,7 @@ export type RunChatGenerationInput = {
   text: string;
   assistantClientId: string;
   retryCount: number;
-  companionMode?: "rewrite_only" | "native_note" | "simple_reply";
+  companionMode?: "rewrite_only" | "native_note" | "simple_reply" | "native_note_reply";
   signal: AbortSignal;
   systemPrompt?: string;
   userClientId?: string;

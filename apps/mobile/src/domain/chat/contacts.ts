@@ -1,7 +1,7 @@
 import { t, type TranslationKey } from "../../i18n";
 
 export type ChatContactId = string;
-export type CompanionMode = "rewrite_only" | "native_note" | "simple_reply";
+export type CompanionMode = "rewrite_only" | "native_note" | "simple_reply" | "native_note_reply";
 
 export type ChatContact = {
   id: ChatContactId;
@@ -54,12 +54,12 @@ export const DEFAULT_CHAT_CONTACT: ChatContact = {
   nameKey: "contact.curious_companion.name",
   descriptionKey: "contact.curious_companion.description",
   nameFallback: "AI 助手 Beta",
-  descriptionFallback: "直接说或输入，默认帮你自然改写",
+  descriptionFallback: "自然改写，并附上母语整理",
   avatarLabel: "OIO",
   clozeSource: "tagged_en",
   practiceEnabled: true,
   historyContactIds: ["curious_companion", "rewrite_assistant", "english_friend"],
-  defaultCompanionMode: "rewrite_only",
+  defaultCompanionMode: "native_note",
   capabilities: {
     companionMode: true,
     practice: true,

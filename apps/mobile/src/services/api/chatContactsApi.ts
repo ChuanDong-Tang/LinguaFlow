@@ -94,5 +94,5 @@ function normalizeTranslationKey(value: unknown, fallback: TranslationKey): Tran
 }
 
 function isCompanionMode(value: unknown): value is CompanionMode {
-  return value === "rewrite_only" || value === "native_note" || value === "simple_reply";
+  return value === "rewrite_only" || value === "native_note" || value === "simple_reply" || value === "native_note_reply";
 }

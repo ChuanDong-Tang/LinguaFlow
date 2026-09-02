@@ -37,7 +37,7 @@ export interface StartChatGenerationStreamInput {
   contactId?: string;
   provider?: string;
   model?: string;
-  companionMode?: "rewrite_only" | "native_note" | "simple_reply";
+  companionMode?: "rewrite_only" | "native_note" | "simple_reply" | "native_note_reply";
   systemPrompt?: string;
   conversationId?: string;
   userMessageId?: string;

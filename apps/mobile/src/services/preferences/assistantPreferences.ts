@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const ASSISTANT_PREFERENCES_KEY = "linguaflow.assistant.preferences.v1";
 
 export type AutoCopyMode = "none" | "rewrite" | "note" | "reply" | "all";
-export type CompanionMode = "rewrite_only" | "native_note" | "simple_reply";
+export type CompanionMode = "rewrite_only" | "native_note" | "simple_reply" | "native_note_reply";
 
 export type AssistantPreferences = {
   autoCopyAfterGeneration: boolean;
@@ -54,11 +54,13 @@ function normalizeCompanionModeMap(value: unknown): Record<string, CompanionMode
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const output: Record<string, CompanionMode> = {};
   for (const [key, mode] of Object.entries(value as Record<string, unknown>)) {
-    if (key && isCompanionMode(mode)) output[key] = mode;
+    if (key && isCompanionMode(mode)) {
+      output[key] = mode === "simple_reply" || mode === "native_note_reply" ? "native_note_reply" : "native_note";
+    }
   }
   return output;
 }
 
 function isCompanionMode(value: unknown): value is CompanionMode {
-  return value === "rewrite_only" || value === "native_note" || value === "simple_reply";
+  return value === "rewrite_only" || value === "native_note" || value === "simple_reply" || value === "native_note_reply";
 }

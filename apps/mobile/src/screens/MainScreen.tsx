@@ -42,6 +42,7 @@ import {
   getCardTaskStatus,
   getCardRecord,
   getCardCapabilities,
+  generateCardContent,
   updateCardContent,
   updateCardCoverPosition,
   saveCardClozeUpdate,
@@ -682,6 +683,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       });
       const generation = await generateMissingCardContent(detail, selectedTargets);
       detail = generation.detail;
+      if (detail.rewrittenText?.trim() && !detail.auxiliarySegments?.length) {
+        try {
+          detail = await generateCardContent(detail.id, "auxiliary");
+        } catch (error) {
+          console.warn("[card] generate converted auxiliary text failed", error);
+        }
+      }
       created = detail;
       const createdForDisplay = firstDraftImage && !created.thumbnail
         ? {

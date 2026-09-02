@@ -56,7 +56,8 @@ function isChatGenerationStreamBody(value: unknown): value is ChatGenerationStre
       v.companionMode === null ||
       v.companionMode === "rewrite_only" ||
       v.companionMode === "native_note" ||
-      v.companionMode === "simple_reply") &&
+      v.companionMode === "simple_reply" ||
+      v.companionMode === "native_note_reply") &&
     (v.systemPrompt === undefined || v.systemPrompt === null || typeof v.systemPrompt === "string")
   );
 }

@@ -285,6 +285,8 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
 
   const shouldShowTranslation =
     (assistantRenderState === "streaming" || assistantRenderState === "complete") && !!clozeText.translation;
+  const shouldShowReply =
+    (assistantRenderState === "streaming" || assistantRenderState === "complete") && !!clozeText.reply;
 
   const shouldShowAiBadge = false
     // hasDisplayText &&
@@ -414,6 +416,9 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
               {clozeText.translation}
               {shouldShowAiBadge ? <Text style={styles.inlineAiBadge}>{t("chat.ai_badge")}</Text> : null}
             </Text>
+          ) : null}
+          {shouldShowReply ? (
+            <Text style={styles.replyText}>{clozeText.reply}</Text>
           ) : null}
           {shouldShowActions ? (
             <View style={styles.cardActionRow}>
@@ -836,6 +841,15 @@ const styles = StyleSheet.create({
     color: "#727988",
     fontSize: 14,
     lineHeight: 21,
+  },
+  replyText: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E2E5EC",
+    color: "#30343B",
+    fontSize: 16,
+    lineHeight: 23,
   },
   cardActionRow: {
     marginTop: 12,

@@ -5,6 +5,7 @@ import { parseTaggedRewrite } from "../rewrite/taggedRewrite";
 export type AssistantClozeText = {
   text: string;
   translation: string;
+  reply: string;
 };
 
 export function getAssistantClozeText(
@@ -16,16 +17,18 @@ export function getAssistantClozeText(
   if (contact.clozeSource === "tagged_en_reply") {
     return {
       text: tagged.rewrite || (tagged.reply ? "" : message.text),
-      translation: tagged.reply,
+      translation: "",
+      reply: tagged.reply,
     };
   }
 
   if (contact.clozeSource === "full_text") {
-    return { text: message.text, translation: "" };
+    return { text: message.text, translation: "", reply: "" };
   }
 
   return {
     text: tagged.rewrite,
-    translation: tagged.note || tagged.reply,
+    translation: tagged.note,
+    reply: tagged.reply,
   };
 }

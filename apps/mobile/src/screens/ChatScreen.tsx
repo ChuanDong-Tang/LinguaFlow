@@ -141,7 +141,11 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
     closeAutoCopyMenu,
     setCompanionMode,
   } = useAssistantAutoCopyPreferences();
-  const companionMode = companionModeByContactId[contactId] ?? contact.defaultCompanionMode ?? "rewrite_only";
+  const configuredCompanionMode = companionModeByContactId[contactId] ?? contact.defaultCompanionMode ?? "native_note";
+  const replyEnabled = configuredCompanionMode === "simple_reply" || configuredCompanionMode === "native_note_reply";
+  const companionMode = contact.id === "curious_companion"
+    ? replyEnabled ? "native_note_reply" : "native_note"
+    : configuredCompanionMode;
   const canConfigureCompanionMode = contact.capabilities?.companionMode === true;
   const [remainingChars, setRemainingChars] = useState<number | null>(null);
   const [isProEntitled, setIsProEntitled] = useState(false);
@@ -576,7 +580,6 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
       }
     }
     const rewrittenText = (tagged.rewrite || tagged.en || tagged.ja).trim();
-    const translationText = (tagged.note || tagged.zh).trim();
     const replyText = tagged.reply.trim();
     const practicedText = getAssistantClozeText(message, getChatContact(message.contactId, [contact])).text.trim();
     const blankTokenIndexes = getBlankTokenSet(message.clozeState);
@@ -590,14 +593,14 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
       title: "",
       text: originalText,
       rewrittenText,
-      translationText,
+      translationText: "",
       replyText,
       derivedFromText: originalText,
       clientId: null,
       recordId: null,
       submitted: false,
       clozeRanges,
-      enabledLayers: { expression: Boolean(rewrittenText), translation: Boolean(translationText), reply: Boolean(replyText) },
+      enabledLayers: { expression: Boolean(rewrittenText), translation: false, reply: Boolean(replyText) },
       images: [],
     });
   }, [contact, dayMessages, onConvertMessageToCard]);
@@ -1650,10 +1653,10 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
         <AutoCopySheet
           visible={isAutoCopyMenuOpen}
           contact={contact}
-          companionMode={companionMode}
+          replyEnabled={replyEnabled}
           onClose={closeAutoCopyMenu}
-          onSelectCompanionMode={(mode) => {
-            setCompanionMode(contactId, mode);
+          onReplyEnabledChange={(enabled) => {
+            setCompanionMode(contactId, enabled ? "native_note_reply" : "native_note");
           }}
         />
       ) : null}

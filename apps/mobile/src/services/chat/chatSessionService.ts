@@ -28,7 +28,7 @@ type StartChatSessionInput = {
   userClientId?: string
   conversationDateKey: string;
   retryCount: number;
-  companionMode?: "rewrite_only" | "native_note" | "simple_reply";
+  companionMode?: "rewrite_only" | "native_note" | "simple_reply" | "native_note_reply";
   systemPrompt?: string;
   conversationId?: string | null;
   onStreamDone?: () => void;
