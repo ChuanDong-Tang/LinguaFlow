@@ -2336,6 +2336,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
           {relation.card?.thumbnail ? <Image source={{ uri: relation.card.thumbnail.url }} resizeMode="cover" style={styles.relationThumbnail} /> : null}
           <View style={styles.relationContent}>
             {isGrowth ? <Text style={styles.growthMomentLabel}>{t("card_detail.growth_moment")}</Text> : null}
+            <Text numberOfLines={1} style={styles.relationCardTitle}>{relation.card?.displayTitle || relation.topic || t("card_detail.another_record")}</Text>
             <Text style={styles.relationDate}>{relation.card ? formatDate(relation.card.dateKey) : t("card_detail.past_record")}</Text>
             <RelationFocusText relation={relation} currentOriginalText={detail.originalText} />
             {visibleReasons.length ? <View style={styles.relationReasons}>{visibleReasons.map((reason, index) => <ReasonBadge key={`${reason.type}:${index}`} reason={reason} />)}</View> : null}
@@ -2559,11 +2560,11 @@ function RelationFocusText({ relation, currentOriginalText }: {
   const text = progress
     ? sentenceContaining(currentOriginalText, progress.currentExpression) || progress.currentExpression
     : phrase?.sentence || relation.card?.rewrittenText || relation.card?.originalText || t("card_detail.another_record");
-  if (!matchedExpression) return <Text numberOfLines={2} style={styles.relationTitle}>{text}</Text>;
+  if (!matchedExpression) return <Text numberOfLines={2} style={styles.relationExcerpt}>{text}</Text>;
   const index = text.toLocaleLowerCase().indexOf(matchedExpression.toLocaleLowerCase());
-  if (index < 0) return <Text numberOfLines={2} style={styles.relationTitle}>{text}</Text>;
+  if (index < 0) return <Text numberOfLines={2} style={styles.relationExcerpt}>{text}</Text>;
   return (
-    <Text numberOfLines={3} style={styles.relationTitle}>
+    <Text numberOfLines={3} style={styles.relationExcerpt}>
       {text.slice(0, index)}
       <Text style={styles.relationMatch}>{text.slice(index, index + matchedExpression.length)}</Text>
       {text.slice(index + matchedExpression.length)}
@@ -3354,7 +3355,9 @@ const styles = StyleSheet.create({
   relationRowGrowth: { marginVertical: 7, paddingHorizontal: 11, borderWidth: 1, borderTopWidth: 1, borderColor: "#C4A044", borderTopColor: "#C4A044", borderRadius: 12, backgroundColor: "#FFFBEC" },
   relationThumbnail: { width: 90, height: 60, flexShrink: 0, borderRadius: 8, backgroundColor: theme.colors.surfaceMuted },
   relationContent: { flex: 1, minWidth: 0 },
+  relationCardTitle: { marginBottom: 3, color: theme.colors.text, fontSize: 15, fontWeight: "700" },
   relationDate: { marginBottom: 5, color: theme.colors.textMuted, fontSize: 11 },
+  relationExcerpt: { flex: 1, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, fontWeight: "400" },
   growthMomentLabel: { marginBottom: 3, color: "#9A7417", fontSize: 12, fontWeight: "700" },
   relationReasons: { marginTop: 8, flexDirection: "row", flexWrap: "wrap", gap: 5 },
   relationCard: { marginTop: 10, padding: 14, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface },

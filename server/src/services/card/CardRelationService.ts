@@ -1,3 +1,5 @@
+import { CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
+import { truncateGraphemes } from "@lf/core/text/grapheme.js";
 import { cardRecordId, parseCardRecordId } from "@lf/core/types/cardRecord.js";
 import type { PrismaCardRelationRepository } from "../../infrastructure/repository/PrismaCardRelationRepository.js";
 import type { CardImageService } from "./CardImageService.js";
@@ -5,6 +7,8 @@ import type { CardImageService } from "./CardImageService.js";
 export interface CardRelationPreview {
   id: string;
   source: "card";
+  title: string | null;
+  displayTitle: string;
   topic: string | null;
   collectionId: string | null;
   dateKey: string;
@@ -24,7 +28,7 @@ export interface CardRelationPreview {
 export class CardRelationService {
   constructor(
     private readonly repository: PrismaCardRelationRepository,
-    private readonly options: { modelVersion: string | null; minTopicSimilarity: number },
+    private readonly options: { modelVersion: string | null; minTopicSimilarity: number; topicMaxChars?: number },
     private readonly imageService?: CardImageService,
   ) {}
 
@@ -212,6 +216,8 @@ export class CardRelationService {
       return [preview.recordId, {
         id: preview.recordId,
         source: preview.source,
+        title: preview.title,
+        displayTitle: relationDisplayTitle(preview, this.options.topicMaxChars),
         topic: preview.topic,
         collectionId: preview.collectionId,
         dateKey: preview.dateKey,
@@ -237,4 +243,22 @@ function randomItem<T>(items: T[]): T | undefined {
 function phraseLearningWeight(phrase: string): number {
   const words = phrase.trim().split(/\s+/u).filter(Boolean).length;
   return words * 1_000 + Array.from(phrase.trim()).length;
+}
+
+function relationDisplayTitle(
+  preview: Pick<CardRelationPreview, "title" | "topic" | "originalText" | "rewrittenText">,
+  requestedMaxChars?: number,
+): string {
+  const title = preview.title?.trim();
+  if (title) return title;
+  const maxChars = Number.isFinite(requestedMaxChars)
+    ? Math.max(1, Math.floor(requestedMaxChars!))
+    : CARD_TOPIC_MAX_CHARS;
+  const topic = preview.topic?.trim();
+  if (topic) return truncateGraphemes(topic, maxChars);
+  const firstLine = (preview.originalText || preview.rewrittenText)
+    .split(/\n/u)
+    .map((line) => line.trim())
+    .find(Boolean) ?? "";
+  return truncateGraphemes(firstLine, maxChars);
 }

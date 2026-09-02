@@ -46,6 +46,7 @@ export interface PhraseOccurrenceHistoryRow {
 export interface CardRelationPreviewRow {
   recordId: string;
   source: "card";
+  title: string | null;
   topic: string | null;
   collectionId: string | null;
   dateKey: string;
@@ -77,6 +78,7 @@ export class PrismaCardRelationRepository {
     const rows: CardRelationPreviewRow[] = cards.map((card) => ({
       recordId: `card:${card.id}`,
       source: "card",
+      title: card.title,
       topic: card.topic,
       collectionId: card.collectionId,
       dateKey: card.dateKey,

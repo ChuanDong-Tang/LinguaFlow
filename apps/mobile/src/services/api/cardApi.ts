@@ -443,6 +443,8 @@ export type CardRelationReason =
 export type CardRelationPreview = {
   id: string;
   source: "card";
+  title: string | null;
+  displayTitle: string;
   topic: string | null;
   collectionId: string | null;
   dateKey: string;
