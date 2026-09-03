@@ -151,44 +151,48 @@ model UserAvatarAsset {
 }
 
 model Card {
-  id                       String    @id @default(cuid())
-  userId                   String
-  dateKey                  String
-  title                    String?
-  originalText             String?
-  originalContentHash      String?
-  rewrittenText            String?
-  rewrittenLanguageCode    String?
-  rewrittenSourceHash      String?
-  translationText          String?
-  translationLanguageCode  String?
-  translationSourceHash    String?
-  auxiliarySegments        Json?
-  auxiliaryLanguageCode    String?
-  auxiliarySourceHash      String?
-  replyText                String?
-  replyLanguageCode        String?
-  replySourceHash          String?
-  languageCode             String
-  appLocaleSnapshot        String
-  promptDifficultySnapshot String
-  promptVersion            String
-  status                   String    @default("queued")
-  clientId                 String
-  inputChars               Int       @default(0)
-  outputChars              Int       @default(0)
-  isSample                 Boolean   @default(false)
-  topic                    String?
-  topicEditedAt            DateTime?
-  collectionId             String?
-  publishedAt              DateTime?
-  processingAt             DateTime?
-  leaseExpiresAt           DateTime?
-  workerId                 String?
-  failedAt                 DateTime?
-  deletedAt                DateTime?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
+  id                                String    @id @default(cuid())
+  userId                            String
+  dateKey                           String
+  title                             String?
+  originalText                      String?
+  originalContentHash               String?
+  rewrittenText                     String?
+  rewrittenLanguageCode             String?
+  rewrittenSourceHash               String?
+  translationText                   String?
+  translationLanguageCode           String?
+  translationSourceHash             String?
+  auxiliarySegments                 Json?
+  auxiliaryLanguageCode             String?
+  auxiliarySourceHash               String?
+  phraseRecommendations             Json?
+  phraseRecommendationSeenAt        DateTime?
+  phraseRecommendationExhaustedAt   DateTime?
+  phraseRecommendationPromptVersion String?
+  replyText                         String?
+  replyLanguageCode                 String?
+  replySourceHash                   String?
+  languageCode                      String
+  appLocaleSnapshot                 String
+  promptDifficultySnapshot          String
+  promptVersion                     String
+  status                            String    @default("queued")
+  clientId                          String
+  inputChars                        Int       @default(0)
+  outputChars                       Int       @default(0)
+  isSample                          Boolean   @default(false)
+  topic                             String?
+  topicEditedAt                     DateTime?
+  collectionId                      String?
+  publishedAt                       DateTime?
+  processingAt                      DateTime?
+  leaseExpiresAt                    DateTime?
+  workerId                          String?
+  failedAt                          DateTime?
+  deletedAt                         DateTime?
+  createdAt                         DateTime  @default(now())
+  updatedAt                         DateTime  @updatedAt
 
   user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   collection            CardCollection?            @relation(fields: [collectionId], references: [id], onDelete: SetNull)

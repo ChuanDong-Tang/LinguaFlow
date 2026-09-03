@@ -43,6 +43,25 @@ export interface CardContentBlockView {
   practice: CardPracticeView | null;
 }
 
+export interface CardPhraseRecommendationItemView {
+  id: string;
+  contentVersion: string;
+  segmentId: string;
+  ordinal: number;
+  startUtf16: number;
+  endUtf16: number;
+  text: string;
+  meaning: string;
+  distractors: string[];
+  createdAt: string;
+}
+
+export interface CardPhraseRecommendationView {
+  seen: boolean;
+  exhausted: boolean;
+  items: Array<CardPhraseRecommendationItemView & { remembered: boolean }>;
+}
+
 export interface CardImageThumbnailView {
   id: string;
   url: string;
@@ -100,6 +119,8 @@ export interface CardRecordDetailView extends CardRecordSummaryView {
   auxiliaryLanguageCode: string | null;
   replyText: string | null;
   replyLanguageCode: string | null;
+  /** Available for completed, non-sample Cards with finalized learning content. */
+  phraseRecommendation: CardPhraseRecommendationView | null;
   rewriteSegments: CardRewriteSegmentView[];
   contentBlocks: CardContentBlockView[];
   images: CardImageDetailView[];

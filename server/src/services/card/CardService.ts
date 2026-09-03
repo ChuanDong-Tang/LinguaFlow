@@ -24,6 +24,8 @@ import type {
   UpdateCardContentInput,
   SaveCardContentInput,
   CardTaskStatusView,
+  CardPhraseRecommendationItemView,
+  CardPhraseRecommendationView,
 } from "@lf/core/types/cardRecord.js";
 import { cardRecordId, parseCardRecordId } from "@lf/core/types/cardRecord.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
@@ -50,6 +52,11 @@ import {
   defaultCardInspirationQuestions,
   parseCardInspirationOutput,
 } from "@lf/core/Prompts/cardInspirationPrompt.js";
+import {
+  buildCardPhraseRecommendationPrompt,
+  CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION,
+  parseCardPhraseRecommendationOutput,
+} from "@lf/core/Prompts/cardPhraseRecommendationPrompt.js";
 
 const PREVIEW_GRAPHEMES = 240;
 const FOREGROUND_LLM_RETRY_DELAYS_MS = [750, 1_500, 3_000] as const;
@@ -168,6 +175,126 @@ export class CardService {
       console.warn("[card] inspiration generation fell back to starter questions", error);
       return { questions: fallback, source: "starter", expiresInSeconds: 3_600 };
     }
+  }
+
+  async generatePhraseRecommendation(input: {
+    userId: string;
+    requestId: string;
+    recordId: string;
+  }): Promise<CardRecordDetailView> {
+    if (!this.aiProvider) throw new CardValidationError("Card recommendation is unavailable");
+    const parsed = parseCardRecordId(input.recordId);
+    if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
+    let current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
+    if (!current || current.status !== "completed" || current.isSample) throw new CardNotFoundError();
+    current = await this.repository.markPhraseRecommendationSeen(current.id, input.userId) ?? current;
+    if (current.phraseRecommendationExhaustedAt) return this.detail(input.userId, input.recordId);
+    if (!current.rewrittenText) throw new CardValidationError("A finalized expression is required");
+    const segments = current.contentSegments
+      .filter((segment) => segment.contentType === "rewrite")
+      .sort((left, right) => left.ordinal - right.ordinal);
+    if (!segments.length) throw new CardValidationError("Finalized expression segments are unavailable");
+    const contentVersion = segments[0]!.contentVersion;
+    if (segments.some((segment) => segment.contentVersion !== contentVersion)) {
+      throw new CardContentConflictError("The Card expression changed while preparing a recommendation");
+    }
+    const [recommendedPhrases, contentPracticeState, legacyPracticeState] = await Promise.all([
+      this.repository.listRecentPhraseRecommendationTexts(input.userId, 100),
+      this.repository.findContentPracticeState(input.userId, current.id, "rewrite"),
+      this.repository.findPracticeState(input.userId, current.id),
+    ]);
+    const existingClozeRanges = recommendationClozeRanges({
+      segments,
+      legacySegments: current.segments,
+      contentState: contentPracticeState?.contentVersion === contentVersion ? contentPracticeState.clozeState : null,
+      legacyState: legacyPracticeState?.clozeState,
+    });
+    const excludedPhrases = [...new Set([
+      ...existingClozeRanges.map((range) => range.text),
+      ...recommendedPhrases,
+    ])];
+    const prompt = buildCardPhraseRecommendationPrompt({
+      segments: segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text })),
+      languageCode: current.rewrittenLanguageCode ?? current.languageCode,
+      appLocale: current.appLocaleSnapshot,
+      difficulty: current.promptDifficultySnapshot,
+      excludedPhrases,
+    });
+    let output = "";
+    await this.executeForegroundLlm(input.userId, input.requestId, "card.phrase_recommendation", () => this.aiProvider!.generateChatTextStream({
+      userId: input.userId,
+      text: prompt.userPrompt,
+      languageCode: current!.rewrittenLanguageCode ?? current!.languageCode,
+      appLocale: current!.appLocaleSnapshot,
+      promptDifficulty: current!.promptDifficultySnapshot,
+      companionMode: "platform_inspiration",
+      systemPrompt: prompt.systemPrompt,
+      rawUserPrompt: true,
+      maxOutputTokens: 240,
+    }, (event) => {
+      if (event.type === "delta") output += event.text;
+    }));
+    const selected = parseCardPhraseRecommendationOutput(output);
+    let recommendation: CardPhraseRecommendationItemView | null = null;
+    if (selected) {
+      const segment = segments.find((candidate) => candidate.ordinal === selected.ordinal);
+      const startUtf16 = segment?.text.indexOf(selected.phrase) ?? -1;
+      const selectedKey = normalizePhraseSurface(selected.phrase, current.rewrittenLanguageCode ?? current.languageCode);
+      const excludedKeys = new Set(excludedPhrases.map((phrase) => normalizePhraseSurface(phrase, current!.rewrittenLanguageCode ?? current!.languageCode)));
+      if (!segment || startUtf16 < 0 || selected.phrase === segment.text.trim() || !selectedKey || excludedKeys.has(selectedKey)) {
+        throw new Error("CARD_PHRASE_RECOMMENDATION_SOURCE_MISMATCH");
+      }
+      const endUtf16 = startUtf16 + selected.phrase.length;
+      if (!isUtf16GraphemeBoundary(segment.text, startUtf16) || !isUtf16GraphemeBoundary(segment.text, endUtf16)) {
+        throw new Error("CARD_PHRASE_RECOMMENDATION_SOURCE_MISMATCH");
+      }
+      const [latestContentPracticeState, latestLegacyPracticeState] = await Promise.all([
+        this.repository.findContentPracticeState(input.userId, current.id, "rewrite"),
+        this.repository.findPracticeState(input.userId, current.id),
+      ]);
+      const latestClozeRanges = recommendationClozeRanges({
+        segments,
+        legacySegments: current.segments,
+        contentState: latestContentPracticeState?.contentVersion === contentVersion ? latestContentPracticeState.clozeState : null,
+        legacyState: latestLegacyPracticeState?.clozeState,
+      });
+      if (latestClozeRanges.some((range) =>
+        range.segmentId === segment.id
+        && startUtf16 < range.endUtf16
+        && endUtf16 > range.startUtf16,
+      )) {
+        throw new Error("CARD_PHRASE_RECOMMENDATION_ALREADY_CLOZED");
+      }
+      const moderatedText = `${selected.phrase}\n${selected.meaning}\n${selected.distractors.join("\n")}`;
+      this.contentSafetyService?.assertAllowed(moderatedText, "output");
+      await this.contentSafetyService?.assertAllowedRemote({
+        text: moderatedText,
+        stage: "output",
+        requestId: input.requestId,
+        userId: input.userId,
+      });
+      recommendation = {
+        id: randomUUID(),
+        contentVersion,
+        segmentId: segment.id,
+        ordinal: segment.ordinal,
+        startUtf16,
+        endUtf16,
+        text: selected.phrase,
+        meaning: selected.meaning,
+        distractors: selected.distractors,
+        createdAt: new Date().toISOString(),
+      };
+    }
+    const saved = await this.repository.appendPhraseRecommendation({
+      entryId: current.id,
+      userId: input.userId,
+      expectedRewrittenText: current.rewrittenText,
+      recommendation,
+      promptVersion: CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION,
+    });
+    if (!saved) throw new CardContentConflictError("The Card expression changed while generating a recommendation");
+    return this.detail(input.userId, input.recordId);
   }
 
   async bootstrap(userId: string): Promise<CardRecordSummaryView[]> {
@@ -932,6 +1059,7 @@ export class CardService {
       auxiliaryLanguageCode: entry.auxiliaryLanguageCode,
       replyText: entry.replyText,
       replyLanguageCode: entry.replyLanguageCode,
+      phraseRecommendation: toPhraseRecommendationView(entry, contentBlocks),
       rewriteSegments: entry.segments.map((segment) => ({
         id: segment.id,
         ordinal: segment.ordinal,
@@ -1602,6 +1730,110 @@ function toPracticeView(
     clozeVersion: state.clozeVersion,
     clozeLastResult: state.clozeLastResult,
     dictationLastResult: state.dictationLastResult,
+  };
+}
+
+function toPhraseRecommendationView(
+  entry: CardEntryEntity,
+  contentBlocks: CardRecordDetailView["contentBlocks"],
+): CardPhraseRecommendationView | null {
+  if (
+    entry.isSample
+    || entry.status !== "completed"
+    || !entry.rewrittenText
+    || !contentBlocks.some((block) => block.contentType === "rewrite")
+  ) return null;
+  const items = normalizePhraseRecommendations(entry.phraseRecommendations).map((item) => {
+    const rewritePractice = contentBlocks.find((block) => block.contentType === "rewrite" && block.contentVersion === item.contentVersion)?.practice;
+    const remembered = normalizeClozeState(rewritePractice?.clozeState).blanks.some((blank) =>
+      blank.segmentId === item.segmentId
+      && blank.startUtf16 === item.startUtf16
+      && blank.endUtf16 === item.endUtf16,
+    );
+    return { ...item, remembered };
+  });
+  return {
+    seen: Boolean(entry.phraseRecommendationSeenAt),
+    exhausted: Boolean(entry.phraseRecommendationExhaustedAt),
+    items,
+  };
+}
+
+function recommendationClozeRanges(input: {
+  segments: CardEntryEntity["contentSegments"];
+  legacySegments: CardEntryEntity["segments"];
+  contentState: unknown;
+  legacyState: unknown;
+}): Array<{ segmentId: string; startUtf16: number; endUtf16: number; text: string }> {
+  const ranges: Array<{ segmentId: string; startUtf16: number; endUtf16: number; text: string }> = [];
+  for (const blank of normalizeClozeState(input.contentState).blanks) {
+    const segment = input.segments.find((candidate) => candidate.id === blank.segmentId);
+    if (!segment || blank.startUtf16 < 0 || blank.endUtf16 > segment.text.length || blank.startUtf16 >= blank.endUtf16) continue;
+    ranges.push({
+      segmentId: segment.id,
+      startUtf16: blank.startUtf16,
+      endUtf16: blank.endUtf16,
+      text: segment.text.slice(blank.startUtf16, blank.endUtf16),
+    });
+  }
+  for (const blank of normalizeClozeState(input.legacyState).blanks) {
+    const legacySegment = input.legacySegments.find((candidate) => candidate.id === blank.segmentId);
+    const segment = legacySegment
+      ? input.segments.find((candidate) => candidate.ordinal === legacySegment.ordinal && candidate.text === legacySegment.text)
+      : null;
+    if (!segment || blank.startUtf16 < 0 || blank.endUtf16 > segment.text.length || blank.startUtf16 >= blank.endUtf16) continue;
+    ranges.push({
+      segmentId: segment.id,
+      startUtf16: blank.startUtf16,
+      endUtf16: blank.endUtf16,
+      text: segment.text.slice(blank.startUtf16, blank.endUtf16),
+    });
+  }
+  return ranges.filter((range, index) => range.text.trim() && ranges.findIndex((candidate) =>
+    candidate.segmentId === range.segmentId
+    && candidate.startUtf16 === range.startUtf16
+    && candidate.endUtf16 === range.endUtf16,
+  ) === index);
+}
+
+function normalizePhraseRecommendations(value: unknown): CardPhraseRecommendationItemView[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    const item = normalizePhraseRecommendation(candidate);
+    return item ? [item] : [];
+  });
+}
+
+function normalizePhraseRecommendation(value: unknown): CardPhraseRecommendationItemView | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.id !== "string" || !row.id
+    || typeof row.contentVersion !== "string" || !row.contentVersion
+    || typeof row.segmentId !== "string" || !row.segmentId
+    || !Number.isInteger(row.ordinal)
+    || !Number.isInteger(row.startUtf16)
+    || !Number.isInteger(row.endUtf16)
+    || Number(row.startUtf16) < 0
+    || Number(row.endUtf16) <= Number(row.startUtf16)
+    || typeof row.text !== "string" || !row.text.trim()
+    || typeof row.meaning !== "string" || !row.meaning.trim()
+    || typeof row.createdAt !== "string" || !row.createdAt
+  ) return null;
+  const distractors = Array.isArray(row.distractors)
+    ? row.distractors.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).slice(0, 2)
+    : [];
+  return {
+    id: row.id,
+    contentVersion: row.contentVersion,
+    segmentId: row.segmentId,
+    ordinal: Number(row.ordinal),
+    startUtf16: Number(row.startUtf16),
+    endUtf16: Number(row.endUtf16),
+    text: row.text.trim(),
+    meaning: row.meaning.trim(),
+    distractors,
+    createdAt: row.createdAt,
   };
 }
 

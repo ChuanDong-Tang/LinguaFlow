@@ -63,6 +63,23 @@ export type CardRecordDetail = CardRecordSummary & {
   auxiliaryLanguageCode?: string | null;
   replyText: string | null;
   replyLanguageCode: string | null;
+  phraseRecommendation?: {
+    seen: boolean;
+    exhausted: boolean;
+    items: Array<{
+      id: string;
+      contentVersion: string;
+      segmentId: string;
+      ordinal: number;
+      startUtf16: number;
+      endUtf16: number;
+      text: string;
+      meaning: string;
+      distractors: string[];
+      createdAt: string;
+      remembered: boolean;
+    }>;
+  } | null;
   rewriteSegments: Array<{
     id: string;
     ordinal: number;
@@ -184,6 +201,14 @@ export async function createCardEntry(input: {
 
 export async function getCardInspirations(appLocale: string): Promise<CardInspirations> {
   return request<CardInspirations>(`/cards/inspirations?appLocale=${encodeURIComponent(appLocale)}`);
+}
+
+export async function generateCardPhraseRecommendation(recordId: string): Promise<CardRecordDetail> {
+  const cardId = requireCardId(recordId);
+  return request(`/cards/${encodeURIComponent(cardId)}/phrase-recommendations`, {
+    method: "POST",
+    body: "{}",
+  });
 }
 
 export async function updateCardContent(

@@ -65,7 +65,13 @@ import { hasLocalStrictProAccess } from "../services/entitlement/proAccess";
 import { copyTextToClipboard } from "../services/device/clipboardService";
 import { useFloatingNotice } from "./shared/FloatingNotice";
 import type { CardGenerationTarget } from "../services/card/cardContentGeneration";
-import { completeClozeOnboarding, shouldShowClozeOnboarding } from "../services/card/clozeOnboarding";
+import {
+  completeClozeOnboarding,
+  completeRecommendationPractice,
+  shouldShowClozeOnboarding,
+  shouldStartRecommendationPractice,
+} from "../services/card/clozeOnboarding";
+import OioCharacter from "../../assets/app/oio-character.svg";
 
 type DetailTab = "review" | "cloze" | "dictation";
 type ClozeInputMode = "keyboard" | "choice";
@@ -80,7 +86,17 @@ type ClozeChoiceOption = { value: string; incorrect: boolean };
 type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; height: number };
 type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
 type ClozeOnboardingTarget = { x: number; y: number; width: number; height: number };
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+
+function shuffleRecommendationOptions(values: string[]): string[] {
+  const shuffled = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex]!, shuffled[index]!];
+  }
+  return shuffled;
+}
+
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -126,6 +142,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   failedGenerationTargets?: CardGenerationTarget[];
   retryingGenerationTarget?: CardGenerationTarget | null;
   onRetryGeneration?: (target: CardGenerationTarget) => void;
+  onGeneratePhraseRecommendation?: () => Promise<CardRecordDetail>;
   recallPosition?: { index: number; total: number };
   recallPreviousDetail?: CardRecordDetail | null;
   recallNextDetail?: CardRecordDetail | null;
@@ -261,19 +278,6 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   useEffect(() => {
     if (hasProAccess === false && tab === "dictation") setTab("review");
   }, [hasProAccess, tab]);
-  useEffect(() => {
-    if (
-      !detail
-      || activeBlock?.contentType !== "rewrite"
-      || pendingGenerationTargets.length > 0
-      || failedGenerationTargets.length > 0
-    ) return;
-    let active = true;
-    void shouldShowClozeOnboarding(detail.id)
-      .then((shouldShow) => { if (active && shouldShow) setClozeTipEligible(true); })
-      .catch(() => undefined);
-    return () => { active = false; };
-  }, [activeBlock?.contentType, detail?.id, failedGenerationTargets, pendingGenerationTargets]);
   useEffect(() => {
     if (!detail || enteredRef.current) return;
     enteredRef.current = true;
@@ -464,7 +468,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         </View>
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
@@ -1720,7 +1724,7 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
@@ -1739,6 +1743,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   failedGenerationTargets?: CardGenerationTarget[];
   retryingGenerationTarget?: CardGenerationTarget | null;
   onRetryGeneration?: (target: CardGenerationTarget) => void;
+  onGeneratePhraseRecommendation?: () => Promise<CardRecordDetail>;
   onRecallFinish?: () => void;
   onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
   onPendingClozeCheckHandlerChange?: (handler: PendingClozeCheckHandler | null) => void;
@@ -1759,6 +1764,17 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   );
   const blankCount = clozeState.blanks.length;
   const [savingCloze, setSavingCloze] = useState(false);
+  const [recommendationTaskVisible, setRecommendationTaskVisible] = useState(false);
+  const [recommendationLoading, setRecommendationLoading] = useState(false);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [recommendationOverride, setRecommendationOverride] = useState<CardRecordDetail["phraseRecommendation"] | undefined>(undefined);
+  const [recommendationTaskItem, setRecommendationTaskItem] = useState<NonNullable<NonNullable<CardRecordDetail["phraseRecommendation"]>["items"]>[number] | null>(null);
+  const [recommendationStage, setRecommendationStage] = useState<"recommendation" | "practice">("recommendation");
+  const [recommendationPracticeOptions, setRecommendationPracticeOptions] = useState<string[]>([]);
+  const [recommendationWrongOptions, setRecommendationWrongOptions] = useState<string[]>([]);
+  const recommendationReveal = useRef(new Animated.Value(0)).current;
+  const recommendationSearching = useRef(new Animated.Value(0)).current;
+  const recommendationCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [clozeMode, setClozeMode] = useState<ClozeInteractionMode>(() => initialClozeInteractionMode(autoStartClozePractice, blankCount));
   const fillMode = clozeMode !== "edit";
   const clozeInputMode: ClozeInputMode = clozeMode === "choice" ? "choice" : "keyboard";
@@ -1801,6 +1817,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const articlePlaybackLoading = articleAudioLoading || (articlePlaybackActive && playback.status === "loading");
   const articlePlaying = articlePlaybackActive && playback.status === "playing";
   const hasBlanks = clozeState.blanks.length > 0;
+  const phraseRecommendation = recommendationOverride ?? detail.phraseRecommendation;
   const articleRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, true), [detail, clozeState]);
   const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
   const expressionPending = pendingGenerationTargets.includes("expression");
@@ -1882,11 +1899,40 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const lockForTextSelection = useCallback(() => setTextSelectionActive(true), []);
   const unlockTextSelection = useCallback(() => setTextSelectionActive(false), []);
   useEffect(() => {
-    onInteractionLockChange?.(savingCloze || Boolean(dictionary) || Boolean(blankAction) || textSelectionActive);
-  }, [blankAction, dictionary, onInteractionLockChange, savingCloze, textSelectionActive]);
+    onInteractionLockChange?.(savingCloze || recommendationTaskVisible || Boolean(dictionary) || Boolean(blankAction) || textSelectionActive);
+  }, [blankAction, dictionary, onInteractionLockChange, recommendationTaskVisible, savingCloze, textSelectionActive]);
   useEffect(() => () => {
     onInteractionLockChange?.(false);
   }, [onInteractionLockChange]);
+  useEffect(() => {
+    setRecommendationOverride(undefined);
+    setRecommendationTaskVisible(false);
+    setRecommendationTaskItem(null);
+    setRecommendationError(null);
+    setRecommendationStage("recommendation");
+    setRecommendationPracticeOptions([]);
+    setRecommendationWrongOptions([]);
+  }, [detail.id]);
+  useEffect(() => () => {
+    if (recommendationCloseTimerRef.current) clearTimeout(recommendationCloseTimerRef.current);
+  }, []);
+  useEffect(() => {
+    if (!recommendationLoading) {
+      recommendationSearching.stopAnimation();
+      recommendationSearching.setValue(0);
+      return;
+    }
+    const motion = Animated.loop(Animated.sequence([
+      Animated.timing(recommendationSearching, { toValue: 1, duration: 520, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(recommendationSearching, { toValue: -1, duration: 780, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(recommendationSearching, { toValue: 0, duration: 520, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ]));
+    motion.start();
+    return () => motion.stop();
+  }, [recommendationLoading, recommendationSearching]);
+  useEffect(() => {
+    if (detail.phraseRecommendation !== undefined) setRecommendationOverride(detail.phraseRecommendation);
+  }, [detail.phraseRecommendation]);
   const updateChoiceTrayOptions = useCallback((next: ClozeChoiceOption[]) => {
     setChoiceTrayOptions((current) => {
       if (current.length === next.length && current.every((option, index) => option.value === next[index]?.value && option.incorrect === next[index]?.incorrect)) {
@@ -2044,6 +2090,127 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     } finally {
       setSavingCloze(false);
     }
+  }
+
+  function revealRecommendation(): void {
+    recommendationReveal.setValue(0);
+    Animated.spring(recommendationReveal, {
+      toValue: 1,
+      friction: 6,
+      tension: 115,
+      useNativeDriver: true,
+    }).start();
+  }
+
+  function openPhraseRecommendation(): void {
+    const pending = [...(phraseRecommendation?.items ?? [])].reverse().find((item) => !item.remembered);
+    if (pending) {
+      setRecommendationTaskItem(pending);
+      setRecommendationError(null);
+      setRecommendationStage("recommendation");
+      setRecommendationTaskVisible(true);
+      requestAnimationFrame(revealRecommendation);
+      return;
+    }
+    void requestPhraseRecommendation();
+  }
+
+  async function requestPhraseRecommendation(): Promise<void> {
+    if (!onGeneratePhraseRecommendation || recommendationLoading || phraseRecommendation?.exhausted) return;
+    setRecommendationTaskVisible(true);
+    setRecommendationLoading(true);
+    setRecommendationError(null);
+    setRecommendationStage("recommendation");
+    setRecommendationTaskItem(null);
+    const previousIds = new Set(phraseRecommendation?.items.map((item) => item.id) ?? []);
+    setRecommendationOverride((current) => current ? { ...current, seen: true } : current);
+    try {
+      const updated = await onGeneratePhraseRecommendation();
+      const next = updated.phraseRecommendation;
+      setRecommendationOverride(next);
+      const generated = [...(next?.items ?? [])].reverse().find((item) => !previousIds.has(item.id)) ?? null;
+      setRecommendationTaskItem(generated);
+      if (generated) requestAnimationFrame(revealRecommendation);
+      if (!generated && !next?.exhausted) setRecommendationError(t("card_detail.recommendation.failed"));
+    } catch (error) {
+      setRecommendationError(error instanceof Error ? error.message : t("card_detail.recommendation.failed"));
+    } finally {
+      setRecommendationLoading(false);
+    }
+  }
+
+  async function rememberRecommendation(): Promise<void> {
+    const item = recommendationTaskItem;
+    if (!item || savingCloze) return;
+    const existing = clozeState.blanks.find((blank) =>
+      blank.segmentId === item.segmentId
+      && blank.startUtf16 === item.startUtf16
+      && blank.endUtf16 === item.endUtf16,
+    );
+    if (existing) {
+      setRecommendationTaskVisible(false);
+      return;
+    }
+    setSavingCloze(true);
+    try {
+      const startPractice = await shouldStartRecommendationPractice().catch(() => false);
+      const practice = await saveCardClozeUpdate(detail.id, {
+        contentType: "rewrite",
+        contentVersion: item.contentVersion,
+        baseVersion: clozeVersion,
+        operation: {
+          type: "add",
+          segmentId: item.segmentId,
+          startUtf16: item.startUtf16,
+          endUtf16: item.endUtf16,
+        },
+      });
+      onClozeChange(asCardClozeState(practice.clozeState), practice.clozeVersion);
+      setRecommendationOverride((current) => current ? {
+        ...current,
+        items: current.items.map((candidate) => candidate.id === item.id ? { ...candidate, remembered: true } : candidate),
+      } : current);
+      setRecommendationTaskItem({ ...item, remembered: true });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+      if (startPractice && item.distractors.length >= 2) {
+        setRecommendationPracticeOptions(shuffleRecommendationOptions([item.text, ...item.distractors.slice(0, 2)]));
+        setRecommendationWrongOptions([]);
+        setRecommendationStage("practice");
+      } else {
+        setRecommendationTaskVisible(false);
+      }
+    } catch (error) {
+      if (error instanceof CardApiError && error.code === "CARD_PRACTICE_CONFLICT") {
+        showNotice({ message: t("card_detail.cloze.save_failed"), type: "info", position: "top-center" });
+      } else {
+        showNotice({ message: error instanceof Error ? error.message : t("card_detail.cloze.save_failed"), type: "error", position: "top-center" });
+      }
+    } finally {
+      setSavingCloze(false);
+    }
+  }
+
+  function answerRecommendationPractice(option: string): void {
+    const item = recommendationTaskItem;
+    if (!item || recommendationStage !== "practice" || recommendationWrongOptions.includes(option)) return;
+    if (option !== item.text) {
+      setRecommendationWrongOptions((current) => [...current, option]);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => undefined);
+      void playIncorrectFeedbackSound().catch(() => undefined);
+      return;
+    }
+    void completeRecommendationPractice().catch(() => undefined);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    void playSuccessFeedbackSound().catch(() => undefined);
+    recommendationCloseTimerRef.current = setTimeout(() => {
+      setRecommendationTaskVisible(false);
+      recommendationCloseTimerRef.current = null;
+    }, 260);
+  }
+
+  function skipRecommendationPractice(): void {
+    void completeRecommendationPractice().catch(() => undefined);
+    setRecommendationTaskVisible(false);
   }
 
   function prepareReplyAudio(index: number, options: { waitForDownload?: boolean } = {}): Promise<string> {
@@ -2377,6 +2544,15 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       })}
     </View>
   ) : null;
+  const recommendationSegment = recommendationTaskItem
+    ? detail.contentBlocks.find((block) => block.contentType === "rewrite" && block.contentVersion === recommendationTaskItem.contentVersion)
+      ?.segments.find((segment) => segment.id === recommendationTaskItem.segmentId)
+    : null;
+  const recommendationContext = recommendationTaskItem && recommendationSegment ? {
+    before: recommendationSegment.text.slice(0, recommendationTaskItem.startUtf16),
+    selected: recommendationSegment.text.slice(recommendationTaskItem.startUtf16, recommendationTaskItem.endUtf16),
+    after: recommendationSegment.text.slice(recommendationTaskItem.endUtf16),
+  } : null;
 
   return (
     <View style={styles.reviewPage}>
@@ -2445,6 +2621,17 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
         <Text numberOfLines={2} style={[styles.clozeChoiceOptionText, option.incorrect && styles.clozeChoiceOptionTextIncorrect]}>{option.value}</Text>
       </Pressable>)}
     </View> : null}
+    {phraseRecommendation && !phraseRecommendation.exhausted ? <Pressable
+      accessibilityLabel={t("card_detail.recommendation.button")}
+      disabled={!frontLearningReady || recommendationLoading || !onGeneratePhraseRecommendation}
+      style={[styles.recommendationButton, (!frontLearningReady || recommendationLoading || !onGeneratePhraseRecommendation) && styles.recommendationButtonDisabled]}
+      onPress={openPhraseRecommendation}
+    >
+      <View style={styles.recommendationButtonIcon}><Ionicons name="sparkles" size={15} color="#52796C" /></View>
+      <Text style={styles.recommendationButtonText}>{t("card_detail.recommendation.button")}</Text>
+      <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
+      {!phraseRecommendation.seen ? <View style={styles.recommendationUnreadDot} /> : null}
+    </Pressable> : null}
     <View ref={actionBarRef} style={styles.detailActionBar}>
       <DetailActionButton label={t("card_detail.flip")} icon="swap-horizontal-outline" active={cardFace === "back"} onPress={flipCard} />
       <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={cardFace !== "front" || !practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} />
@@ -2453,6 +2640,48 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || blankCount < 2 || !frontLearningReady} onPress={() => toggleClozeMode("choice")} />
       <DetailActionButton label={t("card_detail.a11y.play_all")} icon={articlePlaying ? "pause" : "play"} loading={frontLearningReady ? articlePlaybackLoading : false} disabled={cardFace !== "front" || detail.source !== "card" || !frontLearningReady} onPress={() => articlePlaybackActive ? toggleTtsPlayback() : void playArticle()} />
     </View>
+    <Modal visible={recommendationTaskVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
+      <Pressable style={styles.recommendationBackdrop} onPress={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
+        <Pressable style={styles.recommendationSheet} onPress={() => undefined}>
+          <View style={styles.recommendationSheetHeader}>
+            <View style={styles.recommendationSheetMark}><OioCharacter width={31} height={30} /></View>
+            <Text style={styles.recommendationSheetTitle}>{recommendationStage === "practice" ? t("card_detail.recommendation.practice_title") : t("card_detail.recommendation.title")}</Text>
+            <Pressable accessibilityLabel={t("card_detail.recommendation.close")} disabled={recommendationLoading || savingCloze} hitSlop={8} style={styles.recommendationClose} onPress={() => setRecommendationTaskVisible(false)}><Ionicons name="close" size={21} color={theme.colors.textSecondary} /></Pressable>
+          </View>
+          {recommendationLoading ? <View style={styles.recommendationLoading}>
+            <Animated.View style={[styles.recommendationLoadingCharacter, { transform: [{ translateY: recommendationSearching.interpolate({ inputRange: [-1, 1], outputRange: [3, -3] }) }, { rotate: recommendationSearching.interpolate({ inputRange: [-1, 1], outputRange: ["-5deg", "5deg"] }) }] }]}><OioCharacter width={58} height={56} /></Animated.View>
+            <Text style={styles.recommendationLoadingText}>{t("card_detail.recommendation.generating")}</Text>
+          </View> : recommendationTaskItem && recommendationContext && recommendationStage === "practice" ? <View style={styles.recommendationPractice}>
+            <Text style={styles.recommendationPracticeHint}>{t("card_detail.recommendation.practice_hint")}</Text>
+            <Text style={styles.recommendationPracticeSentence}>{recommendationContext.before}<Text style={styles.recommendationPracticeBlank}> ______ </Text>{recommendationContext.after}</Text>
+            <View style={styles.recommendationPracticeOptions}>{recommendationPracticeOptions.map((option) => {
+              const wrong = recommendationWrongOptions.includes(option);
+              return <Pressable key={option} disabled={wrong} style={[styles.recommendationPracticeOption, wrong && styles.recommendationPracticeOptionWrong]} onPress={() => answerRecommendationPractice(option)}>
+                <Text style={[styles.recommendationPracticeOptionText, wrong && styles.recommendationPracticeOptionTextWrong]}>{option}</Text>
+              </Pressable>;
+            })}</View>
+            <Pressable style={styles.recommendationPracticeSkip} onPress={skipRecommendationPractice}><Text style={styles.recommendationPracticeSkipText}>{t("card_detail.recommendation.practice_skip")}</Text></Pressable>
+          </View> : recommendationTaskItem && recommendationContext ? <Animated.View style={{ opacity: recommendationReveal, transform: [{ scale: recommendationReveal.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
+            <Text style={styles.recommendationFound}>{t("card_detail.recommendation.found")}</Text>
+            <View style={styles.recommendationRewardCard}>
+              <Text style={styles.recommendationPhrase}>{recommendationTaskItem.text}</Text>
+              <Text style={styles.recommendationMeaning}>{recommendationTaskItem.meaning}</Text>
+              <Text style={styles.recommendationSentence}>{recommendationContext.before}<Text style={styles.recommendationSentenceHighlight}>{recommendationContext.selected}</Text>{recommendationContext.after}</Text>
+            </View>
+            <View style={styles.recommendationSheetActions}>
+              <Pressable disabled={savingCloze} style={styles.recommendationSecondaryAction} onPress={() => void requestPhraseRecommendation()}><Text style={styles.recommendationSecondaryActionText}>{t("card_detail.recommendation.another")}</Text></Pressable>
+              <Pressable disabled={savingCloze || recommendationTaskItem.remembered} style={[styles.recommendationPrimaryAction, recommendationTaskItem.remembered && styles.recommendationPrimaryActionDisabled]} onPress={() => void rememberRecommendation()}>
+                {savingCloze ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Text style={styles.recommendationPrimaryActionText}>{t("card_detail.recommendation.remember")}</Text>}
+              </Pressable>
+            </View>
+          </Animated.View> : <View style={styles.recommendationEmpty}>
+            <View style={styles.recommendationEmptyCharacter}><OioCharacter width={54} height={52} /></View>
+            <Text style={styles.recommendationEmptyText}>{recommendationError ?? t("card_detail.recommendation.none")}</Text>
+            {recommendationError && !phraseRecommendation?.exhausted ? <Pressable style={styles.recommendationRetry} onPress={() => void requestPhraseRecommendation()}><Text style={styles.recommendationRetryText}>{t("common.retry")}</Text></Pressable> : null}
+          </View>}
+        </Pressable>
+      </Pressable>
+    </Modal>
     <DictionaryPopover
       visible={Boolean(dictionary)}
       anchor={dictionary?.anchor}
@@ -3382,6 +3611,48 @@ const styles = StyleSheet.create({
   imageAddingPlaceholder: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 9, backgroundColor: theme.colors.surfaceMuted },
   imageAddingText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18 },
   detailActionBar: { minHeight: 54, paddingHorizontal: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  recommendationButton: { minHeight: 38, alignSelf: "flex-end", marginRight: 14, marginBottom: 7, paddingHorizontal: 11, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE0DA", borderRadius: 19, backgroundColor: "#F3F8F6", flexDirection: "row", alignItems: "center", gap: 7 },
+  recommendationButtonDisabled: { opacity: 0.48 },
+  recommendationButtonIcon: { width: 25, height: 25, borderRadius: 13, backgroundColor: "#DFEEE8", alignItems: "center", justifyContent: "center" },
+  recommendationButtonText: { color: "#385C50", fontSize: 13, lineHeight: 19, fontWeight: "600" },
+  recommendationUnreadDot: { position: "absolute", top: 7, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: "#F04444", borderWidth: 1, borderColor: theme.colors.surface },
+  recommendationBackdrop: { flex: 1, paddingHorizontal: 22, backgroundColor: "rgba(28,35,32,0.35)", alignItems: "center", justifyContent: "center" },
+  recommendationSheet: { width: "100%", maxWidth: 430, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 22, borderWidth: 2, borderColor: "#DCEDE6", borderRadius: 26, backgroundColor: "#FFFDF8", shadowColor: "#263C34", shadowOpacity: 0.22, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 16 },
+  recommendationSheetHeader: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 9 },
+  recommendationSheetMark: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#E5F2ED", alignItems: "center", justifyContent: "center" },
+  recommendationSheetTitle: { flex: 1, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "700" },
+  recommendationClose: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  recommendationLoading: { minHeight: 200, alignItems: "center", justifyContent: "center", gap: 13 },
+  recommendationLoadingCharacter: { width: 78, height: 78, borderRadius: 39, backgroundColor: "#EAF6F1", alignItems: "center", justifyContent: "center" },
+  recommendationLoadingText: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20 },
+  recommendationFound: { marginTop: 14, color: "#52796C", fontSize: 13, lineHeight: 19, fontWeight: "700", textAlign: "center" },
+  recommendationRewardCard: { marginTop: 10, padding: 16, borderWidth: 1, borderColor: "#F1DF9A", borderRadius: 18, backgroundColor: "#FFF9DE" },
+  recommendationPhrase: { color: theme.colors.text, fontSize: 25, lineHeight: 32, fontWeight: "800", textAlign: "center" },
+  recommendationMeaning: { marginTop: 7, color: "#52796C", fontSize: 15, lineHeight: 22, fontWeight: "500" },
+  recommendationSentence: { marginTop: 14, padding: 12, borderRadius: 13, backgroundColor: "rgba(255,255,255,0.72)", color: theme.colors.textSecondary, fontSize: 15, lineHeight: 23 },
+  recommendationSentenceHighlight: { color: theme.colors.text, backgroundColor: "#FFF0A8", fontWeight: "700" },
+  recommendationSheetActions: { marginTop: 22, flexDirection: "row", gap: 10 },
+  recommendationSecondaryAction: { minHeight: 46, paddingHorizontal: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 23, alignItems: "center", justifyContent: "center" },
+  recommendationSecondaryActionText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
+  recommendationPrimaryAction: { minHeight: 46, flex: 1, borderRadius: 23, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  recommendationPrimaryActionDisabled: { opacity: 0.55 },
+  recommendationPrimaryActionText: { color: theme.colors.surface, fontSize: 15, fontWeight: "700" },
+  recommendationEmpty: { minHeight: 160, alignItems: "center", justifyContent: "center", gap: 14 },
+  recommendationEmptyText: { color: theme.colors.textSecondary, fontSize: 15, lineHeight: 22, textAlign: "center" },
+  recommendationRetry: { minHeight: 40, paddingHorizontal: 20, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  recommendationRetryText: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
+  recommendationEmptyCharacter: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#F2F5F3", alignItems: "center", justifyContent: "center", opacity: 0.78 },
+  recommendationPractice: { paddingTop: 17 },
+  recommendationPracticeHint: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: "center" },
+  recommendationPracticeSentence: { marginTop: 15, padding: 16, borderRadius: 16, backgroundColor: "#FFF9DE", color: theme.colors.text, fontSize: 17, lineHeight: 26, textAlign: "center" },
+  recommendationPracticeBlank: { color: "#52796C", fontWeight: "800" },
+  recommendationPracticeOptions: { marginTop: 16, gap: 9 },
+  recommendationPracticeOption: { minHeight: 46, paddingHorizontal: 15, borderWidth: 1, borderColor: "#CFE0DA", borderRadius: 15, backgroundColor: "#F3F8F6", alignItems: "center", justifyContent: "center" },
+  recommendationPracticeOptionWrong: { borderColor: "#E9D8D8", backgroundColor: "#F8EEEE", opacity: 0.55 },
+  recommendationPracticeOptionText: { color: "#385C50", fontSize: 16, lineHeight: 22, fontWeight: "700" },
+  recommendationPracticeOptionTextWrong: { color: theme.colors.textMuted, textDecorationLine: "line-through" },
+  recommendationPracticeSkip: { minHeight: 38, marginTop: 7, alignItems: "center", justifyContent: "center" },
+  recommendationPracticeSkipText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 19, fontWeight: "500" },
   detailChoiceTray: { paddingHorizontal: 18, paddingTop: 9, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", gap: 9 },
   detailActionButton: { width: 48, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   detailActionButtonActive: { backgroundColor: theme.colors.text },

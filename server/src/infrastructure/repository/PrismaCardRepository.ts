@@ -471,6 +471,10 @@ export class PrismaCardRepository implements CardRepository {
             auxiliarySegments: Prisma.DbNull,
             auxiliaryLanguageCode: null,
             auxiliarySourceHash: null,
+            phraseRecommendations: Prisma.DbNull,
+            phraseRecommendationSeenAt: null,
+            phraseRecommendationExhaustedAt: null,
+            phraseRecommendationPromptVersion: null,
           } : {}),
           replyText: input.replyText,
           replyLanguageCode: input.replyLanguageCode,
@@ -551,6 +555,89 @@ export class PrismaCardRepository implements CardRepository {
     if (changed.count !== 1) return null;
     const updated = await this.prisma.card.findFirst({ where: { id: input.entryId }, include: includeSegments });
     return updated ? toEntry(updated) : null;
+  }
+
+  async markPhraseRecommendationSeen(entryId: string, userId: string): Promise<CardEntryEntity | null> {
+    const changed = await this.prisma.card.updateMany({
+      where: {
+        id: entryId,
+        userId,
+        status: "completed",
+        deletedAt: null,
+        phraseRecommendationSeenAt: null,
+      },
+      data: { phraseRecommendationSeenAt: new Date() },
+    });
+    if (changed.count !== 1) return null;
+    const updated = await this.prisma.card.findFirst({ where: { id: entryId }, include: includeSegments });
+    return updated ? toEntry(updated) : null;
+  }
+
+  async listRecentPhraseRecommendationTexts(userId: string, limit: number): Promise<string[]> {
+    const rows = await this.prisma.card.findMany({
+      where: {
+        userId,
+        phraseRecommendations: { not: Prisma.DbNull },
+      },
+      orderBy: [{ updatedAt: "desc" }],
+      take: Math.max(1, limit),
+      select: { phraseRecommendations: true },
+    });
+    return rows.flatMap((row) => Array.isArray(row.phraseRecommendations)
+      ? row.phraseRecommendations.flatMap((item: unknown) => item && typeof item === "object" && "text" in item && typeof item.text === "string" ? [item.text] : [])
+      : []).slice(0, limit);
+  }
+
+  async appendPhraseRecommendation(input: {
+    entryId: string;
+    userId: string;
+    expectedRewrittenText: string;
+    recommendation: {
+      id: string;
+      contentVersion: string;
+      segmentId: string;
+      ordinal: number;
+      startUtf16: number;
+      endUtf16: number;
+      text: string;
+      meaning: string;
+      distractors: string[];
+      createdAt: string;
+    } | null;
+    promptVersion: string;
+  }): Promise<CardEntryEntity | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.card.findFirst({
+        where: {
+          id: input.entryId,
+          userId: input.userId,
+          status: "completed",
+          deletedAt: null,
+          rewrittenText: input.expectedRewrittenText,
+        },
+        select: { phraseRecommendations: true },
+      });
+      if (!current) return null;
+      const existing = Array.isArray(current.phraseRecommendations) ? current.phraseRecommendations : [];
+      const changed = await tx.card.updateMany({
+        where: {
+          id: input.entryId,
+          userId: input.userId,
+          status: "completed",
+          deletedAt: null,
+          rewrittenText: input.expectedRewrittenText,
+        },
+        data: {
+          ...(input.recommendation
+            ? { phraseRecommendations: [...existing, input.recommendation] }
+            : { phraseRecommendationExhaustedAt: new Date() }),
+          phraseRecommendationPromptVersion: input.promptVersion,
+        },
+      });
+      if (changed.count !== 1) return null;
+      const updated = await tx.card.findFirst({ where: { id: input.entryId }, include: includeSegments });
+      return updated ? toEntry(updated) : null;
+    });
   }
 
   async findByUserClientId(userId: string, clientId: string): Promise<CardEntryEntity | null> {
@@ -1881,6 +1968,10 @@ function toEntry(row: any): CardEntryEntity {
     auxiliarySegments: row.auxiliarySegments ?? null,
     auxiliaryLanguageCode: row.auxiliaryLanguageCode ?? null,
     auxiliarySourceHash: row.auxiliarySourceHash ?? null,
+    phraseRecommendations: row.phraseRecommendations ?? null,
+    phraseRecommendationSeenAt: row.phraseRecommendationSeenAt ?? null,
+    phraseRecommendationExhaustedAt: row.phraseRecommendationExhaustedAt ?? null,
+    phraseRecommendationPromptVersion: row.phraseRecommendationPromptVersion ?? null,
     replyText: row.replyText ?? null,
     replyLanguageCode: row.replyLanguageCode ?? null,
     replySourceHash: row.replySourceHash ?? null,

@@ -5,6 +5,7 @@ import {
   deleteCardImageUpload,
   getCardRecord,
   getCardCapabilities,
+  generateCardPhraseRecommendation,
   updateCardContent,
   appendCardRecordImage,
   removeCardRecordImageById,
@@ -251,6 +252,15 @@ export function CardDetailNavigator({
     }
   }
 
+  async function generatePhraseRecommendation(): Promise<CardRecordDetail> {
+    if (!detail) throw new Error(t("card_detail.error.try_again"));
+    const updated = await stabilizeCardDetailImages(detail, await generateCardPhraseRecommendation(detail.id));
+    setDetail(updated);
+    detailCacheRef.current.set(detail.id, { detail: updated, loadedAt: Date.now() });
+    onChanged();
+    return updated;
+  }
+
   async function pickImage(recordId: string, source: "camera" | "library", suppliedAsset?: { uri: string; width: number; height: number }): Promise<void> {
     const remaining = cardLimits.imagesPerCard - (detail?.images?.length ?? (detail?.image ? 1 : 0));
     if (remaining <= 0) {
@@ -351,6 +361,7 @@ export function CardDetailNavigator({
       pendingGenerationTargets={pendingGenerationTargets}
       retryingGenerationTarget={retryingGenerationTarget}
       onRetryGeneration={(target) => void retryGeneration(target)}
+      onGeneratePhraseRecommendation={detail?.phraseRecommendation ? generatePhraseRecommendation : undefined}
       transitionOrigin={historyIndex === 0 ? request.origin : undefined}
       initialTab={request.initialTab}
       initialEditing={request.initialEditing}

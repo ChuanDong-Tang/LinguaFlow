@@ -79,7 +79,6 @@ import {
 } from "../services/card/cardImageUpload";
 import { generateMissingCardContent, isCardResourceLimitedError, type CardGenerationTarget } from "../services/card/cardContentGeneration";
 import { isCardGenerationInProgress, isCardRecordGenerationInProgress, setCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
-import { registerClozeOnboardingCandidate } from "../services/card/clozeOnboarding";
 import { getLanguage, t, tf } from "../i18n";
 import { CollectionPickerModal } from "./shared/CollectionPickerModal";
 import { CalendarSidebarPreview, CardCalendarScreen } from "./CardCalendarScreen";
@@ -145,7 +144,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [quickNoteCreating, setQuickNoteCreating] = useState(false);
   const [inspirationQuestions, setInspirationQuestions] = useState(() => fallbackCardInspirations().questions);
   const [inspirationIndex, setInspirationIndex] = useState(0);
-  const [inspirationVisible, setInspirationVisible] = useState(false);
   const [recordMoveTarget, setRecordMoveTarget] = useState<CardRecordSummary | null>(null);
   const [recordActionMenu, setRecordActionMenu] = useState<{ record: CardRecordSummary; anchor: RecordActionAnchor } | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
@@ -272,7 +270,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       inspirationsLoadedRef.current = false;
       setInspirationQuestions(fallbackCardInspirations().questions);
       setInspirationIndex(0);
-      setInspirationVisible(false);
     }
     if (!isActive || inspirationsLoadedRef.current) return;
     inspirationsLoadedRef.current = true;
@@ -611,7 +608,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
   function openCardComposer(): void {
     if (quickNoteStt.status !== "idle") void quickNoteStt.toggle();
-    setInspirationVisible(false);
     const hasDraftContent = Boolean(draft.title.trim() || draft.text.trim() || draft.rewrittenText.trim() || draft.translationText.trim() || draft.replyText.trim() || draft.images.length);
     if (!hasDraftContent) {
       void commitDraft({ ...draftRef.current, collectionId: null });
@@ -726,9 +722,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       persistedRecordId = created.id;
       const selectedTargets: CardGenerationTarget[] = (["expression", "reply"] as const)
         .filter((target) => snapshot.enabledLayers[target]);
-      if (!snapshot.recordId && selectedTargets.includes("expression")) {
-        await registerClozeOnboardingCandidate(created.id);
-      }
       await commitDraft({ ...submitting, recordId: persistedRecordId });
       await setCardGenerationState(created.id, { pendingTargets: selectedTargets, failedTargets: [] });
       const optimisticRecord: CardRecordSummary = {
@@ -746,10 +739,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         setLibraryView("all");
       }
       await commitDraft(EMPTY_DRAFT);
-      setInspirationVisible(false);
       setInspirationIndex((current) => inspirationQuestions.length ? (current + 1) % inspirationQuestions.length : 0);
       enqueueQuickNoteGeneration(created, snapshot, selectedTargets);
-      requestAnimationFrame(() => quickNoteInputRef.current?.focus());
+      onOpenCard(created.id);
     } catch (error) {
       console.warn("[card] quick note create failed", error);
       const retryable = {
@@ -794,7 +786,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       return;
     }
     const snapshot = draftRef.current;
-    const isNewCard = snapshot.recordId === null;
     const text = snapshot.text.trim();
     const count = countGraphemes(text);
     if (count < 1 || count > cardLimits.contentChars) {
@@ -850,9 +841,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         }
       }
       persistedRecordId = created.id;
-      if (isNewCard && selectedTargets.includes("expression")) {
-        await registerClozeOnboardingCandidate(created.id);
-      }
       await commitDraft({ ...submitting, recordId: persistedRecordId });
 
       await setCardGenerationState(created.id, { pendingTargets: selectedTargets, failedTargets: [] });
@@ -1301,6 +1289,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     }
     Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"));
   };
+
   const edgeSidebarResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_event, gesture) => Boolean(
       !sidebarVisible
@@ -1419,16 +1408,21 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         </View>
       </View> : null}
       {!selectingRecords && libraryView !== TRASH_VIEW ? <KeyboardStickyView offset={{ opened: screenInsets.bottom }} style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
-        {inspirationVisible && inspirationQuestions[inspirationIndex] ? <View style={styles.inspirationCard}>
-          <View style={styles.inspirationHeader}>
-            <OioCharacter width={23} height={22} />
-            <Text style={styles.inspirationName}>{t("quick_note.inspiration.name")}</Text>
-            <Pressable accessibilityLabel={t("quick_note.inspiration.close")} hitSlop={8} style={styles.inspirationClose} onPress={() => setInspirationVisible(false)}><Ionicons name="close" size={17} color={theme.colors.textMuted} /></Pressable>
-          </View>
-          <Pressable onPress={() => quickNoteInputRef.current?.focus()}><Text style={styles.inspirationQuestion}>{inspirationQuestions[inspirationIndex]}</Text></Pressable>
+        {!draft.text.trim() && inspirationQuestions[inspirationIndex] ? <View style={styles.inspirationCard}>
+          <Pressable accessibilityLabel={inspirationQuestions[inspirationIndex]} style={styles.inspirationPrompt} onPress={() => quickNoteInputRef.current?.focus()}>
+            <View style={styles.inspirationCopy}>
+              <Text style={styles.inspirationName}>{t("quick_note.inspiration.name")}</Text>
+              <Text numberOfLines={2} style={styles.inspirationQuestion}>{inspirationQuestions[inspirationIndex]}</Text>
+            </View>
+          </Pressable>
           <View style={styles.inspirationActions}>
-            <Pressable style={styles.inspirationAction} onPress={() => setInspirationIndex((current) => (current + 1) % inspirationQuestions.length)}><Ionicons name="refresh-outline" size={15} color={theme.colors.textSecondary} /><Text style={styles.inspirationActionText}>{t("quick_note.inspiration.another")}</Text></Pressable>
-            <Pressable style={styles.inspirationChatAction} onPress={() => { setInspirationVisible(false); void openAssistant(); }}><Text style={styles.inspirationChatText}>{t("quick_note.inspiration.chat")}</Text><Ionicons name="chevron-forward" size={14} color="#5E8175" /></Pressable>
+            <Pressable accessibilityLabel={t("quick_note.inspiration.another")} hitSlop={6} style={styles.inspirationAction} onPress={() => setInspirationIndex((current) => (current + 1) % inspirationQuestions.length)}>
+              <Ionicons name="refresh-outline" size={15} color={theme.colors.textSecondary} />
+              <Text style={styles.inspirationActionText}>{t("quick_note.inspiration.another")}</Text>
+            </Pressable>
+            <Pressable accessibilityLabel={t("quick_note.inspiration.chat")} hitSlop={6} style={styles.inspirationAssistant} onPress={() => void openAssistant()}>
+              <OioCharacter width={24} height={23} />
+            </Pressable>
           </View>
         </View> : null}
         <View style={styles.unifiedComposerBar}>
@@ -1469,9 +1463,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </View>
           {draft.text.trim() || quickNoteCreating ? <Pressable accessibilityLabel={t("quick_note.a11y.send")} disabled={quickNoteCreating} style={[styles.unifiedComposerSend, quickNoteCreating && styles.unifiedComposerSendDisabled]} onPress={() => void sendQuickNote()}>
             {quickNoteCreating ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={19} color={theme.colors.surface} />}
-          </Pressable> : <Pressable accessibilityLabel={t("quick_note.inspiration.open")} style={[styles.unifiedComposerAi, inspirationVisible && styles.unifiedComposerAiActive]} onPress={() => setInspirationVisible((current) => !current)}>
-              <OioCharacter width={22} height={21} />
-            </Pressable>}
+          </Pressable> : null}
         </View>
       </KeyboardStickyView> : null}
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Ionicons name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Ionicons name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
@@ -2994,24 +2986,20 @@ const styles = StyleSheet.create({
   cardDate: { marginTop: 9, color: theme.colors.textMuted, fontSize: 11 },
   processingText: { marginTop: 6, color: "#999999", fontSize: 11, lineHeight: 17 },
   unifiedComposerDock: { position: "absolute", left: 18, right: 18 },
-  inspirationCard: { marginBottom: 8, paddingHorizontal: 15, paddingTop: 12, paddingBottom: 11, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D5E4DF", borderRadius: 18, backgroundColor: "rgba(255,255,255,0.98)", shadowColor: "#000000", shadowOpacity: 0.09, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 7 },
-  inspirationHeader: { minHeight: 24, flexDirection: "row", alignItems: "center", gap: 7 },
-  inspirationName: { color: "#5E8175", fontSize: 12, lineHeight: 18, fontWeight: "700" },
-  inspirationClose: { width: 26, height: 26, marginLeft: "auto", alignItems: "center", justifyContent: "center" },
-  inspirationQuestion: { paddingTop: 7, paddingBottom: 9, color: theme.colors.text, fontSize: 16, lineHeight: 24, fontWeight: "500" },
-  inspirationActions: { minHeight: 26, flexDirection: "row", alignItems: "center" },
-  inspirationAction: { minHeight: 26, paddingRight: 10, flexDirection: "row", alignItems: "center", gap: 4 },
+  inspirationCard: { marginBottom: 8, minHeight: 64, paddingLeft: 12, paddingRight: 10, paddingVertical: 9, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D5E4DF", borderRadius: 18, backgroundColor: "rgba(255,255,255,0.98)", flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
+  inspirationPrompt: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9 },
+  inspirationCopy: { flex: 1, minWidth: 0 },
+  inspirationName: { color: "#5E8175", fontSize: 11, lineHeight: 16, fontWeight: "700" },
+  inspirationQuestion: { marginTop: 1, color: theme.colors.text, fontSize: 14, lineHeight: 19, fontWeight: "500" },
+  inspirationActions: { flexDirection: "row", alignItems: "center", gap: 3 },
+  inspirationAction: { minHeight: 32, paddingHorizontal: 6, flexDirection: "row", alignItems: "center", gap: 3 },
   inspirationActionText: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
-  inspirationChatAction: { minHeight: 26, marginLeft: "auto", paddingLeft: 10, flexDirection: "row", alignItems: "center", gap: 1 },
-  inspirationChatText: { color: "#5E8175", fontSize: 12, lineHeight: 18, fontWeight: "600" },
+  inspirationAssistant: { width: 34, height: 34, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE4DC", borderRadius: 17, backgroundColor: "#EAF6F1", alignItems: "center", justifyContent: "center" },
   unifiedComposerBar: { minHeight: 50, padding: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DEDC", borderRadius: 25, backgroundColor: "rgba(255,255,255,0.97)", flexDirection: "row", alignItems: "center", gap: 7, shadowColor: "#000000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9 },
   unifiedComposerInput: { flex: 1, minHeight: 40, maxHeight: 96, paddingHorizontal: 5, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 8 },
   unifiedComposerAdd: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   unifiedComposerTextInput: { flex: 1, minHeight: 40, maxHeight: 88, paddingVertical: 9, paddingRight: 5, color: theme.colors.text, fontSize: 15, lineHeight: 21 },
   unifiedComposerMic: { width: 30, height: 30, borderRadius: 15, flexShrink: 0 },
-  unifiedComposerAi: { width: 30, height: 30, marginHorizontal: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE4DC", borderRadius: 15, backgroundColor: "#EAF6F1", alignItems: "center", justifyContent: "center" },
-  unifiedComposerAiActive: { borderColor: "#9FCABB", backgroundColor: "#DCEFE8" },
-  unifiedComposerAiText: { color: "#446A5D", fontSize: 12, fontWeight: "700" },
   unifiedComposerSend: { width: 34, height: 34, marginHorizontal: 3, borderRadius: 17, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
   unifiedComposerSendDisabled: { opacity: 0.7 },
   modalPage: { flex: 1, backgroundColor: theme.colors.canvas },

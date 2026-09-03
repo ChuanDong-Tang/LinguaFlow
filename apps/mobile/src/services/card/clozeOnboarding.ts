@@ -4,6 +4,7 @@ import { environmentStorageKey } from "../storage/environmentStorageKey";
 
 const COMPLETED_KEY_PREFIX = "linguaflow.card_detail.cloze_onboarding.completed.v3";
 const CANDIDATE_KEY_PREFIX = "linguaflow.card_detail.cloze_onboarding.candidate.v3";
+const RECOMMENDATION_PRACTICE_COMPLETED_KEY_PREFIX = "linguaflow.card_detail.recommendation_practice.completed.v1";
 
 type ClozeOnboardingKeys = {
   completed: string;
@@ -17,6 +18,24 @@ async function getKeys(): Promise<ClozeOnboardingKeys | null> {
     completed: environmentStorageKey(`${COMPLETED_KEY_PREFIX}:${session.user.id}`),
     candidate: environmentStorageKey(`${CANDIDATE_KEY_PREFIX}:${session.user.id}`),
   };
+}
+
+async function getRecommendationPracticeKey(): Promise<string | null> {
+  const session = await getSession();
+  if (!session?.user.id) return null;
+  return environmentStorageKey(`${RECOMMENDATION_PRACTICE_COMPLETED_KEY_PREFIX}:${session.user.id}`);
+}
+
+export async function shouldStartRecommendationPractice(): Promise<boolean> {
+  const key = await getRecommendationPracticeKey();
+  if (!key) return false;
+  return !(await AsyncStorage.getItem(key));
+}
+
+export async function completeRecommendationPractice(): Promise<void> {
+  const key = await getRecommendationPracticeKey();
+  if (!key) return;
+  await AsyncStorage.setItem(key, "1");
 }
 
 /** Remember the first newly created Card until its generated content is ready. */

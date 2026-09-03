@@ -41,6 +41,10 @@ export interface CardEntryEntity {
   auxiliarySegments: unknown | null;
   auxiliaryLanguageCode: string | null;
   auxiliarySourceHash: string | null;
+  phraseRecommendations: unknown | null;
+  phraseRecommendationSeenAt: Date | null;
+  phraseRecommendationExhaustedAt: Date | null;
+  phraseRecommendationPromptVersion: string | null;
   replyText: string | null;
   replyLanguageCode: string | null;
   replySourceHash: string | null;
@@ -239,6 +243,26 @@ export interface CardRepository {
     auxiliarySegments: Array<{ ordinal: number; text: string }>;
     auxiliaryLanguageCode: string;
     auxiliarySourceHash: string;
+  }): Promise<CardEntryEntity | null>;
+  markPhraseRecommendationSeen(entryId: string, userId: string): Promise<CardEntryEntity | null>;
+  listRecentPhraseRecommendationTexts(userId: string, limit: number): Promise<string[]>;
+  appendPhraseRecommendation(input: {
+    entryId: string;
+    userId: string;
+    expectedRewrittenText: string;
+    recommendation: {
+      id: string;
+      contentVersion: string;
+      segmentId: string;
+      ordinal: number;
+      startUtf16: number;
+      endUtf16: number;
+      text: string;
+      meaning: string;
+      distractors: string[];
+      createdAt: string;
+    } | null;
+    promptVersion: string;
   }): Promise<CardEntryEntity | null>;
   refreshContentSegments(input: {
     entryId: string;

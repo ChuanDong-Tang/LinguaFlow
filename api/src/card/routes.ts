@@ -601,6 +601,32 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     }
   });
 
+  app.post("/cards/:recordId/phrase-recommendations", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/phrase-recommendations");
+    if (!userId) return;
+    const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
+    try {
+      if (!await consumeLimits(deps.rateLimiter, [
+        [`card:phrase-recommendation:user:${userId}`, 20, 3_600_000],
+        [`card:phrase-recommendation:ip:${resolveClientIp(req)}`, 30, 60_000],
+        ["card:phrase-recommendation:global", 120, 60_000],
+      ])) {
+        return failure(reply, 429, requestId, "RATE_LIMITED", "Too many recommendation requests");
+      }
+      const data = await deps.cardService.generatePhraseRecommendation({
+        userId,
+        requestId,
+        recordId: `card:${recordId}`,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
   app.post("/cards/image-uploads", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
