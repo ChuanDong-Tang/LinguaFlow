@@ -1822,6 +1822,9 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
   const expressionPending = pendingGenerationTargets.includes("expression");
   const expressionFailed = failedGenerationTargets.includes("expression");
+  const auxiliaryMissing = contentBinding.contentType === "rewrite"
+    && detail.auxiliarySegments !== undefined
+    && !detail.auxiliarySegments?.length;
   const rewriteIsPrimary = contentBinding.contentType === "rewrite" || expressionPending || expressionFailed;
   const rewriteIsReady = contentBinding.contentType === "rewrite";
   const frontLearningReady = rewriteIsReady || !rewriteIsPrimary;
@@ -2570,6 +2573,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
                 {practiceEnabled
                   ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                   : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
+                {auxiliaryMissing ? <FailedGenerationSection target="auxiliary" retrying={retryingGenerationTarget === "auxiliary"} onRetry={onRetryGeneration} /> : null}
                 <CardSectionCopyButton onPress={() => void copySection(learningText)} />
               </CollapsibleCardSection>
               : expressionPending
@@ -2748,6 +2752,8 @@ function PendingGenerationSection({ target }: { target: CardGenerationTarget }) 
 function generationTargetLabel(target: CardGenerationTarget): string {
   return target === "translation"
     ? t("card_detail.module.translation_description")
+    : target === "auxiliary"
+      ? t("card_detail.auxiliary")
     : target === "reply"
       ? t("card_detail.module.reply_description")
       : t("card_detail.module.expression_description");

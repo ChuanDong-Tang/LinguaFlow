@@ -5,7 +5,7 @@ import {
   type CardRecordDetail,
 } from "../api/cardApi";
 
-export type CardGenerationTarget = "expression" | "translation" | "reply";
+export type CardGenerationTarget = "expression" | "translation" | "auxiliary" | "reply";
 
 export async function generateMissingCardContent(
   initialDetail: CardRecordDetail,
@@ -60,5 +60,6 @@ export function isCardResourceLimitedError(error: unknown): boolean {
 export function hasGeneratedContent(detail: CardRecordDetail, target: CardGenerationTarget): boolean {
   if (target === "expression") return Boolean(detail.rewrittenText?.trim());
   if (target === "translation") return Boolean(detail.translationText?.trim());
+  if (target === "auxiliary") return Boolean(detail.auxiliarySegments?.length);
   return Boolean(detail.replyText?.trim());
 }
