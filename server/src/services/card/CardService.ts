@@ -45,6 +45,11 @@ import {
   LEARNING_SENTENCE_SEGMENTER_VERSION,
   segmentLearningSentences,
 } from "../text/learningSentenceSegmenter.js";
+import {
+  buildCardInspirationPrompt,
+  defaultCardInspirationQuestions,
+  parseCardInspirationOutput,
+} from "@lf/core/Prompts/cardInspirationPrompt.js";
 
 const PREVIEW_GRAPHEMES = 240;
 const FOREGROUND_LLM_RETRY_DELAYS_MS = [750, 1_500, 3_000] as const;
@@ -115,6 +120,55 @@ export class CardService {
     private readonly limits: CardServiceLimits = DEFAULT_CARD_SERVICE_LIMITS,
     private readonly usageV2Service?: UsageV2Service,
   ) {}
+
+  async inspirationQuestions(input: { userId: string; requestId: string; appLocale?: "zh-CN" | "zh-TW" | "en-US" | "ja-JP" }): Promise<{
+    questions: string[];
+    source: "personalized" | "starter";
+    expiresInSeconds: number;
+  }> {
+    const preference = await this.userPreferenceRepository.getByUserId(input.userId);
+    const appLocale = input.appLocale ?? preference.appLocale;
+    const fallback = defaultCardInspirationQuestions(appLocale);
+    if (!this.aiProvider) return { questions: fallback, source: "starter", expiresInSeconds: 86_400 };
+    const recent = await this.repository.listByUser(input.userId, undefined, 20);
+    const themes = [...new Set(recent
+      .filter((card) => !card.isSample && card.status === "completed")
+      .map((card) => card.topic?.trim() || card.title?.trim() || "")
+      .filter(Boolean))]
+      .slice(0, 12);
+    if (themes.length < 3) return { questions: fallback, source: "starter", expiresInSeconds: 86_400 };
+
+    const prompt = buildCardInspirationPrompt({ themes, appLocale });
+    let output = "";
+    try {
+      await this.executeForegroundLlm(input.userId, input.requestId, "card.inspiration", () => this.aiProvider!.generateChatTextStream({
+        userId: input.userId,
+        text: prompt.userPrompt,
+        appLocale,
+        languageCode: preference.learningLanguage,
+        promptDifficulty: preference.promptDifficulty,
+        companionMode: "platform_inspiration",
+        systemPrompt: prompt.systemPrompt,
+        rawUserPrompt: true,
+        maxOutputTokens: 240,
+      }, (event) => {
+        if (event.type === "delta") output += event.text;
+      }));
+      const questions = parseCardInspirationOutput(output);
+      const moderatedText = questions.join("\n");
+      this.contentSafetyService?.assertAllowed(moderatedText, "output");
+      await this.contentSafetyService?.assertAllowedRemote({
+        text: moderatedText,
+        stage: "output",
+        requestId: input.requestId,
+        userId: input.userId,
+      });
+      return { questions, source: "personalized", expiresInSeconds: 86_400 };
+    } catch (error) {
+      console.warn("[card] inspiration generation fell back to starter questions", error);
+      return { questions: fallback, source: "starter", expiresInSeconds: 3_600 };
+    }
+  }
 
   async bootstrap(userId: string): Promise<CardRecordSummaryView[]> {
     await this.repository.hideSamplesIfRealCardExists(userId, new Date());

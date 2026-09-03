@@ -24,6 +24,12 @@ export const DEFAULT_CARD_CAPABILITIES: CardCapabilities = {
   },
 };
 
+export type CardInspirations = {
+  questions: string[];
+  source: "personalized" | "starter";
+  expiresInSeconds: number;
+};
+
 let cardCapabilitiesCache: CardCapabilities | null = null;
 let cardCapabilitiesPromise: Promise<CardCapabilities> | null = null;
 
@@ -174,6 +180,10 @@ export async function createCardEntry(input: {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export async function getCardInspirations(appLocale: string): Promise<CardInspirations> {
+  return request<CardInspirations>(`/cards/inspirations?appLocale=${encodeURIComponent(appLocale)}`);
 }
 
 export async function updateCardContent(

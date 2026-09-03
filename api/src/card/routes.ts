@@ -87,6 +87,31 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     });
   });
 
+  app.get("/cards/inspirations", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/inspirations");
+    if (!userId) return;
+    const requestedLocale = (req.query as { appLocale?: unknown }).appLocale;
+    const appLocale = requestedLocale === "zh-CN" || requestedLocale === "zh-TW" || requestedLocale === "en-US" || requestedLocale === "ja-JP"
+      ? requestedLocale
+      : undefined;
+    try {
+      if (!await consumeLimits(deps.rateLimiter, [
+        [`card:inspiration:user:${userId}`, 4, 3_600_000],
+        [`card:inspiration:ip:${resolveClientIp(req)}`, 30, 60_000],
+        ["card:inspiration:global", 120, 60_000],
+      ])) {
+        return failure(reply, 429, requestId, "RATE_LIMITED", "Too many inspiration requests");
+      }
+      const data = await deps.cardService.inspirationQuestions({ userId, requestId, appLocale });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
   app.post("/cards/bootstrap", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);

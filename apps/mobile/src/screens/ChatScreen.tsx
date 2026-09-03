@@ -1652,7 +1652,6 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
       {canConfigureCompanionMode ? (
         <AutoCopySheet
           visible={isAutoCopyMenuOpen}
-          contact={contact}
           replyEnabled={replyEnabled}
           onClose={closeAutoCopyMenu}
           onReplyEnabledChange={(enabled) => {

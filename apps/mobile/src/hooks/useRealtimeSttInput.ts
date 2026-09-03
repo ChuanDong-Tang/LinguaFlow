@@ -23,6 +23,7 @@ export function useRealtimeSttInput(input: {
   value: string;
   onChangeText?: (value: string) => void;
   disabled?: boolean;
+  languageCode?: string;
 }) {
   const netInfo = useNetInfo();
   const [status, setStatus] = useState<RealtimeSttInputStatus>("idle");
@@ -118,8 +119,9 @@ export function useRealtimeSttInput(input: {
     };
     finalTextRef.current = "";
     partialTextRef.current = "";
-    const multilingual = multilingualRecognitionRef.current;
-    const candidateLanguages = multilingual ? MULTILINGUAL_LANGUAGES : [directLanguage(getLanguage())];
+    const forcedLanguage = input.languageCode?.trim();
+    const multilingual = !forcedLanguage && multilingualRecognitionRef.current;
+    const candidateLanguages = forcedLanguage ? [forcedLanguage] : multilingual ? MULTILINGUAL_LANGUAGES : [directLanguage(getLanguage())];
     const bufferedFrames: PcmAudioFrame[] = [];
     const sendOrBuffer = (frame: PcmAudioFrame) => {
       if (generationRef.current !== generation) return;
@@ -242,7 +244,7 @@ export function useRealtimeSttInput(input: {
       setAudioLevel(0);
       Alert.alert(t("stt.error.unavailable_title"), t("stt.error.retry"));
     }
-  }, [input.disabled, netInfo.isConnected, stop]);
+  }, [input.disabled, input.languageCode, netInfo.isConnected, stop]);
 
   const handleTextChange = useCallback((value: string) => {
     if (statusRef.current !== "idle") void stop();
