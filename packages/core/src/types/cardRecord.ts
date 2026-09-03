@@ -45,6 +45,7 @@ export interface CardContentBlockView {
 
 export interface CardPhraseRecommendationItemView {
   id: string;
+  contentType: "original" | "rewrite";
   contentVersion: string;
   segmentId: string;
   ordinal: number;

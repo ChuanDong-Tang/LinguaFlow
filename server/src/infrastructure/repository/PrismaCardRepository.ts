@@ -471,6 +471,8 @@ export class PrismaCardRepository implements CardRepository {
             auxiliarySegments: Prisma.DbNull,
             auxiliaryLanguageCode: null,
             auxiliarySourceHash: null,
+          } : {}),
+          ...(current.originalText !== input.originalText || current.rewrittenText !== input.rewrittenText ? {
             phraseRecommendations: Prisma.DbNull,
             phraseRecommendationSeenAt: null,
             phraseRecommendationExhaustedAt: null,
@@ -591,9 +593,11 @@ export class PrismaCardRepository implements CardRepository {
   async appendPhraseRecommendation(input: {
     entryId: string;
     userId: string;
-    expectedRewrittenText: string;
+    contentType: "original" | "rewrite";
+    expectedSourceText: string;
     recommendation: {
       id: string;
+      contentType: "original" | "rewrite";
       contentVersion: string;
       segmentId: string;
       ordinal: number;
@@ -613,7 +617,9 @@ export class PrismaCardRepository implements CardRepository {
           userId: input.userId,
           status: "completed",
           deletedAt: null,
-          rewrittenText: input.expectedRewrittenText,
+          ...(input.contentType === "rewrite"
+            ? { rewrittenText: input.expectedSourceText }
+            : { originalText: input.expectedSourceText }),
         },
         select: { phraseRecommendations: true },
       });
@@ -625,7 +631,9 @@ export class PrismaCardRepository implements CardRepository {
           userId: input.userId,
           status: "completed",
           deletedAt: null,
-          rewrittenText: input.expectedRewrittenText,
+          ...(input.contentType === "rewrite"
+            ? { rewrittenText: input.expectedSourceText }
+            : { originalText: input.expectedSourceText }),
         },
         data: {
           ...(input.recommendation

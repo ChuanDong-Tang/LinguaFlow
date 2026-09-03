@@ -68,6 +68,8 @@ export type CardRecordDetail = CardRecordSummary & {
     exhausted: boolean;
     items: Array<{
       id: string;
+      /** Missing on servers from before original-content recommendations. */
+      contentType?: "original" | "rewrite";
       contentVersion: string;
       segmentId: string;
       ordinal: number;

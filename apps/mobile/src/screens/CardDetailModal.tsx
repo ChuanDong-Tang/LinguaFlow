@@ -1817,7 +1817,11 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const articlePlaybackLoading = articleAudioLoading || (articlePlaybackActive && playback.status === "loading");
   const articlePlaying = articlePlaybackActive && playback.status === "playing";
   const hasBlanks = clozeState.blanks.length > 0;
-  const phraseRecommendation = recommendationOverride ?? detail.phraseRecommendation;
+  const phraseRecommendation = recommendationOverride
+    ?? detail.phraseRecommendation
+    ?? (contentBinding.contentType === "original" && practiceEnabled && onGeneratePhraseRecommendation
+      ? { seen: false, exhausted: false, items: [] }
+      : null);
   const articleRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, true), [detail, clozeState]);
   const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
   const expressionPending = pendingGenerationTargets.includes("expression");
@@ -2158,7 +2162,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     try {
       const startPractice = await shouldStartRecommendationPractice().catch(() => false);
       const practice = await saveCardClozeUpdate(detail.id, {
-        contentType: "rewrite",
+        contentType: item.contentType ?? "rewrite",
         contentVersion: item.contentVersion,
         baseVersion: clozeVersion,
         operation: {
@@ -2548,7 +2552,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     </View>
   ) : null;
   const recommendationSegment = recommendationTaskItem
-    ? detail.contentBlocks.find((block) => block.contentType === "rewrite" && block.contentVersion === recommendationTaskItem.contentVersion)
+    ? detail.contentBlocks.find((block) => block.contentType === (recommendationTaskItem.contentType ?? "rewrite") && block.contentVersion === recommendationTaskItem.contentVersion)
       ?.segments.find((segment) => segment.id === recommendationTaskItem.segmentId)
     : null;
   const recommendationContext = recommendationTaskItem && recommendationSegment ? {
@@ -2625,7 +2629,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
         <Text numberOfLines={2} style={[styles.clozeChoiceOptionText, option.incorrect && styles.clozeChoiceOptionTextIncorrect]}>{option.value}</Text>
       </Pressable>)}
     </View> : null}
-    {phraseRecommendation && !phraseRecommendation.exhausted ? <Pressable
+    {practiceEnabled && phraseRecommendation && !phraseRecommendation.exhausted ? <Pressable
       accessibilityLabel={t("card_detail.recommendation.button")}
       disabled={!frontLearningReady || recommendationLoading || !onGeneratePhraseRecommendation}
       style={[styles.recommendationButton, (!frontLearningReady || recommendationLoading || !onGeneratePhraseRecommendation) && styles.recommendationButtonDisabled]}

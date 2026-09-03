@@ -361,7 +361,7 @@ export function CardDetailNavigator({
       pendingGenerationTargets={pendingGenerationTargets}
       retryingGenerationTarget={retryingGenerationTarget}
       onRetryGeneration={(target) => void retryGeneration(target)}
-      onGeneratePhraseRecommendation={detail?.phraseRecommendation ? generatePhraseRecommendation : undefined}
+      onGeneratePhraseRecommendation={detail?.source === "card" && !detail.isSample ? generatePhraseRecommendation : undefined}
       transitionOrigin={historyIndex === 0 ? request.origin : undefined}
       initialTab={request.initialTab}
       initialEditing={request.initialEditing}

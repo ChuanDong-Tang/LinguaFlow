@@ -249,9 +249,11 @@ export interface CardRepository {
   appendPhraseRecommendation(input: {
     entryId: string;
     userId: string;
-    expectedRewrittenText: string;
+    contentType: "original" | "rewrite";
+    expectedSourceText: string;
     recommendation: {
       id: string;
+      contentType: "original" | "rewrite";
       contentVersion: string;
       segmentId: string;
       ordinal: number;

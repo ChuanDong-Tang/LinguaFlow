@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { CardRepository, CardSpeechAssetEntity, CardLearningContentType, CardEntryEntity } from "@lf/core/ports/repository/CardRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
-import { inferLearningTextLanguage, normalizeLearningText } from "@lf/core/text/learningText.js";
+import { normalizeLearningText } from "@lf/core/text/learningText.js";
+import { targetLanguageTextOnly } from "@lf/core/text/targetLanguageRanges.js";
 import { countGraphemes, isUtf16GraphemeBoundary } from "@lf/core/text/grapheme.js";
 import { DEFAULT_CARD_CONTENT_MAX_CHARS } from "@lf/core/text/cardText.js";
 import type { EntitlementService } from "../entitlement/EntitlementService.js";
@@ -101,7 +102,10 @@ export class CardSpeechService {
           return segment.text.slice(input.startUtf16, input.endUtf16);
         })()
       : segment.text;
-    const sourceText = normalizeLearningText({ text: selectedText, languageCode });
+    const learningText = effectiveContentType === "original"
+      ? targetLanguageTextOnly(selectedText, entry.languageCode)?.text ?? ""
+      : selectedText;
+    const sourceText = normalizeLearningText({ text: learningText, languageCode });
     const sourceKind = input.sourceKind ?? "review_segment";
     const maxChars = sourceKind === "dictation_sentence" ? 300 : 800;
     if (!sourceText || countGraphemes(sourceText) > maxChars) throw new CardValidationError("Invalid speech segment");
@@ -167,11 +171,10 @@ export class CardSpeechService {
       .sort((left, right) => left.ordinal - right.ordinal);
     if (!segments.length) throw new CardNotFoundError();
     const rawText = segments.map((segment) => segment.text.trim()).filter(Boolean).join("\n\n");
-    const originalSpeech = input.contentType === "original"
-      ? selectEnglishOriginalSpeech(rawText, entry.languageCode)
-      : null;
-    const languageCode = originalSpeech?.languageCode ?? contentLanguageCode(entry, input.contentType);
-    const learningText = originalSpeech?.text ?? rawText;
+    const languageCode = contentLanguageCode(entry, input.contentType);
+    const learningText = input.contentType === "original"
+      ? targetLanguageTextOnly(rawText, entry.languageCode)?.text ?? ""
+      : rawText;
     const sourceText = normalizeLearningText({ text: learningText, languageCode });
     const graphemeCount = countGraphemes(sourceText);
     if (!sourceText || graphemeCount > this.articleMaxChars) throw new CardValidationError("Article speech is too long");
@@ -237,6 +240,7 @@ export class CardSpeechService {
     const entry = await this.repository.findByIdForUser(input.entryId, input.userId);
     if (!entry || entry.status !== "completed") throw new CardNotFoundError();
     const binding = resolveSpeechBinding(input.contentType, input.contentVersion);
+    const effectiveContentType = binding?.contentType ?? (entry.rewrittenText ? "rewrite" : "original");
     const segment = binding
       ? entry.contentSegments.find((candidate) => candidate.id === input.segmentId && candidate.contentType === binding.contentType && candidate.contentVersion === binding.contentVersion)
       : entry.segments.find((candidate) => candidate.id === input.segmentId);
@@ -248,8 +252,11 @@ export class CardSpeechService {
       !isUtf16GraphemeBoundary(segment.text, input.endUtf16)
     ) throw new CardValidationError("Invalid speech selection");
     const selected = segment.text.slice(input.startUtf16, input.endUtf16);
-    if (!selected.trim() || countGraphemes(selected) > 100) throw new CardValidationError("选区需要包含 1 到 100 个字符");
-    const sourceText = normalizeLearningText({ text: selected, languageCode });
+    const learningText = effectiveContentType === "original"
+      ? targetLanguageTextOnly(selected, entry.languageCode)?.text ?? ""
+      : selected;
+    if (!learningText.trim() || countGraphemes(learningText) > 100) throw new CardValidationError("选区需要包含 1 到 100 个目标语言字符");
+    const sourceText = normalizeLearningText({ text: learningText, languageCode });
     const preference = await this.preferenceRepository.getByUserId(input.userId);
     const provider = this.provider.providerName;
     const voiceCode = preference.ttsVoiceCode && isConfiguredTtsVoice({ provider, languageCode, voiceCode: preference.ttsVoiceCode })
@@ -437,7 +444,7 @@ function resolveSpeechBinding(
 }
 
 function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningContentType): string {
-  if (contentType === "original") return inferLearningTextLanguage(entry.originalText ?? "", entry.appLocaleSnapshot);
+  if (contentType === "original") return entry.languageCode;
   if (contentType === "rewrite") return entry.rewrittenLanguageCode ?? entry.languageCode;
   return entry.replyLanguageCode ?? entry.languageCode;
 }
@@ -447,30 +454,8 @@ export function selectEnglishOriginalSpeech(
   targetLanguageCode: string,
 ): { text: string; languageCode: "en-US" } | null {
   if (targetLanguageCode !== "en-US") return null;
-  const totalLatin = countScriptCharacters(text, /\p{Script=Latin}/u);
-  const totalHan = countScriptCharacters(text, /\p{Script=Han}/u);
-  // Keep genuinely Chinese or lightly mixed originals on the existing path.
-  // Filtering is only for bilingual records whose main body is clearly English.
-  if (totalHan === 0 || totalLatin < 20 || totalLatin <= totalHan) return null;
-  const englishParagraphs = text
-    .split(/\r?\n+/u)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-    .filter((paragraph) => {
-      const latin = countScriptCharacters(paragraph, /\p{Script=Latin}/u);
-      const han = countScriptCharacters(paragraph, /\p{Script=Han}/u);
-      return latin > 0 && latin > han;
-    });
-  if (!englishParagraphs.length) return null;
-  return { text: englishParagraphs.join("\n\n"), languageCode: "en-US" };
-}
-
-function countScriptCharacters(text: string, pattern: RegExp): number {
-  let count = 0;
-  for (const character of text) {
-    if (pattern.test(character)) count += 1;
-  }
-  return count;
+  const selected = targetLanguageTextOnly(text, targetLanguageCode);
+  return selected ? { text: selected.text, languageCode: "en-US" } : null;
 }
 
 function isShortDictionaryExpression(text: string): boolean {

@@ -35,7 +35,6 @@ import { formatDateKeyInTimeZone } from "../time/businessClock.js";
 import type { CardImageService } from "./CardImageService.js";
 import { CARD_EXPRESSION_PROMPT_VERSION, CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
-import { inferLearningTextLanguage } from "@lf/core/text/learningText.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { buildCardContentGenerationPrompt, cardContentMaxOutputTokens, parseCardAuxiliaryOutput, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
@@ -57,6 +56,7 @@ import {
   CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION,
   parseCardPhraseRecommendationOutput,
 } from "@lf/core/Prompts/cardPhraseRecommendationPrompt.js";
+import { findTargetLanguageRanges, targetLanguageTextOnly } from "@lf/core/text/targetLanguageRanges.js";
 
 const PREVIEW_GRAPHEMES = 240;
 const FOREGROUND_LLM_RETRY_DELAYS_MS = [750, 1_500, 3_000] as const;
@@ -187,21 +187,47 @@ export class CardService {
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     let current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
     if (!current || current.status !== "completed" || current.isSample) throw new CardNotFoundError();
+    const contentType: "original" | "rewrite" = current.rewrittenText ? "rewrite" : "original";
+    const sourceText = contentType === "rewrite" ? current.rewrittenText : current.originalText;
+    if (!sourceText) throw new CardValidationError("Learning content is required");
+    if (contentType === "original" && !(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) {
+      throw new CardLearningAccessError("Original text practice requires Pro");
+    }
     current = await this.repository.markPhraseRecommendationSeen(current.id, input.userId) ?? current;
     if (current.phraseRecommendationExhaustedAt) return this.detail(input.userId, input.recordId);
-    if (!current.rewrittenText) throw new CardValidationError("A finalized expression is required");
+    const languageCode = contentType === "rewrite"
+      ? current.rewrittenLanguageCode ?? current.languageCode
+      : current.languageCode;
     const segments = current.contentSegments
-      .filter((segment) => segment.contentType === "rewrite")
+      .filter((segment) => segment.contentType === contentType)
       .sort((left, right) => left.ordinal - right.ordinal);
-    if (!segments.length) throw new CardValidationError("Finalized expression segments are unavailable");
+    if (!segments.length) throw new CardValidationError("Learning content segments are unavailable");
+    const promptSegments = contentType === "original"
+      ? segments.flatMap((segment) => {
+          const targetText = targetLanguageTextOnly(segment.text, languageCode)?.text;
+          return targetText ? [{ ordinal: segment.ordinal, text: targetText }] : [];
+        })
+      : segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }));
     const contentVersion = segments[0]!.contentVersion;
     if (segments.some((segment) => segment.contentVersion !== contentVersion)) {
       throw new CardContentConflictError("The Card expression changed while preparing a recommendation");
     }
+    if (!promptSegments.length) {
+      const saved = await this.repository.appendPhraseRecommendation({
+        entryId: current.id,
+        userId: input.userId,
+        contentType,
+        expectedSourceText: sourceText,
+        recommendation: null,
+        promptVersion: CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION,
+      });
+      if (!saved) throw new CardContentConflictError("The Card expression changed while checking recommendations");
+      return this.detail(input.userId, input.recordId);
+    }
     const [recommendedPhrases, contentPracticeState, legacyPracticeState] = await Promise.all([
       this.repository.listRecentPhraseRecommendationTexts(input.userId, 100),
-      this.repository.findContentPracticeState(input.userId, current.id, "rewrite"),
-      this.repository.findPracticeState(input.userId, current.id),
+      this.repository.findContentPracticeState(input.userId, current.id, contentType),
+      contentType === "rewrite" ? this.repository.findPracticeState(input.userId, current.id) : Promise.resolve(null),
     ]);
     const existingClozeRanges = recommendationClozeRanges({
       segments,
@@ -214,17 +240,18 @@ export class CardService {
       ...recommendedPhrases,
     ])];
     const prompt = buildCardPhraseRecommendationPrompt({
-      segments: segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text })),
-      languageCode: current.rewrittenLanguageCode ?? current.languageCode,
+      segments: promptSegments,
+      languageCode,
       appLocale: current.appLocaleSnapshot,
       difficulty: current.promptDifficultySnapshot,
       excludedPhrases,
+      sourceMayBeMixed: contentType === "original",
     });
     let output = "";
     await this.executeForegroundLlm(input.userId, input.requestId, "card.phrase_recommendation", () => this.aiProvider!.generateChatTextStream({
       userId: input.userId,
       text: prompt.userPrompt,
-      languageCode: current!.rewrittenLanguageCode ?? current!.languageCode,
+      languageCode,
       appLocale: current!.appLocaleSnapshot,
       promptDifficulty: current!.promptDifficultySnapshot,
       companionMode: "platform_inspiration",
@@ -239,8 +266,8 @@ export class CardService {
     if (selected) {
       const segment = segments.find((candidate) => candidate.ordinal === selected.ordinal);
       const startUtf16 = segment?.text.indexOf(selected.phrase) ?? -1;
-      const selectedKey = normalizePhraseSurface(selected.phrase, current.rewrittenLanguageCode ?? current.languageCode);
-      const excludedKeys = new Set(excludedPhrases.map((phrase) => normalizePhraseSurface(phrase, current!.rewrittenLanguageCode ?? current!.languageCode)));
+      const selectedKey = normalizePhraseSurface(selected.phrase, languageCode);
+      const excludedKeys = new Set(excludedPhrases.map((phrase) => normalizePhraseSurface(phrase, languageCode)));
       if (!segment || startUtf16 < 0 || selected.phrase === segment.text.trim() || !selectedKey || excludedKeys.has(selectedKey)) {
         throw new Error("CARD_PHRASE_RECOMMENDATION_SOURCE_MISMATCH");
       }
@@ -248,9 +275,14 @@ export class CardService {
       if (!isUtf16GraphemeBoundary(segment.text, startUtf16) || !isUtf16GraphemeBoundary(segment.text, endUtf16)) {
         throw new Error("CARD_PHRASE_RECOMMENDATION_SOURCE_MISMATCH");
       }
+      if (contentType === "original" && !findTargetLanguageRanges(segment.text, languageCode).some((range) =>
+        startUtf16 >= range.startUtf16 && endUtf16 <= range.endUtf16
+      )) {
+        throw new Error("CARD_PHRASE_RECOMMENDATION_LANGUAGE_BOUNDARY_MISMATCH");
+      }
       const [latestContentPracticeState, latestLegacyPracticeState] = await Promise.all([
-        this.repository.findContentPracticeState(input.userId, current.id, "rewrite"),
-        this.repository.findPracticeState(input.userId, current.id),
+        this.repository.findContentPracticeState(input.userId, current.id, contentType),
+        contentType === "rewrite" ? this.repository.findPracticeState(input.userId, current.id) : Promise.resolve(null),
       ]);
       const latestClozeRanges = recommendationClozeRanges({
         segments,
@@ -275,6 +307,7 @@ export class CardService {
       });
       recommendation = {
         id: randomUUID(),
+        contentType,
         contentVersion,
         segmentId: segment.id,
         ordinal: segment.ordinal,
@@ -289,7 +322,8 @@ export class CardService {
     const saved = await this.repository.appendPhraseRecommendation({
       entryId: current.id,
       userId: input.userId,
-      expectedRewrittenText: current.rewrittenText,
+      contentType,
+      expectedSourceText: sourceText,
       recommendation,
       promptVersion: CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION,
     });
@@ -360,9 +394,7 @@ export class CardService {
     });
 
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
-    const originalLanguageCode = originalText
-      ? inferLearningTextLanguage(originalText, preference.appLocale)
-      : preference.appLocale;
+    const originalLanguageCode = preference.learningLanguage;
     const dateKey = input.trustedSource?.dateKey ?? formatDateKeyInTimeZone(new Date());
     const originalContentHash = originalText ? cardContentHash(originalText) : null;
     if (!generateRewrite) {
@@ -530,9 +562,7 @@ export class CardService {
       originalChanged,
     });
     const primaryText = rewrittenText || originalText;
-    const originalLanguageCode = originalText
-      ? inferLearningTextLanguage(originalText, current.appLocaleSnapshot)
-      : current.appLocaleSnapshot;
+    const originalLanguageCode = current.languageCode;
     if (!primaryText) throw new CardValidationError("A Card must contain a record or expression");
     const allContent = [originalText, rewrittenText, translationText, replyText].filter(Boolean).join("\n");
     this.contentSafetyService?.assertAllowed(allContent, "input");
@@ -996,7 +1026,7 @@ export class CardService {
         {
           contentType: "original",
           text: entry.originalText,
-          languageCode: inferLearningTextLanguage(entry.originalText ?? "", entry.appLocaleSnapshot),
+          languageCode: entry.languageCode,
           sourceHash: entry.originalContentHash,
         },
         {
@@ -1653,7 +1683,7 @@ function contentText(entry: CardEntryEntity, contentType: CardLearningContentTyp
 }
 
 function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningContentType): string {
-  if (contentType === "original") return inferLearningTextLanguage(entry.originalText ?? "", entry.appLocaleSnapshot);
+  if (contentType === "original") return entry.languageCode;
   if (contentType === "rewrite") return entry.rewrittenLanguageCode ?? entry.languageCode;
   return entry.replyLanguageCode ?? entry.languageCode;
 }
@@ -1737,21 +1767,26 @@ function toPhraseRecommendationView(
   entry: CardEntryEntity,
   contentBlocks: CardRecordDetailView["contentBlocks"],
 ): CardPhraseRecommendationView | null {
+  if (entry.isSample || entry.status !== "completed") return null;
+  const contentType: "original" | "rewrite" = entry.rewrittenText ? "rewrite" : "original";
+  const activeBlock = contentBlocks.find((block) => block.contentType === contentType);
+  if (!activeBlock) return null;
   if (
-    entry.isSample
-    || entry.status !== "completed"
-    || !entry.rewrittenText
-    || !contentBlocks.some((block) => block.contentType === "rewrite")
+    contentType === "original"
+    && !entry.phraseRecommendationSeenAt
+    && !entry.phraseRecommendationExhaustedAt
+    && !normalizePhraseRecommendations(entry.phraseRecommendations).some((item) => item.contentType === "original")
   ) return null;
-  const items = normalizePhraseRecommendations(entry.phraseRecommendations).map((item) => {
-    const rewritePractice = contentBlocks.find((block) => block.contentType === "rewrite" && block.contentVersion === item.contentVersion)?.practice;
-    const remembered = normalizeClozeState(rewritePractice?.clozeState).blanks.some((blank) =>
-      blank.segmentId === item.segmentId
-      && blank.startUtf16 === item.startUtf16
-      && blank.endUtf16 === item.endUtf16,
-    );
-    return { ...item, remembered };
-  });
+  const items = normalizePhraseRecommendations(entry.phraseRecommendations)
+    .filter((item) => item.contentType === contentType && item.contentVersion === activeBlock.contentVersion)
+    .map((item) => {
+      const remembered = normalizeClozeState(activeBlock.practice?.clozeState).blanks.some((blank) =>
+        blank.segmentId === item.segmentId
+        && blank.startUtf16 === item.startUtf16
+        && blank.endUtf16 === item.endUtf16,
+      );
+      return { ...item, remembered };
+    });
   return {
     seen: Boolean(entry.phraseRecommendationSeenAt),
     exhausted: Boolean(entry.phraseRecommendationExhaustedAt),
@@ -1825,6 +1860,7 @@ function normalizePhraseRecommendation(value: unknown): CardPhraseRecommendation
     : [];
   return {
     id: row.id,
+    contentType: row.contentType === "original" ? "original" : "rewrite",
     contentVersion: row.contentVersion,
     segmentId: row.segmentId,
     ordinal: Number(row.ordinal),

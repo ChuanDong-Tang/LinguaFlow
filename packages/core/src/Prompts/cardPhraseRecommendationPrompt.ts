@@ -1,6 +1,6 @@
 import { countGraphemes } from "../text/grapheme.js";
 
-export const CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION = "card_phrase_recommendation_v2" as const;
+export const CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION = "card_phrase_recommendation_v3" as const;
 
 export type CardPhraseRecommendationOutput = {
   ordinal: number;
@@ -15,11 +15,12 @@ export function buildCardPhraseRecommendationPrompt(input: {
   appLocale: string;
   difficulty: string;
   excludedPhrases?: string[];
+  sourceMayBeMixed?: boolean;
 }): { systemPrompt: string; userPrompt: string } {
   return {
     systemPrompt: `Choose at most one useful, reusable expression from the finalized ${languageName(input.languageCode)} segments for a language learner.
 
-Prefer a natural multi-word expression, collocation, phrasal verb, or compact sentence pattern that transfers to other situations. A single content word is also allowed when it is especially useful and worth learning at the learner level (${input.difficulty}). Avoid function words, names, private details, entire long sentences, and expressions that are only useful in this one story. Never select an expression listed in <excluded_phrases_json>. If no different expression is genuinely worth learning, return <none/>.
+Prefer a natural multi-word expression, collocation, phrasal verb, or compact sentence pattern that transfers to other situations. A single content word is also allowed when it is especially useful and worth learning at the learner level (${input.difficulty}). Avoid function words, names, private details, entire long sentences, and expressions that are only useful in this one story. Never select an expression listed in <excluded_phrases_json>.${input.sourceMayBeMixed ? ` The source may mix languages. Select only contiguous ${languageName(input.languageCode)} text and never cross a language boundary.` : ""} If no different expression is genuinely worth learning, return <none/>.
 
 The phrase must be copied exactly and contiguously from one supplied segment, including capitalization and punctuation only when it belongs to the expression. Write one short ${languageName(input.appLocale)} meaning for the expression in this context. Also provide exactly two concise, plausible but incorrect alternatives for a one-question practice. Each alternative must fit naturally into the same position grammatically, must differ from the chosen phrase, and must not reproduce the sentence's original meaning.
 
