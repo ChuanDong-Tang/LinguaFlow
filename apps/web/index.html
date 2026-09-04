@@ -3384,6 +3384,10 @@
               ? "订阅首期"
               : row.recordType === "subscription_renewal"
                 ? "自动续费"
+                : row.recordType === "subscription_payment"
+                  ? "订阅扣款"
+                  : row.recordType === "one_time_purchase"
+                    ? "单次购买"
                 : "支付订单")}</td>
             <td>${statusPill(row.status)}</td>
             <td>${escapeHtml(row.productCode)}</td>
@@ -3391,7 +3395,7 @@
             <td class="mono">${escapeHtml(row.providerOrderId)}</td>
             <td>${escapeHtml(fmtDate(row.createdAt))}</td>
             <td class="inline-actions">
-              ${row.recordType !== "payment_order" ? "-" : `
+              ${row.canManageOrder !== true ? "-" : `
                 <button class="btn danger" data-order-op="refund" data-order-id="${escapeHtml(row.id)}">退款</button>
                 <button class="btn secondary" data-order-op="close" data-order-id="${escapeHtml(row.id)}">关单</button>
               `}

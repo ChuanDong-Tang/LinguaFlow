@@ -476,7 +476,11 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     ]);
 
     const records = [
-      ...orders.map((order) => ({ ...order, recordType: "payment_order" })),
+      ...orders.map((order) => ({
+        ...order,
+        recordType: classifyPaymentOrderRecordType(order),
+        canManageOrder: true,
+      })),
       ...alipayCharges,
     ]
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
@@ -2271,6 +2275,37 @@ function uniqueNonEmptyStrings(values: unknown[]): string[] {
         .filter(Boolean)
     )
   );
+}
+
+function classifyPaymentOrderRecordType(order: {
+  provider?: unknown;
+  providerOrderId?: unknown;
+  metadata?: unknown;
+}): "payment_order" | "one_time_purchase" | "subscription_initial" | "subscription_renewal" | "subscription_payment" {
+  const metadata = order.metadata && typeof order.metadata === "object" && !Array.isArray(order.metadata)
+    ? order.metadata as Record<string, unknown>
+    : {};
+  const appleIap = metadata.appleIap && typeof metadata.appleIap === "object" && !Array.isArray(metadata.appleIap)
+    ? metadata.appleIap as Record<string, unknown>
+    : null;
+
+  if (order.provider === "apple_iap" && appleIap) {
+    if (appleIap.purchaseKind === "single_purchase") return "one_time_purchase";
+    if (appleIap.purchaseKind === "auto_renew") {
+      const originalTransactionId = typeof appleIap.originalTransactionId === "string"
+        ? appleIap.originalTransactionId
+        : "";
+      const providerOrderId = typeof order.providerOrderId === "string" ? order.providerOrderId : "";
+      return originalTransactionId && originalTransactionId === providerOrderId
+        ? "subscription_initial"
+        : "subscription_renewal";
+    }
+  }
+
+  // Google Play subscription orders use a stable purchase token, so an individual
+  // payment-order row does not reliably reveal whether Google is reporting period 1 or a renewal.
+  if (order.provider === "google_play") return "subscription_payment";
+  return "payment_order";
 }
 
 function autoRenewMayChargeAgain(row: { status?: unknown; metadata?: unknown }): boolean {
