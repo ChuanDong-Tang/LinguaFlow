@@ -434,16 +434,50 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const status = typeof query.status === "string" ? query.status.trim() : "";
     const userId = typeof query.userId === "string" ? query.userId.trim() : "";
 
-    const orders = await deps.prisma.paymentOrder.findMany({
-      where: {
-        ...(status ? { status } : {}),
-        ...(userId ? { userId } : {}),
-      },
-      take: 100,
-      orderBy: { createdAt: "desc" },
-    });
+    const alipayChargeConditions = [`"provider" = 'alipay'`];
+    const alipayChargeValues: unknown[] = [];
+    if (status) {
+      alipayChargeValues.push(status);
+      alipayChargeConditions.push(`"status"::text = $${alipayChargeValues.length}`);
+    }
+    if (userId) {
+      alipayChargeValues.push(userId);
+      alipayChargeConditions.push(`"userId" = $${alipayChargeValues.length}`);
+    }
 
-    return reply.status(200).send({ ok: true, request_id: requestId, data: orders });
+    const [orders, alipayCharges] = await Promise.all([
+      deps.prisma.paymentOrder.findMany({
+        where: {
+          ...(status ? { status } : {}),
+          ...(userId ? { userId } : {}),
+        },
+        take: 100,
+        orderBy: { createdAt: "desc" },
+      }),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT
+           "id", "userId", "provider", "productCode", "status", "amount", "currency",
+           "providerChargeId", "autoRenewSubscriptionId", "paidAt", "createdAt",
+           COALESCE("rawPayload"->>'tradeNo', "providerChargeId") AS "providerOrderId"
+         FROM "auto_renew_charges"
+         WHERE ${alipayChargeConditions.join(" AND ")}
+         ORDER BY "createdAt" DESC
+         LIMIT 100`,
+        ...alipayChargeValues,
+      ),
+    ]);
+
+    const records = [
+      ...orders.map((order) => ({ ...order, recordType: "payment_order" })),
+      ...alipayCharges.map((charge) => ({
+        ...charge,
+        recordType: "auto_renew_charge",
+      })),
+    ]
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .slice(0, 100);
+
+    return reply.status(200).send({ ok: true, request_id: requestId, data: records });
   });
 
   app.get("/admin/users/:id/overview", async (req, reply) => {

@@ -1517,7 +1517,7 @@
               <div class="section-head">
                 <div>
                   <h2 class="section-title">支付订单</h2>
-                  <p class="section-subtitle">支持手动关单/退款，操作会写审计。</p>
+                  <p class="section-subtitle">汇总支付订单和支付宝续费扣款；支付订单支持手动关单/退款，操作会写审计。</p>
                 </div>
               </div>
               <div class="form-row">
@@ -1545,6 +1545,8 @@
                     <tr>
                       <th>ID</th>
                       <th>用户</th>
+                      <th>渠道</th>
+                      <th>类型</th>
                       <th>状态</th>
                       <th>产品</th>
                       <th>金额</th>
@@ -3377,17 +3379,21 @@
           <tr>
             <td class="mono">${escapeHtml(row.id)}</td>
             <td class="mono">${escapeHtml(row.userId)}</td>
+            <td>${escapeHtml(paymentProviderLabel(row.provider))}</td>
+            <td>${escapeHtml(row.recordType === "auto_renew_charge" ? "续费扣款" : "支付订单")}</td>
             <td>${statusPill(row.status)}</td>
             <td>${escapeHtml(row.productCode)}</td>
             <td>${escapeHtml(row.amount)} ${escapeHtml(row.currency)}</td>
             <td class="mono">${escapeHtml(row.providerOrderId)}</td>
             <td>${escapeHtml(fmtDate(row.createdAt))}</td>
             <td class="inline-actions">
-              <button class="btn danger" data-order-op="refund" data-order-id="${escapeHtml(row.id)}">退款</button>
-              <button class="btn secondary" data-order-op="close" data-order-id="${escapeHtml(row.id)}">关单</button>
+              ${row.recordType === "auto_renew_charge" ? "-" : `
+                <button class="btn danger" data-order-op="refund" data-order-id="${escapeHtml(row.id)}">退款</button>
+                <button class="btn secondary" data-order-op="close" data-order-id="${escapeHtml(row.id)}">关单</button>
+              `}
             </td>
           </tr>
-        `).join("") || rowEmpty(8);
+        `).join("") || rowEmpty(10);
         setStatus(`订单查询完成：${state.orders.length} 条`);
       }
 
