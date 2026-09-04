@@ -3380,14 +3380,18 @@
             <td class="mono">${escapeHtml(row.id)}</td>
             <td class="mono">${escapeHtml(row.userId)}</td>
             <td>${escapeHtml(paymentProviderLabel(row.provider))}</td>
-            <td>${escapeHtml(row.recordType === "auto_renew_charge" ? "续费扣款" : "支付订单")}</td>
+            <td>${escapeHtml(row.recordType === "subscription_initial"
+              ? "订阅首期"
+              : row.recordType === "subscription_renewal"
+                ? "自动续费"
+                : "支付订单")}</td>
             <td>${statusPill(row.status)}</td>
             <td>${escapeHtml(row.productCode)}</td>
             <td>${escapeHtml(row.amount)} ${escapeHtml(row.currency)}</td>
             <td class="mono">${escapeHtml(row.providerOrderId)}</td>
             <td>${escapeHtml(fmtDate(row.createdAt))}</td>
             <td class="inline-actions">
-              ${row.recordType === "auto_renew_charge" ? "-" : `
+              ${row.recordType !== "payment_order" ? "-" : `
                 <button class="btn danger" data-order-op="refund" data-order-id="${escapeHtml(row.id)}">退款</button>
                 <button class="btn secondary" data-order-op="close" data-order-id="${escapeHtml(row.id)}">关单</button>
               `}

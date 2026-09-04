@@ -456,12 +456,20 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       }),
       deps.prisma.$queryRawUnsafe(
         `SELECT
-           "id", "userId", "provider", "productCode", "status", "amount", "currency",
-           "providerChargeId", "autoRenewSubscriptionId", "paidAt", "createdAt",
-           COALESCE("rawPayload"->>'tradeNo', "providerChargeId") AS "providerOrderId"
-         FROM "auto_renew_charges"
+           charge."id", charge."userId", charge."provider", charge."productCode", charge."status",
+           charge."amount", charge."currency", charge."providerChargeId",
+           charge."autoRenewSubscriptionId", charge."paidAt", charge."createdAt",
+           COALESCE(charge."rawPayload"->>'tradeNo', charge."providerChargeId") AS "providerOrderId",
+           CASE WHEN EXISTS (
+             SELECT 1
+             FROM "auto_renew_charges" earlier
+             WHERE earlier."autoRenewSubscriptionId" = charge."autoRenewSubscriptionId"
+               AND earlier."status" = 'paid'
+               AND earlier."createdAt" < charge."createdAt"
+           ) THEN 'subscription_renewal' ELSE 'subscription_initial' END AS "recordType"
+         FROM "auto_renew_charges" charge
          WHERE ${alipayChargeConditions.join(" AND ")}
-         ORDER BY "createdAt" DESC
+         ORDER BY charge."createdAt" DESC
          LIMIT 100`,
         ...alipayChargeValues,
       ),
@@ -469,10 +477,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
 
     const records = [
       ...orders.map((order) => ({ ...order, recordType: "payment_order" })),
-      ...alipayCharges.map((charge) => ({
-        ...charge,
-        recordType: "auto_renew_charge",
-      })),
+      ...alipayCharges,
     ]
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
       .slice(0, 100);
