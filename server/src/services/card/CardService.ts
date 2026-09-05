@@ -1469,7 +1469,7 @@ export class CardService {
       throw new CardNotFoundError();
     }
     if (entry.images.some((image) => image.descriptionStatus !== "completed")) {
-      await this.repository.enqueueImageDescriptionJobs(entry.id, userId, 100).catch(() => undefined);
+      await this.repository.enqueueImageDescriptionJobs(entry.id, userId, 200).catch(() => undefined);
     }
     if (!contentSegmentsUseCurrentVersion(entry)) {
       const cardLanguageCode = entry.languageCode;

@@ -2011,7 +2011,7 @@ async function enqueueImageDescriptionGeneration(
   });
   if (!image?.fileMd5) return;
   const inputVersion = cardImageDescriptionInputVersion({ sourceHash: image.fileMd5 });
-  await tx.cardEnrichmentJob.upsert({
+  const job = await tx.cardEnrichmentJob.upsert({
     where: { userId_sourceKind_sourceId_jobType_inputVersion: {
       userId, sourceKind: CARD_IMAGE_DESCRIPTION_SOURCE_KIND, sourceId: imageId,
       jobType: CARD_IMAGE_DESCRIPTION_JOB_TYPE, inputVersion,
@@ -2028,6 +2028,27 @@ async function enqueueImageDescriptionGeneration(
       },
     },
     update: { priority, availableAt: new Date() },
+  });
+  // Opening a Card is an explicit foreground signal. A prior failed or
+  // cancelled background job must become eligible again, while an in-flight
+  // job is left alone to avoid duplicate AI calls.
+  await tx.cardEnrichmentJob.updateMany({
+    where: {
+      id: job.id,
+      status: { in: ["queued", "failed", "cancelled", "completed"] },
+    },
+    data: {
+      status: "queued",
+      priority,
+      availableAt: new Date(),
+      attempts: 0,
+      processingAt: null,
+      leaseExpiresAt: null,
+      workerId: null,
+      lastError: null,
+      completedAt: null,
+      failedAt: null,
+    },
   });
 }
 

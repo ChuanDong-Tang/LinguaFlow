@@ -176,7 +176,6 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   const [clozeState, setClozeState] = useState<CardClozeState>({ schemaVersion: 1, blanks: [] });
   const [clozeVersion, setClozeVersion] = useState(0);
   const [clozeOwnerKey, setClozeOwnerKey] = useState<string | null>(null);
-  const [selectedLearningContentType, setSelectedLearningContentType] = useState<CardLearningContentType | null>(null);
   const clozeStateCacheRef = useRef(new Map<string, { state: CardClozeState; version: number }>());
   const [hasProAccess, setHasProAccess] = useState<boolean | null>(null);
   const [clozeTipVisible, setClozeTipVisible] = useState(false);
@@ -249,8 +248,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     ?? contentBlocks.find((block) => block.contentType === "original")
     ?? contentBlocks[0]
     ?? null;
-  const activeBlock = contentBlocks.find((block) => block.contentType === selectedLearningContentType)
-    ?? defaultBlock;
+  const activeBlock = defaultBlock;
   const contentBinding = activeBlock ? { contentType: activeBlock.contentType, contentVersion: activeBlock.contentVersion } : null;
   const activeClozeOwnerKey = detail && activeBlock ? `${detail.id}:${activeBlock.contentType}:${activeBlock.contentVersion}` : null;
   const cachedActiveCloze = activeClozeOwnerKey ? clozeStateCacheRef.current.get(activeClozeOwnerKey) : undefined;
@@ -313,7 +311,6 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     if (detail) {
       setEditing(initialEditing);
       setTab(initialTab === "cloze" ? "review" : initialTab);
-      setSelectedLearningContentType(null);
     }
   }, [detail?.id, initialEditing, initialTab]);
   useEffect(() => {
@@ -479,7 +476,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         </View>
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onSelectLearningContent={setSelectedLearningContentType} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
@@ -1749,7 +1746,7 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onSelectLearningContent, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
@@ -1759,7 +1756,6 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   clozeState: CardClozeState;
   clozeVersion: number;
   onClozeChange: (state: CardClozeState, version: number) => void;
-  onSelectLearningContent?: (contentType: CardLearningContentType | null) => void;
   onRemoveImage?: (imageId?: string) => void;
   onCoverPositionChange?: (imageId: string, focusX: number, focusY: number) => Promise<void>;
   relations: Array<{ recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] }>;
@@ -1794,6 +1790,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const currentImageBlock = currentImageContentType
     ? detail.contentBlocks.find((block) => block.contentType === currentImageContentType)
     : null;
+  const currentImageIsLearningContent = currentImageContentType === contentBinding.contentType;
   const currentImageAuxiliary = new Map((currentImage?.descriptionAuxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const blankCount = clozeState.blanks.length;
   const [savingCloze, setSavingCloze] = useState(false);
@@ -1818,7 +1815,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   const flipProgress = useRef(new Animated.Value(0)).current;
   const flipAnimatingRef = useRef(false);
   const [answersVisible, setAnswersVisible] = useState(false);
-  const [collapsedSections, setCollapsedSections] = useState<Record<"learning" | "reply" | "original" | "translation", boolean>>({ learning: false, reply: false, original: false, translation: false });
+  const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "original" | "translation", boolean>>({ imageDescription: false, learning: false, reply: false, original: false, translation: false });
   const [articleAudioLoading, setArticleAudioLoading] = useState(false);
   const [sentenceAudioLoadingKey, setSentenceAudioLoadingKey] = useState<string | null>(null);
   const { showNotice } = useFloatingNotice();
@@ -1874,25 +1871,10 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     candidate.contentType === contentBinding.contentType
     && candidate.contentVersion === contentBinding.contentVersion,
   )?.text ?? (contentBinding.contentType === "original" ? detail.originalText : detail.rewrittenText || detail.originalText);
-  const boundImage = contentBinding.contentType.startsWith("image:")
-    ? images.find((image) => `image:${image.id}` === contentBinding.contentType)
-    : null;
-  const activeImageDescriptionPending = Boolean(boundImage && !learningText.trim() && (
-    pendingGenerationTargets.includes("image_description")
-    || boundImage.descriptionStatus === "pending"
-    || boundImage.descriptionStatus === "auxiliary_pending"
-  ));
-  const activeImageDescriptionFailed = Boolean(boundImage && !learningText.trim() && !activeImageDescriptionPending);
-  const activeImageAuxiliaryPending = Boolean(boundImage && learningText.trim() && (
-    pendingGenerationTargets.includes("image_description") || boundImage.descriptionStatus === "auxiliary_pending"
-  ));
-  const activeImageAuxiliaryFailed = Boolean(boundImage && learningText.trim() && boundImage.descriptionStatus === "failed");
-  const auxiliaryMissing = (contentBinding.contentType === "rewrite" || contentBinding.contentType.startsWith("image:"))
+  const auxiliaryMissing = contentBinding.contentType === "rewrite"
     && Boolean(learningText.trim())
     && detail.auxiliarySegments !== undefined
-    && !detail.auxiliarySegments?.length
-    && !activeImageAuxiliaryPending
-    && !activeImageAuxiliaryFailed;
+    && !detail.auxiliarySegments?.length;
   const rewriteIsPrimary = contentBinding.contentType === "rewrite" || expressionPending || expressionFailed;
   const rewriteIsReady = contentBinding.contentType === "rewrite";
   const frontLearningReady = rewriteIsReady || !rewriteIsPrimary;
@@ -2665,16 +2647,12 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
           </View>
           <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
           <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onIndexChange={setImageIndex} />
-          {currentImage && currentImageContentType !== contentBinding.contentType ? <View style={styles.imageDescriptionSection}>
+          {currentImage ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} style={styles.imageDescriptionSection} onLayout={currentImageIsLearningContent ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
+            <CollapsibleCardSection label={t("card_detail.image_description")} tone="image" collapsed={collapsedSections.imageDescription} onToggle={() => toggleSection("imageDescription")} compact>
             {currentImageBlock && currentImage.descriptionText ? <>
-              <View style={styles.imageDescriptionHeader}>
-                <Text style={styles.sectionLabelInline}>{t("card_detail.image_description")}</Text>
-                {onSelectLearningContent ? <Pressable hitSlop={8} style={styles.imageDescriptionLearnAction} onPress={() => onSelectLearningContent(currentImageContentType)}>
-                  <Text style={styles.imageDescriptionLearnActionText}>{t("card_detail.image_description.learn")}</Text>
-                  <Ionicons name="chevron-forward" size={14} color={theme.colors.accentStrong} />
-                </Pressable> : null}
-              </View>
-              {currentImageBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
+              {currentImageIsLearningContent
+                ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
+                : currentImageBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
                 <View style={styles.imageDescriptionSentenceBody}>
                   <Text selectable style={styles.rewrite}>{segment.text}</Text>
                   {currentImageAuxiliary.get(segment.ordinal) ? <Text selectable style={styles.auxiliarySentence}>{currentImageAuxiliary.get(segment.ordinal)}</Text> : null}
@@ -2686,38 +2664,29 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
                 </Pressable>
               </View>)}
               {pendingGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "auxiliary_pending"
-                ? <PendingGenerationSection target="image_description" />
+                ? <PendingGenerationSection target="image_description" showLabel={false} />
                 : currentImage.descriptionStatus === "failed"
-                  ? <FailedGenerationSection target="image_description" retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
+                  ? <FailedGenerationSection target="image_description" showLabel={false} retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
                   : null}
             </> : pendingGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "pending" || currentImage.descriptionStatus === "auxiliary_pending"
-              ? <PendingGenerationSection target="image_description" />
+              ? <PendingGenerationSection target="image_description" showLabel={false} />
               : failedGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "failed" || currentImage.descriptionStatus === "not_requested"
-                ? <FailedGenerationSection target="image_description" retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
+                ? <FailedGenerationSection target="image_description" showLabel={false} retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
                 : null}
+            </CollapsibleCardSection>
           </View> : null}
-          {contentBinding.contentType.startsWith("image:") && detail.contentBlocks.some((block) => block.contentType === "rewrite" || block.contentType === "original") && onSelectLearningContent ? <Pressable hitSlop={8} style={styles.imageDescriptionBackAction} onPress={() => onSelectLearningContent(null)}>
-            <Ionicons name="chevron-back" size={14} color={theme.colors.accentStrong} />
-            <Text style={styles.imageDescriptionLearnActionText}>{t("card_detail.image_description.back")}</Text>
-          </Pressable> : null}
-          <View ref={learningTargetRef} style={styles.flipCardTextBlock} onLayout={(event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; }}>
-            {frontLearningReady ? <CollapsibleCardSection label={contentBinding.contentType.startsWith("image:") ? t("card_detail.image_description") : rewriteIsReady ? t("card_detail.module.expression_description") : t("card_detail.my_record")} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
-                {activeImageDescriptionPending
-                  ? <PendingGenerationSection target="image_description" />
-                  : activeImageDescriptionFailed
-                    ? <FailedGenerationSection target="image_description" retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
-                    : practiceEnabled
+          {!contentBinding.contentType.startsWith("image:") ? <View ref={learningTargetRef} style={styles.flipCardTextBlock} onLayout={(event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; }}>
+            {frontLearningReady ? <CollapsibleCardSection label={rewriteIsReady ? t("card_detail.module.expression_description") : t("card_detail.my_record")} tone={rewriteIsReady ? "rewrite" : "default"} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
+                {practiceEnabled
                       ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                       : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
                 {auxiliaryMissing ? <FailedGenerationSection target="auxiliary" retrying={retryingGenerationTarget === "auxiliary"} onRetry={onRetryGeneration} /> : null}
-                {activeImageAuxiliaryPending ? <PendingGenerationSection target="image_description" /> : null}
-                {activeImageAuxiliaryFailed ? <FailedGenerationSection target="image_description" retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} /> : null}
                 {learningText.trim() ? <CardSectionCopyButton onPress={() => void copySection(learningText)} /> : null}
               </CollapsibleCardSection>
               : expressionPending
                 ? <PendingGenerationSection target="expression" />
                 : <FailedGenerationSection target="expression" retrying={retryingGenerationTarget === "expression"} onRetry={onRetryGeneration} />}
-          </View>
+          </View> : null}
           {detail.replyText ? <CollapsibleCardSection label={t("card_detail.reply")} collapsed={collapsedSections.reply} onToggle={() => toggleSection("reply")}>
             <View style={styles.replyContentRow}>
               <View style={styles.replyTextContent}>
@@ -2863,17 +2832,23 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   );
 }
 
-function CollapsibleCardSection({ label, collapsed, onToggle, compact = false, children }: { label: string; collapsed: boolean; onToggle: () => void; compact?: boolean; children: React.ReactNode }) {
+function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, compact = false, children }: { label: string; tone?: "default" | "image" | "rewrite"; collapsed: boolean; onToggle: () => void; compact?: boolean; children: React.ReactNode }) {
+  const labelStyle = tone === "image"
+    ? styles.imageDescriptionSectionLabel
+    : tone === "rewrite"
+      ? styles.rewriteSectionLabel
+      : undefined;
+  const iconColor = tone === "image" ? "#6F73A6" : tone === "rewrite" ? "#4E7B65" : theme.colors.textMuted;
   return <View style={!compact ? styles.flipCardSection : undefined}>
     <Pressable accessibilityRole="button" accessibilityState={{ expanded: !collapsed }} style={styles.collapsibleSectionHeader} onPress={onToggle}>
-      <Text style={styles.sectionLabelInline}>{label}</Text>
-      <Ionicons name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={theme.colors.textMuted} />
+      <Text style={[styles.sectionLabelInline, labelStyle]}>{label}</Text>
+      <Ionicons name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={iconColor} />
     </Pressable>
     {!collapsed ? children : null}
   </View>;
 }
 
-function PendingGenerationSection({ target }: { target: CardGenerationTarget }) {
+function PendingGenerationSection({ target, showLabel = true }: { target: CardGenerationTarget; showLabel?: boolean }) {
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const animation = Animated.loop(Animated.timing(progress, { toValue: 1, duration: 1050, easing: Easing.linear, useNativeDriver: true }));
@@ -2881,8 +2856,8 @@ function PendingGenerationSection({ target }: { target: CardGenerationTarget }) 
     return () => animation.stop();
   }, [progress]);
   const label = generationTargetLabel(target);
-  return <View style={styles.pendingGenerationSection}>
-    <Text style={styles.sectionLabelInline}>{label}</Text>
+  return <View style={[styles.pendingGenerationSection, !showLabel && styles.nestedGenerationSection]}>
+    {showLabel ? <Text style={styles.sectionLabelInline}>{label}</Text> : null}
     <View style={styles.generatingDots}>{[0, 1, 2].map((index) => <Animated.View key={index} style={[styles.generatingDot, { opacity: progress.interpolate({ inputRange: [0, .33, .66, 1], outputRange: index === 0 ? [.25, 1, .25, .25] : index === 1 ? [.25, .25, 1, .25] : [.25, .25, .25, 1] }) }]} />)}</View>
   </View>;
 }
@@ -2899,15 +2874,16 @@ function generationTargetLabel(target: CardGenerationTarget): string {
       : t("card_detail.module.expression_description");
 }
 
-function FailedGenerationSection({ target, retrying, onRetry }: {
+function FailedGenerationSection({ target, showLabel = true, retrying, onRetry }: {
   target: CardGenerationTarget;
+  showLabel?: boolean;
   retrying: boolean;
   onRetry?: (target: CardGenerationTarget) => void;
 }) {
   const label = generationTargetLabel(target);
-  return <View style={styles.failedGenerationSection}>
+  return <View style={[styles.failedGenerationSection, !showLabel && styles.nestedGenerationSection]}>
     <View style={styles.failedGenerationCopy}>
-      <Text style={styles.sectionLabelInline}>{label}</Text>
+      {showLabel ? <Text style={styles.sectionLabelInline}>{label}</Text> : null}
       <Text style={styles.failedGenerationText}>{t("card_detail.not_generated")}</Text>
     </View>
     <Pressable disabled={retrying} style={styles.failedGenerationRetry} onPress={() => onRetry?.(target)}>
@@ -3697,6 +3673,7 @@ const styles = StyleSheet.create({
   generatingDots: { height: 18, flexDirection: "row", alignItems: "center", gap: 5 },
   generatingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.textSecondary },
   failedGenerationSection: { minHeight: 64, marginTop: 24, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  nestedGenerationSection: { minHeight: 52, marginTop: 4, paddingTop: 0, borderTopWidth: 0 },
   failedGenerationCopy: { gap: 5 },
   failedGenerationText: { color: theme.colors.textMuted, fontSize: 14 },
   failedGenerationRetry: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
@@ -3859,11 +3836,9 @@ const styles = StyleSheet.create({
   clozeFlow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
   clozeSentence: { color: theme.colors.text, fontSize: 17, lineHeight: 28 },
   auxiliarySentence: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 25 },
-  imageDescriptionSection: { marginTop: 12, paddingHorizontal: 2, gap: 7 },
-  imageDescriptionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  imageDescriptionLearnAction: { minHeight: 28, flexDirection: "row", alignItems: "center", gap: 2, paddingLeft: 8 },
-  imageDescriptionBackAction: { alignSelf: "flex-start", minHeight: 30, marginTop: 10, flexDirection: "row", alignItems: "center", gap: 2 },
-  imageDescriptionLearnActionText: { color: theme.colors.accentStrong, fontSize: 13, fontWeight: "500" },
+  imageDescriptionSection: { marginTop: 12, marginBottom: 18, paddingHorizontal: 2, paddingBottom: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, gap: 7 },
+  imageDescriptionSectionLabel: { color: "#6F73A6" },
+  rewriteSectionLabel: { color: "#4E7B65" },
   imageDescriptionSentenceRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   imageDescriptionSentenceBody: { flex: 1 },
   cardBlankInput: { height: 28, paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, borderBottomWidth: 0, backgroundColor: "transparent", color: "transparent", fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", textAlignVertical: "center", includeFontPadding: false },
