@@ -22,23 +22,13 @@ export async function prepareCardDraftImage(input: { uri: string; width: number;
     [],
     { compress: 0.94, format: ImageManipulator.SaveFormat.JPEG },
   );
-  const targetRatio = normalized.width >= normalized.height ? 3 / 2 : 4 / 5;
-  const currentRatio = normalized.width / normalized.height;
-  const cropWidth = currentRatio > targetRatio ? Math.round(normalized.height * targetRatio) : normalized.width;
-  const cropHeight = currentRatio > targetRatio ? normalized.height : Math.round(normalized.width / targetRatio);
-  const longEdge = Math.max(cropWidth, cropHeight);
+  // Keep the complete source for full-screen viewing and image understanding.
+  // Card thumbnails apply their own non-destructive cover crop on the server.
+  const longEdge = Math.max(normalized.width, normalized.height);
   const scale = longEdge > 2048 ? 2048 / longEdge : 1;
   const manipulated = await ImageManipulator.manipulateAsync(
     normalized.uri,
-    [
-      { crop: {
-        originX: Math.max(0, Math.floor((normalized.width - cropWidth) / 2)),
-        originY: Math.max(0, Math.floor((normalized.height - cropHeight) / 2)),
-        width: cropWidth,
-        height: cropHeight,
-      } },
-      ...(scale < 1 ? [{ resize: { width: Math.round(cropWidth * scale), height: Math.round(cropHeight * scale) } } as const] : []),
-    ],
+    scale < 1 ? [{ resize: { width: Math.round(normalized.width * scale), height: Math.round(normalized.height * scale) } }] : [],
     { compress: 0.86, format: ImageManipulator.SaveFormat.JPEG },
   );
   const directory = new Directory(Paths.document, "card-drafts");
@@ -79,20 +69,35 @@ export async function uploadCardDraftImage(
   const session = await createCardImageUpload({ mimeType: image.mimeType, fileSize: image.fileSize, width: image.width, height: image.height });
   current = { ...current, uploadId: session.uploadId };
   onState(current);
-  const response = await fetchWithTimeout(session.uploadUrl, {
-    method: "PUT",
-    headers: session.headers,
-    body: await (await fetchWithTimeout(image.localUri)).blob(),
-  });
-  if (!response.ok) throw new Error(`图片上传失败 (${response.status})`);
-  current = { ...current, status: "moderating" };
-  onState(current);
-  const completed = await completeCardImageUpload(session.uploadId);
-  if (completed.status !== "approved" && completed.status !== "approved_with_review") {
-    if (completed.status === "rejected") throw new CardImageModerationRejectedError();
-    throw new Error("图片暂时无法审核");
+  try {
+    const response = await fetchWithTimeout(session.uploadUrl, {
+      method: "PUT",
+      headers: session.headers,
+      body: await (await fetchWithTimeout(image.localUri)).blob(),
+    });
+    if (!response.ok) throw new Error(`图片上传失败 (${response.status})`);
+    current = { ...current, status: "moderating" };
+    onState(current);
+    const completed = await completeCardImageUpload(session.uploadId);
+    if (completed.status !== "approved" && completed.status !== "approved_with_review") {
+      if (completed.status === "rejected") throw new CardImageModerationRejectedError();
+      throw new Error("图片暂时无法审核");
+    }
+    return { ...current, status: "ready" };
+  } catch (error) {
+    // The upload/complete response can be lost after the server has already
+    // approved the asset. Reconcile once before showing a false failure.
+    try {
+      const remote = await getCardImageUpload(session.uploadId);
+      if (remote.status === "approved" || remote.status === "approved_with_review") {
+        return { ...current, status: "ready" };
+      }
+      if (remote.status === "rejected") throw new CardImageModerationRejectedError();
+    } catch (reconcileError) {
+      if (reconcileError instanceof CardImageModerationRejectedError) throw reconcileError;
+    }
+    throw error;
   }
-  return { ...current, status: "ready" };
 }
 
 export function removePersistentDraftImage(uri: string): void {

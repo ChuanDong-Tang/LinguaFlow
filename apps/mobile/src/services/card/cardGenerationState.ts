@@ -8,7 +8,7 @@ export type CardGenerationState = {
   failedTargets: CardGenerationTarget[];
 };
 
-const VALID_TARGETS = new Set<CardGenerationTarget>(["expression", "translation", "auxiliary", "reply"]);
+const VALID_TARGETS = new Set<CardGenerationTarget>(["expression", "translation", "auxiliary", "reply", "image_description"]);
 let queue: Promise<void> = Promise.resolve();
 const activeRecordIds = new Set<string>();
 const listeners = new Set<(recordId: string, state: CardGenerationState | null) => void>();

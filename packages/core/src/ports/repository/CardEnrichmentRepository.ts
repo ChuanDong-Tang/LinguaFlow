@@ -7,6 +7,7 @@ export interface CardEnrichmentJobEntity {
   sourceId: string;
   jobType: string;
   attempts: number;
+  priority: number;
   inputHash: string;
   inputVersion: string;
   workerId: string | null;
@@ -97,6 +98,17 @@ export interface ProgressPhraseDetectionResult {
 }
 
 export interface CardEnrichmentRepository {
+  enqueueMissingImageDescriptionJobs(input: {
+    limit: number;
+    maxOutstanding: number;
+    createdBefore: Date;
+    promptVersion: string;
+    resultVersion: string;
+    refreshOutdated: boolean;
+  }): Promise<number>;
+  cancelObsoleteImageDescriptionJobs(currentInputVersionPrefix: string, reason: string): Promise<number>;
+  claimNextImageDescriptionJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  loadImageDescriptionSource(job: CardEnrichmentJobEntity): Promise<{ cardId: string; imageId: string; forceRegenerate: boolean } | null>;
   enqueueMissingAuxiliaryJobs(limit: number, createdBefore: Date): Promise<number>;
   claimNextAuxiliaryJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadAuxiliarySource(job: CardEnrichmentJobEntity): Promise<CardAuxiliarySource | null>;

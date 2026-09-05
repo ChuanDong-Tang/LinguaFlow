@@ -1,11 +1,12 @@
 import {
   generateCardContent,
+  generateCardImageDescriptions,
   getCardRecord,
   CardApiError,
   type CardRecordDetail,
 } from "../api/cardApi";
 
-export type CardGenerationTarget = "expression" | "translation" | "auxiliary" | "reply";
+export type CardGenerationTarget = "expression" | "translation" | "auxiliary" | "reply" | "image_description";
 
 export async function generateMissingCardContent(
   initialDetail: CardRecordDetail,
@@ -19,7 +20,9 @@ export async function generateMissingCardContent(
     const target = targets[index]!;
     if (hasGeneratedContent(detail, target)) continue;
     try {
-      detail = await generateCardContent(detail.id, target);
+      detail = target === "image_description"
+        ? await generateCardImageDescriptions(detail.id)
+        : await generateCardContent(detail.id, target);
     } catch (error) {
       failedTargets.push(target);
       const limited = isCardResourceLimitedError(error);
@@ -61,5 +64,7 @@ export function hasGeneratedContent(detail: CardRecordDetail, target: CardGenera
   if (target === "expression") return Boolean(detail.rewrittenText?.trim());
   if (target === "translation") return Boolean(detail.translationText?.trim());
   if (target === "auxiliary") return Boolean(detail.auxiliarySegments?.length);
+  if (target === "image_description") return Boolean(detail.images?.length)
+    && detail.images!.every((image) => image.descriptionStatus === "completed" && Boolean(image.descriptionText?.trim()));
   return Boolean(detail.replyText?.trim());
 }

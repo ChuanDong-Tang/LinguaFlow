@@ -20,6 +20,14 @@ import { countGraphemes } from "@lf/core/text/grapheme.js";
 import { countCardCharacters } from "@lf/core/text/cardText.js";
 import { isTargetLanguageCode, type TargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 import { CARD_TOPIC_PROMPT_VERSION } from "@lf/core/Prompts/cardTopicPrompt.js";
+import {
+  CARD_IMAGE_DESCRIPTION_JOB_TYPE,
+  CARD_IMAGE_DESCRIPTION_PAYLOAD_SCHEMA_VERSION,
+  CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
+  CARD_IMAGE_DESCRIPTION_RESULT_VERSION,
+  CARD_IMAGE_DESCRIPTION_SOURCE_KIND,
+  cardImageDescriptionInputVersion,
+} from "@lf/core/Prompts/cardImageDescriptionPrompt.js";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 
@@ -312,7 +320,6 @@ export class PrismaCardRepository implements CardRepository {
           data: { entryId: row.id, claimedAt: new Date() },
         });
         if (claimed.count !== 1) throw new Error("CARD_IMAGE_NOT_READY");
-
         // `row` was loaded before the image was claimed, so its included image
         // relation is stale. Reload it so the create response can already carry
         // the thumbnail while the rewrite task is still queued/processing.
@@ -400,6 +407,7 @@ export class PrismaCardRepository implements CardRepository {
           data: { entryId: row.id, ordinal, claimedAt: new Date() },
         });
         if (claimed.count !== 1) throw new Error("CARD_IMAGE_NOT_READY");
+        await enqueueImageDescriptionGeneration(tx, input.userId, row.id, imageUploadId, 100);
       }
       const created = await tx.card.findFirst({ where: { id: row.id }, include: includeSegments });
       if (!created) throw new Error("CARD_ENTRY_NOT_FOUND_AFTER_CREATE");
@@ -559,6 +567,210 @@ export class PrismaCardRepository implements CardRepository {
     return updated ? toEntry(updated) : null;
   }
 
+  async markImageDescriptionsPending(entryId: string, userId: string, imageIds: string[]): Promise<CardEntryEntity | null> {
+    if (!imageIds.length) return this.findByIdForUser(entryId, userId);
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize description claims for a Card across API instances/devices.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${entryId}, 0))`;
+      const staleBefore = new Date(Date.now() - 15 * 60 * 1_000);
+      const claimableStatus = {
+        OR: [
+          { descriptionStatus: { notIn: ["pending", "auxiliary_pending"] } },
+          { descriptionStatus: { in: ["pending", "auxiliary_pending"] }, descriptionUpdatedAt: { lt: staleBefore } },
+          { descriptionStatus: { in: ["pending", "auxiliary_pending"] }, descriptionUpdatedAt: null },
+        ],
+      };
+      const activeOtherDescription = await tx.cardImageAsset.count({
+        where: {
+          entryId,
+          userId,
+          id: { notIn: imageIds },
+          descriptionStatus: { in: ["pending", "auxiliary_pending"] },
+          descriptionUpdatedAt: { gte: staleBefore },
+        },
+      });
+      if (activeOtherDescription > 0) return null;
+      const claimable = await tx.cardImageAsset.count({
+        where: {
+          id: { in: imageIds },
+          entryId,
+          userId,
+          ...claimableStatus,
+        },
+      });
+      if (claimable !== imageIds.length) return null;
+      const changed = await tx.cardImageAsset.updateMany({
+        where: { id: { in: imageIds }, entryId, userId, ...claimableStatus },
+        data: { descriptionStatus: "pending", descriptionError: null, descriptionUpdatedAt: new Date() },
+      });
+      if (changed.count !== imageIds.length) return null;
+      const updated = await tx.card.findFirst({ where: { id: entryId }, include: includeSegments });
+      return updated ? toEntry(updated) : null;
+    });
+  }
+
+  async saveImageDescriptionTexts(input: {
+    entryId: string;
+    userId: string;
+    descriptions: Array<{
+      imageId: string;
+      text: string;
+      languageCode: string;
+      sourceHash: string;
+      promptVersion: string;
+      resultVersion: string;
+    }>;
+    contentSegments: CardContentSegmentWrite[];
+  }): Promise<CardEntryEntity | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.card.findFirst({
+        where: { id: input.entryId, userId: input.userId, status: "completed", deletedAt: null },
+        select: { id: true },
+      });
+      if (!entry) return null;
+      for (const description of input.descriptions) {
+        const changed = await tx.cardImageAsset.updateMany({
+          where: { id: description.imageId, entryId: input.entryId, userId: input.userId, descriptionStatus: "pending" },
+          data: {
+            descriptionText: description.text,
+            descriptionLanguageCode: description.languageCode,
+            descriptionSourceHash: description.sourceHash,
+            descriptionPromptVersion: description.promptVersion,
+            descriptionResultVersion: description.resultVersion,
+            descriptionStatus: "auxiliary_pending",
+            descriptionError: null,
+            descriptionUpdatedAt: new Date(),
+          },
+        });
+        if (changed.count !== 1) return null;
+      }
+      const imageContentTypes = new Set(input.descriptions.map((description) => `image:${description.imageId}`));
+      await syncContentSegments(
+        tx,
+        input.entryId,
+        input.contentSegments.filter((write) => imageContentTypes.has(write.contentType)),
+        false,
+      );
+      const updated = await tx.card.findFirst({ where: { id: input.entryId }, include: includeSegments });
+      return updated ? toEntry(updated) : null;
+    });
+  }
+
+  async saveImageDescriptions(input: {
+    entryId: string;
+    userId: string;
+    descriptions: Array<{
+      imageId: string;
+      text: string;
+      languageCode: string;
+      sourceHash: string;
+      promptVersion: string;
+      resultVersion: string;
+      auxiliarySegments: Array<{ ordinal: number; text: string }>;
+      auxiliaryLanguageCode: string;
+      auxiliaryPromptVersion: string;
+    }>;
+    contentSegments: CardContentSegmentWrite[];
+  }): Promise<CardEntryEntity | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.card.findFirst({
+        where: { id: input.entryId, userId: input.userId, status: "completed", deletedAt: null },
+        select: { id: true },
+      });
+      if (!entry) return null;
+      for (const description of input.descriptions) {
+        const changed = await tx.cardImageAsset.updateMany({
+          where: {
+            id: description.imageId,
+            entryId: input.entryId,
+            userId: input.userId,
+            descriptionStatus: { in: ["pending", "auxiliary_pending"] },
+          },
+          data: {
+            descriptionText: description.text,
+            descriptionLanguageCode: description.languageCode,
+            descriptionSourceHash: description.sourceHash,
+            descriptionPromptVersion: description.promptVersion,
+            descriptionResultVersion: description.resultVersion,
+            descriptionAuxiliarySegments: description.auxiliarySegments,
+            descriptionAuxiliaryLanguageCode: description.auxiliaryLanguageCode,
+            descriptionAuxiliaryPromptVersion: description.auxiliaryPromptVersion,
+            descriptionStatus: "completed",
+            descriptionError: null,
+            descriptionUpdatedAt: new Date(),
+          },
+        });
+        if (changed.count !== 1) return null;
+        await tx.cardEnrichmentJob.updateMany({
+          where: {
+            userId: input.userId,
+            sourceKind: CARD_IMAGE_DESCRIPTION_SOURCE_KIND,
+            sourceId: description.imageId,
+            jobType: CARD_IMAGE_DESCRIPTION_JOB_TYPE,
+            inputHash: description.sourceHash,
+            inputVersion: cardImageDescriptionInputVersion({ sourceHash: description.sourceHash }),
+            status: "queued",
+          },
+          data: { status: "completed", completedAt: new Date(), lastError: null },
+        });
+      }
+      const imageContentTypes = new Set(input.descriptions.map((description) => `image:${description.imageId}`));
+      await syncContentSegments(
+        tx,
+        input.entryId,
+        input.contentSegments.filter((write) => imageContentTypes.has(write.contentType)),
+        false,
+      );
+      const updated = await tx.card.findFirst({ where: { id: input.entryId }, include: includeSegments });
+      return updated ? toEntry(updated) : null;
+    });
+  }
+
+  async markImageDescriptionsFailed(entryId: string, userId: string, imageIds: string[], error: string): Promise<CardEntryEntity | null> {
+    if (!imageIds.length) return this.findByIdForUser(entryId, userId);
+    await this.prisma.cardImageAsset.updateMany({
+      where: { id: { in: imageIds }, entryId, userId },
+      data: { descriptionStatus: "failed", descriptionError: error.slice(0, 500), descriptionUpdatedAt: new Date() },
+    });
+    return this.findByIdForUser(entryId, userId);
+  }
+
+  async restoreImageDescriptionsAfterRefreshFailure(
+    entryId: string,
+    userId: string,
+    imageIds: string[],
+    error: string,
+  ): Promise<CardEntryEntity | null> {
+    if (!imageIds.length) return this.findByIdForUser(entryId, userId);
+    await this.prisma.cardImageAsset.updateMany({
+      where: {
+        id: { in: imageIds },
+        entryId,
+        userId,
+        descriptionText: { not: null },
+      },
+      data: {
+        descriptionStatus: "completed",
+        descriptionError: `REFRESH_FAILED:${error}`.slice(0, 500),
+        descriptionUpdatedAt: new Date(),
+      },
+    });
+    return this.findByIdForUser(entryId, userId);
+  }
+
+  async enqueueImageDescriptionJobs(entryId: string, userId: string, priority: number): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const images = await tx.cardImageAsset.findMany({
+        where: { entryId, userId, descriptionStatus: { not: "completed" } },
+        select: { id: true },
+      });
+      for (const image of images) {
+        await enqueueImageDescriptionGeneration(tx, userId, entryId, image.id, priority);
+      }
+      return images.length;
+    });
+  }
+
   async markPhraseRecommendationSeen(entryId: string, userId: string): Promise<CardEntryEntity | null> {
     const changed = await this.prisma.card.updateMany({
       where: {
@@ -593,11 +805,11 @@ export class PrismaCardRepository implements CardRepository {
   async appendPhraseRecommendation(input: {
     entryId: string;
     userId: string;
-    contentType: "original" | "rewrite";
+    contentType: CardLearningContentType;
     expectedSourceText: string;
     recommendation: {
       id: string;
-      contentType: "original" | "rewrite";
+      contentType: CardLearningContentType;
       contentVersion: string;
       segmentId: string;
       ordinal: number;
@@ -617,13 +829,10 @@ export class PrismaCardRepository implements CardRepository {
           userId: input.userId,
           status: "completed",
           deletedAt: null,
-          ...(input.contentType === "rewrite"
-            ? { rewrittenText: input.expectedSourceText }
-            : { originalText: input.expectedSourceText }),
         },
-        select: { phraseRecommendations: true },
+        include: includeSegments,
       });
-      if (!current) return null;
+      if (!current || contentTextForType(current, input.contentType) !== input.expectedSourceText) return null;
       const existing = Array.isArray(current.phraseRecommendations) ? current.phraseRecommendations : [];
       const changed = await tx.card.updateMany({
         where: {
@@ -631,13 +840,10 @@ export class PrismaCardRepository implements CardRepository {
           userId: input.userId,
           status: "completed",
           deletedAt: null,
-          ...(input.contentType === "rewrite"
-            ? { rewrittenText: input.expectedSourceText }
-            : { originalText: input.expectedSourceText }),
         },
         data: {
           ...(input.recommendation
-            ? { phraseRecommendations: [...existing, input.recommendation] }
+            ? { phraseRecommendations: [...existing, input.recommendation], phraseRecommendationExhaustedAt: null }
             : { phraseRecommendationExhaustedAt: new Date() }),
           phraseRecommendationPromptVersion: input.promptVersion,
         },
@@ -1564,6 +1770,20 @@ export class PrismaCardRepository implements CardRepository {
         where: { entryId: entry.id },
         data: { entryId: null, status: "cleanup_pending" },
       });
+      const replacedImageContentTypes = entry.images.map((image: { id: string }) => `image:${image.id}`);
+      if (replacedImageContentTypes.length) {
+        await tx.cardContentSegment.deleteMany({ where: { entryId: entry.id, contentType: { in: replacedImageContentTypes } } });
+        await tx.cardContentPracticeState.deleteMany({ where: { cardId: entry.id, contentType: { in: replacedImageContentTypes } } });
+        await tx.card.update({
+          where: { id: entry.id },
+          data: {
+            phraseRecommendations: Prisma.DbNull,
+            phraseRecommendationSeenAt: null,
+            phraseRecommendationExhaustedAt: null,
+            phraseRecommendationPromptVersion: null,
+          },
+        });
+      }
       if (input.imageUploadId) {
         const claimed = await tx.cardImageAsset.updateMany({
           where: {
@@ -1577,6 +1797,7 @@ export class PrismaCardRepository implements CardRepository {
           data: { entryId: entry.id, claimedAt: new Date() },
         });
         if (claimed.count !== 1) throw new Error("CARD_IMAGE_NOT_READY");
+        await enqueueImageDescriptionGeneration(tx, input.userId, entry.id, input.imageUploadId, 100);
       }
       const updated = await tx.card.findFirst({
         where: { id: entry.id },
@@ -1607,6 +1828,7 @@ export class PrismaCardRepository implements CardRepository {
         data: { entryId: entry.id, ordinal, claimedAt: new Date() },
       });
       if (claimed.count !== 1) throw new Error("CARD_IMAGE_NOT_READY");
+      await enqueueImageDescriptionGeneration(tx, input.userId, entry.id, input.imageUploadId, 100);
       const updated = await tx.card.findFirst({ where: { id: entry.id }, include: includeSegments });
       return updated ? toEntry(updated) : null;
     });
@@ -1623,6 +1845,20 @@ export class PrismaCardRepository implements CardRepository {
         where: { id: input.imageId, entryId: entry.id, userId: input.userId },
         data: { entryId: null, ordinal: 0, status: "cleanup_pending" },
       });
+      const removedContentType = `image:${input.imageId}`;
+      await tx.cardContentSegment.deleteMany({ where: { entryId: entry.id, contentType: removedContentType } });
+      await tx.cardContentPracticeState.deleteMany({ where: { cardId: entry.id, contentType: removedContentType } });
+      if (entry.images.some((image: { id: string }) => image.id === input.imageId)) {
+        await tx.card.update({
+          where: { id: entry.id },
+          data: {
+            phraseRecommendations: Prisma.DbNull,
+            phraseRecommendationSeenAt: null,
+            phraseRecommendationExhaustedAt: null,
+            phraseRecommendationPromptVersion: null,
+          },
+        });
+      }
       const updated = await tx.card.findFirst({ where: { id: entry.id }, include: includeSegments });
       return updated ? toEntry(updated) : null;
     });
@@ -1662,17 +1898,24 @@ export class PrismaCardRepository implements CardRepository {
   }
 }
 
-async function syncContentSegments(tx: any, entryId: string, writes: CardContentSegmentWrite[]): Promise<void> {
-  const wantedTypes = writes.map((write) => write.contentType);
-  const obsolete = await tx.cardContentSegment.findMany({
-    where: { entryId, ...(wantedTypes.length ? { contentType: { notIn: wantedTypes } } : {}) },
-    select: { contentType: true },
-    distinct: ["contentType"],
-  });
-  if (obsolete.length) {
-    const obsoleteTypes = obsolete.map((row: { contentType: string }) => row.contentType);
-    await tx.cardContentSegment.deleteMany({ where: { entryId, contentType: { in: obsoleteTypes } } });
-    await tx.cardContentPracticeState.deleteMany({ where: { cardId: entryId, contentType: { in: obsoleteTypes } } });
+async function syncContentSegments(
+  tx: any,
+  entryId: string,
+  writes: CardContentSegmentWrite[],
+  removeUnlisted = true,
+): Promise<void> {
+  if (removeUnlisted) {
+    const wantedTypes = writes.map((write) => write.contentType);
+    const obsolete = await tx.cardContentSegment.findMany({
+      where: { entryId, ...(wantedTypes.length ? { contentType: { notIn: wantedTypes } } : {}) },
+      select: { contentType: true },
+      distinct: ["contentType"],
+    });
+    if (obsolete.length) {
+      const obsoleteTypes = obsolete.map((row: { contentType: string }) => row.contentType);
+      await tx.cardContentSegment.deleteMany({ where: { entryId, contentType: { in: obsoleteTypes } } });
+      await tx.cardContentPracticeState.deleteMany({ where: { cardId: entryId, contentType: { in: obsoleteTypes } } });
+    }
   }
   for (const write of writes) {
     const existing = await tx.cardContentSegment.findFirst({
@@ -1749,6 +1992,39 @@ async function enqueueTopicGeneration(
       completedAt: null,
       failedAt: null,
     },
+  });
+}
+
+async function enqueueImageDescriptionGeneration(
+  tx: any,
+  userId: string,
+  cardId: string,
+  imageId: string,
+  priority: number,
+): Promise<void> {
+  const image = await tx.cardImageAsset.findFirst({
+    where: { id: imageId, userId, entryId: cardId, fileMd5: { not: null } },
+    select: { fileMd5: true },
+  });
+  if (!image?.fileMd5) return;
+  const inputVersion = cardImageDescriptionInputVersion({ sourceHash: image.fileMd5 });
+  await tx.cardEnrichmentJob.upsert({
+    where: { userId_sourceKind_sourceId_jobType_inputVersion: {
+      userId, sourceKind: CARD_IMAGE_DESCRIPTION_SOURCE_KIND, sourceId: imageId,
+      jobType: CARD_IMAGE_DESCRIPTION_JOB_TYPE, inputVersion,
+    } },
+    create: {
+      userId, sourceKind: CARD_IMAGE_DESCRIPTION_SOURCE_KIND, sourceId: imageId,
+      jobType: CARD_IMAGE_DESCRIPTION_JOB_TYPE, inputHash: image.fileMd5, inputVersion,
+      priority,
+      payload: {
+        schemaVersion: CARD_IMAGE_DESCRIPTION_PAYLOAD_SCHEMA_VERSION,
+        cardId,
+        promptVersion: CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
+        resultVersion: CARD_IMAGE_DESCRIPTION_RESULT_VERSION,
+      },
+    },
+    update: { priority, availableAt: new Date() },
   });
 }
 
@@ -2152,7 +2428,30 @@ function toImageAsset(row: any): CardImageAssetEntity {
     moderationRequestId: row.moderationRequestId ?? null,
     moderationSuggestion: row.moderationSuggestion ?? null,
     moderationLabel: row.moderationLabel ?? null,
+    descriptionText: row.descriptionText ?? null,
+    descriptionLanguageCode: row.descriptionLanguageCode ?? null,
+    descriptionSourceHash: row.descriptionSourceHash ?? null,
+    descriptionPromptVersion: row.descriptionPromptVersion ?? null,
+    descriptionResultVersion: row.descriptionResultVersion ?? null,
+    descriptionAuxiliarySegments: row.descriptionAuxiliarySegments ?? null,
+    descriptionAuxiliaryLanguageCode: row.descriptionAuxiliaryLanguageCode ?? null,
+    descriptionAuxiliaryPromptVersion: row.descriptionAuxiliaryPromptVersion ?? null,
+    descriptionStatus: row.descriptionStatus === "pending" || row.descriptionStatus === "auxiliary_pending" || row.descriptionStatus === "completed" || row.descriptionStatus === "failed"
+      ? row.descriptionStatus
+      : "not_requested",
+    descriptionError: row.descriptionError ?? null,
+    descriptionUpdatedAt: row.descriptionUpdatedAt ?? null,
     expiresAt: row.expiresAt,
     claimedAt: row.claimedAt ?? null,
   };
+}
+
+function contentTextForType(entry: any, contentType: CardLearningContentType): string | null {
+  if (contentType === "original") return entry.originalText ?? null;
+  if (contentType === "rewrite") return entry.rewrittenText ?? null;
+  if (contentType === "reply") return entry.replyText ?? null;
+  if (contentType.startsWith("image:")) {
+    return entry.images?.find((image: { id: string }) => `image:${image.id}` === contentType)?.descriptionText ?? null;
+  }
+  return null;
 }

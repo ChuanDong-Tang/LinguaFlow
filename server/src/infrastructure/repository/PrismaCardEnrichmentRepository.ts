@@ -13,9 +13,160 @@ import type {
   ProgressPhraseDetectionSource,
 } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { EmbeddingResult } from "@lf/core/ports/ai/EmbeddingProvider.js";
+import {
+  CARD_IMAGE_DESCRIPTION_JOB_TYPE,
+  CARD_IMAGE_DESCRIPTION_SOURCE_KIND,
+  CARD_IMAGE_DESCRIPTION_PAYLOAD_SCHEMA_VERSION,
+  cardImageDescriptionInputVersion,
+} from "@lf/core/Prompts/cardImageDescriptionPrompt.js";
 
 export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository {
   constructor(private readonly prisma: PrismaClient) {}
+
+  async enqueueMissingImageDescriptionJobs(input: {
+    limit: number;
+    maxOutstanding: number;
+    createdBefore: Date;
+    promptVersion: string;
+    resultVersion: string;
+    refreshOutdated: boolean;
+  }): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const lock = await tx.$queryRaw<Array<{ acquired: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(hashtext('card_image_description_backfill_scan')) AS "acquired"
+      `;
+      if (!lock[0]?.acquired) return 0;
+      const outstanding = await tx.cardEnrichmentJob.count({
+        where: { jobType: CARD_IMAGE_DESCRIPTION_JOB_TYPE, status: { in: ["queued", "processing"] } },
+      });
+      const availableSlots = Math.max(0, Math.max(1, input.maxOutstanding) - outstanding);
+      if (availableSlots === 0) return 0;
+      const scanLimit = Math.min(Math.max(1, input.limit), availableSlots);
+      const inputVersionPrefix = `${input.promptVersion}:${input.resultVersion}:`;
+      const images = await tx.$queryRaw<Array<{ id: string; userId: string; entryId: string; fileMd5: string }>>`
+        SELECT i."id", i."userId", i."entryId", i."fileMd5"
+          FROM "card_image_assets" i
+          JOIN "cards" c ON c."id" = i."entryId"
+         WHERE i."status" IN ('approved', 'approved_with_review')
+           AND (
+             i."descriptionStatus" <> 'completed'
+             OR (${input.refreshOutdated}
+               AND (
+                 i."descriptionPromptVersion" IS DISTINCT FROM ${input.promptVersion}
+                 OR i."descriptionResultVersion" IS DISTINCT FROM ${input.resultVersion}
+                 OR i."descriptionSourceHash" IS DISTINCT FROM i."fileMd5"
+               )
+             )
+           )
+           AND i."fileMd5" IS NOT NULL
+           AND i."createdAt" <= ${input.createdBefore}
+           AND c."status" = 'completed'
+           AND c."deletedAt" IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM "card_enrichment_jobs" j
+              WHERE j."userId" = i."userId"
+                AND j."sourceKind" = ${CARD_IMAGE_DESCRIPTION_SOURCE_KIND}
+                AND j."sourceId" = i."id"
+                AND j."jobType" = ${CARD_IMAGE_DESCRIPTION_JOB_TYPE}
+                AND j."inputVersion" = ${inputVersionPrefix} || i."fileMd5"
+           )
+         ORDER BY i."createdAt" ASC, i."id" ASC
+         LIMIT ${scanLimit}
+      `;
+      let enqueued = 0;
+      for (const image of images) {
+        const inputVersion = cardImageDescriptionInputVersion({
+          promptVersion: input.promptVersion,
+          resultVersion: input.resultVersion,
+          sourceHash: image.fileMd5,
+        });
+        const key = {
+            userId: image.userId, sourceKind: CARD_IMAGE_DESCRIPTION_SOURCE_KIND, sourceId: image.id,
+            jobType: CARD_IMAGE_DESCRIPTION_JOB_TYPE, inputVersion,
+        };
+        if (await tx.cardEnrichmentJob.findUnique({
+          where: { userId_sourceKind_sourceId_jobType_inputVersion: key },
+          select: { id: true },
+        })) continue;
+        await tx.cardEnrichmentJob.create({
+          data: {
+            userId: image.userId, sourceKind: CARD_IMAGE_DESCRIPTION_SOURCE_KIND, sourceId: image.id,
+            jobType: CARD_IMAGE_DESCRIPTION_JOB_TYPE, inputHash: image.fileMd5!, inputVersion,
+            priority: 0,
+            payload: {
+              schemaVersion: CARD_IMAGE_DESCRIPTION_PAYLOAD_SCHEMA_VERSION,
+              cardId: image.entryId,
+              promptVersion: input.promptVersion,
+              resultVersion: input.resultVersion,
+            },
+          },
+        });
+        enqueued += 1;
+      }
+      return enqueued;
+    });
+  }
+
+  async cancelObsoleteImageDescriptionJobs(currentInputVersionPrefix: string, reason: string): Promise<number> {
+    const result = await this.prisma.cardEnrichmentJob.updateMany({
+      where: {
+        jobType: CARD_IMAGE_DESCRIPTION_JOB_TYPE,
+        status: "queued",
+        NOT: { inputVersion: { startsWith: currentInputVersionPrefix } },
+      },
+      data: {
+        status: "cancelled",
+        lastError: reason.slice(0, 500),
+        completedAt: new Date(),
+        failedAt: null,
+        leaseExpiresAt: null,
+        workerId: null,
+      },
+    });
+    return result.count;
+  }
+
+  async claimNextImageDescriptionJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob(CARD_IMAGE_DESCRIPTION_JOB_TYPE, workerId, leaseExpiresAt);
+  }
+
+  async loadImageDescriptionSource(job: CardEnrichmentJobEntity): Promise<{
+    cardId: string;
+    imageId: string;
+    forceRegenerate: boolean;
+  } | null> {
+    if (job.sourceKind !== CARD_IMAGE_DESCRIPTION_SOURCE_KIND) return null;
+    const payload = imageDescriptionPayload(job.payload);
+    if (!payload) return null;
+    const image = await this.prisma.cardImageAsset.findFirst({
+      where: {
+        id: job.sourceId, userId: job.userId, entryId: { not: null }, fileMd5: job.inputHash,
+        entry: { status: "completed", deletedAt: null },
+      },
+      select: {
+        id: true,
+        entryId: true,
+        descriptionStatus: true,
+        descriptionSourceHash: true,
+        descriptionPromptVersion: true,
+        descriptionResultVersion: true,
+      },
+    });
+    if (!image?.entryId) return null;
+    const current = image.descriptionStatus === "completed"
+      && image.descriptionSourceHash === job.inputHash
+      && image.descriptionPromptVersion === payload.promptVersion
+      && image.descriptionResultVersion === payload.resultVersion;
+    return current ? null : {
+      cardId: image.entryId,
+      imageId: image.id,
+      forceRegenerate: image.descriptionStatus === "completed"
+        || (Boolean(image.descriptionSourceHash)
+        && (image.descriptionSourceHash !== job.inputHash
+          || image.descriptionPromptVersion !== payload.promptVersion
+          || image.descriptionResultVersion !== payload.resultVersion)),
+    };
+  }
 
   async enqueueMissingAuxiliaryJobs(limit: number, createdBefore: Date): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
@@ -256,7 +407,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
               ("status" = 'queued' AND "availableAt" <= CURRENT_TIMESTAMP)
               OR ("status" = 'processing' AND "leaseExpiresAt" < CURRENT_TIMESTAMP)
             )
-          ORDER BY "availableAt" ASC, "createdAt" ASC
+          ORDER BY "priority" DESC, "availableAt" ASC, "createdAt" ASC
           FOR UPDATE SKIP LOCKED
           LIMIT 1`,
         jobType,
@@ -998,6 +1149,7 @@ function toJob(row: {
   sourceId: string;
   jobType: string;
   attempts: number;
+  priority: number;
   inputHash: string;
   inputVersion: string;
   workerId: string | null;
@@ -1010,6 +1162,7 @@ function toJob(row: {
     sourceId: row.sourceId,
     jobType: row.jobType,
     attempts: row.attempts,
+    priority: Number(row.priority) || 0,
     inputHash: row.inputHash,
     inputVersion: row.inputVersion,
     workerId: row.workerId,
@@ -1034,6 +1187,17 @@ function auxiliaryLocaleFromPayload(payload: unknown): string {
     if (typeof appLocale === "string" && appLocale.trim()) return appLocale;
   }
   throw new Error("CARD_AUXILIARY_LOCALE_MISSING");
+}
+
+function imageDescriptionPayload(payload: unknown): { promptVersion: string; resultVersion: string } | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const value = payload as { schemaVersion?: unknown; promptVersion?: unknown; resultVersion?: unknown };
+  if (value.schemaVersion !== CARD_IMAGE_DESCRIPTION_PAYLOAD_SCHEMA_VERSION
+    || typeof value.promptVersion !== "string"
+    || typeof value.resultVersion !== "string"
+    || !value.promptVersion
+    || !value.resultVersion) return null;
+  return { promptVersion: value.promptVersion, resultVersion: value.resultVersion };
 }
 
 function cardContentHash(text: string): string {

@@ -11,6 +11,7 @@ import {
 
 export class GrokAIProvider implements AIProvider {
   readonly providerName = "grok";
+  readonly supportsImageInput = true;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -88,7 +89,7 @@ export class GrokAIProvider implements AIProvider {
         body: JSON.stringify({
           model,
           ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
-          temperature: 1,
+          temperature: input.temperature ?? 1,
           top_p: 1,
           frequency_penalty: 0,
           presence_penalty: 0,
@@ -101,7 +102,13 @@ export class GrokAIProvider implements AIProvider {
             },
             {
               role: "user",
-              content: userPrompt,
+              content: input.imageUrls?.length ? [
+                { type: "text", text: userPrompt },
+                ...input.imageUrls.flatMap((url, index) => [
+                  { type: "text" as const, text: `<image_index>${index}</image_index>` },
+                  { type: "image_url" as const, image_url: { url } },
+                ]),
+              ] : userPrompt,
             },
           ],
         }),

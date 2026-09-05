@@ -61,6 +61,7 @@ import { AlipayAutoRenewService } from "@lf/server/providers/payment/alipay/Alip
 import { isAlipayAutoRenewConfigured } from "@lf/server/providers/payment/alipay/AlipayConfig.js";
 import { PrismaAiRequestLogRepository } from "@lf/server/infrastructure/repository/PrismaAiRequestLogRepository.js";
 import { PrismaSystemEventLogRepository } from "@lf/server/infrastructure/repository/PrismaSystemEventLogRepository.js";
+import { PrismaAiUsageEventRepository } from "@lf/server/infrastructure/repository/PrismaAiUsageEventRepository.js";
 import { PrismaTrustedCertRepository } from "@lf/server/infrastructure/repository/PrismaTrustedCertRepository.js";
 import { PrismaAutoRenewRepository } from "@lf/server/infrastructure/repository/PrismaAutoRenewRepository.js";
 import { PrismaAppleIapAccountLinkRepository } from "@lf/server/infrastructure/repository/PrismaAppleIapAccountLinkRepository.js";
@@ -232,6 +233,7 @@ export function createApp() {
     ? new RedisChatGenerationRateLimiter(redisClient)
     : new InMemoryChatGenerationRateLimiter();
   const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
+  const aiUsageEventRepository = new PrismaAiUsageEventRepository(prisma);
   const resourceGovernor = new ResourceGovernor(runtimeConfig.resourcePolicies, redisClient, async (event) => {
     await writeSystemEventLog(systemEventLogRepository, {
       requestId: event.requestId ?? null,
@@ -398,6 +400,8 @@ export function createApp() {
       imagesMaxPerCard: runtimeConfig.cardImagesMaxPerCard,
     },
     usageV2Service,
+    systemEventLogRepository,
+    aiUsageEventRepository,
   );
   const memorySentenceMeaningService = new MemorySentenceMeaningService(
     aiProvider,

@@ -326,6 +326,7 @@ export class UsageV2Service {
     estimatedTokens: number;
     provider?: string;
     model?: string;
+    metadata?: Record<string, string | number | boolean | null>;
   }): Promise<TokenReservationView> {
     assertPositiveInteger(input.estimatedTokens, "estimatedTokens");
     const usage = await this.getCurrentUsage(input.userId);
@@ -362,6 +363,7 @@ export class UsageV2Service {
           reservedTokens: input.estimatedTokens,
           provider: input.provider,
           model: input.model,
+          metadata: input.metadata,
         },
       });
       return tokenTransactionView(created);
@@ -380,6 +382,7 @@ export class UsageV2Service {
     meteringSource: "provider" | "tokenizer";
     provider?: string;
     model?: string;
+    metadata?: Record<string, string | number | boolean | null>;
   }): Promise<TokenReservationView> {
     assertNonnegativeInteger(input.inputTokens, "inputTokens");
     assertNonnegativeInteger(input.outputTokens, "outputTokens");
@@ -414,6 +417,7 @@ export class UsageV2Service {
           meteringSource: input.meteringSource,
           provider: input.provider ?? transaction.provider,
           model: input.model ?? transaction.model,
+          ...(input.metadata ? { metadata: { ...jsonObject(transaction.metadata), ...input.metadata } } : {}),
           settledAt: new Date(),
         },
       });
@@ -684,6 +688,12 @@ function tokenTransactionView(row: any): TokenReservationView {
     reservedTokens: row.reservedTokens,
     totalTokens: row.totalTokens,
   };
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 function assertPositiveInteger(value: number, name: string): void {

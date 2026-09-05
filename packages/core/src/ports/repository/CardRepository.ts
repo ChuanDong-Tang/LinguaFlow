@@ -11,7 +11,7 @@ export interface CardSegmentEntity {
   createdAt: Date;
 }
 
-export type CardLearningContentType = "original" | "rewrite" | "reply";
+export type CardLearningContentType = "original" | "rewrite" | "reply" | `image:${string}`;
 
 export interface CardContentSegmentEntity extends CardSegmentEntity {
   contentType: CardLearningContentType;
@@ -135,6 +135,17 @@ export interface CardImageAssetEntity {
   moderationRequestId: string | null;
   moderationSuggestion: string | null;
   moderationLabel: string | null;
+  descriptionText: string | null;
+  descriptionLanguageCode: string | null;
+  descriptionSourceHash: string | null;
+  descriptionPromptVersion: string | null;
+  descriptionResultVersion: string | null;
+  descriptionAuxiliarySegments: unknown | null;
+  descriptionAuxiliaryLanguageCode: string | null;
+  descriptionAuxiliaryPromptVersion: string | null;
+  descriptionStatus: "not_requested" | "pending" | "auxiliary_pending" | "completed" | "failed";
+  descriptionError: string | null;
+  descriptionUpdatedAt: Date | null;
   expiresAt: Date;
   claimedAt: Date | null;
 }
@@ -244,16 +255,54 @@ export interface CardRepository {
     auxiliaryLanguageCode: string;
     auxiliarySourceHash: string;
   }): Promise<CardEntryEntity | null>;
+  markImageDescriptionsPending(entryId: string, userId: string, imageIds: string[]): Promise<CardEntryEntity | null>;
+  saveImageDescriptionTexts(input: {
+    entryId: string;
+    userId: string;
+    descriptions: Array<{
+      imageId: string;
+      text: string;
+      languageCode: string;
+      sourceHash: string;
+      promptVersion: string;
+      resultVersion: string;
+    }>;
+    contentSegments: CardContentSegmentWrite[];
+  }): Promise<CardEntryEntity | null>;
+  saveImageDescriptions(input: {
+    entryId: string;
+    userId: string;
+    descriptions: Array<{
+      imageId: string;
+      text: string;
+      languageCode: string;
+      sourceHash: string;
+      promptVersion: string;
+      resultVersion: string;
+      auxiliarySegments: Array<{ ordinal: number; text: string }>;
+      auxiliaryLanguageCode: string;
+      auxiliaryPromptVersion: string;
+    }>;
+    contentSegments: CardContentSegmentWrite[];
+  }): Promise<CardEntryEntity | null>;
+  markImageDescriptionsFailed(entryId: string, userId: string, imageIds: string[], error: string): Promise<CardEntryEntity | null>;
+  restoreImageDescriptionsAfterRefreshFailure(
+    entryId: string,
+    userId: string,
+    imageIds: string[],
+    error: string,
+  ): Promise<CardEntryEntity | null>;
+  enqueueImageDescriptionJobs(entryId: string, userId: string, priority: number): Promise<number>;
   markPhraseRecommendationSeen(entryId: string, userId: string): Promise<CardEntryEntity | null>;
   listRecentPhraseRecommendationTexts(userId: string, limit: number): Promise<string[]>;
   appendPhraseRecommendation(input: {
     entryId: string;
     userId: string;
-    contentType: "original" | "rewrite";
+    contentType: CardLearningContentType;
     expectedSourceText: string;
     recommendation: {
       id: string;
-      contentType: "original" | "rewrite";
+      contentType: CardLearningContentType;
       contentVersion: string;
       segmentId: string;
       ordinal: number;

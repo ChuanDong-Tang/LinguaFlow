@@ -49,6 +49,7 @@ model User {
   memorySentenceMeaningCaches MemorySentenceMeaningCache[]
   aiTokenCycles               AiTokenCycle[]
   aiTokenTransactions         AiTokenTransaction[]
+  aiUsageEvents               AiUsageEvent[]
   imageStorageAccount         ImageStorageAccount?
   imageStorageTransactions    ImageStorageTransaction[]
 
@@ -276,6 +277,17 @@ model CardImageAsset {
   moderationSuggestion String?
   moderationLabel      String?
   moderatedAt          DateTime?
+  descriptionText                 String?
+  descriptionLanguageCode         String?
+  descriptionSourceHash           String?
+  descriptionPromptVersion        String?
+  descriptionResultVersion        String?
+  descriptionAuxiliarySegments    Json?
+  descriptionAuxiliaryLanguageCode String?
+  descriptionAuxiliaryPromptVersion String?
+  descriptionStatus               String    @default("not_requested")
+  descriptionError                String?
+  descriptionUpdatedAt            DateTime?
   expiresAt            DateTime
   claimedAt            DateTime?
   createdAt            DateTime  @default(now())
@@ -494,6 +506,7 @@ model CardEnrichmentJob {
   jobType        String
   status         String    @default("queued")
   attempts       Int       @default(0)
+  priority       Int       @default(0)
   availableAt    DateTime  @default(now())
   processingAt   DateTime?
   leaseExpiresAt DateTime?
@@ -510,7 +523,7 @@ model CardEnrichmentJob {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, sourceKind, sourceId, jobType, inputVersion])
-  @@index([status, availableAt, leaseExpiresAt, createdAt])
+  @@index([jobType, status, priority, availableAt, leaseExpiresAt, createdAt], map: "card_enrichment_jobs_claim_idx")
   @@index([userId, sourceKind, sourceId, createdAt])
   @@map("card_enrichment_jobs")
 }
@@ -877,6 +890,34 @@ model AiTokenTransaction {
   @@index([cycleId, status, createdAt])
   @@index([userId, feature, createdAt])
   @@map("ai_token_transactions")
+}
+
+model AiUsageEvent {
+  id             String   @id @default(cuid())
+  requestId      String   @unique
+  userId         String?
+  billingMode    String
+  operation      String
+  feature        String
+  status         String
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  totalTokens    Int      @default(0)
+  imageCount     Int      @default(0)
+  meteringSource String
+  provider       String?
+  model          String?
+  metadata       Json?
+  errorCode      String?
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([operation, status, createdAt])
+  @@index([userId, createdAt])
+  @@map("ai_usage_events")
 }
 
 model ImageStorageAccount {

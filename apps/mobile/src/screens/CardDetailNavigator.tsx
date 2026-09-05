@@ -5,6 +5,7 @@ import {
   deleteCardImageUpload,
   getCardRecord,
   getCardCapabilities,
+  generateCardImageDescriptions,
   generateCardPhraseRecommendation,
   updateCardContent,
   appendCardRecordImage,
@@ -12,6 +13,7 @@ import {
   updateCardCoverPosition,
   DEFAULT_CARD_CAPABILITIES,
   type CardRecordDetail,
+  type CardLearningContentType,
   type CardCapabilities,
   type CardRelationReason,
 } from "../services/api/cardApi";
@@ -238,7 +240,10 @@ export function CardDetailNavigator({
       setDetail(stableDetail);
       detailCacheRef.current.set(detail.id, { detail: stableDetail, loadedAt: Date.now() });
       const failedTargets = generation.failedTargets.length
-        ? failedGenerationTargets
+        ? [...new Set([
+            ...failedGenerationTargets.filter((candidate) => candidate !== target),
+            ...generation.failedTargets,
+          ])]
         : failedGenerationTargets.filter((candidate) => candidate !== target);
       setFailedGenerationTargets(failedTargets);
       await setCardGenerationState(detail.id, failedTargets.length ? { pendingTargets: [], failedTargets } : null);
@@ -252,9 +257,9 @@ export function CardDetailNavigator({
     }
   }
 
-  async function generatePhraseRecommendation(): Promise<CardRecordDetail> {
+  async function generatePhraseRecommendation(contentType?: CardLearningContentType): Promise<CardRecordDetail> {
     if (!detail) throw new Error(t("card_detail.error.try_again"));
-    const updated = await stabilizeCardDetailImages(detail, await generateCardPhraseRecommendation(detail.id));
+    const updated = await stabilizeCardDetailImages(detail, await generateCardPhraseRecommendation(detail.id, contentType));
     setDetail(updated);
     detailCacheRef.current.set(detail.id, { detail: updated, loadedAt: Date.now() });
     onChanged();
@@ -311,6 +316,38 @@ export function CardDetailNavigator({
       setDetail(updated);
       detailCacheRef.current.set(recordId, { detail: updated, loadedAt: Date.now() });
       onChanged();
+      const generationBase = updated;
+      const nextPendingTargets = [...new Set([...pendingGenerationTargets, "image_description" as const])];
+      const nextFailedTargets = failedGenerationTargets.filter((target) => target !== "image_description");
+      setPendingGenerationTargets(nextPendingTargets);
+      setFailedGenerationTargets(nextFailedTargets);
+      await setCardGenerationState(recordId, { pendingTargets: nextPendingTargets, failedTargets: nextFailedTargets }).catch(() => undefined);
+      void generateCardImageDescriptions(recordId).then(async (generated) => {
+        const stableDetail = await stabilizeCardDetailImages(generationBase, generated);
+        const remainingPending = nextPendingTargets.filter((target) => target !== "image_description");
+        setDetail(stableDetail);
+        setPendingGenerationTargets(remainingPending);
+        detailCacheRef.current.set(recordId, { detail: stableDetail, loadedAt: Date.now() });
+        await setCardGenerationState(recordId, remainingPending.length || nextFailedTargets.length
+          ? { pendingTargets: remainingPending, failedTargets: nextFailedTargets }
+          : null).catch(() => undefined);
+        onChanged();
+      }).catch(async () => {
+        const reconciled = await getCardRecord(recordId).then((value) => stabilizeCardDetailImages(generationBase, value)).catch(() => generationBase);
+        const completed = hasGeneratedContent(reconciled, "image_description");
+        const remainingPending = nextPendingTargets.filter((target) => target !== "image_description");
+        const remainingFailed = completed
+          ? nextFailedTargets
+          : [...new Set([...nextFailedTargets, "image_description" as const])];
+        setDetail(reconciled);
+        setPendingGenerationTargets(remainingPending);
+        setFailedGenerationTargets(remainingFailed);
+        detailCacheRef.current.set(recordId, { detail: reconciled, loadedAt: Date.now() });
+        await setCardGenerationState(recordId, remainingPending.length || remainingFailed.length
+          ? { pendingTargets: remainingPending, failedTargets: remainingFailed }
+          : null).catch(() => undefined);
+        onChanged();
+      });
     } catch (error) {
       Alert.alert(
         t("card_detail.photo.add_failed_title"),

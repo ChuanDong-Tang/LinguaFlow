@@ -41,6 +41,8 @@ import { buildCardContentGenerationPrompt, cardContentMaxOutputTokens, parseCard
 import { buildCardContentSegments } from "./cardContentSegments.js";
 import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
+import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
+import type { AiUsageEventRepository } from "@lf/core/ports/repository/AiUsageEventRepository.js";
 import { isTargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 import {
   LEARNING_SENTENCE_SEGMENTER_VERSION,
@@ -57,8 +59,15 @@ import {
   parseCardPhraseRecommendationOutput,
 } from "@lf/core/Prompts/cardPhraseRecommendationPrompt.js";
 import { findTargetLanguageRanges, targetLanguageTextOnly } from "@lf/core/text/targetLanguageRanges.js";
+import {
+  buildCardImageDescriptionPrompt,
+  CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
+  CARD_IMAGE_DESCRIPTION_RESULT_VERSION,
+  parseCardImageDescriptionOutput,
+} from "@lf/core/Prompts/cardImageDescriptionPrompt.js";
 
 const PREVIEW_GRAPHEMES = 240;
+const CARD_IMAGE_AUXILIARY_PROMPT_VERSION = "card_image_auxiliary_v1";
 const FOREGROUND_LLM_RETRY_DELAYS_MS = [750, 1_500, 3_000] as const;
 export const CARD_PROMPT_VERSION = CARD_EXPRESSION_PROMPT_VERSION;
 
@@ -126,6 +135,8 @@ export class CardService {
     private readonly listPageSizeMax = 50,
     private readonly limits: CardServiceLimits = DEFAULT_CARD_SERVICE_LIMITS,
     private readonly usageV2Service?: UsageV2Service,
+    private readonly systemEventLogRepository?: SystemEventLogRepository,
+    private readonly aiUsageEventRepository?: AiUsageEventRepository,
   ) {}
 
   async inspirationQuestions(input: { userId: string; requestId: string; appLocale?: "zh-CN" | "zh-TW" | "en-US" | "ja-JP" }): Promise<{
@@ -181,23 +192,28 @@ export class CardService {
     userId: string;
     requestId: string;
     recordId: string;
+    contentType?: CardLearningContentType;
   }): Promise<CardRecordDetailView> {
     if (!this.aiProvider) throw new CardValidationError("Card recommendation is unavailable");
     const parsed = parseCardRecordId(input.recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     let current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
     if (!current || current.status !== "completed" || current.isSample) throw new CardNotFoundError();
-    const contentType: "original" | "rewrite" = current.rewrittenText ? "rewrite" : "original";
-    const sourceText = contentType === "rewrite" ? current.rewrittenText : current.originalText;
+    const contentType: CardLearningContentType = input.contentType ?? (current.rewrittenText
+      ? "rewrite"
+      : current.images.find((image) => image.descriptionText)
+        ? imageDescriptionContentType(current.images.find((image) => image.descriptionText)!.id)
+        : "original");
+    const sourceText = contentText(current, contentType);
     if (!sourceText) throw new CardValidationError("Learning content is required");
     if (contentType === "original" && !(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) {
       throw new CardLearningAccessError("Original text practice requires Pro");
     }
     current = await this.repository.markPhraseRecommendationSeen(current.id, input.userId) ?? current;
-    if (current.phraseRecommendationExhaustedAt) return this.detail(input.userId, input.recordId);
-    const languageCode = contentType === "rewrite"
-      ? current.rewrittenLanguageCode ?? current.languageCode
-      : current.languageCode;
+    // Legacy callers have one active learning source. New clients bind the
+    // request explicitly, so exhaustion of another source must not block it.
+    if (!input.contentType && current.phraseRecommendationExhaustedAt) return this.detail(input.userId, input.recordId, contentType);
+    const languageCode = contentLanguageCode(current, contentType);
     const segments = current.contentSegments
       .filter((segment) => segment.contentType === contentType)
       .sort((left, right) => left.ordinal - right.ordinal);
@@ -222,7 +238,7 @@ export class CardService {
         promptVersion: CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION,
       });
       if (!saved) throw new CardContentConflictError("The Card expression changed while checking recommendations");
-      return this.detail(input.userId, input.recordId);
+      return this.detail(input.userId, input.recordId, contentType);
     }
     const [recommendedPhrases, contentPracticeState, legacyPracticeState] = await Promise.all([
       this.repository.listRecentPhraseRecommendationTexts(input.userId, 100),
@@ -328,7 +344,7 @@ export class CardService {
       promptVersion: CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION,
     });
     if (!saved) throw new CardContentConflictError("The Card expression changed while generating a recommendation");
-    return this.detail(input.userId, input.recordId);
+    return this.detail(input.userId, input.recordId, contentType);
   }
 
   async bootstrap(userId: string): Promise<CardRecordSummaryView[]> {
@@ -360,18 +376,18 @@ export class CardService {
     const replyText = normalizeCardBodyText(input.body.replyText);
     const collectionId = input.body.collectionId?.trim() || null;
     const generateRewrite = input.body.generateRewrite !== false;
-    if (!clientId || clientId.length > 128) throw new CardValidationError("Invalid client id");
-    const primaryText = rewrittenText || originalText;
-    const inputChars = countCardCharacters(originalText || rewrittenText);
-    if (inputChars < 1 || inputChars > this.limits.contentMaxChars) {
-      throw new CardValidationError(`A Card must contain a record or expression of 1 to ${this.limits.contentMaxChars} characters`);
-    }
-    if (generateRewrite && !originalText) throw new CardValidationError("Original text is required for AI rewrite");
     const imageUploadId = input.body.imageUploadId?.trim() || null;
     const imageUploadIds = Array.from(new Set([
       ...(Array.isArray(input.body.imageUploadIds) ? input.body.imageUploadIds : []),
       ...(imageUploadId ? [imageUploadId] : []),
     ].map((value) => value.trim()).filter(Boolean)));
+    if (!clientId || clientId.length > 128) throw new CardValidationError("Invalid client id");
+    const primaryText = rewrittenText || originalText;
+    const inputChars = countCardCharacters(originalText || rewrittenText);
+    if ((inputChars < 1 && imageUploadIds.length < 1) || inputChars > this.limits.contentMaxChars) {
+      throw new CardValidationError(`A Card must contain a record, expression, or image and no more than ${this.limits.contentMaxChars} characters`);
+    }
+    if (generateRewrite && !originalText) throw new CardValidationError("Original text is required for AI rewrite");
     if (imageUploadIds.length > this.limits.imagesMaxPerCard) {
       throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);
     }
@@ -563,7 +579,7 @@ export class CardService {
     });
     const primaryText = rewrittenText || originalText;
     const originalLanguageCode = current.languageCode;
-    if (!primaryText) throw new CardValidationError("A Card must contain a record or expression");
+    if (!primaryText && !current.images.length) throw new CardValidationError("A Card must contain a record, expression, or image");
     const allContent = [originalText, rewrittenText, translationText, replyText].filter(Boolean).join("\n");
     this.contentSafetyService?.assertAllowed(allContent, "input");
     const clearPractice = originalChanged || current.rewrittenText !== rewrittenText;
@@ -585,11 +601,17 @@ export class CardService {
       replyText,
       replyLanguageCode,
       replySourceHash,
-      segments: buildSegments(primaryText, rewrittenText ? current.languageCode : originalLanguageCode),
+      segments: primaryText ? buildSegments(primaryText, rewrittenText ? current.languageCode : originalLanguageCode) : [],
       contentSegments: buildCardContentSegments([
         { contentType: "original", text: originalText, languageCode: originalLanguageCode, sourceHash: originalContentHash },
         { contentType: "rewrite", text: rewrittenText, languageCode: rewrittenLanguageCode ?? current.languageCode, sourceHash: rewrittenSourceHash },
         { contentType: "reply", text: replyText, languageCode: replyLanguageCode ?? current.languageCode, sourceHash: replySourceHash },
+        ...current.images.map((image) => ({
+          contentType: imageDescriptionContentType(image.id),
+          text: image.descriptionText,
+          languageCode: image.descriptionLanguageCode ?? current.languageCode,
+          sourceHash: image.descriptionText ? cardContentHash(image.descriptionText) : null,
+        })),
       ]),
       clearPractice,
     }); } catch (error) {
@@ -606,6 +628,7 @@ export class CardService {
     recordId: string;
     target: CardGeneratedContentTarget;
     usageApiVersion: "v2";
+    billingMode?: "user" | "platform";
   }): Promise<CardRecordDetailView> {
     if (!this.aiProvider) throw new CardValidationError("Card generation is unavailable");
     const parsed = parseCardRecordId(input.recordId);
@@ -763,6 +786,426 @@ export class CardService {
       console.warn("[card] automatic auxiliary generation failed", error);
       return updated;
     }
+  }
+
+  async generateImageDescriptions(input: {
+    userId: string;
+    requestId: string;
+    recordId: string;
+    imageId?: string;
+    usageApiVersion: "v2";
+    billingMode?: "user" | "platform";
+    forceRegenerate?: boolean;
+  }): Promise<CardRecordDetailView> {
+    if (!this.aiProvider || !this.imageService) throw new CardValidationError("Image description generation is unavailable");
+    if (this.aiProvider.supportsImageInput === false) throw new CardValidationError("The configured AI model does not support image input");
+    const parsed = parseCardRecordId(input.recordId);
+    if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
+    const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
+    if (!current || current.status !== "completed") throw new CardNotFoundError();
+    const requestedImage = input.imageId
+      ? current.images.find((image) => image.id === input.imageId)
+      : undefined;
+    if (input.imageId && !requestedImage) throw new CardNotFoundError();
+    if (requestedImage?.descriptionStatus === "completed" && !input.forceRegenerate) return this.detail(input.userId, input.recordId);
+    const images = requestedImage
+      ? [requestedImage]
+      : current.images.filter((image) => input.forceRegenerate || image.descriptionStatus !== "completed");
+    if (!images.length) {
+      return this.detail(input.userId, input.recordId);
+    }
+    if (!await this.repository.markImageDescriptionsPending(current.id, input.userId, images.map((image) => image.id))) {
+      throw new CardTaskInProgressError("Image descriptions are already being generated");
+    }
+    type StagedDescription = {
+      imageId: string;
+      text: string;
+      languageCode: string;
+      segments: Array<{ ordinal: number; text: string }>;
+    };
+    const staged = images.flatMap((image): StagedDescription[] => !input.forceRegenerate && image.descriptionText?.trim()
+      ? [{
+          imageId: image.id,
+          text: image.descriptionText.trim(),
+          languageCode: image.descriptionLanguageCode ?? current.languageCode,
+          segments: buildSegments(image.descriptionText.trim(), image.descriptionLanguageCode ?? current.languageCode)
+            .map((segment) => ({ ordinal: segment.ordinal, text: segment.text })),
+        }]
+      : []);
+    const failedImageIds: string[] = [];
+    let firstFailure: unknown = null;
+    const missing = images.filter((image) => !image.descriptionText?.trim());
+
+    if (missing.length) {
+      try {
+        const generated = await this.generateImageDescriptionTexts({
+          userId: input.userId,
+          requestId: `${input.requestId}:descriptions:batch`,
+          operation: "card.generate.image_descriptions.batch",
+          images: missing,
+          card: current,
+          billingMode: input.billingMode,
+        });
+        staged.push(...generated);
+      } catch (batchError) {
+        firstFailure = batchError;
+        if (missing.length === 1 || !shouldRetryImageDescriptionsIndividually(batchError)) {
+          failedImageIds.push(...missing.map((image) => image.id));
+        } else {
+          firstFailure = null;
+          for (const [index, image] of missing.entries()) {
+            try {
+              const [generated] = await this.generateImageDescriptionTexts({
+                userId: input.userId,
+                requestId: `${input.requestId}:descriptions:single:${index}`,
+                operation: "card.generate.image_descriptions.single",
+                images: [image],
+                card: current,
+                billingMode: input.billingMode,
+              });
+              if (!generated) throw new CardValidationError("Generated image description is empty");
+              staged.push(generated);
+            } catch (error) {
+              firstFailure ??= error;
+              failedImageIds.push(image.id);
+            }
+          }
+        }
+      }
+    }
+
+    const stagedIds = new Set(staged.map((description) => description.imageId));
+    for (const image of images) {
+      if (!stagedIds.has(image.id) && !failedImageIds.includes(image.id)) failedImageIds.push(image.id);
+    }
+    const descriptionByImageId = new Map(staged.map((description) => [description.imageId, description]));
+    const contentSegments = buildCardContentSegments([
+        { contentType: "original", text: current.originalText, languageCode: current.languageCode, sourceHash: current.originalContentHash },
+        { contentType: "rewrite", text: current.rewrittenText, languageCode: current.rewrittenLanguageCode ?? current.languageCode, sourceHash: current.rewrittenSourceHash },
+        { contentType: "reply", text: current.replyText, languageCode: current.replyLanguageCode ?? current.languageCode, sourceHash: current.replySourceHash },
+        ...current.images.map((image) => {
+          const next = descriptionByImageId.get(image.id);
+          const text = next?.text ?? image.descriptionText;
+          return {
+            contentType: imageDescriptionContentType(image.id),
+            text,
+            languageCode: next?.languageCode ?? image.descriptionLanguageCode ?? current.languageCode,
+            sourceHash: text ? cardContentHash(text) : null,
+          };
+        }),
+      ]);
+
+    if (staged.length && !input.forceRegenerate) {
+      const descriptionsSaved = await this.repository.saveImageDescriptionTexts({
+        entryId: current.id,
+        userId: input.userId,
+        descriptions: staged.map(({ imageId, text, languageCode }) => {
+          const image = current.images.find((candidate) => candidate.id === imageId)!;
+          return {
+            imageId,
+            text,
+            languageCode,
+            sourceHash: image.fileMd5 ?? cardContentHash(image.originalObjectKey),
+            promptVersion: CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
+            resultVersion: CARD_IMAGE_DESCRIPTION_RESULT_VERSION,
+          };
+        }),
+        contentSegments,
+      });
+      if (!descriptionsSaved) {
+        await this.repository.markImageDescriptionsFailed(current.id, input.userId, images.map((image) => image.id), "IMAGE_DESCRIPTION_SAVE_CONFLICT").catch(() => null);
+        throw new CardContentConflictError("The Card images changed while descriptions were being saved");
+      }
+    }
+    if (failedImageIds.length) {
+      const failureMessage = firstFailure instanceof Error ? firstFailure.message : "IMAGE_DESCRIPTION_GENERATION_FAILED";
+      await (input.forceRegenerate
+        ? this.repository.restoreImageDescriptionsAfterRefreshFailure(current.id, input.userId, failedImageIds, failureMessage)
+        : this.repository.markImageDescriptionsFailed(current.id, input.userId, failedImageIds, failureMessage)
+      ).catch(() => null);
+    }
+
+    if (!staged.length) throw firstFailure ?? new CardValidationError("Generated image descriptions are empty");
+    const flattened = staged.flatMap((description, imageIndex) => description.segments.map((segment) => ({
+      imageIndex,
+      localOrdinal: segment.ordinal,
+      ordinal: 0,
+      text: segment.text,
+    }))).map((segment, ordinal) => ({ ...segment, ordinal }));
+    try {
+      const auxiliaryPrompt = buildCardContentGenerationPrompt({
+        target: "auxiliary",
+        sourceText: JSON.stringify(flattened.map(({ ordinal, text }) => ({ ordinal, text }))),
+        languageCode: current.languageCode,
+        appLocale: current.appLocaleSnapshot,
+        difficulty: current.promptDifficultySnapshot,
+      });
+      const auxiliaryOutput = await this.generateMeteredText({
+        userId: input.userId,
+        requestId: `${input.requestId}:auxiliary`,
+        operation: "card.generate.image_description_auxiliary",
+        feature: "organization",
+        systemPrompt: auxiliaryPrompt.systemPrompt,
+        userPrompt: auxiliaryPrompt.userPrompt,
+        languageCode: current.languageCode,
+        appLocale: current.appLocaleSnapshot,
+        difficulty: current.promptDifficultySnapshot,
+        maxOutputTokens: cardContentMaxOutputTokens("auxiliary", auxiliaryPrompt.userPrompt),
+        temperature: 0.2,
+        usageMetadata: {
+          stage: "image_auxiliary",
+          descriptionCount: staged.length,
+          sentenceCount: flattened.length,
+        },
+        billingMode: input.billingMode,
+      });
+      const auxiliary = parseCardAuxiliaryOutput(auxiliaryOutput, flattened.map((segment) => segment.ordinal));
+      const auxiliaryByOrdinal = new Map(auxiliary.map((segment) => [segment.ordinal, segment.text]));
+      const completed = staged.map((description, imageIndex) => ({
+        imageId: description.imageId,
+        text: description.text,
+        languageCode: description.languageCode,
+        sourceHash: current.images.find((image) => image.id === description.imageId)?.fileMd5
+          ?? cardContentHash(current.images.find((image) => image.id === description.imageId)!.originalObjectKey),
+        promptVersion: CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
+        resultVersion: CARD_IMAGE_DESCRIPTION_RESULT_VERSION,
+        auxiliarySegments: flattened
+          .filter((segment) => segment.imageIndex === imageIndex)
+          .map((segment) => ({ ordinal: segment.localOrdinal, text: auxiliaryByOrdinal.get(segment.ordinal) ?? "" }))
+          .filter((segment) => segment.text),
+        auxiliaryLanguageCode: current.appLocaleSnapshot,
+        auxiliaryPromptVersion: CARD_IMAGE_AUXILIARY_PROMPT_VERSION,
+      }));
+      const saved = await this.repository.saveImageDescriptions({
+        entryId: current.id,
+        userId: input.userId,
+        descriptions: completed,
+        contentSegments,
+      });
+      if (!saved) throw new CardContentConflictError("The Card images changed while auxiliary text was being saved");
+    } catch (error) {
+      const failureMessage = error instanceof Error ? error.message : "IMAGE_DESCRIPTION_AUXILIARY_FAILED";
+      await (input.forceRegenerate
+        ? this.repository.restoreImageDescriptionsAfterRefreshFailure(
+            current.id,
+            input.userId,
+            staged.map((description) => description.imageId),
+            failureMessage,
+          )
+        : this.repository.markImageDescriptionsFailed(
+            current.id,
+            input.userId,
+            staged.map((description) => description.imageId),
+            failureMessage,
+          )
+      ).catch(() => null);
+      throw error;
+    }
+    if (failedImageIds.length) throw firstFailure ?? new Error("IMAGE_DESCRIPTION_PARTIAL_FAILURE");
+    return this.detail(input.userId, input.recordId);
+  }
+
+  private async generateImageDescriptionTexts(input: {
+    userId: string;
+    requestId: string;
+    operation: string;
+    images: CardEntryEntity["images"];
+    card: CardEntryEntity;
+    billingMode?: "user" | "platform";
+  }): Promise<Array<{ imageId: string; text: string; languageCode: string; segments: Array<{ ordinal: number; text: string }> }>> {
+    const imageViews = await Promise.all(input.images.map((image) => this.imageService!.views(image)));
+    const prompt = buildCardImageDescriptionPrompt({
+      imageCount: input.images.length,
+      languageCode: input.card.languageCode,
+      difficulty: input.card.promptDifficultySnapshot,
+      userText: input.card.originalText,
+    });
+    const output = await this.generateMeteredText({
+      userId: input.userId,
+      requestId: input.requestId,
+      operation: input.operation,
+      feature: "rewrite",
+      systemPrompt: prompt.systemPrompt,
+      userPrompt: prompt.userPrompt,
+      languageCode: input.card.languageCode,
+      appLocale: input.card.appLocaleSnapshot,
+      difficulty: input.card.promptDifficultySnapshot,
+      maxOutputTokens: Math.min(1_200, Math.max(320, input.images.length * 220)),
+      temperature: 0.2,
+      imageUrls: imageViews.map((view) => view.image.url),
+      usageMetadata: {
+        stage: "image_description",
+        imageDescriptionMode: input.images.length > 1 ? "batch" : "single",
+        totalImagePixels: input.images.reduce((total, image) => total + image.width * image.height, 0),
+        maxImageLongEdge: Math.max(...input.images.map((image) => Math.max(image.width, image.height))),
+      },
+      billingMode: input.billingMode,
+    });
+    return parseCardImageDescriptionOutput(output, input.images.length, input.card.languageCode).map((description) => ({
+      imageId: input.images[description.index]!.id,
+      text: description.text,
+      languageCode: input.card.languageCode,
+      segments: description.segments,
+    }));
+  }
+
+  private async generateMeteredText(input: {
+    userId: string;
+    requestId: string;
+    operation: string;
+    feature: "rewrite" | "organization";
+    systemPrompt: string;
+    userPrompt: string;
+    languageCode: string;
+    appLocale: string;
+    difficulty: string;
+    maxOutputTokens: number;
+    temperature?: number;
+    imageUrls?: string[];
+    usageMetadata?: Record<string, string | number | boolean | null>;
+    billingMode?: "user" | "platform";
+  }): Promise<string> {
+    if (!this.aiProvider || (input.billingMode !== "platform" && !this.usageV2Service)) throw new CardValidationError("Card generation is unavailable");
+    const meteredPrompt = `${input.systemPrompt}\n${input.userPrompt}`;
+    if (input.billingMode !== "platform") await this.usageV2Service!.reserveTokens({
+      userId: input.userId,
+      requestId: input.requestId,
+      feature: input.feature,
+      estimatedTokens: estimateTokenReservation(meteredPrompt, input.maxOutputTokens) + (input.imageUrls?.length ?? 0) * 1_200,
+      provider: this.aiProvider.providerName,
+      model: this.aiProvider.modelName,
+      metadata: {
+        operation: input.operation,
+        imageCount: input.imageUrls?.length ?? 0,
+        ...input.usageMetadata,
+      },
+    });
+    let output = "";
+    let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
+    let settled = false;
+    try {
+      await this.executeForegroundLlm(input.userId, input.requestId, input.operation, () => this.aiProvider!.generateChatTextStream({
+        userId: input.userId,
+        text: input.userPrompt,
+        languageCode: input.languageCode,
+        appLocale: input.appLocale,
+        promptDifficulty: input.difficulty,
+        companionMode: "rewrite_only",
+        systemPrompt: input.systemPrompt,
+        rawUserPrompt: true,
+        maxOutputTokens: input.maxOutputTokens,
+        temperature: input.temperature,
+        imageUrls: input.imageUrls,
+      }, (event) => {
+        if (event.type === "delta") output += event.text;
+        if (event.type === "done") usage = event.usage;
+      }));
+      output = output.trim();
+      if (!output) throw new CardValidationError("Generated content is empty");
+      this.contentSafetyService?.assertAllowed(output, "output");
+      await this.contentSafetyService?.assertAllowedRemote({
+        text: output,
+        stage: "output",
+        requestId: input.requestId,
+        userId: input.userId,
+      });
+      if (input.billingMode !== "platform") await settleGeneratedUsage(
+        this.usageV2Service!,
+        input.userId,
+        input.requestId,
+        usage,
+        meteredPrompt,
+        output,
+        this.aiProvider,
+        (input.imageUrls?.length ?? 0) * 1_200,
+        { operation: input.operation, imageCount: input.imageUrls?.length ?? 0, providerUsageReported: Boolean(usage), ...input.usageMetadata },
+      ); else await this.logPlatformImageUsage(input, usage, meteredPrompt, output, "success");
+      settled = true;
+      return output;
+    } catch (error) {
+      if (!settled) {
+        if (input.billingMode === "platform") {
+          await this.logPlatformImageUsage(input, usage, meteredPrompt, output, "failed", error);
+        } else if (output) {
+          await settleGeneratedUsage(
+            this.usageV2Service!,
+            input.userId,
+            input.requestId,
+            usage,
+            meteredPrompt,
+            output,
+            this.aiProvider,
+            (input.imageUrls?.length ?? 0) * 1_200,
+            { operation: input.operation, imageCount: input.imageUrls?.length ?? 0, providerUsageReported: Boolean(usage), ...input.usageMetadata },
+          )
+            .catch(async () => this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined));
+        } else {
+          await this.usageV2Service!.releaseTokens(input.userId, input.requestId).catch(() => undefined);
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async logPlatformImageUsage(
+    input: {
+      userId: string;
+      requestId: string;
+      operation: string;
+      feature: string;
+      imageUrls?: string[];
+      usageMetadata?: Record<string, string | number | boolean | null>;
+    },
+    usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"],
+    prompt: string,
+    output: string,
+    status: "success" | "failed",
+    error?: unknown,
+  ): Promise<void> {
+    const fallbackImageTokens = (input.imageUrls?.length ?? 0) * 1_200;
+    const inputTokens = usage?.inputTokens ?? Math.ceil(Array.from(prompt).length / 2) + fallbackImageTokens;
+    const outputTokens = usage?.outputTokens ?? Math.ceil(Array.from(output).length / 2);
+    const metadata = {
+      billingMode: "platform",
+      operation: input.operation,
+      imageCount: input.imageUrls?.length ?? 0,
+      inputTokens,
+      outputTokens,
+      meteringSource: usage ? "provider" : "estimate",
+      provider: this.aiProvider?.providerName,
+      model: this.aiProvider?.modelName,
+      ...input.usageMetadata,
+    };
+    await Promise.all([
+      this.aiUsageEventRepository?.upsert({
+        requestId: input.requestId,
+        userId: input.userId,
+        billingMode: "platform",
+        operation: input.operation,
+        feature: input.feature,
+        status,
+        inputTokens,
+        outputTokens,
+        imageCount: input.imageUrls?.length ?? 0,
+        meteringSource: usage ? "provider" : "estimate",
+        provider: this.aiProvider?.providerName ?? null,
+        model: this.aiProvider?.modelName ?? null,
+        metadata: input.usageMetadata,
+        errorCode: error && typeof error === "object" && "code" in error ? String(error.code) : null,
+        errorMessage: error instanceof Error ? error.message.slice(0, 500) : null,
+      }) ?? Promise.resolve(),
+      this.systemEventLogRepository?.create({
+        requestId: input.requestId,
+        userId: input.userId,
+        module: "card",
+        event: "card.image_ai_usage",
+        level: status === "success" ? "info" : "warn",
+        status,
+        errorCode: error && typeof error === "object" && "code" in error ? String(error.code) : null,
+        errorMessage: error instanceof Error ? error.message.slice(0, 500) : null,
+        metadata,
+      }) ?? Promise.resolve(),
+    ]).catch(() => undefined);
   }
 
   async saveContent(input: {
@@ -1014,14 +1457,18 @@ export class CardService {
     return records;
   }
 
-  async detail(userId: string, recordId: string): Promise<CardRecordDetailView> {
+  async detail(userId: string, recordId: string, phraseRecommendationContentType?: CardLearningContentType): Promise<CardRecordDetailView> {
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     let entry = await this.repository.findByIdForUser(parsed.sourceId, userId);
-    if (!entry || entry.status !== "completed" || (!entry.originalText && !entry.rewrittenText)) {
+    if (!entry || entry.status !== "completed" || (!entry.originalText && !entry.rewrittenText && !entry.images.length)) {
       throw new CardNotFoundError();
     }
+    if (entry.images.some((image) => image.descriptionStatus !== "completed")) {
+      await this.repository.enqueueImageDescriptionJobs(entry.id, userId, 100).catch(() => undefined);
+    }
     if (!contentSegmentsUseCurrentVersion(entry)) {
+      const cardLanguageCode = entry.languageCode;
       const expectedContentSegments = buildCardContentSegments([
         {
           contentType: "original",
@@ -1041,6 +1488,12 @@ export class CardService {
           languageCode: entry.replyLanguageCode ?? entry.languageCode,
           sourceHash: entry.replySourceHash,
         },
+        ...entry.images.map((image) => ({
+          contentType: imageDescriptionContentType(image.id),
+          text: image.descriptionText,
+          languageCode: image.descriptionLanguageCode ?? cardLanguageCode,
+          sourceHash: image.descriptionText ? cardContentHash(image.descriptionText) : null,
+        })),
       ]);
       const refreshed = await this.repository.refreshContentSegments({
         entryId: entry.id,
@@ -1051,8 +1504,13 @@ export class CardService {
       entry = refreshed;
     }
     const practiceState = await this.repository.findPracticeState(userId, entry.id);
-    const contentBlocks = await Promise.all(["original", "rewrite", "reply"].flatMap((contentType) => {
-      const typedContentType = contentType as CardLearningContentType;
+    const contentTypes: CardLearningContentType[] = [
+      "original",
+      "rewrite",
+      "reply",
+      ...entry.images.filter((image) => image.descriptionText).map((image) => imageDescriptionContentType(image.id)),
+    ];
+    const contentBlocks = await Promise.all(contentTypes.flatMap((typedContentType) => {
       const segments = entry.contentSegments.filter((segment) => segment.contentType === typedContentType);
       if (!segments.length) return [];
       const contentVersion = segments[0]!.contentVersion;
@@ -1089,7 +1547,7 @@ export class CardService {
       auxiliaryLanguageCode: entry.auxiliaryLanguageCode,
       replyText: entry.replyText,
       replyLanguageCode: entry.replyLanguageCode,
-      phraseRecommendation: toPhraseRecommendationView(entry, contentBlocks),
+      phraseRecommendation: toPhraseRecommendationView(entry, contentBlocks, phraseRecommendationContentType),
       rewriteSegments: entry.segments.map((segment) => ({
         id: segment.id,
         ordinal: segment.ordinal,
@@ -1596,11 +2054,23 @@ export class CardService {
   }
 }
 
+function shouldRetryImageDescriptionsIndividually(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.message === "CARD_IMAGE_DESCRIPTION_INVALID_FORMAT"
+    || error.message === "CARD_IMAGE_DESCRIPTION_MISMATCH"
+    || error.message === "Generated content is empty") return true;
+  const upstream = error as Error & { code?: string; status?: number };
+  return upstream.code === "UPSTREAM_AI_ERROR" && (upstream.status === 400 || upstream.status === 422);
+}
+
 function contentSegmentsUseCurrentVersion(entry: CardEntryEntity): boolean {
   const expectedTypes = new Set<CardLearningContentType>();
   if (entry.originalText?.trim()) expectedTypes.add("original");
   if (entry.rewrittenText?.trim()) expectedTypes.add("rewrite");
   if (entry.replyText?.trim()) expectedTypes.add("reply");
+  for (const image of entry.images) {
+    if (image.descriptionText?.trim()) expectedTypes.add(imageDescriptionContentType(image.id));
+  }
   const actualTypes = new Set(entry.contentSegments.map((segment) => segment.contentType));
   return expectedTypes.size === actualTypes.size &&
     [...expectedTypes].every((contentType) => actualTypes.has(contentType)) &&
@@ -1617,8 +2087,9 @@ function reviewDelayDays(result: CardPracticeResult, correctStreak: number): num
 
 function memoryContentPriority(contentType: CardLearningContentType): number {
   if (contentType === "rewrite") return 0;
-  if (contentType === "reply") return 1;
-  return 2;
+  if (contentType.startsWith("image:")) return 1;
+  if (contentType === "reply") return 2;
+  return 3;
 }
 
 function memoryRoundPriority(
@@ -1679,17 +2150,26 @@ function buildSegments(text: string, languageCode: string): Array<{
 function contentText(entry: CardEntryEntity, contentType: CardLearningContentType): string | null {
   if (contentType === "original") return entry.originalText;
   if (contentType === "rewrite") return entry.rewrittenText;
-  return entry.replyText;
+  if (contentType === "reply") return entry.replyText;
+  const imageId = imageIdFromContentType(contentType);
+  return imageId ? entry.images.find((image) => image.id === imageId)?.descriptionText ?? null : null;
 }
 
 function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningContentType): string {
   if (contentType === "original") return entry.languageCode;
   if (contentType === "rewrite") return entry.rewrittenLanguageCode ?? entry.languageCode;
-  return entry.replyLanguageCode ?? entry.languageCode;
+  if (contentType === "reply") return entry.replyLanguageCode ?? entry.languageCode;
+  const imageId = imageIdFromContentType(contentType);
+  return entry.images.find((image) => image.id === imageId)?.descriptionLanguageCode ?? entry.languageCode;
 }
 
 function defaultLearningContentType(entry: CardEntryEntity): CardLearningContentType | null {
-  for (const contentType of ["rewrite", "reply", "original"] as const) {
+  for (const contentType of [
+    "rewrite",
+    ...entry.images.map((image) => imageDescriptionContentType(image.id)),
+    "reply",
+    "original",
+  ] as CardLearningContentType[]) {
     if (entry.contentSegments.some((segment) => segment.contentType === contentType)) return contentType;
   }
   return null;
@@ -1703,7 +2183,7 @@ function resolveContentBinding(
   const hasVersion = value?.contentVersion !== undefined;
   if (!hasType && !hasVersion) return null;
   if (!hasType || !hasVersion ||
-    (value?.contentType !== "original" && value?.contentType !== "rewrite" && value?.contentType !== "reply") ||
+    !isCardLearningContentType(value?.contentType) ||
     typeof value.contentVersion !== "string" || !value.contentVersion) {
     throw new CardValidationError("Invalid content binding");
   }
@@ -1712,6 +2192,19 @@ function resolveContentBinding(
   );
   if (!exists) throw new CardPracticeConflictError();
   return { contentType: value.contentType, contentVersion: value.contentVersion };
+}
+
+function imageDescriptionContentType(imageId: string): CardLearningContentType {
+  return `image:${imageId}`;
+}
+
+function imageIdFromContentType(contentType: CardLearningContentType): string | null {
+  return contentType.startsWith("image:") ? contentType.slice("image:".length) || null : null;
+}
+
+function isCardLearningContentType(value: unknown): value is CardLearningContentType {
+  return value === "original" || value === "rewrite" || value === "reply"
+    || typeof value === "string" && /^image:[A-Za-z0-9_-]{1,128}$/u.test(value);
 }
 
 function isPracticeResult(value: unknown): value is CardPracticeResult {
@@ -1766,9 +2259,11 @@ function toPracticeView(
 function toPhraseRecommendationView(
   entry: CardEntryEntity,
   contentBlocks: CardRecordDetailView["contentBlocks"],
+  preferredContentType?: CardLearningContentType,
 ): CardPhraseRecommendationView | null {
   if (entry.isSample || entry.status !== "completed") return null;
-  const contentType: "original" | "rewrite" = entry.rewrittenText ? "rewrite" : "original";
+  const contentType = preferredContentType ?? defaultLearningContentType(entry);
+  if (!contentType) return null;
   const activeBlock = contentBlocks.find((block) => block.contentType === contentType);
   if (!activeBlock) return null;
   if (
@@ -1788,6 +2283,7 @@ function toPhraseRecommendationView(
       return { ...item, remembered };
     });
   return {
+    contentType,
     seen: Boolean(entry.phraseRecommendationSeenAt),
     exhausted: Boolean(entry.phraseRecommendationExhaustedAt),
     items,
@@ -1860,7 +2356,7 @@ function normalizePhraseRecommendation(value: unknown): CardPhraseRecommendation
     : [];
   return {
     id: row.id,
-    contentType: row.contentType === "original" ? "original" : "rewrite",
+    contentType: isCardLearningContentType(row.contentType) ? row.contentType : "rewrite",
     contentVersion: row.contentVersion,
     segmentId: row.segmentId,
     ordinal: Number(row.ordinal),
@@ -1885,7 +2381,7 @@ export function toSummary(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_MAX
     collectionId: entry.collectionId,
     source: "card",
     dateKey: entry.dateKey,
-    originalPreview: truncateGraphemes(entry.originalText ?? "", PREVIEW_GRAPHEMES),
+    originalPreview: truncateGraphemes(entry.originalText ?? entry.images.find((image) => image.descriptionText)?.descriptionText ?? "", PREVIEW_GRAPHEMES),
     rewrittenPreview: entry.rewrittenText
       ? truncateGraphemes(entry.rewrittenText, PREVIEW_GRAPHEMES)
       : null,
@@ -1912,7 +2408,7 @@ function effectiveCardTitle(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_M
   if (title) return title;
   const topic = entry.topic?.trim();
   if (topic) return truncateGraphemes(topic, topicMaxChars);
-  const firstLine = (entry.originalText ?? entry.rewrittenText ?? "")
+  const firstLine = (entry.originalText ?? entry.rewrittenText ?? entry.images.find((image) => image.descriptionText)?.descriptionText ?? "")
     .split(/\n/u)
     .map((line) => line.trim())
     .find(Boolean) ?? "";
@@ -2011,8 +2507,10 @@ async function settleGeneratedUsage(
   prompt: string,
   output: string,
   provider: AIProvider,
+  fallbackInputTokens = 0,
+  metadata?: Record<string, string | number | boolean | null>,
 ): Promise<void> {
-  const inputTokens = usage?.inputTokens ?? Math.ceil(Array.from(prompt).length / 2);
+  const inputTokens = usage?.inputTokens ?? Math.ceil(Array.from(prompt).length / 2) + fallbackInputTokens;
   const outputTokens = usage?.outputTokens ?? Math.ceil(Array.from(output).length / 2);
   await service.settleTokens({
     userId,
@@ -2022,6 +2520,7 @@ async function settleGeneratedUsage(
     meteringSource: usage ? "provider" : "tokenizer",
     provider: provider.providerName,
     model: provider.modelName,
+    metadata,
   });
 }
 

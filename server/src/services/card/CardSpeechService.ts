@@ -437,7 +437,7 @@ function resolveSpeechBinding(
   contentVersion: string | undefined,
 ): { contentType: CardLearningContentType; contentVersion: string } | null {
   if (contentType === undefined && contentVersion === undefined) return null;
-  if ((contentType !== "original" && contentType !== "rewrite" && contentType !== "reply") || !contentVersion) {
+  if (!isLearningContentType(contentType) || !contentVersion) {
     throw new CardValidationError("Invalid content binding");
   }
   return { contentType, contentVersion };
@@ -446,7 +446,14 @@ function resolveSpeechBinding(
 function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningContentType): string {
   if (contentType === "original") return entry.languageCode;
   if (contentType === "rewrite") return entry.rewrittenLanguageCode ?? entry.languageCode;
-  return entry.replyLanguageCode ?? entry.languageCode;
+  if (contentType === "reply") return entry.replyLanguageCode ?? entry.languageCode;
+  const imageId = contentType.slice("image:".length);
+  return entry.images.find((image) => image.id === imageId)?.descriptionLanguageCode ?? entry.languageCode;
+}
+
+function isLearningContentType(value: unknown): value is CardLearningContentType {
+  return value === "original" || value === "rewrite" || value === "reply"
+    || typeof value === "string" && /^image:[A-Za-z0-9_-]{1,128}$/u.test(value);
 }
 
 export function selectEnglishOriginalSpeech(

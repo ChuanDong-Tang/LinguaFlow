@@ -19,6 +19,7 @@ export * from "./PrismaPaymentOrderRepository.js";
 export * from "./PrismaPaymentEventRepository.js";
 export * from "./PrismaBenefitGrantRepository.js";
 export * from "./PrismaSystemEventLogRepository.js";
+export * from "./PrismaAiUsageEventRepository.js";
 export * from "./PrismaTrustedCertRepository.js";
 export * from "./PrismaAutoRenewRepository.js";
 export * from "./PrismaAppleIapAccountLinkRepository.js";

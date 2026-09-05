@@ -20,6 +20,10 @@ export class SelectableAIProvider implements AIProvider {
     return this.providers[this.defaultProviderName].modelName;
   }
 
+  get supportsImageInput(): boolean {
+    return this.providers[this.defaultProviderName].supportsImageInput === true;
+  }
+
   resolveProviderName(requestedProvider?: string): string {
     const provider = requestedProvider?.trim().toLowerCase();
     if (!provider) return this.defaultProviderName;

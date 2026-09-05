@@ -11,6 +11,7 @@ export * from "./SttRequestLogRepository.js";
 export * from "./SubscriptionRepository.js";
 export * from "./EntitlementRepository.js";
 export * from "./AiRequestLogRepository.js";
+export * from "./AiUsageEventRepository.js";
 export * from "./PaymentOrderRepository.js";
 export * from "./PaymentEventRepository.js";
 export * from "./BenefitGrantRepository.js";

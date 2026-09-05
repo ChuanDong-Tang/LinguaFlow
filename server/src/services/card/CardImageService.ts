@@ -10,7 +10,8 @@ import type { UsageV2Service } from "../usage/UsageV2Service.js";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2_200;
-const THUMBNAIL_VERSION = 4;
+const THUMBNAIL_VERSION = 5;
+const IMAGE_DESCRIPTION_LEASE_MS = 15 * 60 * 1_000;
 const LANDSCAPE_THUMBNAIL_SIZE = { width: 1_440, height: 960 } as const;
 const PORTRAIT_THUMBNAIL_SIZE = { width: 1_152, height: 1_440 } as const;
 const DEFAULT_BLOCK_SCORE = 80;
@@ -83,10 +84,6 @@ export class CardImageService {
     if (!['image/jpeg', 'image/png'].includes(input.mimeType)) throw new CardValidationError("只支持 JPEG 或 PNG 图片");
     if (!Number.isInteger(input.fileSize) || input.fileSize < 1 || input.fileSize > MAX_IMAGE_BYTES) throw new CardValidationError("图片大小不符合要求");
     if (![input.width, input.height].every((value) => Number.isInteger(value) && value > 0 && value <= MAX_IMAGE_EDGE)) throw new CardValidationError("图片尺寸不符合要求");
-    const ratio = input.width / input.height;
-    if (Math.min(Math.abs(ratio - 3 / 2), Math.abs(ratio - 4 / 5)) > 0.02) {
-      throw new CardValidationError("图片需要裁剪为横向 3:2 或竖向 4:5");
-    }
     const id = randomUUID();
     const extension = input.mimeType === "image/png" ? "png" : "jpg";
     const objectKey = `card-isolated/${input.userId}/${id}/original.${extension}`;
@@ -241,7 +238,11 @@ export class CardImageService {
       : original;
     const landscape = resolved.width >= resolved.height;
     const hasCurrentThumbnail = Boolean(resolved.thumbnailObjectKey) && resolved.thumbnailVersion >= THUMBNAIL_VERSION;
-    const thumbnailSize = landscape ? LANDSCAPE_THUMBNAIL_SIZE : PORTRAIT_THUMBNAIL_SIZE;
+    const thumbnailBounds = landscape ? LANDSCAPE_THUMBNAIL_SIZE : PORTRAIT_THUMBNAIL_SIZE;
+    const thumbnailSize = containedImageSize(resolved.width, resolved.height, thumbnailBounds.width, thumbnailBounds.height);
+    const descriptionStatus = isStaleImageDescription(resolved)
+      ? "failed" as const
+      : resolved.descriptionStatus;
     return {
       thumbnail: {
         id: resolved.id,
@@ -259,6 +260,11 @@ export class CardImageService {
         focusX: resolved.focusX,
         focusY: resolved.focusY,
         aspect: landscape ? "3:2" as const : "4:5" as const,
+        descriptionText: resolved.descriptionText,
+        descriptionLanguageCode: resolved.descriptionLanguageCode,
+        descriptionAuxiliarySegments: normalizeAuxiliarySegments(resolved.descriptionAuxiliarySegments),
+        descriptionAuxiliaryLanguageCode: resolved.descriptionAuxiliaryLanguageCode,
+        descriptionStatus,
       },
     };
   }
@@ -274,7 +280,7 @@ export class CardImageService {
       const thumbnailSize = landscape ? LANDSCAPE_THUMBNAIL_SIZE : PORTRAIT_THUMBNAIL_SIZE;
       const thumbnail = await sharp(bytes)
         .rotate()
-        .resize(thumbnailSize.width, thumbnailSize.height, { fit: "cover", position: "centre" })
+        .resize(thumbnailSize.width, thumbnailSize.height, { fit: "inside", withoutEnlargement: true })
         .jpeg({ quality: 92, mozjpeg: true })
         .toBuffer();
       const thumbnailObjectKey = asset.originalObjectKey.replace(/\/original\.[^.]+$/u, `/thumbnail-v${THUMBNAIL_VERSION}.jpg`);
@@ -332,6 +338,32 @@ export class CardImageService {
       // Audit logging must not alter image moderation.
     }
   }
+}
+
+function isStaleImageDescription(asset: {
+  descriptionStatus: string;
+  descriptionUpdatedAt: Date | null;
+}): boolean {
+  return (asset.descriptionStatus === "pending" || asset.descriptionStatus === "auxiliary_pending")
+    && (!asset.descriptionUpdatedAt || asset.descriptionUpdatedAt.getTime() <= Date.now() - IMAGE_DESCRIPTION_LEASE_MS);
+}
+
+function normalizeAuxiliarySegments(value: unknown): Array<{ ordinal: number; text: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => row && typeof row === "object"
+    && Number.isInteger((row as { ordinal?: unknown }).ordinal)
+    && typeof (row as { text?: unknown }).text === "string"
+    && (row as { text: string }).text.trim()
+    ? [{ ordinal: (row as { ordinal: number }).ordinal, text: (row as { text: string }).text.trim() }]
+    : []);
+}
+
+function containedImageSize(width: number, height: number, maxWidth: number, maxHeight: number): { width: number; height: number } {
+  const scale = Math.min(1, maxWidth / Math.max(1, width), maxHeight / Math.max(1, height));
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
 }
 
 function toStatus(asset: Awaited<ReturnType<CardRepository["findImageUpload"]>> & {}) {

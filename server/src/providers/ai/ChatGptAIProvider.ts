@@ -11,6 +11,7 @@ import {
 
 export class ChatGPTAIProvider implements AIProvider {
   readonly providerName = "openai";
+  readonly supportsImageInput = true;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -89,7 +90,16 @@ export class ChatGPTAIProvider implements AIProvider {
           model,
           instructions: systemPrompt,
           stream: true,
-          input: userPrompt,
+          input: input.imageUrls?.length ? [{
+            role: "user",
+            content: [
+              { type: "input_text", text: userPrompt },
+              ...input.imageUrls.flatMap((imageUrl, index) => [
+                { type: "input_text" as const, text: `<image_index>${index}</image_index>` },
+                { type: "input_image" as const, image_url: imageUrl, detail: "auto" },
+              ]),
+            ],
+          }] : userPrompt,
           ...(input.maxOutputTokens ? { max_output_tokens: input.maxOutputTokens } : {}),
           reasoning: {
             effort: "medium",

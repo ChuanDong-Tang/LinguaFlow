@@ -17,6 +17,8 @@ export interface ChatTextGenerationInput{
     systemPrompt?: string;
     rawUserPrompt?: boolean;
     maxOutputTokens?: number;
+    temperature?: number;
+    imageUrls?: string[];
     signal?: AbortSignalLike;
 }
 
@@ -49,6 +51,7 @@ export interface AIProviderConfig{
 export interface AIProvider{
     readonly providerName: string;
     readonly modelName: string;
+    readonly supportsImageInput?: boolean;
     resolveProviderName?(requestedProvider?: string): string;
     resolveModelName?(input?: string | { provider?: string; model?: string }): string;
 

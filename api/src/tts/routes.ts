@@ -411,7 +411,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
     }
     try {
       const segmentId = String(params.segmentId ?? "");
-      const contentType = query.contentType as "original" | "rewrite" | "reply" | undefined;
+      const contentType = query.contentType as import("@lf/core/types/cardRecord.js").CardLearningContentType | undefined;
       const contentVersion = typeof query.contentVersion === "string" ? query.contentVersion : undefined;
       const articleInput = {
         userId,
@@ -532,7 +532,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
         segmentId: String(body?.segmentId ?? ""),
         startUtf16: Number(body?.startUtf16 ?? body?.start),
         endUtf16: Number(body?.endUtf16 ?? body?.end),
-        contentType: body?.contentType as "original" | "rewrite" | "reply" | undefined,
+        contentType: body?.contentType as import("@lf/core/types/cardRecord.js").CardLearningContentType | undefined,
         contentVersion: typeof body?.contentVersion === "string" ? body.contentVersion : undefined,
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });

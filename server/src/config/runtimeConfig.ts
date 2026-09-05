@@ -125,6 +125,15 @@ export interface RuntimeConfig {
   cardAuxiliaryBackfillScanIntervalMs: number;
   cardAuxiliaryBackfillJobIntervalMs: number;
   cardAuxiliaryBackfillMinimumAgeMs: number;
+  cardImageDescriptionWorkerEnabled: boolean;
+  cardImageDescriptionBackfillEnabled: boolean;
+  cardImageDescriptionBackfillBatchSize: number;
+  cardImageDescriptionBackfillMaxOutstanding: number;
+  cardImageDescriptionBackfillScanIntervalMs: number;
+  cardImageDescriptionBackfillJobIntervalMs: number;
+  cardImageDescriptionBackfillMinimumAgeMs: number;
+  cardImageDescriptionBackfillRefreshOutdated: boolean;
+  cardImageDescriptionBackfillMaxAttempts: number;
   cardWorkerConcurrencyLeaseMs: number;
   authingDomain: string | null;
   authingAppId: string | null;
@@ -323,6 +332,15 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardAuxiliaryBackfillScanIntervalMs: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_SCAN_INTERVAL_MS, 300_000),
     cardAuxiliaryBackfillJobIntervalMs: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_JOB_INTERVAL_MS, 15_000),
     cardAuxiliaryBackfillMinimumAgeMs: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_MINIMUM_AGE_MS, 86_400_000),
+    cardImageDescriptionWorkerEnabled: readBoolean(env.CARD_IMAGE_DESCRIPTION_WORKER_ENABLED, true),
+    cardImageDescriptionBackfillEnabled: readBoolean(env.CARD_IMAGE_DESCRIPTION_BACKFILL_ENABLED, true),
+    cardImageDescriptionBackfillBatchSize: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_BATCH_SIZE, 20),
+    cardImageDescriptionBackfillMaxOutstanding: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_MAX_OUTSTANDING, 40),
+    cardImageDescriptionBackfillScanIntervalMs: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_SCAN_INTERVAL_MS, 300_000),
+    cardImageDescriptionBackfillJobIntervalMs: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_JOB_INTERVAL_MS, 15_000),
+    cardImageDescriptionBackfillMinimumAgeMs: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_MINIMUM_AGE_MS, 86_400_000),
+    cardImageDescriptionBackfillRefreshOutdated: readBoolean(env.CARD_IMAGE_DESCRIPTION_BACKFILL_REFRESH_OUTDATED, false),
+    cardImageDescriptionBackfillMaxAttempts: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_MAX_ATTEMPTS, 3),
     cardWorkerConcurrencyLeaseMs: readPositiveInt(env.CARD_WORKER_CONCURRENCY_LEASE_MS, 300_000),
     authingDomain: trimToNull(env.AUTHING_DOMAIN),
     authingAppId: trimToNull(env.AUTHING_APP_ID),

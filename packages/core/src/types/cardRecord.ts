@@ -8,7 +8,7 @@ export type CardRecordSource = "card";
 export type CardEntryStatus = "queued" | "processing" | "completed" | "failed" | "deleted";
 export type CardTaskStatus = Exclude<CardEntryStatus, "deleted">;
 export type CardPracticeResult = "correct" | "incorrect" | "revealed";
-export type CardLearningContentType = "original" | "rewrite" | "reply";
+export type CardLearningContentType = "original" | "rewrite" | "reply" | `image:${string}`;
 
 export interface CardClozeBlank {
   id: string;
@@ -45,7 +45,7 @@ export interface CardContentBlockView {
 
 export interface CardPhraseRecommendationItemView {
   id: string;
-  contentType: "original" | "rewrite";
+  contentType: CardLearningContentType;
   contentVersion: string;
   segmentId: string;
   ordinal: number;
@@ -58,6 +58,7 @@ export interface CardPhraseRecommendationItemView {
 }
 
 export interface CardPhraseRecommendationView {
+  contentType: CardLearningContentType;
   seen: boolean;
   exhausted: boolean;
   items: Array<CardPhraseRecommendationItemView & { remembered: boolean }>;
@@ -77,6 +78,11 @@ export interface CardImageDetailView extends CardImageThumbnailView {
   aspect: "3:2" | "4:5" | null;
   /** Smaller rendition for inline Card galleries; use `url` for full-screen viewing. */
   thumbnail?: CardImageThumbnailView | null;
+  descriptionText: string | null;
+  descriptionLanguageCode: string | null;
+  descriptionAuxiliarySegments: Array<{ ordinal: number; text: string }>;
+  descriptionAuxiliaryLanguageCode: string | null;
+  descriptionStatus: "not_requested" | "pending" | "auxiliary_pending" | "completed" | "failed";
 }
 
 export interface CardPracticeSummaryView {

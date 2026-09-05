@@ -5,7 +5,7 @@ import { fetchWithTimeout } from "./fetchWithTimeout";
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 export type CardStatus = "queued" | "processing" | "completed" | "failed";
-export type CardLearningContentType = "original" | "rewrite" | "reply";
+export type CardLearningContentType = "original" | "rewrite" | "reply" | `image:${string}`;
 export type CardCapabilities = {
   limits: {
     titleChars: number;
@@ -64,12 +64,14 @@ export type CardRecordDetail = CardRecordSummary & {
   replyText: string | null;
   replyLanguageCode: string | null;
   phraseRecommendation?: {
+    /** Missing on servers from before per-learning-content recommendations. */
+    contentType?: CardLearningContentType;
     seen: boolean;
     exhausted: boolean;
     items: Array<{
       id: string;
       /** Missing on servers from before original-content recommendations. */
-      contentType?: "original" | "rewrite";
+      contentType?: CardLearningContentType;
       contentVersion: string;
       segmentId: string;
       ordinal: number;
@@ -106,6 +108,11 @@ export type CardRecordDetail = CardRecordSummary & {
     focusX: number;
     focusY: number;
     thumbnail?: { id: string; url: string; urlExpiresAt?: string | null; width: number; height: number } | null;
+    descriptionText?: string | null;
+    descriptionLanguageCode?: string | null;
+    descriptionAuxiliarySegments?: Array<{ ordinal: number; text: string }>;
+    descriptionAuxiliaryLanguageCode?: string | null;
+    descriptionStatus?: "not_requested" | "pending" | "auxiliary_pending" | "completed" | "failed";
   }>;
   image: {
     id: string;
@@ -116,6 +123,11 @@ export type CardRecordDetail = CardRecordSummary & {
     focusX: number;
     focusY: number;
     thumbnail?: { id: string; url: string; urlExpiresAt?: string | null; width: number; height: number } | null;
+    descriptionText?: string | null;
+    descriptionLanguageCode?: string | null;
+    descriptionAuxiliarySegments?: Array<{ ordinal: number; text: string }>;
+    descriptionAuxiliaryLanguageCode?: string | null;
+    descriptionStatus?: "not_requested" | "pending" | "auxiliary_pending" | "completed" | "failed";
   } | null;
   practice: {
     hasCloze: boolean;
@@ -205,11 +217,11 @@ export async function getCardInspirations(appLocale: string): Promise<CardInspir
   return request<CardInspirations>(`/cards/inspirations?appLocale=${encodeURIComponent(appLocale)}`);
 }
 
-export async function generateCardPhraseRecommendation(recordId: string): Promise<CardRecordDetail> {
+export async function generateCardPhraseRecommendation(recordId: string, contentType?: CardLearningContentType): Promise<CardRecordDetail> {
   const cardId = requireCardId(recordId);
   return request(`/cards/${encodeURIComponent(cardId)}/phrase-recommendations`, {
     method: "POST",
-    body: "{}",
+    body: JSON.stringify(contentType ? { contentType } : {}),
   });
 }
 
@@ -231,6 +243,17 @@ export async function generateCardContent(
     method: "POST",
     headers: { "x-lf-usage-api": "v2" },
     body: JSON.stringify({ target }),
+  });
+}
+
+export async function generateCardImageDescriptions(
+  recordId: string,
+  imageId?: string,
+): Promise<CardRecordDetail> {
+  return request<CardRecordDetail>(`/cards/${encodeURIComponent(requireCardId(recordId))}/image-descriptions`, {
+    method: "POST",
+    headers: { "x-lf-usage-api": "v2" },
+    body: JSON.stringify(imageId ? { imageId } : {}),
   });
 }
 

@@ -13,6 +13,7 @@ import { BenefitGrantService } from "./src/services/payment/BenefitGrantService.
 import { SubscriptionService } from "./src/services/subscription/SubscriptionService.ts";
 import { BenefitGrantWorker } from "./src/workers/payment/BenefitGrantWorker.ts";
 import { PrismaSystemEventLogRepository } from "./src/infrastructure/repository/PrismaSystemEventLogRepository.ts";
+import { PrismaAiUsageEventRepository } from "./src/infrastructure/repository/PrismaAiUsageEventRepository.ts";
 import { PrismaTrustedCertRepository } from "./src/infrastructure/repository/PrismaTrustedCertRepository.ts";
 import { PrismaAutoRenewRepository } from "./src/infrastructure/repository/PrismaAutoRenewRepository.ts";
 import { SessionCleanupWorker } from "./src/workers/session/SessionCleanupWorker.ts";
@@ -42,6 +43,10 @@ import { CardEnrichmentWorkerService } from "./src/services/card/CardEnrichmentW
 import { CardTopicWorkerService } from "./src/services/card/CardTopicWorkerService.ts";
 import { CardAuxiliaryWorkerService } from "./src/services/card/CardAuxiliaryWorkerService.ts";
 import { CardAuxiliaryBackfillScanner } from "./src/workers/card/CardAuxiliaryBackfillScanner.ts";
+import { CardImageDescriptionWorkerService } from "./src/services/card/CardImageDescriptionWorkerService.ts";
+import { CardImageDescriptionBackfillScanner } from "./src/workers/card/CardImageDescriptionBackfillScanner.ts";
+import { CardImageService } from "./src/services/card/CardImageService.ts";
+import { CardService } from "./src/services/card/CardService.ts";
 import { AzureEmbeddingProvider } from "./src/providers/ai/AzureEmbeddingProvider.ts";
 import { PhraseNormalizationWorkerService } from "./src/services/card/PhraseNormalizationWorkerService.ts";
 import { PhraseHistoryIndexWorkerService } from "./src/services/card/PhraseHistoryIndexWorkerService.ts";
@@ -82,6 +87,7 @@ const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
 const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
 const googlePlayAccountLinkRepository = new PrismaGooglePlayAccountLinkRepository(prisma);
 const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
+const aiUsageEventRepository = new PrismaAiUsageEventRepository(prisma);
 const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
 const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
 const subscriptionService = new SubscriptionService(subscriptionRepository);
@@ -211,6 +217,35 @@ const cardContentSafetyService = new ContentSafetyService(systemEventLogReposito
   tencentTmsFailClosed: runtime.contentSafetyTencentFailClosed,
   tencentTmsReviewMode: runtime.contentSafetyTencentReviewMode,
 });
+const workerCardImageService = new CardImageService(
+  cardRepository,
+  cardImageStorageProvider,
+  undefined,
+  systemEventLogRepository,
+  entitlementService,
+  usageV2Service,
+);
+const workerCardService = new CardService(
+  cardRepository,
+  new PrismaUserPreferenceRepository(prisma),
+  entitlementService,
+  cardTaskGuard,
+  runtime.chatGenerationTaskTtlMs,
+  cardContentSafetyService,
+  workerCardImageService,
+  cardAiProvider,
+  resourceGovernor,
+  runtime.cardListPageSizeMax,
+  {
+    titleMaxChars: runtime.cardTitleMaxChars,
+    topicMaxChars: runtime.cardTopicMaxChars,
+    contentMaxChars: runtime.cardContentMaxChars,
+    imagesMaxPerCard: runtime.cardImagesMaxPerCard,
+  },
+  undefined,
+  systemEventLogRepository,
+  aiUsageEventRepository,
+);
 const cardRewriteService = new CardRewriteWorkerService(
   cardRepository,
   cardAiProvider,
@@ -272,6 +307,35 @@ const cardAuxiliaryBackfillWorker = runtime.cardAuxiliaryBackfillEnabled
         maxJobsPerRun: 1,
         concurrencyGuard: cardWorkerConcurrencyGuard,
         concurrencyScope: "auxiliary-backfill",
+        concurrencyLimit: 1,
+      },
+    )
+  : null;
+const cardImageDescriptionBackfillScanner = runtime.cardImageDescriptionWorkerEnabled && runtime.cardImageDescriptionBackfillEnabled
+  ? new CardImageDescriptionBackfillScanner(cardEnrichmentRepository, systemEventLogRepository, {
+      intervalMs: runtime.cardImageDescriptionBackfillScanIntervalMs,
+      batchSize: runtime.cardImageDescriptionBackfillBatchSize,
+      maxOutstanding: runtime.cardImageDescriptionBackfillMaxOutstanding,
+      minimumAgeMs: runtime.cardImageDescriptionBackfillMinimumAgeMs,
+      refreshOutdated: runtime.cardImageDescriptionBackfillRefreshOutdated,
+    })
+  : null;
+const cardImageDescriptionBackfillWorker = runtime.cardImageDescriptionWorkerEnabled
+  ? new SerialCardJobWorker(
+      new CardImageDescriptionWorkerService(
+        cardEnrichmentRepository,
+        workerCardService,
+        systemEventLogRepository,
+        resourceGovernor,
+        { maxAttempts: runtime.cardImageDescriptionBackfillMaxAttempts },
+      ),
+      {
+        workerIdPrefix: "card-image-description-backfill",
+        errorLabel: "card-image-description-backfill-worker",
+        intervalMs: runtime.cardImageDescriptionBackfillJobIntervalMs,
+        maxJobsPerRun: 1,
+        concurrencyGuard: cardWorkerConcurrencyGuard,
+        concurrencyScope: "image-description-backfill",
         concurrencyLimit: 1,
       },
     )
@@ -392,6 +456,8 @@ const workerGroups = {
     cardTopicWorker,
     cardAuxiliaryBackfillScanner,
     cardAuxiliaryBackfillWorker,
+    cardImageDescriptionBackfillScanner,
+    cardImageDescriptionBackfillWorker,
     cardEnrichmentWorker,
     phraseNormalizationWorker,
     phraseHistoryIndexWorker,

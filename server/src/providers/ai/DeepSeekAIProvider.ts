@@ -12,6 +12,7 @@ import {
 /** DeepSeekAIProvider：调用 DeepSeek 流式接口实现改写能力。 */
 export class DeepSeekAIProvider implements AIProvider {
   readonly providerName = "deepseek";
+  readonly supportsImageInput = false;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -88,7 +89,7 @@ export class DeepSeekAIProvider implements AIProvider {
         },
         body: JSON.stringify({
           model,
-          temperature: 0.3,
+          temperature: input.temperature ?? 0.3,
           ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
           stream: true,
           stream_options: { include_usage: true },
@@ -99,7 +100,13 @@ export class DeepSeekAIProvider implements AIProvider {
             },
             {
               role: "user",
-              content: userPrompt,
+              content: input.imageUrls?.length ? [
+                { type: "text", text: userPrompt },
+                ...input.imageUrls.flatMap((url, index) => [
+                  { type: "text" as const, text: `<image_index>${index}</image_index>` },
+                  { type: "image_url" as const, image_url: { url } },
+                ]),
+              ] : userPrompt,
             },
           ],
         }),

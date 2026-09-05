@@ -142,6 +142,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [searchCollectionId, setSearchCollectionId] = useState<string | null | undefined>(undefined);
   const [composerVisible, setComposerVisible] = useState(false);
   const [quickNoteCreating, setQuickNoteCreating] = useState(false);
+  const [quickNoteAddMenuVisible, setQuickNoteAddMenuVisible] = useState(false);
   const [inspirationQuestions, setInspirationQuestions] = useState(() => fallbackCardInspirations().questions);
   const [inspirationIndex, setInspirationIndex] = useState(0);
   const [recordMoveTarget, setRecordMoveTarget] = useState<CardRecordSummary | null>(null);
@@ -607,6 +608,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }
 
   function openCardComposer(): void {
+    setQuickNoteAddMenuVisible(false);
     if (quickNoteStt.status !== "idle") void quickNoteStt.toggle();
     const hasDraftContent = Boolean(draft.title.trim() || draft.text.trim() || draft.rewrittenText.trim() || draft.translationText.trim() || draft.replyText.trim() || draft.images.length);
     if (!hasDraftContent) {
@@ -624,14 +626,16 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       .catch(() => undefined)
       .then(async () => {
         try {
-          let detail = await updateCardContent(created.id, {
-            title: snapshot.title.trim() || null,
-            originalText: snapshot.text.trim(),
-            collectionId: snapshot.collectionId,
-            ...(!snapshot.enabledLayers.expression ? { rewrittenText: null } : {}),
-            translationText: null,
-            ...(!snapshot.enabledLayers.reply ? { replyText: null } : {}),
-          });
+          let detail = snapshot.text.trim()
+            ? await updateCardContent(created.id, {
+                title: snapshot.title.trim() || null,
+                originalText: snapshot.text.trim(),
+                collectionId: snapshot.collectionId,
+                ...(!snapshot.enabledLayers.expression ? { rewrittenText: null } : {}),
+                translationText: null,
+                ...(!snapshot.enabledLayers.reply ? { replyText: null } : {}),
+              })
+            : await getCardRecord(created.id);
           const generation = await generateMissingCardContent(detail, selectedTargets);
           detail = generation.detail;
           if (detail.rewrittenText?.trim() && !detail.auxiliarySegments?.length) {
@@ -674,7 +678,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     const snapshot = draftRef.current;
     const text = snapshot.text.trim();
     const count = countGraphemes(text);
-    if (count < 1 || count > cardLimits.contentChars) {
+    if ((count < 1 && snapshot.images.length < 1) || count > cardLimits.contentChars) {
       Alert.alert(t("card_detail.error.cannot_save"), t("card_detail.error.length_message"));
       return;
     }
@@ -720,8 +724,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         if (coverImageId) created = await updateCardCoverPosition(created.id, coverImageId, firstDraftImage.focusX ?? 0.5, firstDraftImage.focusY ?? 0.5);
       }
       persistedRecordId = created.id;
-      const selectedTargets: CardGenerationTarget[] = (["expression", "reply"] as const)
-        .filter((target) => snapshot.enabledLayers[target]);
+      const selectedTargets: CardGenerationTarget[] = [
+        ...((text ? (["expression", "reply"] as const).filter((target) => snapshot.enabledLayers[target]) : [])),
+        ...(snapshot.images.length ? ["image_description" as const] : []),
+      ];
       await commitDraft({ ...submitting, recordId: persistedRecordId });
       await setCardGenerationState(created.id, { pendingTargets: selectedTargets, failedTargets: [] });
       const optimisticRecord: CardRecordSummary = {
@@ -788,7 +794,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     const snapshot = draftRef.current;
     const text = snapshot.text.trim();
     const count = countGraphemes(text);
-    if (count < 1 || count > cardLimits.contentChars) {
+    if ((count < 1 && snapshot.images.length < 1) || count > cardLimits.contentChars) {
       Alert.alert(t("card_detail.error.cannot_save"), t("card_detail.error.length_message"));
       return;
     }
@@ -809,8 +815,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     setSending(true);
     let persistedRecordId = snapshot.recordId;
     let optimisticStarted = false;
-    const selectedTargets: CardGenerationTarget[] = (["expression", "reply"] as const)
-      .filter((target) => snapshot.enabledLayers[target]);
+    const selectedTargets: CardGenerationTarget[] = [
+      ...((text ? (["expression", "reply"] as const).filter((target) => snapshot.enabledLayers[target]) : [])),
+      ...(snapshot.images.length ? ["image_description" as const] : []),
+    ];
     try {
       await commitDraft(submitting);
       const derivedContentMatchesSource = snapshot.derivedFromText === snapshot.text;
@@ -960,7 +968,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
   function persistDraftImage(image: CardDraftImage): void {
     void updateCommittedDraft((current) => {
-      const images = current.images.some((candidate) => candidate.localUri === image.localUri)
+      const alreadyPresent = current.images.some((candidate) => candidate.localUri === image.localUri);
+      // Upload callbacks can arrive after the user removes a thumbnail. Only the
+      // initial pending image may be inserted; later states update an existing row.
+      if (!alreadyPresent && image.status !== "pending") return current;
+      const images = alreadyPresent
         ? current.images.map((candidate) => candidate.localUri === image.localUri ? { ...image, focusX: candidate.focusX ?? image.focusX, focusY: candidate.focusY ?? image.focusY } : candidate)
         : current.images.length < cardLimits.imagesPerCard ? [...current.images, image] : current.images;
       return { ...current, images, clientId: current.recordId ? current.clientId : null, submitted: false };
@@ -1408,7 +1420,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         </View>
       </View> : null}
       {!selectingRecords && libraryView !== TRASH_VIEW ? <KeyboardStickyView offset={{ opened: screenInsets.bottom }} style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
-        {!draft.text.trim() && inspirationQuestions[inspirationIndex] ? <View style={styles.inspirationCard}>
+        {!draft.text.trim() && !draft.images.length && inspirationQuestions[inspirationIndex] ? <View style={styles.inspirationCard}>
           <Pressable accessibilityLabel={inspirationQuestions[inspirationIndex]} style={styles.inspirationPrompt} onPress={() => quickNoteInputRef.current?.focus()}>
             <View style={styles.inspirationCopy}>
               <Text style={styles.inspirationName}>{t("quick_note.inspiration.name")}</Text>
@@ -1425,9 +1437,39 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             </Pressable>
           </View>
         </View> : null}
+        {quickNoteAddMenuVisible ? <View style={styles.quickNoteAddMenu}>
+          <Pressable style={styles.quickNoteAddMenuItem} onPress={() => { setQuickNoteAddMenuVisible(false); void pickImage("camera"); }}>
+            <Ionicons name="camera-outline" size={21} color={theme.colors.text} />
+            <Text style={styles.quickNoteAddMenuText}>{t("card_detail.photo.camera")}</Text>
+          </Pressable>
+          <Pressable style={styles.quickNoteAddMenuItem} onPress={() => { setQuickNoteAddMenuVisible(false); void pickImage("library"); }}>
+            <Ionicons name="images-outline" size={21} color={theme.colors.text} />
+            <Text style={styles.quickNoteAddMenuText}>{t("card_detail.photo.library")}</Text>
+          </Pressable>
+          <View style={styles.quickNoteAddMenuDivider} />
+          <Pressable style={styles.quickNoteAddMenuItem} onPress={openCardComposer}>
+            <Ionicons name="create-outline" size={21} color={theme.colors.text} />
+            <Text style={styles.quickNoteAddMenuText}>{t("quick_note.expand_editor")}</Text>
+          </Pressable>
+        </View> : null}
         <View style={styles.unifiedComposerBar}>
+          {draft.images.length || preparingDraftImageCount > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickNoteAttachmentRow}>
+            {draft.images.map((image) => <View key={image.localUri} style={styles.quickNoteAttachment}>
+              <Image source={{ uri: image.localUri }} style={styles.quickNoteAttachmentImage} />
+              {image.status !== "ready" ? <View style={styles.quickNoteAttachmentOverlay}>
+                {image.status === "failed"
+                  ? <Ionicons name="alert-circle" size={20} color={theme.colors.surface} />
+                  : <ActivityIndicator size="small" color={theme.colors.surface} />}
+              </View> : null}
+              <Pressable accessibilityLabel={t("common.remove")} hitSlop={6} style={styles.quickNoteAttachmentRemove} onPress={() => removeDraftImage(image.localUri)}>
+                <Ionicons name="close" size={13} color={theme.colors.surface} />
+              </Pressable>
+            </View>)}
+            {preparingDraftImageCount > 0 ? <View style={[styles.quickNoteAttachment, styles.quickNoteAttachmentPreparing]}><ActivityIndicator size="small" color={theme.colors.textMuted} /></View> : null}
+          </ScrollView> : null}
+          <View style={styles.unifiedComposerControls}>
           <View style={styles.unifiedComposerInput}>
-            <Pressable accessibilityLabel={t("quick_note.expand_editor")} disabled={quickNoteCreating} style={styles.unifiedComposerAdd} onPress={openCardComposer}><Ionicons name="create-outline" size={19} color={theme.colors.textSecondary} /></Pressable>
+            <Pressable accessibilityLabel={t("quick_note.add_attachment")} disabled={quickNoteCreating} style={styles.unifiedComposerAdd} onPress={() => { Keyboard.dismiss(); setQuickNoteAddMenuVisible((visible) => !visible); }}><Ionicons name={quickNoteAddMenuVisible ? "close" : "add"} size={22} color={theme.colors.textSecondary} /></Pressable>
             <TextInput
               ref={quickNoteInputRef}
               accessibilityLabel={t("quick_note.placeholder")}
@@ -1435,7 +1477,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               value={draft.text}
               onChangeText={quickNoteStt.onChangeText}
               onSelectionChange={({ nativeEvent }) => quickNoteStt.onSelectionChange(nativeEvent.selection)}
-              onFocus={() => { if (quickNoteStt.status !== "idle") void quickNoteStt.toggle(); }}
+              onFocus={() => {
+                setQuickNoteAddMenuVisible(false);
+                if (quickNoteStt.status !== "idle") void quickNoteStt.toggle();
+              }}
               placeholder={t("quick_note.placeholder")}
               placeholderTextColor={theme.colors.textMuted}
               maxLength={cardLimits.contentChars}
@@ -1461,9 +1506,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               }}
             />
           </View>
-          {draft.text.trim() || quickNoteCreating ? <Pressable accessibilityLabel={t("quick_note.a11y.send")} disabled={quickNoteCreating} style={[styles.unifiedComposerSend, quickNoteCreating && styles.unifiedComposerSendDisabled]} onPress={() => void sendQuickNote()}>
+          {draft.text.trim() || draft.images.length || quickNoteCreating ? <Pressable accessibilityLabel={t("quick_note.a11y.send")} disabled={quickNoteCreating} style={[styles.unifiedComposerSend, quickNoteCreating && styles.unifiedComposerSendDisabled]} onPress={() => { setQuickNoteAddMenuVisible(false); void sendQuickNote(); }}>
             {quickNoteCreating ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={19} color={theme.colors.surface} />}
           </Pressable> : null}
+          </View>
         </View>
       </KeyboardStickyView> : null}
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Ionicons name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Ionicons name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
@@ -2995,13 +3041,24 @@ const styles = StyleSheet.create({
   inspirationAction: { minHeight: 32, paddingHorizontal: 6, flexDirection: "row", alignItems: "center", gap: 3 },
   inspirationActionText: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
   inspirationAssistant: { width: 34, height: 34, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE4DC", borderRadius: 17, backgroundColor: "#EAF6F1", alignItems: "center", justifyContent: "center" },
-  unifiedComposerBar: { minHeight: 50, padding: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DEDC", borderRadius: 25, backgroundColor: "rgba(255,255,255,0.97)", flexDirection: "row", alignItems: "center", gap: 7, shadowColor: "#000000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9 },
+  unifiedComposerBar: { minHeight: 50, padding: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DEDC", borderRadius: 25, backgroundColor: "rgba(255,255,255,0.97)", gap: 5, shadowColor: "#000000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9 },
+  unifiedComposerControls: { flexDirection: "row", alignItems: "center", gap: 7 },
   unifiedComposerInput: { flex: 1, minHeight: 40, maxHeight: 96, paddingHorizontal: 5, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 8 },
   unifiedComposerAdd: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   unifiedComposerTextInput: { flex: 1, minHeight: 40, maxHeight: 88, paddingVertical: 9, paddingRight: 5, color: theme.colors.text, fontSize: 15, lineHeight: 21 },
   unifiedComposerMic: { width: 30, height: 30, borderRadius: 15, flexShrink: 0 },
   unifiedComposerSend: { width: 34, height: 34, marginHorizontal: 3, borderRadius: 17, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
   unifiedComposerSendDisabled: { opacity: 0.7 },
+  quickNoteAddMenu: { position: "absolute", left: 4, bottom: 60, minWidth: 210, paddingVertical: 7, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DEDC", backgroundColor: theme.colors.surface, shadowColor: "#000000", shadowOpacity: 0.14, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 12 },
+  quickNoteAddMenuItem: { minHeight: 45, paddingHorizontal: 15, flexDirection: "row", alignItems: "center", gap: 12 },
+  quickNoteAddMenuText: { color: theme.colors.text, fontSize: 16 },
+  quickNoteAddMenuDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 14, backgroundColor: theme.colors.border },
+  quickNoteAttachmentRow: { paddingHorizontal: 7, paddingTop: 5, paddingBottom: 2, gap: 8 },
+  quickNoteAttachment: { width: 66, height: 66, borderRadius: 13, overflow: "visible", backgroundColor: theme.colors.surfaceMuted },
+  quickNoteAttachmentImage: { width: 66, height: 66, borderRadius: 13 },
+  quickNoteAttachmentOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.34)" },
+  quickNoteAttachmentPreparing: { alignItems: "center", justifyContent: "center", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border },
+  quickNoteAttachmentRemove: { position: "absolute", top: -5, right: -5, width: 21, height: 21, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(27,31,30,0.82)", borderWidth: 2, borderColor: theme.colors.surface },
   modalPage: { flex: 1, backgroundColor: theme.colors.canvas },
   modalHeader: { minHeight: 58, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
   modalHeaderButton: { width: 62, minHeight: 44, alignItems: "center", justifyContent: "center" },

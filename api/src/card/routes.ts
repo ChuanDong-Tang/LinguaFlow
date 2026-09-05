@@ -601,6 +601,31 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     }
   });
 
+  app.post("/cards/:recordId/image-descriptions", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/image-descriptions");
+    if (!userId) return;
+    const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
+    const imageId = (req.body as { imageId?: unknown } | null)?.imageId;
+    if (imageId !== undefined && (typeof imageId !== "string" || !imageId.trim() || imageId.length > 128)) {
+      return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid image id");
+    }
+    try {
+      const data = await deps.cardService.generateImageDescriptions({
+        userId,
+        requestId,
+        recordId: `card:${recordId}`,
+        ...(typeof imageId === "string" ? { imageId: imageId.trim() } : {}),
+        usageApiVersion: "v2",
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
   app.post("/cards/:recordId/phrase-recommendations", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
@@ -608,6 +633,10 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/phrase-recommendations");
     if (!userId) return;
     const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
+    const contentType = (req.body as { contentType?: unknown } | null)?.contentType;
+    if (contentType !== undefined && !isLearningContentType(contentType)) {
+      return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid learning content type");
+    }
     try {
       if (!await consumeLimits(deps.rateLimiter, [
         [`card:phrase-recommendation:user:${userId}`, 20, 3_600_000],
@@ -620,6 +649,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         userId,
         requestId,
         recordId: `card:${recordId}`,
+        ...(contentType !== undefined ? { contentType } : {}),
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -857,7 +887,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
           if (!value || typeof value !== "object" || !("recordId" in value) || typeof value.recordId !== "string" || value.recordId.length > 200) return [];
           const contentType = "contentType" in value ? value.contentType : null;
           const contentVersion = "contentVersion" in value ? value.contentVersion : null;
-          if (contentType !== null && contentType !== "original" && contentType !== "rewrite" && contentType !== "reply") return [];
+          if (contentType !== null && !isLearningContentType(contentType)) return [];
           if (contentVersion !== null && (typeof contentVersion !== "string" || contentVersion.length > 300)) return [];
           if ((contentType === null) !== (contentVersion === null)) return [];
           return [{
@@ -890,7 +920,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const contentType = body?.contentType;
     const contentVersion = body?.contentVersion;
     if (!recordId || recordId.length > 200 || !segmentId || segmentId.length > 200
-      || (contentType !== null && contentType !== "original" && contentType !== "rewrite" && contentType !== "reply")
+      || (contentType !== null && !isLearningContentType(contentType))
       || (contentVersion !== null && (typeof contentVersion !== "string" || contentVersion.length > 300))
       || ((contentType === null) !== (contentVersion === null))) {
       return failure(reply, 400, requestId, "INVALID_MEMORY_MEANING_REQUEST", "Invalid memory meaning request");
@@ -1405,4 +1435,9 @@ function failure(
 
 function cardDisabled(reply: FastifyReply, requestId: string) {
   return failure(reply, 503, requestId, "CARD_DISABLED", "生活记录功能正在准备中");
+}
+
+function isLearningContentType(value: unknown): value is CardLearningContentType {
+  return value === "original" || value === "rewrite" || value === "reply"
+    || typeof value === "string" && /^image:[A-Za-z0-9_-]{1,128}$/u.test(value);
 }
