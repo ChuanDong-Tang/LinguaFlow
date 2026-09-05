@@ -571,7 +571,10 @@ export class PrismaCardRepository implements CardRepository {
     if (!imageIds.length) return this.findByIdForUser(entryId, userId);
     return this.prisma.$transaction(async (tx) => {
       // Serialize description claims for a Card across API instances/devices.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${entryId}, 0))`;
+      // The PostgreSQL function returns void. Use executeRaw so Prisma does not
+      // attempt to deserialize that pseudo-type while still holding the
+      // transaction-scoped lock until this transaction completes.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${entryId}, 0))`;
       const staleBefore = new Date(Date.now() - 15 * 60 * 1_000);
       const claimableStatus = {
         OR: [
@@ -709,7 +712,7 @@ export class PrismaCardRepository implements CardRepository {
             jobType: CARD_IMAGE_DESCRIPTION_JOB_TYPE,
             inputHash: description.sourceHash,
             inputVersion: cardImageDescriptionInputVersion({ sourceHash: description.sourceHash }),
-            status: "queued",
+            status: { in: ["queued", "failed"] },
           },
           data: { status: "completed", completedAt: new Date(), lastError: null },
         });
