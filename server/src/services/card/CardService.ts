@@ -1013,7 +1013,11 @@ export class CardService {
     card: CardEntryEntity;
     billingMode?: "user" | "platform";
   }): Promise<Array<{ imageId: string; text: string; languageCode: string; segments: Array<{ ordinal: number; text: string }> }>> {
-    const imageViews = await Promise.all(input.images.map((image) => this.imageService!.views(image)));
+    // Send image bytes to the provider instead of asking it to fetch a private COS URL.
+    // Some inference regions cannot reach COS reliably, while data URLs are supported by
+    // all image-capable providers used here. Prefer the already-generated thumbnail to
+    // keep request size and visual-token cost bounded.
+    const imageInputs = await Promise.all(input.images.map((image) => this.imageService!.aiInputDataUrl(image)));
     const prompt = buildCardImageDescriptionPrompt({
       imageCount: input.images.length,
       languageCode: input.card.languageCode,
@@ -1032,7 +1036,7 @@ export class CardService {
       difficulty: input.card.promptDifficultySnapshot,
       maxOutputTokens: Math.min(1_200, Math.max(320, input.images.length * 220)),
       temperature: 0.2,
-      imageUrls: imageViews.map((view) => view.image.url),
+      imageUrls: imageInputs,
       usageMetadata: {
         stage: "image_description",
         imageDescriptionMode: input.images.length > 1 ? "batch" : "single",
@@ -1192,7 +1196,7 @@ export class CardService {
         model: this.aiProvider?.modelName ?? null,
         metadata: input.usageMetadata,
         errorCode: error && typeof error === "object" && "code" in error ? String(error.code) : null,
-        errorMessage: error instanceof Error ? error.message.slice(0, 500) : null,
+        errorMessage: platformAiErrorMessage(error),
       }) ?? Promise.resolve(),
       this.systemEventLogRepository?.create({
         requestId: input.requestId,
@@ -1202,7 +1206,7 @@ export class CardService {
         level: status === "success" ? "info" : "warn",
         status,
         errorCode: error && typeof error === "object" && "code" in error ? String(error.code) : null,
-        errorMessage: error instanceof Error ? error.message.slice(0, 500) : null,
+        errorMessage: platformAiErrorMessage(error),
         metadata,
       }) ?? Promise.resolve(),
     ]).catch(() => undefined);
@@ -2493,6 +2497,26 @@ function cardUsageFeature(target: CardGeneratedContentTarget): "rewrite" | "orga
 
 function estimateTokenReservation(prompt: string, maxOutputTokens: number): number {
   return Math.max(1, Array.from(prompt).length + maxOutputTokens);
+}
+
+function platformAiErrorMessage(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  const upstream = error as Error & { status?: unknown; upstreamText?: unknown; upstreamCode?: unknown };
+  const parts = [
+    error.message,
+    typeof upstream.status === "number" ? `HTTP ${upstream.status}` : null,
+    typeof upstream.upstreamCode === "string" ? upstream.upstreamCode : null,
+    typeof upstream.upstreamText === "string" ? sanitizeUpstreamAiError(upstream.upstreamText) : null,
+  ].filter((value): value is string => Boolean(value));
+  return parts.join(": ").slice(0, 500);
+}
+
+function sanitizeUpstreamAiError(value: string): string {
+  return value
+    .replace(/https?:\/\/[^\s"'\\]+/giu, "[url]")
+    .replace(/[A-Za-z0-9+/]{128,}={0,2}/gu, "[encoded-data]")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function delay(ms: number): Promise<void> {

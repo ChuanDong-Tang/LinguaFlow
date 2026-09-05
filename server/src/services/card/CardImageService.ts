@@ -269,6 +269,17 @@ export class CardImageService {
     };
   }
 
+  async aiInputDataUrl(asset: NonNullable<Awaited<ReturnType<CardRepository["findImageUpload"]>>>): Promise<string> {
+    const resolved = asset.thumbnailStatus !== "ready" || asset.thumbnailVersion < THUMBNAIL_VERSION
+      ? await this.ensureThumbnail(asset)
+      : asset;
+    const useThumbnail = Boolean(resolved.thumbnailObjectKey);
+    const objectKey = useThumbnail ? resolved.thumbnailObjectKey! : resolved.originalObjectKey;
+    const mimeType = useThumbnail ? "image/jpeg" : resolved.mimeType;
+    const bytes = await this.storage.download(objectKey);
+    return `data:${mimeType};base64,${bytes.toString("base64")}`;
+  }
+
   private async ensureThumbnail(
     asset: NonNullable<Awaited<ReturnType<CardRepository["findImageUpload"]>>>,
     existingBytes?: Buffer,
