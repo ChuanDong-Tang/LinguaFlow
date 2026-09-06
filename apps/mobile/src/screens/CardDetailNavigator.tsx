@@ -7,6 +7,7 @@ import {
   getCardCapabilities,
   generateCardImageDescriptions,
   generateCardPhraseRecommendation,
+  generateCardAutomaticCloze,
   updateCardContent,
   appendCardRecordImage,
   removeCardRecordImageById,
@@ -236,7 +237,8 @@ export function CardDetailNavigator({
     try {
       await setCardGenerationState(detail.id, { pendingTargets: [target], failedTargets: failedGenerationTargets.filter((candidate) => candidate !== target) });
       const generation = await generateMissingCardContent(detail, [target]);
-      const stableDetail = await stabilizeCardDetailImages(detail, generation.detail);
+      const autoClozeDetail = await applyAutomaticCloze(generation.detail, generation.generatedTargets);
+      const stableDetail = await stabilizeCardDetailImages(detail, autoClozeDetail);
       setDetail(stableDetail);
       detailCacheRef.current.set(detail.id, { detail: stableDetail, loadedAt: Date.now() });
       const failedTargets = generation.failedTargets.length
@@ -323,7 +325,11 @@ export function CardDetailNavigator({
       setFailedGenerationTargets(nextFailedTargets);
       await setCardGenerationState(recordId, { pendingTargets: nextPendingTargets, failedTargets: nextFailedTargets }).catch(() => undefined);
       void generateCardImageDescriptions(recordId).then(async (generated) => {
-        const stableDetail = await stabilizeCardDetailImages(generationBase, generated);
+        const contentTypes = automaticClozeTypes(generated, ["image_description"]);
+        const withCloze = contentTypes.length
+          ? await generateCardAutomaticCloze(recordId, contentTypes).catch(() => generated)
+          : generated;
+        const stableDetail = await stabilizeCardDetailImages(generationBase, withCloze);
         const remainingPending = nextPendingTargets.filter((target) => target !== "image_description");
         setDetail(stableDetail);
         setPendingGenerationTargets(remainingPending);
@@ -445,7 +451,8 @@ export function CardDetailNavigator({
         setFailedGenerationTargets([]);
         onChanged();
         void generateMissingCardContent(updated, targets).then(async (generation) => {
-          const stableDetail = await stabilizeCardDetailImages(updated, generation.detail);
+          const autoClozeDetail = await applyAutomaticCloze(generation.detail, generation.generatedTargets);
+          const stableDetail = await stabilizeCardDetailImages(updated, autoClozeDetail);
           setDetail(stableDetail);
           setPendingGenerationTargets([]);
           setFailedGenerationTargets(generation.failedTargets);
@@ -473,4 +480,26 @@ export function CardDetailNavigator({
       } : undefined}
     />
   );
+}
+
+function automaticClozeTypes(
+  detail: CardRecordDetail,
+  targets: CardGenerationTarget[],
+): CardLearningContentType[] {
+  const types: CardLearningContentType[] = [];
+  if (targets.includes("expression") && detail.rewrittenText?.trim()) types.push("rewrite");
+  if (targets.includes("reply") && detail.replyText?.trim()) types.push("reply");
+  if (targets.includes("image_description")) {
+    types.push(...(detail.images ?? []).filter((image) => image.descriptionText?.trim()).map((image) => `image:${image.id}` as const));
+  }
+  return types;
+}
+
+async function applyAutomaticCloze(
+  detail: CardRecordDetail,
+  targets: CardGenerationTarget[],
+): Promise<CardRecordDetail> {
+  const contentTypes = automaticClozeTypes(detail, targets);
+  if (!contentTypes.length) return detail;
+  return generateCardAutomaticCloze(detail.id, contentTypes).catch(() => detail);
 }

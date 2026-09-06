@@ -582,6 +582,7 @@ function LanguageSettingsModal({
     promptDifficulty: PromptDifficulty;
     ttsVoiceCode: string;
     sttMultilingualRecognitionEnabled: boolean;
+    autoClozeEnabled: boolean;
   }) => Promise<void>;
 }) {
   const [appLocale, setAppLocale] = useState<AppLocale>("zh-CN");
@@ -593,6 +594,7 @@ function LanguageSettingsModal({
   const [voiceError, setVoiceError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [multilingualRecognitionEnabled, setMultilingualRecognitionEnabled] = useState(false);
+  const [autoClozeEnabled, setAutoClozeEnabled] = useState(true);
   const [openSelect, setOpenSelect] = useState<string | null>(null);
   const initializedVisibleRef = useRef(false);
   const currentLanguageVoiceOptions = ttsVoiceOptions.filter((option) => option.languageCode === learningLanguage);
@@ -610,6 +612,7 @@ function LanguageSettingsModal({
     setLearningLanguage(nextLearningLanguage);
     setPromptDifficulty(preference?.promptDifficulty ?? "native");
     setMultilingualRecognitionEnabled(preference?.sttMultilingualRecognitionEnabled === true);
+    setAutoClozeEnabled(preference?.autoClozeEnabled !== false);
     setOpenSelect(null);
   }, [preference, visible]);
 
@@ -649,6 +652,7 @@ function LanguageSettingsModal({
         promptDifficulty,
         ttsVoiceCode,
         sttMultilingualRecognitionEnabled: multilingualRecognitionEnabled,
+        autoClozeEnabled,
       });
       if (voiceChanged) stopTtsAudio({ resetControls: true });
     } finally {
@@ -733,6 +737,18 @@ function LanguageSettingsModal({
             />
             {voiceLoading ? <ActivityIndicator style={styles.languageInlineStatus} size="small" color="#171717" /> : null}
             {voiceError ? <Text style={styles.languageHint}>{t("tts.error.failed")}</Text> : null}
+            <View style={styles.languageAdvancedBlock}>
+              <Text style={styles.languageFieldTitle}>{t("me.language.learning_advanced")}</Text>
+              <Pressable style={styles.languageToggleRow} onPress={() => setAutoClozeEnabled((value) => !value)}>
+                <View style={[styles.languageToggleBox, autoClozeEnabled && styles.languageToggleBoxActive]}>
+                  {autoClozeEnabled ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+                </View>
+                <View style={styles.languageToggleTextWrap}>
+                  <Text style={styles.languageToggleTitle}>{t("me.language.auto_cloze")}</Text>
+                  <Text style={styles.languageHint}>{t("me.language.auto_cloze_desc")}</Text>
+                </View>
+              </Pressable>
+            </View>
             <View style={styles.languageAdvancedBlock}>
               <Text style={styles.languageFieldTitle}>{t("me.language.stt_advanced")}</Text>
               <Pressable

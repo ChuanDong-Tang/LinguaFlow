@@ -19,6 +19,7 @@ const DEFAULT_PREFERENCE: Pick<
   | "ttsProvider"
   | "ttsVoiceCode"
   | "sttMultilingualRecognitionEnabled"
+  | "autoClozeEnabled"
 > = {
   appLocale: "zh-CN",
   learningLanguage: "en-US",
@@ -27,6 +28,7 @@ const DEFAULT_PREFERENCE: Pick<
   ttsProvider: "azure_global",
   ttsVoiceCode: null,
   sttMultilingualRecognitionEnabled: false,
+  autoClozeEnabled: true,
 };
 
 type PrismaUserPreferenceClient = {
@@ -67,6 +69,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
         ttsVoiceCode: input.ttsVoiceCode ?? DEFAULT_PREFERENCE.ttsVoiceCode,
         sttMultilingualRecognitionEnabled:
           input.sttMultilingualRecognitionEnabled ?? DEFAULT_PREFERENCE.sttMultilingualRecognitionEnabled,
+        autoClozeEnabled: input.autoClozeEnabled ?? DEFAULT_PREFERENCE.autoClozeEnabled,
       },
       update: {
         ...(input.appLocale !== undefined ? { appLocale: input.appLocale } : {}),
@@ -78,6 +81,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
         ...(input.sttMultilingualRecognitionEnabled !== undefined
           ? { sttMultilingualRecognitionEnabled: input.sttMultilingualRecognitionEnabled }
           : {}),
+        ...(input.autoClozeEnabled !== undefined ? { autoClozeEnabled: input.autoClozeEnabled } : {}),
       },
     });
 
@@ -93,6 +97,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
     ttsProvider: string;
     ttsVoiceCode: string | null;
     sttMultilingualRecognitionEnabled?: boolean | null;
+    autoClozeEnabled?: boolean | null;
     createdAt: Date;
     updatedAt: Date;
   }): UserPreferenceEntity {
@@ -105,6 +110,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
       ttsProvider: normalizeTtsProvider(row.ttsProvider),
       ttsVoiceCode: row.ttsVoiceCode ?? null,
       sttMultilingualRecognitionEnabled: row.sttMultilingualRecognitionEnabled === true,
+      autoClozeEnabled: row.autoClozeEnabled !== false,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

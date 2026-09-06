@@ -98,6 +98,7 @@ export type UserPreference = {
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
   sttMultilingualRecognitionEnabled: boolean;
+  autoClozeEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -110,6 +111,7 @@ export type UpdateUserPreferenceInput = Partial<{
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
   sttMultilingualRecognitionEnabled: boolean;
+  autoClozeEnabled: boolean;
 }>;
 
 export type UserProfile = {

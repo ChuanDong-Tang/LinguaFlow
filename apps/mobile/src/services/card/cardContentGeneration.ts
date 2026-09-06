@@ -11,9 +11,15 @@ export type CardGenerationTarget = "expression" | "translation" | "auxiliary" | 
 export async function generateMissingCardContent(
   initialDetail: CardRecordDetail,
   targets: CardGenerationTarget[],
-): Promise<{ detail: CardRecordDetail; failedTargets: CardGenerationTarget[]; resourceLimited: boolean }> {
+): Promise<{
+  detail: CardRecordDetail;
+  failedTargets: CardGenerationTarget[];
+  generatedTargets: CardGenerationTarget[];
+  resourceLimited: boolean;
+}> {
   let detail = initialDetail;
   const failedTargets: CardGenerationTarget[] = [];
+  const generatedTargets: CardGenerationTarget[] = [];
   let resourceLimited = false;
 
   for (let index = 0; index < targets.length; index += 1) {
@@ -23,6 +29,7 @@ export async function generateMissingCardContent(
       detail = target === "image_description"
         ? await generateCardImageDescriptions(detail.id)
         : await generateCardContent(detail.id, target);
+      generatedTargets.push(target);
     } catch (error) {
       failedTargets.push(target);
       const limited = isCardResourceLimitedError(error);
@@ -34,19 +41,25 @@ export async function generateMissingCardContent(
     }
   }
 
-  if (!failedTargets.length) return { detail, failedTargets, resourceLimited };
+  if (!failedTargets.length) return { detail, failedTargets, generatedTargets, resourceLimited };
 
   try {
     // The response can be lost after the server has committed a generation.
     // Reconcile before reporting a target as failed or offering a retry.
     detail = await getCardRecord(detail.id);
   } catch {
-    return { detail, failedTargets, resourceLimited };
+    return { detail, failedTargets, generatedTargets, resourceLimited };
   }
 
   return {
     detail,
     failedTargets: failedTargets.filter((target) => !hasGeneratedContent(detail, target)),
+    generatedTargets: [
+      ...new Set([
+        ...generatedTargets,
+        ...failedTargets.filter((target) => hasGeneratedContent(detail, target)),
+      ]),
+    ],
     resourceLimited,
   };
 }

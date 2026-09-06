@@ -843,6 +843,7 @@ export class PrismaCardRepository implements CardRepository {
           userId: input.userId,
           status: "completed",
           deletedAt: null,
+          updatedAt: current.updatedAt,
         },
         data: {
           ...(input.recommendation

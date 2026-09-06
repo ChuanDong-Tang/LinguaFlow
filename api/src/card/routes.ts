@@ -657,6 +657,32 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     }
   });
 
+  app.post("/cards/:recordId/automatic-cloze", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/automatic-cloze");
+    if (!userId) return;
+    const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
+    const contentTypes = (req.body as { contentTypes?: unknown } | null)?.contentTypes;
+    if (!Array.isArray(contentTypes) || !contentTypes.length || contentTypes.length > 8 || !contentTypes.every(isLearningContentType)) {
+      return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid automatic cloze content types");
+    }
+    try {
+      if (!await consumeLimits(deps.rateLimiter, [
+        [`card:auto-cloze:user:${userId}`, 20, 3_600_000],
+        [`card:auto-cloze:ip:${resolveClientIp(req)}`, 30, 60_000],
+        ["card:auto-cloze:global", 120, 60_000],
+      ])) return failure(reply, 429, requestId, "RATE_LIMITED", "Too many automatic cloze requests");
+      const data = await deps.cardService.generateAutomaticCloze({
+        userId, requestId, recordId: `card:${recordId}`, contentTypes,
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
   app.post("/cards/image-uploads", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);

@@ -604,6 +604,7 @@ model UserPreference {
   ttsProvider                       String   @default("azure_global")
   ttsVoiceCode                      String?
   sttMultilingualRecognitionEnabled Boolean  @default(false)
+  autoClozeEnabled                  Boolean  @default(true)
   createdAt                         DateTime @default(now())
   updatedAt                         DateTime @updatedAt
 

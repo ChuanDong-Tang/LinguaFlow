@@ -58,6 +58,12 @@ import {
   CARD_PHRASE_RECOMMENDATION_PROMPT_VERSION,
   parseCardPhraseRecommendationOutput,
 } from "@lf/core/Prompts/cardPhraseRecommendationPrompt.js";
+import {
+  autoClozeSoftLimit,
+  buildCardAutoClozePrompt,
+  CARD_AUTO_CLOZE_PROMPT_VERSION,
+  parseCardAutoClozeOutput,
+} from "@lf/core/Prompts/cardAutoClozePrompt.js";
 import { findTargetLanguageRanges, targetLanguageTextOnly } from "@lf/core/text/targetLanguageRanges.js";
 import {
   buildCardImageDescriptionPrompt,
@@ -345,6 +351,116 @@ export class CardService {
     });
     if (!saved) throw new CardContentConflictError("The Card expression changed while generating a recommendation");
     return this.detail(input.userId, input.recordId, contentType);
+  }
+
+  async generateAutomaticCloze(input: {
+    userId: string;
+    requestId: string;
+    recordId: string;
+    contentTypes: CardLearningContentType[];
+  }): Promise<CardRecordDetailView> {
+    const parsed = parseCardRecordId(input.recordId);
+    if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
+    const entry = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
+    if (!entry || entry.status !== "completed" || entry.isSample) throw new CardNotFoundError();
+    const preference = await this.userPreferenceRepository.getByUserId(input.userId);
+    if (preference.autoClozeEnabled === false) return this.detail(input.userId, input.recordId);
+    if (!this.aiProvider) throw new CardValidationError("Automatic cloze is unavailable");
+    let detail = await this.detail(input.userId, input.recordId);
+    const requested = [...new Set(input.contentTypes)].slice(0, 8);
+    const globallyRecommended = await this.repository.listRecentPhraseRecommendationTexts(input.userId, 100);
+
+    for (const contentType of requested) {
+      detail = await this.detail(input.userId, input.recordId, contentType);
+      const block = detail.contentBlocks.find((candidate) => candidate.contentType === contentType);
+      if (!block || !block.segments.length || normalizeClozeState(block.practice?.clozeState).blanks.length) continue;
+      if (contentType === "original" && !(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) continue;
+      const maxCandidates = autoClozeSoftLimit(block.text);
+      if (!maxCandidates) continue;
+      const existingForBlock = normalizePhraseRecommendations(
+        (await this.repository.findByIdForUser(parsed.sourceId, input.userId))?.phraseRecommendations,
+      ).filter((item) => item.contentType === contentType && item.contentVersion === block.contentVersion);
+      const excludedPhrases = [...new Set([...globallyRecommended, ...existingForBlock.map((item) => item.text)])];
+      const promptSegments = contentType === "original"
+        ? block.segments.flatMap((segment) => {
+            const target = targetLanguageTextOnly(segment.text, block.languageCode)?.text;
+            return target ? [{ ordinal: segment.ordinal, text: target }] : [];
+          })
+        : block.segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }));
+      if (!promptSegments.length) continue;
+      const prompt = buildCardAutoClozePrompt({
+        segments: promptSegments,
+        languageCode: block.languageCode,
+        appLocale: entry.appLocaleSnapshot,
+        difficulty: entry.promptDifficultySnapshot,
+        maxCandidates,
+        excludedPhrases,
+        sourceMayBeMixed: contentType === "original",
+      });
+      let output = "";
+      await this.executeForegroundLlm(input.userId, `${input.requestId}:${contentType}`, "card.auto_cloze", () => this.aiProvider!.generateChatTextStream({
+        userId: input.userId,
+        text: prompt.userPrompt,
+        languageCode: block.languageCode,
+        appLocale: entry.appLocaleSnapshot,
+        promptDifficulty: entry.promptDifficultySnapshot,
+        companionMode: "platform_inspiration",
+        systemPrompt: prompt.systemPrompt,
+        rawUserPrompt: true,
+        maxOutputTokens: 900,
+      }, (event) => { if (event.type === "delta") output += event.text; }));
+      const candidates = parseCardAutoClozeOutput(output, maxCandidates);
+      const acceptedOrdinals = new Set<number>();
+      const acceptedCandidates = candidates.filter((selected) => {
+        if (isInvalidAutoClozeCandidate(selected.ordinal, selected.phrase, block, contentType, excludedPhrases)) return false;
+        if (acceptedOrdinals.has(selected.ordinal)) return false;
+        acceptedOrdinals.add(selected.ordinal);
+        return true;
+      });
+      if (acceptedCandidates.length) {
+        const moderatedText = acceptedCandidates
+          .flatMap((candidate) => [candidate.phrase, candidate.meaning, ...candidate.distractors])
+          .join("\n");
+        this.contentSafetyService?.assertAllowed(moderatedText, "output");
+        await this.contentSafetyService?.assertAllowedRemote({
+          text: moderatedText,
+          stage: "output",
+          requestId: input.requestId,
+          userId: input.userId,
+        });
+      }
+      let version = block.practice?.clozeVersion ?? 0;
+      for (const selected of acceptedCandidates) {
+        const segment = block.segments.find((candidate) => candidate.ordinal === selected.ordinal)!;
+        const startUtf16 = segment.text.indexOf(selected.phrase);
+        const endUtf16 = startUtf16 + selected.phrase.length;
+        const recommendation = {
+          id: randomUUID(), contentType, contentVersion: block.contentVersion,
+          segmentId: segment.id, ordinal: segment.ordinal, startUtf16, endUtf16,
+          text: selected.phrase, meaning: selected.meaning, distractors: selected.distractors,
+          createdAt: new Date().toISOString(),
+        };
+        let practice: CardRecordDetailView["practice"];
+        try {
+          practice = await this.updateCloze(input.userId, input.recordId, {
+            contentType, contentVersion: block.contentVersion, baseVersion: version,
+            operation: { type: "add", segmentId: segment.id, startUtf16, endUtf16 },
+          });
+        } catch (error) {
+          if (error instanceof CardPracticeConflictError) break;
+          throw error;
+        }
+        version = practice?.clozeVersion ?? version + 1;
+        excludedPhrases.push(selected.phrase);
+        const saved = await this.repository.appendPhraseRecommendation({
+          entryId: parsed.sourceId, userId: input.userId, contentType,
+          expectedSourceText: block.text, recommendation,
+          promptVersion: CARD_AUTO_CLOZE_PROMPT_VERSION,
+        });
+        if (!saved) break;
+      }
+    }
+    return this.detail(input.userId, input.recordId);
   }
 
   async bootstrap(userId: string): Promise<CardRecordSummaryView[]> {
@@ -2056,6 +2172,25 @@ export class CardService {
     const views = await this.imageService.views(firstImage);
     return { ...summary, thumbnail: { ...views.thumbnail, focusX: firstImage.focusX, focusY: firstImage.focusY } };
   }
+}
+
+function isInvalidAutoClozeCandidate(
+  ordinal: number,
+  phrase: string,
+  block: CardRecordDetailView["contentBlocks"][number],
+  contentType: CardLearningContentType,
+  excludedPhrases: string[],
+): boolean {
+  const segment = block.segments.find((candidate) => candidate.ordinal === ordinal);
+  const startUtf16 = segment?.text.indexOf(phrase) ?? -1;
+  const endUtf16 = startUtf16 + phrase.length;
+  const key = normalizePhraseSurface(phrase, block.languageCode);
+  return !segment || startUtf16 < 0 || phrase === segment.text.trim() || !key
+    || excludedPhrases.some((candidate) => normalizePhraseSurface(candidate, block.languageCode) === key)
+    || !isUtf16GraphemeBoundary(segment.text, startUtf16)
+    || !isUtf16GraphemeBoundary(segment.text, endUtf16)
+    || (contentType === "original" && !findTargetLanguageRanges(segment.text, block.languageCode)
+      .some((range) => startUtf16 >= range.startUtf16 && endUtf16 <= range.endUtf16));
 }
 
 function shouldRetryImageDescriptionsIndividually(error: unknown): boolean {

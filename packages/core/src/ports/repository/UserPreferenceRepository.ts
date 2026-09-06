@@ -15,6 +15,7 @@ export interface UserPreferenceEntity {
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
   sttMultilingualRecognitionEnabled: boolean;
+  autoClozeEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +29,7 @@ export interface UpdateUserPreferenceInput {
   ttsProvider?: TtsProviderCode;
   ttsVoiceCode?: string | null;
   sttMultilingualRecognitionEnabled?: boolean;
+  autoClozeEnabled?: boolean;
 }
 
 export interface UserPreferenceRepository {

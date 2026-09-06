@@ -225,6 +225,17 @@ export async function generateCardPhraseRecommendation(recordId: string, content
   });
 }
 
+export async function generateCardAutomaticCloze(
+  recordId: string,
+  contentTypes: CardLearningContentType[],
+): Promise<CardRecordDetail> {
+  const cardId = requireCardId(recordId);
+  return request(`/cards/${encodeURIComponent(cardId)}/automatic-cloze`, {
+    method: "POST",
+    body: JSON.stringify({ contentTypes }),
+  });
+}
+
 export async function updateCardContent(
   recordId: string,
   input: Partial<Record<"title" | "originalText" | "rewrittenText" | "translationText" | "replyText" | "collectionId", string | null>>,

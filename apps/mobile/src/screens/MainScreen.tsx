@@ -44,6 +44,7 @@ import {
   getCardCapabilities,
   getCardInspirations,
   generateCardContent,
+  generateCardAutomaticCloze,
   updateCardContent,
   updateCardCoverPosition,
   saveCardClozeUpdate,
@@ -58,9 +59,11 @@ import {
   searchCardsLexically,
   DEFAULT_CARD_CAPABILITIES,
   type CardRecordSummary,
+  type CardRecordDetail,
   type CardCollection,
   type CardCapabilities,
   type RecallCandidate,
+  type CardLearningContentType,
 } from "../services/api/cardApi";
 import {
   loadCardDraft,
@@ -645,6 +648,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               console.warn("[card] generate quick note auxiliary text failed", error);
             }
           }
+          if (!snapshot.clozeRanges.length) {
+            const contentTypes = automaticClozeContentTypes(detail, generation.generatedTargets);
+            if (contentTypes.length) detail = await generateCardAutomaticCloze(detail.id, contentTypes).catch((error) => {
+              console.warn("[card] automatic cloze failed", error);
+              return detail;
+            });
+          }
           await setCardGenerationState(created.id, generation.failedTargets.length
             ? { pendingTargets: [], failedTargets: generation.failedTargets }
             : null);
@@ -889,6 +899,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         } catch (error) {
           console.warn("[card] generate converted auxiliary text failed", error);
         }
+      }
+      if (!snapshot.clozeRanges.length) {
+        const contentTypes = automaticClozeContentTypes(detail, generation.generatedTargets);
+        if (contentTypes.length) detail = await generateCardAutomaticCloze(detail.id, contentTypes).catch((error) => {
+          console.warn("[card] automatic cloze failed", error);
+          return detail;
+        });
       }
       created = detail;
       const createdForDisplay = firstDraftImage && !created.thumbnail
@@ -2895,6 +2912,21 @@ function countGraphemes(value: string): number {
   const normalized = value.replace(/\r\n?/gu, "\n");
   const Segmenter = (Intl as unknown as { Segmenter?: new (...args: unknown[]) => { segment: (text: string) => Iterable<unknown> } }).Segmenter;
   return Segmenter ? Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(normalized)).length : Array.from(normalized).length;
+}
+
+function automaticClozeContentTypes(
+  detail: CardRecordDetail,
+  targets: CardGenerationTarget[],
+): CardLearningContentType[] {
+  const result: CardLearningContentType[] = [];
+  if (targets.includes("expression") && detail.rewrittenText?.trim()) result.push("rewrite");
+  if (targets.includes("reply") && detail.replyText?.trim()) result.push("reply");
+  if (targets.includes("image_description")) {
+    result.push(...(detail.images ?? [])
+      .filter((image) => image.descriptionText?.trim())
+      .map((image) => `image:${image.id}` as const));
+  }
+  return result;
 }
 
 function toDateKey(date: Date): string {
