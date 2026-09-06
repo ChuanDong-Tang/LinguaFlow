@@ -58,6 +58,7 @@ type MemoryQuestion = {
   skipped: boolean;
   retryOnly: boolean;
   relationHint: string | null;
+  draftAnswer?: string;
 };
 
 type StoredMemoryRound = {
@@ -345,7 +346,7 @@ export function MemoryRoundScreen({
   useEffect(() => {
     setAudioUnavailable(false);
     setBlindSubtitleRevealed(false);
-    setInputAnswer("");
+    setInputAnswer(question?.kind === "input" && !question.completed ? question.draftAnswer ?? "" : "");
     setAnswerRevealed(false);
     setMeaningExpanded(false);
     setMeaningStatus("idle");
@@ -523,6 +524,7 @@ export function MemoryRoundScreen({
 
   const retryInputAnswer = (): void => {
     setInputAnswer("");
+    updateQuestion((current) => ({ ...current, draftAnswer: "" }));
     setSentenceIncorrect(false);
     setFeedbackState("idle");
     requestAnimationFrame(() => inputAnswerRef.current?.focus());
@@ -572,7 +574,6 @@ export function MemoryRoundScreen({
     if (!sourceRound || !sourceQuestion?.completed) return;
     let activeRound = sourceRound;
     let nextIndex = activeRound.currentIndex + 1;
-    const wrongOnCurrentCard = sourceRound.questions.filter((item) => item.recordId === sourceQuestion.recordId && item.firstAttemptCorrect === false && !item.retryOnly);
     if (nextIndex >= activeRound.questions.length) {
       const extended = await appendNextCard(activeRound, sourceQuestion);
       if (extended) activeRound = extended;
@@ -580,8 +581,9 @@ export function MemoryRoundScreen({
     }
     if (nextIndex >= activeRound.questions.length) {
       setSummaryTotal(activeRound.questions.length);
-      if (wrongOnCurrentCard.length && !sourceQuestion.retryOnly) {
-        setSummaryWrong(wrongOnCurrentCard);
+      const wrongQuestions = activeRound.questions.filter((item) => item.firstAttemptCorrect === false && !item.retryOnly);
+      if (wrongQuestions.length && !sourceQuestion.retryOnly) {
+        setSummaryWrong(wrongQuestions);
         setPhase("retry_offer");
       } else {
         setSummaryWrong([]);
@@ -593,10 +595,13 @@ export function MemoryRoundScreen({
       return;
     }
     if (activeRound.questions[nextIndex]?.recordId !== sourceQuestion.recordId) {
-      if (wrongOnCurrentCard.length && !sourceQuestion.retryOnly) {
-        setSummaryWrong(wrongOnCurrentCard);
-        setPhase("retry_offer");
-      } else setPhase("card_complete");
+      if (sourceQuestion.retryOnly) {
+        setSummaryWrong([]);
+        await moveToQuestion(nextIndex, activeRound);
+        return;
+      }
+      setSummaryWrong(activeRound.questions.filter((item) => item.recordId === sourceQuestion.recordId && item.firstAttemptCorrect === false && !item.retryOnly));
+      setPhase("card_complete");
       return;
     }
     await moveToQuestion(nextIndex, activeRound);
@@ -639,6 +644,7 @@ export function MemoryRoundScreen({
 
   const continueToNextCard = async (): Promise<void> => {
     if (!round) return;
+    setSummaryWrong([]);
     await moveToQuestion(round.currentIndex + 1);
   };
 
@@ -734,6 +740,7 @@ export function MemoryRoundScreen({
       resultSynced: true,
       retryOnly: true,
       firstAttemptCorrect: null,
+      draftAnswer: "",
     }));
     const insertionIndex = round.currentIndex + 1;
     const next: StoredMemoryRound = {
@@ -844,7 +851,7 @@ export function MemoryRoundScreen({
     // the previous question's loading/expanded state. Force a fresh request
     // bound to the visible question instead of letting stale state suppress it.
     if (question.task === "meaning_sentence") void revealNativeMeaning({ force: true, target: question });
-    if (question.task === "listening_sentence" || question.task === "guided_speech" || question.task === "blind_speech") {
+    if (question.task === "cloze_input" || question.task === "listening_sentence" || question.task === "guided_speech" || question.task === "blind_speech") {
       const timer = setTimeout(() => void playSentence(), 260);
       return () => clearTimeout(timer);
     }
@@ -913,6 +920,10 @@ export function MemoryRoundScreen({
               <View style={styles.cardRouteCopy}><Text numberOfLines={2} style={styles.cardRouteTitle}>{nextCard.title}</Text></View>
             </View>
             <View style={styles.cardCompleteActions}>
+              {summaryWrong.length ? <Pressable style={({ pressed }) => [styles.gameSecondaryButton, pressed && styles.gameButtonPressed]} onPress={() => void retryWrongQuestions()}>
+                <Ionicons name="refresh" size={19} color="#625978" />
+                <Text style={styles.gameSecondaryButtonText}>{t("memory_round.retry_wrong").replace("{count}", String(summaryWrong.length))}</Text>
+              </Pressable> : null}
               <Pressable style={({ pressed }) => [styles.gamePrimaryButton, pressed && styles.gameButtonPressed]} onPress={() => void continueToNextCard()}>
                 <Ionicons name="play" size={19} color="#FFFFFF" />
                 <Text style={styles.gamePrimaryButtonText}>{t("memory_round.continue_game")}</Text>
@@ -942,8 +953,8 @@ export function MemoryRoundScreen({
     <Progress total={currentCardQuestions.length} current={currentCardIndex} currentCompleted={question.completed} pulse={pulse} completion={success} colors={["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"]} />
     <Animated.View style={[styles.questionPage, { opacity: transition, transform: [{ translateY: transition.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }]}>
       <ScrollView ref={questionScrollerRef} style={styles.questionScroller} contentContainerStyle={[styles.questionScroll, compactLayout && styles.questionScrollCompact, keyboardInset > 0 && { paddingBottom: keyboardInset + 28 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-        <View style={styles.taskHeading}><Text style={styles.taskHeadingText}>{t(`memory_round.task_${question.task}`)}</Text><Text style={styles.cardQuestionCount}>{cardQuestionProgress(round, question)}</Text></View>
         {question.thumbnailUrl && !failedImageQuestionIds.has(question.id) ? <Image source={{ uri: question.thumbnailUrl }} resizeMode="cover" style={[styles.memoryImage, compactLayout && styles.memoryImageCompact]} onError={() => setFailedImageQuestionIds((current) => new Set(current).add(question.id))} /> : <View style={[styles.titlePrompt, compactLayout && styles.titlePromptCompact]}><View style={[styles.titleDot, { backgroundColor: currentColor }]} /><Text style={styles.titlePromptText}>{question.title}</Text></View>}
+        <View style={styles.taskHeading}><Text style={styles.taskHeadingText}>{t(`memory_round.task_${question.task}`)}</Text><Text style={styles.cardQuestionCount}>{cardQuestionProgress(round, question)}</Text></View>
         <View style={[styles.coachStage, compactLayout && styles.coachStageCompact, meaningExpanded && meaningStatus === "ready" && styles.coachStageExpanded, { borderColor: `${currentColor}90`, backgroundColor: `${currentColor}24` }]}>
           <View style={[styles.coachGlow, { backgroundColor: `${currentColor}4D` }]} />
           <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.coachCharacter}>
@@ -1012,10 +1023,15 @@ export function MemoryRoundScreen({
                 requestAnimationFrame(() => questionScrollerRef.current?.scrollToEnd({ animated: true }));
                 setTimeout(() => questionScrollerRef.current?.scrollToEnd({ animated: true }), 180);
               }}
-              onChangeText={(value) => { setInputAnswer(value); setSentenceIncorrect(false); setFeedbackState("idle"); }}
+              onChangeText={(value) => {
+                setInputAnswer(value);
+                setSentenceIncorrect(false);
+                setFeedbackState("idle");
+                updateQuestion((current) => ({ ...current, draftAnswer: value }));
+              }}
               onSubmitEditing={checkInputAnswer}
             />
-            {inputAnswer && !sentenceIncorrect ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#87938D" /></Pressable> : null}
+            {inputAnswer && !sentenceIncorrect ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); updateQuestion((current) => ({ ...current, draftAnswer: "" })); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#87938D" /></Pressable> : null}
           </View>
           {sentenceIncorrect ? <View style={styles.inputWrongActions}>
             <Pressable disabled={checking} style={({ pressed }) => [styles.inputRetryButton, checking && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={retryInputAnswer}><Text style={styles.inputRetryButtonText}>{t("memory_round.try_again")}</Text></Pressable>
@@ -1483,11 +1499,12 @@ function isStoredMemoryQuestion(value: unknown): value is MemoryQuestion {
   return typeof question.id === "string" && typeof question.recordId === "string" && typeof question.segmentId === "string"
     && typeof question.sentence === "string" && typeof question.answer === "string"
     && (question.kind === "choice" || question.kind === "sentence" || question.kind === "input" || question.kind === "speech")
-    && (question.task === "meaning_sentence" || question.task === "listening_sentence" || question.task === "guided_speech" || question.task === "blind_speech" || question.task === "legacy")
+    && (question.task === "cloze_input" || question.task === "cloze_choice" || question.task === "meaning_sentence" || question.task === "listening_sentence" || question.task === "guided_speech" || question.task === "blind_speech" || question.task === "legacy")
     && (question.speechFallbackKind === undefined || question.speechFallbackKind === "choice" || question.speechFallbackKind === "sentence" || question.speechFallbackKind === "input")
     && Array.isArray(question.blankIds) && question.blankIds.every((id) => typeof id === "string")
     && Array.isArray(question.options) && Array.isArray(question.tokens) && Array.isArray(question.selectedTokenIds)
     && Array.isArray(question.disabledOptions) && (question.firstAttemptCorrect === null || typeof question.firstAttemptCorrect === "boolean")
+    && (question.draftAnswer === undefined || typeof question.draftAnswer === "string")
     && typeof question.resultSynced === "boolean" && typeof question.completed === "boolean"
     && typeof question.skipped === "boolean" && typeof question.retryOnly === "boolean";
 }

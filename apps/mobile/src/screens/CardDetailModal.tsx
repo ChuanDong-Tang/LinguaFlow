@@ -48,9 +48,8 @@ import {
 } from "../services/api/cardApi";
 import type { CardDraft } from "../services/card/cardDraftStorage";
 import { theme } from "../theme";
-import { TtsMiniPlayer } from "../components/TtsMiniPlayer";
 import { RealtimeSttButton } from "../components/RealtimeSttButton";
-import { beginTtsPlaybackSession, getTtsPlaybackState, isTtsPlaybackSessionCurrent, playTtsAudio, preloadTtsAudio, setTtsNavigationControls, stopTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
+import { beginTtsPlaybackSession, cycleTtsPlaybackRate, getTtsPlaybackState, isTtsPlaybackSessionCurrent, navigateTtsNext, navigateTtsPrevious, playTtsAudio, preloadTtsAudio, seekTtsPlayback, setTtsLoopMode, setTtsNavigationControls, stopTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
 import {
   SelectableMessageText,
   type NativeTextSelectionPayload,
@@ -76,7 +75,7 @@ import OioCharacter from "../../assets/app/oio-character.svg";
 type DetailTab = "review" | "cloze" | "dictation";
 type ClozeInputMode = "keyboard" | "choice";
 type ClozeInteractionMode = "edit" | ClozeInputMode;
-type PendingClozeCheckHandler = () => Promise<void>;
+type PendingClozeCheckHandler = () => boolean;
 
 function initialClozeInteractionMode(autoStart: boolean, blankCount: number): ClozeInteractionMode {
   if (!autoStart || blankCount === 0) return "edit";
@@ -172,12 +171,32 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   }
   const [editing, setEditing] = useState(initialEditing);
   const [detailActionMenuVisible, setDetailActionMenuVisible] = useState(false);
+  const [playbackMode, setPlaybackMode] = useState(false);
+  const playbackModeCardIdRef = useRef(detail?.id ?? null);
   const practiceMode = tab === "dictation";
   const [clozeState, setClozeState] = useState<CardClozeState>({ schemaVersion: 1, blanks: [] });
   const [clozeVersion, setClozeVersion] = useState(0);
   const [clozeOwnerKey, setClozeOwnerKey] = useState<string | null>(null);
   const clozeStateCacheRef = useRef(new Map<string, { state: CardClozeState; version: number }>());
   const [hasProAccess, setHasProAccess] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (playbackModeCardIdRef.current === (detail?.id ?? null)) return;
+    stopTtsAudio({ resetControls: true });
+    setTtsLoopMode("off", { persist: false });
+    playbackModeCardIdRef.current = detail?.id ?? null;
+    setPlaybackMode(false);
+  }, [detail?.id]);
+
+  function changePlaybackMode(next: boolean): void {
+    if (!next) {
+      stopTtsAudio({ resetControls: true });
+      setTtsLoopMode("off", { persist: false });
+    } else if (!playbackMode) {
+      setTtsLoopMode("off", { persist: false });
+    }
+    setPlaybackMode(next);
+  }
   const [clozeTipVisible, setClozeTipVisible] = useState(false);
   const [clozeTipEligible, setClozeTipEligible] = useState(false);
   const [clozeTipTarget, setClozeTipTarget] = useState<ClozeOnboardingTarget | null>(null);
@@ -374,15 +393,25 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   }, []);
   function leaveCard(action: () => void, animated: boolean): void {
     if (checkingClozeBeforeExitRef.current || exitingRef.current) return;
-    checkingClozeBeforeExitRef.current = true;
-    Keyboard.dismiss();
-    void Promise.resolve(pendingClozeCheckRef.current?.())
-      .catch(() => undefined)
-      .finally(() => {
-        checkingClozeBeforeExitRef.current = false;
-        if (animated) animateExit(action, false);
-        else action();
-      });
+    const finish = (): void => {
+      checkingClozeBeforeExitRef.current = true;
+      Keyboard.dismiss();
+      if (playbackMode) {
+        stopTtsAudio({ resetControls: true });
+        setTtsLoopMode("off", { persist: false });
+      }
+      checkingClozeBeforeExitRef.current = false;
+      if (animated) animateExit(action, false);
+      else action();
+    };
+    if (!pendingClozeCheckRef.current?.()) {
+      finish();
+      return;
+    }
+    Alert.alert(t("card_detail.cloze_unsaved_title"), t("card_detail.cloze_unsaved_message"), [
+      { text: t("card_detail.cloze_keep_editing"), style: "cancel" },
+      { text: t("card_detail.cloze_discard_and_exit"), style: "destructive", onPress: finish },
+    ]);
   }
   const [relations, setRelations] = useState<Array<{ recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] }>>([]);
   const [cardCapabilities, setCardCapabilities] = useState<CardCapabilities>(DEFAULT_CARD_CAPABILITIES);
@@ -469,14 +498,21 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
             <Pressable accessibilityLabel={returnLabel ?? (recallPosition && tab === "review" ? t("recall.exit") : tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close"))} style={styles.historyButton} onPress={recallPosition && tab === "review" ? () => leaveCard(onClose, false) : tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? () => leaveCard(onBack, false) : () => leaveCard(onClose, true)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>
             {practiceMode && canGoForward && onForward ? <Pressable accessibilityLabel={t("card_detail.a11y.forward")} style={styles.historyButton} onPress={onForward}><Ionicons name="chevron-forward" size={22} color={theme.colors.text} /></Pressable> : null}
           </View>
-          <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>
+          {tab === "review" && detail && !recallPosition ? <View style={styles.cardModeSwitch}>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: !playbackMode }} style={styles.cardModeOption} onPress={() => changePlaybackMode(false)}>
+              <Text style={[styles.cardModeOptionText, !playbackMode && styles.cardModeOptionTextActive]}>{t("card_detail.mode.read")}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: playbackMode }} style={styles.cardModeOption} onPress={() => changePlaybackMode(true)}>
+              <Text style={[styles.cardModeOptionText, playbackMode && styles.cardModeOptionTextActive]}>{t("card_detail.mode.play")}</Text>
+            </Pressable>
+          </View> : <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>}
           <View style={styles.headerEnd}>
             {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Ionicons name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
@@ -497,7 +533,6 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           if (detail) void completeClozeOnboarding(detail.id);
         }}
       /> : null}
-      <TtsMiniPlayer storageKey="linguaflow.tts_mini_player.card.v1" />
     </Animated.View>
   );
 }
@@ -619,6 +654,7 @@ function RecallAdjacentCard({ detail, position, canUseDictation }: { detail: Car
       detail={previewDetail}
       imageAdding={false}
       contentBinding={contentBinding}
+      playbackMode={false}
       practiceEnabled={practiceEnabled}
       canUseDictation={canUseDictation}
       autoStartClozePractice
@@ -1746,10 +1782,11 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
+  playbackMode: boolean;
   practiceEnabled: boolean;
   canUseDictation: boolean;
   autoStartClozePractice: boolean;
@@ -1786,12 +1823,18 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   );
   const [imageIndex, setImageIndex] = useState(0);
   const currentImage = images[Math.min(imageIndex, Math.max(0, images.length - 1))];
+  const playbackImage = contentBinding.contentType.startsWith("image:")
+    ? images.find((image) => `image:${image.id}` === contentBinding.contentType) ?? currentImage
+    : currentImage;
   const currentImageContentType = currentImage ? `image:${currentImage.id}` as CardLearningContentType : null;
   const currentImageBlock = currentImageContentType
     ? detail.contentBlocks.find((block) => block.contentType === currentImageContentType)
     : null;
   const currentImageIsLearningContent = currentImageContentType === contentBinding.contentType;
   const currentImageAuxiliary = new Map((currentImage?.descriptionAuxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
+  const playbackAuxiliary = contentBinding.contentType.startsWith("image:")
+    ? new Map((playbackImage?.descriptionAuxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]))
+    : new Map((detail.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const blankCount = clozeState.blanks.length;
   const [savingCloze, setSavingCloze] = useState(false);
   const [recommendationTaskVisible, setRecommendationTaskVisible] = useState(false);
@@ -1833,6 +1876,13 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     startMs: number;
     durationMs: number;
   }>>([]);
+  const lyricsScrollRef = useRef<ScrollView>(null);
+  const lyricsViewportHeightRef = useRef(0);
+  const lyricLayoutsRef = useRef(new Map<number, { y: number; height: number }>());
+  const lyricsDraggingRef = useRef(false);
+  const lyricsScrubIndexRef = useRef<number | null>(null);
+  const lyricsCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [lyricsScrubIndex, setLyricsScrubIndex] = useState<number | null>(null);
   const toggleSection = (section: keyof typeof collapsedSections) => setCollapsedSections((current) => ({ ...current, [section]: !current[section] }));
   const playback = React.useSyncExternalStore(subscribeTtsPlayback, getTtsPlaybackState, getTtsPlaybackState);
   const articleNavigationPrefix = `card:${detail.id}:article:`;
@@ -1844,8 +1894,6 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     && (playback.activeNavigationKey?.startsWith(articleNavigationPrefix)
       || playback.activeNavigationKey?.startsWith(articleReplyNavigationPrefix)),
   );
-  const articlePlaybackLoading = articleAudioLoading || (articlePlaybackActive && playback.status === "loading");
-  const articlePlaying = articlePlaybackActive && playback.status === "playing";
   const hasBlanks = clozeState.blanks.length > 0;
   const imageIsDefaultLearningContent = contentBinding.contentType.startsWith("image:")
     && !detail.rewrittenText?.trim()
@@ -1887,14 +1935,6 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     }
     return activeIndex;
   })();
-  const replyPlaybackActive = Boolean(
-    playback.hasActiveAudio
-    && (playback.activeNavigationKey?.startsWith(replyNavigationPrefix)
-      || playback.activeNavigationKey?.startsWith(articleReplyNavigationPrefix)
-      || (activeArticleMarkIndex !== null && activeArticleMarkIndex >= articleRows.length)),
-  );
-  const replyPlaybackLoading = replyPlaybackActive && playback.status === "loading";
-  const replyPlaying = replyPlaybackActive && playback.status === "playing";
   const activeSentenceKey = (() => {
     if (!playback.hasActiveAudio || !playback.activeNavigationKey) return null;
     if (playback.activeNavigationKey.startsWith(sentenceNavigationPrefix)) {
@@ -1906,6 +1946,28 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     }
     return null;
   })();
+  const activePlaybackLyricIndex = (() => {
+    if (!playback.hasActiveAudio || !playback.activeNavigationKey) return null;
+    if (playback.activeNavigationKey.startsWith(articleNavigationPrefix)) return activeArticleMarkIndex ?? 0;
+    if (playback.activeNavigationKey.startsWith(sentenceNavigationPrefix)) {
+      const sentenceKey = playback.activeNavigationKey.slice(sentenceNavigationPrefix.length);
+      const index = articleRows.findIndex((row) => row.key === sentenceKey);
+      return index >= 0 ? index : null;
+    }
+    const replyPrefix = playback.activeNavigationKey.startsWith(articleReplyNavigationPrefix)
+      ? articleReplyNavigationPrefix
+      : playback.activeNavigationKey.startsWith(replyNavigationPrefix) ? replyNavigationPrefix : null;
+    if (!replyPrefix) return null;
+    const replyIndex = Number(playback.activeNavigationKey.slice(replyPrefix.length));
+    return Number.isInteger(replyIndex) ? articleRows.length + replyIndex : null;
+  })();
+  useEffect(() => {
+    if (!playbackMode || lyricsDraggingRef.current || activePlaybackLyricIndex === null) return;
+    const layout = lyricLayoutsRef.current.get(activePlaybackLyricIndex);
+    const viewportHeight = lyricsViewportHeightRef.current;
+    if (!layout || viewportHeight <= 0) return;
+    lyricsScrollRef.current?.scrollTo({ y: Math.max(0, layout.y + layout.height / 2 - viewportHeight / 2), animated: true });
+  }, [activePlaybackLyricIndex, playbackMode]);
   const [dictionary, setDictionary] = useState<DictionaryLookupState | null>(null);
   const dictionaryRequestRef = useRef(0);
   const [textSelectionActive, setTextSelectionActive] = useState(false);
@@ -1964,6 +2026,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
   }, [detail.id]);
   useEffect(() => () => {
     if (recommendationCloseTimerRef.current) clearTimeout(recommendationCloseTimerRef.current);
+    if (lyricsCommitTimerRef.current) clearTimeout(lyricsCommitTimerRef.current);
   }, []);
   useEffect(() => {
     if (!recommendationLoading) {
@@ -2323,14 +2386,6 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     }
   }
 
-  function playReply(): void {
-    if (replyPlaybackActive) {
-      toggleTtsPlayback();
-      return;
-    }
-    void playReplyFrom(0);
-  }
-
   function prepareWholeArticleAudio(): Promise<{
     audioUrl: string;
     sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }>;
@@ -2362,7 +2417,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     return request;
   }
 
-  async function playArticle(): Promise<void> {
+  async function playArticle(startIndex = 0, loopSingleSentence = false): Promise<void> {
     if (articleAudioLoading || detail.source !== "card") return;
     const rows = articleRows;
     if (!rows.length) return;
@@ -2372,16 +2427,26 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       const audio = await prepareWholeArticleAudio();
       if (!isTtsPlaybackSessionCurrent(sessionId)) return;
       setArticleSentenceMarks(audio.sentenceMarks);
+      const startMark = audio.sentenceMarks[startIndex];
       await playTtsAudio({
         url: audio.audioUrl,
         loopScope: "all",
-        navigationKey: `${articleNavigationPrefix}0`,
+        navigationKey: `${articleNavigationPrefix}${startIndex}`,
         sessionId,
+        ...(loopSingleSentence && startMark ? { playbackRange: {
+          startMs: startMark.startMs,
+          endMs: startMark.startMs + startMark.durationMs,
+        } } : {}),
         loadTimeoutMs: audio.deliveryMode === "streaming" ? 45_000 : undefined,
         onFinished: () => {
-          if (getTtsPlaybackState().loopMode === "all") void playArticle();
+          if (replyBlock?.segments.length) {
+            void playReplyFrom(0, () => {
+              if (getTtsPlaybackState().loopMode === "all") void playArticle();
+            }, true, sessionId);
+          } else if (getTtsPlaybackState().loopMode === "all") void playArticle();
         },
       });
+      if (!loopSingleSentence && startMark && startMark.startMs > 0) await seekTtsPlayback(startMark.startMs);
     } catch (error) {
       setArticleSentenceMarks([]);
       showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.play"), type: "error", position: "top-center" });
@@ -2390,9 +2455,70 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     }
   }
 
-  async function playStandaloneSentence(row: CardClozeSentenceRow): Promise<void> {
+  function jumpToArticleSentence(index: number): void {
+    const mark = articleSentenceMarks[index];
+    if (playback.loopMode === "one") {
+      void playArticle(index, true);
+      return;
+    }
+    if (articlePlaybackActive && mark) {
+      void seekTtsPlayback(mark.startMs);
+      return;
+    }
+    void playArticle(index);
+  }
+
+  function updateLyricScrubIndex(offsetY: number): void {
+    const centerY = offsetY + lyricsViewportHeightRef.current / 2;
+    let nearestIndex: number | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const [index, layout] of lyricLayoutsRef.current) {
+      const distance = Math.abs(layout.y + layout.height / 2 - centerY);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    }
+    lyricsScrubIndexRef.current = nearestIndex;
+    setLyricsScrubIndex(nearestIndex);
+  }
+
+  function commitLyricScrub(): void {
+    if (lyricsCommitTimerRef.current) {
+      clearTimeout(lyricsCommitTimerRef.current);
+      lyricsCommitTimerRef.current = null;
+    }
+    lyricsDraggingRef.current = false;
+    const index = lyricsScrubIndexRef.current;
+    lyricsScrubIndexRef.current = null;
+    setLyricsScrubIndex(null);
+    if (index === null) return;
+    if (index < articleRows.length) jumpToArticleSentence(index);
+    else void playReplyFrom(index - articleRows.length);
+  }
+
+  function cycleCardLoopMode(): void {
+    const currentMode = playback.loopMode;
+    const nextMode = currentMode === "off" ? "one" : currentMode === "one" ? "all" : "off";
+    setTtsLoopMode(nextMode, { persist: false });
+    if (!playback.hasActiveAudio) return;
+    const currentIndex = activePlaybackLyricIndex;
+    if (nextMode === "one" && currentIndex !== null) {
+      if (currentIndex < articleRows.length) void playArticle(currentIndex, true);
+      else void playReplyFrom(currentIndex - articleRows.length);
+      return;
+    }
+    if (currentMode === "one" && currentIndex !== null && currentIndex < articleRows.length) {
+      void playArticle(currentIndex);
+    }
+  }
+
+  async function playStandaloneSentence(
+    row: CardClozeSentenceRow,
+    onComplete?: () => void,
+    sessionId = beginTtsPlaybackSession(),
+  ): Promise<void> {
     if (detail.source !== "card") return;
-    const sessionId = beginTtsPlaybackSession();
     setSentenceAudioLoadingKey(row.key);
     try {
       const audio = await getCardSegmentAudio({
@@ -2408,39 +2534,12 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
         loopScope: "one",
         navigationKey: `card:${detail.id}:sentence:${row.key}`,
         sessionId,
+        onFinished: onComplete,
       });
     } catch (error) {
       showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.play"), type: "error", position: "top-center" });
     } finally {
       setSentenceAudioLoadingKey((current) => current === row.key ? null : current);
-    }
-  }
-
-  async function playImageDescriptionSegment(segment: CardRecordDetail["rewriteSegments"][number]): Promise<void> {
-    if (detail.source !== "card" || !currentImageBlock) return;
-    const sessionId = beginTtsPlaybackSession();
-    const loadingKey = `image-description:${segment.id}`;
-    setSentenceAudioLoadingKey(loadingKey);
-    try {
-      const audio = await getCardSegmentAudio({
-        entryId: detail.id.slice("card:".length),
-        segmentId: segment.id,
-        sourceKind: "review_segment",
-        contentType: currentImageBlock.contentType,
-        contentVersion: currentImageBlock.contentVersion,
-      });
-      if (!isTtsPlaybackSessionCurrent(sessionId)) return;
-      await playTtsAudio({
-        url: audio.audioUrl,
-        cacheKey: ["card-image-description", detail.id, segment.id, currentImageBlock.contentVersion, audio.provider, audio.voiceCode].join("-"),
-        loopScope: "one",
-        navigationKey: `card:${detail.id}:image-description:${segment.id}`,
-        sessionId,
-      });
-    } catch (error) {
-      showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.play"), type: "error", position: "top-center" });
-    } finally {
-      setSentenceAudioLoadingKey((current) => current === loadingKey ? null : current);
     }
   }
 
@@ -2472,10 +2571,10 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     const playQueueIndex = (nextQueueIndex: number) => {
       const normalized = (nextQueueIndex + queueLength) % queueLength;
       if (normalized < articleRows.length) {
-        void playStandaloneSentence(articleRows[normalized]!);
+        jumpToArticleSentence(normalized);
       } else {
         void playReplyFrom(normalized - articleRows.length, () => {
-          if (getTtsPlaybackState().loopMode === "all" && articleRows[0]) void playStandaloneSentence(articleRows[0]);
+          if (getTtsPlaybackState().loopMode === "all" && articleRows[0]) void playArticle();
         }, true);
       }
     };
@@ -2636,6 +2735,99 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
     after: recommendationSegment.text.slice(recommendationTaskItem.endUtf16),
   } : null;
 
+  if (playbackMode) {
+    const playbackArtworkUri = playbackImage?.thumbnail?.url ?? detail.thumbnail?.url ?? playbackImage?.url;
+    const playbackBelongsToCard = Boolean(
+      playback.hasActiveAudio
+      && playback.activeNavigationKey?.startsWith(`card:${detail.id}:`),
+    );
+    const playing = playbackBelongsToCard && playback.status === "playing";
+    const loading = articleAudioLoading || playbackBelongsToCard && playback.status === "loading";
+    const durationMs = playback.durationMs ?? 0;
+    const progress = playbackBelongsToCard && durationMs > 0
+      ? Math.max(0, Math.min(1, playback.positionMs / durationMs))
+      : 0;
+    const loopLabel = playback.loopMode === "one"
+      ? t("card_detail.playback.loop_one")
+      : playback.loopMode === "all"
+        ? t("card_detail.playback.loop_all")
+        : t("card_detail.playback.loop_off");
+    return <View style={styles.cardPlaybackPage}>
+      <View style={styles.cardPlaybackContent}>
+        {playbackArtworkUri ? <Image source={{ uri: playbackArtworkUri }} resizeMode="cover" style={styles.cardPlaybackArtwork} /> : <View style={styles.cardPlaybackArtworkPlaceholder}><Ionicons name="musical-notes-outline" size={42} color={theme.colors.textMuted} /></View>}
+        <Text numberOfLines={2} style={styles.cardPlaybackTitle}>{detail.displayTitle}</Text>
+      </View>
+      <View style={styles.cardPlaybackLyricsStage} onLayout={(event) => { lyricsViewportHeightRef.current = event.nativeEvent.layout.height; }}>
+        <ScrollView
+          ref={lyricsScrollRef}
+          contentContainerStyle={styles.cardPlaybackLyrics}
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScrollBeginDrag={() => {
+            if (lyricsCommitTimerRef.current) clearTimeout(lyricsCommitTimerRef.current);
+            lyricsDraggingRef.current = true;
+          }}
+          onScroll={(event) => {
+            if (lyricsDraggingRef.current) updateLyricScrubIndex(event.nativeEvent.contentOffset.y);
+          }}
+          onScrollEndDrag={() => {
+            lyricsCommitTimerRef.current = setTimeout(commitLyricScrub, 120);
+          }}
+          onMomentumScrollBegin={() => {
+            if (lyricsCommitTimerRef.current) clearTimeout(lyricsCommitTimerRef.current);
+          }}
+          onMomentumScrollEnd={commitLyricScrub}
+        >
+          {articleRows.map((row, index) => {
+            const active = (lyricsScrubIndex ?? activePlaybackLyricIndex) === index;
+            const ordinal = detail.rewriteSegments.find((segment) => segment.id === row.segmentId)?.ordinal;
+            const auxiliary = ordinal === undefined ? undefined : playbackAuxiliary.get(ordinal);
+            const sentenceMark = articlePlaybackActive ? articleSentenceMarks[index] : undefined;
+            const rowProgress = lyricsScrubIndex !== null
+              ? active ? 1 : 0
+              : active && sentenceMark && sentenceMark.durationMs > 0
+              ? Math.max(0, Math.min(1, (playback.positionMs - sentenceMark.startMs) / sentenceMark.durationMs))
+              : active ? progress : 0;
+            return <Pressable key={row.key} style={styles.cardPlaybackLyricRow} onLayout={(event) => lyricLayoutsRef.current.set(index, event.nativeEvent.layout)} onPress={() => jumpToArticleSentence(index)}>
+              <KaraokeText
+                text={row.text}
+                active={active}
+                progress={rowProgress}
+                blankRanges={row.blanks.map(({ blank }) => ({ start: blank.startUtf16, end: blank.endUtf16 }))}
+              />
+              {auxiliary ? <Text style={styles.cardPlaybackAuxiliary}>{auxiliary}</Text> : null}
+            </Pressable>;
+          })}
+          {(replyBlock?.segments ?? []).map((segment, index) => {
+            const lyricIndex = articleRows.length + index;
+            const active = (lyricsScrubIndex ?? activePlaybackLyricIndex) === lyricIndex;
+            const rowProgress = lyricsScrubIndex !== null ? active ? 1 : 0 : active ? progress : 0;
+            return <Pressable key={`reply:${segment.id}`} style={styles.cardPlaybackLyricRow} onLayout={(event) => lyricLayoutsRef.current.set(lyricIndex, event.nativeEvent.layout)} onPress={() => void playReplyFrom(index)}>
+              <KaraokeText text={segment.text} active={active} progress={rowProgress} />
+            </Pressable>;
+          })}
+        </ScrollView>
+      </View>
+      <View style={styles.cardPlaybackBar}>
+        <CardPlaybackSeekBar progress={progress} durationMs={durationMs} enabled={playbackBelongsToCard && durationMs > 0} />
+        <View style={styles.cardPlaybackControls}>
+          <Pressable disabled={!playbackBelongsToCard} style={styles.cardPlaybackUtility} onPress={cycleTtsPlaybackRate}><Text style={[styles.cardPlaybackRate, !playbackBelongsToCard && styles.cardPlaybackRateDisabled]}>{playback.playbackRate.toFixed(1)}x</Text></Pressable>
+          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigatePrevious} style={styles.cardPlaybackSideControl} onPress={navigateTtsPrevious}><Ionicons name="play-skip-back" size={22} color={playbackBelongsToCard && playback.canNavigatePrevious ? theme.colors.text : theme.colors.textMuted} /></Pressable>
+          <Pressable disabled={loading} style={styles.cardPlaybackMainControl} onPress={() => playbackBelongsToCard ? toggleTtsPlayback() : void playArticle()}>
+            {loading ? <ActivityIndicator color={theme.colors.surface} /> : <Ionicons name={playing ? "pause" : "play"} size={28} color={theme.colors.surface} />}
+          </Pressable>
+          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigateNext} style={styles.cardPlaybackSideControl} onPress={navigateTtsNext}><Ionicons name="play-skip-forward" size={22} color={playbackBelongsToCard && playback.canNavigateNext ? theme.colors.text : theme.colors.textMuted} /></Pressable>
+          <Pressable accessibilityLabel={loopLabel} style={styles.cardPlaybackLoopControl} onPress={cycleCardLoopMode}>
+            <View style={styles.cardPlaybackLoopIcon}>
+              <Ionicons name="sync-outline" size={19} color={playback.loopMode !== "off" ? "#3F7D65" : theme.colors.textMuted} />
+              {playback.loopMode === "one" ? <Text style={styles.cardPlaybackLoopOne}>1</Text> : null}
+            </View>
+          </Pressable>
+        </View>
+      </View>
+    </View>;
+  }
+
   return (
     <View style={styles.reviewPage}>
     <View style={styles.flipCardStage}>
@@ -2651,17 +2843,12 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
             <CollapsibleCardSection label={t("card_detail.image_description")} tone="image" collapsed={collapsedSections.imageDescription} onToggle={() => toggleSection("imageDescription")} compact>
             {currentImageBlock && currentImage.descriptionText ? <>
               {currentImageIsLearningContent
-                ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
+                ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                 : currentImageBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
                 <View style={styles.imageDescriptionSentenceBody}>
                   <Text selectable style={styles.rewrite}>{segment.text}</Text>
                   {currentImageAuxiliary.get(segment.ordinal) ? <Text selectable style={styles.auxiliarySentence}>{currentImageAuxiliary.get(segment.ordinal)}</Text> : null}
                 </View>
-                <Pressable accessibilityLabel={t("card_detail.a11y.play_sentence")} disabled={sentenceAudioLoadingKey === `image-description:${segment.id}`} style={styles.inlineSentencePlay} onPress={() => void playImageDescriptionSegment(segment)}>
-                  {sentenceAudioLoadingKey === `image-description:${segment.id}`
-                    ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                    : <Ionicons name="play" size={17} color={theme.colors.textSecondary} />}
-                </Pressable>
               </View>)}
               {pendingGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "auxiliary_pending"
                 ? <PendingGenerationSection target="image_description" showLabel={false} />
@@ -2678,7 +2865,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
           {!contentBinding.contentType.startsWith("image:") ? <View ref={learningTargetRef} style={styles.flipCardTextBlock} onLayout={(event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; }}>
             {frontLearningReady ? <CollapsibleCardSection label={rewriteIsReady ? t("card_detail.module.expression_description") : t("card_detail.my_record")} tone={rewriteIsReady ? "rewrite" : "default"} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
                 {practiceEnabled
-                      ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} onPlaySentence={(row) => void playStandaloneSentence(row)} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
+                      ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                       : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
                 {auxiliaryMissing ? <FailedGenerationSection target="auxiliary" retrying={retryingGenerationTarget === "auxiliary"} onRetry={onRetryGeneration} /> : null}
                 {learningText.trim() ? <CardSectionCopyButton onPress={() => void copySection(learningText)} /> : null}
@@ -2694,13 +2881,6 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
                   lockForTextSelection();
                 }} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(detail.replyText!, payload)} />
               </View>
-              <Pressable accessibilityLabel={t("card_detail.a11y.play_reply")} disabled={replyPlaybackLoading} style={styles.inlineSentencePlay} onPress={playReply}>
-                {replyPlaybackLoading
-                  ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                  : replyPlaying
-                    ? <Ionicons name="stop" size={18} color={theme.colors.textSecondary} />
-                    : <Ionicons name="play" size={17} color={theme.colors.textSecondary} />}
-              </Pressable>
             </View>
             <CardSectionCopyButton onPress={() => void copySection(detail.replyText!)} />
           </CollapsibleCardSection> : pendingGenerationTargets.includes("reply") ? <PendingGenerationSection target="reply" /> : failedGenerationTargets.includes("reply") ? <FailedGenerationSection target="reply" retrying={retryingGenerationTarget === "reply"} onRetry={onRetryGeneration} /> : null}
@@ -2738,9 +2918,7 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       style={[styles.recommendationButton, (!frontLearningReady || recommendationLoading || !onGeneratePhraseRecommendation) && styles.recommendationButtonDisabled]}
       onPress={openPhraseRecommendation}
     >
-      <View style={styles.recommendationButtonIcon}><Ionicons name="sparkles" size={15} color="#52796C" /></View>
-      <Text style={styles.recommendationButtonText}>{t("card_detail.recommendation.button")}</Text>
-      <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
+      <Ionicons name="sparkles" size={19} color="#52796C" />
       {!phraseRecommendation.seen ? <View style={styles.recommendationUnreadDot} /> : null}
     </Pressable> : null}
     <View ref={actionBarRef} style={styles.detailActionBar}>
@@ -2749,7 +2927,6 @@ function Review({ detail, imageAdding, contentBinding, practiceEnabled, canUseDi
       <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => setAnswersVisible((current) => !current)} />
       <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => toggleClozeMode("keyboard")} />
       <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || blankCount < 2 || !frontLearningReady} onPress={() => toggleClozeMode("choice")} />
-      <DetailActionButton label={t("card_detail.a11y.play_all")} icon={articlePlaying ? "pause" : "play"} loading={frontLearningReady ? articlePlaybackLoading : false} disabled={cardFace !== "front" || detail.source !== "card" || !frontLearningReady} onPress={() => articlePlaybackActive ? toggleTtsPlayback() : void playArticle()} />
     </View>
     <Modal visible={recommendationTaskVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
       <Pressable style={styles.recommendationBackdrop} onPress={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
@@ -2921,6 +3098,70 @@ function DetailActionButton({ label, icon, textIcon, active = false, loading = f
   </Pressable>;
 }
 
+function KaraokeText({ text, active, progress, blankRanges = [] }: {
+  text: string;
+  active: boolean;
+  progress: number;
+  blankRanges?: Array<{ start: number; end: number }>;
+}) {
+  const tokens = useMemo(() => tokenizeKaraokeText(text), [text]);
+  const spokenCount = tokens.reduce((count, token) => count + (token.spoken ? 1 : 0), 0);
+  const highlightedCount = active && spokenCount
+    ? Math.min(spokenCount, Math.max(1, Math.ceil(progress * spokenCount)))
+    : 0;
+  let spokenIndex = 0;
+  return <Text style={styles.cardPlaybackLyric}>{tokens.map((token, index) => {
+    const highlighted = token.spoken
+      ? spokenIndex < highlightedCount
+      : active && spokenIndex > 0 && spokenIndex <= highlightedCount;
+    if (token.spoken) spokenIndex += 1;
+    const blank = blankRanges.some((range) => token.startUtf16 < range.end && token.endUtf16 > range.start);
+    return <Text key={`${index}:${token.text}`} style={[highlighted && styles.cardPlaybackLyricActive, blank && styles.cardPlaybackBlank]}>{token.text}</Text>;
+  })}</Text>;
+}
+
+function CardPlaybackSeekBar({ progress, durationMs, enabled }: { progress: number; durationMs: number; enabled: boolean }) {
+  const [trackWidth, setTrackWidth] = useState(0);
+  const [dragProgress, setDragProgress] = useState<number | null>(null);
+  const displayedProgress = dragProgress ?? progress;
+  const progressFromX = (x: number) => trackWidth > 0 ? Math.max(0, Math.min(1, x / trackWidth)) : 0;
+  return <View
+    accessibilityRole="adjustable"
+    accessibilityValue={{ min: 0, max: Math.round(durationMs), now: Math.round(displayedProgress * durationMs) }}
+    style={styles.cardPlaybackSeekArea}
+    onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
+    onStartShouldSetResponder={() => enabled}
+    onMoveShouldSetResponder={() => enabled}
+    onResponderGrant={(event) => setDragProgress(progressFromX(event.nativeEvent.locationX))}
+    onResponderMove={(event) => setDragProgress(progressFromX(event.nativeEvent.locationX))}
+    onResponderRelease={(event) => {
+      const next = progressFromX(event.nativeEvent.locationX);
+      setDragProgress(null);
+      void seekTtsPlayback(next * durationMs);
+    }}
+    onResponderTerminate={() => setDragProgress(null)}
+  >
+    <View style={styles.cardPlaybackProgressTrack}>
+      <View style={[styles.cardPlaybackProgressFill, { width: `${displayedProgress * 100}%` }]} />
+      <View style={[styles.cardPlaybackProgressThumb, { left: `${displayedProgress * 100}%` }]} />
+    </View>
+  </View>;
+}
+
+function tokenizeKaraokeText(text: string): Array<{ text: string; spoken: boolean; startUtf16: number; endUtf16: number }> {
+  let offset = 0;
+  return Array.from(text).map((token) => {
+    const startUtf16 = offset;
+    offset += token.length;
+    return {
+      text: token,
+      spoken: /[\p{L}\p{M}\p{N}]/u.test(token),
+      startUtf16,
+      endUtf16: offset,
+    };
+  });
+}
+
 function RelationFocusText({ relation, currentOriginalText }: {
   relation: { recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] };
   currentOriginalText: string;
@@ -3010,7 +3251,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   const [saving, setSaving] = useState(false);
   const [dictionary, setDictionary] = useState<DictionaryLookupState | null>(null);
   const dictionaryRequestRef = useRef(0);
-  const pendingCheckHandlerRef = useRef<PendingClozeCheckHandler>(async () => undefined);
+  const pendingCheckHandlerRef = useRef<PendingClozeCheckHandler>(() => false);
   const effectiveActiveChoiceBlankIndex = fillMode && inputMode === "choice"
     ? activeChoiceBlankIndex
     : null;
@@ -3215,7 +3456,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     }
   }
 
-  pendingCheckHandlerRef.current = checkPendingAnswers;
+  pendingCheckHandlerRef.current = () => fillMode && clozeState.blanks.some((blank) => Boolean(answers[blank.id]?.trim()) && !checkedAnswers[blank.id]);
 
   function chooseAnswer(value: string): void {
     const blankIndex = effectiveActiveChoiceBlankIndex;
@@ -3299,7 +3540,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                   onLookup={(term, start, end, anchor) => lookupInSentence(row, term, start, end, anchor)}
                   onAddBlank={!fillMode && segment && !saving ? (payload) => onAddBlank?.(segment, payload) : undefined}
                   onBlankLongPress={onBlankLongPress}
-                  onPlay={() => onPlaySentence?.(row)}
+                  {...(onPlaySentence ? { onPlay: () => onPlaySentence(row) } : {})}
                   onTextSelectionStart={onTextSelectionStart}
                   onTextSelectionEnd={onTextSelectionEnd}
                   onCheckAnswer={(blankIndex) => void check(blankIndex)}
@@ -3346,7 +3587,7 @@ function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, ac
   onLookup: (term: string, start: number, end: number, anchor?: NativeTextSelectionPayload["selectionRect"]) => void;
   onAddBlank?: (payload: NativeTextSelectionPayload) => void;
   onBlankLongPress?: (blank: CardClozeState["blanks"][number], anchor?: CardBlankActionAnchor) => void;
-  onPlay: () => void;
+  onPlay?: () => void;
   onChangeAnswer: (blankIndex: number, value: string) => void;
   onCheckAnswer: (blankIndex: number) => void;
   onActivateChoiceBlank: (blankIndex: number) => void;
@@ -3402,7 +3643,7 @@ function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, ac
         </View>
       </View>}
     </View>
-    <Pressable
+    {onPlay ? <Pressable
       accessibilityLabel={t("card_detail.a11y.play_sentence")}
       style={styles.inlineSentencePlay}
       disabled={sentenceLoading}
@@ -3413,7 +3654,7 @@ function StableCardSentence({ row, answers, checkedAnswers, revealed, saving, ac
         : sentencePlaying
           ? <Ionicons name="stop" size={18} color={theme.colors.textSecondary} />
           : <Ionicons name="play" size={17} color={theme.colors.textSecondary} />}
-    </Pressable>
+    </Pressable> : null}
   </View>;
 }
 
@@ -3679,8 +3920,12 @@ const styles = StyleSheet.create({
   failedGenerationRetry: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   fullscreen: { ...StyleSheet.absoluteFillObject, zIndex: 50, backgroundColor: theme.colors.canvas },
   page: { flex: 1, backgroundColor: theme.colors.canvas },
-  header: { height: 54, paddingHorizontal: 8, flexDirection: "row", alignItems: "center" },
+  header: { height: 60, paddingHorizontal: 8, flexDirection: "row", alignItems: "center" },
   headerButton: { width: 64, minHeight: 44, justifyContent: "center" }, close: { color: theme.colors.textSecondary, fontSize: 15 }, title: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 16, fontWeight: "500" },
+  cardModeSwitch: { flex: 1, height: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 30 },
+  cardModeOption: { minWidth: 42, height: 44, alignItems: "center", justifyContent: "center" },
+  cardModeOptionText: { color: "#AAAAAA", fontSize: 15, lineHeight: 21, fontWeight: "500" },
+  cardModeOptionTextActive: { color: theme.colors.text, fontWeight: "600" },
   historyButtons: { width: 82, flexDirection: "row", alignItems: "center" },
   historyButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
   headerEnd: { width: 82, flexDirection: "row", justifyContent: "flex-end" },
@@ -3734,11 +3979,35 @@ const styles = StyleSheet.create({
   imageAddingPlaceholder: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 9, backgroundColor: theme.colors.surfaceMuted },
   imageAddingText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18 },
   detailActionBar: { minHeight: 54, paddingHorizontal: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  recommendationButton: { minHeight: 38, alignSelf: "flex-end", marginRight: 14, marginBottom: 7, paddingHorizontal: 11, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE0DA", borderRadius: 19, backgroundColor: "#F3F8F6", flexDirection: "row", alignItems: "center", gap: 7 },
+  cardPlaybackPage: { flex: 1, backgroundColor: theme.colors.canvas },
+  cardPlaybackContent: { paddingHorizontal: 28, paddingTop: 8, paddingBottom: 12, alignItems: "center" },
+  cardPlaybackArtwork: { width: "48%", maxWidth: 210, aspectRatio: 1, borderRadius: 15, backgroundColor: theme.colors.surfaceMuted },
+  cardPlaybackArtworkPlaceholder: { width: "48%", maxWidth: 210, aspectRatio: 1, borderRadius: 15, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  cardPlaybackTitle: { maxWidth: 340, marginTop: 13, color: theme.colors.text, fontSize: 20, lineHeight: 27, fontWeight: "600", textAlign: "center" },
+  cardPlaybackLyricsStage: { flex: 1, position: "relative", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
+  cardPlaybackLyrics: { paddingHorizontal: 14, paddingTop: 30, paddingBottom: 90 },
+  cardPlaybackLyricRow: { marginVertical: 2, paddingVertical: 9, paddingHorizontal: 6, borderRadius: 12 },
+  cardPlaybackLyric: { color: theme.colors.textMuted, fontSize: 16, lineHeight: 25, textAlign: "left" },
+  cardPlaybackLyricActive: { color: "#3F7D65" },
+  cardPlaybackBlank: { textDecorationLine: "underline", textDecorationColor: "#E9A9BA", textDecorationStyle: "solid" },
+  cardPlaybackAuxiliary: { marginTop: 3, color: theme.colors.textMuted, fontSize: 13, lineHeight: 20, textAlign: "left" },
+  cardPlaybackBar: { paddingHorizontal: 20, paddingTop: 13, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },
+  cardPlaybackSeekArea: { height: 25, justifyContent: "center" },
+  cardPlaybackProgressTrack: { height: 3, borderRadius: 2, backgroundColor: theme.colors.surfaceMuted },
+  cardPlaybackProgressFill: { height: "100%", borderRadius: 2, backgroundColor: "#3F7D65" },
+  cardPlaybackProgressThumb: { position: "absolute", top: -5, width: 13, height: 13, marginLeft: -6.5, borderRadius: 7, borderWidth: 2, borderColor: theme.colors.surface, backgroundColor: "#3F7D65" },
+  cardPlaybackControls: { height: 64, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  cardPlaybackSideControl: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
+  cardPlaybackMainControl: { width: 50, height: 50, borderRadius: 25, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
+  cardPlaybackUtility: { minWidth: 40, height: 34, alignItems: "center", justifyContent: "center" },
+  cardPlaybackLoopControl: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  cardPlaybackLoopIcon: { width: 24, height: 21, alignItems: "center", justifyContent: "center" },
+  cardPlaybackLoopOne: { position: "absolute", color: "#3F7D65", fontSize: 8, lineHeight: 10, fontWeight: "700" },
+  cardPlaybackRate: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "600" },
+  cardPlaybackRateDisabled: { color: theme.colors.textMuted },
+  recommendationButton: { position: "absolute", zIndex: 12, elevation: 5, right: 22, bottom: 70, width: 44, height: 44, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE0DA", borderRadius: 22, backgroundColor: "#F3F8F6", alignItems: "center", justifyContent: "center", shadowColor: "#385C50", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   recommendationButtonDisabled: { opacity: 0.48 },
-  recommendationButtonIcon: { width: 25, height: 25, borderRadius: 13, backgroundColor: "#DFEEE8", alignItems: "center", justifyContent: "center" },
-  recommendationButtonText: { color: "#385C50", fontSize: 13, lineHeight: 19, fontWeight: "600" },
-  recommendationUnreadDot: { position: "absolute", top: 7, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: "#F04444", borderWidth: 1, borderColor: theme.colors.surface },
+  recommendationUnreadDot: { position: "absolute", top: 3, right: 3, width: 9, height: 9, borderRadius: 5, backgroundColor: "#F04444", borderWidth: 1.5, borderColor: theme.colors.surface },
   recommendationBackdrop: { flex: 1, paddingHorizontal: 22, backgroundColor: "rgba(28,35,32,0.35)", alignItems: "center", justifyContent: "center" },
   recommendationSheet: { width: "100%", maxWidth: 430, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 22, borderWidth: 2, borderColor: "#DCEDE6", borderRadius: 26, backgroundColor: "#FFFDF8", shadowColor: "#263C34", shadowOpacity: 0.22, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 16 },
   recommendationSheetHeader: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 9 },

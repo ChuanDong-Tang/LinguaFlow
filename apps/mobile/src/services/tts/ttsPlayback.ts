@@ -253,6 +253,14 @@ export function toggleTtsPlayback(): void {
   setPlaybackState({ status: "playing" });
 }
 
+export async function seekTtsPlayback(positionMs: number): Promise<void> {
+  if (!activePlayer || !Number.isFinite(positionMs)) return;
+  const durationMs = playbackState.durationMs ?? 0;
+  const clampedMs = Math.max(0, durationMs > 0 ? Math.min(durationMs, positionMs) : positionMs);
+  await activePlayer.seekTo(clampedMs / 1000, 0, 0);
+  if (activePlayer) setPlaybackState({ positionMs: Math.round(clampedMs) });
+}
+
 export function cycleTtsPlaybackRate(): void {
   const currentIndex = TTS_PLAYBACK_RATES.findIndex((rate) => rate === playbackState.playbackRate);
   const nextRate = TTS_PLAYBACK_RATES[(currentIndex + 1) % TTS_PLAYBACK_RATES.length] ?? 1;
@@ -286,10 +294,14 @@ export function toggleTtsLoop(): void {
     : playbackState.loopMode === "one"
       ? "all"
       : "off";
+  setTtsLoopMode(loopMode);
+}
+
+export function setTtsLoopMode(loopMode: TtsPlaybackState["loopMode"], options: { persist?: boolean } = {}): void {
   // Loop explicitly so seeking/restarting can reapply the selected playback rate.
   if (activePlayer) activePlayer.loop = false;
   setPlaybackState({ loopMode, loopEnabled: loopMode !== "off" });
-  persistTtsPlaybackPreferences();
+  if (options.persist !== false) persistTtsPlaybackPreferences();
 }
 
 export function getTtsPlaybackState(): TtsPlaybackState {
