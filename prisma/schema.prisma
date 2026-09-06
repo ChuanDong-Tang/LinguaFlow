@@ -605,6 +605,7 @@ model UserPreference {
   ttsVoiceCode                      String?
   sttMultilingualRecognitionEnabled Boolean  @default(false)
   autoClozeEnabled                  Boolean  @default(true)
+  autoClozeFrequency                String   @default("low")
   createdAt                         DateTime @default(now())
   updatedAt                         DateTime @updatedAt
 

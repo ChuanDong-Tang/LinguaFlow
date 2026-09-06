@@ -33,7 +33,7 @@ import type { ContentSafetyService } from "../contentSafety/ContentSafetyService
 import type { ChatGenerationTaskGuard } from "../chat/ChatGenerationTaskGuard.js";
 import { formatDateKeyInTimeZone } from "../time/businessClock.js";
 import type { CardImageService } from "./CardImageService.js";
-import { CARD_EXPRESSION_PROMPT_VERSION, CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
+import { buildCardExpressionPrompt, CARD_EXPRESSION_PROMPT_VERSION, CARD_TOPIC_MAX_CHARS, parseCardExpressionOutput } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
@@ -59,7 +59,7 @@ import {
   parseCardPhraseRecommendationOutput,
 } from "@lf/core/Prompts/cardPhraseRecommendationPrompt.js";
 import {
-  autoClozeSoftLimit,
+  autoClozeFrequencyLimit,
   buildCardAutoClozePrompt,
   CARD_AUTO_CLOZE_PROMPT_VERSION,
   parseCardAutoClozeOutput,
@@ -375,8 +375,6 @@ export class CardService {
       const block = detail.contentBlocks.find((candidate) => candidate.contentType === contentType);
       if (!block || !block.segments.length || normalizeClozeState(block.practice?.clozeState).blanks.length) continue;
       if (contentType === "original" && !(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) continue;
-      const maxCandidates = autoClozeSoftLimit(block.text);
-      if (!maxCandidates) continue;
       const existingForBlock = normalizePhraseRecommendations(
         (await this.repository.findByIdForUser(parsed.sourceId, input.userId))?.phraseRecommendations,
       ).filter((item) => item.contentType === contentType && item.contentVersion === block.contentVersion);
@@ -388,6 +386,8 @@ export class CardService {
           })
         : block.segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }));
       if (!promptSegments.length) continue;
+      const maxCandidates = autoClozeFrequencyLimit(promptSegments.length, preference.autoClozeFrequency);
+      if (!maxCandidates) continue;
       const prompt = buildCardAutoClozePrompt({
         segments: promptSegments,
         languageCode: block.languageCode,
@@ -773,13 +773,21 @@ export class CardService {
       : input.target === "translation"
         ? preference.appLocale
         : preference.learningLanguage;
-    const prompt = buildCardContentGenerationPrompt({
-      target: input.target,
-      sourceText,
-      languageCode: input.target === "auxiliary" ? current.languageCode : preference.learningLanguage,
-      appLocale: input.target === "auxiliary" ? current.appLocaleSnapshot : preference.appLocale,
-      difficulty: current.promptDifficultySnapshot,
-    });
+    const prompt = input.target === "expression"
+      ? buildCardExpressionPrompt({
+          text: sourceText,
+          languageCode: current.languageCode,
+          appLocale: current.appLocaleSnapshot,
+          difficulty: current.promptDifficultySnapshot,
+          topicMaxChars: CARD_TOPIC_MAX_CHARS,
+        })
+      : buildCardContentGenerationPrompt({
+          target: input.target,
+          sourceText,
+          languageCode: input.target === "auxiliary" ? current.languageCode : preference.learningLanguage,
+          appLocale: input.target === "auxiliary" ? current.appLocaleSnapshot : preference.appLocale,
+          difficulty: current.promptDifficultySnapshot,
+        });
     const maxOutputTokens = cardContentMaxOutputTokens(input.target, sourceText);
     const meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
     let output = "";
@@ -881,11 +889,19 @@ export class CardService {
       if (!updated) throw new CardContentConflictError("The Card expression changed while auxiliary text was being generated");
       return this.detail(input.userId, input.recordId);
     }
+    let generatedContent = output;
+    if (input.target === "expression") {
+      try {
+        generatedContent = parseCardExpressionOutput(output, CARD_TOPIC_MAX_CHARS).expression;
+      } catch {
+        throw new CardValidationError("Generated expression does not match the Card expression format");
+      }
+    }
     const patch: UpdateCardContentInput = input.target === "expression"
-      ? { rewrittenText: output }
+      ? { rewrittenText: generatedContent }
       : input.target === "translation"
-        ? { translationText: output }
-        : { replyText: output };
+        ? { translationText: generatedContent }
+        : { replyText: generatedContent };
     const updated = await this.updateContent(input.userId, input.recordId, patch, {
       target: input.target,
       languageCode: generationLanguageCode,
@@ -1393,13 +1409,21 @@ export class CardService {
     if (input.usageApiVersion !== "v2") {
       await this.entitlementService.assertCanUse(input.userId, countCardCharacters(sourceText), { dateKey });
     }
-    const prompt = buildCardContentGenerationPrompt({
-      target: input.target,
-      sourceText,
-      languageCode: preference.learningLanguage,
-      appLocale: preference.appLocale,
-      difficulty: preference.promptDifficulty,
-    });
+    const prompt = input.target === "expression"
+      ? buildCardExpressionPrompt({
+          text: sourceText,
+          languageCode: preference.learningLanguage,
+          appLocale: preference.appLocale,
+          difficulty: preference.promptDifficulty,
+          topicMaxChars: CARD_TOPIC_MAX_CHARS,
+        })
+      : buildCardContentGenerationPrompt({
+          target: input.target,
+          sourceText,
+          languageCode: preference.learningLanguage,
+          appLocale: preference.appLocale,
+          difficulty: preference.promptDifficulty,
+        });
     const maxOutputTokens = cardContentMaxOutputTokens(input.target, sourceText);
     const meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
     let output = "";
@@ -1460,6 +1484,13 @@ export class CardService {
     }
     if (input.usageApiVersion !== "v2") {
       await this.entitlementService.consumeUpToLimit(input.userId, countCardCharacters(sourceText) + countCardCharacters(output), { dateKey });
+    }
+    if (input.target === "expression") {
+      try {
+        return { text: parseCardExpressionOutput(output, CARD_TOPIC_MAX_CHARS).expression };
+      } catch {
+        throw new CardValidationError("Generated expression does not match the Card expression format");
+      }
     }
     return { text: output };
   }

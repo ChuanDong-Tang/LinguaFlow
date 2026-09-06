@@ -95,7 +95,7 @@ function shuffleRecommendationOptions(values: string[]): string[] {
   return shuffled;
 }
 
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftImageDescriptionChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -119,6 +119,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onDraftChange?: (text: string) => void;
   onDraftFieldChange?: (field: "title" | "rewrittenText" | "translationText" | "replyText", value: string) => void;
   onDraftEnabledLayersChange?: (layers: CardDraft["enabledLayers"]) => void;
+  onDraftImageDescriptionChange?: (enabled: boolean) => void;
   onDraftCollectionChange?: (collectionId: string | null) => void;
   onDraftCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
   onDraftRenameCollection?: (collectionId: string, name: string) => Promise<void>;
@@ -447,6 +448,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         onChangeText={onDraftChange}
         onChangeField={onDraftFieldChange}
         onEnabledLayersChange={onDraftEnabledLayersChange}
+        onImageDescriptionChange={onDraftImageDescriptionChange}
         onCollectionChange={onDraftCollectionChange}
         onCreateCollection={onDraftCreateCollection}
         onRenameCollection={onDraftRenameCollection}
@@ -512,7 +514,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         </View>
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
@@ -614,7 +616,6 @@ function ClozeOnboardingOverlay({ step, target, windowWidth, windowHeight, onAdv
 
 function ClozeActionGuide() {
   const actions: Array<{ icon?: React.ComponentProps<typeof Ionicons>["name"]; textIcon?: string; label: string; detail: string }> = [
-    { icon: "swap-horizontal-outline", label: t("card_detail.flip"), detail: t("card_detail.cloze.onboarding_action.flip") },
     { icon: "headset-outline", label: t("card_detail.tab.dictation"), detail: t("card_detail.cloze.onboarding_action.dictation") },
     { icon: "eye-outline", label: t("card_detail.dictation.show_answer"), detail: t("card_detail.cloze.onboarding_action.answer") },
     { textIcon: t("card_detail.tab.cloze_short"), label: t("card_detail.cloze.keyboard_mode"), detail: t("card_detail.cloze.onboarding_action.type") },
@@ -826,13 +827,6 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
           </ScrollView>
           {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onAddImage?.("camera"); }} onOpenAll={() => { setPhotoRailVisible(false); onAddImage?.("library"); }} /> : null}
         </>
-        <DraftAiOptionsRow
-          selected={selectedTargets}
-          disabled={saving}
-          onToggle={(target) => {
-            setSelectedTargets((current) => ({ ...current, [target]: !current[target] }));
-          }}
-        />
         <DraftComposerToolbar
           imageCount={images.length}
           sttStatus={originalStt.status}
@@ -852,7 +846,7 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
   </View>;
 }
 
-function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onCollectionChange, onCreateCollection, onRenameCollection, onDeleteCollection, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage, onCoverPositionChange }: {
+function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onImageDescriptionChange, onCollectionChange, onCreateCollection, onRenameCollection, onDeleteCollection, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage, onCoverPositionChange }: {
   draft: CardDraft;
   sending: boolean;
   imageAdding: boolean;
@@ -863,6 +857,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   onChangeText?: (text: string) => void;
   onChangeField?: (field: "title" | "rewrittenText" | "translationText" | "replyText", value: string) => void;
   onEnabledLayersChange?: (layers: CardDraft["enabledLayers"]) => void;
+  onImageDescriptionChange?: (enabled: boolean) => void;
   onCollectionChange?: (collectionId: string | null) => void;
   onCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
   onRenameCollection?: (collectionId: string, name: string) => Promise<void>;
@@ -878,7 +873,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   const processing = draft.submitted;
   const count = countGraphemes(draft.text);
   const imagesReady = draft.images.every((image) => image.status === "ready");
-  const canSave = count > 0 && count <= limits.contentChars && imagesReady;
+  const canSave = (count > 0 || draft.images.length > 0) && count <= limits.contentChars && imagesReady;
   const [photoRailVisible, setPhotoRailVisible] = useState(false);
   const [recentPhotos, setRecentPhotos] = useState<MediaLibrary.Asset[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
@@ -1018,11 +1013,11 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
             </ScrollView>
             {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - draft.images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
             </>
-            <DraftAiOptionsRow
-              selected={draft.enabledLayers}
-              disabled={sending}
-              onToggle={(target) => onEnabledLayersChange?.({ ...draft.enabledLayers, [target]: !draft.enabledLayers[target] })}
-            />
+            {draft.images.length ? <Pressable accessibilityRole="switch" accessibilityState={{ checked: draft.generateImageDescription }} disabled={sending} style={styles.draftImageDescriptionChoice} onPress={() => onImageDescriptionChange?.(!draft.generateImageDescription)}>
+              <Ionicons name={draft.generateImageDescription ? "sparkles" : "image-outline"} size={17} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} />
+              <View style={styles.draftImageDescriptionCopy}><Text style={styles.draftImageDescriptionTitle}>{draft.generateImageDescription ? t("quick_note.image_description_on") : t("quick_note.image_description_off")}</Text><Text style={styles.draftImageDescriptionHint}>{t("quick_note.image_description_hint")}</Text></View>
+              <Ionicons name={draft.generateImageDescription ? "checkmark-circle" : "ellipse-outline"} size={19} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} />
+            </Pressable> : null}
             <DraftComposerToolbar
               imageCount={draft.images.length}
               sttStatus={originalStt.status}
@@ -1782,7 +1777,7 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onSaveOriginal, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
@@ -1793,6 +1788,7 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
   clozeState: CardClozeState;
   clozeVersion: number;
   onClozeChange: (state: CardClozeState, version: number) => void;
+  onSaveOriginal?: (text: string) => Promise<void>;
   onRemoveImage?: (imageId?: string) => void;
   onCoverPositionChange?: (imageId: string, focusX: number, focusY: number) => Promise<void>;
   relations: Array<{ recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] }>;
@@ -1854,9 +1850,12 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
   const [choiceTrayOptions, setChoiceTrayOptions] = useState<ClozeChoiceOption[]>([]);
   const choiceAnswerHandlerRef = useRef<(value: string) => void>(() => undefined);
   const [blankAction, setBlankAction] = useState<{ blank: CardClozeState["blanks"][number]; anchor: CardBlankActionAnchor } | null>(null);
-  const [cardFace, setCardFace] = useState<"front" | "back">("front");
-  const flipProgress = useRef(new Animated.Value(0)).current;
-  const flipAnimatingRef = useRef(false);
+  const [originalEditing, setOriginalEditing] = useState(false);
+  const [originalDraft, setOriginalDraft] = useState(detail.originalText);
+  const [originalSaving, setOriginalSaving] = useState(false);
+  useEffect(() => {
+    if (!originalEditing) setOriginalDraft(detail.originalText);
+  }, [detail.originalText, originalEditing]);
   const [answersVisible, setAnswersVisible] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "original" | "translation", boolean>>({ imageDescription: false, learning: false, reply: false, original: false, translation: false });
   const [articleAudioLoading, setArticleAudioLoading] = useState(false);
@@ -1884,6 +1883,19 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
   const lyricsCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [lyricsScrubIndex, setLyricsScrubIndex] = useState<number | null>(null);
   const toggleSection = (section: keyof typeof collapsedSections) => setCollapsedSections((current) => ({ ...current, [section]: !current[section] }));
+  async function saveOriginalModule(): Promise<void> {
+    const next = originalDraft.trim();
+    if (!next || originalSaving || !onSaveOriginal) return;
+    setOriginalSaving(true);
+    try {
+      await onSaveOriginal(next);
+      setOriginalEditing(false);
+    } catch (error) {
+      showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.save"), type: "error", position: "top-center" });
+    } finally {
+      setOriginalSaving(false);
+    }
+  }
   const playback = React.useSyncExternalStore(subscribeTtsPlayback, getTtsPlaybackState, getTtsPlaybackState);
   const articleNavigationPrefix = `card:${detail.id}:article:`;
   const sentenceNavigationPrefix = `card:${detail.id}:sentence:`;
@@ -2067,11 +2079,7 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
     setAnswersVisible(false);
     setArticleSentenceMarks([]);
     setSentenceAudioLoadingKey(null);
-    setCardFace("front");
-    flipProgress.stopAnimation();
-    flipProgress.setValue(0);
-    flipAnimatingRef.current = false;
-  }, [detail.id, contentBinding.contentType, contentBinding.contentVersion, autoStartClozePractice, flipProgress]);
+  }, [detail.id, contentBinding.contentType, contentBinding.contentVersion, autoStartClozePractice]);
   useEffect(() => {
     // Keep an active practice mode valid when the server state changes, but never
     // auto-enter practice after the user exits it or creates a blank in edit mode.
@@ -2098,34 +2106,6 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
     clozeSavingNoticeRef.current?.hide();
     clozeSavingNoticeRef.current = null;
   }, []);
-
-  function flipCard(): void {
-    if (flipAnimatingRef.current) return;
-    flipAnimatingRef.current = true;
-    const nextFace = cardFace === "front" ? "back" : "front";
-    Keyboard.dismiss();
-    Animated.timing(flipProgress, {
-      toValue: 1,
-      duration: 150,
-      easing: Easing.in(Easing.cubic),
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (!finished) {
-        flipProgress.setValue(0);
-        flipAnimatingRef.current = false;
-        return;
-      }
-      setCardFace(nextFace);
-      requestAnimationFrame(() => {
-        Animated.timing(flipProgress, {
-          toValue: 0,
-          duration: 170,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }).start(() => { flipAnimatingRef.current = false; });
-      });
-    });
-  }
 
   function toggleClozeMode(mode: ClozeInputMode): void {
     if (clozeMode === mode) {
@@ -2697,12 +2677,6 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
     lookup(segment, payload);
   }
 
-  const flipCardTransformStyle = {
-    transform: [
-      { scaleX: flipProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.025] }) },
-      { scaleY: flipProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.985] }) },
-    ],
-  };
   const relatedContent = relations.length ? (
     <View style={styles.relationsSection}>
       <View style={styles.relationsHeader}>
@@ -2831,8 +2805,8 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
   return (
     <View style={styles.reviewPage}>
     <View style={styles.flipCardStage}>
-      <Animated.View style={[styles.flipCardShell, flipCardTransformStyle]}>
-      <View pointerEvents={cardFace === "front" ? "auto" : "none"} style={[styles.flipCardFace, cardFace !== "front" && styles.flipCardFaceHidden]}>
+      <View style={styles.flipCardShell}>
+      <View style={styles.flipCardFace}>
         <KeyboardAwareScrollView ref={flipCardScrollRef} style={styles.flipCardScroll} bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.flipCardContent} alwaysBounceVertical={false}>
           <View style={styles.cardTitleRow}>
             <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
@@ -2862,6 +2836,21 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
                 : null}
             </CollapsibleCardSection>
           </View> : null}
+          {(rewriteIsPrimary && detail.originalText.trim()) || (images.length > 0 && !detail.originalText.trim()) ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => toggleSection("original")}>
+            {originalEditing || !detail.originalText.trim() ? <View style={styles.moduleComposer}>
+              <TextInput multiline value={originalDraft} editable={!originalSaving} maxLength={3000} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.moduleComposerInput} onChangeText={setOriginalDraft} />
+              <View style={styles.moduleComposerActions}>
+                {detail.originalText.trim() ? <Pressable disabled={originalSaving} style={styles.moduleComposerSecondary} onPress={() => { setOriginalDraft(detail.originalText); setOriginalEditing(false); }}><Text style={styles.moduleComposerSecondaryText}>{t("common.cancel")}</Text></Pressable> : null}
+                <Pressable disabled={!originalDraft.trim() || originalSaving || !onSaveOriginal} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving || !onSaveOriginal) && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
+              </View>
+            </View> : <>
+              <Text selectable style={styles.original}>{detail.originalText}</Text>
+              <View style={styles.moduleActions}>
+                <Pressable accessibilityLabel={t("card_detail.edit_card")} style={styles.moduleActionButton} onPress={() => setOriginalEditing(true)}><Ionicons name="create-outline" size={17} color={theme.colors.textMuted} /></Pressable>
+                <CardSectionCopyButton onPress={() => void copySection(detail.originalText)} />
+              </View>
+            </>}
+          </CollapsibleCardSection> : null}
           {!contentBinding.contentType.startsWith("image:") ? <View ref={learningTargetRef} style={styles.flipCardTextBlock} onLayout={(event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; }}>
             {frontLearningReady ? <CollapsibleCardSection label={rewriteIsReady ? t("card_detail.module.expression_description") : t("card_detail.my_record")} tone={rewriteIsReady ? "rewrite" : "default"} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
                 {practiceEnabled
@@ -2883,26 +2872,19 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
               </View>
             </View>
             <CardSectionCopyButton onPress={() => void copySection(detail.replyText!)} />
-          </CollapsibleCardSection> : pendingGenerationTargets.includes("reply") ? <PendingGenerationSection target="reply" /> : failedGenerationTargets.includes("reply") ? <FailedGenerationSection target="reply" retrying={retryingGenerationTarget === "reply"} onRetry={onRetryGeneration} /> : null}
+          </CollapsibleCardSection> : pendingGenerationTargets.includes("reply") ? <PendingGenerationSection target="reply" /> : failedGenerationTargets.includes("reply") ? <FailedGenerationSection target="reply" retrying={retryingGenerationTarget === "reply"} onRetry={onRetryGeneration} /> : <CollapsibleCardSection label={t("card_detail.reply")} collapsed={collapsedSections.reply} onToggle={() => toggleSection("reply")}>
+            <Pressable disabled={!onRetryGeneration || retryingGenerationTarget !== null} style={[styles.moduleGenerateButton, (!onRetryGeneration || retryingGenerationTarget !== null) && styles.moduleGenerateButtonDisabled]} onPress={() => onRetryGeneration?.("reply")}>
+              {retryingGenerationTarget === "reply" ? <ActivityIndicator size="small" color="#52796C" /> : <Ionicons name="sparkles-outline" size={18} color="#52796C" />}
+              <Text style={styles.moduleGenerateButtonText}>{t("chat.settings.generate_reply")}</Text>
+            </Pressable>
+          </CollapsibleCardSection>}
           {relatedContent}
         </KeyboardAwareScrollView>
       </View>
-      <View pointerEvents={cardFace === "back" ? "auto" : "none"} style={[styles.flipCardFace, cardFace !== "back" && styles.flipCardFaceHidden]}>
-        <ScrollView style={styles.flipCardScroll} contentContainerStyle={styles.flipCardContent} keyboardShouldPersistTaps="handled" alwaysBounceVertical={false}>
-          <View style={styles.cardTitleRow}>
-            <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
-          </View>
-          <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
-          {rewriteIsPrimary && detail.originalText.trim() ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => toggleSection("original")}>
-            <Text selectable style={styles.original}>{detail.originalText}</Text>
-            <CardSectionCopyButton onPress={() => void copySection(detail.originalText)} />
-          </CollapsibleCardSection> : null}
-        </ScrollView>
       </View>
-      </Animated.View>
     </View>
     {onRecallFinish ? <Pressable style={styles.recallFinishButton} onPress={onRecallFinish}><Text style={styles.recallFinishButtonText}>{t("recall.end_node")}</Text><Ionicons name="checkmark" size={18} color={theme.colors.surface} /></Pressable> : null}
-    {cardFace === "front" && frontLearningReady && fillMode && clozeInputMode === "choice" && choiceTrayOptions.length ? <View style={styles.detailChoiceTray}>
+    {frontLearningReady && fillMode && clozeInputMode === "choice" && choiceTrayOptions.length ? <View style={styles.detailChoiceTray}>
       {choiceTrayOptions.map((option) => <Pressable
         key={option.value}
         disabled={savingCloze}
@@ -2922,11 +2904,10 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
       {!phraseRecommendation.seen ? <View style={styles.recommendationUnreadDot} /> : null}
     </Pressable> : null}
     <View ref={actionBarRef} style={styles.detailActionBar}>
-      <DetailActionButton label={t("card_detail.flip")} icon="swap-horizontal-outline" active={cardFace === "back"} onPress={flipCard} />
-      <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={cardFace !== "front" || !practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} />
-      <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => setAnswersVisible((current) => !current)} />
-      <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => toggleClozeMode("keyboard")} />
-      <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice" && cardFace === "front"} disabled={cardFace !== "front" || !practiceEnabled || blankCount < 2 || !frontLearningReady} onPress={() => toggleClozeMode("choice")} />
+      <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={!practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} />
+      <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={!practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => setAnswersVisible((current) => !current)} />
+      <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard"} disabled={!practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => toggleClozeMode("keyboard")} />
+      <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice"} disabled={!practiceEnabled || blankCount < 2 || !frontLearningReady} onPress={() => toggleClozeMode("choice")} />
     </View>
     <Modal visible={recommendationTaskVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
       <Pressable style={styles.recommendationBackdrop} onPress={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
@@ -3016,7 +2997,7 @@ function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, 
       ? styles.rewriteSectionLabel
       : undefined;
   const iconColor = tone === "image" ? "#6F73A6" : tone === "rewrite" ? "#4E7B65" : theme.colors.textMuted;
-  return <View style={!compact ? styles.flipCardSection : undefined}>
+  return <View style={styles.flipCardSection}>
     <Pressable accessibilityRole="button" accessibilityState={{ expanded: !collapsed }} style={styles.collapsibleSectionHeader} onPress={onToggle}>
       <Text style={[styles.sectionLabelInline, labelStyle]}>{label}</Text>
       <Ionicons name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={iconColor} />
@@ -3909,6 +3890,18 @@ function formatDate(value: string): string { const [year, month, day] = value.sp
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" }); }
 
 const styles = StyleSheet.create({
+  moduleActions: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 2 },
+  moduleActionButton: { width: 34, height: 32, marginTop: 5, alignItems: "center", justifyContent: "center", borderRadius: 16 },
+  moduleComposer: { marginTop: 8, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted },
+  moduleComposerInput: { minHeight: 72, maxHeight: 180, padding: 0, color: theme.colors.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" },
+  moduleComposerActions: { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
+  moduleComposerSecondary: { minHeight: 36, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  moduleComposerSecondaryText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "500" },
+  moduleComposerSend: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
+  moduleComposerSendDisabled: { opacity: 0.38 },
+  moduleGenerateButton: { alignSelf: "flex-start", minHeight: 40, marginTop: 8, paddingHorizontal: 13, borderRadius: 20, backgroundColor: "#EAF6F1", flexDirection: "row", alignItems: "center", gap: 7 },
+  moduleGenerateButtonDisabled: { opacity: 0.45 },
+  moduleGenerateButtonText: { color: "#52796C", fontSize: 14, fontWeight: "600" },
   collapsibleSectionHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 8 },
   pendingGenerationSection: { minHeight: 68, marginTop: 24, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, gap: 12 },
   generatingDots: { height: 18, flexDirection: "row", alignItems: "center", gap: 5 },
@@ -3958,7 +3951,7 @@ const styles = StyleSheet.create({
   cardTitleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   cardDisplayTitleInRow: { flex: 1 },
   articlePlayButton: { width: 36, height: 32, marginTop: -1, alignItems: "flex-end", justifyContent: "center" },
-  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.surface }, flipCardFaceHidden: { opacity: 0 }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", right: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#D2D2D2" }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
+  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.surface }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", right: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#D2D2D2" }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
   recallFinishButton: { height: 42, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 18, borderRadius: 21, backgroundColor: theme.colors.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, recallFinishButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
   imagePreviewPage: { flex: 1, backgroundColor: "transparent" },
   imagePreviewBackdrop: { backgroundColor: theme.colors.canvas },
@@ -4105,7 +4098,7 @@ const styles = StyleSheet.create({
   clozeFlow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
   clozeSentence: { color: theme.colors.text, fontSize: 17, lineHeight: 28 },
   auxiliarySentence: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 25 },
-  imageDescriptionSection: { marginTop: 12, marginBottom: 18, paddingHorizontal: 2, paddingBottom: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, gap: 7 },
+  imageDescriptionSection: { gap: 7 },
   imageDescriptionSectionLabel: { color: "#6F73A6" },
   rewriteSectionLabel: { color: "#4E7B65" },
   imageDescriptionSentenceRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
@@ -4198,6 +4191,10 @@ const styles = StyleSheet.create({
   draftPublishButtonText: { color: theme.colors.surface, fontSize: 14, fontWeight: "700" },
   draftPublishButtonTextDisabled: { color: theme.colors.textMuted },
   draftAiOptionsRow: { minHeight: 46, marginHorizontal: -22, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 4 },
+  draftImageDescriptionChoice: { minHeight: 54, marginHorizontal: -22, paddingHorizontal: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 10 },
+  draftImageDescriptionCopy: { flex: 1, paddingVertical: 8 },
+  draftImageDescriptionTitle: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
+  draftImageDescriptionHint: { marginTop: 2, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16 },
   draftAiOptionsRowStacked: { paddingVertical: 6, alignItems: "stretch", flexDirection: "column", gap: 0 },
   draftAiOption: { flex: 1, minWidth: 0, height: 38, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
   draftAiOptionStacked: { flex: 0, width: "100%", minHeight: 42, height: "auto", paddingHorizontal: 12, justifyContent: "flex-start" },

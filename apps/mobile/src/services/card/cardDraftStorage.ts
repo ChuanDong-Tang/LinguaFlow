@@ -33,10 +33,11 @@ export type CardDraft = {
   submitted: boolean;
   clozeRanges: Array<{ startUtf16: number; endUtf16: number }>;
   enabledLayers: { expression: boolean; translation: boolean; reply: boolean };
+  generateImageDescription: boolean;
   images: CardDraftImage[];
 };
 
-const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, images: [] };
+const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, generateImageDescription: true, images: [] };
 let draftStorageQueue: Promise<void> = Promise.resolve();
 
 async function key(): Promise<string | null> {
@@ -76,10 +77,11 @@ export async function loadCardDraft(): Promise<CardDraft> {
       submitted: value.submitted === true,
       clozeRanges: derivedContentIsTrusted ? normalizeClozeRanges(value.clozeRanges, rewrittenText.length) : [],
       enabledLayers: {
-        expression: value.enabledLayers?.expression === true || Boolean(rewrittenText),
+        expression: true,
         translation: value.enabledLayers?.translation === true || Boolean(translationText),
-        reply: value.enabledLayers?.reply === true || Boolean(replyText),
+        reply: Boolean(replyText),
       },
+      generateImageDescription: value.generateImageDescription !== false,
       images: Array.isArray(value.images)
         ? value.images.map(normalizeImage).filter((image): image is CardDraftImage => Boolean(image))
         : (() => { const legacy = normalizeImage((value as Partial<CardDraft> & { image?: unknown }).image); return legacy ? [legacy] : []; })(),

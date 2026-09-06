@@ -87,6 +87,7 @@ export type AppLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
 export type LearningLanguage = TargetLanguageCode;
 export type TtsProviderCode = "azure_global";
 export type PromptDifficulty = "simple" | "native";
+export type AutoClozeFrequency = "high" | "medium" | "low";
 export type GuideState = Record<string, { completedAt?: string }>;
 
 export type UserPreference = {
@@ -99,6 +100,7 @@ export type UserPreference = {
   ttsVoiceCode: string | null;
   sttMultilingualRecognitionEnabled: boolean;
   autoClozeEnabled: boolean;
+  autoClozeFrequency: AutoClozeFrequency;
   createdAt: string;
   updatedAt: string;
 };
@@ -112,6 +114,7 @@ export type UpdateUserPreferenceInput = Partial<{
   ttsVoiceCode: string | null;
   sttMultilingualRecognitionEnabled: boolean;
   autoClozeEnabled: boolean;
+  autoClozeFrequency: AutoClozeFrequency;
 }>;
 
 export type UserProfile = {

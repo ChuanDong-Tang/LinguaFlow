@@ -14,6 +14,7 @@ import {
   removeProfileAvatar,
   updateUserPreference,
   type AppLocale,
+  type AutoClozeFrequency,
   type CurrentEntitlement,
   type LearningLanguage,
   type PromptDifficulty,
@@ -583,6 +584,7 @@ function LanguageSettingsModal({
     ttsVoiceCode: string;
     sttMultilingualRecognitionEnabled: boolean;
     autoClozeEnabled: boolean;
+    autoClozeFrequency: AutoClozeFrequency;
   }) => Promise<void>;
 }) {
   const [appLocale, setAppLocale] = useState<AppLocale>("zh-CN");
@@ -595,6 +597,7 @@ function LanguageSettingsModal({
   const [saving, setSaving] = useState(false);
   const [multilingualRecognitionEnabled, setMultilingualRecognitionEnabled] = useState(false);
   const [autoClozeEnabled, setAutoClozeEnabled] = useState(true);
+  const [autoClozeFrequency, setAutoClozeFrequency] = useState<AutoClozeFrequency>("low");
   const [openSelect, setOpenSelect] = useState<string | null>(null);
   const initializedVisibleRef = useRef(false);
   const currentLanguageVoiceOptions = ttsVoiceOptions.filter((option) => option.languageCode === learningLanguage);
@@ -613,6 +616,7 @@ function LanguageSettingsModal({
     setPromptDifficulty(preference?.promptDifficulty ?? "native");
     setMultilingualRecognitionEnabled(preference?.sttMultilingualRecognitionEnabled === true);
     setAutoClozeEnabled(preference?.autoClozeEnabled !== false);
+    setAutoClozeFrequency(preference?.autoClozeFrequency ?? "low");
     setOpenSelect(null);
   }, [preference, visible]);
 
@@ -653,6 +657,7 @@ function LanguageSettingsModal({
         ttsVoiceCode,
         sttMultilingualRecognitionEnabled: multilingualRecognitionEnabled,
         autoClozeEnabled,
+        autoClozeFrequency,
       });
       if (voiceChanged) stopTtsAudio({ resetControls: true });
     } finally {
@@ -748,6 +753,21 @@ function LanguageSettingsModal({
                   <Text style={styles.languageHint}>{t("me.language.auto_cloze_desc")}</Text>
                 </View>
               </Pressable>
+              {autoClozeEnabled ? <SelectField
+                id="autoClozeFrequency"
+                title={t("me.language.auto_cloze_frequency")}
+                valueLabel={autoClozeFrequencyLabel(autoClozeFrequency)}
+                open={openSelect === "autoClozeFrequency"}
+                options={AUTO_CLOZE_FREQUENCY_OPTIONS.map((option) => ({
+                  key: option.value,
+                  label: t(option.labelKey),
+                  detail: t(option.detailKey),
+                  active: autoClozeFrequency === option.value,
+                  onPress: () => setAutoClozeFrequency(option.value),
+                }))}
+                onToggle={() => setOpenSelect((current) => current === "autoClozeFrequency" ? null : "autoClozeFrequency")}
+                onClose={() => setOpenSelect(null)}
+              /> : null}
             </View>
             <View style={styles.languageAdvancedBlock}>
               <Text style={styles.languageFieldTitle}>{t("me.language.stt_advanced")}</Text>
@@ -1159,6 +1179,12 @@ const PROMPT_DIFFICULTY_OPTIONS: Array<{ value: PromptDifficulty; labelKey: Para
   { value: "native", labelKey: "prompt_difficulty.native" },
 ];
 
+const AUTO_CLOZE_FREQUENCY_OPTIONS: Array<{ value: AutoClozeFrequency; labelKey: Parameters<typeof t>[0]; detailKey: Parameters<typeof t>[0] }> = [
+  { value: "low", labelKey: "me.language.auto_cloze_frequency_low", detailKey: "me.language.auto_cloze_frequency_low_desc" },
+  { value: "medium", labelKey: "me.language.auto_cloze_frequency_medium", detailKey: "me.language.auto_cloze_frequency_medium_desc" },
+  { value: "high", labelKey: "me.language.auto_cloze_frequency_high", detailKey: "me.language.auto_cloze_frequency_high_desc" },
+];
+
 function resolveTtsVoiceCodeForLanguage(
   options: TtsVoiceOption[],
   languageCode: LearningLanguage,
@@ -1184,6 +1210,10 @@ function learningLanguageLabel(value: LearningLanguage): string {
 function promptDifficultyLabel(value: PromptDifficulty): string {
   const option = PROMPT_DIFFICULTY_OPTIONS.find((item) => item.value === value) ?? PROMPT_DIFFICULTY_OPTIONS[1];
   return t(option.labelKey);
+}
+
+function autoClozeFrequencyLabel(value: AutoClozeFrequency): string {
+  return t(AUTO_CLOZE_FREQUENCY_OPTIONS.find((item) => item.value === value)?.labelKey ?? "me.language.auto_cloze_frequency_low");
 }
 
 function UsageMeter({ label, value, ratio, loading = false }: {

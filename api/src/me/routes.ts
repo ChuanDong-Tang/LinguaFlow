@@ -68,6 +68,7 @@ type UpdatePreferencesBody = {
   ttsVoiceCode?: string | null;
   sttMultilingualRecognitionEnabled?: boolean;
   autoClozeEnabled?: boolean;
+  autoClozeFrequency?: "high" | "medium" | "low";
 };
 
 const GUIDE_STATE_MAX_KEYS = 80;
@@ -297,6 +298,7 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
         : undefined,
       sttMultilingualRecognitionEnabled: body.sttMultilingualRecognitionEnabled,
       autoClozeEnabled: body.autoClozeEnabled,
+      autoClozeFrequency: body.autoClozeFrequency,
     });
 
     return reply.status(200).send({
@@ -597,6 +599,7 @@ function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody
     "ttsVoiceCode",
     "sttMultilingualRecognitionEnabled",
     "autoClozeEnabled",
+    "autoClozeFrequency",
   ];
   if (!Object.keys(body).some((key) => keys.includes(key))) return false;
 
@@ -609,6 +612,7 @@ function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody
     (body.sttMultilingualRecognitionEnabled === undefined ||
       typeof body.sttMultilingualRecognitionEnabled === "boolean") &&
     (body.autoClozeEnabled === undefined || typeof body.autoClozeEnabled === "boolean") &&
+    (body.autoClozeFrequency === undefined || body.autoClozeFrequency === "high" || body.autoClozeFrequency === "medium" || body.autoClozeFrequency === "low") &&
     (body.ttsVoiceCode === undefined ||
       body.ttsVoiceCode === null ||
       (typeof body.ttsVoiceCode === "string" &&
@@ -679,6 +683,7 @@ function toPreferenceResponse(preference: UserPreferenceEntity) {
     ttsVoiceCode: preference.ttsVoiceCode,
     sttMultilingualRecognitionEnabled: preference.sttMultilingualRecognitionEnabled,
     autoClozeEnabled: preference.autoClozeEnabled,
+    autoClozeFrequency: preference.autoClozeFrequency,
     createdAt: preference.createdAt.toISOString(),
     updatedAt: preference.updatedAt.toISOString(),
   };

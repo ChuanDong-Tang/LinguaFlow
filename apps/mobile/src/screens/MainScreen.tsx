@@ -24,7 +24,7 @@ import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView, KeyboardStickyView } from "react-native-keyboard-controller";
-import Reanimated, { useAnimatedRef } from "react-native-reanimated";
+import Reanimated, { useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import OioCharacter from "../../assets/app/oio-character.svg";
 import OioRecall from "../../assets/app/oio-recall.svg";
 import Sortable from "react-native-sortables";
@@ -111,7 +111,7 @@ type RecordActionAnchor = { x: number; y: number; width: number; height: number 
 
 const UNCLASSIFIED_VIEW = "unclassified";
 const TRASH_VIEW = "trash";
-const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, images: [] };
+const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, generateImageDescription: true, images: [] };
 const LIBRARY_PAGE_SIZE = 40;
 const BACKGROUND_REFRESH_INTERVAL_MS = 60_000;
 const TOPIC_REFRESH_DELAYS_MS = [1_000, 2_000, 3_000, 5_000, 8_000] as const;
@@ -144,10 +144,16 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [searching, setSearching] = useState(false);
   const [searchCollectionId, setSearchCollectionId] = useState<string | null | undefined>(undefined);
   const [composerVisible, setComposerVisible] = useState(false);
+  const composerTransition = useRef(new Animated.Value(0)).current;
+  const composerClosingRef = useRef(false);
   const [quickNoteCreating, setQuickNoteCreating] = useState(false);
   const [quickNoteAddMenuVisible, setQuickNoteAddMenuVisible] = useState(false);
+  const [quickNoteLineCount, setQuickNoteLineCount] = useState(1);
+  const quickNoteAnimatedHeight = useSharedValue(37);
+  const quickNoteAnimatedHeightStyle = useAnimatedStyle(() => ({ height: quickNoteAnimatedHeight.value }));
   const [inspirationQuestions, setInspirationQuestions] = useState(() => fallbackCardInspirations().questions);
   const [inspirationIndex, setInspirationIndex] = useState(0);
+  const [inspirationExpanded, setInspirationExpanded] = useState(false);
   const [recordMoveTarget, setRecordMoveTarget] = useState<CardRecordSummary | null>(null);
   const [recordActionMenu, setRecordActionMenu] = useState<{ record: CardRecordSummary; anchor: RecordActionAnchor } | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
@@ -205,13 +211,41 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   function updateCommittedDraft(update: (current: CardDraft) => CardDraft): Promise<void> {
     return commitDraft(update(draftRef.current));
   }
+  function showCardComposer(): void {
+    composerClosingRef.current = false;
+    composerTransition.stopAnimation();
+    composerTransition.setValue(0);
+    setComposerVisible(true);
+    requestAnimationFrame(() => {
+      Animated.timing(composerTransition, {
+        toValue: 1,
+        duration: 190,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+  }
+  function closeCardComposer(): void {
+    if (composerClosingRef.current) return;
+    composerClosingRef.current = true;
+    composerTransition.stopAnimation();
+    Animated.timing(composerTransition, {
+      toValue: 0,
+      duration: 150,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      composerClosingRef.current = false;
+      setComposerVisible(false);
+    });
+  }
   useEffect(() => {
     if (!incomingCardDraft || handledIncomingDraftIdRef.current === incomingCardDraft.id) return;
     handledIncomingDraftIdRef.current = incomingCardDraft.id;
     const next = incomingCardDraft.draft;
     const open = async () => {
       await commitDraft(next);
-      setComposerVisible(true);
+      showCardComposer();
       onIncomingCardDraftHandled?.(incomingCardDraft.id);
     };
     const hasCurrentDraft = Boolean(draft.title.trim() || draft.text.trim() || draft.rewrittenText.trim() || draft.translationText.trim() || draft.replyText.trim() || draft.images.length);
@@ -604,6 +638,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     await commitDraft(next);
   }
 
+  async function updateDraftImageDescription(generateImageDescription: boolean): Promise<void> {
+    await updateCommittedDraft((current) => ({ ...current, generateImageDescription }));
+  }
+
   async function updateDraftCollection(collectionId: string | null): Promise<void> {
     const current = draftRef.current;
     const next = { ...current, collectionId, clientId: current.recordId ? current.clientId : null, submitted: false };
@@ -617,7 +655,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     if (!hasDraftContent) {
       void commitDraft({ ...draftRef.current, collectionId: null });
     }
-    setComposerVisible(true);
+    showCardComposer();
   }
 
   function enqueueQuickNoteGeneration(
@@ -735,8 +773,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       }
       persistedRecordId = created.id;
       const selectedTargets: CardGenerationTarget[] = [
-        ...((text ? (["expression", "reply"] as const).filter((target) => snapshot.enabledLayers[target]) : [])),
-        ...(snapshot.images.length ? ["image_description" as const] : []),
+        ...(text ? ["expression" as const] : []),
+        ...(snapshot.images.length && snapshot.generateImageDescription ? ["image_description" as const] : []),
       ];
       await commitDraft({ ...submitting, recordId: persistedRecordId });
       await setCardGenerationState(created.id, { pendingTargets: selectedTargets, failedTargets: [] });
@@ -826,8 +864,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     let persistedRecordId = snapshot.recordId;
     let optimisticStarted = false;
     const selectedTargets: CardGenerationTarget[] = [
-      ...((text ? (["expression", "reply"] as const).filter((target) => snapshot.enabledLayers[target]) : [])),
-      ...(snapshot.images.length ? ["image_description" as const] : []),
+      ...(text ? ["expression" as const] : []),
+      ...(snapshot.images.length && snapshot.generateImageDescription ? ["image_description" as const] : []),
     ];
     try {
       await commitDraft(submitting);
@@ -1337,6 +1375,27 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     },
   }), [composerVisible, searchVisible, selectingRecords, sidebarVisible]);
 
+  const quickNoteExplicitLineCount = draft.text.split("\n").length;
+  const quickNoteActualLineCount = Math.max(1, quickNoteLineCount, quickNoteExplicitLineCount);
+  const quickNoteVisibleLineCount = Math.min(7, quickNoteActualLineCount);
+  const quickNoteInputHeight = 16 + quickNoteVisibleLineCount * 21;
+  const quickNoteNeedsFullEditor = draft.text.length > 0
+    && (quickNoteActualLineCount >= 3 || draft.text.length >= 100);
+  useEffect(() => {
+    quickNoteAnimatedHeight.value = withTiming(quickNoteInputHeight, { duration: 120 });
+  }, [quickNoteAnimatedHeight, quickNoteInputHeight]);
+  const updateQuickNoteText = (text: string) => {
+    if (text.length > 0 && inspirationExpanded) setInspirationExpanded(false);
+    quickNoteStt.onChangeText(text);
+  };
+  const quickNoteInspiration = inspirationQuestions[inspirationIndex] ?? "";
+  const quickNoteInspirationVisible = Boolean(
+    inspirationExpanded
+    && quickNoteInspiration
+    && !draft.text
+    && !draft.images.length
+  );
+
   return (
     <SafeAreaView style={styles.container} {...edgeSidebarResponder.panHandlers}>
       <View style={styles.brandRow}>
@@ -1437,38 +1496,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         </View>
       </View> : null}
       {!selectingRecords && libraryView !== TRASH_VIEW ? <KeyboardStickyView offset={{ opened: screenInsets.bottom }} style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
-        {!draft.text.trim() && !draft.images.length && inspirationQuestions[inspirationIndex] ? <View style={styles.inspirationCard}>
-          <Pressable accessibilityLabel={inspirationQuestions[inspirationIndex]} style={styles.inspirationPrompt} onPress={() => quickNoteInputRef.current?.focus()}>
-            <View style={styles.inspirationCopy}>
-              <Text style={styles.inspirationName}>{t("quick_note.inspiration.name")}</Text>
-              <Text numberOfLines={2} style={styles.inspirationQuestion}>{inspirationQuestions[inspirationIndex]}</Text>
-            </View>
-          </Pressable>
-          <View style={styles.inspirationActions}>
-            <Pressable accessibilityLabel={t("quick_note.inspiration.another")} hitSlop={6} style={styles.inspirationAction} onPress={() => setInspirationIndex((current) => (current + 1) % inspirationQuestions.length)}>
-              <Ionicons name="refresh-outline" size={15} color={theme.colors.textSecondary} />
-              <Text style={styles.inspirationActionText}>{t("quick_note.inspiration.another")}</Text>
-            </Pressable>
-            <Pressable accessibilityLabel={t("quick_note.inspiration.chat")} hitSlop={6} style={styles.inspirationAssistant} onPress={() => void openAssistant()}>
-              <OioCharacter width={24} height={23} />
-            </Pressable>
-          </View>
-        </View> : null}
-        {quickNoteAddMenuVisible ? <View style={styles.quickNoteAddMenu}>
-          <Pressable style={styles.quickNoteAddMenuItem} onPress={() => { setQuickNoteAddMenuVisible(false); void pickImage("camera"); }}>
-            <Ionicons name="camera-outline" size={21} color={theme.colors.text} />
-            <Text style={styles.quickNoteAddMenuText}>{t("card_detail.photo.camera")}</Text>
-          </Pressable>
-          <Pressable style={styles.quickNoteAddMenuItem} onPress={() => { setQuickNoteAddMenuVisible(false); void pickImage("library"); }}>
-            <Ionicons name="images-outline" size={21} color={theme.colors.text} />
-            <Text style={styles.quickNoteAddMenuText}>{t("card_detail.photo.library")}</Text>
-          </Pressable>
-          <View style={styles.quickNoteAddMenuDivider} />
-          <Pressable style={styles.quickNoteAddMenuItem} onPress={openCardComposer}>
-            <Ionicons name="create-outline" size={21} color={theme.colors.text} />
-            <Text style={styles.quickNoteAddMenuText}>{t("quick_note.expand_editor")}</Text>
-          </Pressable>
-        </View> : null}
         <View style={styles.unifiedComposerBar}>
           {draft.images.length || preparingDraftImageCount > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickNoteAttachmentRow}>
             {draft.images.map((image) => <View key={image.localUri} style={styles.quickNoteAttachment}>
@@ -1484,48 +1511,82 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             </View>)}
             {preparingDraftImageCount > 0 ? <View style={[styles.quickNoteAttachment, styles.quickNoteAttachmentPreparing]}><ActivityIndicator size="small" color={theme.colors.textMuted} /></View> : null}
           </ScrollView> : null}
+          {draft.images.length ? <Pressable accessibilityRole="switch" accessibilityState={{ checked: draft.generateImageDescription }} style={styles.imageDescriptionChoice} onPress={() => void updateDraftImageDescription(!draft.generateImageDescription)}>
+            <Ionicons name={draft.generateImageDescription ? "sparkles" : "image-outline"} size={15} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} />
+            <Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{draft.generateImageDescription ? t("quick_note.image_description_on") : t("quick_note.image_description_off")}</Text>
+            <Ionicons name={draft.generateImageDescription ? "checkmark-circle" : "ellipse-outline"} size={16} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} />
+          </Pressable> : null}
           <View style={styles.unifiedComposerControls}>
-          <View style={styles.unifiedComposerInput}>
-            <Pressable accessibilityLabel={t("quick_note.add_attachment")} disabled={quickNoteCreating} style={styles.unifiedComposerAdd} onPress={() => { Keyboard.dismiss(); setQuickNoteAddMenuVisible((visible) => !visible); }}><Ionicons name={quickNoteAddMenuVisible ? "close" : "add"} size={22} color={theme.colors.textSecondary} /></Pressable>
+            <View style={styles.unifiedComposerLeftRail}>
+              {quickNoteNeedsFullEditor ? <Pressable accessibilityLabel={t("quick_note.expand_editor")} hitSlop={8} style={styles.unifiedComposerExpand} onPress={openCardComposer}>
+                <View style={styles.fullEditorIcon}>
+                  <View style={styles.fullEditorIconTopLeft} />
+                  <View style={styles.fullEditorIconBottomRight} />
+                </View>
+              </Pressable> : null}
+              <View style={styles.unifiedComposerRailSpacer} />
+              <Pressable accessibilityLabel={t("card_detail.photo.camera")} disabled={quickNoteCreating} style={styles.unifiedComposerTool} onPress={() => { Keyboard.dismiss(); void pickImage("camera"); }}><Ionicons name="camera-outline" size={22} color={theme.colors.textSecondary} /></Pressable>
+            </View>
+            <Reanimated.View style={[styles.unifiedComposerInputArea, quickNoteAnimatedHeightStyle]}>
+            <Text
+              pointerEvents="none"
+              aria-hidden
+              style={styles.unifiedComposerMeasureText}
+              onTextLayout={(event) => {
+                const next = Math.max(1, event.nativeEvent.lines.length);
+                if (next !== quickNoteLineCount) setQuickNoteLineCount(next);
+              }}
+            >{draft.text || (quickNoteInspirationVisible ? quickNoteInspiration : " ")}</Text>
             <TextInput
               ref={quickNoteInputRef}
               accessibilityLabel={t("quick_note.placeholder")}
               style={styles.unifiedComposerTextInput}
               value={draft.text}
-              onChangeText={quickNoteStt.onChangeText}
+              onChangeText={updateQuickNoteText}
               onSelectionChange={({ nativeEvent }) => quickNoteStt.onSelectionChange(nativeEvent.selection)}
-              onFocus={() => {
-                setQuickNoteAddMenuVisible(false);
-                if (quickNoteStt.status !== "idle") void quickNoteStt.toggle();
-              }}
-              placeholder={t("quick_note.placeholder")}
-              placeholderTextColor={theme.colors.textMuted}
+              onFocus={() => { if (quickNoteStt.status !== "idle") void quickNoteStt.toggle(); }}
+              placeholder={quickNoteInspirationVisible ? quickNoteInspiration : t("quick_note.placeholder")}
+              placeholderTextColor={quickNoteInspirationVisible ? "#5E8175" : theme.colors.textMuted}
               maxLength={cardLimits.contentChars}
               multiline
               scrollEnabled
-              textAlignVertical="center"
+              textAlignVertical="top"
               editable={!quickNoteCreating}
             />
-            <RealtimeSttButton
-              status={quickNoteStt.status}
-              audioLevel={quickNoteStt.audioLevel}
-              disabled={quickNoteCreating}
-              iconSize={19}
-              style={styles.unifiedComposerMic}
-              onPress={() => {
-                Keyboard.dismiss();
-                quickNoteInputRef.current?.blur();
-                if (quickNoteStt.status === "idle") {
-                  const end = draftRef.current.text.length;
-                  quickNoteStt.onSelectionChange({ start: end, end });
-                }
-                void quickNoteStt.toggle();
-              }}
-            />
-          </View>
-          {draft.text.trim() || draft.images.length || quickNoteCreating ? <Pressable accessibilityLabel={t("quick_note.a11y.send")} disabled={quickNoteCreating} style={[styles.unifiedComposerSend, quickNoteCreating && styles.unifiedComposerSendDisabled]} onPress={() => { setQuickNoteAddMenuVisible(false); void sendQuickNote(); }}>
-            {quickNoteCreating ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={19} color={theme.colors.surface} />}
-          </Pressable> : null}
+            </Reanimated.View>
+            <View style={styles.unifiedComposerRightRail}>
+              <Pressable accessibilityLabel={t("card_detail.photo.library")} disabled={quickNoteCreating} style={styles.unifiedComposerTool} onPress={() => { Keyboard.dismiss(); void pickImage("library"); }}><Ionicons name="image-outline" size={21} color={theme.colors.textSecondary} /></Pressable>
+              {!draft.text && !draft.images.length && quickNoteInspiration ? <Pressable
+                accessibilityLabel={quickNoteInspirationVisible ? t("quick_note.inspiration.another") : t("quick_note.inspiration.name")}
+                hitSlop={6}
+                style={[styles.inspirationToolbarButton, quickNoteInspirationVisible && styles.inspirationToolbarButtonActive]}
+                onPress={() => {
+                  if (quickNoteInspirationVisible) setInspirationIndex((current) => (current + 1) % inspirationQuestions.length);
+                  else setInspirationExpanded(true);
+                }}
+              >
+                <OioCharacter width={23} height={22} />
+                <View style={styles.inspirationToolbarDot} />
+              </Pressable> : null}
+              {!draft.text.trim() && !draft.images.length ? <RealtimeSttButton
+                status={quickNoteStt.status}
+                audioLevel={quickNoteStt.audioLevel}
+                disabled={quickNoteCreating}
+                iconSize={19}
+                style={styles.unifiedComposerMic}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  quickNoteInputRef.current?.blur();
+                  if (quickNoteStt.status === "idle") {
+                    const end = draftRef.current.text.length;
+                    quickNoteStt.onSelectionChange({ start: end, end });
+                  }
+                  void quickNoteStt.toggle();
+                }}
+              /> : <Pressable accessibilityLabel={t("quick_note.a11y.send")} disabled={quickNoteCreating} style={[styles.unifiedComposerSend, quickNoteCreating && styles.unifiedComposerSendDisabled]} onPress={() => { setQuickNoteAddMenuVisible(false); void sendQuickNote(); }}>
+                {quickNoteCreating ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={19} color={theme.colors.surface} />}
+              </Pressable>}
+            </View>
           </View>
         </View>
       </KeyboardStickyView> : null}
@@ -1586,7 +1647,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       </AnimatedSearchOverlay>
 
       {composerVisible ? (
-        <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setComposerVisible(false)}>
+        <Modal visible transparent animationType="none" presentationStyle="overFullScreen" onRequestClose={closeCardComposer}>
+          <Animated.View style={[styles.composerTransitionPage, {
+            opacity: composerTransition,
+            transform: [
+              { translateY: composerTransition.interpolate({ inputRange: [0, 1], outputRange: [28, 0] }) },
+              { scale: composerTransition.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }) },
+            ],
+          }]}>
           <CardDetailModal
             detail={null}
             loading={false}
@@ -1594,10 +1662,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             draftLimits={cardLimits}
             draftCollections={collections}
             draftSafeArea={{ top: screenInsets.top, bottom: screenInsets.bottom }}
-            onClose={() => setComposerVisible(false)}
+            onClose={closeCardComposer}
             onDraftChange={(value) => void updateDraftText(value)}
             onDraftFieldChange={(field, value) => void updateDraftField(field, value)}
             onDraftEnabledLayersChange={(layers) => void updateDraftEnabledLayers(layers)}
+            onDraftImageDescriptionChange={(enabled) => void updateDraftImageDescription(enabled)}
             onDraftCollectionChange={(collectionId) => void updateDraftCollection(collectionId)}
             onDraftCreateCollection={createDraftCollection}
             onDraftRenameCollection={renameDraftCollection}
@@ -1612,6 +1681,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               images: current.images.map((image) => image.localUri === localUri ? { ...image, focusX, focusY } : image),
             }))}
           />
+          </Animated.View>
         </Modal>
       ) : null}
       <CollectionPickerModal
@@ -3064,7 +3134,8 @@ const styles = StyleSheet.create({
   cardDate: { marginTop: 9, color: theme.colors.textMuted, fontSize: 11 },
   processingText: { marginTop: 6, color: "#999999", fontSize: 11, lineHeight: 17 },
   unifiedComposerDock: { position: "absolute", left: 18, right: 18 },
-  inspirationCard: { marginBottom: 8, minHeight: 64, paddingLeft: 12, paddingRight: 10, paddingVertical: 9, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D5E4DF", borderRadius: 18, backgroundColor: "rgba(255,255,255,0.98)", flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
+  inspirationCard: { position: "absolute", left: 0, right: 0, bottom: 62, zIndex: 4, minHeight: 64, paddingLeft: 12, paddingRight: 10, paddingVertical: 9, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D5E4DF", borderRadius: 18, backgroundColor: "rgba(255,255,255,0.98)", flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
+  inspirationOrb: { position: "absolute", right: 8, bottom: 62, zIndex: 3, width: 40, height: 40, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE4DC", borderRadius: 20, backgroundColor: "rgba(234,246,241,0.98)", alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 5 },
   inspirationPrompt: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9 },
   inspirationCopy: { flex: 1, minWidth: 0 },
   inspirationName: { color: "#5E8175", fontSize: 11, lineHeight: 16, fontWeight: "700" },
@@ -3073,11 +3144,33 @@ const styles = StyleSheet.create({
   inspirationAction: { minHeight: 32, paddingHorizontal: 6, flexDirection: "row", alignItems: "center", gap: 3 },
   inspirationActionText: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
   inspirationAssistant: { width: 34, height: 34, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE4DC", borderRadius: 17, backgroundColor: "#EAF6F1", alignItems: "center", justifyContent: "center" },
-  unifiedComposerBar: { minHeight: 50, padding: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DEDC", borderRadius: 25, backgroundColor: "rgba(255,255,255,0.97)", gap: 5, shadowColor: "#000000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9 },
-  unifiedComposerControls: { flexDirection: "row", alignItems: "center", gap: 7 },
-  unifiedComposerInput: { flex: 1, minHeight: 40, maxHeight: 96, paddingHorizontal: 5, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 8 },
+  unifiedComposerBar: { minHeight: 49, padding: 6, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DEDC", borderRadius: 22, backgroundColor: "rgba(255,255,255,0.97)", gap: 5, shadowColor: "#000000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9 },
+  unifiedComposerControls: { flexDirection: "row", alignItems: "flex-end", gap: 4 },
+  unifiedComposerLeftRail: { alignSelf: "stretch", width: 36, alignItems: "center" },
+  unifiedComposerRightRail: { flexDirection: "row", alignItems: "center", gap: 3 },
+  inspirationToolbarButton: { position: "relative", width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  inspirationToolbarButtonActive: { backgroundColor: "#EAF6F1" },
+  inspirationToolbarDot: { position: "absolute", top: 2, right: 2, width: 6, height: 6, borderRadius: 3, backgroundColor: "#E95D64", borderWidth: 1, borderColor: theme.colors.surface },
+  unifiedComposerRailSpacer: { flex: 1 },
+  unifiedComposerInputArea: { flex: 1, paddingLeft: 10, paddingRight: 8, borderRadius: 17, backgroundColor: theme.colors.surfaceMuted, overflow: "hidden" },
+  unifiedComposerMeasureText: { position: "absolute", left: 10, right: 13, top: 8, opacity: 0, color: "transparent", fontSize: 15, lineHeight: 21 },
+  unifiedComposerInputAreaTwoLines: { height: 58, alignItems: "stretch" },
+  unifiedComposerControlsMultiline: { alignItems: "stretch" },
+  unifiedComposerInput: { flex: 1, minHeight: 40, maxHeight: 96, paddingHorizontal: 5, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 4 },
+  unifiedComposerInputMultiline: { position: "relative", minHeight: 126, maxHeight: 220, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 7, borderRadius: 22, backgroundColor: "transparent", flexDirection: "column", alignItems: "stretch", gap: 4 },
   unifiedComposerAdd: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
-  unifiedComposerTextInput: { flex: 1, minHeight: 40, maxHeight: 88, paddingVertical: 9, paddingRight: 5, color: theme.colors.text, fontSize: 15, lineHeight: 21 },
+  unifiedComposerMedia: { width: 28, height: 30, alignItems: "center", justifyContent: "center" },
+  unifiedComposerExpand: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  fullEditorIcon: { position: "relative", width: 17, height: 17 },
+  fullEditorIconTopLeft: { position: "absolute", top: 1, left: 1, width: 8, height: 8, borderTopWidth: 2, borderLeftWidth: 2, borderColor: theme.colors.textSecondary, borderTopLeftRadius: 1 },
+  fullEditorIconBottomRight: { position: "absolute", right: 1, bottom: 1, width: 8, height: 8, borderRightWidth: 2, borderBottomWidth: 2, borderColor: theme.colors.textSecondary, borderBottomRightRadius: 1 },
+  unifiedComposerCompactExpand: { width: 30, height: 30, flexShrink: 0, borderRadius: 15, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  unifiedComposerTextInput: { width: "100%", height: "100%", paddingVertical: 8, paddingRight: 5, color: theme.colors.text, fontSize: 15, lineHeight: 21 },
+  unifiedComposerTextInputTwoLines: { height: 58, paddingTop: 8, paddingBottom: 8, paddingRight: 38 },
+  unifiedComposerCollapse: { position: "absolute", top: 9, right: 9, zIndex: 2, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.82)", alignItems: "center", justifyContent: "center" },
+  unifiedComposerToolbar: { minHeight: 40, paddingHorizontal: 5, flexDirection: "row", alignItems: "center", gap: 5 },
+  unifiedComposerTool: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  unifiedComposerToolbarSpacer: { flex: 1 },
   unifiedComposerMic: { width: 30, height: 30, borderRadius: 15, flexShrink: 0 },
   unifiedComposerSend: { width: 34, height: 34, marginHorizontal: 3, borderRadius: 17, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
   unifiedComposerSendDisabled: { opacity: 0.7 },
@@ -3086,12 +3179,16 @@ const styles = StyleSheet.create({
   quickNoteAddMenuText: { color: theme.colors.text, fontSize: 16 },
   quickNoteAddMenuDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 14, backgroundColor: theme.colors.border },
   quickNoteAttachmentRow: { paddingHorizontal: 7, paddingTop: 5, paddingBottom: 2, gap: 8 },
+  imageDescriptionChoice: { alignSelf: "flex-start", minHeight: 30, marginHorizontal: 7, paddingHorizontal: 10, borderRadius: 15, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 6 },
+  imageDescriptionChoiceText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" },
+  imageDescriptionChoiceTextActive: { color: "#52796C" },
   quickNoteAttachment: { width: 66, height: 66, borderRadius: 13, overflow: "visible", backgroundColor: theme.colors.surfaceMuted },
   quickNoteAttachmentImage: { width: 66, height: 66, borderRadius: 13 },
   quickNoteAttachmentOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.34)" },
   quickNoteAttachmentPreparing: { alignItems: "center", justifyContent: "center", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border },
   quickNoteAttachmentRemove: { position: "absolute", top: -5, right: -5, width: 21, height: 21, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(27,31,30,0.82)", borderWidth: 2, borderColor: theme.colors.surface },
   modalPage: { flex: 1, backgroundColor: theme.colors.canvas },
+  composerTransitionPage: { flex: 1, backgroundColor: theme.colors.canvas },
   modalHeader: { minHeight: 58, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
   modalHeaderButton: { width: 62, minHeight: 44, alignItems: "center", justifyContent: "center" },
   modalTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 16, fontWeight: "500" },

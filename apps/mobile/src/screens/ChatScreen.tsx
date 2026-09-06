@@ -601,6 +601,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
       submitted: false,
       clozeRanges,
       enabledLayers: { expression: Boolean(rewrittenText), translation: false, reply: Boolean(replyText) },
+      generateImageDescription: true,
       images: [],
     });
   }, [contact, dayMessages, onConvertMessageToCard]);

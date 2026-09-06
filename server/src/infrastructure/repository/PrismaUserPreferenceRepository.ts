@@ -20,6 +20,7 @@ const DEFAULT_PREFERENCE: Pick<
   | "ttsVoiceCode"
   | "sttMultilingualRecognitionEnabled"
   | "autoClozeEnabled"
+  | "autoClozeFrequency"
 > = {
   appLocale: "zh-CN",
   learningLanguage: "en-US",
@@ -29,6 +30,7 @@ const DEFAULT_PREFERENCE: Pick<
   ttsVoiceCode: null,
   sttMultilingualRecognitionEnabled: false,
   autoClozeEnabled: true,
+  autoClozeFrequency: "low",
 };
 
 type PrismaUserPreferenceClient = {
@@ -70,6 +72,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
         sttMultilingualRecognitionEnabled:
           input.sttMultilingualRecognitionEnabled ?? DEFAULT_PREFERENCE.sttMultilingualRecognitionEnabled,
         autoClozeEnabled: input.autoClozeEnabled ?? DEFAULT_PREFERENCE.autoClozeEnabled,
+        autoClozeFrequency: input.autoClozeFrequency ?? DEFAULT_PREFERENCE.autoClozeFrequency,
       },
       update: {
         ...(input.appLocale !== undefined ? { appLocale: input.appLocale } : {}),
@@ -82,6 +85,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
           ? { sttMultilingualRecognitionEnabled: input.sttMultilingualRecognitionEnabled }
           : {}),
         ...(input.autoClozeEnabled !== undefined ? { autoClozeEnabled: input.autoClozeEnabled } : {}),
+        ...(input.autoClozeFrequency !== undefined ? { autoClozeFrequency: input.autoClozeFrequency } : {}),
       },
     });
 
@@ -98,6 +102,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
     ttsVoiceCode: string | null;
     sttMultilingualRecognitionEnabled?: boolean | null;
     autoClozeEnabled?: boolean | null;
+    autoClozeFrequency?: string | null;
     createdAt: Date;
     updatedAt: Date;
   }): UserPreferenceEntity {
@@ -111,6 +116,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
       ttsVoiceCode: row.ttsVoiceCode ?? null,
       sttMultilingualRecognitionEnabled: row.sttMultilingualRecognitionEnabled === true,
       autoClozeEnabled: row.autoClozeEnabled !== false,
+      autoClozeFrequency: normalizeAutoClozeFrequency(row.autoClozeFrequency),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
@@ -131,6 +137,10 @@ function normalizeTtsProvider(value: string): TtsProviderCode {
 
 function normalizePromptDifficulty(value: string | null | undefined): PromptDifficulty {
   return value === "simple" ? "simple" : "native";
+}
+
+function normalizeAutoClozeFrequency(value: string | null | undefined): UserPreferenceEntity["autoClozeFrequency"] {
+  return value === "high" || value === "medium" ? value : "low";
 }
 
 function normalizeGuideState(value: unknown): GuideState {
