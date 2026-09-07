@@ -367,6 +367,17 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     setClozeVersion(version);
     setClozeOwnerKey(activeClozeOwnerKey);
   };
+  const updateLearningContentCloze = (block: CardRecordDetail["contentBlocks"][number], state: CardClozeState, version: number) => {
+    if (!detail) return;
+    const ownerKey = `${detail.id}:${block.contentType}:${block.contentVersion}`;
+    clozeStateCacheRef.current.set(ownerKey, { state, version });
+    onClozeStateChange?.({ recordId: detail.id, contentType: block.contentType, contentVersion: block.contentVersion, state, version });
+    if (ownerKey === activeClozeOwnerKey) {
+      setClozeState(state);
+      setClozeVersion(version);
+      setClozeOwnerKey(ownerKey);
+    }
+  };
   function animateExit(action: () => void, staysMounted: boolean): void {
     if (exitingRef.current) return;
     exitingRef.current = true;
@@ -1898,26 +1909,42 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
   const selectLearningBlock = (block: CardRecordDetail["contentBlocks"][number]) => {
     onSelectLearningContent?.(block.contentType);
   };
-  const activateOriginalLearning = () => {
-    if (!originalBlock) return;
-    if (originalBlock.learningAccess === "enabled" || (originalBlock.learningAccess === undefined && canUseDictation)) {
-      selectLearningBlock(originalBlock);
-      if (!originalBlock.auxiliarySegments?.length) {
-        void onActivateLearningContent?.("original").catch((error) => showNotice({
-          message: error instanceof Error ? error.message : t("card_detail.error.try_again"),
-          type: "error",
-          position: "top-center",
-        }));
-      }
+  const blankRangesFor = (block: CardRecordDetail["contentBlocks"][number], segmentId: string) => asCardClozeState(block.practice?.clozeState).blanks
+    .filter((blank) => blank.segmentId === segmentId)
+    .map((blank) => ({ start: blank.startUtf16, end: blank.endUtf16 }));
+  const addBlankToInactiveBlock = async (block: CardRecordDetail["contentBlocks"][number], segment: CardRecordDetail["rewriteSegments"][number], payload: NativeTextSelectionPayload) => {
+    if (block.learningAccess !== undefined && block.learningAccess !== "enabled") {
+      showNotice({
+        message: block.learningAccess === "pro_required"
+          ? t("card_detail.original_learning.pro_required")
+          : t("card_detail.original_learning.language_mismatch"),
+        type: "info",
+        position: "top-center",
+      });
       return;
     }
-    showNotice({
-      message: originalBlock.learningAccess === "pro_required"
-        ? t("card_detail.original_learning.pro_required")
-        : t("card_detail.original_learning.language_mismatch"),
-      type: "info",
-      position: "top-center",
-    });
+    const expanded = expandSelectionToCardBlankRange(segment.text, payload.start, payload.end);
+    if (!expanded || !segment.text.slice(expanded.start, expanded.end).trim()) return;
+    const currentState = asCardClozeState(block.practice?.clozeState);
+    if (currentState.blanks.some((blank) => blank.segmentId === segment.id && blank.startUtf16 < expanded.end && blank.endUtf16 > expanded.start)) {
+      showNotice({ message: t("card_detail.cloze.already_set"), type: "info", position: "top-center" });
+      return;
+    }
+    try {
+      const practice = await saveCardClozeUpdate(detail.id, {
+        contentType: block.contentType,
+        contentVersion: block.contentVersion,
+        baseVersion: block.practice?.clozeVersion ?? 0,
+        operation: { type: "add", segmentId: segment.id, startUtf16: expanded.start, endUtf16: expanded.end },
+      });
+      block.practice = practice;
+      selectLearningBlock(block);
+      if (block.contentType === "original" && !block.auxiliarySegments?.length) {
+        void onActivateLearningContent?.("original").catch(() => undefined);
+      }
+    } catch (error) {
+      showNotice({ message: error instanceof Error ? error.message : t("card_detail.cloze.save_failed"), type: "error", position: "top-center" });
+    }
   };
   async function saveOriginalModule(): Promise<void> {
     const next = originalDraft.trim();
@@ -2852,13 +2879,13 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
           <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
           <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onIndexChange={setImageIndex} />
           {currentImage ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} style={styles.imageDescriptionSection} onLayout={currentImageIsLearningContent ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
-            <CollapsibleCardSection label={t("card_detail.image_description")} tone="image" active={currentImageIsLearningContent} headerAccessory={currentImageBlock ? <LearningEntry active={currentImageIsLearningContent} /> : undefined} onHeaderAction={currentImageBlock ? () => selectLearningBlock(currentImageBlock) : undefined} collapsed={collapsedSections.imageDescription} onToggle={() => toggleSection("imageDescription")} compact>
+            <CollapsibleCardSection label={t("card_detail.image_description")} tone="image" collapsed={collapsedSections.imageDescription} onToggle={() => toggleSection("imageDescription")} compact>
             {currentImageBlock && currentImage.descriptionText ? <>
               {currentImageIsLearningContent
                 ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                 : currentImageBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
                 <View style={styles.imageDescriptionSentenceBody}>
-                  <SelectableMessageText text={segment.text} style={styles.rewrite} enableDictionaryMenu enableClozeMenu={false} onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} />
+                  <SelectableMessageText text={segment.text} style={styles.rewrite} blankRanges={blankRangesFor(currentImageBlock, segment.id)} enableDictionaryMenu enableClozeMenu onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} onSelectionChange={(payload) => void addBlankToInactiveBlock(currentImageBlock, segment, payload)} />
                   {currentImageAuxiliary.get(segment.ordinal) ? <Text selectable style={styles.auxiliarySentence}>{currentImageAuxiliary.get(segment.ordinal)}</Text> : null}
                 </View>
               </View>)}
@@ -2874,7 +2901,7 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
                 : null}
             </CollapsibleCardSection>
           </View> : null}
-          {detail.originalText.trim() && originalBlock ? <CollapsibleCardSection label={t("card_detail.my_record")} active={contentBinding.contentType === "original"} headerAccessory={<View style={styles.learningEntry}><Ionicons name={originalBlock.learningAccess === "pro_required" ? "lock-closed-outline" : "school-outline"} size={14} color={originalBlock.learningAccess === "language_mismatch" ? theme.colors.textMuted : "#4E7B65"} /><Text style={[styles.learningEntryText, originalBlock.learningAccess === "language_mismatch" && styles.learningEntryTextDisabled]}>{t("card_detail.original_learning.action")}</Text></View>} onHeaderAction={activateOriginalLearning} collapsed={collapsedSections.original} onToggle={() => toggleSection("original")}>
+          {detail.originalText.trim() && originalBlock ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => toggleSection("original")}>
             {originalEditing || !detail.originalText.trim() ? <View style={styles.moduleComposer}>
               <TextInput multiline value={originalDraft} editable={!originalSaving} maxLength={3000} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.moduleComposerInput} textAlignVertical="top" onChangeText={setOriginalDraft} />
               <View style={styles.moduleComposerActions}>
@@ -2886,7 +2913,7 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
                 ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                 : originalBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
                     <View style={styles.imageDescriptionSentenceBody}>
-                      <SelectableMessageText text={segment.text} style={styles.original} enableDictionaryMenu enableClozeMenu={false} onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} />
+                      <SelectableMessageText text={segment.text} style={styles.original} blankRanges={blankRangesFor(originalBlock, segment.id)} enableDictionaryMenu enableClozeMenu onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} onSelectionChange={(payload) => void addBlankToInactiveBlock(originalBlock, segment, payload)} />
                       {originalAuxiliary.get(segment.ordinal) ? <Text selectable style={styles.auxiliarySentence}>{originalAuxiliary.get(segment.ordinal)}</Text> : null}
                     </View>
                   </View>)}
@@ -2897,11 +2924,11 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
             </>}
           </CollapsibleCardSection> : null}
           {rewriteBlock ? <View ref={contentBinding.contentType === "rewrite" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
-            {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={rewriteBlock ? t("card_detail.module.expression_description") : t("card_detail.my_record")} tone={rewriteBlock ? "rewrite" : "default"} active={contentBinding.contentType === (rewriteBlock?.contentType ?? contentBinding.contentType)} headerAccessory={rewriteBlock ? <LearningEntry active={contentBinding.contentType === "rewrite"} /> : undefined} onHeaderAction={rewriteBlock ? () => selectLearningBlock(rewriteBlock) : undefined} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
+            {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={rewriteBlock ? t("card_detail.module.expression_description") : t("card_detail.my_record")} tone={rewriteBlock ? "rewrite" : "default"} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
                 {contentBinding.contentType === (rewriteBlock?.contentType ?? contentBinding.contentType) && practiceEnabled
                       ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                       : rewriteBlock
-                        ? rewriteBlock.segments.map((segment) => <SelectableMessageText key={segment.id} text={segment.text} style={styles.rewrite} enableDictionaryMenu enableClozeMenu={false} onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} />)
+                        ? rewriteBlock.segments.map((segment) => <SelectableMessageText key={segment.id} text={segment.text} style={styles.rewrite} blankRanges={blankRangesFor(rewriteBlock, segment.id)} enableDictionaryMenu enableClozeMenu onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} onSelectionChange={(payload) => void addBlankToInactiveBlock(rewriteBlock, segment, payload)} />)
                         : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
                 {auxiliaryMissing ? <FailedGenerationSection target="auxiliary" retrying={retryingGenerationTarget === "auxiliary"} onRetry={onRetryGeneration} /> : null}
                 {(rewriteBlock?.text ?? learningText).trim() ? <CardSectionCopyButton onPress={() => void copySection(rewriteBlock?.text ?? learningText)} /> : null}
@@ -2910,12 +2937,12 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
                 ? <PendingGenerationSection target="expression" />
                 : <FailedGenerationSection target="expression" retrying={retryingGenerationTarget === "expression"} onRetry={onRetryGeneration} />}
           </View> : null}
-          {detail.replyText && replyBlock ? <CollapsibleCardSection label={t("card_detail.reply")} active={contentBinding.contentType === "reply"} headerAccessory={<LearningEntry active={contentBinding.contentType === "reply"} />} onHeaderAction={() => selectLearningBlock(replyBlock)} collapsed={collapsedSections.reply} onToggle={() => toggleSection("reply")}>
+          {detail.replyText && replyBlock ? <CollapsibleCardSection label={t("card_detail.reply")} collapsed={collapsedSections.reply} onToggle={() => toggleSection("reply")}>
             {contentBinding.contentType === "reply" && practiceEnabled
               ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
               : replyBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
                   <View style={styles.imageDescriptionSentenceBody}>
-                    <SelectableMessageText text={segment.text} style={styles.secondaryContent} enableDictionaryMenu enableClozeMenu={false} onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} />
+                    <SelectableMessageText text={segment.text} style={styles.secondaryContent} blankRanges={blankRangesFor(replyBlock, segment.id)} enableDictionaryMenu enableClozeMenu onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} onSelectionChange={(payload) => void addBlankToInactiveBlock(replyBlock, segment, payload)} />
                     {replyAuxiliary.get(segment.ordinal) ? <Text selectable style={styles.auxiliarySentence}>{replyAuxiliary.get(segment.ordinal)}</Text> : null}
                   </View>
                 </View>)}
@@ -3038,14 +3065,7 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
   );
 }
 
-function LearningEntry({ active }: { active: boolean }) {
-  return <View style={styles.learningEntry}>
-    <Ionicons name={active ? "school" : "school-outline"} size={14} color="#4E7B65" />
-    <Text style={styles.learningEntryText}>{t("card_detail.learning.action")}</Text>
-  </View>;
-}
-
-function CollapsibleCardSection({ label, tone = "default", active = false, headerAccessory, onHeaderAction, collapsed, onToggle, compact = false, children }: { label: string; tone?: "default" | "image" | "rewrite"; active?: boolean; headerAccessory?: React.ReactNode; onHeaderAction?: () => void; collapsed: boolean; onToggle: () => void; compact?: boolean; children: React.ReactNode }) {
+function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, compact = false, children }: { label: string; tone?: "default" | "image" | "rewrite"; collapsed: boolean; onToggle: () => void; compact?: boolean; children: React.ReactNode }) {
   const labelStyle = tone === "image"
     ? styles.imageDescriptionSectionLabel
     : tone === "rewrite"
@@ -3057,7 +3077,6 @@ function CollapsibleCardSection({ label, tone = "default", active = false, heade
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: !collapsed }} style={styles.collapsibleSectionToggle} onPress={onToggle}>
       <Text style={[styles.sectionLabelInline, labelStyle]}>{label}</Text>
       </Pressable>
-      {headerAccessory ? <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onHeaderAction}>{headerAccessory}</Pressable> : null}
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: !collapsed }} onPress={onToggle}><Ionicons name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={iconColor} /></Pressable>
     </View>
     {!collapsed ? children : null}
@@ -3966,9 +3985,6 @@ const styles = StyleSheet.create({
   moduleGenerateButtonText: { color: "#52796C", fontSize: 14, fontWeight: "600" },
   collapsibleSectionHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 8 },
   collapsibleSectionToggle: { flex: 1, minHeight: 32, justifyContent: "center" },
-  learningEntry: { flexDirection: "row", alignItems: "center", gap: 4 },
-  learningEntryText: { color: "#4E7B65", fontSize: 12, fontWeight: "600" },
-  learningEntryTextDisabled: { color: theme.colors.textMuted },
   pendingGenerationSection: { minHeight: 68, marginTop: 24, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, gap: 12 },
   generatingDots: { height: 18, flexDirection: "row", alignItems: "center", gap: 5 },
   generatingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.textSecondary },
