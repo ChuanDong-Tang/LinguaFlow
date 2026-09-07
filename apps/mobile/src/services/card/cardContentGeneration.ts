@@ -31,9 +31,17 @@ export async function generateMissingCardContent(
       continue;
     }
     try {
-      detail = target === "image_description"
-        ? await generateCardImageDescriptions(detail.id)
-        : await generateCardContent(detail.id, target);
+      if (target === "image_description") {
+        detail = await generateCardImageDescriptions(detail.id);
+      } else if (target === "auxiliary") {
+        const sourceBlock = detail.contentBlocks.find((block) => block.contentType === "rewrite")
+          ?? detail.contentBlocks.find((block) => block.contentType === "original")
+          ?? detail.contentBlocks[0];
+        if (!sourceBlock) throw new Error("No content is available for auxiliary generation");
+        detail = await generateCardContent(detail.id, target, sourceBlock.contentType);
+      } else {
+        detail = await generateCardContent(detail.id, target);
+      }
       generatedTargets.push(target);
     } catch (error) {
       failedTargets.push(target);
@@ -81,7 +89,10 @@ export function isCardResourceLimitedError(error: unknown): boolean {
 export function hasGeneratedContent(detail: CardRecordDetail, target: CardGenerationTarget): boolean {
   if (target === "expression") return Boolean(detail.rewrittenText?.trim());
   if (target === "translation") return Boolean(detail.translationText?.trim());
-  if (target === "auxiliary") return Boolean(detail.auxiliarySegments?.length);
+  if (target === "auxiliary") return Boolean(
+    detail.auxiliarySegments?.length
+    || detail.contentBlocks.some((block) => block.auxiliarySegments?.length),
+  );
   if (target === "image_description") return Boolean(detail.images?.length)
     && detail.images!.every((image) => image.descriptionStatus === "completed" && Boolean(image.descriptionText?.trim()));
   return Boolean(detail.replyText?.trim());

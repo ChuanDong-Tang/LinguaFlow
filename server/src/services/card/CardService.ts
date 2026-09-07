@@ -480,14 +480,15 @@ export class CardService {
     trustedSource?: { dateKey: string; createdAt: Date };
   }): Promise<CardRecordSummaryView> {
     const clientId = input.body.clientId.trim();
+    const mode = input.body.mode === "corpus" ? "corpus" : "rewrite";
     const title = normalizeTitle(input.body.title, this.limits.titleMaxChars);
     const originalText = normalizeCardBodyText(input.body.originalText);
-    const rewrittenText = normalizeCardBodyText(input.body.rewrittenText);
-    const translationText = normalizeCardBodyText(input.body.translationText);
-    const replyText = normalizeCardBodyText(input.body.replyText);
+    const rewrittenText = mode === "corpus" ? "" : normalizeCardBodyText(input.body.rewrittenText);
+    const translationText = mode === "corpus" ? "" : normalizeCardBodyText(input.body.translationText);
+    const replyText = mode === "corpus" ? "" : normalizeCardBodyText(input.body.replyText);
     const collectionId = input.body.collectionId?.trim() || null;
-    const requestedRewrite = input.body.generateRewrite !== false;
-    const generateImageDescription = input.body.generateImageDescription !== false;
+    const requestedRewrite = mode !== "corpus" && input.body.generateRewrite !== false;
+    const generateImageDescription = mode !== "corpus" && input.body.generateImageDescription !== false;
     const imageUploadId = input.body.imageUploadId?.trim() || null;
     const imageUploadIds = Array.from(new Set([
       ...(Array.isArray(input.body.imageUploadIds) ? input.body.imageUploadIds : []),
@@ -503,13 +504,18 @@ export class CardService {
     if (imageUploadIds.length > this.limits.imagesMaxPerCard) {
       throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);
     }
-
+    if (mode === "corpus" && imageUploadIds.length) {
+      throw new CardValidationError("Imported material must be text");
+    }
     const duplicate = await this.repository.findByUserClientId(input.userId, clientId);
     if (duplicate) {
       if (duplicate.status === "failed" || duplicate.status === "deleted") {
         throw new CardClientIdConsumedError("Client id belongs to a terminal task");
       }
       return this.summaryWithImage(duplicate);
+    }
+    if (mode === "corpus" && !(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) {
+      throw new CardLearningAccessError("Importing external material requires Pro");
     }
 
     const allContent = [originalText, rewrittenText, translationText, replyText].filter(Boolean).join("\n");
@@ -533,6 +539,7 @@ export class CardService {
       let created;
       try { created = await this.repository.createDirect({
         userId: input.userId,
+        mode,
         collectionId,
         dateKey,
         title,
@@ -579,6 +586,7 @@ export class CardService {
     try {
       const created = await this.repository.createQueued({
         userId: input.userId,
+        mode,
         collectionId,
         dateKey,
         title,
@@ -637,9 +645,9 @@ export class CardService {
     const originalContentHash = originalChanged
       ? (originalText ? cardContentHash(originalText) : null)
       : currentOriginalContentHash;
-    const rewrittenText = originalChanged ? null : normalizePatchedText(patch, "rewrittenText", current.rewrittenText, this.limits.contentMaxChars);
-    const translationText = originalChanged ? null : normalizePatchedText(patch, "translationText", current.translationText, this.limits.contentMaxChars);
-    const replyText = originalChanged ? null : normalizePatchedText(patch, "replyText", current.replyText, this.limits.contentMaxChars);
+    const rewrittenText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "rewrittenText", current.rewrittenText, this.limits.contentMaxChars);
+    const translationText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "translationText", current.translationText, this.limits.contentMaxChars);
+    const replyText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "replyText", current.replyText, this.limits.contentMaxChars);
     const collectionId = Object.prototype.hasOwnProperty.call(patch, "collectionId") ? patch.collectionId?.trim() || null : current.collectionId;
     const rewrittenLanguageCode = resolveContentLanguage({
       patch,
@@ -754,6 +762,12 @@ export class CardService {
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
     if (!current || current.status !== "completed") throw new CardNotFoundError();
+    if (current.mode === "corpus" && input.target !== "auxiliary") {
+      throw new CardValidationError("Imported material does not generate rewritten content");
+    }
+    if (current.mode === "corpus" && !(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) {
+      throw new CardLearningAccessError("Imported material learning requires Pro");
+    }
     const auxiliaryContentType = input.auxiliaryContentType ?? "rewrite";
     const auxiliaryContentSegments = current.contentSegments.filter((segment) => segment.contentType === auxiliaryContentType);
     const auxiliarySourceSegments = input.target === "auxiliary"
@@ -964,6 +978,7 @@ export class CardService {
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
     if (!current || current.status !== "completed") throw new CardNotFoundError();
+    if (current.mode === "corpus") throw new CardValidationError("Imported material does not support image descriptions");
     const requestedImage = input.imageId
       ? current.images.find((image) => image.id === input.imageId)
       : undefined;
@@ -1389,7 +1404,7 @@ export class CardService {
     if (!originalText || countCardCharacters(originalText) > this.limits.contentMaxChars) {
       throw new CardValidationError("Invalid original content");
     }
-    const selectedTargets = Array.from(new Set(input.body.selectedTargets));
+    const selectedTargets = current.mode === "corpus" ? [] : Array.from(new Set(input.body.selectedTargets));
     if (selectedTargets.some((target) => target !== "expression" && target !== "translation" && target !== "reply")) {
       throw new CardValidationError("Invalid generation target");
     }
@@ -1743,6 +1758,7 @@ export class CardService {
       : [];
     return {
       ...toSummary(entry, this.limits.topicMaxChars),
+      mode: entry.mode,
       thumbnail: imageViews[0]?.thumbnail ?? null,
       status: "completed",
       originalText: entry.originalText ?? "",
@@ -1820,6 +1836,11 @@ export class CardService {
     if (imageUploadId !== null && (!imageUploadId.trim() || imageUploadId.length > 128)) {
       throw new CardValidationError("Invalid image upload id");
     }
+    if (imageUploadId !== null) {
+      const current = await this.repository.findByIdForUser(parsed.sourceId, userId);
+      if (!current || current.status !== "completed") throw new CardNotFoundError();
+      if (current.mode === "corpus") throw new CardValidationError("Imported material does not support images");
+    }
     try {
       const updated = await this.repository.replaceEntryImage({
         entryId: parsed.sourceId,
@@ -1844,6 +1865,7 @@ export class CardService {
     if (!parsed || parsed.source !== "card" || !imageUploadId.trim()) throw new CardValidationError("Invalid image");
     const current = await this.repository.findByIdForUser(parsed.sourceId, userId);
     if (!current || current.status !== "completed") throw new CardNotFoundError();
+    if (current.mode === "corpus") throw new CardValidationError("Imported material does not support images");
     const trimmedImageUploadId = imageUploadId.trim();
     if (!current.images.some((image) => image.id === trimmedImageUploadId) && current.images.length >= this.limits.imagesMaxPerCard) {
       throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);
@@ -2610,6 +2632,7 @@ export function toSummary(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_MAX
   }
   return {
     id: cardRecordId("card", entry.id),
+    mode: entry.mode,
     title: entry.title,
     displayTitle: effectiveCardTitle(entry, topicMaxChars),
     topic: entry.topic,

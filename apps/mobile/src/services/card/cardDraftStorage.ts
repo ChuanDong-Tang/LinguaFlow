@@ -20,6 +20,7 @@ export type CardDraftImage = {
 };
 
 export type CardDraft = {
+  mode: "rewrite" | "corpus";
   collectionId: string | null;
   title: string;
   text: string;
@@ -37,21 +38,27 @@ export type CardDraft = {
   images: CardDraftImage[];
 };
 
-const EMPTY_DRAFT: CardDraft = { collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, generateImageDescription: true, images: [] };
+const EMPTY_DRAFT: CardDraft = { mode: "rewrite", collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, generateImageDescription: false, images: [] };
 let draftStorageQueue: Promise<void> = Promise.resolve();
 
-async function key(): Promise<string | null> {
+async function key(mode: CardDraft["mode"]): Promise<string | null> {
   const session = await getSession();
   return session?.user.id
-    ? environmentStorageKey(`lf_card_draft_v1:${session.user.id}`)
+    ? environmentStorageKey(`lf_card_draft_v1:${session.user.id}:${mode}`)
     : null;
 }
 
-export async function loadCardDraft(): Promise<CardDraft> {
-  const storageKey = await key();
-  if (!storageKey) return EMPTY_DRAFT;
-  const raw = await AsyncStorage.getItem(storageKey);
-  if (!raw) return EMPTY_DRAFT;
+async function legacyKey(): Promise<string | null> {
+  const session = await getSession();
+  return session?.user.id ? environmentStorageKey(`lf_card_draft_v1:${session.user.id}`) : null;
+}
+
+export async function loadCardDraft(mode: CardDraft["mode"] = "rewrite"): Promise<CardDraft> {
+  const storageKey = await key(mode);
+  if (!storageKey) return emptyDraft(mode);
+  const raw = await AsyncStorage.getItem(storageKey)
+    ?? (mode === "rewrite" ? await legacyKey().then((value) => value ? AsyncStorage.getItem(value) : null) : null);
+  if (!raw) return emptyDraft(mode);
   try {
     const value = JSON.parse(raw) as Partial<CardDraft>;
     const text = truncateDraftText(value.text, DEFAULT_CARD_CONTENT_MAX_CHARS);
@@ -63,32 +70,39 @@ export async function loadCardDraft(): Promise<CardDraft> {
       : null;
     const derivedContentIsTrusted = storedDerivedFromText === text;
     return {
+      mode,
       collectionId: typeof value.collectionId === "string" ? value.collectionId : null,
       title: truncateDraftText(value.title, DEFAULT_CARD_TITLE_MAX_CHARS),
       text,
       // Never restore generated text unless its source is known to be this exact
       // original. Legacy drafts regenerate selected layers on their next save.
-      rewrittenText: derivedContentIsTrusted ? rewrittenText : "",
-      translationText: derivedContentIsTrusted ? translationText : "",
-      replyText: derivedContentIsTrusted ? replyText : "",
-      derivedFromText: derivedContentIsTrusted ? text : "",
+      rewrittenText: mode === "corpus" ? "" : derivedContentIsTrusted ? rewrittenText : "",
+      translationText: mode === "corpus" ? "" : derivedContentIsTrusted ? translationText : "",
+      replyText: mode === "corpus" ? "" : derivedContentIsTrusted ? replyText : "",
+      derivedFromText: mode === "corpus" ? "" : derivedContentIsTrusted ? text : "",
       clientId: typeof value.clientId === "string" ? value.clientId : null,
       recordId: typeof value.recordId === "string" ? value.recordId : null,
       submitted: value.submitted === true,
-      clozeRanges: derivedContentIsTrusted ? normalizeClozeRanges(value.clozeRanges, rewrittenText.length) : [],
+      clozeRanges: mode === "corpus" ? [] : derivedContentIsTrusted ? normalizeClozeRanges(value.clozeRanges, rewrittenText.length) : [],
       enabledLayers: {
-        expression: true,
-        translation: value.enabledLayers?.translation === true || Boolean(translationText),
-        reply: Boolean(replyText),
+        expression: mode !== "corpus",
+        translation: mode !== "corpus" && (value.enabledLayers?.translation === true || Boolean(translationText)),
+        reply: mode !== "corpus" && Boolean(replyText),
       },
-      generateImageDescription: value.generateImageDescription !== false,
-      images: Array.isArray(value.images)
+      generateImageDescription: mode !== "corpus" && value.generateImageDescription === true,
+      images: mode === "corpus" ? [] : Array.isArray(value.images)
         ? value.images.map(normalizeImage).filter((image): image is CardDraftImage => Boolean(image))
         : (() => { const legacy = normalizeImage((value as Partial<CardDraft> & { image?: unknown }).image); return legacy ? [legacy] : []; })(),
     };
   } catch {
-    return EMPTY_DRAFT;
+    return emptyDraft(mode);
   }
+}
+
+function emptyDraft(mode: CardDraft["mode"]): CardDraft {
+  return mode === "rewrite"
+    ? { ...EMPTY_DRAFT, enabledLayers: { ...EMPTY_DRAFT.enabledLayers }, images: [] }
+    : { ...EMPTY_DRAFT, mode: "corpus", enabledLayers: { expression: false, translation: false, reply: false }, images: [] };
 }
 
 function normalizeClozeRanges(value: unknown, textLength: number): CardDraft["clozeRanges"] {
@@ -134,15 +148,26 @@ function clampUnit(value: unknown): number {
 }
 
 export async function saveCardDraft(draft: CardDraft): Promise<void> {
-  const storageKeyPromise = key();
-  const serialized = JSON.stringify({
+  const storageKeyPromise = key(draft.mode);
+  const safeDraft = draft.mode === "corpus" ? {
     ...draft,
-    title: truncateDraftText(draft.title, DEFAULT_CARD_TITLE_MAX_CHARS),
-    text: truncateDraftText(draft.text, DEFAULT_CARD_CONTENT_MAX_CHARS),
-    rewrittenText: truncateDraftText(draft.rewrittenText, DEFAULT_CARD_CONTENT_MAX_CHARS),
-    translationText: truncateDraftText(draft.translationText, DEFAULT_CARD_CONTENT_MAX_CHARS),
-    replyText: truncateDraftText(draft.replyText, DEFAULT_CARD_CONTENT_MAX_CHARS),
-    derivedFromText: truncateDraftText(draft.derivedFromText, DEFAULT_CARD_CONTENT_MAX_CHARS),
+    rewrittenText: "",
+    translationText: "",
+    replyText: "",
+    derivedFromText: "",
+    clozeRanges: [],
+    enabledLayers: { expression: false, translation: false, reply: false },
+    generateImageDescription: false,
+    images: [],
+  } : draft;
+  const serialized = JSON.stringify({
+    ...safeDraft,
+    title: truncateDraftText(safeDraft.title, DEFAULT_CARD_TITLE_MAX_CHARS),
+    text: truncateDraftText(safeDraft.text, DEFAULT_CARD_CONTENT_MAX_CHARS),
+    rewrittenText: truncateDraftText(safeDraft.rewrittenText, DEFAULT_CARD_CONTENT_MAX_CHARS),
+    translationText: truncateDraftText(safeDraft.translationText, DEFAULT_CARD_CONTENT_MAX_CHARS),
+    replyText: truncateDraftText(safeDraft.replyText, DEFAULT_CARD_CONTENT_MAX_CHARS),
+    derivedFromText: truncateDraftText(safeDraft.derivedFromText, DEFAULT_CARD_CONTENT_MAX_CHARS),
   });
   draftStorageQueue = draftStorageQueue.catch(() => undefined).then(async () => {
     const storageKey = await storageKeyPromise;
@@ -151,8 +176,8 @@ export async function saveCardDraft(draft: CardDraft): Promise<void> {
   await draftStorageQueue;
 }
 
-export async function clearCardDraft(): Promise<void> {
-  const storageKeyPromise = key();
+export async function clearCardDraft(mode: CardDraft["mode"] = "rewrite"): Promise<void> {
+  const storageKeyPromise = key(mode);
   draftStorageQueue = draftStorageQueue.catch(() => undefined).then(async () => {
     const storageKey = await storageKeyPromise;
     if (storageKey) await AsyncStorage.removeItem(storageKey);

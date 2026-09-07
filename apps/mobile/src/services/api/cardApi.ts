@@ -35,6 +35,7 @@ let cardCapabilitiesPromise: Promise<CardCapabilities> | null = null;
 
 export type CardRecordSummary = {
   id: string;
+  mode?: "rewrite" | "corpus";
   title: string | null;
   displayTitle: string;
   topic?: string | null;
@@ -201,6 +202,7 @@ type ApiResult<T> =
 
 export async function createCardEntry(input: {
   clientId: string;
+  mode?: "rewrite" | "corpus";
   collectionId: string | null;
   title?: string | null;
   originalText?: string | null;

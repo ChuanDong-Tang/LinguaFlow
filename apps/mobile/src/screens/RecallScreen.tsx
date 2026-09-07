@@ -121,7 +121,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       setBlindSession(blind?.nodes.length && isBlindRecallSession(blind) ? blind : null);
       if (launchRequest && handledLaunchRef.current !== launchRequest.key) {
         handledLaunchRef.current = launchRequest.key;
-        if (resumeMode && active?.nodes.length && active.launchContext?.query?.startsWith(`${resumeMode}:`)) {
+        if (resumeMode === "recent" && active?.nodes.length && active.launchContext?.query?.startsWith("recent:")) {
           try {
             await openSession(active, true);
             setDirectLaunchPending(false);
@@ -227,8 +227,14 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     try {
       setCompletedBlindBox(isBlindRecallSession(value));
       await openSession(value, true);
+      setBlindVisible(false);
     }
-    catch { Alert.alert(t("recall.error.load")); }
+    catch (error) {
+      if (error instanceof CardApiError && error.code === "RECALL_NO_AVAILABLE_CARDS") {
+        setBlindSession(null);
+        Alert.alert(t("recall.error.empty"));
+      } else Alert.alert(t("recall.error.load"));
+    }
     finally { setLoading(false); }
   }
 
@@ -414,7 +420,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       loading={!currentDetail}
       initialTab={hasRecallCloze(currentDetail) ? "cloze" : "review"}
       hideRelations
-      hidePhraseRecommendation={isBlindRecallSession(session)}
+      hidePhraseRecommendation={isBlindRecallSession(session) || session.launchContext?.query?.startsWith("recent:") === true}
       onEditCard={() => onEditCard(currentNode.recordId)}
       pendingGenerationTargets={pendingGenerationTargets}
       failedGenerationTargets={failedGenerationTargets}
@@ -455,7 +461,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   if (directLaunchPending) return <SafeAreaView style={styles.directLaunchPage}><ActivityIndicator size="large" color={theme.colors.text} /></SafeAreaView>;
 
   if (launchRequest?.mode === "blind") return <SafeAreaView style={styles.directLaunchPage}>
-    <BlindBoxModal visible period={blindPeriod} count={blindCount} loading={loading} onClose={onOpenLibrary} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onStart={() => void beginBlindBox()} />
+    <BlindBoxModal visible period={blindPeriod} count={blindCount} loading={loading} onClose={onOpenLibrary} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onResume={blindSession ? () => void resume(blindSession) : undefined} onStart={() => void beginBlindBox()} />
   </SafeAreaView>;
 
   const activeBlindBoxSession = isBlindRecallSession(activeSession);
@@ -470,13 +476,13 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       </View>
       <RecallChoice icon="calendar-outline" title={t("recall.select_date")} disabled={!dateKeys.length} onPress={() => setDatePickerVisible(true)} />
       <RecallChoice icon="search-outline" title={t("recall.explore")} disabled={!dateKeys.length} onPress={() => setTopicVisible(true)} />
-      <RecallChoice icon="cube-outline" title={t("recall.blind_box")} subtitle={blindSession ? t("recall.resume") : undefined} disabled={loading || (!blindSession && !dateKeys.length)} onPress={blindSession ? () => void resume(blindSession) : () => setBlindVisible(true)} />
+      <RecallChoice icon="cube-outline" title={t("recall.blind_box")} subtitle={blindSession ? t("recall.resume") : undefined} disabled={loading || (!blindSession && !dateKeys.length)} onPress={() => setBlindVisible(true)} />
       {!loading && !dateKeys.length ? <Pressable style={styles.createHint} onPress={onOpenLibrary}><Text style={styles.createHintText}>{t("recall.create_more")}</Text><Ionicons name="add" size={18} color={theme.colors.text} /></Pressable> : null}
       {loading ? <ActivityIndicator style={styles.loader} color={theme.colors.text} /> : null}
     </ScrollView>
     <CardCalendarScreen visible={datePickerVisible} onClose={() => setDatePickerVisible(false)} onSelectDate={(value) => void beginSelectedDate(dateFromKey(value))} />
     <TopicModal visible={topicVisible} value={topic} searchState={topicSearchState} onChange={(value) => { setTopic(value); setTopicSearchState("idle"); }} onClose={() => { if (topicSearchState !== "searching") { setTopicVisible(false); setTopicSearchState("idle"); } }} onSubmit={() => void beginTopic()} />
-    <BlindBoxModal visible={blindVisible} period={blindPeriod} count={blindCount} loading={loading} onClose={() => !loading && setBlindVisible(false)} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onStart={() => void beginBlindBox()} />
+    <BlindBoxModal visible={blindVisible} period={blindPeriod} count={blindCount} loading={loading} onClose={() => !loading && setBlindVisible(false)} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onResume={blindSession ? () => void resume(blindSession) : undefined} onStart={() => void beginBlindBox()} />
   </SafeAreaView>;
 }
 
@@ -527,7 +533,7 @@ function TopicModal({ visible, value, searchState, onChange, onClose, onSubmit }
   return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}><Pressable style={styles.scrim} onPress={onClose}><Pressable style={styles.panel} onPress={() => undefined}><Text style={styles.panelTitle}>{t("recall.explore")}</Text><View style={styles.topicInputRow}><TextInput autoFocus editable={!searching} value={value} onChangeText={onChange} placeholder={t("recall.topic_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.topicInput} returnKeyType="go" onSubmitEditing={() => enabled && onSubmit()} /><Pressable disabled={!enabled} style={[styles.topicGo, !enabled && styles.topicGoDisabled]} onPress={onSubmit}>{searching ? <ActivityIndicator size="small" color={theme.colors.textMuted} /> : <Ionicons name="arrow-forward" size={18} color={enabled ? "#fff" : theme.colors.textMuted} />}</Pressable></View>{searching ? <View style={styles.topicStatus}><ActivityIndicator size="small" color={theme.colors.textMuted} /><Text style={styles.topicStatusText}>{t("recall.searching")}</Text></View> : searchState === "empty" ? <Text style={styles.topicEmpty}>{t("recall.error.empty")}</Text> : null}</Pressable></Pressable></Modal>;
 }
 
-function BlindBoxModal({ visible, period, count, loading, onClose, onPeriodChange, onCountChange, onStart }: { visible: boolean; period: BlindPeriod; count: number; loading: boolean; onClose: () => void; onPeriodChange: (period: BlindPeriod) => void; onCountChange: (count: number) => void; onStart: () => void }) {
+function BlindBoxModal({ visible, period, count, loading, onClose, onPeriodChange, onCountChange, onStart, onResume }: { visible: boolean; period: BlindPeriod; count: number; loading: boolean; onClose: () => void; onPeriodChange: (period: BlindPeriod) => void; onCountChange: (count: number) => void; onStart: () => void; onResume?: () => void }) {
   const periods: Array<{ value: BlindPeriod; label: string }> = [
     { value: "week", label: t("recall.period.week") },
     { value: "month", label: t("recall.period.month") },
@@ -542,6 +548,10 @@ function BlindBoxModal({ visible, period, count, loading, onClose, onPeriodChang
           <Text style={styles.panelTitle}>{t("recall.blind_settings")}</Text>
           <Pressable onPress={onClose}><Ionicons name="close" size={22} color={theme.colors.text} /></Pressable>
         </View>
+        {onResume ? <Pressable disabled={loading} style={[styles.resume, loading && styles.disabled]} onPress={onResume}>
+          <Text style={styles.resumeText}>{t("recall.resume")}</Text>
+          <Ionicons name="arrow-forward" size={18} color={theme.colors.text} />
+        </Pressable> : null}
         <Text style={styles.blindOptionLabel}>{t("recall.period.title")}</Text>
         <View style={styles.periodSegments}>
           {periods.map((item) => <Pressable key={item.value} style={[styles.periodSegment, period === item.value && styles.periodSegmentActive]} onPress={() => onPeriodChange(item.value)}><Text numberOfLines={1} style={[styles.periodSegmentText, period === item.value && styles.periodSegmentTextActive]}>{item.label}</Text></Pressable>)}
@@ -549,7 +559,7 @@ function BlindBoxModal({ visible, period, count, loading, onClose, onPeriodChang
         <View style={styles.blindCountHeader}><Text style={styles.blindOptionLabel}>{t("recall.card_amount")}</Text><Text style={styles.blindCountValue}>{count}</Text></View>
         <BlindCountSlider value={count} onChange={onCountChange} />
         <View style={styles.countEndpoints}><Text style={styles.countEndpoint}>1</Text><Text style={styles.countEndpoint}>10</Text></View>
-        <Pressable disabled={loading} style={[styles.startButton, loading && styles.disabled]} onPress={onStart}>{loading ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.startButtonText}>{t("recall.start")}</Text>}</Pressable>
+        <Pressable disabled={loading} style={[styles.startButton, loading && styles.disabled]} onPress={onStart}>{loading ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.startButtonText}>{t(onResume ? "recall.blind_restart" : "recall.start")}</Text>}</Pressable>
       </Pressable>
     </Pressable>
   </Modal>;

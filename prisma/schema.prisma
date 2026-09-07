@@ -153,6 +153,7 @@ model UserAvatarAsset {
 
 model Card {
   id                                String    @id @default(cuid())
+  mode                              String    @default("rewrite")
   userId                            String
   dateKey                           String
   title                             String?

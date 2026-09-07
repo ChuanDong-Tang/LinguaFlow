@@ -156,6 +156,9 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
         clearTimeout(activeLoadTimer);
         activeLoadTimer = null;
       }
+      if (activePlayer === player && playbackState.status === "loading") {
+        setPlaybackState({ status: "playing" });
+      }
     }
     if (status.playbackState === "failed") {
       if (activePlayer !== player) return;
@@ -192,11 +195,6 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     onError?.();
   }, resolvedSource.loadTimeoutMs ?? TTS_AUDIO_LOAD_TIMEOUT_MS);
   applyPlayerControls(player);
-  setPlaybackState({
-    hasActiveAudio: true,
-    status: "playing",
-    activeNavigationKey: resolvedSource.navigationKey ?? null,
-  });
   if (effectivePlaybackRange) {
     const startSeconds = Math.max(0, effectivePlaybackRange.startMs / 1000);
     const stopAtMs = Math.max(
@@ -221,6 +219,9 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     }, 30);
   }
   player.play();
+  if (activePlayer === player && player.currentStatus.isLoaded && playbackState.status === "loading") {
+    setPlaybackState({ status: "playing" });
+  }
 }
 
 export function stopTtsAudio(options: { resetControls?: boolean } = {}): void {

@@ -589,6 +589,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
         .map((token) => ({ startUtf16: token.start, endUtf16: token.end }))
       : [];
     onConvertMessageToCard({
+      mode: "rewrite",
       collectionId: null,
       title: "",
       text: originalText,
@@ -601,7 +602,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
       submitted: false,
       clozeRanges,
       enabledLayers: { expression: Boolean(rewrittenText), translation: false, reply: Boolean(replyText) },
-      generateImageDescription: true,
+      generateImageDescription: false,
       images: [],
     });
   }, [contact, dayMessages, onConvertMessageToCard]);

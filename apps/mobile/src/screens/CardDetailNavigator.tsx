@@ -5,7 +5,6 @@ import {
   deleteCardImageUpload,
   getCardRecord,
   getCardCapabilities,
-  generateCardImageDescriptions,
   generateCardContent,
   generateCardPhraseRecommendation,
   generateCardAutomaticCloze,
@@ -333,42 +332,6 @@ export function CardDetailNavigator({
       setDetail(updated);
       detailCacheRef.current.set(recordId, { detail: updated, loadedAt: Date.now() });
       onChanged();
-      const generationBase = updated;
-      const nextPendingTargets = [...new Set([...pendingGenerationTargets, "image_description" as const])];
-      const nextFailedTargets = failedGenerationTargets.filter((target) => target !== "image_description");
-      setPendingGenerationTargets(nextPendingTargets);
-      setFailedGenerationTargets(nextFailedTargets);
-      await setCardGenerationState(recordId, { pendingTargets: nextPendingTargets, failedTargets: nextFailedTargets }).catch(() => undefined);
-      void generateCardImageDescriptions(recordId).then(async (generated) => {
-        const contentTypes = automaticClozeTypes(generated, ["image_description"]);
-        const withCloze = contentTypes.length
-          ? await generateCardAutomaticCloze(recordId, contentTypes).catch(() => generated)
-          : generated;
-        const stableDetail = await stabilizeCardDetailImages(generationBase, withCloze);
-        const remainingPending = nextPendingTargets.filter((target) => target !== "image_description");
-        setDetail(stableDetail);
-        setPendingGenerationTargets(remainingPending);
-        detailCacheRef.current.set(recordId, { detail: stableDetail, loadedAt: Date.now() });
-        await setCardGenerationState(recordId, remainingPending.length || nextFailedTargets.length
-          ? { pendingTargets: remainingPending, failedTargets: nextFailedTargets }
-          : null).catch(() => undefined);
-        onChanged();
-      }).catch(async () => {
-        const reconciled = await getCardRecord(recordId).then((value) => stabilizeCardDetailImages(generationBase, value)).catch(() => generationBase);
-        const completed = hasGeneratedContent(reconciled, "image_description");
-        const remainingPending = nextPendingTargets.filter((target) => target !== "image_description");
-        const remainingFailed = completed
-          ? nextFailedTargets
-          : [...new Set([...nextFailedTargets, "image_description" as const])];
-        setDetail(reconciled);
-        setPendingGenerationTargets(remainingPending);
-        setFailedGenerationTargets(remainingFailed);
-        detailCacheRef.current.set(recordId, { detail: reconciled, loadedAt: Date.now() });
-        await setCardGenerationState(recordId, remainingPending.length || remainingFailed.length
-          ? { pendingTargets: remainingPending, failedTargets: remainingFailed }
-          : null).catch(() => undefined);
-        onChanged();
-      });
     } catch (error) {
       Alert.alert(
         t("card_detail.photo.add_failed_title"),

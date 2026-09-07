@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, ActivityIndicator, Animated, AppState, Easing, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import OioCharacter from "../../assets/app/oio-character.svg";
@@ -201,6 +201,7 @@ export function MemoryRoundScreen({
               if (!candidate || !candidate.segments.some((segment) => segment.id === question.segmentId) || !question.blankIds.every((blankId) => currentBlankIds.has(blankId))) return [];
               return [{
                 ...question,
+                draftAnswer: undefined,
                 title: candidate.displayTitle,
                 languageCode: candidate.languageCode,
                 thumbnailUrl: candidate.thumbnail?.url ?? null,
@@ -343,10 +344,15 @@ export function MemoryRoundScreen({
       transition.stopAnimation();
     };
   }, [question?.id, reduceMotion, transition]);
+  useLayoutEffect(() => {
+    // A memory question must always start empty. Restoring draft text can expose a
+    // previously entered (and sometimes correct) answer after Android recreates
+    // the screen or when a stored round is resumed.
+    setInputAnswer("");
+  }, [question?.id]);
   useEffect(() => {
     setAudioUnavailable(false);
     setBlindSubtitleRevealed(false);
-    setInputAnswer(question?.kind === "input" && !question.completed ? question.draftAnswer ?? "" : "");
     setAnswerRevealed(false);
     setMeaningExpanded(false);
     setMeaningStatus("idle");
@@ -448,7 +454,7 @@ export function MemoryRoundScreen({
     void playSuccessFeedbackSound().catch(() => undefined);
     setFeedbackState("correct");
     setSentenceIncorrect(false);
-    const completed = { ...question, firstAttemptCorrect, completed: true, resultSynced: question.retryOnly };
+    const completed = { ...question, draftAnswer: undefined, firstAttemptCorrect, completed: true, resultSynced: question.retryOnly };
     updateQuestion(() => completed);
     success.stopAnimation();
     success.setValue(0);
@@ -524,7 +530,6 @@ export function MemoryRoundScreen({
 
   const retryInputAnswer = (): void => {
     setInputAnswer("");
-    updateQuestion((current) => ({ ...current, draftAnswer: "" }));
     setSentenceIncorrect(false);
     setFeedbackState("idle");
     requestAnimationFrame(() => inputAnswerRef.current?.focus());
@@ -696,7 +701,7 @@ export function MemoryRoundScreen({
   const skipCurrentQuestion = (showAnswer = false): void => {
     if (!round || !question || question.completed || !ownerId) return;
     attemptedQuestionIds.add(question.id);
-    const completed = { ...question, firstAttemptCorrect: false, completed: true, skipped: true, resultSynced: question.retryOnly };
+    const completed = { ...question, draftAnswer: undefined, firstAttemptCorrect: false, completed: true, skipped: true, resultSynced: question.retryOnly };
     const nextRound = {
       ...round,
       questions: round.questions.map((item) => item.id === question.id ? completed : item),
@@ -1007,11 +1012,14 @@ export function MemoryRoundScreen({
           <View style={styles.sentenceSurface}><Text accessibilityLabel={`${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={styles.inputBlank}>{memoryAnswerBlank(question.answer)}</Text>{question.after}</Text></View>
           <View style={[styles.inputAnswerShell, sentenceIncorrect && styles.inputAnswerShellWrong]}>
             <TextInput
+              key={question.id}
               ref={inputAnswerRef}
               value={inputAnswer}
               editable={!sentenceIncorrect && !checking}
               autoCapitalize="none"
+              autoComplete="off"
               autoCorrect={false}
+              importantForAutofill="noExcludeDescendants"
               blurOnSubmit={false}
               enterKeyHint="done"
               returnKeyType="done"
@@ -1027,11 +1035,10 @@ export function MemoryRoundScreen({
                 setInputAnswer(value);
                 setSentenceIncorrect(false);
                 setFeedbackState("idle");
-                updateQuestion((current) => ({ ...current, draftAnswer: value }));
               }}
               onSubmitEditing={checkInputAnswer}
             />
-            {inputAnswer && !sentenceIncorrect ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); updateQuestion((current) => ({ ...current, draftAnswer: "" })); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#87938D" /></Pressable> : null}
+            {inputAnswer && !sentenceIncorrect ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#87938D" /></Pressable> : null}
           </View>
           {sentenceIncorrect ? <View style={styles.inputWrongActions}>
             <Pressable disabled={checking} style={({ pressed }) => [styles.inputRetryButton, checking && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={retryInputAnswer}><Text style={styles.inputRetryButtonText}>{t("memory_round.try_again")}</Text></Pressable>
@@ -1150,8 +1157,8 @@ function memoryOptionTypography(text: string): { fontSize: number; lineHeight: n
 function memoryAnswerBlank(answer: string): React.ReactNode {
   const units = splitCardClozeAnswerUnits(answer);
   const visibleUnits = units.length ? units : ["      "];
-  return visibleUnits.map((unit, index) => <React.Fragment key={`${index}:${unit}`}>
-    <Text style={styles.memoryBlankUnit}>{"\u00A0".repeat(Math.max(2, Math.min(10, Array.from(unit).length)))}</Text>
+  return visibleUnits.map((unit, index) => <React.Fragment key={`blank-unit-${index}`}>
+    <Text accessible={false} style={styles.memoryBlankUnit}>{"_".repeat(Math.max(2, Math.min(10, Array.from(unit).length)))}</Text>
     {index < visibleUnits.length - 1 ? " " : null}
   </React.Fragment>);
 }
@@ -1418,7 +1425,10 @@ async function readStoredRound(ownerId: string): Promise<StoredMemoryRound | nul
     const value = JSON.parse(raw) as Partial<StoredMemoryRound>;
     if (value.schemaVersion !== 5 || value.ownerId !== ownerId || !Array.isArray(value.questions) || !value.questions.length || !Number.isInteger(value.currentIndex) || value.currentIndex! < 0 || value.currentIndex! >= value.questions.length) return null;
     if (value.questions.some((question) => !isStoredMemoryQuestion(question))) return null;
-    return value as StoredMemoryRound;
+    return {
+      ...(value as StoredMemoryRound),
+      questions: (value.questions as MemoryQuestion[]).map((question) => ({ ...question, draftAnswer: undefined })),
+    };
   } catch {
     return null;
   }
@@ -1581,7 +1591,7 @@ const styles = StyleSheet.create({
   sentence: { color: theme.colors.text, fontSize: 20, lineHeight: 31, fontWeight: "400" },
   blank: { color: "#397461", textDecorationLine: "underline", textDecorationColor: "#72A18F" },
   inputBlank: { color: "#78A493" },
-  memoryBlankUnit: { color: "transparent", letterSpacing: 1, textDecorationLine: "underline", textDecorationColor: "#78A493" },
+  memoryBlankUnit: { color: "#78A493", letterSpacing: 1 },
   inputAnswerShell: { minHeight: 56, marginTop: 14, paddingLeft: 17, paddingRight: 12, borderRadius: 17, borderWidth: 1.5, borderColor: "#9FC7B9", backgroundColor: "rgba(255,255,255,0.94)", flexDirection: "row", alignItems: "center", shadowColor: "#52645D", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   inputAnswerShellWrong: { borderColor: "#DF8A82", backgroundColor: "#FFF4F2" },
   inputAnswer: { flex: 1, minHeight: 54, paddingVertical: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "500" },

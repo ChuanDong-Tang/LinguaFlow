@@ -1,0 +1,3 @@
+ALTER TABLE "cards"
+ADD COLUMN "mode" TEXT NOT NULL DEFAULT 'rewrite';
+

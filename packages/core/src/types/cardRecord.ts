@@ -5,6 +5,7 @@ import {
 } from "./card.js";
 
 export type CardRecordSource = "card";
+export type CardMode = "rewrite" | "corpus";
 export type CardEntryStatus = "queued" | "processing" | "completed" | "failed" | "deleted";
 export type CardTaskStatus = Exclude<CardEntryStatus, "deleted">;
 export type CardPracticeResult = "correct" | "incorrect" | "revealed";
@@ -103,6 +104,7 @@ export interface CardPracticeView extends CardPracticeSummaryView {
 
 export interface CardRecordSummaryView {
   id: CardRecordId;
+  mode: CardMode;
   title: string | null;
   displayTitle: string;
   topic: string | null;
@@ -188,6 +190,7 @@ export type UpdateCardClozeInput = {
 
 export interface CreateCardEntryInput {
   clientId: string;
+  mode?: CardMode;
   collectionId?: string | null;
   title?: string | null;
   originalText?: string | null;

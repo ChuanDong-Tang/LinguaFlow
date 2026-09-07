@@ -1096,7 +1096,7 @@ export function ProScreen({
 
   if (compact) {
     const currentTier = currentEntitlement?.tier ?? "free";
-    const visibleTiers: Array<"plus" | "pro"> = currentTier === "free" ? ["plus", "pro"] : [currentTier];
+    const visibleTiers: Array<"plus" | "pro"> = ["plus", "pro"];
     const purchaseBusy = isAutoRenewLoading || isPaying || !hasLoadedAutoRenew;
     const compactAutoRenewStatus = resolveCompactAutoRenewStatus({ autoRenew, hasLoadedAutoRenew });
     const compactAutoRenewTone = !hasLoadedAutoRenew || autoRenew?.status === "pending"
@@ -1109,7 +1109,19 @@ export function ProScreen({
     return (
       <View style={styles.compactContainer}>
         {iapBridge}
-        <View style={[styles.compactPlanGrid, visibleTiers.length === 1 && styles.compactPlanGridSingle]}>
+        <View style={styles.compactPlanGrid}>
+          <View style={[styles.compactPlanCard, currentTier === "free" && styles.compactPlanCardCurrent]}>
+            <View style={styles.compactPlanTitleRow}>
+              <Text style={styles.compactPlanTitle}>Free</Text>
+              {currentTier === "free" ? <Text style={styles.compactCurrentBadge}>{t("pro.compact.current")}</Text> : null}
+            </View>
+            <View style={styles.compactBenefitList}>
+              {[t("pro.compact.free.record"), t("pro.compact.free.practice"), t("pro.compact.free.basic_ai")].map((benefit) => <View key={benefit} style={styles.compactBenefitRow}>
+                <Ionicons name="checkmark-circle-outline" size={15} color="#444444" />
+                <Text style={styles.compactBenefitText}>{benefit}</Text>
+              </View>)}
+            </View>
+          </View>
           {visibleTiers.map((tier) => {
             const isPlus = tier === "plus";
             const price = isPlus ? productPrices.plus : productPrices.pro;
@@ -1129,7 +1141,7 @@ export function ProScreen({
                   t("pro.compact.custom_material"),
                 ];
             return (
-              <View key={tier} style={[styles.compactPlanCard, visibleTiers.length === 1 && styles.compactPlanCardSingle]}>
+              <View key={tier} style={[styles.compactPlanCard, currentTier === tier && styles.compactPlanCardCurrent]}>
                 <View style={styles.compactPlanTitleRow}>
                   <Text style={styles.compactPlanTitle}>{isPlus ? "Plus" : "Pro"}</Text>
                   {currentTier === tier ? <Text style={styles.compactCurrentBadge}>{t("pro.compact.current")}</Text> : null}
@@ -1870,19 +1882,26 @@ const styles = StyleSheet.create({
   },
   compactPlanGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
   },
   compactPlanGridSingle: {
     maxWidth: 320,
   },
   compactPlanCard: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 148,
     minHeight: 194,
     padding: 13,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "#DCDCDC",
     borderRadius: 12,
     backgroundColor: "#FFFFFF",
+  },
+  compactPlanCardCurrent: {
+    borderWidth: 1.5,
+    borderColor: "#C99A35",
+    backgroundColor: "#FFF9EB",
   },
   compactPlanCardSingle: {
     minHeight: 160,

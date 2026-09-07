@@ -30,6 +30,7 @@ export interface CardContentSegmentWrite {
 
 export interface CardEntryEntity {
   id: string;
+  mode: "rewrite" | "corpus";
   userId: string;
   dateKey: string;
   title: string | null;
@@ -155,6 +156,7 @@ export interface CardImageAssetEntity {
 
 export interface CreateQueuedCardEntryInput {
   userId: string;
+  mode?: "rewrite" | "corpus";
   collectionId: string | null;
   dateKey: string;
   title: string | null;
@@ -172,6 +174,7 @@ export interface CreateQueuedCardEntryInput {
 
 export interface CreateDirectCardEntryInput {
   userId: string;
+  mode?: "rewrite" | "corpus";
   collectionId: string | null;
   dateKey: string;
   title: string | null;

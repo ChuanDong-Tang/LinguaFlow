@@ -293,6 +293,7 @@ export class PrismaCardRepository implements CardRepository {
       const row = await tx.card.create({
         data: {
           userId: input.userId,
+          mode: input.mode ?? "rewrite",
           collectionId: input.collectionId,
           dateKey: input.dateKey,
           title: input.title,
@@ -345,6 +346,7 @@ export class PrismaCardRepository implements CardRepository {
       const row = await tx.card.create({
         data: {
           userId: input.userId,
+          mode: input.mode ?? "rewrite",
           collectionId: input.collectionId,
           dateKey: input.dateKey,
           title: input.title,
@@ -2316,6 +2318,7 @@ async function applyPhraseMutation(tx: any, input: {
 function toEntry(row: any): CardEntryEntity {
   return {
     id: row.id,
+    mode: row.mode === "corpus" ? "corpus" : "rewrite",
     userId: row.userId,
     dateKey: row.dateKey,
     title: row.title ?? null,
