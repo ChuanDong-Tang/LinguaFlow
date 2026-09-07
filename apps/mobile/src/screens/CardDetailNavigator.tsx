@@ -6,6 +6,7 @@ import {
   getCardRecord,
   getCardCapabilities,
   generateCardImageDescriptions,
+  generateCardContent,
   generateCardPhraseRecommendation,
   generateCardAutomaticCloze,
   updateCardContent,
@@ -268,6 +269,20 @@ export function CardDetailNavigator({
     return updated;
   }
 
+  async function activateLearningContent(contentType: CardLearningContentType): Promise<CardRecordDetail> {
+    if (!detail) throw new Error(t("card_detail.error.try_again"));
+    const block = detail.contentBlocks.find((candidate) => candidate.contentType === contentType);
+    if (!block || block.learningAccess !== "enabled") throw new Error(t("card_detail.error.try_again"));
+    const generated = block.auxiliarySegments?.length
+      ? detail
+      : await generateCardContent(detail.id, "auxiliary", contentType);
+    const withAutomaticCloze = await generateCardAutomaticCloze(detail.id, [contentType]).catch(() => generated);
+    const updated = await stabilizeCardDetailImages(detail, withAutomaticCloze);
+    setDetail(updated);
+    detailCacheRef.current.set(detail.id, { detail: updated, loadedAt: Date.now() });
+    return updated;
+  }
+
   async function pickImage(recordId: string, source: "camera" | "library", suppliedAsset?: { uri: string; width: number; height: number }): Promise<void> {
     const remaining = cardLimits.imagesPerCard - (detail?.images?.length ?? (detail?.image ? 1 : 0));
     if (remaining <= 0) {
@@ -405,6 +420,7 @@ export function CardDetailNavigator({
       retryingGenerationTarget={retryingGenerationTarget}
       onRetryGeneration={(target) => void retryGeneration(target)}
       onGeneratePhraseRecommendation={detail?.source === "card" && !detail.isSample ? generatePhraseRecommendation : undefined}
+      onActivateLearningContent={detail?.source === "card" && !detail.isSample ? activateLearningContent : undefined}
       transitionOrigin={historyIndex === 0 ? request.origin : undefined}
       initialTab={request.initialTab}
       initialEditing={request.initialEditing}

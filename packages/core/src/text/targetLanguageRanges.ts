@@ -34,6 +34,23 @@ export function isReliableTargetLanguageText(text: string, languageCode: string)
   return kana >= 1 && han <= kana * 4 + 4 && !/\p{Script=Latin}/u.test(text);
 }
 
+/**
+ * Returns true only when the complete piece of content can be treated as the
+ * selected learning language. Punctuation, numbers and emoji are neutral, but
+ * a letter from another writing system invalidates the whole value.
+ */
+export function isEntireTargetLanguageText(text: string, languageCode: string): boolean {
+  if (!isTargetLanguageCode(languageCode) || !text.trim()) return false;
+  const letters = [...text.matchAll(/\p{Letter}/gu)].map((match) => match[0]);
+  if (!letters.length) return false;
+  if (languageCode === "en-US") {
+    return letters.every((letter) => /\p{Script=Latin}/u.test(letter));
+  }
+  const allJapaneseScript = letters.every((letter) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(letter));
+  const hasKana = /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text);
+  return allJapaneseScript && hasKana;
+}
+
 export function targetLanguageTextOnly(text: string, languageCode: string): { text: string; languageCode: TargetLanguageCode } | null {
   if (!isTargetLanguageCode(languageCode)) return null;
   const ranges = findTargetLanguageRanges(text, languageCode);

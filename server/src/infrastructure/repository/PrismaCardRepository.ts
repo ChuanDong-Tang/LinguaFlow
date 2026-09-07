@@ -567,6 +567,34 @@ export class PrismaCardRepository implements CardRepository {
     return updated ? toEntry(updated) : null;
   }
 
+  async saveContentAuxiliarySegments(input: {
+    entryId: string;
+    userId: string;
+    contentType: CardLearningContentType;
+    contentVersion: string;
+    auxiliarySegments: Array<{ ordinal: number; text: string }>;
+    auxiliaryLanguageCode: string;
+    auxiliaryPromptVersion: string;
+  }): Promise<CardEntryEntity | null> {
+    const card = await this.prisma.card.findFirst({ where: { id: input.entryId, userId: input.userId, status: "completed", deletedAt: null }, select: { id: true } });
+    if (!card || !input.auxiliarySegments.length) return null;
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.cardContentSegment.findMany({
+        where: { entryId: input.entryId, contentType: input.contentType, contentVersion: input.contentVersion },
+        select: { id: true, ordinal: true },
+      });
+      if (rows.length !== input.auxiliarySegments.length) return null;
+      const byOrdinal = new Map(input.auxiliarySegments.map((segment) => [segment.ordinal, segment.text]));
+      if (rows.some((row: { id: string; ordinal: number }) => !byOrdinal.has(row.ordinal))) return null;
+      await Promise.all(rows.map((row: { id: string; ordinal: number }) => tx.cardContentSegment.update({
+        where: { id: row.id },
+        data: { auxiliaryText: byOrdinal.get(row.ordinal)!, auxiliaryLanguageCode: input.auxiliaryLanguageCode, auxiliaryPromptVersion: input.auxiliaryPromptVersion },
+      })));
+      const updated = await tx.card.findFirst({ where: { id: input.entryId }, include: includeSegments });
+      return updated ? toEntry(updated) : null;
+    });
+  }
+
   async markImageDescriptionsPending(entryId: string, userId: string, imageIds: string[]): Promise<CardEntryEntity | null> {
     if (!imageIds.length) return this.findByIdForUser(entryId, userId);
     return this.prisma.$transaction(async (tx) => {
@@ -724,6 +752,19 @@ export class PrismaCardRepository implements CardRepository {
         input.contentSegments.filter((write) => imageContentTypes.has(write.contentType)),
         false,
       );
+      for (const description of input.descriptions) {
+        const contentType = `image:${description.imageId}`;
+        for (const auxiliary of description.auxiliarySegments) {
+          await tx.cardContentSegment.updateMany({
+            where: { entryId: input.entryId, contentType, ordinal: auxiliary.ordinal },
+            data: {
+              auxiliaryText: auxiliary.text,
+              auxiliaryLanguageCode: description.auxiliaryLanguageCode,
+              auxiliaryPromptVersion: description.auxiliaryPromptVersion,
+            },
+          });
+        }
+      }
       const updated = await tx.card.findFirst({ where: { id: input.entryId }, include: includeSegments });
       return updated ? toEntry(updated) : null;
     });
@@ -2327,6 +2368,9 @@ function toContentSegment(row: any): CardContentSegmentEntity {
     ...toSegment(row),
     contentType: row.contentType,
     contentVersion: row.contentVersion,
+    auxiliaryText: row.auxiliaryText ?? null,
+    auxiliaryLanguageCode: row.auxiliaryLanguageCode ?? null,
+    auxiliaryPromptVersion: row.auxiliaryPromptVersion ?? null,
     updatedAt: row.updatedAt,
   };
 }

@@ -41,6 +41,9 @@ export interface CardContentBlockView {
   languageCode: string;
   segments: CardRewriteSegmentView[];
   practice: CardPracticeView | null;
+  auxiliarySegments: Array<{ ordinal: number; text: string }>;
+  auxiliaryLanguageCode: string | null;
+  learningAccess: "enabled" | "pro_required" | "language_mismatch";
 }
 
 export interface CardPhraseRecommendationItemView {

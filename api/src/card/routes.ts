@@ -583,9 +583,14 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/generate");
     if (!userId) return;
     const recordId = String((req.params as { recordId?: unknown }).recordId ?? "");
-    const target = (req.body as { target?: unknown } | null)?.target;
+    const body = req.body as { target?: unknown; contentType?: unknown } | null;
+    const target = body?.target;
+    const contentType = body?.contentType;
     if (target !== "expression" && target !== "translation" && target !== "auxiliary" && target !== "reply") {
       return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid generation target");
+    }
+    if (contentType !== undefined && (!isLearningContentType(contentType) || target !== "auxiliary")) {
+      return failure(reply, 400, requestId, "VALIDATION_FAILED", "Invalid auxiliary content type");
     }
     try {
       const data = await deps.cardService.generateContent({
@@ -593,6 +598,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         requestId,
         recordId: `card:${recordId}`,
         target,
+        ...(contentType !== undefined ? { auxiliaryContentType: contentType } : {}),
         usageApiVersion: "v2",
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });

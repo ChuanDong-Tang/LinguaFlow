@@ -16,6 +16,9 @@ export type CardLearningContentType = "original" | "rewrite" | "reply" | `image:
 export interface CardContentSegmentEntity extends CardSegmentEntity {
   contentType: CardLearningContentType;
   contentVersion: string;
+  auxiliaryText: string | null;
+  auxiliaryLanguageCode: string | null;
+  auxiliaryPromptVersion: string | null;
   updatedAt: Date;
 }
 
@@ -254,6 +257,15 @@ export interface CardRepository {
     auxiliarySegments: Array<{ ordinal: number; text: string }>;
     auxiliaryLanguageCode: string;
     auxiliarySourceHash: string;
+  }): Promise<CardEntryEntity | null>;
+  saveContentAuxiliarySegments(input: {
+    entryId: string;
+    userId: string;
+    contentType: CardLearningContentType;
+    contentVersion: string;
+    auxiliarySegments: Array<{ ordinal: number; text: string }>;
+    auxiliaryLanguageCode: string;
+    auxiliaryPromptVersion: string;
   }): Promise<CardEntryEntity | null>;
   markImageDescriptionsPending(entryId: string, userId: string, imageIds: string[]): Promise<CardEntryEntity | null>;
   saveImageDescriptionTexts(input: {

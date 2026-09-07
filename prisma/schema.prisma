@@ -236,16 +236,19 @@ model CardRewriteSegment {
 }
 
 model CardContentSegment {
-  id             String   @id @default(cuid())
-  entryId        String
-  contentType    String
-  contentVersion String
-  ordinal        Int
-  text           String
-  startUtf16     Int
-  endUtf16       Int
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                     String   @id @default(cuid())
+  entryId                String
+  contentType            String
+  contentVersion         String
+  ordinal                Int
+  text                   String
+  startUtf16             Int
+  endUtf16               Int
+  auxiliaryText          String?
+  auxiliaryLanguageCode  String?
+  auxiliaryPromptVersion String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   entry Card @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
@@ -256,42 +259,42 @@ model CardContentSegment {
 }
 
 model CardImageAsset {
-  id                   String    @id @default(cuid())
-  userId               String
-  entryId              String?
-  ordinal              Int       @default(0)
-  status               String    @default("pending")
-  originalObjectKey    String
-  uploadObjectKey      String?
-  thumbnailObjectKey   String?
-  thumbnailStatus      String    @default("pending")
-  thumbnailVersion     Int       @default(1)
-  mimeType             String
-  fileSize             Int
-  width                Int
-  height               Int
-  focusX               Float     @default(0.5)
-  focusY               Float     @default(0.5)
-  fileMd5              String?
-  moderationRequestId  String?
-  moderationSuggestion String?
-  moderationLabel      String?
-  moderatedAt          DateTime?
-  descriptionText                 String?
-  descriptionLanguageCode         String?
-  descriptionSourceHash           String?
-  descriptionPromptVersion        String?
-  descriptionResultVersion        String?
-  descriptionAuxiliarySegments    Json?
-  descriptionAuxiliaryLanguageCode String?
+  id                                String    @id @default(cuid())
+  userId                            String
+  entryId                           String?
+  ordinal                           Int       @default(0)
+  status                            String    @default("pending")
+  originalObjectKey                 String
+  uploadObjectKey                   String?
+  thumbnailObjectKey                String?
+  thumbnailStatus                   String    @default("pending")
+  thumbnailVersion                  Int       @default(1)
+  mimeType                          String
+  fileSize                          Int
+  width                             Int
+  height                            Int
+  focusX                            Float     @default(0.5)
+  focusY                            Float     @default(0.5)
+  fileMd5                           String?
+  moderationRequestId               String?
+  moderationSuggestion              String?
+  moderationLabel                   String?
+  moderatedAt                       DateTime?
+  descriptionText                   String?
+  descriptionLanguageCode           String?
+  descriptionSourceHash             String?
+  descriptionPromptVersion          String?
+  descriptionResultVersion          String?
+  descriptionAuxiliarySegments      Json?
+  descriptionAuxiliaryLanguageCode  String?
   descriptionAuxiliaryPromptVersion String?
-  descriptionStatus               String    @default("not_requested")
-  descriptionError                String?
-  descriptionUpdatedAt            DateTime?
-  expiresAt            DateTime
-  claimedAt            DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  descriptionStatus                 String    @default("not_requested")
+  descriptionError                  String?
+  descriptionUpdatedAt              DateTime?
+  expiresAt                         DateTime
+  claimedAt                         DateTime?
+  createdAt                         DateTime  @default(now())
+  updatedAt                         DateTime  @updatedAt
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   entry Card? @relation(fields: [entryId], references: [id], onDelete: SetNull)

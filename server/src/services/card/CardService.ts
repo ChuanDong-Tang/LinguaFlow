@@ -64,7 +64,7 @@ import {
   CARD_AUTO_CLOZE_PROMPT_VERSION,
   parseCardAutoClozeOutput,
 } from "@lf/core/Prompts/cardAutoClozePrompt.js";
-import { findTargetLanguageRanges, targetLanguageTextOnly } from "@lf/core/text/targetLanguageRanges.js";
+import { findTargetLanguageRanges, isEntireTargetLanguageText } from "@lf/core/text/targetLanguageRanges.js";
 import {
   buildCardImageDescriptionPrompt,
   CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
@@ -74,6 +74,7 @@ import {
 
 const PREVIEW_GRAPHEMES = 240;
 const CARD_IMAGE_AUXILIARY_PROMPT_VERSION = "card_image_auxiliary_v1";
+const CARD_CONTENT_AUXILIARY_PROMPT_VERSION = "card_content_auxiliary_v1";
 const FOREGROUND_LLM_RETRY_DELAYS_MS = [750, 1_500, 3_000] as const;
 export const CARD_PROMPT_VERSION = CARD_EXPRESSION_PROMPT_VERSION;
 
@@ -215,6 +216,9 @@ export class CardService {
     if (contentType === "original" && !(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) {
       throw new CardLearningAccessError("Original text practice requires Pro");
     }
+    if (contentType === "original" && !isEntireTargetLanguageText(sourceText, contentLanguageCode(current, contentType))) {
+      throw new CardValidationError("Original text must be entirely in the learning language");
+    }
     current = await this.repository.markPhraseRecommendationSeen(current.id, input.userId) ?? current;
     // Legacy callers have one active learning source. New clients bind the
     // request explicitly, so exhaustion of another source must not block it.
@@ -224,12 +228,7 @@ export class CardService {
       .filter((segment) => segment.contentType === contentType)
       .sort((left, right) => left.ordinal - right.ordinal);
     if (!segments.length) throw new CardValidationError("Learning content segments are unavailable");
-    const promptSegments = contentType === "original"
-      ? segments.flatMap((segment) => {
-          const targetText = targetLanguageTextOnly(segment.text, languageCode)?.text;
-          return targetText ? [{ ordinal: segment.ordinal, text: targetText }] : [];
-        })
-      : segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }));
+    const promptSegments = segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }));
     const contentVersion = segments[0]!.contentVersion;
     if (segments.some((segment) => segment.contentVersion !== contentVersion)) {
       throw new CardContentConflictError("The Card expression changed while preparing a recommendation");
@@ -267,7 +266,7 @@ export class CardService {
       appLocale: current.appLocaleSnapshot,
       difficulty: current.promptDifficultySnapshot,
       excludedPhrases,
-      sourceMayBeMixed: contentType === "original",
+      sourceMayBeMixed: false,
     });
     let output = "";
     await this.executeForegroundLlm(input.userId, input.requestId, "card.phrase_recommendation", () => this.aiProvider!.generateChatTextStream({
@@ -375,16 +374,12 @@ export class CardService {
       const block = detail.contentBlocks.find((candidate) => candidate.contentType === contentType);
       if (!block || !block.segments.length || normalizeClozeState(block.practice?.clozeState).blanks.length) continue;
       if (contentType === "original" && !(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) continue;
+      if (contentType === "original" && !isEntireTargetLanguageText(block.text, block.languageCode)) continue;
       const existingForBlock = normalizePhraseRecommendations(
         (await this.repository.findByIdForUser(parsed.sourceId, input.userId))?.phraseRecommendations,
       ).filter((item) => item.contentType === contentType && item.contentVersion === block.contentVersion);
       const excludedPhrases = [...new Set([...globallyRecommended, ...existingForBlock.map((item) => item.text)])];
-      const promptSegments = contentType === "original"
-        ? block.segments.flatMap((segment) => {
-            const target = targetLanguageTextOnly(segment.text, block.languageCode)?.text;
-            return target ? [{ ordinal: segment.ordinal, text: target }] : [];
-          })
-        : block.segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }));
+      const promptSegments = block.segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }));
       if (!promptSegments.length) continue;
       const maxCandidates = autoClozeFrequencyLimit(promptSegments.length, preference.autoClozeFrequency);
       if (!maxCandidates) continue;
@@ -395,7 +390,7 @@ export class CardService {
         difficulty: entry.promptDifficultySnapshot,
         maxCandidates,
         excludedPhrases,
-        sourceMayBeMixed: contentType === "original",
+        sourceMayBeMixed: false,
       });
       let output = "";
       await this.executeForegroundLlm(input.userId, `${input.requestId}:${contentType}`, "card.auto_cloze", () => this.aiProvider!.generateChatTextStream({
@@ -745,14 +740,17 @@ export class CardService {
     target: CardGeneratedContentTarget;
     usageApiVersion: "v2";
     billingMode?: "user" | "platform";
+    auxiliaryContentType?: CardLearningContentType;
   }): Promise<CardRecordDetailView> {
     if (!this.aiProvider) throw new CardValidationError("Card generation is unavailable");
     const parsed = parseCardRecordId(input.recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
     if (!current || current.status !== "completed") throw new CardNotFoundError();
+    const auxiliaryContentType = input.auxiliaryContentType ?? "rewrite";
+    const auxiliaryContentSegments = current.contentSegments.filter((segment) => segment.contentType === auxiliaryContentType);
     const auxiliarySourceSegments = input.target === "auxiliary"
-      ? current.segments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }))
+      ? auxiliaryContentSegments.map((segment) => ({ ordinal: segment.ordinal, text: segment.text }))
       : [];
     const sourceText = input.target === "auxiliary"
       ? JSON.stringify(auxiliarySourceSegments)
@@ -760,8 +758,16 @@ export class CardService {
         ? current.rewrittenText || current.originalText
         : current.originalText;
     if (!sourceText) throw new CardValidationError("No source content to generate from");
+    if (input.target === "auxiliary" && auxiliaryContentType === "original") {
+      if (!(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) {
+        throw new CardLearningAccessError("Original text practice requires Pro");
+      }
+      if (!isEntireTargetLanguageText(current.originalText ?? "", current.languageCode)) {
+        throw new CardValidationError("Original text must be entirely in the learning language");
+      }
+    }
     const sourceHash = input.target === "auxiliary"
-      ? (current.rewrittenText ? cardContentHash(current.rewrittenText) : null)
+      ? auxiliaryContentSegments[0]?.contentVersion ?? null
       : current.originalContentHash ?? (current.originalText ? cardContentHash(current.originalText) : null);
     if (!sourceHash) throw new CardValidationError("No original content version is available");
     if (input.usageApiVersion !== "v2") {
@@ -784,7 +790,9 @@ export class CardService {
       : buildCardContentGenerationPrompt({
           target: input.target,
           sourceText,
-          languageCode: input.target === "auxiliary" ? current.languageCode : preference.learningLanguage,
+          languageCode: input.target === "auxiliary"
+            ? contentLanguageCode(current, auxiliaryContentType)
+            : preference.learningLanguage,
           appLocale: input.target === "auxiliary" ? current.appLocaleSnapshot : preference.appLocale,
           difficulty: current.promptDifficultySnapshot,
         });
@@ -809,7 +817,9 @@ export class CardService {
         // The provider prompt profile only accepts learning-language codes.
         // The explicit system prompt above controls the generated language;
         // translation/organization output is still stored with appLocale.
-        languageCode: input.target === "auxiliary" ? current.languageCode : preference.learningLanguage,
+        languageCode: input.target === "auxiliary"
+          ? contentLanguageCode(current, auxiliaryContentType)
+          : preference.learningLanguage,
         appLocale: input.target === "auxiliary" ? current.appLocaleSnapshot : preference.appLocale,
         promptDifficulty: current.promptDifficultySnapshot,
         companionMode: "rewrite_only",
@@ -871,22 +881,36 @@ export class CardService {
       );
     }
     if (input.target === "auxiliary") {
-      if (!current.rewrittenText || !auxiliarySourceSegments.length) throw new CardValidationError("No finalized expression is available");
+      if (!sourceHash || !auxiliarySourceSegments.length) throw new CardValidationError("No finalized learning content is available");
       let auxiliarySegments: Array<{ ordinal: number; text: string }>;
       try {
         auxiliarySegments = parseCardAuxiliaryOutput(output, auxiliarySourceSegments.map((segment) => segment.ordinal));
       } catch {
         throw new CardValidationError("Generated auxiliary content does not match the finalized expression segments");
       }
-      const updated = await this.repository.saveAuxiliarySegments({
+      let updated = await this.repository.saveContentAuxiliarySegments({
         entryId: current.id,
         userId: input.userId,
-        expectedRewrittenText: current.rewrittenText,
+        contentType: auxiliaryContentType,
+        contentVersion: sourceHash,
         auxiliarySegments,
         auxiliaryLanguageCode: generationLanguageCode,
-        auxiliarySourceHash: sourceHash,
+        auxiliaryPromptVersion: CARD_CONTENT_AUXILIARY_PROMPT_VERSION,
       });
       if (!updated) throw new CardContentConflictError("The Card expression changed while auxiliary text was being generated");
+      // Keep the legacy rewrite fields in sync so already released clients
+      // continue to receive auxiliary Chinese while they migrate to blocks.
+      if (auxiliaryContentType === "rewrite" && current.rewrittenText) {
+        updated = await this.repository.saveAuxiliarySegments({
+          entryId: current.id,
+          userId: input.userId,
+          expectedRewrittenText: current.rewrittenText,
+          auxiliarySegments,
+          auxiliaryLanguageCode: generationLanguageCode,
+          auxiliarySourceHash: cardContentHash(current.rewrittenText),
+        });
+        if (!updated) throw new CardContentConflictError("The Card expression changed while auxiliary text was being generated");
+      }
       return this.detail(input.userId, input.recordId);
     }
     let generatedContent = output;
@@ -907,12 +931,13 @@ export class CardService {
       languageCode: generationLanguageCode,
       sourceHash,
     });
-    if (input.target !== "expression" || !updated.rewrittenText) return updated;
+    if ((input.target !== "expression" || !updated.rewrittenText) && (input.target !== "reply" || !updated.replyText)) return updated;
     try {
       return await this.generateContent({
         ...input,
         requestId: `${input.requestId}_auxiliary`,
         target: "auxiliary",
+        auxiliaryContentType: input.target === "reply" ? "reply" : "rewrite",
       });
     } catch (error) {
       console.warn("[card] automatic auxiliary generation failed", error);
@@ -1654,7 +1679,10 @@ export class CardService {
       if (!refreshed) throw new CardNotFoundError();
       entry = refreshed;
     }
-    const practiceState = await this.repository.findPracticeState(userId, entry.id);
+    const [practiceState, entitlement] = await Promise.all([
+      this.repository.findPracticeState(userId, entry.id),
+      this.entitlementService.getCurrentEntitlement(userId),
+    ]);
     const contentTypes: CardLearningContentType[] = [
       "original",
       "rewrite",
@@ -1667,6 +1695,27 @@ export class CardService {
       const contentVersion = segments[0]!.contentVersion;
       const text = contentText(entry, typedContentType);
       if (!text) return [];
+      const image = typedContentType.startsWith("image:")
+        ? entry.images.find((candidate) => imageDescriptionContentType(candidate.id) === typedContentType)
+        : null;
+      const segmentAuxiliary = segments.flatMap((segment) => segment.auxiliaryText
+        ? [{ ordinal: segment.ordinal, text: segment.auxiliaryText }]
+        : []);
+      const auxiliarySegments = segmentAuxiliary.length
+        ? segmentAuxiliary
+        : typedContentType === "rewrite"
+          ? normalizeAuxiliarySegments(entry.auxiliarySegments)
+          : image ? normalizeAuxiliarySegments(image.descriptionAuxiliarySegments) : [];
+      const auxiliaryLanguageCode = segments.find((segment) => segment.auxiliaryLanguageCode)?.auxiliaryLanguageCode
+        ?? (typedContentType === "rewrite" ? entry.auxiliaryLanguageCode : image?.descriptionAuxiliaryLanguageCode)
+        ?? null;
+      const learningAccess = typedContentType !== "original"
+        ? "enabled" as const
+        : !entitlement.isPro
+          ? "pro_required" as const
+          : isEntireTargetLanguageText(text, contentLanguageCode(entry, typedContentType))
+            ? "enabled" as const
+            : "language_mismatch" as const;
       return [this.repository.findContentPracticeState(userId, entry.id, typedContentType).then((state) => ({
         contentType: typedContentType,
         contentVersion,
@@ -1680,6 +1729,9 @@ export class CardService {
           endUtf16: segment.endUtf16,
         })),
         practice: state?.contentVersion === contentVersion ? toPracticeView(state) : null,
+        auxiliarySegments,
+        auxiliaryLanguageCode,
+        learningAccess,
       }))];
     }));
     const imageViews = this.imageService
@@ -1851,6 +1903,9 @@ export class CardService {
     const contentBinding = resolveContentBinding(entry, binding);
     const entitlement = await this.entitlementService.getCurrentEntitlement(userId);
     if (!entitlement.isPro) throw new CardLearningAccessError("Dictation requires Pro");
+    if (contentBinding?.contentType === "original" && !isEntireTargetLanguageText(entry.originalText ?? "", entry.languageCode)) {
+      throw new CardValidationError("Original text must be entirely in the learning language");
+    }
     if (contentBinding) {
       const current = await this.repository.findContentPracticeState(userId, parsed.sourceId, contentBinding.contentType);
       if (current && current.contentVersion !== contentBinding.contentVersion) throw new CardPracticeConflictError();
@@ -1905,6 +1960,9 @@ export class CardService {
     const effectiveContentType = contentBinding?.contentType ?? (entry.rewrittenText ? "rewrite" : "original");
     if (effectiveContentType === "original" && !(await this.entitlementService.getCurrentEntitlement(userId)).isPro) {
       throw new CardLearningAccessError("Original text practice requires Pro");
+    }
+    if (effectiveContentType === "original" && !isEntireTargetLanguageText(entry.originalText ?? "", entry.languageCode)) {
+      throw new CardValidationError("Original text must be entirely in the learning language");
     }
     if (contentBinding) {
       return this.updateContentCloze(userId, parsed.sourceId, detail, input, contentBinding);
@@ -2454,8 +2512,11 @@ function toPhraseRecommendationView(
     });
   return {
     contentType,
-    seen: Boolean(entry.phraseRecommendationSeenAt),
-    exhausted: Boolean(entry.phraseRecommendationExhaustedAt),
+    seen: preferredContentType ? items.length > 0 : Boolean(entry.phraseRecommendationSeenAt),
+    // Legacy Cards store exhaustion at Card level. Never let an empty result
+    // for one explicitly selected module hide recommendation entry points for
+    // the other independent learning modules.
+    exhausted: preferredContentType ? false : Boolean(entry.phraseRecommendationExhaustedAt),
     items,
   };
 }

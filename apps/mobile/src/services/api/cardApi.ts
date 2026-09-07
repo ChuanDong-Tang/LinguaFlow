@@ -98,6 +98,10 @@ export type CardRecordDetail = CardRecordSummary & {
     languageCode: string;
     segments: CardRecordDetail["rewriteSegments"];
     practice: CardRecordDetail["practice"];
+    auxiliarySegments?: Array<{ ordinal: number; text: string }>;
+    auxiliaryLanguageCode?: string | null;
+    /** Missing on servers from before unified learning-content access. */
+    learningAccess?: "enabled" | "pro_required" | "language_mismatch";
   }>;
   images?: Array<{
     id: string;
@@ -249,11 +253,12 @@ export async function updateCardContent(
 export async function generateCardContent(
   recordId: string,
   target: "expression" | "translation" | "auxiliary" | "reply",
+  contentType?: CardLearningContentType,
 ): Promise<CardRecordDetail> {
   return request<CardRecordDetail>(`/cards/${encodeURIComponent(requireCardId(recordId))}/generate`, {
     method: "POST",
     headers: { "x-lf-usage-api": "v2" },
-    body: JSON.stringify({ target }),
+    body: JSON.stringify({ target, ...(target === "auxiliary" && contentType ? { contentType } : {}) }),
   });
 }
 

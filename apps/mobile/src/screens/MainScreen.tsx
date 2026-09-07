@@ -1512,7 +1512,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             {preparingDraftImageCount > 0 ? <View style={[styles.quickNoteAttachment, styles.quickNoteAttachmentPreparing]}><ActivityIndicator size="small" color={theme.colors.textMuted} /></View> : null}
           </ScrollView> : null}
           {draft.images.length ? <Pressable accessibilityRole="switch" accessibilityState={{ checked: draft.generateImageDescription }} style={styles.imageDescriptionChoice} onPress={() => void updateDraftImageDescription(!draft.generateImageDescription)}>
-            <Ionicons name={draft.generateImageDescription ? "sparkles" : "image-outline"} size={15} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} />
+            <Ionicons name="image-outline" size={15} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} />
             <Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{draft.generateImageDescription ? t("quick_note.image_description_on") : t("quick_note.image_description_off")}</Text>
             <Ionicons name={draft.generateImageDescription ? "checkmark-circle" : "ellipse-outline"} size={16} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} />
           </Pressable> : null}
