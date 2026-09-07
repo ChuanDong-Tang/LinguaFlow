@@ -140,8 +140,13 @@ export class RecallService {
     return this.requireSession(userId, sessionId);
   }
 
-  async active(userId: string) {
-    return this.repository.getActiveSession(userId);
+  async active(userId: string, mode?: "blind" | "recent") {
+    return this.repository.getActiveSession(userId, mode);
+  }
+
+  async resume(userId: string, sessionId: string) {
+    if (!await this.repository.resumeSession(userId, sessionId)) throw recallError("RECALL_SESSION_NOT_FOUND");
+    return this.requireSession(userId, sessionId);
   }
 
   async get(userId: string, sessionId: string) {

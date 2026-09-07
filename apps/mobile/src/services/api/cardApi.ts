@@ -572,7 +572,7 @@ export type RecallSession = {
   seedRecordId: string;
   launchMode: string;
   launchContext: Record<string, string> | null;
-  status: "active" | "completed" | "abandoned";
+  status: "active" | "paused" | "completed" | "abandoned";
   lastOpenedAt: string;
   createdAt: string;
   completedAt: string | null;
@@ -633,8 +633,12 @@ export async function createRecallSessionFromRecords(recordIds: string[], query?
   return request("/cards/recall/sessions/from-records", { method: "POST", body: JSON.stringify({ recordIds, query }) });
 }
 
-export async function getActiveRecallSession(): Promise<RecallSession | null> {
-  return request("/cards/recall/sessions/active");
+export async function getActiveRecallSession(mode?: "blind" | "recent"): Promise<RecallSession | null> {
+  return request(`/cards/recall/sessions/active${mode ? `?mode=${mode}` : ""}`);
+}
+
+export async function resumeRecallSession(sessionId: string): Promise<RecallSession> {
+  return request(`/cards/recall/sessions/${encodeURIComponent(sessionId)}/resume`, { method: "POST", body: "{}" });
 }
 
 export async function expandRecallNode(sessionId: string, nodeId: string): Promise<RecallSession> {

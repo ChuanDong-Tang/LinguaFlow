@@ -9,6 +9,8 @@ import {
   createRecallSessionFromRecords,
   finishRecallSession,
   getActiveRecallSession,
+  resumeRecallSession,
+  CardApiError,
   getCardDateKeys,
   getCardRecord,
   getCardRecords,
@@ -24,10 +26,12 @@ import { CardCalendarScreen } from "./CardCalendarScreen";
 import { CardDetailModal } from "./CardDetailModal";
 import { hasGeneratedContent, type CardGenerationTarget } from "../services/card/cardContentGeneration";
 import { getCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
+import { recallResumeIndex, readRecallBookmark } from "../services/card/recallProgress";
 
 type Stage = "home" | "deck" | "summary";
 type BlindPeriod = "week" | "month" | "quarter" | "year" | "all";
 const BLIND_BOX_SETTINGS_KEY = "linguaflow.recall.blind_box.settings.v1";
+const recallPositionKey = (sessionId: string): string => `linguaflow.recall.position.v1:${sessionId}`;
 
 export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChanged, onOpenMemoryRound, memoryRoundResumeAvailable, refreshRevision = 0, launchRequest = null }: { isActive: boolean; onOpenLibrary: () => void; onEditCard: (recordId: string) => void; onCardChanged: () => void; onOpenMemoryRound: () => void; memoryRoundResumeAvailable: boolean; refreshRevision?: number; launchRequest?: { key: number; mode: "today" | "yesterday" | "recent" | "blind" } | null }) {
   const [stage, setStage] = useState<Stage>("home");
@@ -36,6 +40,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   const [yesterdayCards, setYesterdayCards] = useState<CardRecordSummary[]>([]);
   const [dateKeys, setDateKeys] = useState<string[]>([]);
   const [activeSession, setActiveSession] = useState<RecallSession | null>(null);
+  const [blindSession, setBlindSession] = useState<RecallSession | null>(null);
   const [session, setSession] = useState<RecallSession | null>(null);
   const [cards, setCards] = useState<Record<string, CardRecordDetail>>({});
   const [pendingGenerationTargets, setPendingGenerationTargets] = useState<CardGenerationTarget[]>([]);
@@ -54,6 +59,9 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   const [blindCount, setBlindCount] = useState(5);
   const [directLaunchPending, setDirectLaunchPending] = useState(Boolean(launchRequest));
   const handledLaunchRef = useRef<number | null>(null);
+  const progressQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const bookmarkQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const leavingRef = useRef(false);
 
   useEffect(() => {
     if (!isActive || stage !== "deck") return;
@@ -96,19 +104,33 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     try {
       const today = localDateKey(new Date());
       const yesterday = localDateKey(new Date(Date.now() - 86_400_000));
-      const [todayRows, yesterdayRows, keys, active] = await Promise.all([
+      await progressQueueRef.current.catch(() => undefined);
+      const resumeMode = launchRequest?.mode === "blind" || launchRequest?.mode === "recent" ? launchRequest.mode : undefined;
+      const [todayRows, yesterdayRows, keys, active, blind] = await Promise.all([
         getCardRecords({ dateKey: today, limit: 50 }),
         getCardRecords({ dateKey: yesterday, limit: 50 }),
         getCardDateKeys("2000-01-01", today),
-        getActiveRecallSession(),
+        getActiveRecallSession(resumeMode),
+        getActiveRecallSession("blind"),
       ]);
       const validKeys = [...keys].sort();
       setTodayCards(completedCards(todayRows));
       setYesterdayCards(completedCards(yesterdayRows));
       setDateKeys(validKeys);
       setActiveSession(active?.nodes.length ? active : null);
+      setBlindSession(blind?.nodes.length && isBlindRecallSession(blind) ? blind : null);
       if (launchRequest && handledLaunchRef.current !== launchRequest.key) {
         handledLaunchRef.current = launchRequest.key;
+        if (resumeMode && active?.nodes.length && active.launchContext?.query?.startsWith(`${resumeMode}:`)) {
+          try {
+            await openSession(active, true);
+            setDirectLaunchPending(false);
+            return;
+          } catch (error) {
+            if (!(error instanceof CardApiError) || error.code !== "RECALL_NO_AVAILABLE_CARDS") throw error;
+            // All previous cards were removed: allow a fresh selection, not an endless retry.
+          }
+        }
         if (launchRequest.mode === "blind") {
           setBlindVisible(true);
           setDirectLaunchPending(false);
@@ -132,8 +154,10 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
         }
       }
     } catch {
+      handledLaunchRef.current = null;
       setDirectLaunchPending(false);
       Alert.alert(t("recall.error.load"));
+      if (launchRequest) onOpenLibrary();
     } finally {
       setLoading(false);
     }
@@ -144,7 +168,10 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   async function hydrate(value: RecallSession): Promise<Record<string, CardRecordDetail>> {
     const rows = await Promise.all(value.nodes.map(async (node) => {
       try { return [node.recordId, await getCardRecord(node.recordId)] as const; }
-      catch { return null; }
+      catch (error) {
+        if (error instanceof CardApiError && error.status === 404) return null;
+        throw error;
+      }
     }));
     return Object.fromEntries(rows.filter((row): row is NonNullable<typeof row> => Boolean(row)));
   }
@@ -154,16 +181,20 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     const hydratedCards = await hydrate(value);
     const availableRecordIds = new Set(Object.keys(hydratedCards));
     const availableSession = filterAvailableRecallSession(value, availableRecordIds);
-    if (!availableSession.nodes.length) throw new Error("Recall session has no available cards");
-    const firstIncomplete = resume ? availableSession.nodes.findIndex((node) => node.state !== "completed") : 0;
-    const initialIndex = firstIncomplete >= 0 ? firstIncomplete : availableSession.nodes.length - 1;
+    if (!availableSession.nodes.length) throw new CardApiError("RECALL_NO_AVAILABLE_CARDS", "Recall session has no available cards", 404);
+    const saved = resume ? await AsyncStorage.getItem(recallPositionKey(value.id)).catch(() => null) : null;
+    const savedNodeId = readRecallBookmark(saved, value.lastOpenedAt);
+    const initialIndex = resume ? recallResumeIndex(availableSession.nodes, savedNodeId) : 0;
     const node = availableSession.nodes[initialIndex]!;
+    if (resume && value.status === "paused") await resumeRecallSession(value.id);
+    await AsyncStorage.setItem(recallPositionKey(value.id), JSON.stringify({ nodeId: node.id, savedAt: Date.now() }));
     setCards(hydratedCards);
+    setCompletedBlindBox(isBlindRecallSession(value));
     setSession(availableSession);
     setAttempts({});
     setCurrentIndex(initialIndex);
     setStage("deck");
-    void markNode(value.id, node.id, "current", setSession, availableRecordIds);
+    queueProgress(value.id, node.id);
   }
 
   async function beginRecords(recordIds: string[], query?: string): Promise<boolean> {
@@ -190,12 +221,12 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     }
   }
 
-  async function resume(): Promise<void> {
-    if (!activeSession) return;
+  async function resume(value = activeSession): Promise<void> {
+    if (!value || loading) return;
     setLoading(true);
     try {
-      setCompletedBlindBox(isBlindRecallSession(activeSession));
-      await openSession(activeSession, true);
+      setCompletedBlindBox(isBlindRecallSession(value));
+      await openSession(value, true);
     }
     catch { Alert.alert(t("recall.error.load")); }
     finally { setLoading(false); }
@@ -278,29 +309,51 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   }
 
   function navigateDeck(nextIndex: number): void {
-    if (!session || nextIndex < 0 || nextIndex >= session.nodes.length || nextIndex === currentIndex) return;
+    if (!session || finishing || leavingRef.current || nextIndex < 0 || nextIndex >= session.nodes.length || nextIndex === currentIndex) return;
     const current = session.nodes[currentIndex];
     const next = session.nodes[nextIndex];
     setCurrentIndex(nextIndex);
-    if (current && next) void (async () => {
-      try {
-        await updateRecallNode(session.id, current.id, "completed");
-        const latest = await updateRecallNode(session.id, next.id, "current");
-        setSession(filterAvailableRecallSession(latest, new Set(Object.keys(cards))));
-      } catch {
-        // Navigation remains available when a progress marker cannot be persisted.
-      }
-    })();
+    if (current && next) queueProgress(session.id, next.id, current.id);
   }
 
-  function leaveDeck(): void {
+  function queueProgress(sessionId: string, nodeId: string, previousId?: string): void {
+    const bookmark = JSON.stringify({ nodeId, savedAt: Date.now() });
+    const saved = bookmarkQueueRef.current.catch(() => undefined).then(() => AsyncStorage.setItem(recallPositionKey(sessionId), bookmark));
+    bookmarkQueueRef.current = saved;
+    void saved.catch(() => undefined);
+    progressQueueRef.current = progressQueueRef.current.catch(() => undefined).then(async () => {
+      await saved;
+      if (previousId) await updateRecallNode(sessionId, previousId, "completed");
+      await updateRecallNode(sessionId, nodeId, "current");
+    });
+    // Keep the rejection available to exit/finish, without an unhandled rejection.
+    void progressQueueRef.current.catch(() => undefined);
+  }
+
+  async function leaveDeck(): Promise<void> {
+    if (leavingRef.current || finishing) return;
+    leavingRef.current = true;
+    try {
+      await progressQueueRef.current;
+    } catch {
+      // Retry the actual visible card, not a stale navigation response.
+      try {
+        const node = session?.nodes[currentIndex];
+        if (session && node) await updateRecallNode(session.id, node.id, "current");
+      } catch {
+        Alert.alert(t("recall.error.load"));
+        leavingRef.current = false;
+        return;
+      }
+    }
+    leavingRef.current = false;
+    setStage("home");
     setSession(null);
     setCards({});
     if (launchRequest) {
       onOpenLibrary();
       return;
     }
-    setStage("home");
   }
 
   function finishSummary(): void {
@@ -317,9 +370,11 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     if (!session || finishing) return;
     setFinishing(true);
     try {
+      await progressQueueRef.current.catch(() => undefined);
       const current = session.nodes[currentIndex];
-      if (current) await markNode(session.id, current.id, "completed", setSession, new Set(Object.keys(cards)));
+      if (current) await updateRecallNode(session.id, current.id, "completed");
       await finishRecallSession(session.id);
+      await AsyncStorage.removeItem(recallPositionKey(session.id)).catch(() => undefined);
       const values = Object.values(attempts);
       setSummary({ cards: session.nodes.length, attempted: values.length, correct: values.filter(Boolean).length });
       setActiveSession(null);
@@ -359,6 +414,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       loading={!currentDetail}
       initialTab={hasRecallCloze(currentDetail) ? "cloze" : "review"}
       hideRelations
+      hidePhraseRecommendation={isBlindRecallSession(session)}
       onEditCard={() => onEditCard(currentNode.recordId)}
       pendingGenerationTargets={pendingGenerationTargets}
       failedGenerationTargets={failedGenerationTargets}
@@ -414,7 +470,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       </View>
       <RecallChoice icon="calendar-outline" title={t("recall.select_date")} disabled={!dateKeys.length} onPress={() => setDatePickerVisible(true)} />
       <RecallChoice icon="search-outline" title={t("recall.explore")} disabled={!dateKeys.length} onPress={() => setTopicVisible(true)} />
-      <RecallChoice icon="cube-outline" title={t("recall.blind_box")} subtitle={activeBlindBoxSession ? t("recall.resume") : undefined} disabled={!dateKeys.length} onPress={activeBlindBoxSession ? () => void resume() : () => setBlindVisible(true)} />
+      <RecallChoice icon="cube-outline" title={t("recall.blind_box")} subtitle={blindSession ? t("recall.resume") : undefined} disabled={loading || (!blindSession && !dateKeys.length)} onPress={blindSession ? () => void resume(blindSession) : () => setBlindVisible(true)} />
       {!loading && !dateKeys.length ? <Pressable style={styles.createHint} onPress={onOpenLibrary}><Text style={styles.createHintText}>{t("recall.create_more")}</Text><Ionicons name="add" size={18} color={theme.colors.text} /></Pressable> : null}
       {loading ? <ActivityIndicator style={styles.loader} color={theme.colors.text} /> : null}
     </ScrollView>
@@ -539,18 +595,6 @@ function RecallSummary({ summary, onDone, onAgain, loading }: { summary: { cards
 function SummaryStat({ value, label }: { value: number; label: string }) { return <View style={styles.summaryStat}><Text style={styles.summaryValue}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text></View>; }
 function DayCard({ title, count, onPress }: { title: string; count: number; onPress: () => void }) { const disabled = count === 0; return <Pressable disabled={disabled} style={[styles.dayCard, disabled && styles.disabled]} onPress={onPress}><Text style={styles.dayTitle}>{title}</Text><Text style={styles.dayCount}>{count ? tf("recall.card_count", { count }) : t("recall.no_cards")}</Text><Ionicons name="arrow-forward" size={17} color={disabled ? theme.colors.border : theme.colors.text} /></Pressable>; }
 
-async function markNode(
-  sessionId: string,
-  nodeId: string,
-  state: RecallSession["nodes"][number]["state"],
-  update: React.Dispatch<React.SetStateAction<RecallSession | null>>,
-  availableRecordIds?: Set<string>,
-): Promise<void> {
-  try {
-    const next = await updateRecallNode(sessionId, nodeId, state);
-    update(availableRecordIds ? filterAvailableRecallSession(next, availableRecordIds) : next);
-  } catch { /* A failed marker must not interrupt practice. */ }
-}
 function filterAvailableRecallSession(value: RecallSession, availableRecordIds: Set<string>): RecallSession {
   const nodes = value.nodes.filter((node) => availableRecordIds.has(node.recordId));
   const nodeIds = new Set(nodes.map((node) => node.id));

@@ -323,7 +323,7 @@ export class PrismaRecallRepository {
           if (!seed) throw recallError("RECALL_SEED_NOT_FOUND");
           await tx.recallSession.updateMany({
             where: { userId, status: "active" },
-            data: { status: "abandoned", completedAt: new Date() },
+            data: { status: "paused" },
           });
           const session = await tx.recallSession.create({
             data: {
@@ -356,7 +356,7 @@ export class PrismaRecallRepository {
           if (!cardIds.length) throw recallError("RECALL_SEED_NOT_FOUND");
           await tx.recallSession.updateMany({
             where: { userId, status: "active" },
-            data: { status: "abandoned", completedAt: new Date() },
+            data: { status: "paused" },
           });
           const session = await tx.recallSession.create({
             data: { userId, seedCardId: cardIds[0]!, launchMode: "time", launchContext: jsonValue(launchContext) },
@@ -408,7 +408,13 @@ export class PrismaRecallRepository {
       const allowed = new Set(accessible.map((card) => card.id));
       const cardIds = sourceIds.filter((id) => allowed.has(id));
       if (!cardIds.length) throw recallError("RECALL_SEED_NOT_FOUND");
-      await tx.recallSession.updateMany({ where: { userId, status: "active" }, data: { status: "abandoned", completedAt: new Date() } });
+      await tx.recallSession.updateMany({ where: { userId, status: "active" }, data: { status: "paused" } });
+      const query = launchContext && typeof launchContext === "object" ? (launchContext as { query?: unknown }).query : undefined;
+      const mode = typeof query === "string" ? query.startsWith("blind:") ? "blind" : query.startsWith("recent:") ? "recent" : undefined : undefined;
+      if (mode) await tx.recallSession.updateMany({
+        where: { userId, status: "paused", launchContext: { path: ["query"], string_starts_with: `${mode}:` } },
+        data: { status: "abandoned", completedAt: new Date() },
+      });
       const session = await tx.recallSession.create({
         data: { userId, seedCardId: cardIds[0]!, launchMode: "search", launchContext: jsonValue(launchContext) },
       });
@@ -475,12 +481,39 @@ export class PrismaRecallRepository {
     return session ? mapSession(session) : null;
   }
 
-  async getActiveSession(userId: string): Promise<ReturnType<typeof mapSession> | null> {
+  async getActiveSession(userId: string, mode?: "blind" | "recent"): Promise<ReturnType<typeof mapSession> | null> {
     const session = await this.prisma.recallSession.findFirst({
-      where: { userId, status: "active" },
+      where: {
+        userId,
+        status: mode ? { in: ["active", "paused"] } : "active",
+        ...(mode ? { launchContext: { path: ["query"], string_starts_with: `${mode}:` } } : {}),
+      },
+      orderBy: [{ lastOpenedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       include: { nodes: { orderBy: { ordinal: "asc" } }, edges: { orderBy: { createdAt: "asc" } } },
     });
     return session ? mapSession(session) : null;
+  }
+
+  async resumeSession(userId: string, sessionId: string): Promise<boolean> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const session = await tx.recallSession.findFirst({
+            where: { id: sessionId, userId, status: { in: ["active", "paused"] } },
+          });
+          if (!session) return false;
+          await tx.recallSession.updateMany({
+            where: { userId, status: "active", id: { not: sessionId } },
+            data: { status: "paused" },
+          });
+          await tx.recallSession.update({ where: { id: sessionId }, data: { status: "active", lastOpenedAt: new Date() } });
+          return true;
+        }, { isolationLevel: "Serializable" });
+      } catch (error) {
+        if (attempt === 2 || !isRecallWriteConflict(error)) throw error;
+      }
+    }
+    return false;
   }
 
   async nodeRecordId(userId: string, sessionId: string, nodeId: string): Promise<string | null> {

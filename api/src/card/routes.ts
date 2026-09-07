@@ -246,8 +246,20 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     reply.header("x-request-id", requestId);
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/recall/sessions/active");
     if (!userId) return;
-    const data = await deps.recallService.active(userId);
+    const mode = (req.query as { mode?: string }).mode;
+    const data = await deps.recallService.active(userId, mode === "blind" || mode === "recent" ? mode : undefined);
     return reply.status(200).send({ ok: true, request_id: requestId, data });
+  });
+
+  app.post("/cards/recall/sessions/:sessionId/resume", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/recall/sessions/:sessionId/resume");
+    if (!userId) return;
+    try {
+      const data = await deps.recallService.resume(userId, String((req.params as { sessionId: string }).sessionId));
+      return reply.send({ ok: true, request_id: requestId, data });
+    } catch (error) { return handleCardError(reply, requestId, error); }
   });
 
   app.get("/cards/recall/sessions/:sessionId", async (req, reply) => {
