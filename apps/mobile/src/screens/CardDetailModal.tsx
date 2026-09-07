@@ -3194,7 +3194,7 @@ function KaraokeText({ text, active, progress, blankRanges = [] }: {
       : active && spokenIndex > 0 && spokenIndex <= highlightedCount;
     if (token.spoken) spokenIndex += 1;
     const blank = blankRanges.some((range) => token.startUtf16 < range.end && token.endUtf16 > range.start);
-    return <Text key={`${index}:${token.text}`} style={[blank && styles.cardPlaybackBlank, highlighted && styles.cardPlaybackLyricActive]}>{token.text}</Text>;
+    return <Text key={`${index}:${token.text}`} style={[highlighted && styles.cardPlaybackLyricActive, blank && styles.cardPlaybackBlank]}>{token.text}</Text>;
   })}</Text>;
 }
 
@@ -4082,7 +4082,7 @@ const styles = StyleSheet.create({
   cardPlaybackLyricsStage: { flex: 1, position: "relative", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
   cardPlaybackLyrics: { paddingHorizontal: 14, paddingTop: 30, paddingBottom: 90 },
   cardPlaybackLyricRow: { marginVertical: 2, paddingVertical: 9, paddingHorizontal: 6, borderRadius: 12 },
-  cardPlaybackLyric: { color: "#525252", fontSize: 16, lineHeight: 25, textAlign: "left" },
+  cardPlaybackLyric: { color: "#303030", fontSize: 16, lineHeight: 25, textAlign: "left" },
   cardPlaybackLyricActive: { color: "#34775B" },
   cardPlaybackBlank: { color: "#A34F63", textDecorationLine: "underline", textDecorationColor: "#D05F78", textDecorationStyle: "solid" },
   cardPlaybackAuxiliary: { marginTop: 3, color: "#666666", fontSize: 13, lineHeight: 20, textAlign: "left" },
