@@ -48,6 +48,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           FROM "card_image_assets" i
           JOIN "cards" c ON c."id" = i."entryId"
          WHERE i."status" IN ('approved', 'approved_with_review')
+           AND i."descriptionStatus" <> 'disabled'
            AND (
              i."descriptionStatus" <> 'completed'
              OR (${input.refreshOutdated}

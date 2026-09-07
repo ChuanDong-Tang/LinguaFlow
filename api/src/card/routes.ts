@@ -486,6 +486,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
           translationText: typeof body.translationText === "string" ? body.translationText : null,
           replyText: typeof body.replyText === "string" ? body.replyText : null,
           generateRewrite: body.generateRewrite !== false,
+          generateImageDescription: body.generateImageDescription !== false,
           imageUploadIds: Array.isArray(body.imageUploadIds)
             ? body.imageUploadIds.filter((value): value is string => typeof value === "string")
             : [],

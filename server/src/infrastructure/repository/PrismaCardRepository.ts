@@ -317,7 +317,12 @@ export class PrismaCardRepository implements CardRepository {
             status: { in: ["approved", "approved_with_review"] },
             expiresAt: { gt: new Date() },
           },
-          data: { entryId: row.id, claimedAt: new Date() },
+          data: {
+            entryId: row.id,
+            claimedAt: new Date(),
+            descriptionStatus: input.generateImageDescription ? "pending" : "disabled",
+            descriptionUpdatedAt: new Date(),
+          },
         });
         if (claimed.count !== 1) throw new Error("CARD_IMAGE_NOT_READY");
         // `row` was loaded before the image was claimed, so its included image
@@ -404,10 +409,17 @@ export class PrismaCardRepository implements CardRepository {
             thumbnailStatus: "ready",
             expiresAt: { gt: new Date() },
           },
-          data: { entryId: row.id, ordinal, claimedAt: new Date() },
+          data: {
+            entryId: row.id,
+            ordinal,
+            claimedAt: new Date(),
+            ...(!input.generateImageDescription ? { descriptionStatus: "disabled", descriptionUpdatedAt: new Date() } : {}),
+          },
         });
         if (claimed.count !== 1) throw new Error("CARD_IMAGE_NOT_READY");
-        await enqueueImageDescriptionGeneration(tx, input.userId, row.id, imageUploadId, 100);
+        if (input.generateImageDescription) {
+          await enqueueImageDescriptionGeneration(tx, input.userId, row.id, imageUploadId, 100);
+        }
       }
       const created = await tx.card.findFirst({ where: { id: row.id }, include: includeSegments });
       if (!created) throw new Error("CARD_ENTRY_NOT_FOUND_AFTER_CREATE");
@@ -805,7 +817,7 @@ export class PrismaCardRepository implements CardRepository {
   async enqueueImageDescriptionJobs(entryId: string, userId: string, priority: number): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
       const images = await tx.cardImageAsset.findMany({
-        where: { entryId, userId, descriptionStatus: { not: "completed" } },
+        where: { entryId, userId, descriptionStatus: { notIn: ["completed", "disabled"] } },
         select: { id: true },
       });
       for (const image of images) {

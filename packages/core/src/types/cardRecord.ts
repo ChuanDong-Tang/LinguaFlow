@@ -195,6 +195,7 @@ export interface CreateCardEntryInput {
   translationText?: string | null;
   replyText?: string | null;
   generateRewrite?: boolean;
+  generateImageDescription?: boolean;
   imageUploadIds?: string[];
   imageUploadId?: string | null;
 }

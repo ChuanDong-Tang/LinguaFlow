@@ -764,6 +764,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             translationText: null,
             replyText: existingContent.reply || null,
             generateRewrite: false,
+            generateImageDescription: snapshot.generateImageDescription,
             imageUploadIds: snapshot.images.map((image) => image.uploadId).filter((uploadId): uploadId is string => Boolean(uploadId)),
           });
       const firstDraftImage = snapshot.images[0];
@@ -887,6 +888,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             translationText: null,
             replyText: existingContent.reply || null,
             generateRewrite: false,
+            generateImageDescription: snapshot.generateImageDescription,
             imageUploadIds: snapshot.images.map((image) => image.uploadId).filter((uploadId): uploadId is string => Boolean(uploadId)),
           });
       const firstDraftImage = snapshot.images[0];

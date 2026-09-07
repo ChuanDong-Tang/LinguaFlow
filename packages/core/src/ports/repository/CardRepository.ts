@@ -167,6 +167,7 @@ export interface CreateQueuedCardEntryInput {
   clientId: string;
   inputChars: number;
   imageUploadId?: string | null;
+  generateImageDescription: boolean;
 }
 
 export interface CreateDirectCardEntryInput {
@@ -191,6 +192,7 @@ export interface CreateDirectCardEntryInput {
   promptVersion: string;
   clientId: string;
   imageUploadIds: string[];
+  generateImageDescription: boolean;
   segments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
   contentSegments: CardContentSegmentWrite[];
   createdAt?: Date;

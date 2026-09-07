@@ -487,6 +487,7 @@ export class CardService {
     const replyText = normalizeCardBodyText(input.body.replyText);
     const collectionId = input.body.collectionId?.trim() || null;
     const requestedRewrite = input.body.generateRewrite !== false;
+    const generateImageDescription = input.body.generateImageDescription !== false;
     const imageUploadId = input.body.imageUploadId?.trim() || null;
     const imageUploadIds = Array.from(new Set([
       ...(Array.isArray(input.body.imageUploadIds) ? input.body.imageUploadIds : []),
@@ -552,6 +553,7 @@ export class CardService {
         promptVersion: CARD_PROMPT_VERSION,
         clientId,
         imageUploadIds,
+        generateImageDescription,
         segments: buildSegments(primaryText, rewrittenText ? preference.learningLanguage : originalLanguageCode),
         contentSegments: buildCardContentSegments([
           { contentType: "original", text: originalText || null, languageCode: originalLanguageCode, sourceHash: originalContentHash },
@@ -589,6 +591,7 @@ export class CardService {
         clientId,
         inputChars,
         imageUploadId,
+        generateImageDescription,
       });
       return this.summaryWithImage(created);
     } catch (error) {
@@ -1641,7 +1644,7 @@ export class CardService {
     if (!entry || entry.status !== "completed" || (!entry.originalText && !entry.rewrittenText && !entry.images.length)) {
       throw new CardNotFoundError();
     }
-    if (entry.images.some((image) => image.descriptionStatus !== "completed")) {
+    if (entry.images.some((image) => image.descriptionStatus !== "completed" && image.descriptionStatus !== "not_requested")) {
       await this.repository.enqueueImageDescriptionJobs(entry.id, userId, 200).catch(() => undefined);
     }
     if (!contentSegmentsUseCurrentVersion(entry)) {
@@ -2644,7 +2647,14 @@ function effectiveCardTitle(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_M
     .split(/\n/u)
     .map((line) => line.trim())
     .find(Boolean) ?? "";
-  return truncateGraphemes(firstLine, topicMaxChars);
+  if (firstLine) return truncateGraphemes(firstLine, topicMaxChars);
+  if (entry.images.length) {
+    if (entry.appLocaleSnapshot === "en-US") return "Photo note";
+    if (entry.appLocaleSnapshot === "ja-JP") return "写真の記録";
+    if (entry.appLocaleSnapshot === "zh-TW") return "圖片記錄";
+    return "图片记录";
+  }
+  return "";
 }
 
 function resolveContentLanguage(input: {

@@ -208,6 +208,7 @@ export async function createCardEntry(input: {
   translationText?: string | null;
   replyText?: string | null;
   generateRewrite?: boolean;
+  generateImageDescription?: boolean;
   imageUploadIds?: string[];
   imageUploadId?: string | null;
 }): Promise<CardRecordSummary> {
