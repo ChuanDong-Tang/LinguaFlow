@@ -1848,11 +1848,16 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
     ? detail.contentBlocks.find((block) => block.contentType === currentImageContentType)
     : null;
   const rewriteBlock = detail.contentBlocks.find((block) => block.contentType === "rewrite") ?? null;
+  const playbackPrimaryBlock = rewriteBlock
+    ?? detail.contentBlocks.find((block) => block.contentType === "original")
+    ?? detail.contentBlocks.find((block) => block.contentType === contentBinding.contentType)
+    ?? null;
+  const playbackBinding = playbackPrimaryBlock
+    ? { contentType: playbackPrimaryBlock.contentType, contentVersion: playbackPrimaryBlock.contentVersion }
+    : contentBinding;
   const currentImageIsLearningContent = currentImageContentType === contentBinding.contentType;
   const currentImageAuxiliary = new Map((currentImageBlock?.auxiliarySegments ?? currentImage?.descriptionAuxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
-  const playbackAuxiliary = contentBinding.contentType.startsWith("image:")
-    ? new Map((playbackImage?.descriptionAuxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]))
-    : new Map((detail.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
+  const playbackAuxiliary = new Map((playbackPrimaryBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const blankCount = clozeState.blanks.length;
   const [savingCloze, setSavingCloze] = useState(false);
   const [recommendationTaskVisible, setRecommendationTaskVisible] = useState(false);
@@ -1986,7 +1991,14 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
     ?? (practiceEnabled && onGeneratePhraseRecommendation
       ? { contentType: contentBinding.contentType, seen: false, exhausted: false, items: [] }
       : null);
-  const articleRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, true), [detail, clozeState]);
+  const articleRows = useMemo(() => playbackPrimaryBlock ? buildCardClozeSentenceRows({
+    ...detail,
+    languageCode: playbackPrimaryBlock.languageCode,
+    rewriteSegments: playbackPrimaryBlock.segments,
+    auxiliarySegments: playbackPrimaryBlock.auxiliarySegments,
+    auxiliaryLanguageCode: playbackPrimaryBlock.auxiliaryLanguageCode,
+    practice: playbackPrimaryBlock.practice,
+  }, asCardClozeState(playbackPrimaryBlock.practice?.clozeState), true) : [], [detail, playbackPrimaryBlock]);
   const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
   const replyAuxiliary = new Map((replyBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const originalAuxiliary = new Map((originalBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
@@ -2438,11 +2450,11 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
   }> {
     if (detail.source !== "card") return Promise.reject(new Error("Article is unavailable"));
     const entryId = detail.id.slice("card:".length);
-    const requestKey = ["card-article-whole", entryId, contentBinding.contentType, contentBinding.contentVersion].join("-");
+    const requestKey = ["card-article-whole", entryId, playbackBinding.contentType, playbackBinding.contentVersion].join("-");
     const existing = wholeArticleAudioPromisesRef.current.get(requestKey);
     if (existing) return existing;
     const request = (async () => {
-      const audio = await getCardArticleAudio({ entryId, ...contentBinding });
+      const audio = await getCardArticleAudio({ entryId, ...playbackBinding });
       const deliveryMode = audio.deliveryMode ?? "buffered";
       if (deliveryMode === "buffered") {
         const source = { url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") };
