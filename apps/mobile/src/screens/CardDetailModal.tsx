@@ -2843,6 +2843,7 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
             const rowProgress = lyricsScrubIndex !== null ? active ? 1 : 0 : active ? progress : 0;
             return <Pressable key={`reply:${segment.id}`} style={styles.cardPlaybackLyricRow} onLayout={(event) => lyricLayoutsRef.current.set(lyricIndex, event.nativeEvent.layout)} onPress={() => void playReplyFrom(index)}>
               <KaraokeText text={segment.text} active={active} progress={rowProgress} />
+              {replyAuxiliary.get(segment.ordinal) ? <Text style={styles.cardPlaybackAuxiliary}>{replyAuxiliary.get(segment.ordinal)}</Text> : null}
             </Pressable>;
           })}
         </ScrollView>
@@ -2913,7 +2914,7 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
                 ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                 : originalBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
                     <View style={styles.imageDescriptionSentenceBody}>
-                      <SelectableMessageText text={segment.text} style={styles.original} blankRanges={blankRangesFor(originalBlock, segment.id)} enableDictionaryMenu enableClozeMenu onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} onSelectionChange={(payload) => void addBlankToInactiveBlock(originalBlock, segment, payload)} />
+                      <SelectableMessageText text={segment.text} style={styles.rewrite} blankRanges={blankRangesFor(originalBlock, segment.id)} enableDictionaryMenu enableClozeMenu onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} onSelectionChange={(payload) => void addBlankToInactiveBlock(originalBlock, segment, payload)} />
                       {originalAuxiliary.get(segment.ordinal) ? <Text selectable style={styles.auxiliarySentence}>{originalAuxiliary.get(segment.ordinal)}</Text> : null}
                     </View>
                   </View>)}
@@ -2942,7 +2943,7 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
               ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
               : replyBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
                   <View style={styles.imageDescriptionSentenceBody}>
-                    <SelectableMessageText text={segment.text} style={styles.secondaryContent} blankRanges={blankRangesFor(replyBlock, segment.id)} enableDictionaryMenu enableClozeMenu onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} onSelectionChange={(payload) => void addBlankToInactiveBlock(replyBlock, segment, payload)} />
+                    <SelectableMessageText text={segment.text} style={styles.rewrite} blankRanges={blankRangesFor(replyBlock, segment.id)} enableDictionaryMenu enableClozeMenu onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupText(segment.text, payload)} onSelectionChange={(payload) => void addBlankToInactiveBlock(replyBlock, segment, payload)} />
                     {replyAuxiliary.get(segment.ordinal) ? <Text selectable style={styles.auxiliarySentence}>{replyAuxiliary.get(segment.ordinal)}</Text> : null}
                   </View>
                 </View>)}
@@ -4179,8 +4180,8 @@ const styles = StyleSheet.create({
   clozeSentenceBody: { flex: 1, paddingTop: 1 },
   clozeFlow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
   clozeSentence: { color: theme.colors.text, fontSize: 17, lineHeight: 28 },
-  originalLearningSentence: { color: theme.colors.textMuted },
-  replyLearningSentence: { color: theme.colors.textSecondary },
+  originalLearningSentence: { color: theme.colors.text },
+  replyLearningSentence: { color: theme.colors.text },
   auxiliarySentence: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 25 },
   imageDescriptionSection: { gap: 7 },
   imageDescriptionSectionLabel: { color: "#6F73A6" },

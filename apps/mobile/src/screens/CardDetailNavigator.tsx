@@ -503,7 +503,10 @@ function automaticClozeTypes(
   targets: CardGenerationTarget[],
 ): CardLearningContentType[] {
   const types: CardLearningContentType[] = [];
-  if (targets.includes("expression") && detail.rewrittenText?.trim()) types.push("rewrite");
+  if (targets.includes("expression")) {
+    if (detail.rewrittenText?.trim()) types.push("rewrite");
+    else if (detail.contentBlocks.find((block) => block.contentType === "original")?.learningAccess === "enabled") types.push("original");
+  }
   if (targets.includes("reply") && detail.replyText?.trim()) types.push("reply");
   if (targets.includes("image_description")) {
     types.push(...(detail.images ?? []).filter((image) => image.descriptionText?.trim()).map((image) => `image:${image.id}` as const));

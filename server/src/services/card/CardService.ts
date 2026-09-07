@@ -486,7 +486,7 @@ export class CardService {
     const translationText = normalizeCardBodyText(input.body.translationText);
     const replyText = normalizeCardBodyText(input.body.replyText);
     const collectionId = input.body.collectionId?.trim() || null;
-    const generateRewrite = input.body.generateRewrite !== false;
+    const requestedRewrite = input.body.generateRewrite !== false;
     const imageUploadId = input.body.imageUploadId?.trim() || null;
     const imageUploadIds = Array.from(new Set([
       ...(Array.isArray(input.body.imageUploadIds) ? input.body.imageUploadIds : []),
@@ -498,7 +498,7 @@ export class CardService {
     if ((inputChars < 1 && imageUploadIds.length < 1) || inputChars > this.limits.contentMaxChars) {
       throw new CardValidationError(`A Card must contain a record, expression, or image and no more than ${this.limits.contentMaxChars} characters`);
     }
-    if (generateRewrite && !originalText) throw new CardValidationError("Original text is required for AI rewrite");
+    if (requestedRewrite && !originalText) throw new CardValidationError("Original text is required for AI rewrite");
     if (imageUploadIds.length > this.limits.imagesMaxPerCard) {
       throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);
     }
@@ -522,6 +522,10 @@ export class CardService {
 
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
     const originalLanguageCode = preference.learningLanguage;
+    // Avoid generating a duplicate when the original already matches the
+    // learning-language snapshot. Numbers, punctuation and emoji are neutral.
+    const generateRewrite = requestedRewrite
+      && !isEntireTargetLanguageText(originalText, preference.learningLanguage);
     const dateKey = input.trustedSource?.dateKey ?? formatDateKeyInTimeZone(new Date());
     const originalContentHash = originalText ? cardContentHash(originalText) : null;
     if (!generateRewrite) {
@@ -759,9 +763,6 @@ export class CardService {
         : current.originalText;
     if (!sourceText) throw new CardValidationError("No source content to generate from");
     if (input.target === "auxiliary" && auxiliaryContentType === "original") {
-      if (!(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) {
-        throw new CardLearningAccessError("Original text practice requires Pro");
-      }
       if (!isEntireTargetLanguageText(current.originalText ?? "", current.languageCode)) {
         throw new CardValidationError("Original text must be entirely in the learning language");
       }

@@ -679,9 +679,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             : await getCardRecord(created.id);
           const generation = await generateMissingCardContent(detail, selectedTargets);
           detail = generation.detail;
-          if (detail.rewrittenText?.trim() && !detail.auxiliarySegments?.length) {
+          const auxiliaryBlock = detail.contentBlocks.find((block) => block.contentType === (detail.rewrittenText?.trim() ? "rewrite" : "original"));
+          if (auxiliaryBlock && !auxiliaryBlock.auxiliarySegments?.length) {
             try {
-              detail = await generateCardContent(created.id, "auxiliary");
+              detail = await generateCardContent(created.id, "auxiliary", auxiliaryBlock.contentType);
             } catch (error) {
               console.warn("[card] generate quick note auxiliary text failed", error);
             }
@@ -931,9 +932,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       });
       const generation = await generateMissingCardContent(detail, selectedTargets);
       detail = generation.detail;
-      if (detail.rewrittenText?.trim() && !detail.auxiliarySegments?.length) {
+      const auxiliaryBlock = detail.contentBlocks.find((block) => block.contentType === (detail.rewrittenText?.trim() ? "rewrite" : "original"));
+      if (auxiliaryBlock && !auxiliaryBlock.auxiliarySegments?.length) {
         try {
-          detail = await generateCardContent(detail.id, "auxiliary");
+          detail = await generateCardContent(detail.id, "auxiliary", auxiliaryBlock.contentType);
         } catch (error) {
           console.warn("[card] generate converted auxiliary text failed", error);
         }
@@ -2989,7 +2991,10 @@ function automaticClozeContentTypes(
   targets: CardGenerationTarget[],
 ): CardLearningContentType[] {
   const result: CardLearningContentType[] = [];
-  if (targets.includes("expression") && detail.rewrittenText?.trim()) result.push("rewrite");
+  if (targets.includes("expression")) {
+    if (detail.rewrittenText?.trim()) result.push("rewrite");
+    else if (detail.contentBlocks.find((block) => block.contentType === "original")?.learningAccess === "enabled") result.push("original");
+  }
   if (targets.includes("reply") && detail.replyText?.trim()) result.push("reply");
   if (targets.includes("image_description")) {
     result.push(...(detail.images ?? [])
