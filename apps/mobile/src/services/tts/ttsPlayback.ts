@@ -261,6 +261,33 @@ export async function seekTtsPlayback(positionMs: number): Promise<void> {
   if (activePlayer) setPlaybackState({ positionMs: Math.round(clampedMs) });
 }
 
+export function setTtsPlaybackLoopRange(playbackRange: TtsPlaybackRange | null): void {
+  if (activeStopTimer) {
+    clearInterval(activeStopTimer);
+    activeStopTimer = null;
+  }
+  const player = activePlayer;
+  if (!player || !playbackRange) return;
+  const startSeconds = Math.max(0, playbackRange.startMs / 1000);
+  const stopAtMs = Math.max(playbackRange.startMs, playbackRange.endMs - TTS_RANGE_STOP_GUARD_MS);
+  let restartInFlight = false;
+  activeStopTimer = setInterval(() => {
+    if (activePlayer !== player) return;
+    if (playbackState.loopMode !== "one") {
+      if (activeStopTimer) clearInterval(activeStopTimer);
+      activeStopTimer = null;
+      return;
+    }
+    if (restartInFlight || player.currentStatus.currentTime * 1000 < stopAtMs) return;
+    restartInFlight = true;
+    void player.seekTo(startSeconds, 0, 0).then(() => {
+      if (activePlayer !== player) return;
+      player.setPlaybackRate(playbackState.playbackRate, "medium");
+      if (playbackState.status === "playing") player.play();
+    }).catch(() => undefined).finally(() => { restartInFlight = false; });
+  }, 30);
+}
+
 export function cycleTtsPlaybackRate(): void {
   const currentIndex = TTS_PLAYBACK_RATES.findIndex((rate) => rate === playbackState.playbackRate);
   const nextRate = TTS_PLAYBACK_RATES[(currentIndex + 1) % TTS_PLAYBACK_RATES.length] ?? 1;

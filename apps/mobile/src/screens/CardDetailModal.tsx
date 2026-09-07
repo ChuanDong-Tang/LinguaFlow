@@ -49,7 +49,7 @@ import {
 import type { CardDraft } from "../services/card/cardDraftStorage";
 import { theme } from "../theme";
 import { RealtimeSttButton } from "../components/RealtimeSttButton";
-import { beginTtsPlaybackSession, cycleTtsPlaybackRate, getTtsPlaybackState, isTtsPlaybackSessionCurrent, navigateTtsNext, navigateTtsPrevious, playTtsAudio, preloadTtsAudio, seekTtsPlayback, setTtsLoopMode, setTtsNavigationControls, stopTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
+import { beginTtsPlaybackSession, cycleTtsPlaybackRate, getTtsPlaybackState, isTtsPlaybackSessionCurrent, navigateTtsNext, navigateTtsPrevious, playTtsAudio, preloadTtsAudio, seekTtsPlayback, setTtsLoopMode, setTtsNavigationControls, setTtsPlaybackLoopRange, stopTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
 import {
   SelectableMessageText,
   type NativeTextSelectionPayload,
@@ -2558,6 +2558,11 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
     const currentMode = playback.loopMode;
     const nextMode = currentMode === "off" ? "one" : currentMode === "one" ? "all" : "off";
     setTtsLoopMode(nextMode, { persist: false });
+    const currentMark = activeArticleMarkIndex === null ? null : articleSentenceMarks[activeArticleMarkIndex];
+    setTtsPlaybackLoopRange(nextMode === "one" && currentMark ? {
+      startMs: currentMark.startMs,
+      endMs: currentMark.startMs + currentMark.durationMs,
+    } : null);
   }
 
   async function playStandaloneSentence(
