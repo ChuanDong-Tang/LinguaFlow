@@ -356,8 +356,8 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
 
     super.onDraw(canvas)
     val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-      color = Color.parseColor("#8C6D1F")
-      strokeWidth = 1.5f * density
+      color = Color.parseColor("#D05F78")
+      strokeWidth = 2f * density
       style = Paint.Style.STROKE
     }
     parseRanges(blankRangesJson).forEach { range ->

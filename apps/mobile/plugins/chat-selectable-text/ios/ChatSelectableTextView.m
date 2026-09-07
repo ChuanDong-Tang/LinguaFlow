@@ -405,7 +405,7 @@
   NSLayoutManager *layoutManager = textView.layoutManager;
   NSTextContainer *textContainer = textView.textContainer;
   [layoutManager ensureLayoutForTextContainer:textContainer];
-  UIColor *blankLineColor = [self colorFromString:@"#8C6D1F" fallback:self.currentTextColor];
+  UIColor *blankLineColor = [self colorFromString:@"#D05F78" fallback:self.currentTextColor];
 
   for (NSDictionary *range in [self parseRanges:self.blankRangesJson]) {
     NSRange characterRange = [self safeRangeFromDictionary:range length:textView.textStorage.length];
@@ -420,7 +420,7 @@
         rect.origin.x + textView.textContainerInset.left,
         CGRectGetMaxY(rect) + textView.textContainerInset.top - 2.0,
         rect.size.width,
-        1.5
+        2.0
       );
       if (CGRectIntersectsRect(underlineRect, dirtyRect)) {
         [blankLineColor setFill];
