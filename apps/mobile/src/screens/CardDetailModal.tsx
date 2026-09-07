@@ -2558,16 +2558,6 @@ function Review({ detail, imageAdding, contentBinding, playbackMode, practiceEna
     const currentMode = playback.loopMode;
     const nextMode = currentMode === "off" ? "one" : currentMode === "one" ? "all" : "off";
     setTtsLoopMode(nextMode, { persist: false });
-    if (!playback.hasActiveAudio) return;
-    const currentIndex = activePlaybackLyricIndex;
-    if (nextMode === "one" && currentIndex !== null) {
-      if (currentIndex < articleRows.length) void playArticle(currentIndex, true);
-      else void playReplyFrom(currentIndex - articleRows.length);
-      return;
-    }
-    if (currentMode === "one" && currentIndex !== null && currentIndex < articleRows.length) {
-      void playArticle(currentIndex);
-    }
   }
 
   async function playStandaloneSentence(
