@@ -24,7 +24,7 @@ import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { KeyboardAvoidingView, KeyboardStickyView } from "react-native-keyboard-controller";
+import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Reanimated, { useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import OioCharacter from "../../assets/app/oio-character.svg";
 import OioRecall from "../../assets/app/oio-recall.svg";
@@ -153,6 +153,15 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [quickNoteLineCount, setQuickNoteLineCount] = useState(1);
   const quickNoteAnimatedHeight = useSharedValue(37);
   const quickNoteAnimatedHeightStyle = useAnimatedStyle(() => ({ height: quickNoteAnimatedHeight.value }));
+  const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
+  const quickNoteKeyboardDockStyle = useAnimatedStyle(() => {
+    const keyboardTravel = Math.max(0, -keyboardHeight.value);
+    const safeAreaOffset = Math.min(screenInsets.bottom, keyboardTravel);
+
+    return {
+      transform: [{ translateY: keyboardHeight.value + safeAreaOffset }],
+    };
+  }, [screenInsets.bottom]);
   const [recordMoveTarget, setRecordMoveTarget] = useState<CardRecordSummary | null>(null);
   const [recordActionMenu, setRecordActionMenu] = useState<{ record: CardRecordSummary; anchor: RecordActionAnchor } | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
@@ -1511,7 +1520,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </Pressable>
         </View>
       </View> : null}
-      {!selectingRecords && libraryView !== TRASH_VIEW ? <KeyboardStickyView offset={{ opened: screenInsets.bottom }} style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
+      {!selectingRecords && libraryView !== TRASH_VIEW ? <Reanimated.View style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }, quickNoteKeyboardDockStyle]}>
         <View style={styles.unifiedComposerBar}>
           {draft.images.length || preparingDraftImageCount > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickNoteAttachmentRow}>
             {draft.images.map((image) => <View key={image.localUri} style={styles.quickNoteAttachment}>
@@ -1612,7 +1621,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             </View>
           </View>
         </View>
-      </KeyboardStickyView> : null}
+      </Reanimated.View> : null}
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Ionicons name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Ionicons name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
         <Pressable style={styles.libraryMenuBackdrop} onPress={() => setLibraryMenuVisible(false)}>
