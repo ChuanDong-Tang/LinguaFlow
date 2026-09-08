@@ -304,6 +304,12 @@ export class AccountDeletionCleanupWorker {
         googlePlayRenewalsStopped,
         alipayRenewalsStopped,
         appleRenewalsVerified,
+        renewalChecks: renewalResults.map((item) => ({
+          provider: item.provider,
+          action: item.result.action,
+          remoteStatus: item.result.remoteStatus,
+          reason: item.result.reason ?? null,
+        })),
       },
     });
     return { status: "deleted" };

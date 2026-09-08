@@ -26,9 +26,15 @@ export class AccountDeletionRenewalError extends Error {
 export function resolveAlipayAccountDeletionAction(
   remoteStatus: string,
   cancelAtPeriodEnd: boolean,
+  incompleteAuthorizationExpired = false,
 ): AccountDeletionRenewalAction {
   const status = remoteStatus.trim().toUpperCase();
-  if (cancelAtPeriodEnd || status === "CANCELED" || status === "INCOMPLETE_EXPIRED") {
+  if (
+    cancelAtPeriodEnd ||
+    status === "CANCELED" ||
+    status === "INCOMPLETE_EXPIRED" ||
+    (status === "INCOMPLETE" && incompleteAuthorizationExpired)
+  ) {
     return "already_inactive";
   }
   if (status === "ACTIVE") return "cancel";

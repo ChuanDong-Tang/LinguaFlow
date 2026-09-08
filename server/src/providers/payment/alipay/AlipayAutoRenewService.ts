@@ -476,7 +476,19 @@ export class AlipayAutoRenewService {
     const snapshot = await this.client.querySubscription({ customerId, subscriptionId: providerAgreementId });
     const remoteStatus = normalizeSubscriptionStatus(snapshot.subscription_status);
     const cancelAtPeriodEnd = snapshot.cancel_at_period_end === true;
-    const action = resolveAlipayAccountDeletionAction(remoteStatus, cancelAtPeriodEnd);
+    const authorizationExpiresAt = parseDate(metadata.schemaEffectiveEnd);
+    const incompleteAuthorizationExpired = remoteStatus === "INCOMPLETE"
+      && Boolean(authorizationExpiresAt && authorizationExpiresAt <= new Date())
+      && !snapshot.current_period_start
+      && !snapshot.current_period_end
+      && !subscription.latestTransactionId
+      && !subscription.currentPeriodStart
+      && !subscription.currentPeriodEnd;
+    const action = resolveAlipayAccountDeletionAction(
+      remoteStatus,
+      cancelAtPeriodEnd,
+      incompleteAuthorizationExpired,
+    );
     const currentPeriodEnd = parseDate(snapshot.current_period_end)?.toISOString() ?? null;
 
     if (action === "defer") {
@@ -489,7 +501,10 @@ export class AlipayAutoRenewService {
       };
     }
     if (action === "already_inactive") {
-      if (["CANCELED", "INCOMPLETE_EXPIRED"].includes(remoteStatus) && subscription.status !== "cancelled") {
+      if (
+        (["CANCELED", "INCOMPLETE_EXPIRED"].includes(remoteStatus) || incompleteAuthorizationExpired)
+        && subscription.status !== "cancelled"
+      ) {
         await this.repository.cancelSubscription({
           id: subscription.id,
           cancelledAt: parseDate(snapshot.canceled_date) ?? new Date(),
@@ -497,12 +512,20 @@ export class AlipayAutoRenewService {
             ...metadata,
             customerId,
             cancelAtPeriodEnd: false,
-            cancelSource: "account_deletion_remote_check",
+            cancelSource: incompleteAuthorizationExpired
+              ? "account_deletion_expired_incomplete_authorization"
+              : "account_deletion_remote_check",
             lastAlipaySubscriptionStatus: remoteStatus,
           },
         });
       }
-      return { action, remoteStatus, autoRenewEnabled: false, currentPeriodEnd };
+      return {
+        action,
+        remoteStatus,
+        autoRenewEnabled: false,
+        currentPeriodEnd,
+        ...(incompleteAuthorizationExpired ? { reason: "expired_incomplete_authorization" } : {}),
+      };
     }
 
     try {
