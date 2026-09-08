@@ -1655,7 +1655,7 @@ export class CardService {
     const entries = await this.repository.listRecentCompleted(userId, beforeDateKey, safeLimit);
     const records = (await Promise.all(entries.map((entry) => this.summaryWithImage(entry))))
       .filter((entry) => !entry.isSample)
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))
+      .sort((left, right) => right.recordedAt.localeCompare(left.recordedAt) || right.id.localeCompare(left.id))
       .slice(0, safeLimit);
     return records;
   }
@@ -2155,7 +2155,7 @@ export class CardService {
     const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(50, Math.floor(limit))) : 20;
     const cardEntries = await this.repository.listRecentCompleted(userId, "9999-12-31", 100);
     const cardRecords = await Promise.all(cardEntries.filter((entry) => !entry.isSample).map((entry) => this.summaryWithImage(entry)));
-    const records = cardRecords.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const records = cardRecords.sort((left, right) => right.recordedAt.localeCompare(left.recordedAt));
     const entryById = new Map(cardEntries.map((entry) => [entry.id, entry]));
     const sourceIds = records.map((record) => parseCardRecordId(record.id)!.sourceId);
     const [practiceStates, contentPracticeStates] = await Promise.all([

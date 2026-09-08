@@ -25,7 +25,7 @@ import {
 import { theme } from "../theme";
 import { CardCalendarScreen } from "./CardCalendarScreen";
 import { CardDetailModal } from "./CardDetailModal";
-import { hasGeneratedContent, type CardGenerationTarget } from "../services/card/cardContentGeneration";
+import { generateMissingCardContent, hasGeneratedContent, type CardGenerationTarget } from "../services/card/cardContentGeneration";
 import { getCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
 import { recallResumeIndex, readRecallBookmark } from "../services/card/recallProgress";
 
@@ -46,6 +46,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   const [cards, setCards] = useState<Record<string, CardRecordDetail>>({});
   const [pendingGenerationTargets, setPendingGenerationTargets] = useState<CardGenerationTarget[]>([]);
   const [failedGenerationTargets, setFailedGenerationTargets] = useState<CardGenerationTarget[]>([]);
+  const [retryingGenerationTarget, setRetryingGenerationTarget] = useState<CardGenerationTarget | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [attempts, setAttempts] = useState<Record<string, boolean>>({});
   const [summary, setSummary] = useState({ cards: 0, attempted: 0, correct: 0 });
@@ -437,6 +438,29 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       }}
       pendingGenerationTargets={pendingGenerationTargets}
       failedGenerationTargets={failedGenerationTargets}
+      retryingGenerationTarget={retryingGenerationTarget}
+      onRetryGeneration={(target) => {
+        if (!currentDetail || retryingGenerationTarget) return;
+        setRetryingGenerationTarget(target);
+        setPendingGenerationTargets((current) => [...new Set([...current, target])]);
+        setFailedGenerationTargets((current) => current.filter((candidate) => candidate !== target));
+        void generateMissingCardContent(currentDetail, [target])
+          .then((generation) => {
+            setCards((current) => ({ ...current, [currentDetail.id]: generation.detail }));
+            setPendingGenerationTargets((current) => current.filter((candidate) => candidate !== target));
+            setFailedGenerationTargets((current) => [...new Set([
+              ...current.filter((candidate) => candidate !== target),
+              ...generation.failedTargets,
+            ])]);
+            onCardChanged();
+          })
+          .catch((error) => {
+            setPendingGenerationTargets((current) => current.filter((candidate) => candidate !== target));
+            setFailedGenerationTargets((current) => [...new Set([...current, target])]);
+            Alert.alert(t("card_detail.error.try_again"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+          })
+          .finally(() => setRetryingGenerationTarget(null));
+      }}
       onRemoveImage={currentDetail && ((currentDetail.images?.length ?? 0) > 0 || currentDetail.image) ? confirmRemoveCurrentImage : undefined}
       onClose={leaveDeck}
       recallPosition={{ index: currentIndex, total: session.nodes.length }}

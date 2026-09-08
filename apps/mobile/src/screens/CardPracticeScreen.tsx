@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  generateCardImageDescriptions,
   getCardPracticeQueue,
   getCardRecord,
   updateCardContent,
@@ -19,6 +20,7 @@ export function CardPracticeScreen({ isActive }: { isActive: boolean }) {
   const [detail, setDetail] = useState<CardRecordDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [initialTab, setInitialTab] = useState<"cloze" | "dictation">("dictation");
+  const [retryingGenerationTarget, setRetryingGenerationTarget] = useState<"image_description" | null>(null);
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -57,9 +59,21 @@ export function CardPracticeScreen({ isActive }: { isActive: boolean }) {
         ) : null}
         {!loading && !items.length ? <View style={styles.empty}><Text style={styles.emptyTitle}>{t("card_practice.done")}</Text><Text style={styles.emptyText}>{t("card_practice.done_hint")}</Text></View> : null}
       </ScrollView>
-      <CardDetailModal detail={detail} loading={detailLoading} initialTab={initialTab} onUpdateMetadata={async (input) => {
+      <CardDetailModal detail={detail} loading={detailLoading} initialTab={initialTab} pendingGenerationTargets={retryingGenerationTarget ? [retryingGenerationTarget] : []} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={(target) => {
+        if (!detail || target !== "image_description" || retryingGenerationTarget) return;
+        setRetryingGenerationTarget(target);
+        void generateCardImageDescriptions(detail.id)
+          .then((updated) => { setDetail((current) => current?.id === updated.id ? updated : current); void refresh(); })
+          .catch((error) => Alert.alert(t("card_detail.error.try_again"), error instanceof Error ? error.message : t("card_detail.error.try_again")))
+          .finally(() => setRetryingGenerationTarget(null));
+      }} onUpdateMetadata={async (input) => {
         if (!detail) return false;
-        try { setDetail(await updateCardContent(detail.id, input)); void refresh(); return true; }
+        try {
+          const updated = await updateCardContent(detail.id, input);
+          setDetail((current) => current?.id === updated.id ? updated : current);
+          void refresh();
+          return true;
+        }
         catch (error) { Alert.alert(t("card_detail.error.save"), error instanceof Error ? error.message : t("card_detail.error.try_again")); return false; }
       }} onClose={() => { setDetail(null); void refresh(); }} />
     </SafeAreaView>
