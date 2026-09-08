@@ -1628,6 +1628,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           onQueryChange={(value) => { setSearchQuery(value); if (searchResults !== null) setSearchResults(null); }}
           onSearch={() => void submitSearch()}
           onCollectionChange={(value) => { setSearchCollectionId(value); setSearchResults(null); }}
+          onCreateCollection={createDraftCollection}
           onOpenResult={(recordId) => onOpenCard(recordId)}
         />
       </AnimatedSearchOverlay>
@@ -1677,6 +1678,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         value={recordMoveTarget?.collectionId ?? null}
         onClose={() => setRecordMoveTarget(null)}
         onSelect={async (collectionId) => { if (recordMoveTarget) await moveRecord(recordMoveTarget, collectionId ?? null); }}
+        onCreateCollection={createDraftCollection}
       />
       <CollectionPickerModal
         visible={batchMoveVisible}
@@ -1685,6 +1687,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         value={null}
         onClose={() => setBatchMoveVisible(false)}
         onSelect={async (collectionId) => moveSelectedRecords(collectionId ?? null)}
+        onCreateCollection={createDraftCollection}
       />
       <LibrarySidebar
         visible={sidebarVisible}
@@ -2720,7 +2723,7 @@ function collectionPathName(collection: CardCollection, collections: CardCollect
   return names.join(" / ");
 }
 
-function CardSearchScreen({ query, results, searching, collections, collectionId, onClose, onQueryChange, onSearch, onCollectionChange, onOpenResult }: {
+function CardSearchScreen({ query, results, searching, collections, collectionId, onClose, onQueryChange, onSearch, onCollectionChange, onCreateCollection, onOpenResult }: {
   query: string;
   results: RecallCandidate[] | null;
   searching: boolean;
@@ -2730,6 +2733,7 @@ function CardSearchScreen({ query, results, searching, collections, collectionId
   onQueryChange: (value: string) => void;
   onSearch: () => void;
   onCollectionChange: (value: string | null | undefined) => void;
+  onCreateCollection: (name: string, parentId: string | null) => Promise<CardCollection>;
   onOpenResult: (recordId: string) => void;
 }) {
   const [collectionPickerVisible, setCollectionPickerVisible] = useState(false);
@@ -2766,7 +2770,7 @@ function CardSearchScreen({ query, results, searching, collections, collectionId
       {results?.map((result) => <SearchResultCard key={result.recordId} result={result} query={query} onPress={() => onOpenResult(result.recordId)} />)}
       {results && !results.length ? <Text style={styles.searchEmptyHint}>{t("main.search.empty_hint")}</Text> : null}
     </ScrollView>
-    <CollectionPickerModal visible={collectionPickerVisible} title={t("main.search.choose_category")} collections={collections} value={collectionId} includeAll onClose={() => setCollectionPickerVisible(false)} onSelect={(value) => { setCollectionPickerVisible(false); onCollectionChange(value); }} />
+    <CollectionPickerModal visible={collectionPickerVisible} title={t("main.search.choose_category")} collections={collections} value={collectionId} includeAll onClose={() => setCollectionPickerVisible(false)} onSelect={(value) => { setCollectionPickerVisible(false); onCollectionChange(value); }} onCreateCollection={onCreateCollection} />
   </SafeAreaView>;
 }
 

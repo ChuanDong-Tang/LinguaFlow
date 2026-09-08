@@ -34,6 +34,7 @@ import {
   getCardSegmentAudio,
   getCardRelations,
   getCardCollections,
+  createCardCollection,
   getCardCapabilities,
   DEFAULT_CARD_CAPABILITIES,
   type CardClozeState,
@@ -841,6 +842,11 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
       Alert.alert(t("card_detail.photo.asset_failed_title"), t("card_detail.photo.asset_failed_message"));
     }
   }
+  async function createEditorCollection(name: string, parentId: string | null): Promise<CardCollection> {
+    const created = await createCardCollection(name, parentId);
+    setCollections((current) => [...current, created]);
+    return created;
+  }
   return <View style={styles.fullscreen}>
     <SafeAreaView style={styles.page}>
       <CardEditorHeader title={t("card_detail.edit_card")} disabled={saving} onClose={cancel} />
@@ -848,7 +854,7 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
         <>
           <ScrollView style={styles.draftEditorScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.draftEditorContent} showsVerticalScrollIndicator={false} alwaysBounceVertical={false} bounces={false}>
             <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.recordedAt ?? detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} />
-            <CollectionPickerRow collections={collections} value={collectionId} onChange={setCollectionId} />
+            <CollectionPickerRow collections={collections} value={collectionId} onChange={setCollectionId} onCreateCollection={createEditorCollection} />
             <TextInput value={title} editable={!saving} maxLength={limits.titleChars} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.draftTitleInput} onChangeText={setTitle} />
             <View style={styles.draftOriginalEditor}>
               <TextInput multiline scrollEnabled={false} value={originalText} editable={!saving} onChangeText={originalStt.onChangeText} onSelectionChange={(event) => originalStt.onSelectionChange(event.nativeEvent.selection)} maxLength={limits.contentChars} placeholder={detail.mode === "corpus" ? t("card_detail.input_corpus") : t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={[styles.draftBlockInput, styles.draftBlockInputFeatured]} textAlignVertical="top" />
@@ -2078,6 +2084,11 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       setMetadataSaving(false);
     }
   }
+  async function createReviewCollection(name: string, parentId: string | null): Promise<CardCollection> {
+    const created = await createCardCollection(name, parentId);
+    setCollections((current) => [...current, created]);
+    return created;
+  }
   async function saveInlineTitle(): Promise<void> {
     if (await saveMetadata({ title: titleDraft.trim() || null })) setTitleEditing(false);
   }
@@ -3291,6 +3302,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       onSelect={async (collectionId) => {
         if (!await saveMetadata({ collectionId: collectionId ?? null })) throw new Error(t("card_detail.error.try_again"));
       }}
+      onCreateCollection={createReviewCollection}
     />
     <RecordTimeEditorModal
       visible={recordTimeEditorVisible}
