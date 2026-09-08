@@ -1,3 +1,4 @@
+import type { TtsSentenceMark } from "@lf/core/ports/repository/TtsAssetRepository.js";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
 import type { CardSpeechGenerateInput } from "../card/CardSpeechService.js";
@@ -228,10 +229,22 @@ export class TtsStreamingCoordinator {
     }
   }
 
+  async updateSentenceMarks(generationId: string, sentenceMarks: TtsSentenceMark[]): Promise<void> {
+    await this.redis.hset(generationKey(generationId), "sentenceMarks", JSON.stringify(sentenceMarks));
+  }
+
+  async getTimeline(generationId: string): Promise<{ sentenceMarks: TtsSentenceMark[]; durationMs: number | null }> {
+    const row = await this.redis.hgetall(generationKey(generationId));
+    const marks = row.sentenceMarks ? JSON.parse(row.sentenceMarks) : [];
+    return { sentenceMarks: Array.isArray(marks) ? marks : [], durationMs: optionalNumber(row.durationMs) };
+  }
+
   async markReady(input: {
     generationId: string;
     assetId: string;
     audioUrl: string;
+    sentenceMarks?: TtsSentenceMark[];
+    durationMs?: number | null;
     providerTimings?: { firstByteMs: number | null; finishMs: number | null; networkMs: number | null };
   }): Promise<void> {
     const completedAt = Date.now();
@@ -246,6 +259,8 @@ export class TtsStreamingCoordinator {
         completedAt: String(completedAt),
         assetId: input.assetId,
         audioUrl: input.audioUrl,
+        sentenceMarks: JSON.stringify(input.sentenceMarks ?? []),
+        durationMs: input.durationMs == null ? "" : String(input.durationMs),
         providerTimings: JSON.stringify(input.providerTimings ?? null),
       })
       .exec();

@@ -833,14 +833,20 @@ export async function getCardArticleAudio(input: {
   deliveryMode?: "buffered" | "streaming";
   generationId?: string;
 }> {
-  // Synchronized lyrics need the completed sentence timeline. Streaming tickets
-  // intentionally contain no timing marks, so they cannot drive this player.
-  const binding = `contentType=${encodeURIComponent(input.contentType)}&contentVersion=${encodeURIComponent(input.contentVersion)}&streaming=0`;
+  const binding = `contentType=${encodeURIComponent(input.contentType)}&contentVersion=${encodeURIComponent(input.contentVersion)}&streaming=1`;
   const audio = await request<Awaited<ReturnType<typeof getCardArticleAudio>>>(`/tts/cards/${encodeURIComponent(input.entryId)}/segments/__article__?${binding}`);
   return {
     ...audio,
     audioUrl: audio.audioUrl.startsWith("/") ? `${BASE_URL}${audio.audioUrl}` : audio.audioUrl,
   };
+}
+
+export async function getCardAudioTimeline(generationId: string, signal?: AbortSignal): Promise<{
+  status: "queued" | "running" | "ready" | "failed";
+  sentenceMarks: NonNullable<Awaited<ReturnType<typeof getCardArticleAudio>>["sentenceMarks"]>;
+  durationMs: number | null;
+}> {
+  return request(`/tts/stream/${encodeURIComponent(generationId)}/timeline`, { signal }, 5000);
 }
 
 function requireCardId(recordId: string): string {
@@ -850,7 +856,7 @@ function requireCardId(recordId: string): string {
   return recordId.slice("card:".length);
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, timeoutMs?: number): Promise<T> {
   const response = await fetchWithTimeout(`${BASE_URL}${path}`, {
     ...init,
     headers: {
@@ -858,7 +864,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...(await getAuthHeaders()),
       ...init.headers,
     },
-  });
+  }, timeoutMs);
   if (response.status === 204) return undefined as T;
   const result = (await response.json()) as ApiResult<T>;
   if (!result.ok) {

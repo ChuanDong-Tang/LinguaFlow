@@ -12,7 +12,7 @@ import { isConfiguredTtsVoice, resolveDefaultTtsVoice } from "../tts/TtsVoiceCat
 import { CardNotFoundError, CardValidationError } from "./CardService.js";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
-import { buildCardSpeechText, type CardSpeechSegment } from "@lf/core/text/cardSpeechText.js";
+import { buildCardSpeechText, type CardSpeechSegment, type CardSpeechSentenceMark } from "@lf/core/text/cardSpeechText.js";
 
 export class CardSpeechProRequiredError extends Error {
   readonly code = "PRO_REQUIRED";
@@ -213,6 +213,7 @@ export class CardSpeechService {
     input: CardSpeechGenerateInput,
     generationId: string,
     onAudioChunk: (chunk: Buffer) => void,
+    onSentenceMarks?: (marks: CardSpeechSentenceMark[]) => void,
   ): Promise<{ asset: CardSpeechAssetEntity; synthesis: SynthesizeSpeechResult }> {
     const cached = await this.repository.findReadySpeechAsset(input.cacheKey);
     if (cached) return { asset: await this.refreshUrlIfNeeded(cached), synthesis: emptySynthesisResult() };
@@ -222,7 +223,7 @@ export class CardSpeechService {
       languageCode: input.languageCode,
       voiceCode: input.voiceCode,
       sentenceSegments: input.sentenceSegments ?? [{ text: input.sourceText, textStart: 0, textEnd: input.sourceText.length }],
-    }, { onAudioChunk });
+    }, { onAudioChunk, onSentenceMarks });
     const synthesized = this.resourceGovernor
       ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
       : await synthesize();

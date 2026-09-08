@@ -156,6 +156,25 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
     },
   });
 
+  app.get("/tts/stream/:generationId/timeline", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId).header("Cache-Control", "no-store");
+    try {
+      const userId = (await resolveActiveUserContext({ authorization: req.headers.authorization, userRepository: deps.userRepository })).userId;
+      const { generationId } = req.params as { generationId: string };
+      const generation = await deps.ttsStreamingCoordinator?.getGeneration(generationId);
+      if (!generation || generation.userId !== userId) {
+        return reply.status(404).send({ ok: false, request_id: requestId, error: { code: "TTS_STREAM_NOT_FOUND", message: "Stream not found" } });
+      }
+      const timeline = await deps.ttsStreamingCoordinator!.getTimeline(generationId);
+      return reply.send({ ok: true, request_id: requestId, data: { status: generation.status, ...timeline } });
+    } catch (error) {
+      if (error instanceof UnauthorizedError) return reply.status(401).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      if (error instanceof AccountDisabledError || error instanceof AccountPendingDeleteError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
+      throw error;
+    }
+  });
+
   app.post("/tts/text", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);

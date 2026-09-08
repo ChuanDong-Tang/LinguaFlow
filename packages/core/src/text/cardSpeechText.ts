@@ -40,8 +40,10 @@ export function alignCardSpeechMarks(
   rows: Array<{ id: string; text: string }>,
   marks: CardSpeechSentenceMark[],
   languageCode: string,
+  allowPartial = false,
 ): CardSpeechSentenceMark[] | null {
-  if (!rows.length || !marks.length) return null;
+  if (!rows.length) return null;
+  if (!marks.length) return allowPartial ? [] : null;
   if (marks.some((mark, index) => !Number.isFinite(mark.startMs) || mark.startMs < 0
     || !Number.isFinite(mark.durationMs) || mark.durationMs <= 0
     || index > 0 && mark.startMs < marks[index - 1]!.startMs)) return null;
@@ -51,7 +53,8 @@ export function alignCardSpeechMarks(
   for (const row of rows) {
     const expected = comparisonText(row.text);
     const first = marks[cursor];
-    if (!expected || !first) return null;
+    if (!expected) return null;
+    if (!first) return allowPartial ? aligned : null;
     let text = "";
     let last = first;
     while (cursor < marks.length && text !== expected) {
@@ -62,7 +65,7 @@ export function alignCardSpeechMarks(
       last = mark;
       cursor += 1;
     }
-    if (text !== expected) return null;
+    if (text !== expected) return allowPartial && expected.startsWith(text) ? aligned : null;
     aligned.push({
       segmentId: row.id, text: row.text,
       textStart: first.textStart, textEnd: last.textEnd,

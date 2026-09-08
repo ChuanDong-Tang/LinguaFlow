@@ -1,3 +1,4 @@
+import type { TtsSentenceMark } from "@lf/core/ports/repository/TtsAssetRepository.js";
 import { randomUUID } from "node:crypto";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { CardSpeechService } from "../../services/card/CardSpeechService.js";
@@ -47,6 +48,7 @@ export class TtsStreamingWorker {
       void this.coordinator.renewJobLease(streamEntryId, this.consumerId).catch(() => undefined);
     }, 10_000);
     let chunkWrites = Promise.resolve();
+    let timelineWrites = Promise.resolve();
     let streamedBytes = 0;
     const maxAudioBytes = readPositiveInt(process.env.TTS_STREAMING_MAX_AUDIO_BYTES, 12 * 1024 * 1024);
     try {
@@ -58,13 +60,19 @@ export class TtsStreamingWorker {
           if (streamedBytes > maxAudioBytes) throw new Error("TTS_STREAMING_AUDIO_TOO_LARGE");
           chunkWrites = chunkWrites.then(() => this.coordinator.appendAudioChunk(generation.generationId, chunk));
         },
+        (marks) => {
+          timelineWrites = timelineWrites.then(() => this.coordinator.updateSentenceMarks(generation.generationId, marks)).catch(() => undefined);
+        },
       );
       await chunkWrites;
+      await timelineWrites;
       if (!result.asset.objectUrl) throw new Error("TTS_STREAMING_ASSET_URL_MISSING");
       await this.coordinator.markReady({
         generationId: generation.generationId,
         assetId: result.asset.id,
         audioUrl: result.asset.objectUrl,
+        sentenceMarks: (Array.isArray(result.asset.sentenceMarks) ? result.asset.sentenceMarks : result.synthesis.sentenceMarks) as TtsSentenceMark[],
+        durationMs: result.asset.durationMs ?? result.synthesis.durationMs,
         providerTimings: result.synthesis.providerTimings,
       });
       await this.writeLog(generation, "success", null, {

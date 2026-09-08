@@ -25,6 +25,7 @@ export interface SynthesizeSpeechResult {
 
 export interface SynthesizeSpeechStreamCallbacks {
   onAudioChunk(chunk: Buffer): void;
+  onSentenceMarks?(marks: TtsSentenceMark[]): void;
 }
 
 export interface TtsProvider {

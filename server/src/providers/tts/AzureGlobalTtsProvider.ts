@@ -64,6 +64,7 @@ export class AzureGlobalTtsProvider implements TtsProvider {
     const rawWordMarks: RawBoundaryMark[] = [];
     const rawSentenceMarks: RawBoundaryMark[] = [];
     const audioChunks: Buffer[] = [];
+    let publishedSentenceCount = 0;
 
     synthesizer.wordBoundary = (_sender, event) => {
       const text = String(event.text ?? "").trim();
@@ -73,11 +74,22 @@ export class AzureGlobalTtsProvider implements TtsProvider {
         startMs: ticksToMs(Number(event.audioOffset ?? 0)),
         durationMs: ticksToMs(Number(event.duration ?? 0)),
       };
-      if (String(event.boundaryType) === "SentenceBoundary") {
-        rawSentenceMarks.push(mark);
-        return;
+      const boundaryType = String(event.boundaryType);
+      if (boundaryType === "SentenceBoundary") rawSentenceMarks.push(mark);
+      else rawWordMarks.push(mark);
+      if (callbacks?.onSentenceMarks && boundaryType !== "WordBoundary") {
+        const words = alignBoundaryMarks(input.text, rawWordMarks);
+        const sentences = alignBoundaryMarks(input.text, rawSentenceMarks);
+        const knownEnd = Math.max(0, ...[...words, ...sentences].map((item) => item.textEnd ?? 0));
+        const complete = input.sentenceSegments.filter((segment) => segment.textEnd <= knownEnd);
+        if (complete.length > publishedSentenceCount) {
+          const marks = buildSentenceMarks(input.text, complete, words, resolveDurationMs([...words, ...sentences]), sentences);
+          if (marks.every((item) => item.durationMs > 0)) {
+            publishedSentenceCount = marks.length;
+            callbacks.onSentenceMarks(marks);
+          }
+        }
       }
-      rawWordMarks.push(mark);
     };
 
     try {
@@ -264,20 +276,15 @@ function matchSentenceBoundaryMarks(
   if (!azureSentenceMarks.length) return [];
   const used = new Set<number>();
   return sentenceSegments
-    .map((segment, segmentIndex) => {
+    .map((segment) => {
       const exactIndex = azureSentenceMarks.findIndex((mark, markIndex) =>
         !used.has(markIndex) &&
         mark.textStart === segment.textStart &&
         mark.textEnd === segment.textEnd
       );
-      const fallbackIndex = exactIndex >= 0
-        ? exactIndex
-        : sentenceSegments.length === azureSentenceMarks.length
-          ? segmentIndex
-          : -1;
-      const mark = fallbackIndex >= 0 ? azureSentenceMarks[fallbackIndex] : undefined;
+      const mark = exactIndex >= 0 ? azureSentenceMarks[exactIndex] : undefined;
       if (!mark) return null;
-      used.add(fallbackIndex);
+      used.add(exactIndex);
       return {
         ...segment,
         startMs: mark.startMs,

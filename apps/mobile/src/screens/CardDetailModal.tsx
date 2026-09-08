@@ -31,6 +31,7 @@ import { playIncorrectFeedbackSound, playSuccessFeedbackSound } from "../service
 import {
   saveCardClozeUpdate,
   getCardArticleAudio,
+  getCardAudioTimeline,
   getCardRecord,
   getCardSegmentAudio,
   getCardRelations,
@@ -2058,6 +2059,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     audioUrl: string;
     sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }>;
     deliveryMode: "buffered" | "streaming";
+    generationId?: string;
   }>>());
   const [articleSentenceMarks, setArticleSentenceMarks] = useState<Array<{
     text: string;
@@ -2066,6 +2068,9 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     startMs: number;
     durationMs: number;
   }>>([]);
+  const [articleStreaming, setArticleStreaming] = useState(false);
+  const timelineAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => timelineAbortRef.current?.abort(), [detail.id, playbackBinding.contentType, playbackBinding.contentVersion]);
   const lyricsScrollRef = useRef<ScrollView>(null);
   const lyricsViewportHeightRef = useRef(0);
   const lyricLayoutsRef = useRef(new Map<number, { y: number; height: number }>());
@@ -2242,6 +2247,8 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       if (playback.positionMs < articleSentenceMarks[index]!.startMs) break;
       activeIndex = index;
     }
+    const mark = articleSentenceMarks[activeIndex]!;
+    if (playback.positionMs < mark.startMs || (articleStreaming && playback.positionMs >= mark.startMs + mark.durationMs)) return null;
     return activeIndex;
   })();
   const activeSentenceKey = (() => {
@@ -2250,14 +2257,15 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       return playback.activeNavigationKey.slice(sentenceNavigationPrefix.length);
     }
     if (playback.activeNavigationKey.startsWith(articleNavigationPrefix)) {
-      const index = activeArticleMarkIndex ?? Number(playback.activeNavigationKey.slice(articleNavigationPrefix.length));
+      const index = activeArticleMarkIndex;
+      if (index === null) return null;
       return Number.isInteger(index) ? articleRows[index]?.key ?? null : null;
     }
     return null;
   })();
   const activePlaybackLyricIndex = (() => {
     if (!playback.hasActiveAudio || playback.status === "loading" || !playback.activeNavigationKey) return null;
-    if (playback.activeNavigationKey.startsWith(articleNavigationPrefix)) return activeArticleMarkIndex ?? 0;
+    if (playback.activeNavigationKey.startsWith(articleNavigationPrefix)) return activeArticleMarkIndex;
     if (playback.activeNavigationKey.startsWith(sentenceNavigationPrefix)) {
       const sentenceKey = playback.activeNavigationKey.slice(sentenceNavigationPrefix.length);
       const index = articleRows.findIndex((row) => row.key === sentenceKey);
@@ -2712,6 +2720,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     audioUrl: string;
     sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }>;
     deliveryMode: "buffered" | "streaming";
+    generationId?: string;
   }> {
     if (detail.source !== "card") return Promise.reject(new Error("Article is unavailable"));
     const entryId = detail.id.slice("card:".length);
@@ -2725,34 +2734,76 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
         articleRows.map((row) => ({ id: row.segmentId, text: row.text })),
         audio.sentenceMarks ?? [],
         playbackPrimaryBlock?.languageCode ?? detail.languageCode,
+        deliveryMode === "streaming",
       );
-      if (deliveryMode !== "buffered" || !sentenceMarks) throw new Error(t("card_detail.playback.timeline_unavailable"));
+      if (!sentenceMarks) throw new Error(t("card_detail.playback.timeline_unavailable"));
       if (deliveryMode === "buffered") {
         const source = { url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") };
         void preloadTtsAudio(source).catch(() => undefined);
       }
-      return { audioUrl: audio.audioUrl, sentenceMarks, deliveryMode };
+      return { audioUrl: audio.audioUrl, sentenceMarks, deliveryMode, generationId: audio.generationId };
     })();
     wholeArticleAudioPromisesRef.current.set(requestKey, request);
-    void request.catch(() => {
+    void request.then((audio) => {
+      if (audio.deliveryMode === "streaming" && wholeArticleAudioPromisesRef.current.get(requestKey) === request) wholeArticleAudioPromisesRef.current.delete(requestKey);
+    }).catch(() => {
       if (wholeArticleAudioPromisesRef.current.get(requestKey) === request) wholeArticleAudioPromisesRef.current.delete(requestKey);
     });
     return request;
+  }
+
+  async function followArticleTimeline(generationId: string, sessionId: number, controller: AbortController): Promise<void> {
+    while (!controller.signal.aborted && isTtsPlaybackSessionCurrent(sessionId)) {
+      try {
+        const timeline = await getCardAudioTimeline(generationId, controller.signal);
+        if (controller.signal.aborted || !isTtsPlaybackSessionCurrent(sessionId)) return;
+        const marks = alignCardSpeechMarks(
+          articleRows.map((row) => ({ id: row.segmentId, text: row.text })),
+          timeline.sentenceMarks,
+          playbackPrimaryBlock?.languageCode ?? detail.languageCode,
+          timeline.status !== "ready",
+        );
+        if (marks) setArticleSentenceMarks(marks);
+        if (timeline.status === "ready" || timeline.status === "failed") return;
+      } catch {
+        if (controller.signal.aborted) return;
+      }
+      await new Promise<void>((resolve) => {
+        const done = () => { clearTimeout(timer); controller.signal.removeEventListener("abort", done); resolve(); };
+        const timer = setTimeout(done, 400);
+        controller.signal.addEventListener("abort", done, { once: true });
+      });
+    }
   }
 
   async function playArticle(startIndex = 0, loopSingleSentence = false): Promise<void> {
     if (articleAudioLoading || detail.source !== "card") return;
     const rows = articleRows;
     if (!rows.length) return;
+    timelineAbortRef.current?.abort();
     setArticleAudioLoading(true);
     const sessionId = beginTtsPlaybackSession();
     try {
       const audio = await prepareWholeArticleAudio();
       if (!isTtsPlaybackSessionCurrent(sessionId)) return;
+      setArticleStreaming(audio.deliveryMode === "streaming");
       setArticleSentenceMarks(audio.sentenceMarks);
+      // A live MPEG stream cannot seek. Use the selected sentence while the full asset is being generated.
+      if (audio.deliveryMode === "streaming" && (startIndex > 0 || loopSingleSentence)) {
+        await playStandaloneSentence(rows[startIndex]!, () => {
+          if (startIndex + 1 < rows.length) void playArticle(startIndex + 1);
+          else if (articleReplySegments.length) void playReplyFrom(0, undefined, true, sessionId);
+          else if (getTtsPlaybackState().loopMode === "all") void playArticle();
+        }, sessionId);
+        return;
+      }
+      const controller = new AbortController();
+      timelineAbortRef.current = controller;
+      if (audio.deliveryMode === "streaming" && audio.generationId) void followArticleTimeline(audio.generationId, sessionId, controller);
       const startMark = audio.sentenceMarks[startIndex];
       await playTtsAudio({
         url: audio.audioUrl,
+        loadTimeoutMs: audio.deliveryMode === "streaming" ? 45000 : undefined,
         loopScope: "all",
         navigationKey: `${articleNavigationPrefix}${startIndex}`,
         sessionId,
@@ -2760,8 +2811,10 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
           startMs: startMark.startMs,
           endMs: startMark.startMs + startMark.durationMs,
         } } : {}),
-        startPositionMs: startMark?.startMs ?? 0,
+        startPositionMs: audio.deliveryMode === "streaming" ? 0 : startMark?.startMs ?? 0,
+        onError: () => controller.abort(),
         onFinished: () => {
+          controller.abort();
           if (articleReplySegments.length) {
             void playReplyFrom(0, () => {
               if (getTtsPlaybackState().loopMode === "all") void playArticle();
@@ -2771,6 +2824,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       });
     } catch (error) {
       if (!isTtsPlaybackSessionCurrent(sessionId)) return;
+      timelineAbortRef.current?.abort();
       setArticleSentenceMarks([]);
       showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.play"), type: "error", position: "top-center" });
     } finally {
@@ -2784,7 +2838,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       void playArticle(index, true);
       return;
     }
-    if (articlePlaybackActive && mark) {
+    if (articlePlaybackActive && !articleStreaming && mark) {
       void seekTtsPlayback(mark.startMs);
       return;
     }
@@ -2824,6 +2878,10 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     const currentMode = playback.loopMode;
     const nextMode = currentMode === "off" ? "one" : currentMode === "one" ? "all" : "off";
     setTtsLoopMode(nextMode, { persist: false });
+    if (articleStreaming && playback.activeNavigationKey?.startsWith(articleNavigationPrefix) && nextMode === "one") {
+      void playArticle(activeArticleMarkIndex ?? 0, true);
+      return;
+    }
     const currentMark = activeArticleMarkIndex === null ? null : articleSentenceMarks[activeArticleMarkIndex];
     setTtsPlaybackLoopRange(nextMode === "one" && currentMark ? {
       startMs: currentMark.startMs,
@@ -3152,7 +3210,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
         </ScrollView>
       </View>
       <View style={styles.cardPlaybackBar}>
-        <CardPlaybackSeekBar progress={progress} durationMs={durationMs} enabled={playbackBelongsToCard && durationMs > 0} loading={progressLoading} />
+        <CardPlaybackSeekBar progress={progress} durationMs={durationMs} enabled={playbackBelongsToCard && durationMs > 0 && !(articleStreaming && playback.activeNavigationKey?.startsWith(articleNavigationPrefix))} loading={progressLoading} />
         <View style={styles.cardPlaybackControls}>
           <Pressable disabled={!playbackBelongsToCard} style={styles.cardPlaybackUtility} onPress={cycleTtsPlaybackRate}><Text style={[styles.cardPlaybackRate, !playbackBelongsToCard && styles.cardPlaybackRateDisabled]}>{playback.playbackRate.toFixed(1)}x</Text></Pressable>
           <Pressable disabled={!playbackBelongsToCard || !playback.canNavigatePrevious} style={styles.cardPlaybackSideControl} onPress={navigateTtsPrevious}><Ionicons name="play-skip-back" size={22} color={playbackBelongsToCard && playback.canNavigatePrevious ? theme.colors.text : theme.colors.textMuted} /></Pressable>
