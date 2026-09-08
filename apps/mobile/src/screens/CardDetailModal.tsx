@@ -3088,11 +3088,16 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
             </View>
             </CollapsibleCardSection>
           </View> : null}
-          {(detail.originalText.trim() && originalBlock) || (!detail.originalText.trim() && onSaveOriginal) ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => { toggleSection("original"); if (originalBlock) selectLearningBlock(originalBlock); }}>
-            {originalEditing || !detail.originalText.trim() ? <View style={styles.moduleComposer}>
+          {!detail.originalText.trim() && onSaveOriginal ? <View style={styles.moduleComposer}>
+            <TextInput multiline value={originalDraft} editable={!originalSaving} maxLength={3000} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.moduleComposerInput} textAlignVertical="top" onChangeText={setOriginalDraft} />
+            <View style={styles.moduleComposerActions}>
+              <Pressable disabled={!originalDraft.trim() || originalSaving} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving) && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
+            </View>
+          </View> : detail.originalText.trim() && originalBlock ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => { toggleSection("original"); selectLearningBlock(originalBlock); }}>
+            {originalEditing ? <View style={styles.moduleComposer}>
               <TextInput multiline value={originalDraft} editable={!originalSaving} maxLength={3000} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.moduleComposerInput} textAlignVertical="top" onChangeText={setOriginalDraft} />
               <View style={styles.moduleComposerActions}>
-                {detail.originalText.trim() ? <Pressable disabled={originalSaving} style={styles.moduleComposerSecondary} onPress={() => { setOriginalDraft(detail.originalText); setOriginalEditing(false); }}><Text style={styles.moduleComposerSecondaryText}>{t("common.cancel")}</Text></Pressable> : null}
+                <Pressable disabled={originalSaving} style={styles.moduleComposerSecondary} onPress={() => { setOriginalDraft(detail.originalText); setOriginalEditing(false); }}><Text style={styles.moduleComposerSecondaryText}>{t("common.cancel")}</Text></Pressable>
                 <Pressable disabled={!originalDraft.trim() || originalSaving || !onSaveOriginal} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving || !onSaveOriginal) && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
               </View>
             </View> : originalBlock ? <>
@@ -3110,7 +3115,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
               </View>
             </> : null}
           </CollapsibleCardSection> : null}
-          {rewriteBlock ? <View ref={contentBinding.contentType === "rewrite" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
+          {rewriteBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
             {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={rewriteBlock ? t("card_detail.module.expression_description") : t("card_detail.my_record")} tone={rewriteBlock ? "rewrite" : "default"} collapsed={collapsedSections.learning} onToggle={() => { toggleSection("learning"); if (rewriteBlock) selectLearningBlock(rewriteBlock); }} compact>
                 {contentBinding.contentType === (rewriteBlock?.contentType ?? contentBinding.contentType) && practiceEnabled
                       ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} displayMode={displayMode} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
