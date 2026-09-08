@@ -240,7 +240,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }
   async function openCorpusComposer(): Promise<void> {
     const saved = await loadCardDraft("corpus");
-    await commitDraft({ ...saved, mode: "corpus", enabledLayers: { expression: false, translation: false, reply: false }, generateImageDescription: false });
+    await commitDraft({ ...saved, mode: "corpus", enabledLayers: { expression: false, translation: false, reply: false } });
     showCardComposer();
   }
   useEffect(() => {
@@ -2974,7 +2974,9 @@ function countGraphemes(value: string): number {
 }
 
 function trackedGenerationTargets(draft: CardDraft, selectedTargets: CardGenerationTarget[]): CardGenerationTarget[] {
-  return draft.mode === "corpus" ? (draft.text.trim() ? ["auxiliary"] : []) : selectedTargets;
+  return draft.mode === "corpus"
+    ? [...(draft.text.trim() ? ["auxiliary" as const] : []), ...selectedTargets.filter((target) => target === "image_description")]
+    : selectedTargets;
 }
 
 async function prepareCorpusDraftForSave(draft: CardDraft): Promise<CardDraft | null> {

@@ -1023,7 +1023,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                   onRemove={confirmRemoveDraftImage}
                   onCoverPositionChange={onCoverPositionChange ? async (localUri, focusX, focusY) => { await onCoverPositionChange(localUri, focusX, focusY); } : undefined}
                 />
-                {draft.mode !== "corpus" && draft.images.length ? <ImageDescriptionToggleAction active={draft.generateImageDescription} loading={sending} onPress={() => onImageDescriptionChange?.(!draft.generateImageDescription)} /> : null}
+                {draft.images.length ? <ImageDescriptionToggleAction active={draft.generateImageDescription} loading={sending} onPress={() => onImageDescriptionChange?.(!draft.generateImageDescription)} /> : null}
               </>
               <View style={styles.draftOriginalEditor}>
                 <TextInput
@@ -3090,9 +3090,9 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
             const image = images[index];
             if (image) onSelectLearningContent?.(`image:${image.id}`);
           }} />
-          {currentImage && detail.mode !== "corpus" ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} onLayout={currentImageIsLearningContent ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
+          {currentImage ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} onLayout={currentImageIsLearningContent ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
             <CollapsibleCardSection
-              label={t("card_detail.image_description")}
+              label={t(detail.mode === "corpus" ? "card_detail.input_corpus" : "card_detail.image_description")}
               tone="image"
               collapsed={collapsedSections.imageDescription}
               action={imageDescriptionAction}

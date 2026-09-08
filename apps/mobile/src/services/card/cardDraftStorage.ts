@@ -89,7 +89,7 @@ export async function loadCardDraft(mode: CardDraft["mode"] = "rewrite"): Promis
         translation: mode !== "corpus" && (value.enabledLayers?.translation === true || Boolean(translationText)),
         reply: mode !== "corpus" && Boolean(replyText),
       },
-      generateImageDescription: mode !== "corpus" && value.generateImageDescription === true,
+      generateImageDescription: value.generateImageDescription === true,
       images: Array.isArray(value.images)
         ? value.images.map(normalizeImage).filter((image): image is CardDraftImage => Boolean(image))
         : (() => { const legacy = normalizeImage((value as Partial<CardDraft> & { image?: unknown }).image); return legacy ? [legacy] : []; })(),
@@ -157,7 +157,6 @@ export async function saveCardDraft(draft: CardDraft): Promise<void> {
     derivedFromText: "",
     clozeRanges: [],
     enabledLayers: { expression: false, translation: false, reply: false },
-    generateImageDescription: false,
   } : draft;
   const serialized = JSON.stringify({
     ...safeDraft,

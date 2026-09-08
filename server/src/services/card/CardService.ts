@@ -489,7 +489,7 @@ export class CardService {
     const replyText = mode === "corpus" ? "" : normalizeCardBodyText(input.body.replyText);
     const collectionId = input.body.collectionId?.trim() || null;
     const requestedRewrite = mode !== "corpus" && input.body.generateRewrite !== false;
-    const generateImageDescription = mode !== "corpus" && input.body.generateImageDescription !== false;
+    const generateImageDescription = input.body.generateImageDescription !== false;
     const imageUploadId = input.body.imageUploadId?.trim() || null;
     const imageUploadIds = Array.from(new Set([
       ...(Array.isArray(input.body.imageUploadIds) ? input.body.imageUploadIds : []),
@@ -996,7 +996,6 @@ export class CardService {
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
     if (!current || current.status !== "completed") throw new CardNotFoundError();
-    if (current.mode === "corpus") throw new CardValidationError("Imported material does not support image descriptions");
     const requestedImage = input.imageId
       ? current.images.find((image) => image.id === input.imageId)
       : undefined;
