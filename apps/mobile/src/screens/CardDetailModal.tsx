@@ -1912,6 +1912,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   const [originalEditing, setOriginalEditing] = useState(false);
   const [originalDraft, setOriginalDraft] = useState(detail.originalText);
   const [originalSaving, setOriginalSaving] = useState(false);
+  const [originalInputFocused, setOriginalInputFocused] = useState(false);
   const originalInputRef = useRef<TextInput>(null);
   const originalStt = useRealtimeSttInput({ value: originalDraft, onChangeText: setOriginalDraft, disabled: originalSaving || !onSaveOriginal });
   useEffect(() => {
@@ -1922,6 +1923,12 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       originalInputRef.current?.setNativeProps({ selection: { start: end, end } });
     });
   }, [originalDraft, originalStt.status]);
+  useEffect(() => {
+    if (!originalInputFocused) return;
+    const settleTimer = setTimeout(() => flipCardScrollRef.current?.assureFocusedInputVisible(), 280);
+    requestAnimationFrame(() => flipCardScrollRef.current?.assureFocusedInputVisible());
+    return () => clearTimeout(settleTimer);
+  }, [originalInputFocused]);
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(detail.title ?? detail.displayTitle);
   const [metadataSaving, setMetadataSaving] = useState(false);
@@ -3034,7 +3041,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     <View style={styles.flipCardStage}>
       <View style={styles.flipCardShell}>
       <View style={styles.flipCardFace}>
-        <KeyboardAwareScrollView ref={flipCardScrollRef} style={styles.flipCardScroll} bottomOffset={92} extraKeyboardSpace={16} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.flipCardContent} alwaysBounceVertical={false}>
+        <KeyboardAwareScrollView ref={flipCardScrollRef} style={styles.flipCardScroll} bottomOffset={originalInputFocused ? 210 : 92} extraKeyboardSpace={16} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.flipCardContent} alwaysBounceVertical={false}>
           {titleEditing ? <View style={styles.inlineTitleEditor}>
             <TextInput autoFocus value={titleDraft} editable={!metadataSaving} maxLength={80} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.inlineTitleInput} onChangeText={setTitleDraft} onSubmitEditing={() => void saveInlineTitle()} />
             <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => { setTitleDraft(detail.title ?? detail.displayTitle); setTitleEditing(false); }}><Ionicons name="close" size={19} color={theme.colors.textMuted} /></Pressable>
@@ -3112,10 +3119,12 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
               textAlignVertical="top"
               onChangeText={originalStt.onChangeText}
               onFocus={() => {
+                setOriginalInputFocused(true);
                 const end = originalDraft.length;
                 originalStt.onSelectionChange({ start: end, end });
                 requestAnimationFrame(() => originalInputRef.current?.setNativeProps({ selection: { start: end, end } }));
               }}
+              onBlur={() => setOriginalInputFocused(false)}
               onSelectionChange={(event) => {
                 originalStt.onSelectionChange(event.nativeEvent.selection);
               }}
