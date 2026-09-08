@@ -1909,7 +1909,6 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     binding: CardContentBinding;
     segmentText: string;
   } | null>(null);
-  const [originalEditing, setOriginalEditing] = useState(false);
   const [originalDraft, setOriginalDraft] = useState(detail.originalText);
   const [originalSaving, setOriginalSaving] = useState(false);
   const [originalInputFocused, setOriginalInputFocused] = useState(false);
@@ -1935,9 +1934,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   const [collections, setCollections] = useState<CardCollection[]>([]);
   const [collectionPickerVisible, setCollectionPickerVisible] = useState(false);
   const [recordTimeEditorVisible, setRecordTimeEditorVisible] = useState(false);
-  useEffect(() => {
-    if (!originalEditing) setOriginalDraft(detail.originalText);
-  }, [detail.originalText, originalEditing]);
+  useEffect(() => { setOriginalDraft(detail.originalText); }, [detail.originalText]);
   useEffect(() => {
     if (!titleEditing) setTitleDraft(detail.title ?? detail.displayTitle);
   }, [detail.displayTitle, detail.title, titleEditing]);
@@ -1954,7 +1951,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     : displayMode === "bilingual"
       ? "card_detail.display.bilingual"
       : "card_detail.display.auxiliary");
-  const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "original" | "translation", boolean>>({ imageDescription: false, learning: false, reply: false, original: false, translation: false });
+  const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "translation", boolean>>({ imageDescription: false, learning: false, reply: false, translation: false });
   const [articleAudioLoading, setArticleAudioLoading] = useState(false);
   const [sentenceAudioLoadingKey, setSentenceAudioLoadingKey] = useState<string | null>(null);
   const { showNotice } = useFloatingNotice();
@@ -2039,7 +2036,6 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     setOriginalSaving(true);
     try {
       await onSaveOriginal(next);
-      setOriginalEditing(false);
     } catch (error) {
       showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.save"), type: "error", position: "top-center" });
     } finally {
@@ -2100,7 +2096,6 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     [playbackPrimaryBlock?.contentType, replyBlock],
   );
   const replyAuxiliary = new Map((replyBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
-  const originalAuxiliary = new Map((originalBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const rewriteAuxiliary = new Map((rewriteBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const expressionPending = pendingGenerationTargets.includes("expression");
   const expressionFailed = failedGenerationTargets.includes("expression");
@@ -3139,30 +3134,9 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
               }} />
               <Pressable disabled={!originalDraft.trim() || originalSaving || originalStt.status !== "idle"} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving || originalStt.status !== "idle") && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
             </View>
-          </View> : detail.originalText.trim() && originalBlock ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => { toggleSection("original"); selectLearningBlock(originalBlock); }}>
-            {originalEditing ? <View style={styles.moduleComposer}>
-              <TextInput multiline value={originalDraft} editable={!originalSaving} maxLength={3000} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.moduleComposerInput} textAlignVertical="top" onChangeText={setOriginalDraft} />
-              <View style={styles.moduleComposerActions}>
-                <Pressable disabled={originalSaving} style={styles.moduleComposerSecondary} onPress={() => { setOriginalDraft(detail.originalText); setOriginalEditing(false); }}><Text style={styles.moduleComposerSecondaryText}>{t("common.cancel")}</Text></Pressable>
-                <Pressable disabled={!originalDraft.trim() || originalSaving || !onSaveOriginal} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving || !onSaveOriginal) && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
-              </View>
-            </View> : originalBlock ? <>
-              {contentBinding.contentType === "original" && practiceEnabled
-                ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} displayMode={displayMode} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
-                : originalBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
-                    <View style={styles.imageDescriptionSentenceBody}>
-                      {displayMode !== "auxiliary" ? <SelectableMessageText text={segment.text} style={styles.rewrite} highlightRanges={highlightRangesFor(originalBlock, segment.id)} blankRanges={blankRangesFor(originalBlock, segment.id)} enableDictionaryMenu enableClozeMenu onSelectionStart={lockForTextSelection} onSelectionEnd={unlockTextSelection} onDictionarySelection={(payload) => lookupLearningBlock(originalBlock, segment, payload)} onSelectionChange={(payload) => void addBlankToInactiveBlock(originalBlock, segment, payload)} onClozeRangePress={(groupIndex, anchor) => openInactiveBlankActions(originalBlock, segment, groupIndex, anchor)} /> : null}
-                      {displayMode !== "target" && originalAuxiliary.get(segment.ordinal) ? <Text selectable style={styles.auxiliarySentence}>{originalAuxiliary.get(segment.ordinal)}</Text> : null}
-                    </View>
-                  </View>)}
-              <View style={styles.moduleActions}>
-                <Pressable accessibilityLabel={t("card_detail.edit_card")} style={styles.moduleActionButton} onPress={() => setOriginalEditing(true)}><Ionicons name="create-outline" size={17} color={theme.colors.textMuted} /></Pressable>
-                <CardSectionCopyButton onPress={() => void copySection(detail.originalText)} />
-              </View>
-            </> : null}
-          </CollapsibleCardSection> : null}
-          {rewriteBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
-            {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={rewriteBlock ? t("card_detail.module.expression_description") : t("card_detail.my_record")} tone={rewriteBlock ? "rewrite" : "default"} collapsed={collapsedSections.learning} onToggle={() => { toggleSection("learning"); if (rewriteBlock) selectLearningBlock(rewriteBlock); }} compact>
+          </View> : null}
+          {rewriteBlock || originalBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
+            {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={t("card_detail.module.expression_description")} tone="rewrite" collapsed={collapsedSections.learning} onToggle={() => { toggleSection("learning"); selectLearningBlock(rewriteBlock ?? originalBlock!); }} compact>
                 {contentBinding.contentType === (rewriteBlock?.contentType ?? contentBinding.contentType) && practiceEnabled
                       ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} displayMode={displayMode} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                       : rewriteBlock
@@ -4323,14 +4297,10 @@ function formatDate(value: string): string { const [year, month, day] = value.sp
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" }); }
 
 const styles = StyleSheet.create({
-  moduleActions: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 2 },
-  moduleActionButton: { width: 34, height: 32, marginTop: 5, alignItems: "center", justifyContent: "center", borderRadius: 16 },
   moduleComposer: { marginTop: 8, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted },
   moduleComposerInput: { minHeight: 72, maxHeight: 180, padding: 0, color: theme.colors.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" },
   standaloneOriginalInput: { height: 132, minHeight: 132, maxHeight: 132 },
   moduleComposerActions: { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
-  moduleComposerSecondary: { minHeight: 36, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
-  moduleComposerSecondaryText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "500" },
   moduleComposerSend: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
   moduleComposerSendDisabled: { opacity: 0.38 },
   moduleGenerateButton: { alignSelf: "flex-start", minHeight: 40, marginTop: 8, paddingHorizontal: 13, borderRadius: 20, backgroundColor: "#EAF6F1", flexDirection: "row", alignItems: "center", gap: 7 },
