@@ -1,3 +1,4 @@
+import { saveTutorialPractice } from "../services/card/tutorialPracticeStorage";
 import { alignCardSpeechMarks } from "@lf/core/text/cardSpeechText";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -2116,7 +2117,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       return;
     }
     try {
-      const practice = await saveCardClozeUpdate(detail.id, {
+      const practice = await saveCardPractice(detail, {
         contentType: block.contentType,
         contentVersion: block.contentVersion,
         baseVersion: block.practice?.clozeVersion ?? 0,
@@ -2495,7 +2496,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     }
     setSavingCloze(true);
     try {
-      const practice = await saveCardClozeUpdate(detail.id, {
+      const practice = await saveCardPractice(detail, {
         ...contentBinding,
         baseVersion: clozeVersion,
         operation: { type: "add", segmentId: segment.id, startUtf16: start, endUtf16: end },
@@ -2517,7 +2518,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
             onClozeChange(latestState, latestVersion);
             return;
           }
-          const practice = await saveCardClozeUpdate(detail.id, {
+          const practice = await saveCardPractice(detail, {
             ...contentBinding,
             baseVersion: latestVersion,
             operation: { type: "add", segmentId: segment.id, startUtf16: start, endUtf16: end },
@@ -2601,7 +2602,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     setSavingCloze(true);
     try {
       const startPractice = await shouldStartRecommendationPractice().catch(() => false);
-      const practice = await saveCardClozeUpdate(detail.id, {
+      const practice = await saveCardPractice(detail, {
         contentType: item.contentType ?? "rewrite",
         contentVersion: item.contentVersion,
         baseVersion: clozeVersion,
@@ -2990,7 +2991,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     };
     setSavingCloze(true);
     try {
-      const practice = await saveCardClozeUpdate(detail.id, {
+      const practice = await saveCardPractice(detail, {
         ...binding,
         baseVersion: ownerVersion,
         operation: { type: "remove", blankId: blank.id },
@@ -3007,7 +3008,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
             if (latestPractice) applyOwnerPractice(latestPractice);
             return;
           }
-          const practice = await saveCardClozeUpdate(detail.id, {
+          const practice = await saveCardPractice(detail, {
             ...binding,
             baseVersion: latestVersion,
             operation: { type: "remove", blankId: blank.id },
@@ -3146,7 +3147,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     const progress = playbackBelongsToCard && durationMs > 0
       ? Math.max(0, Math.min(1, playback.positionMs / durationMs))
       : 0;
-    const progressLoading = loading || playbackBelongsToCard && playback.status === "playing" && durationMs <= 0;
+    const progressLoading = loading && !playing;
     const loopLabel = playback.loopMode === "one"
       ? t("card_detail.playback.loop_one")
       : playback.loopMode === "all"
@@ -3267,8 +3268,8 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       clozeVersion={version}
       choiceAnswerPool={wholeCardChoiceAnswers}
       onClozeChange={(nextState, nextVersion) => onLearningContentClozeChange?.(block, nextState, nextVersion)}
-      onAddBlank={detail.isSample ? undefined : (segment, payload) => void addBlankToInactiveBlock(block, segment, payload)}
-      onBlankLongPress={detail.isSample ? undefined : (blank, anchor) => openBlankActions(blank, anchor, block, block.segments.find((segment) => segment.id === blank.segmentId))}
+      onAddBlank={(segment, payload) => void addBlankToInactiveBlock(block, segment, payload)}
+      onBlankLongPress={(blank, anchor) => openBlankActions(blank, anchor, block, block.segments.find((segment) => segment.id === blank.segmentId))}
       fillMode={fillMode}
       inputMode={clozeInputMode}
       answersVisible={answersVisible}
@@ -3410,7 +3411,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
             {renderLearningBlock(replyBlock)}
             <CardSectionCopyButton onPress={() => void copySection(replyBlock.text)} />
           </CollapsibleCardSection> : null}
-          {detail.isSample ? <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 16 }}>{t("tutorial.demo")}</Text> : relatedContent}
+          {!detail.isSample ? relatedContent : null}
         </KeyboardAwareScrollView>
       </View>
       </View>
@@ -3764,7 +3765,7 @@ function CardPlaybackSeekBar({ progress, durationMs, enabled, loading = false }:
     }}
     onResponderTerminate={() => setDragProgress(null)}
   >
-    <View style={styles.cardPlaybackProgressTrack}>
+    <View style={[styles.cardPlaybackProgressTrack, { overflow: loading ? "hidden" : "visible" }]}>
       {loading ? <Animated.View style={[styles.cardPlaybackLoadingFill, { transform: [{ translateX: loadProgress.interpolate({ inputRange: [0, 1], outputRange: [-Math.max(trackWidth * .3, 30), Math.max(trackWidth, 100)] }) }] }]} /> : <>
         <View style={[styles.cardPlaybackProgressFill, { width: `${displayedProgress * 100}%` }]} />
         <View style={[styles.cardPlaybackProgressThumb, { left: `${displayedProgress * 100}%` }]} />
@@ -3933,7 +3934,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
       try {
         let practice;
         try {
-          practice = await saveCardClozeUpdate(detail.id, {
+          practice = await saveCardPractice(detail, {
             ...contentBinding,
             baseVersion: effectiveVersion,
             operation: { type: "master", blankId: blank.id },
@@ -3947,7 +3948,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
           if (latestState.blanks.find((candidate) => candidate.id === blank.id)?.mastered) {
             practice = latestPractice;
           } else {
-            practice = await saveCardClozeUpdate(detail.id, {
+            practice = await saveCardPractice(detail, {
               ...contentBinding,
               baseVersion: latestVersion,
               operation: { type: "master", blankId: blank.id },
@@ -3972,7 +3973,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
       : clozeState.blanks.every((candidate) => nextChecked[candidate.id] === "correct") ? "correct" : "incorrect";
     setSaving(true);
     try {
-      let practice = await saveCardClozeUpdate(detail.id, {
+      let practice = await saveCardPractice(detail, {
         ...contentBinding,
         baseVersion: effectiveVersion,
         operation: { type: "result" },
@@ -3985,7 +3986,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
         try {
           const latest = await getCardRecord(detail.id);
           const latestVersion = contentPractice(latest, contentBinding)?.clozeVersion ?? 0;
-          const practice = await saveCardClozeUpdate(detail.id, {
+          const practice = await saveCardPractice(detail, {
             ...contentBinding,
             baseVersion: latestVersion,
             operation: { type: "result" },
@@ -4032,7 +4033,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
       for (const { blank, correct } of outcomes) {
         if (!correct || effectiveState.blanks.find((candidate) => candidate.id === blank.id)?.mastered) continue;
         try {
-          const practice = await saveCardClozeUpdate(detail.id, {
+          const practice = await saveCardPractice(detail, {
             ...contentBinding,
             baseVersion: effectiveVersion,
             operation: { type: "master", blankId: blank.id },
@@ -4049,7 +4050,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
             onClozeChange(effectiveState, effectiveVersion);
             continue;
           }
-          const practice = await saveCardClozeUpdate(detail.id, {
+          const practice = await saveCardPractice(detail, {
             ...contentBinding,
             baseVersion: effectiveVersion,
             operation: { type: "master", blankId: blank.id },
@@ -4065,7 +4066,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
         ? "revealed" as const
         : clozeState.blanks.every((blank) => nextChecked[blank.id] === "correct") ? "correct" as const : "incorrect" as const;
       try {
-        const practice = await saveCardClozeUpdate(detail.id, {
+        const practice = await saveCardPractice(detail, {
           ...contentBinding,
           baseVersion: effectiveVersion,
           operation: { type: "result" },
@@ -4076,7 +4077,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
         if (!(error instanceof CardApiError) || error.code !== "CARD_PRACTICE_CONFLICT") throw error;
         const latest = await getCardRecord(detail.id);
         const latestVersion = contentPractice(latest, contentBinding)?.clozeVersion ?? 0;
-        const practice = await saveCardClozeUpdate(detail.id, {
+        const practice = await saveCardPractice(detail, {
           ...contentBinding,
           baseVersion: latestVersion,
           operation: { type: "result" },
@@ -4652,7 +4653,7 @@ const styles = StyleSheet.create({
   cardPlaybackAuxiliary: { marginTop: 3, color: "#666666", fontSize: 13, lineHeight: 20, textAlign: "left" },
   cardPlaybackBar: { paddingHorizontal: 20, paddingTop: 13, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },
   cardPlaybackSeekArea: { height: 25, justifyContent: "center" },
-  cardPlaybackProgressTrack: { height: 3, borderRadius: 2, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
+  cardPlaybackProgressTrack: { height: 3, borderRadius: 2, backgroundColor: theme.colors.surfaceMuted },
   cardPlaybackLoadingFill: { width: "30%", height: "100%", borderRadius: 2, backgroundColor: "#3F7D65" },
   cardPlaybackProgressFill: { height: "100%", borderRadius: 2, backgroundColor: "#3F7D65" },
   cardPlaybackProgressThumb: { position: "absolute", top: -5, width: 13, height: 13, marginLeft: -6.5, borderRadius: 7, borderWidth: 2, borderColor: theme.colors.surface, backgroundColor: "#3F7D65" },
@@ -4924,3 +4925,7 @@ const styles = StyleSheet.create({
   draftProcessingLineLong: { width: "78%", height: 2, borderRadius: 1, backgroundColor: theme.colors.border },
   draftProcessingLineShort: { width: "52%", height: 2, borderRadius: 1, backgroundColor: theme.colors.border },
 });
+
+async function saveCardPractice(detail: CardRecordDetail, input: Parameters<typeof saveCardClozeUpdate>[1]): ReturnType<typeof saveCardClozeUpdate> {
+  return detail.isSample ? saveTutorialPractice(detail, input) : saveCardClozeUpdate(detail.id, input);
+}

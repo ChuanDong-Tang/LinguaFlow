@@ -1,3 +1,4 @@
+import { loadTutorialPractice } from "../card/tutorialPracticeStorage";
 import { getAuthHeaders } from "../auth/authHeaders";
 import { notifyQuotaExhaustion, quotaExhaustionKindForCode } from "../usage/quotaExhaustion";
 import { fetchWithTimeout } from "./fetchWithTimeout";
@@ -477,7 +478,7 @@ export async function getCardTaskStatus(recordId: string): Promise<{
 }
 
 export async function getCardRecord(recordId: string): Promise<CardRecordDetail> {
-  return request(`/cards/${encodeURIComponent(recordId)}`);
+  return loadTutorialPractice(await request<CardRecordDetail>(`/cards/${encodeURIComponent(recordId)}`));
 }
 
 export async function getRelatedTopicCards(recordId: string, limit = 10): Promise<Array<{

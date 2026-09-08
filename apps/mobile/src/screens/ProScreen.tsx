@@ -1116,8 +1116,8 @@ export function ProScreen({
               {currentTier === "free" ? <Text style={styles.compactCurrentBadge}>{t("pro.compact.current")}</Text> : null}
             </View>
             <View style={styles.compactBenefitList}>
-              {[t("pro.compact.free.record"), t("pro.compact.free.practice"), t("pro.compact.free.basic_ai")].map((benefit) => <View key={benefit} style={styles.compactBenefitRow}>
-                <Ionicons name="checkmark-circle-outline" size={15} color="#444444" />
+              {[t("pro.compact.free.basic_ai"), t("pro.compact.free.record"), t("pro.compact.free.practice")].map((benefit) => <View key={benefit} style={styles.compactBenefitRow}>
+                <Ionicons name="checkmark-circle-outline" size={15} color="#444444" style={styles.compactBenefitIcon} />
                 <Text style={styles.compactBenefitText}>{benefit}</Text>
               </View>)}
             </View>
@@ -1149,7 +1149,7 @@ export function ProScreen({
                 <View style={styles.compactBenefitList}>
                   {benefits.map((benefit) => (
                     <View key={benefit} style={styles.compactBenefitRow}>
-                      <Ionicons name="checkmark-circle-outline" size={15} color="#444444" />
+                      <Ionicons name="checkmark-circle-outline" size={15} color="#444444" style={styles.compactBenefitIcon} />
                       <Text style={styles.compactBenefitText}>{benefit}</Text>
                     </View>
                   ))}
@@ -1881,18 +1881,10 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   compactPlanGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  compactPlanGridSingle: {
-    maxWidth: 320,
+    gap: 12,
   },
   compactPlanCard: {
-    flexGrow: 1,
-    flexBasis: 148,
-    minHeight: 194,
-    padding: 13,
+    padding: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "#DCDCDC",
     borderRadius: 12,
@@ -1902,9 +1894,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#C99A35",
     backgroundColor: "#FFF9EB",
-  },
-  compactPlanCardSingle: {
-    minHeight: 160,
   },
   compactPlanTitleRow: {
     minHeight: 24,
@@ -1929,20 +1918,26 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   compactBenefitList: {
-    flex: 1,
-    marginTop: 11,
+    marginTop: 12,
     gap: 8,
   },
   compactBenefitRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 6,
+    gap: 8,
+  },
+  compactBenefitIcon: {
+    width: 16,
+    lineHeight: 20,
+    textAlign: "center",
+    includeFontPadding: false,
   },
   compactBenefitText: {
+    includeFontPadding: false,
     flex: 1,
     color: "#444444",
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 20,
   },
   compactExpiry: {
     marginTop: 12,
@@ -2010,7 +2005,8 @@ const styles = StyleSheet.create({
     color: "#8A6218",
   },
   compactPriceButton: {
-    minHeight: 38,
+    marginTop: 16,
+    minHeight: 44,
     paddingHorizontal: 8,
     borderRadius: 9,
     backgroundColor: "#171717",
