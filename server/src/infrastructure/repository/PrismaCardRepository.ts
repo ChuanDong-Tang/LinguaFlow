@@ -320,7 +320,7 @@ export class PrismaCardRepository implements CardRepository {
       }], skipDuplicates: true });
       let row = await tx.card.findFirst({ where: { userId: input.userId, clientId: TUTORIAL_CLIENT_ID }, include: includeSegments });
       const changed = row.rewrittenText !== sample.text || row.appLocaleSnapshot !== input.appLocaleSnapshot;
-      if (changed) row = await tx.card.update({ where: { id: row.id }, data, include: includeSegments });
+      if (changed || row.title !== sample.title) row = await tx.card.update({ where: { id: row.id }, data, include: includeSegments });
       const writes = buildCardContentSegments([{ contentType: "rewrite", text: sample.text, languageCode: input.languageCode, sourceHash: data.rewrittenSourceHash }]);
       await syncContentSegments(tx, row.id, writes);
       if (changed || !row.segments.length) {

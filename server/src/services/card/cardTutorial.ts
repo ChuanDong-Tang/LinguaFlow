@@ -50,7 +50,7 @@ export function tutorialContent(languageCode: string, locale: AppLocale) {
   const auxiliary = sentences[locale];
   return {
     text: target.join("\n"),
-    title: locale === "en-US" ? "This is a Card" : locale === "ja-JP" ? "これはCardです" : locale === "zh-TW" ? "這是一張 Card" : "这是一张 Card",
+    title: locale === "en-US" ? "This is a sample Card" : locale === "ja-JP" ? "これはサンプルCardです" : locale === "zh-TW" ? "這是一張範例 Card" : "这是一张示例 Card",
     auxiliary: auxiliary.map((text, ordinal) => ({ text, ordinal })),
   };
 }
