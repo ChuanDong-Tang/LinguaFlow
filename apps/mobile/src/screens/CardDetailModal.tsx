@@ -1912,6 +1912,21 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   const [originalEditing, setOriginalEditing] = useState(false);
   const [originalDraft, setOriginalDraft] = useState(detail.originalText);
   const [originalSaving, setOriginalSaving] = useState(false);
+  const originalInputRef = useRef<TextInput>(null);
+  const originalSelectionRef = useRef({ start: detail.originalText.length, end: detail.originalText.length });
+  const followOriginalInputRef = useRef(true);
+  const originalStt = useRealtimeSttInput({ value: originalDraft, onChangeText: setOriginalDraft, disabled: originalSaving || !onSaveOriginal });
+  useEffect(() => {
+    if (originalStt.status === "idle") return;
+    const end = originalDraft.length;
+    followOriginalInputRef.current = true;
+    originalSelectionRef.current = { start: end, end };
+    originalStt.onSelectionChange({ start: end, end });
+    requestAnimationFrame(() => {
+      originalInputRef.current?.setNativeProps({ selection: { start: end, end } });
+      flipCardScrollRef.current?.scrollToEnd({ animated: true });
+    });
+  }, [originalDraft, originalStt.status]);
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(detail.title ?? detail.displayTitle);
   const [metadataSaving, setMetadataSaving] = useState(false);
@@ -2018,7 +2033,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   };
   async function saveOriginalModule(): Promise<void> {
     const next = originalDraft.trim();
-    if (!next || originalSaving || !onSaveOriginal) return;
+    if (!next || originalSaving || originalStt.status !== "idle" || !onSaveOriginal) return;
     setOriginalSaving(true);
     try {
       await onSaveOriginal(next);
@@ -3089,9 +3104,41 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
             </CollapsibleCardSection>
           </View> : null}
           {!detail.originalText.trim() && onSaveOriginal ? <View style={styles.moduleComposer}>
-            <TextInput multiline value={originalDraft} editable={!originalSaving} maxLength={3000} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.moduleComposerInput} textAlignVertical="top" onChangeText={setOriginalDraft} />
+            <TextInput
+              ref={originalInputRef}
+              multiline
+              scrollEnabled={false}
+              value={originalDraft}
+              editable={!originalSaving}
+              maxLength={3000}
+              placeholder={t("card_detail.original_placeholder")}
+              placeholderTextColor={theme.colors.textMuted}
+              style={styles.moduleComposerInput}
+              textAlignVertical="top"
+              onChangeText={(value) => {
+                followOriginalInputRef.current = originalSelectionRef.current.end >= originalDraft.length;
+                originalStt.onChangeText(value);
+              }}
+              onSelectionChange={(event) => {
+                originalSelectionRef.current = event.nativeEvent.selection;
+                originalStt.onSelectionChange(event.nativeEvent.selection);
+              }}
+              onContentSizeChange={() => {
+                if (!followOriginalInputRef.current) return;
+                requestAnimationFrame(() => flipCardScrollRef.current?.scrollToEnd({ animated: true }));
+              }}
+            />
             <View style={styles.moduleComposerActions}>
-              <Pressable disabled={!originalDraft.trim() || originalSaving} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving) && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
+              <RealtimeSttButton status={originalStt.status} audioLevel={originalStt.audioLevel} disabled={originalSaving} onPress={() => {
+                const end = originalDraft.length;
+                followOriginalInputRef.current = true;
+                originalSelectionRef.current = { start: end, end };
+                originalStt.onSelectionChange({ start: end, end });
+                originalInputRef.current?.focus();
+                originalInputRef.current?.setNativeProps({ selection: { start: end, end } });
+                setTimeout(() => void originalStt.toggle(), 0);
+              }} />
+              <Pressable disabled={!originalDraft.trim() || originalSaving || originalStt.status !== "idle"} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving || originalStt.status !== "idle") && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
             </View>
           </View> : detail.originalText.trim() && originalBlock ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => { toggleSection("original"); selectLearningBlock(originalBlock); }}>
             {originalEditing ? <View style={styles.moduleComposer}>
@@ -4280,7 +4327,7 @@ const styles = StyleSheet.create({
   moduleActions: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 2 },
   moduleActionButton: { width: 34, height: 32, marginTop: 5, alignItems: "center", justifyContent: "center", borderRadius: 16 },
   moduleComposer: { marginTop: 8, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted },
-  moduleComposerInput: { minHeight: 72, maxHeight: 180, padding: 0, color: theme.colors.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" },
+  moduleComposerInput: { minHeight: 72, padding: 0, color: theme.colors.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" },
   moduleComposerActions: { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   moduleComposerSecondary: { minHeight: 36, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   moduleComposerSecondaryText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "500" },
