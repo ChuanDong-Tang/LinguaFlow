@@ -31,6 +31,10 @@ import {
   verifyAndDecodeAppleJws,
 } from "./AppleIapJws.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
+import {
+  resolveAppleAccountDeletionAction,
+  type AccountDeletionRenewalResult,
+} from "../AccountDeletionRenewal.js";
 
 export interface VerifyAppleIapTransactionResult {
   environment: "production" | "sandbox";
@@ -97,6 +101,71 @@ export class AppleIapService {
 
   isConfigured(): boolean {
     return getRuntimeConfig().payment.appleIap.enabled && isAppleIapConfigured();
+  }
+
+  async checkRenewalForAccountDeletion(
+    originalTransactionId: string,
+  ): Promise<AccountDeletionRenewalResult> {
+    if (!this.autoRenewService) throw new Error("APPLE_ACCOUNT_DELETION_AUTORENEW_SERVICE_NOT_CONFIGURED");
+    if (!this.isConfigured()) throw new Error("APPLE_ACCOUNT_DELETION_SERVICE_NOT_CONFIGURED");
+    const subscription = await this.autoRenewService.getAppleSubscriptionByOriginalTransactionId(
+      originalTransactionId,
+    );
+    if (!subscription) {
+      return {
+        action: "already_inactive",
+        remoteStatus: "LOCAL_SUBSCRIPTION_NOT_FOUND",
+        autoRenewEnabled: false,
+        currentPeriodEnd: null,
+      };
+    }
+
+    const config = loadAppleIapConfig();
+    const { token } = createAppleServerTokenWithDiagnostics({
+      issuerId: config.issuerId,
+      keyId: config.keyId,
+      bundleId: config.bundleId,
+      privateKeyPem: config.privateKeyPem,
+    });
+    const appleStatus = await fetchSubscriptionStatuses(originalTransactionId, token, config.rootCaPem);
+    const productId = getAppleSubscriptionProductId(config, subscription.productCode);
+    if (!productId) {
+      return {
+        action: "deferred",
+        remoteStatus: "PRODUCT_ID_MISSING",
+        autoRenewEnabled: null,
+        currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
+        reason: "apple_product_id_missing",
+      };
+    }
+    const matching = findAppleSubscriptionStatus(appleStatus.statuses, {
+      originalTransactionId,
+      productId,
+    });
+    if (!matching) {
+      return {
+        action: "deferred",
+        remoteStatus: "SUBSCRIPTION_NOT_FOUND",
+        autoRenewEnabled: null,
+        currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
+        reason: "remote_subscription_not_found",
+      };
+    }
+
+    const autoRenewStatus = matching.renewalInfo?.autoRenewStatus ?? null;
+    const action = resolveAppleAccountDeletionAction(matching.status, autoRenewStatus);
+    const currentPeriodEnd = matching.transaction?.expiresDate
+      ? new Date(matching.transaction.expiresDate).toISOString()
+      : subscription.currentPeriodEnd?.toISOString() ?? null;
+    return {
+      action: action === "defer" ? "deferred" : action,
+      remoteStatus: matching.status === null ? "UNKNOWN" : String(matching.status),
+      autoRenewEnabled: autoRenewStatus === null ? null : autoRenewStatus === 1,
+      currentPeriodEnd,
+      ...(action === "defer"
+        ? { reason: autoRenewStatus === 1 ? "user_must_disable_apple_auto_renew" : "remote_status_not_safe_for_deletion" }
+        : {}),
+    };
   }
 
   async reconcileCurrentAutoRenewForUser(userId: string): Promise<AppleAutoRenewReconcileResult> {

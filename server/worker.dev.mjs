@@ -4,7 +4,9 @@ import { PrismaPaymentEventRepository } from "./src/infrastructure/repository/Pr
 import { PrismaBenefitGrantRepository } from "./src/infrastructure/repository/PrismaBenefitGrantRepository.ts";
 import { PrismaSubscriptionRepository } from "./src/infrastructure/repository/PrismaSubscriptionRepository.ts";
 import { PrismaGooglePlayAccountLinkRepository } from "./src/infrastructure/repository/PrismaGooglePlayAccountLinkRepository.ts";
+import { PrismaAppleIapAccountLinkRepository } from "./src/infrastructure/repository/PrismaAppleIapAccountLinkRepository.ts";
 import { GooglePlayBillingService } from "./src/providers/payment/google/GooglePlayBillingService.ts";
+import { AppleIapService } from "./src/providers/payment/apple/AppleIapService.ts";
 import { AlipayAutoRenewClient } from "./src/providers/payment/alipay/AlipayClient.ts";
 import { AlipayAutoRenewService } from "./src/providers/payment/alipay/AlipayAutoRenewService.ts";
 import { isAlipayAutoRenewConfigured } from "./src/providers/payment/alipay/AlipayConfig.ts";
@@ -86,6 +88,7 @@ const paymentEventRepository = new PrismaPaymentEventRepository(prisma);
 const benefitGrantRepository = new PrismaBenefitGrantRepository(prisma);
 const subscriptionRepository = new PrismaSubscriptionRepository(prisma);
 const googlePlayAccountLinkRepository = new PrismaGooglePlayAccountLinkRepository(prisma);
+const appleIapAccountLinkRepository = new PrismaAppleIapAccountLinkRepository(prisma);
 const systemEventLogRepository = new PrismaSystemEventLogRepository(prisma);
 const aiUsageEventRepository = new PrismaAiUsageEventRepository(prisma);
 const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
@@ -112,6 +115,16 @@ const googlePlayBillingService = new GooglePlayBillingService(
   benefitGrantService,
   googlePlayAccountLinkRepository
 );
+const appleIapService = new AppleIapService(
+  benefitGrantService,
+  paymentEntitlementService,
+  paymentEventRepository,
+  paymentOrderRepository,
+  autoRenewService,
+  appleIapAccountLinkRepository,
+  subscriptionService,
+  subscriptionRepository,
+);
 const alipayAutoRenewService = new AlipayAutoRenewService(
   prisma,
   autoRenewRepository,
@@ -132,7 +145,12 @@ const accountDeletionCleanupWorker = new AccountDeletionCleanupWorker(
   prisma,
   systemEventLogRepository,
   ttsStorageProvider,
-  { googlePlayBillingService, alipayAutoRenewService, imageStorageProvider: cardImageStorageProvider }
+  {
+    googlePlayBillingService,
+    alipayAutoRenewService,
+    appleIapService,
+    imageStorageProvider: cardImageStorageProvider,
+  }
 );
 const systemEventLogCleanupWorker = new SystemEventLogCleanupWorker(prisma, systemEventLogRepository);
 const aiRequestLogCleanupWorker = new AiRequestLogCleanupWorker(prisma, systemEventLogRepository);

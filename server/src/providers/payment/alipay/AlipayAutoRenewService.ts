@@ -6,6 +6,11 @@ import { getRuntimeConfig } from "../../../config/runtimeConfig.js";
 import { AlipayAutoRenewClient } from "./AlipayClient.js";
 import type { AlipayFormFields } from "./AlipaySignature.js";
 import type { AlipaySubscriptionChanged, AlipaySubscriptionSnapshot, AlipaySubscriptionStatus } from "./AlipayTypes.js";
+import {
+  AccountDeletionRenewalError,
+  resolveAlipayAccountDeletionAction,
+  type AccountDeletionRenewalResult,
+} from "../AccountDeletionRenewal.js";
 
 type AlipayLinkStore = {
   alipayAccountLink: {
@@ -443,23 +448,80 @@ export class AlipayAutoRenewService {
 
   async stopSubscriptionRenewalForAccountDeletion(
     providerAgreementId: string,
-  ): Promise<"cancelled" | "already_inactive"> {
+  ): Promise<AccountDeletionRenewalResult> {
     if (!this.client) throw new Error("ALIPAY_AUTORENEW_NOT_CONFIGURED");
     const subscription = await this.repository.findByProviderAgreement({ provider: "alipay", providerAgreementId });
-    if (!subscription || subscription.status === "cancelled" || objectValue(subscription.metadata).cancelAtPeriodEnd === true) {
-      return "already_inactive";
+    if (!subscription) {
+      return {
+        action: "already_inactive",
+        remoteStatus: "LOCAL_SUBSCRIPTION_NOT_FOUND",
+        autoRenewEnabled: false,
+        currentPeriodEnd: null,
+      };
     }
-    await this.client.cancelAtPeriodEnd(providerAgreementId);
+
+    const metadata = objectValue(subscription.metadata);
+    const storedLink = await this.store.alipayAccountLink.findUnique({ where: { userId: subscription.userId } });
+    const customerId = stringValue(metadata.customerId) ?? storedLink?.customerId ?? null;
+    if (!customerId) {
+      return {
+        action: "deferred",
+        remoteStatus: "CUSTOMER_LINK_MISSING",
+        autoRenewEnabled: null,
+        currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
+        reason: "customer_link_missing",
+      };
+    }
+
+    const snapshot = await this.client.querySubscription({ customerId, subscriptionId: providerAgreementId });
+    const remoteStatus = normalizeSubscriptionStatus(snapshot.subscription_status);
+    const cancelAtPeriodEnd = snapshot.cancel_at_period_end === true;
+    const action = resolveAlipayAccountDeletionAction(remoteStatus, cancelAtPeriodEnd);
+    const currentPeriodEnd = parseDate(snapshot.current_period_end)?.toISOString() ?? null;
+
+    if (action === "defer") {
+      return {
+        action: "deferred",
+        remoteStatus,
+        autoRenewEnabled: null,
+        currentPeriodEnd,
+        reason: "remote_status_not_safe_for_deletion",
+      };
+    }
+    if (action === "already_inactive") {
+      if (["CANCELED", "INCOMPLETE_EXPIRED"].includes(remoteStatus) && subscription.status !== "cancelled") {
+        await this.repository.cancelSubscription({
+          id: subscription.id,
+          cancelledAt: parseDate(snapshot.canceled_date) ?? new Date(),
+          metadata: {
+            ...metadata,
+            customerId,
+            cancelAtPeriodEnd: false,
+            cancelSource: "account_deletion_remote_check",
+            lastAlipaySubscriptionStatus: remoteStatus,
+          },
+        });
+      }
+      return { action, remoteStatus, autoRenewEnabled: false, currentPeriodEnd };
+    }
+
+    try {
+      await this.client.cancelAtPeriodEnd(providerAgreementId);
+    } catch (error) {
+      throw new AccountDeletionRenewalError(remoteStatus, error);
+    }
     await this.repository.updateSubscription({
       id: subscription.id,
       metadata: {
-        ...objectValue(subscription.metadata),
+        ...metadata,
+        customerId,
         cancelAtPeriodEnd: true,
         cancelSource: "account_deletion",
         cancelRequestedAt: new Date().toISOString(),
+        lastAlipaySubscriptionStatus: remoteStatus,
       },
     });
-    return "cancelled";
+    return { action: "cancelled", remoteStatus, autoRenewEnabled: false, currentPeriodEnd };
   }
 
   async reconcile(input: { customerId: string; subscriptionId: string }): Promise<AlipaySubscriptionSnapshot> {

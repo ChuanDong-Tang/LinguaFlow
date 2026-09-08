@@ -27,6 +27,11 @@ import {
   googlePlayStateGrantsEntitlement,
   resolveGooglePlayNotificationAction,
 } from "./GooglePlaySubscriptionState.js";
+import {
+  AccountDeletionRenewalError,
+  resolveGooglePlayAccountDeletionAction,
+  type AccountDeletionRenewalResult,
+} from "../AccountDeletionRenewal.js";
 
 export interface VerifyGooglePlayPurchaseResult {
   purchaseToken: string;
@@ -188,7 +193,7 @@ export class GooglePlayBillingService {
 
   async stopSubscriptionRenewalForAccountDeletion(
     purchaseToken: string
-  ): Promise<"cancelled" | "already_inactive"> {
+  ): Promise<AccountDeletionRenewalResult> {
     const config = loadGooglePlayBillingConfig();
     const accessToken = await createGoogleAccessToken(config.credentials);
     const subscription = await fetchGoogleSubscriptionV2({
@@ -200,20 +205,40 @@ export class GooglePlayBillingService {
     const hasAutoRenewEnabled = (subscription.lineItems ?? []).some(
       (lineItem) => lineItem.autoRenewingPlan?.autoRenewEnabled === true
     );
-    if (
-      !hasAutoRenewEnabled ||
-      state === "SUBSCRIPTION_STATE_CANCELED" ||
-      state === "SUBSCRIPTION_STATE_EXPIRED" ||
-      state === "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED"
-    ) {
-      return "already_inactive";
+    const currentPeriodEnd = latestGooglePeriodEnd(subscription)?.toISOString() ?? null;
+    const action = resolveGooglePlayAccountDeletionAction(state, hasAutoRenewEnabled);
+    if (action === "defer") {
+      return {
+        action: "deferred",
+        remoteStatus: state || "UNKNOWN",
+        autoRenewEnabled: hasAutoRenewEnabled,
+        currentPeriodEnd,
+        reason: "remote_status_not_safe_for_deletion",
+      };
     }
-    await cancelGoogleSubscriptionRenewal({
-      packageName: config.packageName,
-      purchaseToken,
-      accessToken,
-    });
-    return "cancelled";
+    if (action === "already_inactive") {
+      return {
+        action,
+        remoteStatus: state || "UNKNOWN",
+        autoRenewEnabled: false,
+        currentPeriodEnd,
+      };
+    }
+    try {
+      await cancelGoogleSubscriptionRenewal({
+        packageName: config.packageName,
+        purchaseToken,
+        accessToken,
+      });
+    } catch (error) {
+      throw new AccountDeletionRenewalError(state, error);
+    }
+    return {
+      action: "cancelled",
+      remoteStatus: state,
+      autoRenewEnabled: false,
+      currentPeriodEnd,
+    };
   }
 
   async reconcileCurrentAutoRenewForUser(userId: string): Promise<GooglePlayAutoRenewReconcileResult> {
@@ -888,6 +913,13 @@ function parseGoogleDate(value: string | undefined): Date | null {
   if (!value) return null;
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function latestGooglePeriodEnd(subscription: GoogleSubscriptionPurchaseV2): Date | null {
+  return (subscription.lineItems ?? [])
+    .map((lineItem) => parseGoogleDate(lineItem.expiryTime))
+    .filter((date): date is Date => Boolean(date))
+    .sort((left, right) => right.getTime() - left.getTime())[0] ?? null;
 }
 
 function createGoogleObfuscatedAccountId(userId: string): string {

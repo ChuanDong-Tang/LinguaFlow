@@ -1,9 +1,12 @@
 import type { PrismaClient } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { TtsStorageProvider } from "../../services/tts/TtsStorageProvider.js";
 import type { GooglePlayBillingService } from "../../providers/payment/google/GooglePlayBillingService.js";
 import type { AlipayAutoRenewService } from "../../providers/payment/alipay/AlipayAutoRenewService.js";
+import type { AppleIapService } from "../../providers/payment/apple/AppleIapService.js";
+import type { AccountDeletionRenewalResult } from "../../providers/payment/AccountDeletionRenewal.js";
 import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
 
 export interface AccountDeletionCleanupWorkerOptions {
@@ -11,8 +14,21 @@ export interface AccountDeletionCleanupWorkerOptions {
   batchSize?: number;
   googlePlayBillingService?: GooglePlayBillingService;
   alipayAutoRenewService?: AlipayAutoRenewService;
+  appleIapService?: AppleIapService;
   imageStorageProvider?: CardImageStorageProvider;
 }
+
+type AccountDeletionDeferredReason = {
+  reason: string;
+  provider?: "apple" | "google_play" | "alipay";
+  remoteStatus?: string;
+  currentPeriodEnd?: string | null;
+};
+
+type ProviderRenewalCheck = {
+  provider: "apple" | "google_play" | "alipay";
+  result: AccountDeletionRenewalResult;
+};
 
 export class AccountDeletionCleanupWorker {
   private static readonly LOCK_KEY = 620057;
@@ -87,15 +103,53 @@ export class AccountDeletionCleanupWorker {
       });
 
       let deletedUsers = 0;
+      let deferredUsers = 0;
+      let failedUsers = 0;
       for (const user of users) {
-        await this.disableUserAndDeleteData(user.id);
-        deletedUsers += 1;
+        try {
+          const result = await this.disableUserAndDeleteData(user.id);
+          if (result.status === "deleted") {
+            deletedUsers += 1;
+          } else {
+            deferredUsers += 1;
+            await this.writeWorkerLog({
+              event: "auth.worker.account_deletion_user_deferred",
+              level: "warn",
+              status: "ignored",
+              errorCode: "ACCOUNT_DELETION_DEFERRED",
+              metadata: {
+                userRef: anonymizeUserId(user.id),
+                reason: result.reason.reason,
+                provider: result.reason.provider ?? null,
+                remoteStatus: result.reason.remoteStatus ?? null,
+                currentPeriodEnd: result.reason.currentPeriodEnd ?? null,
+              },
+            });
+          }
+        } catch (error) {
+          failedUsers += 1;
+          await this.writeWorkerLog({
+            event: "auth.worker.account_deletion_user_failed",
+            level: "error",
+            status: "failed",
+            errorCode: toErrorCode(error),
+            errorMessage: "Account deletion cleanup failed for one user",
+            metadata: {
+              userRef: anonymizeUserId(user.id),
+              provider: error instanceof AccountDeletionProviderError ? error.provider : null,
+              remoteStatus: remoteStatusFromError(error),
+            },
+          });
+        }
       }
 
       await this.writeRoundLog({
-        status: deletedUsers > 0 ? "success" : "success_empty",
+        status: resolveRoundStatus({ selectedUsers: users.length, deletedUsers, deferredUsers, failedUsers }),
         durationMs: Date.now() - startedAt,
+        selectedUsers: users.length,
         deletedUsers,
+        deferredUsers,
+        failedUsers,
         batchSize,
       });
     } catch (error) {
@@ -109,7 +163,10 @@ export class AccountDeletionCleanupWorker {
       await this.writeRoundLog({
         status: "failed",
         durationMs: Date.now() - startedAt,
+        selectedUsers: 0,
         deletedUsers: 0,
+        deferredUsers: 0,
+        failedUsers: 0,
         batchSize: this.options.batchSize ?? config.accountDeletionCleanupBatchSize,
       });
     } finally {
@@ -118,9 +175,47 @@ export class AccountDeletionCleanupWorker {
     }
   }
 
-  private async disableUserAndDeleteData(userId: string): Promise<void> {
-    const googlePlayRenewalsStopped = await this.stopGooglePlayRenewalsBeforeDeletion(userId);
-    const alipayRenewalsStopped = await this.stopAlipayRenewalsBeforeDeletion(userId);
+  private async disableUserAndDeleteData(
+    userId: string,
+  ): Promise<{ status: "deleted" } | { status: "deferred"; reason: AccountDeletionDeferredReason }> {
+    const renewalResults = (await Promise.all([
+      this.stopGooglePlayRenewalsBeforeDeletion(userId),
+      this.stopAlipayRenewalsBeforeDeletion(userId),
+      this.checkAppleRenewalsBeforeDeletion(userId),
+    ])).flat();
+    const deferredRenewal = renewalResults.find(
+      (result) => result.result.action === "deferred",
+    );
+    if (deferredRenewal) {
+      return {
+        status: "deferred",
+        reason: {
+          reason: deferredRenewal.result.reason ?? "provider_renewal_state_not_safe",
+          provider: deferredRenewal.provider,
+          remoteStatus: deferredRenewal.result.remoteStatus,
+          currentPeriodEnd: deferredRenewal.result.currentPeriodEnd,
+        },
+      };
+    }
+
+    const currentMembership = await this.prisma.subscription.findFirst({
+      where: { userId, status: "active", expiresAt: { gt: new Date() } },
+      select: { expiresAt: true },
+      orderBy: { expiresAt: "desc" },
+    });
+    if (currentMembership) {
+      return {
+        status: "deferred",
+        reason: {
+          reason: "paid_membership_period_active",
+          currentPeriodEnd: currentMembership.expiresAt.toISOString(),
+        },
+      };
+    }
+
+    const googlePlayRenewalsStopped = renewalStoppedCount(renewalResults, "google_play");
+    const alipayRenewalsStopped = renewalStoppedCount(renewalResults, "alipay");
+    const appleRenewalsVerified = renewalResults.filter((item) => item.provider === "apple").length;
     const ttsObjectKeys = await this.prisma.ttsAsset.findMany({
       where: { userId, status: "ready" },
       select: { objectKey: true },
@@ -157,6 +252,7 @@ export class AccountDeletionCleanupWorker {
       await tx.paymentOrder.deleteMany({ where: { userId } });
       await tx.autoRenewCharge.deleteMany({ where: { userId } });
       await tx.autoRenewSubscription.deleteMany({ where: { userId } });
+      await tx.alipayAccountLink.deleteMany({ where: { userId } });
       await tx.appleIapAccountLink.deleteMany({ where: { userId } });
       await tx.googlePlayAccountLink.deleteMany({ where: { userId } });
       await tx.subscription.deleteMany({ where: { userId } });
@@ -197,8 +293,8 @@ export class AccountDeletionCleanupWorker {
       event: "auth.worker.account_deletion_user_disabled",
       level: "info",
       status: "success",
-      userId,
       metadata: {
+        userRef: anonymizeUserId(userId),
         ttsCosObjectsDeleted: this.ttsStorageProvider ? ttsObjectKeys.length + cardSpeechObjectKeys.length : 0,
         ttsCosCleanupSkipped: !this.ttsStorageProvider,
         imageCosObjectsDeleted: this.options.imageStorageProvider
@@ -207,54 +303,85 @@ export class AccountDeletionCleanupWorker {
         imageCosCleanupSkipped: !this.options.imageStorageProvider,
         googlePlayRenewalsStopped,
         alipayRenewalsStopped,
+        appleRenewalsVerified,
       },
     });
+    return { status: "deleted" };
   }
 
-  private async stopGooglePlayRenewalsBeforeDeletion(userId: string): Promise<number> {
+  private async stopGooglePlayRenewalsBeforeDeletion(userId: string) {
     const subscriptions = await this.prisma.autoRenewSubscription.findMany({
       where: {
         userId,
         provider: "google_play",
-        status: { in: ["pending", "active", "billing_retry", "paused"] },
       },
       select: { providerAgreementId: true },
+      orderBy: { updatedAt: "desc" },
     });
-    if (subscriptions.length === 0) return 0;
-    const service = this.options.googlePlayBillingService;
-    if (!service) {
-      throw new Error("GOOGLE_PLAY_ACCOUNT_DELETION_CANCEL_SERVICE_NOT_CONFIGURED");
+    if (subscriptions.length === 0) return [];
+    try {
+      const service = this.options.googlePlayBillingService;
+      if (!service) throw new Error("GOOGLE_PLAY_ACCOUNT_DELETION_CANCEL_SERVICE_NOT_CONFIGURED");
+      const results: ProviderRenewalCheck[] = [];
+      for (const subscription of subscriptions) {
+        results.push({
+          provider: "google_play",
+          result: await service.stopSubscriptionRenewalForAccountDeletion(subscription.providerAgreementId),
+        });
+      }
+      return results;
+    } catch (error) {
+      throw new AccountDeletionProviderError("google_play", error);
     }
-
-    let stopped = 0;
-    for (const subscription of subscriptions) {
-      const status = await service.stopSubscriptionRenewalForAccountDeletion(
-        subscription.providerAgreementId
-      );
-      if (status === "cancelled") stopped += 1;
-    }
-    return stopped;
   }
 
-  private async stopAlipayRenewalsBeforeDeletion(userId: string): Promise<number> {
+  private async stopAlipayRenewalsBeforeDeletion(userId: string) {
     const subscriptions = await this.prisma.autoRenewSubscription.findMany({
       where: {
         userId,
         provider: "alipay",
-        status: { in: ["pending", "active", "billing_retry", "paused"] },
       },
       select: { providerAgreementId: true },
+      orderBy: { updatedAt: "desc" },
     });
-    if (subscriptions.length === 0) return 0;
-    const service = this.options.alipayAutoRenewService;
-    if (!service) throw new Error("ALIPAY_ACCOUNT_DELETION_CANCEL_SERVICE_NOT_CONFIGURED");
-
-    let stopped = 0;
-    for (const subscription of subscriptions) {
-      const status = await service.stopSubscriptionRenewalForAccountDeletion(subscription.providerAgreementId);
-      if (status === "cancelled") stopped += 1;
+    if (subscriptions.length === 0) return [];
+    try {
+      const service = this.options.alipayAutoRenewService;
+      if (!service) throw new Error("ALIPAY_ACCOUNT_DELETION_CANCEL_SERVICE_NOT_CONFIGURED");
+      const results: ProviderRenewalCheck[] = [];
+      for (const subscription of subscriptions) {
+        results.push({
+          provider: "alipay",
+          result: await service.stopSubscriptionRenewalForAccountDeletion(subscription.providerAgreementId),
+        });
+      }
+      return results;
+    } catch (error) {
+      throw new AccountDeletionProviderError("alipay", error);
     }
-    return stopped;
+  }
+
+  private async checkAppleRenewalsBeforeDeletion(userId: string) {
+    const subscriptions = await this.prisma.autoRenewSubscription.findMany({
+      where: { userId, provider: "apple" },
+      select: { providerAgreementId: true },
+      orderBy: { updatedAt: "desc" },
+    });
+    if (subscriptions.length === 0) return [];
+    try {
+      const service = this.options.appleIapService;
+      if (!service) throw new Error("APPLE_ACCOUNT_DELETION_SERVICE_NOT_CONFIGURED");
+      const results: ProviderRenewalCheck[] = [];
+      for (const subscription of subscriptions) {
+        results.push({
+          provider: "apple",
+          result: await service.checkRenewalForAccountDeletion(subscription.providerAgreementId),
+        });
+      }
+      return results;
+    } catch (error) {
+      throw new AccountDeletionProviderError("apple", error);
+    }
   }
 
   private async tryAcquireLock(): Promise<boolean> {
@@ -280,20 +407,28 @@ export class AccountDeletionCleanupWorker {
   }
 
   private async writeRoundLog(input: {
-    status: "success" | "success_empty" | "failed" | "skipped_disabled" | "skipped_lock_miss";
+    status: "success" | "success_empty" | "failed" | "partial_failure" | "deferred" | "partial_deferred" | "skipped_disabled" | "skipped_lock_miss";
     durationMs: number;
+    selectedUsers?: number;
     deletedUsers: number;
+    deferredUsers?: number;
+    failedUsers?: number;
     batchSize: number;
   }): Promise<void> {
+    const failed = input.status === "failed" || input.status === "partial_failure";
+    const deferred = input.status === "deferred" || input.status === "partial_deferred";
     await this.writeWorkerLog({
       event: "auth.worker.account_deletion_cleanup_round",
-      level: input.status === "failed" ? "error" : "info",
-      status: input.status === "failed" ? "failed" : "success",
+      level: failed ? "error" : deferred ? "warn" : "info",
+      status: failed ? "failed" : deferred ? "ignored" : "success",
       metadata: {
         worker: "account_deletion_cleanup",
         status: input.status,
         durationMs: input.durationMs,
+        selectedUsers: input.selectedUsers ?? 0,
         deletedUsers: input.deletedUsers,
+        deferredUsers: input.deferredUsers ?? 0,
+        failedUsers: input.failedUsers ?? 0,
         batchSize: input.batchSize,
         lockKey: AccountDeletionCleanupWorker.LOCK_KEY,
       },
@@ -329,4 +464,53 @@ export class AccountDeletionCleanupWorker {
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+class AccountDeletionProviderError extends Error {
+  constructor(
+    readonly provider: "apple" | "google_play" | "alipay",
+    readonly originalError: unknown,
+  ) {
+    super(originalError instanceof Error ? originalError.message : String(originalError));
+  }
+}
+
+function toErrorCode(error: unknown): string {
+  const original = error instanceof AccountDeletionProviderError ? error.originalError : error;
+  if (original && typeof original === "object" && "code" in original) {
+    const code = String((original as { code?: unknown }).code ?? "").trim();
+    if (code) return code.slice(0, 80);
+  }
+  const message = original instanceof Error ? original.message : String(original);
+  const code = message.match(/[A-Z][A-Z0-9_]{2,79}/)?.[0];
+  return code ?? "ACCOUNT_DELETION_USER_FAILED";
+}
+
+function remoteStatusFromError(error: unknown): string | null {
+  const original = error instanceof AccountDeletionProviderError ? error.originalError : error;
+  if (!original || typeof original !== "object" || !("remoteStatus" in original)) return null;
+  const status = String((original as { remoteStatus?: unknown }).remoteStatus ?? "").trim();
+  return status ? status.slice(0, 80) : null;
+}
+
+function anonymizeUserId(userId: string): string {
+  return createHash("sha256").update(userId).digest("hex").slice(0, 12);
+}
+
+function renewalStoppedCount(
+  results: ProviderRenewalCheck[],
+  provider: string,
+): number {
+  return results.filter((item) => item.provider === provider && item.result.action === "cancelled").length;
+}
+
+export function resolveRoundStatus(input: {
+  selectedUsers: number;
+  deletedUsers: number;
+  deferredUsers: number;
+  failedUsers: number;
+}): "success" | "success_empty" | "failed" | "partial_failure" | "deferred" | "partial_deferred" {
+  if (input.failedUsers > 0) return input.deletedUsers > 0 ? "partial_failure" : "failed";
+  if (input.deferredUsers > 0) return input.deletedUsers > 0 ? "partial_deferred" : "deferred";
+  return input.selectedUsers === 0 ? "success_empty" : "success";
 }
