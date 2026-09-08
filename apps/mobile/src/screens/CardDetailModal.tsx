@@ -1975,6 +1975,8 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     : displayMode === "bilingual"
       ? "card_detail.display.bilingual"
       : "card_detail.display.auxiliary");
+  const targetLanguageShort = compactLanguageLabel(detail.languageCode);
+  const auxiliaryLanguageShort = compactLanguageLabel(playbackPrimaryBlock?.auxiliaryLanguageCode ?? getLanguage());
   const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "translation", boolean>>({ imageDescription: false, learning: false, reply: false, translation: false });
   const [articleAudioLoading, setArticleAudioLoading] = useState(false);
   const [sentenceAudioLoadingKey, setSentenceAudioLoadingKey] = useState<string | null>(null);
@@ -3108,7 +3110,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
               collapsed={collapsedSections.imageDescription}
               action={imageDescriptionAction}
               onToggle={() => {
-                if (currentImageBlock) selectLearningBlock(currentImageBlock);
+                if (collapsedSections.imageDescription && currentImageBlock) selectLearningBlock(currentImageBlock);
                 toggleSection("imageDescription");
               }}
               onAction={() => {
@@ -3177,7 +3179,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
             </View>
           </View> : null}
           {rewriteBlock || originalBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
-            {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={t("card_detail.module.expression_description")} tone="rewrite" collapsed={collapsedSections.learning} onToggle={() => { toggleSection("learning"); selectLearningBlock(rewriteBlock ?? originalBlock!); }} compact>
+            {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={t("card_detail.module.expression_description")} tone="rewrite" collapsed={collapsedSections.learning} onToggle={() => { if (collapsedSections.learning) selectLearningBlock(rewriteBlock ?? originalBlock!); toggleSection("learning"); }} compact>
                 {contentBinding.contentType === (rewriteBlock?.contentType ?? contentBinding.contentType) && practiceEnabled
                       ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} displayMode={displayMode} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
                       : rewriteBlock
@@ -3206,7 +3208,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
                 ? <PendingGenerationSection target="expression" />
                 : <FailedGenerationSection target="expression" retrying={retryingGenerationTarget === "expression"} onRetry={onRetryGeneration} />}
           </View> : null}
-          {detail.replyText && replyBlock ? <CollapsibleCardSection label={t("card_detail.reply")} collapsed={collapsedSections.reply} onToggle={() => { toggleSection("reply"); selectLearningBlock(replyBlock); }}>
+          {detail.replyText && replyBlock ? <CollapsibleCardSection label={t("card_detail.reply")} collapsed={collapsedSections.reply} onToggle={() => { if (collapsedSections.reply) selectLearningBlock(replyBlock); toggleSection("reply"); }}>
             {contentBinding.contentType === "reply" && practiceEnabled
               ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} displayMode={displayMode} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
               : replyBlock.segments.map((segment) => <View key={segment.id} style={styles.imageDescriptionSentenceRow}>
@@ -3234,12 +3236,12 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       </Pressable>)}
     </View> : null}
     <View ref={actionBarRef} style={styles.detailActionBar}>
-      <DetailActionButton label={displayModeLabel} textIcon={displayMode === "target" ? "A" : displayMode === "bilingual" ? "A+B" : "B"} active={displayMode !== "target"} loading={auxiliaryLoading} onPress={cycleDisplayMode} />
+      <DetailActionButton label={displayModeLabel} textIcon={displayMode === "target" ? targetLanguageShort : displayMode === "bilingual" ? `${targetLanguageShort}+${auxiliaryLanguageShort}` : auxiliaryLanguageShort} active={displayMode !== "target"} loading={auxiliaryLoading} onPress={cycleDisplayMode} />
       <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={!practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} />
-      <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={!practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => setAnswersVisible((current) => !current)} />
+      {!hidePhraseRecommendation ? <DetailActionButton label={t("card_detail.recommendation.button")} icon="sparkles" buttonText={t("card_detail.recommendation.short")} loading={recommendationLoading} disabled={!practiceEnabled || !frontLearningReady || !onGeneratePhraseRecommendation || phraseRecommendation?.exhausted === true} onPress={openPhraseRecommendation} /> : null}
       <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard"} disabled={!practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => toggleClozeMode("keyboard")} />
       <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice"} disabled={!practiceEnabled || blankCount < 2 || !frontLearningReady} onPress={() => toggleClozeMode("choice")} />
-      {!hidePhraseRecommendation ? <DetailActionButton label={t("card_detail.recommendation.button")} icon="sparkles" loading={recommendationLoading} disabled={!practiceEnabled || !frontLearningReady || !onGeneratePhraseRecommendation || phraseRecommendation?.exhausted === true} onPress={openPhraseRecommendation} /> : null}
+      <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={!practiceEnabled || !hasBlanks || !frontLearningReady} onPress={() => setAnswersVisible((current) => !current)} />
     </View>
     <Modal visible={recommendationTaskVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
       <Pressable style={styles.recommendationBackdrop} onPress={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
@@ -3480,10 +3482,11 @@ function CardSectionCopyButton({ onPress }: { onPress: () => void }) {
   </Pressable>;
 }
 
-function DetailActionButton({ label, icon, textIcon, active = false, loading = false, disabled = false, onPress }: {
+function DetailActionButton({ label, icon, textIcon, buttonText, active = false, loading = false, disabled = false, onPress }: {
   label: string;
   icon?: React.ComponentProps<typeof Ionicons>["name"];
   textIcon?: string;
+  buttonText?: string;
   active?: boolean;
   loading?: boolean;
   disabled?: boolean;
@@ -3499,8 +3502,22 @@ function DetailActionButton({ label, icon, textIcon, active = false, loading = f
       ? <ActivityIndicator size="small" color={theme.colors.text} />
       : textIcon
         ? <Text style={[styles.clozeToolbarText, active && styles.clozeToolbarTextActive]}>{textIcon}</Text>
-        : icon ? <Ionicons name={icon} size={21} color={active ? theme.colors.surface : theme.colors.textSecondary} /> : null}
+        : icon && buttonText
+          ? <View style={styles.detailActionIconText}><Ionicons name={icon} size={16} color={active ? theme.colors.surface : theme.colors.textSecondary} /><Text numberOfLines={1} style={[styles.detailActionButtonCaption, active && styles.detailActionButtonCaptionActive]}>{buttonText}</Text></View>
+          : icon ? <Ionicons name={icon} size={21} color={active ? theme.colors.surface : theme.colors.textSecondary} /> : null}
   </Pressable>;
+}
+
+function compactLanguageLabel(languageCode: string): string {
+  const locale = getLanguage();
+  if (locale === "en-US") {
+    if (languageCode.startsWith("zh")) return "ZH";
+    if (languageCode.startsWith("ja")) return "JA";
+    return "EN";
+  }
+  if (languageCode.startsWith("zh")) return "中";
+  if (languageCode.startsWith("ja")) return "日";
+  return "英";
 }
 
 function KaraokeText({ text, active, progress, blankRanges = [] }: {
@@ -4512,6 +4529,9 @@ const styles = StyleSheet.create({
   detailActionButtonActive: { backgroundColor: theme.colors.text },
   detailActionButtonDisabled: { opacity: 0.28 },
   clozeToolbarText: { color: theme.colors.textSecondary, fontSize: 16, lineHeight: 21, fontWeight: "600" },
+  detailActionIconText: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2 },
+  detailActionButtonCaption: { color: theme.colors.textSecondary, fontSize: 11, lineHeight: 15, fontWeight: "700" },
+  detailActionButtonCaptionActive: { color: theme.colors.surface },
   clozeToolbarTextActive: { color: theme.colors.surface },
   blankActionBackdrop: { flex: 1, backgroundColor: "transparent" },
   blankActionMenu: { position: "absolute", width: 184, height: 44, zIndex: 40, elevation: 40, paddingHorizontal: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 12, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 11, shadowOffset: { width: 0, height: 4 } },
