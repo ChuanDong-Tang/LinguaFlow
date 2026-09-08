@@ -3419,14 +3419,14 @@ function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, 
   const press = action === "generate" ? onAction : action === "toggle" ? onToggle : undefined;
   return <View style={[styles.flipCardSection, tone === "image" && styles.imageIntegratedSection]}>
     <Pressable accessibilityRole="button" accessibilityState={{ expanded: action === "toggle" ? !collapsed : undefined, busy: action === "loading" }} disabled={action === "loading"} style={({ pressed }) => [styles.collapsibleSectionHeader, pressed && styles.collapsibleSectionHeaderPressed]} onPress={press}>
-      <View style={styles.collapsibleSectionToggle}>
-      <Text style={[styles.sectionLabelInline, labelStyle]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.sectionLabelInline, styles.collapsibleSectionTitle, labelStyle]}>{label}</Text>
+      <View style={[styles.collapsibleSectionAction, action === "generate" && styles.collapsibleSectionGenerateAction]}>
+        {action === "loading"
+          ? <ActivityIndicator size="small" color={iconColor} />
+          : action === "generate"
+            ? <View style={styles.sectionGenerateAction}><Ionicons name="sparkles-outline" size={17} color={iconColor} /><Text style={[styles.sectionGenerateText, { color: iconColor }]}>{t("card_detail.generate")}</Text></View>
+            : <Ionicons name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={iconColor} />}
       </View>
-      {action === "loading"
-        ? <ActivityIndicator size="small" color={iconColor} />
-        : action === "generate"
-          ? <View style={styles.sectionGenerateAction}><Ionicons name="sparkles-outline" size={17} color={iconColor} /><Text style={[styles.sectionGenerateText, { color: iconColor }]}>{t("card_detail.generate")}</Text></View>
-          : <Ionicons name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={iconColor} />}
     </Pressable>
     {action === "toggle" && !collapsed ? children : null}
   </View>;
@@ -4375,11 +4375,13 @@ const styles = StyleSheet.create({
   replyGenerateButtonDisabled: { opacity: 0.5 },
   replyGenerateButtonPressed: { opacity: 0.68 },
   replyGenerateButtonText: { color: "#52796C", fontSize: 13, fontWeight: "600" },
-  collapsibleSectionHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 8 },
+  collapsibleSectionHeader: { height: 36, flexDirection: "row", alignItems: "center", gap: 8 },
   collapsibleSectionHeaderPressed: { opacity: 0.66 },
   sectionGenerateAction: { minHeight: 32, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 5 },
   sectionGenerateText: { fontSize: 13, fontWeight: "600" },
-  collapsibleSectionToggle: { flex: 1, minHeight: 32, justifyContent: "center" },
+  collapsibleSectionTitle: { lineHeight: 20, includeFontPadding: false, textAlignVertical: "center" },
+  collapsibleSectionAction: { width: 32, height: 32, flexShrink: 0, alignItems: "center", justifyContent: "center" },
+  collapsibleSectionGenerateAction: { width: "auto", minWidth: 56 },
   pendingGenerationSection: { minHeight: 68, marginTop: 24, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, gap: 12 },
   generatingDots: { height: 18, flexDirection: "row", alignItems: "center", gap: 5 },
   generatingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.textSecondary },
