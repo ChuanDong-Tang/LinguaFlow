@@ -54,6 +54,7 @@ export interface CardRelationPreviewRow {
   rewrittenText: string;
   languageCode: string;
   isSample: boolean;
+  recordedAt: Date;
   createdAt: Date;
   image: CardImageAssetEntity | null;
 }
@@ -86,6 +87,7 @@ export class PrismaCardRelationRepository {
       rewrittenText: card.rewrittenText ?? "",
       languageCode: card.languageCode,
       isSample: card.isSample,
+      recordedAt: card.recordedAt,
       createdAt: card.createdAt,
       image: (card.images[0] as CardImageAssetEntity | undefined) ?? null,
     }));

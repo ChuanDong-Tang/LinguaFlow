@@ -678,7 +678,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             : null);
           setRecords((current) => current.map((row) => row.id === created.id ? { ...detail, status: "completed" } : row));
           if (!failedTargets.length) {
-            if (!detail.title && !detail.topic) refreshGeneratedTopic(created.id);
+            if ((detail.originalText.trim() || detail.rewrittenText?.trim()) && !detail.title && !detail.topic) refreshGeneratedTopic(created.id);
             try {
               await saveDraftClozeRanges(created.id, snapshot.clozeRanges);
             } catch (error) {
@@ -960,7 +960,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         await refresh();
         return;
       }
-      if (!created.title && !created.topic) refreshGeneratedTopic(created.id);
+      if (snapshot.text.trim() && !created.title && !created.topic) refreshGeneratedTopic(created.id);
       if (created.status === "completed") {
         try {
           await saveDraftClozeRanges(created.id, snapshot.clozeRanges);
@@ -2803,14 +2803,14 @@ function SearchResultCard({ result, query, onPress }: { result: RecallCandidate;
       <View style={styles.cardContent}>
         {result.thumbnail ? <View style={styles.thumbnailFrame}><Image source={{ uri: result.thumbnail.url }} resizeMode="cover" style={styles.thumbnail} /></View> : null}
         <View style={styles.cardTextColumn}>
-          {match?.field === "title" || match?.field === "topic"
+          {result.displayTitle.trim() && (match?.field === "title" || match?.field === "topic")
             ? <HighlightedSearchText text={result.displayTitle} term={match.surfaceText || query} />
-            : <Text numberOfLines={1} style={styles.cardTitle}>{result.displayTitle}</Text>}
+            : result.displayTitle.trim() ? <Text numberOfLines={1} style={styles.cardTitle}>{result.displayTitle}</Text> : null}
           {match?.field === "title" || match?.field === "topic"
             ? <Text numberOfLines={2} style={styles.originalText}>{result.originalText}</Text>
             : <HighlightedSearchText text={match?.sentence || result.originalText} term={match?.surfaceText || query} />}
           <View style={styles.cardFooter}>
-            <Text style={styles.cardTime}>{formatSearchResultDate(result.createdAt)}</Text>
+            <Text style={styles.cardTime}>{formatSearchResultDate(result.recordedAt ?? result.createdAt)}</Text>
             <Text style={styles.searchMatchLabel}>{fieldLabel}{match?.matchType === "variant" ? ` · ${t("main.search.variant")}` : ""}</Text>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
           </View>
@@ -2917,18 +2917,18 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
         <View style={styles.cardTextColumn}>
           {processing ? (
             <>
-              <Text numberOfLines={1} ellipsizeMode="tail" style={styles.cardTitle}>{record.displayTitle}</Text>
+              {record.displayTitle.trim() ? <Text numberOfLines={1} ellipsizeMode="tail" style={styles.cardTitle}>{record.displayTitle}</Text> : null}
               <Text numberOfLines={record.thumbnail ? 2 : 3} ellipsizeMode="tail" style={styles.originalText}>{previewText}</Text>
               <Text style={styles.processingText}>{t("main.card.processing")}</Text>
             </>
           ) : (
             <>
-              <Text numberOfLines={1} ellipsizeMode="tail" style={styles.cardTitle}>{record.displayTitle}</Text>
+              {record.displayTitle.trim() ? <Text numberOfLines={1} ellipsizeMode="tail" style={styles.cardTitle}>{record.displayTitle}</Text> : null}
               <Text numberOfLines={record.thumbnail ? 2 : 3} ellipsizeMode="tail" style={styles.originalText}>{previewText}</Text>
             </>
           )}
           <View style={styles.cardFooter}>
-            <Text numberOfLines={1} style={styles.cardTime}>{formatCardDateLabel(record.dateKey)} · {formatTime(record.createdAt)}</Text>
+            <Text numberOfLines={1} style={styles.cardTime}>{formatCardDateLabel(record.dateKey)} · {formatTime(record.recordedAt ?? record.createdAt)}</Text>
             {collectionName ? <Text numberOfLines={1} style={styles.cardCollection}>{collectionName}</Text> : null}
             {record.isSample ? <Text style={styles.sampleBadge}>{t("main.card.sample")}</Text> : null}
             {processing ? <ActivityIndicator size="small" color={theme.colors.accent} /> : !selecting ? (

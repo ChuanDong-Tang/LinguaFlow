@@ -396,6 +396,20 @@ export function CardDetailNavigator({
       onForward={canNavigateForward ? () => void navigateHistory(historyIndex + 1) : undefined}
       onOpenRelated={(recordId, reasons) => void openRelated(recordId, reasons)}
       hideRelations={historyIndex > 0}
+      onUpdateMetadata={async (input) => {
+        if (!detail) return false;
+        try {
+          const updated = await updateCardContent(detail.id, input);
+          const stableDetail = await stabilizeCardDetailImages(detail, updated);
+          setDetail(stableDetail);
+          detailCacheRef.current.set(detail.id, { detail: stableDetail, loadedAt: Date.now() });
+          onChanged();
+          return true;
+        } catch (error) {
+          Alert.alert(t("card_detail.error.save"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+          return false;
+        }
+      }}
       onUpdateContent={async (input) => {
         if (!detail) return false;
         if (isCardGenerationInProgress(detail.id)) {

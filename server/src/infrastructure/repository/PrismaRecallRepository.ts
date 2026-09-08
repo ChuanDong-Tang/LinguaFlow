@@ -9,6 +9,7 @@ export interface RecallCandidate {
   topic: string | null;
   originalText: string;
   rewrittenText: string;
+  recordedAt: Date;
   createdAt: Date;
   reason: "long_unseen" | "has_connections" | "shuffle" | "search" | "semantic_search";
   semanticScore?: number;
@@ -63,9 +64,10 @@ export class PrismaRecallRepository {
         topic: true,
         originalText: true,
         rewrittenText: true,
+        recordedAt: true,
         createdAt: true,
       },
-      orderBy: mode === "shuffle" ? { updatedAt: "asc" } : { createdAt: "asc" },
+      orderBy: mode === "shuffle" ? { updatedAt: "asc" } : { recordedAt: "asc" },
       take: Math.min(50, Math.max(limit * 4, limit)),
     });
     const ordered = mode === "shuffle" ? stableShuffle(rows) : rows;
@@ -95,6 +97,7 @@ export class PrismaRecallRepository {
         topic: card.topic,
         originalText: card.originalText ?? "",
         rewrittenText: card.rewrittenText ?? "",
+        recordedAt: card.recordedAt,
         createdAt: card.createdAt,
         reason: mode === "shuffle" ? "shuffle" : connectedCardIds.has(card.id) ? "has_connections" : "long_unseen",
       };
@@ -115,7 +118,7 @@ export class PrismaRecallRepository {
     const thisYear = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
     const lastYear = new Date(Date.UTC(now.getUTCFullYear() - 1, 0, 1));
     const recent = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1_000);
-    const createdAt = input.timeRange === "recent" ? { gte: recent }
+    const recordedAt = input.timeRange === "recent" ? { gte: recent }
       : input.timeRange === "this_year" ? { gte: thisYear }
         : input.timeRange === "last_year" ? { gte: lastYear, lt: thisYear }
           : input.timeRange === "earlier" ? { lt: lastYear }
@@ -147,7 +150,7 @@ export class PrismaRecallRepository {
         status: "completed",
         deletedAt: null,
         isSample: false,
-        createdAt,
+        recordedAt,
         ...(input.collectionId !== undefined ? { collectionId: input.collectionId } : {}),
         ...(input.query ? {
           OR: [
@@ -169,10 +172,11 @@ export class PrismaRecallRepository {
         rewrittenText: true,
         translationText: true,
         replyText: true,
+        recordedAt: true,
         createdAt: true,
         segments: { orderBy: { ordinal: "asc" }, select: { id: true, text: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { recordedAt: "desc" },
       take: Math.min(100, Math.max(input.limit, input.limit * 5)),
     });
     const occurrences = matchingPhraseIds.length && cards.length
@@ -207,6 +211,7 @@ export class PrismaRecallRepository {
       topic: card.topic,
       originalText: card.originalText ?? "",
       rewrittenText: card.rewrittenText ?? "",
+      recordedAt: card.recordedAt,
       createdAt: card.createdAt,
       reason: "search",
       matches: buildLexicalMatches({
@@ -222,7 +227,7 @@ export class PrismaRecallRepository {
       }),
     }));
     return candidates.sort((left, right) => lexicalPriority(left) - lexicalPriority(right)
-      || right.createdAt.getTime() - left.createdAt.getTime())
+      || right.recordedAt.getTime() - left.recordedAt.getTime())
       .slice(0, input.limit);
   }
 
@@ -257,6 +262,7 @@ export class PrismaRecallRepository {
       topic: string | null;
       originalText: string | null;
       rewrittenText: string | null;
+      recordedAt: Date;
       createdAt: Date;
       score: number;
     }>>(
@@ -265,6 +271,7 @@ export class PrismaRecallRepository {
               card."topic",
               card."originalText",
               card."rewrittenText",
+              card."recordedAt",
               card."createdAt",
               (1 - (embedding."embedding" <=> $2::vector))::double precision AS "score"
          FROM "card_embeddings" AS embedding
@@ -281,8 +288,8 @@ export class PrismaRecallRepository {
             OR ($4 = 'unclassified' AND card."collectionId" IS NULL)
             OR ($4 = 'collection' AND card."collectionId" = $5)
           )
-          AND ($6::timestamptz IS NULL OR card."createdAt" >= $6)
-          AND ($7::timestamptz IS NULL OR card."createdAt" < $7)
+          AND ($6::timestamptz IS NULL OR card."recordedAt" >= $6)
+          AND ($7::timestamptz IS NULL OR card."recordedAt" < $7)
           AND (1 - (embedding."embedding" <=> $2::vector)) >= $8
         ORDER BY embedding."embedding" <=> $2::vector ASC,
                  card."id" ASC
@@ -304,6 +311,7 @@ export class PrismaRecallRepository {
       topic: row.topic,
       originalText: row.originalText ?? "",
       rewrittenText: row.rewrittenText ?? "",
+      recordedAt: row.recordedAt,
       createdAt: row.createdAt,
       reason: "semantic_search",
       semanticScore: Number(row.score),
@@ -769,6 +777,7 @@ function lexicalPriority(candidate: RecallCandidate): number {
 }
 
 function effectiveTitle(card: { title?: string | null; topic?: string | null; originalText?: string | null; rewrittenText?: string | null }): string {
+  if (!card.originalText?.trim() && !card.rewrittenText?.trim()) return "";
   return card.title?.trim()
     || card.topic?.trim()
     || firstNonEmptyLine(card.originalText ?? card.rewrittenText ?? "");

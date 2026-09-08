@@ -49,6 +49,7 @@ export type CardRecordSummary = {
   thumbnail: { url: string; urlExpiresAt?: string | null; width: number; height: number; focusX?: number; focusY?: number } | null;
   practiceSummary: unknown | null;
   isSample: boolean;
+  recordedAt?: string;
   createdAt: string;
 };
 
@@ -157,6 +158,7 @@ export type CardMemoryRoundCandidate = {
   displayTitle: string;
   languageCode: string;
   thumbnail: { url: string; urlExpiresAt?: string | null; width: number; height: number } | null;
+  recordedAt?: string;
   createdAt: string;
   contentType: CardLearningContentType | null;
   contentVersion: string | null;
@@ -245,7 +247,7 @@ export async function generateCardAutomaticCloze(
 
 export async function updateCardContent(
   recordId: string,
-  input: Partial<Record<"title" | "originalText" | "rewrittenText" | "translationText" | "replyText" | "collectionId", string | null>>,
+  input: Partial<Record<"title" | "originalText" | "rewrittenText" | "translationText" | "replyText" | "collectionId" | "dateKey" | "recordedAt", string | null>>,
 ): Promise<CardRecordDetail> {
   return request<CardRecordDetail>(`/cards/${encodeURIComponent(requireCardId(recordId))}/content`, {
     method: "PATCH",
@@ -534,6 +536,7 @@ export type CardRelationPreview = {
   rewrittenText: string;
   languageCode: string;
   isSample: boolean;
+  recordedAt?: string;
   createdAt: string;
   thumbnail: { url: string; urlExpiresAt: string | null; width: number; height: number } | null;
 };
@@ -554,6 +557,7 @@ export type RecallCandidate = {
   topic: string | null;
   originalText: string;
   rewrittenText: string;
+  recordedAt?: string;
   createdAt: string;
   thumbnail: { url: string; urlExpiresAt?: string | null; width: number; height: number } | null;
   reason: "long_unseen" | "has_connections" | "shuffle" | "search" | "semantic_search";

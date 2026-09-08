@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   getCardPracticeQueue,
   getCardRecord,
+  updateCardContent,
   type CardPracticeQueueItem,
   type CardRecordDetail,
 } from "../services/api/cardApi";
@@ -56,14 +57,18 @@ export function CardPracticeScreen({ isActive }: { isActive: boolean }) {
         ) : null}
         {!loading && !items.length ? <View style={styles.empty}><Text style={styles.emptyTitle}>{t("card_practice.done")}</Text><Text style={styles.emptyText}>{t("card_practice.done_hint")}</Text></View> : null}
       </ScrollView>
-      <CardDetailModal detail={detail} loading={detailLoading} initialTab={initialTab} onClose={() => { setDetail(null); void refresh(); }} />
+      <CardDetailModal detail={detail} loading={detailLoading} initialTab={initialTab} onUpdateMetadata={async (input) => {
+        if (!detail) return false;
+        try { setDetail(await updateCardContent(detail.id, input)); void refresh(); return true; }
+        catch (error) { Alert.alert(t("card_detail.error.save"), error instanceof Error ? error.message : t("card_detail.error.try_again")); return false; }
+      }} onClose={() => { setDetail(null); void refresh(); }} />
     </SafeAreaView>
   );
 }
 
 function PracticeRow({ item, onPress }: { item: CardPracticeQueueItem; onPress: () => void }) {
   const labels = { continue_cloze: t("card_practice.reason.continue_cloze"), retry: t("card_practice.reason.retry"), try_dictation: t("card_practice.reason.try_dictation"), review: t("card_practice.reason.review") } as const;
-  return <Pressable style={styles.row} onPress={onPress}><View style={styles.rowBody}><Text style={styles.reason}>{labels[item.reason]}</Text><Text numberOfLines={1} style={styles.preview}>{item.record.displayTitle}</Text><Text numberOfLines={1} style={styles.previewBody}>{item.record.rewrittenPreview?.trim() || item.record.originalPreview}</Text></View><Ionicons name="chevron-forward" size={19} color={theme.colors.textMuted} /></Pressable>;
+  return <Pressable style={styles.row} onPress={onPress}><View style={styles.rowBody}><Text style={styles.reason}>{labels[item.reason]}</Text>{item.record.displayTitle.trim() ? <Text numberOfLines={1} style={styles.preview}>{item.record.displayTitle}</Text> : null}<Text numberOfLines={1} style={styles.previewBody}>{item.record.rewrittenPreview?.trim() || item.record.originalPreview}</Text></View><Ionicons name="chevron-forward" size={19} color={theme.colors.textMuted} /></Pressable>;
 }
 
 const styles = StyleSheet.create({

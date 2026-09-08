@@ -641,7 +641,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       },
       select: {
         id: true,
-        createdAt: true,
+        recordedAt: true,
         originalText: true,
         segments: { orderBy: { ordinal: "asc" }, select: { id: true, text: true } },
       },
@@ -659,7 +659,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       cards: page.map((card) => ({
         sourceKind: "card",
         sourceId: card.id,
-        cardCreatedAt: card.createdAt,
+        cardCreatedAt: card.recordedAt,
         originalText: card.originalText ?? "",
         segments: card.segments.map((segment) => ({ segmentId: segment.id, text: segment.text })),
       })),
@@ -728,7 +728,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         id: true,
         userId: true,
         languageCode: true,
-        createdAt: true,
+        recordedAt: true,
         originalText: true,
         rewrittenText: true,
         segments: { orderBy: { ordinal: "asc" }, select: { id: true, text: true } },
@@ -756,7 +756,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       userId: card.userId,
       sourceId: card.id,
       languageCode: card.languageCode,
-      cardCreatedAt: card.createdAt,
+      cardCreatedAt: card.recordedAt,
       originalText: card.originalText,
       segments: card.segments.map((segment) => ({ segmentId: segment.id, text: segment.text })),
       phrases: page.map((phrase) => ({
@@ -849,7 +849,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     if (job.sourceKind !== "card") return null;
     const card = await this.prisma.card.findFirst({
       where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-      select: { id: true, userId: true, languageCode: true, createdAt: true, originalText: true, rewrittenText: true, clientId: true, promptVersion: true },
+      select: { id: true, userId: true, languageCode: true, recordedAt: true, originalText: true, rewrittenText: true, clientId: true, promptVersion: true },
     });
     if (!card?.originalText) return null;
     const currentInputHash = createHash("sha256")
@@ -861,7 +861,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       sourceKind: "card",
       sourceId: card.id,
       languageCode: card.languageCode,
-      cardCreatedAt: card.createdAt,
+      cardCreatedAt: card.recordedAt,
       originalText: card.originalText,
       ...(isChatHistoryMigrationCard(card.clientId, card.promptVersion) ? { billingExemptReason: "chat_history_migration" as const } : {}),
     };
@@ -886,7 +886,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       if (claimed.count !== 1) return false;
       const card = await tx.card.findFirst({
         where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-        select: { createdAt: true, languageCode: true, originalText: true, rewrittenText: true },
+        select: { recordedAt: true, languageCode: true, originalText: true, rewrittenText: true },
       });
       if (!card?.originalText) return false;
       const currentInputHash = createHash("sha256")
@@ -941,7 +941,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
               phraseId: phrase.id,
               userId: job.userId,
               cardId: job.sourceId,
-              cardCreatedAt: card.createdAt,
+              cardCreatedAt: card.recordedAt,
               sourceField: "original",
               segmentId: null,
               segmentKey: "",

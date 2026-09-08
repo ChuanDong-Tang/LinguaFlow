@@ -16,6 +16,7 @@ export interface CardRelationPreview {
   rewrittenText: string;
   languageCode: string;
   isSample: boolean;
+  recordedAt: string;
   createdAt: string;
   thumbnail: {
     url: string;
@@ -225,6 +226,7 @@ export class CardRelationService {
         rewrittenText: preview.rewrittenText,
         languageCode: preview.languageCode,
         isSample: preview.isSample,
+        recordedAt: preview.recordedAt.toISOString(),
         createdAt: preview.createdAt.toISOString(),
         thumbnail,
       } satisfies CardRelationPreview] as const;
@@ -249,6 +251,7 @@ function relationDisplayTitle(
   preview: Pick<CardRelationPreview, "title" | "topic" | "originalText" | "rewrittenText">,
   requestedMaxChars?: number,
 ): string {
+  if (!preview.originalText?.trim() && !preview.rewrittenText?.trim()) return "";
   const title = preview.title?.trim();
   if (title) return title;
   const maxChars = Number.isFinite(requestedMaxChars)

@@ -193,6 +193,7 @@ model Card {
   workerId                          String?
   failedAt                          DateTime?
   deletedAt                         DateTime?
+  recordedAt                        DateTime  @default(now())
   createdAt                         DateTime  @default(now())
   updatedAt                         DateTime  @updatedAt
 
@@ -211,9 +212,11 @@ model Card {
 
   @@unique([userId, clientId])
   @@index([userId, dateKey, createdAt])
+  @@index([userId, dateKey, recordedAt])
   @@index([userId, status, createdAt])
   @@index([status, deletedAt])
   @@index([userId, collectionId, createdAt(sort: Desc)])
+  @@index([userId, collectionId, recordedAt(sort: Desc)])
   @@index([collectionId])
   @@index([status, leaseExpiresAt, createdAt])
   @@index([publishedAt])

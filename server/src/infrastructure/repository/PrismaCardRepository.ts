@@ -157,7 +157,7 @@ export class PrismaCardRepository implements CardRepository {
         ...(fromDateKey ? { dateKey: { gte: fromDateKey } } : {}),
       },
       include: includeSegments,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
       take: limit,
       skip: Math.max(0, offset),
     });
@@ -202,13 +202,13 @@ export class PrismaCardRepository implements CardRepository {
         ...(input.dateKey ? { dateKey: input.dateKey } : input.fromDateKey ? { dateKey: { gte: input.fromDateKey } } : {}),
         ...(input.cursor ? {
           OR: [
-            { createdAt: { [input.sortDirection === "asc" ? "gt" : "lt"]: input.cursor.createdAt } },
-            { createdAt: input.cursor.createdAt, id: { [input.sortDirection === "asc" ? "gt" : "lt"]: input.cursor.id } },
+            { recordedAt: { [input.sortDirection === "asc" ? "gt" : "lt"]: input.cursor.createdAt } },
+            { recordedAt: input.cursor.createdAt, id: { [input.sortDirection === "asc" ? "gt" : "lt"]: input.cursor.id } },
           ],
         } : {}),
       },
       include: includeSegments,
-      orderBy: [{ createdAt: input.sortDirection ?? "desc" }, { id: input.sortDirection ?? "desc" }],
+      orderBy: [{ recordedAt: input.sortDirection ?? "desc" }, { id: input.sortDirection ?? "desc" }],
       take: input.limit,
     });
     return rows.map(toEntry);
@@ -370,7 +370,7 @@ export class PrismaCardRepository implements CardRepository {
           outputChars: countGraphemes(input.rewrittenText ?? ""),
           status: "completed",
           publishedAt: input.createdAt ?? new Date(),
-          ...(input.createdAt ? { createdAt: input.createdAt, updatedAt: input.createdAt } : {}),
+          ...(input.createdAt ? { recordedAt: input.createdAt, createdAt: input.createdAt, updatedAt: input.createdAt } : {}),
         },
         include: includeSegments,
       });
@@ -433,6 +433,8 @@ export class PrismaCardRepository implements CardRepository {
     entryId: string;
     userId: string;
     collectionId: string | null;
+    dateKey: string;
+    recordedAt: Date;
     expectedOriginalContentHash: string | null;
     title: string | null;
     originalText: string | null;
@@ -480,6 +482,8 @@ export class PrismaCardRepository implements CardRepository {
         },
         data: {
           collectionId: input.collectionId,
+          dateKey: input.dateKey,
+          recordedAt: input.recordedAt,
           title: input.title,
           originalText: input.originalText,
           originalContentHash: input.originalContentHash,
@@ -510,6 +514,10 @@ export class PrismaCardRepository implements CardRepository {
         },
       });
       if (changed.count !== 1) return null;
+      await tx.phraseOccurrence.updateMany({
+        where: { cardId: input.entryId, userId: input.userId },
+        data: { cardCreatedAt: input.recordedAt },
+      });
       await tx.cardRewriteSegment.deleteMany({ where: { entryId: input.entryId } });
       if (input.segments.length) {
         await tx.cardRewriteSegment.createMany({
@@ -945,7 +953,7 @@ export class PrismaCardRepository implements CardRepository {
         dateKey,
         status: { in: ["queued", "processing", "completed"] },
       },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
       take: limit,
       include: includeSegments,
     });
@@ -1038,7 +1046,7 @@ export class PrismaCardRepository implements CardRepository {
         deletedAt: null,
         isSample: false,
       },
-      orderBy: [{ dateKey: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      orderBy: [{ dateKey: "asc" }, { recordedAt: "asc" }, { id: "asc" }],
       select: { dateKey: true },
     });
     return row?.dateKey ?? null;
@@ -1052,7 +1060,7 @@ export class PrismaCardRepository implements CardRepository {
         status: "completed",
         isSample: false,
       },
-      orderBy: [{ dateKey: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ dateKey: "desc" }, { recordedAt: "desc" }, { id: "desc" }],
       take: limit,
       include: includeSegments,
     });
@@ -2358,6 +2366,7 @@ function toEntry(row: any): CardEntryEntity {
     workerId: row.workerId ?? null,
     failedAt: row.failedAt ?? null,
     deletedAt: row.deletedAt ?? null,
+    recordedAt: row.recordedAt ?? row.createdAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     segments: Array.isArray(row.segments) ? row.segments.map(toSegment) : [],

@@ -96,7 +96,7 @@ function shuffleRecommendationOptions(values: string[]): string[] {
   return shuffled;
 }
 
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftImageDescriptionChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, hidePhraseRecommendation = false, onUpdateContent, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onActivateLearningContent, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftImageDescriptionChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, hidePhraseRecommendation = false, onUpdateContent, onUpdateMetadata, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onActivateLearningContent, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -139,6 +139,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   hideRelations?: boolean;
   hidePhraseRecommendation?: boolean;
   onUpdateContent?: (input: { title: string | null; originalText: string; collectionId: string | null; selectedTargets: Array<"expression" | "translation" | "reply"> }) => Promise<boolean | void>;
+  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string }) => Promise<boolean | void>;
   onEditCard?: () => void;
   pendingGenerationTargets?: CardGenerationTarget[];
   failedGenerationTargets?: CardGenerationTarget[];
@@ -529,7 +530,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         </View>
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review hidePhraseRecommendation={hidePhraseRecommendation} key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review hidePhraseRecommendation={hidePhraseRecommendation} key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
@@ -835,7 +836,7 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
       <KeyboardAvoidingView style={styles.draftContentPage} behavior="height">
         <>
           <ScrollView style={styles.draftEditorScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.draftEditorContent} showsVerticalScrollIndicator={false} alwaysBounceVertical={false} bounces={false}>
-            {detail.mode !== "corpus" ? <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} /> : null}
+            {detail.mode !== "corpus" ? <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.recordedAt ?? detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} /> : null}
             <CollectionPickerRow collections={collections} value={collectionId} onChange={setCollectionId} />
             <TextInput value={title} editable={!saving} maxLength={limits.titleChars} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.draftTitleInput} onChangeText={setTitle} />
             <View style={styles.draftOriginalEditor}>
@@ -986,23 +987,25 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                 style={styles.draftTitleInput}
                 onChangeText={(value) => onChangeField?.("title", value)}
               />
-              {draft.mode !== "corpus" ? <CardImageGallery
-                images={draft.images.map((image) => ({
-                  key: image.localUri,
-                  url: image.localUri,
-                  thumbnailUrl: image.localUri,
-                  width: image.width,
-                  height: image.height,
-                  focusX: image.focusX,
-                  focusY: image.focusY,
-                  status: image.status === "pending" ? "uploading" : image.status === "uploading" || image.status === "moderating" || image.status === "failed" ? image.status : undefined,
-                }))}
-                loading={imageAdding}
-                dateLabel={formatDraftDate()}
-                onRemove={confirmRemoveDraftImage}
-                onCoverPositionChange={onCoverPositionChange ? async (localUri, focusX, focusY) => { await onCoverPositionChange(localUri, focusX, focusY); } : undefined}
-                renderBottomRightAction={(image) => image.placeholder ? null : <ImageDescriptionOverlayAction active={draft.generateImageDescription} loading={sending} onPress={() => onImageDescriptionChange?.(!draft.generateImageDescription)} />}
-              /> : null}
+              {draft.mode !== "corpus" ? <>
+                <CardImageGallery
+                  images={draft.images.map((image) => ({
+                    key: image.localUri,
+                    url: image.localUri,
+                    thumbnailUrl: image.localUri,
+                    width: image.width,
+                    height: image.height,
+                    focusX: image.focusX,
+                    focusY: image.focusY,
+                    status: image.status === "pending" ? "uploading" : image.status === "uploading" || image.status === "moderating" || image.status === "failed" ? image.status : undefined,
+                  }))}
+                  loading={imageAdding}
+                  dateLabel={formatDraftDate()}
+                  onRemove={confirmRemoveDraftImage}
+                  onCoverPositionChange={onCoverPositionChange ? async (localUri, focusX, focusY) => { await onCoverPositionChange(localUri, focusX, focusY); } : undefined}
+                />
+                {draft.images.length ? <ImageDescriptionToggleAction active={draft.generateImageDescription} loading={sending} onPress={() => onImageDescriptionChange?.(!draft.generateImageDescription)} /> : null}
+              </> : null}
               <View style={styles.draftOriginalEditor}>
                 <TextInput
                   ref={originalInputRef}
@@ -1617,19 +1620,18 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
   );
 });
 
-function ImageDescriptionOverlayAction({ active, loading, onPress }: { active: boolean; loading?: boolean; onPress: () => void }) {
+function ImageDescriptionToggleAction({ active, loading, onPress }: { active: boolean; loading?: boolean; onPress: () => void }) {
   return <Pressable
     accessibilityRole="switch"
     accessibilityState={{ checked: active, busy: loading }}
     disabled={loading}
     hitSlop={8}
-    style={({ pressed }) => [styles.imageDescriptionOverlayAction, active && styles.imageDescriptionOverlayActionActive, pressed && styles.imageDescriptionOverlayActionPressed]}
-    onPress={(event) => {
-      event.stopPropagation();
+    style={({ pressed }) => [styles.imageDescriptionToggleAction, active && styles.imageDescriptionToggleActionActive, pressed && styles.imageDescriptionToggleActionPressed]}
+    onPress={() => {
       void Haptics.selectionAsync().catch(() => undefined);
       onPress();
     }}
-  >{loading ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <><Ionicons name={active ? "checkmark" : "sparkles"} size={15} color={theme.colors.surface} /><Text style={styles.imageDescriptionOverlayText}>{active ? t("quick_note.image_description_on") : t("card_detail.generate")}</Text></>}</Pressable>;
+  >{loading ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <><Ionicons name={active ? "checkmark-circle" : "sparkles-outline"} size={17} color={theme.colors.accentStrong} /><Text style={styles.imageDescriptionToggleText}>{active ? t("quick_note.image_description_on") : t("card_detail.generate")}</Text></>}</Pressable>;
 }
 
 function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, onClose, onRemove, onCoverPositionChange }: {
@@ -1813,7 +1815,7 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ hidePhraseRecommendation = false, detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onSelectLearningContent, onActivateLearningContent, onSaveOriginal, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ hidePhraseRecommendation = false, detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onSelectLearningContent, onActivateLearningContent, onSaveOriginal, onUpdateMetadata, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
@@ -1828,6 +1830,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   onSelectLearningContent?: (contentType: CardLearningContentType) => void;
   onActivateLearningContent?: (contentType: CardLearningContentType) => Promise<CardRecordDetail>;
   onSaveOriginal?: (text: string) => Promise<void>;
+  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string }) => Promise<boolean | void>;
   onRemoveImage?: (imageId?: string) => void;
   onCoverPositionChange?: (imageId: string, focusX: number, focusY: number) => Promise<void>;
   relations: Array<{ recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] }>;
@@ -1909,9 +1912,23 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   const [originalEditing, setOriginalEditing] = useState(false);
   const [originalDraft, setOriginalDraft] = useState(detail.originalText);
   const [originalSaving, setOriginalSaving] = useState(false);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(detail.title ?? detail.displayTitle);
+  const [metadataSaving, setMetadataSaving] = useState(false);
+  const [collections, setCollections] = useState<CardCollection[]>([]);
+  const [collectionPickerVisible, setCollectionPickerVisible] = useState(false);
+  const [recordTimeEditorVisible, setRecordTimeEditorVisible] = useState(false);
   useEffect(() => {
     if (!originalEditing) setOriginalDraft(detail.originalText);
   }, [detail.originalText, originalEditing]);
+  useEffect(() => {
+    if (!titleEditing) setTitleDraft(detail.title ?? detail.displayTitle);
+  }, [detail.displayTitle, detail.title, titleEditing]);
+  useEffect(() => {
+    let active = true;
+    void getCardCollections().then((value) => { if (active) setCollections(value.collections); }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
   const [answersVisible, setAnswersVisible] = useState(false);
   const [displayMode, setDisplayMode] = useState<ContentDisplayMode>("target");
   const [auxiliaryLoading, setAuxiliaryLoading] = useState(false);
@@ -2012,6 +2029,18 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       setOriginalSaving(false);
     }
   }
+  async function saveMetadata(input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string }): Promise<boolean> {
+    if (!onUpdateMetadata || metadataSaving) return false;
+    setMetadataSaving(true);
+    try {
+      return (await onUpdateMetadata(input)) !== false;
+    } finally {
+      setMetadataSaving(false);
+    }
+  }
+  async function saveInlineTitle(): Promise<void> {
+    if (await saveMetadata({ title: titleDraft.trim() || null })) setTitleEditing(false);
+  }
   const playback = React.useSyncExternalStore(subscribeTtsPlayback, getTtsPlaybackState, getTtsPlaybackState);
   const articleNavigationPrefix = `card:${detail.id}:article:`;
   const sentenceNavigationPrefix = `card:${detail.id}:sentence:`;
@@ -2058,6 +2087,17 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   const rewriteAuxiliary = new Map((rewriteBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const expressionPending = pendingGenerationTargets.includes("expression");
   const expressionFailed = failedGenerationTargets.includes("expression");
+  const imageDescriptionPending = Boolean(currentImage && (
+    pendingGenerationTargets.includes("image_description")
+    || currentImage.descriptionStatus === "pending"
+    || currentImage.descriptionStatus === "auxiliary_pending"
+  ));
+  const imageDescriptionAction = currentImage?.descriptionText
+    ? "toggle"
+    : imageDescriptionPending ? "loading" : "generate";
+  const recordedAt = detail.recordedAt ?? detail.createdAt;
+  const selectedCollection = collections.find((collection) => collection.id === detail.collectionId);
+  const collectionLabel = selectedCollection ? collectionPathName(selectedCollection, collections) : detail.collectionId ? "…" : t("sidebar.unclassified");
   const learningText = detail.contentBlocks.find((candidate) =>
     candidate.contentType === contentBinding.contentType
     && candidate.contentVersion === contentBinding.contentVersion,
@@ -2864,7 +2904,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
           {relation.card?.thumbnail ? <Image source={{ uri: relation.card.thumbnail.url }} resizeMode="cover" style={styles.relationThumbnail} /> : null}
           <View style={styles.relationContent}>
             {isGrowth ? <Text style={styles.growthMomentLabel}>{t("card_detail.growth_moment")}</Text> : null}
-            <Text numberOfLines={1} style={styles.relationCardTitle}>{relation.card?.displayTitle || relation.topic || t("card_detail.another_record")}</Text>
+            {relation.card?.displayTitle?.trim() || relation.topic?.trim() ? <Text numberOfLines={1} style={styles.relationCardTitle}>{relation.card?.displayTitle || relation.topic}</Text> : null}
             <Text style={styles.relationDate}>{relation.card ? formatDate(relation.card.dateKey) : t("card_detail.past_record")}</Text>
             <RelationFocusText relation={relation} currentOriginalText={detail.originalText} />
             {visibleReasons.length ? <View style={styles.relationReasons}>{visibleReasons.map((reason, index) => <ReasonBadge key={`${reason.type}:${index}`} reason={reason} />)}</View> : null}
@@ -2905,7 +2945,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     return <View style={styles.cardPlaybackPage}>
       <View style={styles.cardPlaybackContent}>
         {playbackArtworkUri ? <Image source={{ uri: playbackArtworkUri }} resizeMode="cover" style={styles.cardPlaybackArtwork} /> : <View style={styles.cardPlaybackArtworkPlaceholder}><Ionicons name="musical-notes-outline" size={42} color={theme.colors.textMuted} /></View>}
-        <Text numberOfLines={2} style={styles.cardPlaybackTitle}>{detail.displayTitle}</Text>
+        {detail.displayTitle.trim() ? <Text numberOfLines={2} style={styles.cardPlaybackTitle}>{detail.displayTitle}</Text> : null}
       </View>
       <View style={styles.cardPlaybackLyricsStage} onLayout={(event) => { lyricsViewportHeightRef.current = event.nativeEvent.layout.height; }}>
         <ScrollView
@@ -2985,35 +3025,47 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       <View style={styles.flipCardShell}>
       <View style={styles.flipCardFace}>
         <KeyboardAwareScrollView ref={flipCardScrollRef} style={styles.flipCardScroll} bottomOffset={92} extraKeyboardSpace={16} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.flipCardContent} alwaysBounceVertical={false}>
-          <View style={styles.cardTitleRow}>
+          {titleEditing ? <View style={styles.inlineTitleEditor}>
+            <TextInput autoFocus value={titleDraft} editable={!metadataSaving} maxLength={80} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.inlineTitleInput} onChangeText={setTitleDraft} onSubmitEditing={() => void saveInlineTitle()} />
+            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => { setTitleDraft(detail.title ?? detail.displayTitle); setTitleEditing(false); }}><Ionicons name="close" size={19} color={theme.colors.textMuted} /></Pressable>
+            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => void saveInlineTitle()}>{metadataSaving ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Ionicons name="checkmark" size={21} color={theme.colors.accentStrong} />}</Pressable>
+          </View> : detail.displayTitle.trim() ? <Pressable disabled={!onUpdateMetadata} style={({ pressed }) => [styles.cardTitleRow, pressed && styles.metadataPressed]} onPress={() => setTitleEditing(true)}>
             <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
+            {onUpdateMetadata ? <Ionicons name="create-outline" size={17} color={theme.colors.textMuted} /> : null}
+          </Pressable> : null}
+          <View style={styles.cardMetadataRow}>
+            <Pressable disabled={!onUpdateMetadata} style={({ pressed }) => [styles.recordTimeButton, pressed && styles.metadataPressed]} onPress={() => setRecordTimeEditorVisible(true)}>
+              <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(recordedAt)}</Text>
+            </Pressable>
+            <Pressable disabled={!onUpdateMetadata || metadataSaving} style={({ pressed }) => [styles.collectionMetaButton, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
+              <Ionicons name="folder-outline" size={14} color={theme.colors.textMuted} />
+              <Text numberOfLines={1} style={styles.collectionMetaText}>{collectionLabel}</Text>
+              {onUpdateMetadata ? <Ionicons name="chevron-down" size={13} color={theme.colors.textMuted} /> : null}
+            </Pressable>
           </View>
-          <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(detail.createdAt)}</Text>
-          <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onIndexChange={(index) => {
+          <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(recordedAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onIndexChange={(index) => {
             setImageIndex(index);
             const image = images[index];
             if (image) onSelectLearningContent?.(`image:${image.id}`);
-          }} renderBottomRightAction={(_galleryImage, index) => {
-            const source = images[index];
-            if (!source) return null;
-            const pending = pendingGenerationTargets.includes("image_description") || source.descriptionStatus === "pending" || source.descriptionStatus === "auxiliary_pending";
-            if (pending) return <View style={styles.imageDescriptionOverlayAction}><ActivityIndicator size="small" color={theme.colors.surface} /><Text style={styles.imageDescriptionOverlayText}>{t("card_detail.generating")}</Text></View>;
-            return <Pressable hitSlop={8} style={({ pressed }) => [styles.imageDescriptionOverlayAction, source.descriptionText && styles.imageDescriptionOverlayActionActive, pressed && styles.imageDescriptionOverlayActionPressed]} onPress={(event) => {
-              event.stopPropagation();
-              void Haptics.selectionAsync().catch(() => undefined);
-              if (source.descriptionText) {
-                setImageIndex(index);
-                const block = detail.contentBlocks.find((candidate) => candidate.contentType === `image:${source.id}`);
-                if (block) selectLearningBlock(block);
-                setCollapsedSections((current) => ({ ...current, imageDescription: !current.imageDescription }));
-              } else {
+          }} />
+          {currentImage ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} onLayout={currentImageIsLearningContent ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
+            <CollapsibleCardSection
+              label={t("card_detail.image_description")}
+              tone="image"
+              collapsed={collapsedSections.imageDescription}
+              action={imageDescriptionAction}
+              onToggle={() => {
+                if (currentImageBlock) selectLearningBlock(currentImageBlock);
+                toggleSection("imageDescription");
+              }}
+              onAction={() => {
+                void Haptics.selectionAsync().catch(() => undefined);
                 showNotice({ message: t("card_detail.generating"), type: "info", position: "top-center", durationMs: 1200 });
                 onRetryGeneration?.("image_description");
-              }
-            }}><Ionicons name={source.descriptionText ? (collapsedSections.imageDescription ? "chevron-down" : "chevron-up") : "sparkles"} size={15} color={theme.colors.surface} /><Text style={styles.imageDescriptionOverlayText}>{source.descriptionText ? t("card_detail.image_description") : t("card_detail.generate")}</Text></Pressable>;
-          }} />
-          {currentImage?.descriptionText && !collapsedSections.imageDescription ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} style={styles.imageDescriptionSection} onLayout={currentImageIsLearningContent ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
-            <View style={styles.imageDescriptionBody}>
+              }}
+              compact
+            >
+            <View style={[styles.imageDescriptionSection, styles.imageDescriptionBody]}>
             {currentImageBlock && currentImage.descriptionText ? <>
               {currentImageIsLearningContent
                 ? <Cloze embedded detail={detail} contentBinding={contentBinding} clozeState={clozeState} clozeVersion={clozeVersion} onClozeChange={onClozeChange} onAddBlank={(segment, payload) => void addBlank(segment, payload)} onBlankLongPress={openBlankActions} fillMode={fillMode} inputMode={clozeInputMode} answersVisible={answersVisible} displayMode={displayMode} activeSentenceKey={activeSentenceKey} loadingSentenceKey={sentenceAudioLoadingKey} onChoiceOptionsChange={updateChoiceTrayOptions} onChoiceAnswerHandlerChange={registerChoiceAnswerHandler} onPendingClozeCheckHandlerChange={onPendingClozeCheckHandlerChange} onClozeAttempt={onClozeAttempt} onTextSelectionStart={lockForTextSelection} onTextSelectionEnd={unlockTextSelection} />
@@ -3034,8 +3086,9 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
                 ? <FailedGenerationSection target="image_description" showLabel={false} retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
                 : null}
             </View>
+            </CollapsibleCardSection>
           </View> : null}
-          {(detail.originalText.trim() && originalBlock) || (!detail.originalText.trim() && onSaveOriginal && !images.length) ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => { toggleSection("original"); if (originalBlock) selectLearningBlock(originalBlock); }}>
+          {(detail.originalText.trim() && originalBlock) || (!detail.originalText.trim() && onSaveOriginal) ? <CollapsibleCardSection label={t("card_detail.my_record")} collapsed={collapsedSections.original} onToggle={() => { toggleSection("original"); if (originalBlock) selectLearningBlock(originalBlock); }}>
             {originalEditing || !detail.originalText.trim() ? <View style={styles.moduleComposer}>
               <TextInput multiline value={originalDraft} editable={!originalSaving} maxLength={3000} placeholder={t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.moduleComposerInput} textAlignVertical="top" onChangeText={setOriginalDraft} />
               <View style={styles.moduleComposerActions}>
@@ -3166,6 +3219,22 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       canUseTts
       onClose={() => { dictionaryRequestRef.current += 1; setDictionary(null); }}
     />
+    <CollectionPickerModal
+      visible={collectionPickerVisible}
+      title={t("card_detail.choose_collection")}
+      collections={collections}
+      value={detail.collectionId ?? null}
+      onClose={() => setCollectionPickerVisible(false)}
+      onSelect={async (collectionId) => {
+        if (!await saveMetadata({ collectionId: collectionId ?? null })) throw new Error(t("card_detail.error.try_again"));
+      }}
+    />
+    <RecordTimeEditorModal
+      visible={recordTimeEditorVisible}
+      value={recordedAt}
+      onClose={() => setRecordTimeEditorVisible(false)}
+      onSave={async (value) => saveMetadata({ recordedAt: value.toISOString(), dateKey: localDateKey(value) })}
+    />
     <Modal visible={Boolean(blankAction)} transparent animationType="none" statusBarTranslucent onRequestClose={() => setBlankAction(null)}>
       <Pressable style={styles.blankActionBackdrop} onPress={() => setBlankAction(null)}>
         {blankAction ? <View style={[
@@ -3193,6 +3262,74 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     </Modal>
     </View>
   );
+}
+
+function RecordTimeEditorModal({ visible, value, onClose, onSave }: {
+  visible: boolean;
+  value: string;
+  onClose: () => void;
+  onSave: (value: Date) => Promise<boolean>;
+}) {
+  const [dateText, setDateText] = useState("");
+  const [timeText, setTimeText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [invalid, setInvalid] = useState(false);
+  useEffect(() => {
+    if (!visible) return;
+    const current = new Date(value);
+    setDateText(localDateKey(current));
+    setTimeText(`${String(current.getHours()).padStart(2, "0")}:${String(current.getMinutes()).padStart(2, "0")}`);
+    setInvalid(false);
+    setSaving(false);
+  }, [value, visible]);
+  async function submit(): Promise<void> {
+    const parsed = parseLocalRecordTime(dateText, timeText);
+    if (!parsed || parsed.getTime() > Date.now() + 5 * 60_000) {
+      setInvalid(true);
+      return;
+    }
+    setSaving(true);
+    try {
+      if (await onSave(parsed)) onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Pressable style={styles.metadataModalBackdrop} onPress={saving ? undefined : onClose}>
+      <Pressable style={styles.metadataModalCard} onPress={() => undefined}>
+        <Text style={styles.metadataModalTitle}>{t("card_detail.record_time")}</Text>
+        <View style={styles.recordTimeInputs}>
+          <TextInput value={dateText} editable={!saving} keyboardType="numbers-and-punctuation" maxLength={10} placeholder="YYYY-MM-DD" style={[styles.recordTimeInput, invalid && styles.recordTimeInputInvalid]} onChangeText={(text) => { setDateText(text); setInvalid(false); }} />
+          <Text style={styles.recordTimeSeparator}>·</Text>
+          <TextInput value={timeText} editable={!saving} keyboardType="numbers-and-punctuation" maxLength={5} placeholder="HH:mm" style={[styles.recordTimeInput, styles.recordClockInput, invalid && styles.recordTimeInputInvalid]} onChangeText={(text) => { setTimeText(text); setInvalid(false); }} />
+        </View>
+        {invalid ? <Text style={styles.recordTimeError}>{t("card_detail.record_time_invalid")}</Text> : null}
+        <View style={styles.metadataModalActions}>
+          <Pressable disabled={saving} style={styles.metadataModalSecondary} onPress={onClose}><Text style={styles.metadataModalSecondaryText}>{t("common.cancel")}</Text></Pressable>
+          <Pressable disabled={saving} style={styles.metadataModalPrimary} onPress={() => void submit()}>{saving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Text style={styles.metadataModalPrimaryText}>{t("common.save")}</Text>}</Pressable>
+        </View>
+      </Pressable>
+    </Pressable>
+  </Modal>;
+}
+
+function localDateKey(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function parseLocalRecordTime(dateText: string, timeText: string): Date | null {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(dateText.trim());
+  const timeMatch = /^(\d{2}):(\d{2})$/u.exec(timeText.trim());
+  if (!dateMatch || !timeMatch) return null;
+  const year = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[3]);
+  const hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2]);
+  const result = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (result.getFullYear() !== year || result.getMonth() !== month - 1 || result.getDate() !== day || result.getHours() !== hour || result.getMinutes() !== minute) return null;
+  return result;
 }
 
 function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, action = "toggle", onAction, compact = false, children }: { label: string; tone?: "default" | "image" | "rewrite"; collapsed: boolean; onToggle: () => void; action?: "toggle" | "generate" | "loading"; onAction?: () => void; compact?: boolean; children: React.ReactNode }) {
@@ -4199,6 +4336,14 @@ const styles = StyleSheet.create({
   draftCreateTitle: { flex: 1, color: theme.colors.text, fontSize: 18, fontWeight: "700", textAlign: "center" },
   cardTitleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   cardDisplayTitleInRow: { flex: 1 },
+  inlineTitleEditor: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4 },
+  inlineTitleInput: { flex: 1, minHeight: 42, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, color: theme.colors.text, fontSize: 21, fontWeight: "600" },
+  inlineTitleAction: { width: 36, height: 40, alignItems: "center", justifyContent: "center" },
+  cardMetadataRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  recordTimeButton: { minHeight: 34, justifyContent: "center" },
+  collectionMetaButton: { minWidth: 70, maxWidth: "54%", minHeight: 34, paddingHorizontal: 8, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4 },
+  collectionMetaText: { flexShrink: 1, color: theme.colors.textMuted, fontSize: 12 },
+  metadataPressed: { opacity: 0.58 },
   articlePlayButton: { width: 36, height: 32, marginTop: -1, alignItems: "flex-end", justifyContent: "center" },
   loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.surface }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#D2D2D2" }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
   recallFinishButton: { height: 42, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 18, borderRadius: 21, backgroundColor: theme.colors.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, recallFinishButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
@@ -4354,10 +4499,24 @@ const styles = StyleSheet.create({
   imageDescriptionBody: { paddingHorizontal: 6, paddingTop: 2, paddingBottom: 6 },
   imageIntegratedSection: { marginTop: 0, paddingTop: 7, borderTopWidth: 0 },
   imageBottomRightAction: { position: "absolute", right: 10, bottom: 10, zIndex: 4 },
-  imageDescriptionOverlayAction: { minWidth: 44, minHeight: 36, paddingHorizontal: 11, borderRadius: 18, backgroundColor: "rgba(33,39,37,0.76)", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
-  imageDescriptionOverlayActionActive: { backgroundColor: "rgba(65,112,91,0.92)" },
-  imageDescriptionOverlayActionPressed: { opacity: 0.74, transform: [{ scale: 0.96 }] },
-  imageDescriptionOverlayText: { color: theme.colors.surface, fontSize: 12, fontWeight: "600" },
+  imageDescriptionToggleAction: { alignSelf: "flex-end", minHeight: 40, marginTop: 9, paddingHorizontal: 13, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  imageDescriptionToggleActionActive: { borderColor: "rgba(82,121,108,0.28)", backgroundColor: theme.colors.accentSoft },
+  imageDescriptionToggleActionPressed: { opacity: 0.72, transform: [{ scale: 0.97 }] },
+  imageDescriptionToggleText: { color: theme.colors.accentStrong, fontSize: 13, fontWeight: "600" },
+  metadataModalBackdrop: { flex: 1, paddingHorizontal: 24, backgroundColor: "rgba(24,28,26,0.36)", alignItems: "center", justifyContent: "center" },
+  metadataModalCard: { width: "100%", maxWidth: 390, padding: 20, borderRadius: 20, backgroundColor: theme.colors.surface },
+  metadataModalTitle: { color: theme.colors.text, fontSize: 18, fontWeight: "700" },
+  recordTimeInputs: { marginTop: 18, flexDirection: "row", alignItems: "center", gap: 8 },
+  recordTimeInput: { flex: 1, minHeight: 46, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, color: theme.colors.text, fontSize: 16, textAlign: "center" },
+  recordClockInput: { flex: 0.58 },
+  recordTimeInputInvalid: { borderColor: theme.colors.danger },
+  recordTimeSeparator: { color: theme.colors.textMuted, fontSize: 18 },
+  recordTimeError: { marginTop: 8, color: theme.colors.danger, fontSize: 12 },
+  metadataModalActions: { marginTop: 20, flexDirection: "row", justifyContent: "flex-end", gap: 10 },
+  metadataModalSecondary: { minWidth: 76, minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" },
+  metadataModalSecondaryText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
+  metadataModalPrimary: { minWidth: 86, minHeight: 42, borderRadius: 12, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  metadataModalPrimaryText: { color: theme.colors.surface, fontSize: 14, fontWeight: "700" },
   imageDescriptionSectionLabel: { color: "#6F73A6" },
   rewriteSectionLabel: { color: "#4E7B65" },
   imageDescriptionSentenceRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },

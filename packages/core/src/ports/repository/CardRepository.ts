@@ -70,6 +70,7 @@ export interface CardEntryEntity {
   workerId: string | null;
   failedAt: Date | null;
   deletedAt: Date | null;
+  recordedAt: Date;
   createdAt: Date;
   updatedAt: Date;
   segments: CardSegmentEntity[];
@@ -238,6 +239,8 @@ export interface CardRepository {
     entryId: string;
     userId: string;
     collectionId: string | null;
+    dateKey: string;
+    recordedAt: Date;
     expectedOriginalContentHash: string | null;
     title: string | null;
     originalText: string | null;

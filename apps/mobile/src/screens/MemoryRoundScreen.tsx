@@ -922,7 +922,7 @@ export function MemoryRoundScreen({
             <Text style={styles.cardCompleteLabel}>{nextCard.relationHint ? t("memory_round.next_related").replace("{topic}", nextCard.relationHint) : t("memory_round.next_card_ready")}</Text>
             <View style={[styles.cardRouteCard, styles.nextCardRouteCard]}>
               {nextCard.thumbnailUrl ? <Image source={{ uri: nextCard.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Ionicons name="sparkles-outline" size={25} color="#6D8178" /></View>}
-              <View style={styles.cardRouteCopy}><Text numberOfLines={2} style={styles.cardRouteTitle}>{nextCard.title}</Text></View>
+              {nextCard.title.trim() ? <View style={styles.cardRouteCopy}><Text numberOfLines={2} style={styles.cardRouteTitle}>{nextCard.title}</Text></View> : null}
             </View>
             <View style={styles.cardCompleteActions}>
               {summaryWrong.length ? <Pressable style={({ pressed }) => [styles.gameSecondaryButton, pressed && styles.gameButtonPressed]} onPress={() => void retryWrongQuestions()}>
@@ -958,7 +958,7 @@ export function MemoryRoundScreen({
     <Progress total={currentCardQuestions.length} current={currentCardIndex} currentCompleted={question.completed} pulse={pulse} completion={success} colors={["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"]} />
     <Animated.View style={[styles.questionPage, { opacity: transition, transform: [{ translateY: transition.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }]}>
       <ScrollView ref={questionScrollerRef} style={styles.questionScroller} contentContainerStyle={[styles.questionScroll, compactLayout && styles.questionScrollCompact, keyboardInset > 0 && { paddingBottom: keyboardInset + 28 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-        {question.thumbnailUrl && !failedImageQuestionIds.has(question.id) ? <Image source={{ uri: question.thumbnailUrl }} resizeMode="cover" style={[styles.memoryImage, compactLayout && styles.memoryImageCompact]} onError={() => setFailedImageQuestionIds((current) => new Set(current).add(question.id))} /> : <View style={[styles.titlePrompt, compactLayout && styles.titlePromptCompact]}><View style={[styles.titleDot, { backgroundColor: currentColor }]} /><Text style={styles.titlePromptText}>{question.title}</Text></View>}
+        {question.thumbnailUrl && !failedImageQuestionIds.has(question.id) ? <Image source={{ uri: question.thumbnailUrl }} resizeMode="cover" style={[styles.memoryImage, compactLayout && styles.memoryImageCompact]} onError={() => setFailedImageQuestionIds((current) => new Set(current).add(question.id))} /> : question.title.trim() ? <View style={[styles.titlePrompt, compactLayout && styles.titlePromptCompact]}><View style={[styles.titleDot, { backgroundColor: currentColor }]} /><Text style={styles.titlePromptText}>{question.title}</Text></View> : null}
         <View style={styles.taskHeading}><Text style={styles.taskHeadingText}>{t(`memory_round.task_${question.task}`)}</Text><Text style={styles.cardQuestionCount}>{cardQuestionProgress(round, question)}</Text></View>
         <View style={[styles.coachStage, compactLayout && styles.coachStageCompact, meaningExpanded && meaningStatus === "ready" && styles.coachStageExpanded, { borderColor: `${currentColor}90`, backgroundColor: `${currentColor}24` }]}>
           <View style={[styles.coachGlow, { backgroundColor: `${currentColor}4D` }]} />

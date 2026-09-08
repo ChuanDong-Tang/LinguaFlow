@@ -649,6 +649,12 @@ export class CardService {
     const translationText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "translationText", current.translationText, this.limits.contentMaxChars);
     const replyText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "replyText", current.replyText, this.limits.contentMaxChars);
     const collectionId = Object.prototype.hasOwnProperty.call(patch, "collectionId") ? patch.collectionId?.trim() || null : current.collectionId;
+    const hasRecordedAt = Object.prototype.hasOwnProperty.call(patch, "recordedAt");
+    const hasDateKey = Object.prototype.hasOwnProperty.call(patch, "dateKey");
+    if (hasRecordedAt !== hasDateKey) throw new CardValidationError("Card record time and date must be updated together");
+    const recordedAt = hasRecordedAt ? parseCardRecordedAt(patch.recordedAt) : current.recordedAt;
+    const dateKey = hasDateKey ? String(patch.dateKey ?? "") : current.dateKey;
+    if (hasDateKey) assertDateKey(dateKey);
     const rewrittenLanguageCode = resolveContentLanguage({
       patch,
       key: "rewrittenText",
@@ -714,6 +720,8 @@ export class CardService {
       entryId: parsed.sourceId,
       userId,
       collectionId,
+      dateKey,
+      recordedAt,
       expectedOriginalContentHash: current.originalContentHash,
       title,
       originalText,
@@ -1607,7 +1615,7 @@ export class CardService {
     const pageEntries = entries.slice(0, limit);
     const items = await Promise.all(pageEntries.map((entry) => this.summaryWithImage(entry)));
     const last = hasMore ? pageEntries[pageEntries.length - 1] : undefined;
-    return { items, nextCursor: last ? encodeCardCursor(last.createdAt, last.id) : null };
+    return { items, nextCursor: last ? encodeCardCursor(last.recordedAt, last.id) : null };
   }
 
   async listDateKeys(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]> {
@@ -2019,7 +2027,7 @@ export class CardService {
         phraseMutation = {
           type: "add",
           languageCode: detail.languageCode,
-          cardCreatedAt: new Date(detail.createdAt),
+          cardCreatedAt: new Date(detail.recordedAt),
           segmentId: segment.id,
           startUtf16,
           endUtf16,
@@ -2099,7 +2107,7 @@ export class CardService {
         phraseMutation = {
           type: "add",
           languageCode: block.languageCode,
-          cardCreatedAt: new Date(detail.createdAt),
+          cardCreatedAt: new Date(detail.recordedAt),
           segmentId: segment.id,
           startUtf16,
           endUtf16,
@@ -2262,6 +2270,7 @@ export class CardService {
         displayTitle: summary.displayTitle,
         languageCode: contentType ? contentLanguageCode(entry, contentType) : entry.rewrittenLanguageCode ?? entry.languageCode,
         thumbnail: summary.thumbnail,
+        recordedAt: summary.recordedAt,
         createdAt: summary.createdAt,
         contentType,
         contentVersion,
@@ -2648,6 +2657,7 @@ export function toSummary(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_MAX
     thumbnail: null,
     practiceSummary: null,
     isSample: entry.isSample,
+    recordedAt: entry.recordedAt.toISOString(),
     createdAt: entry.createdAt.toISOString(),
   };
 }
@@ -2662,22 +2672,26 @@ function normalizeTitle(value: string | null | undefined, maxChars = DEFAULT_CAR
 }
 
 function effectiveCardTitle(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_MAX_CHARS): string {
+  if (!entry.originalText?.trim() && !entry.rewrittenText?.trim()) return "";
   const title = entry.title?.trim();
   if (title) return title;
   const topic = entry.topic?.trim();
   if (topic) return truncateGraphemes(topic, topicMaxChars);
-  const firstLine = (entry.originalText ?? entry.rewrittenText ?? entry.images.find((image) => image.descriptionText)?.descriptionText ?? "")
+  const firstLine = (entry.originalText ?? entry.rewrittenText ?? "")
     .split(/\n/u)
     .map((line) => line.trim())
     .find(Boolean) ?? "";
   if (firstLine) return truncateGraphemes(firstLine, topicMaxChars);
-  if (entry.images.length) {
-    if (entry.appLocaleSnapshot === "en-US") return "Photo note";
-    if (entry.appLocaleSnapshot === "ja-JP") return "写真の記録";
-    if (entry.appLocaleSnapshot === "zh-TW") return "圖片記錄";
-    return "图片记录";
-  }
   return "";
+}
+
+function parseCardRecordedAt(value: string | undefined): Date {
+  if (typeof value !== "string" || !value.trim()) throw new CardValidationError("Invalid Card record time");
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime()) || parsed.getTime() > Date.now() + 5 * 60_000) {
+    throw new CardValidationError("Invalid Card record time");
+  }
+  return parsed;
 }
 
 function resolveContentLanguage(input: {

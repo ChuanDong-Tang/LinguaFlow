@@ -16,6 +16,7 @@ import {
   getCardRecords,
   removeCardRecordImageById,
   searchRecallCards,
+  updateCardContent,
   updateRecallNode,
   type CardRecordDetail,
   type CardRecordSummary,
@@ -141,7 +142,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
             : launchRequest.mode === "yesterday"
               ? completedCards(yesterdayRows)
               : [...completedCards(yesterdayRows), ...completedCards(todayRows)]
-                .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+                .sort((left, right) => Date.parse(left.recordedAt ?? left.createdAt) - Date.parse(right.recordedAt ?? right.createdAt));
           if (!rows.length) {
             setDirectLaunchPending(false);
             Alert.alert(t("recall.error.empty"));
@@ -422,6 +423,18 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       hideRelations
       hidePhraseRecommendation={isBlindRecallSession(session) || session.launchContext?.query?.startsWith("recent:") === true}
       onEditCard={() => onEditCard(currentNode.recordId)}
+      onUpdateMetadata={async (input) => {
+        if (!currentDetail) return false;
+        try {
+          const updated = await updateCardContent(currentDetail.id, input);
+          setCards((current) => ({ ...current, [currentDetail.id]: updated }));
+          onCardChanged();
+          return true;
+        } catch (error) {
+          Alert.alert(t("card_detail.error.save"), error instanceof Error ? error.message : t("card_detail.error.try_again"));
+          return false;
+        }
+      }}
       pendingGenerationTargets={pendingGenerationTargets}
       failedGenerationTargets={failedGenerationTargets}
       onRemoveImage={currentDetail && ((currentDetail.images?.length ?? 0) > 0 || currentDetail.image) ? confirmRemoveCurrentImage : undefined}

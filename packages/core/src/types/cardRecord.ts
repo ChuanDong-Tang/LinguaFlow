@@ -118,6 +118,7 @@ export interface CardRecordSummaryView {
   thumbnail: CardImageThumbnailView | null;
   practiceSummary: CardPracticeSummaryView | null;
   isSample: boolean;
+  recordedAt: string;
   createdAt: string;
 }
 
@@ -159,6 +160,7 @@ export interface CardMemoryRoundCandidateView {
   displayTitle: string;
   languageCode: string;
   thumbnail: CardImageThumbnailView | null;
+  recordedAt: string;
   createdAt: string;
   contentType: CardLearningContentType | null;
   contentVersion: string | null;
@@ -206,6 +208,8 @@ export interface CreateCardEntryInput {
 export interface UpdateCardContentInput {
   collectionId?: string | null;
   title?: string | null;
+  dateKey?: string;
+  recordedAt?: string;
   originalText?: string | null;
   rewrittenText?: string | null;
   translationText?: string | null;
