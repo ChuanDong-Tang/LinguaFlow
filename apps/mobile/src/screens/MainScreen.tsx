@@ -1426,7 +1426,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           ? <Text style={styles.selectionHeaderTitle}>{selectedRecordIds.size}</Text>
           : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Ionicons name="chevron-down" size={15} color={theme.colors.textSecondary} /></Pressable>}
         <View style={styles.headerActions}>
-          {!selectingRecords ? <View style={styles.headerCharacter}><OioCharacter width={27} height={26} /></View> : null}
+          {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={({ pressed }) => [styles.headerCharacter, pressed && { opacity: 0.55 }]} onPress={() => void openAssistant()}><OioCharacter width={27} height={26} /></Pressable> : null}
           {selectingRecords ? <View style={styles.headerIconButton} /> : <Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}

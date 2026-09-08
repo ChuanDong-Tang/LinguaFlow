@@ -182,35 +182,6 @@ function findContainingHighlightRange(
   return ranges.find((range) => range.start <= start && range.end >= end) ?? null;
 }
 
-function renderLayoutTextSegments(
-  text: string,
-  highlightRanges: NativeClozeHighlightRange[],
-  textStyle: StyleProp<TextStyle>,
-): React.ReactNode {
-  if (highlightRanges.length === 0) return text;
-  const segments: React.ReactNode[] = [];
-  let cursor = 0;
-  highlightRanges.forEach((range, index) => {
-    const start = Math.max(cursor, Math.min(range.start, text.length));
-    const end = Math.max(start, Math.min(range.end, text.length));
-    if (cursor < start) {
-      segments.push(<Text key={`normal-${index}-${cursor}`} style={textStyle}>{text.slice(cursor, start)}</Text>);
-    }
-    if (start < end) {
-      segments.push(
-        <Text key={`highlight-${index}-${start}`} style={textStyle}>
-          {text.slice(start, end)}
-        </Text>,
-      );
-    }
-    cursor = end;
-  });
-  if (cursor < text.length) {
-    segments.push(<Text key={`normal-end-${cursor}`} style={textStyle}>{text.slice(cursor)}</Text>);
-  }
-  return segments;
-}
-
 export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, Props>(
   function SelectableMessageText({
     text,
@@ -345,10 +316,6 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       () => [style, styles.layoutText],
       [style],
     );
-    const layoutTextContent = React.useMemo(
-      () => renderLayoutTextSegments(layoutText, highlights, layoutBaseTextStyle),
-      [highlights, layoutBaseTextStyle, layoutText],
-    );
     const nativeInteractionProps = Platform.select({
       ios: {
         selectionMode,
@@ -384,7 +351,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     return (
       <View style={[styles.nativeTextContainer, containerStyle, nativeContentHeight > 0 ? { minHeight: nativeContentHeight } : null]}>
         <Text pointerEvents="none" style={layoutBaseTextStyle}>
-          {layoutTextContent}
+          {layoutText}
         </Text>
         <ChatSelectableTextView
           ref={nativeTextRef}

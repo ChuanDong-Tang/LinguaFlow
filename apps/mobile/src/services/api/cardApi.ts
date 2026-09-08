@@ -829,11 +829,13 @@ export async function getCardArticleAudio(input: {
   provider: string;
   voiceCode: string;
   durationMs: number | null;
-  sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }> | null;
+  sentenceMarks: Array<{ segmentId?: string; text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }> | null;
   deliveryMode?: "buffered" | "streaming";
   generationId?: string;
 }> {
-  const binding = `contentType=${encodeURIComponent(input.contentType)}&contentVersion=${encodeURIComponent(input.contentVersion)}&streaming=1`;
+  // Synchronized lyrics need the completed sentence timeline. Streaming tickets
+  // intentionally contain no timing marks, so they cannot drive this player.
+  const binding = `contentType=${encodeURIComponent(input.contentType)}&contentVersion=${encodeURIComponent(input.contentVersion)}&streaming=0`;
   const audio = await request<Awaited<ReturnType<typeof getCardArticleAudio>>>(`/tts/cards/${encodeURIComponent(input.entryId)}/segments/__article__?${binding}`);
   return {
     ...audio,

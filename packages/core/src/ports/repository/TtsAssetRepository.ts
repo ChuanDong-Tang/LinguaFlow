@@ -10,6 +10,7 @@ export type TtsWordMark = {
 };
 
 export type TtsSentenceMark = {
+  segmentId?: string;
   text: string;
   textStart: number;
   textEnd: number;

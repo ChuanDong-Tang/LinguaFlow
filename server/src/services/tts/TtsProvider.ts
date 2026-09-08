@@ -6,7 +6,7 @@ export interface SynthesizeSpeechInput {
   text: string;
   languageCode: string;
   voiceCode: string;
-  sentenceSegments: Array<{ text: string; textStart: number; textEnd: number }>;
+  sentenceSegments: Array<{ segmentId?: string; text: string; textStart: number; textEnd: number }>;
 }
 
 export interface SynthesizeSpeechResult {

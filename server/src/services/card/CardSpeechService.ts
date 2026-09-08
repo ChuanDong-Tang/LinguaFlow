@@ -12,7 +12,7 @@ import { isConfiguredTtsVoice, resolveDefaultTtsVoice } from "../tts/TtsVoiceCat
 import { CardNotFoundError, CardValidationError } from "./CardService.js";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
-import { segmentLearningSentences } from "../text/learningSentenceSegmenter.js";
+import { buildCardSpeechText, type CardSpeechSegment } from "@lf/core/text/cardSpeechText.js";
 
 export class CardSpeechProRequiredError extends Error {
   readonly code = "PRO_REQUIRED";
@@ -47,7 +47,7 @@ export type CardSpeechGenerateInput = {
   languageCode: string;
   sourceText: string;
   sourceTextHash: string;
-  sentenceSegments?: Array<{ text: string; textStart: number; textEnd: number }>;
+  sentenceSegments?: Array<Omit<CardSpeechSegment, "segmentId"> & { segmentId?: string }>;
 };
 
 export type PreparedCardArticleSpeech = {
@@ -170,12 +170,15 @@ export class CardSpeechService {
       .filter((segment) => segment.contentType === input.contentType && segment.contentVersion === input.contentVersion)
       .sort((left, right) => left.ordinal - right.ordinal);
     if (!segments.length) throw new CardNotFoundError();
-    const rawText = segments.map((segment) => segment.text.trim()).filter(Boolean).join("\n\n");
     const languageCode = contentLanguageCode(entry, input.contentType);
-    const learningText = input.contentType === "original"
-      ? targetLanguageTextOnly(rawText, entry.languageCode)?.text ?? ""
-      : rawText;
-    const sourceText = normalizeLearningText({ text: learningText, languageCode });
+    const speechText = buildCardSpeechText(segments.map((segment) => ({
+      id: segment.id,
+      text: input.contentType === "original"
+        ? targetLanguageTextOnly(segment.text, entry.languageCode)?.text ?? ""
+        : segment.text,
+    })), languageCode);
+    if (!speechText) throw new CardValidationError("Article speech does not match the Card sentences");
+    const { sourceText, sentenceSegments } = speechText;
     const graphemeCount = countGraphemes(sourceText);
     if (!sourceText || graphemeCount > this.articleMaxChars) throw new CardValidationError("Article speech is too long");
     const preference = await this.preferenceRepository.getByUserId(input.userId);
@@ -183,7 +186,7 @@ export class CardSpeechService {
     const voiceCode = preference.ttsVoiceCode && isConfiguredTtsVoice({ provider, languageCode, voiceCode: preference.ttsVoiceCode })
       ? preference.ttsVoiceCode
       : resolveDefaultTtsVoice(languageCode, provider);
-    const sourceTextHash = sha256(`card-article-tts-v1\n${sourceText}`);
+    const sourceTextHash = sha256(`card-article-tts-v2\n${sourceText}\n${JSON.stringify(sentenceSegments)}`);
     const cacheKey = sha256([input.userId, input.entryId, input.contentType, input.contentVersion, "review_article", provider, voiceCode, languageCode, sourceTextHash].join("\n"));
     const context = { entryId: input.entryId, segmentId: "__article__" };
     const cached = await this.repository.findReadySpeechAsset(cacheKey);
@@ -201,7 +204,7 @@ export class CardSpeechService {
         languageCode,
         sourceText,
         sourceTextHash,
-        sentenceSegments: segmentLearningSentences({ text: sourceText, languageCode, minSegmentChars: 1 }),
+        sentenceSegments,
       },
     };
   }

@@ -53,6 +53,7 @@ export type TtsAudioSource = {
   onError?: () => void;
   sessionId?: number;
   loadTimeoutMs?: number;
+  startPositionMs?: number;
 };
 
 export type TtsPlaybackState = {
@@ -100,6 +101,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     interruptionMode: "mixWithOthers",
   });
 
+  if (requestId !== playbackRequestId) return;
   stopActivePlayer();
 
   const nextLoopScope = resolvedSource.loopScope ?? "one";
@@ -131,6 +133,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
   activePlayer = player;
   let loopRestartInFlight = false;
   let playbackFinished = false;
+  let playbackStarted = false;
   const restartLoopFrom = async (startSeconds: number) => {
     if (loopRestartInFlight || activePlayer !== player) return;
     loopRestartInFlight = true;
@@ -151,12 +154,13 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     onFinished?.();
   };
   activePlaybackSubscription = player.addListener("playbackStatusUpdate", (status) => {
+    if (activePlayer !== player || requestId !== playbackRequestId) return;
     if (status.isLoaded || status.playbackState === "ready" || status.playbackState === "readyToPlay") {
       if (activeLoadTimer) {
         clearTimeout(activeLoadTimer);
         activeLoadTimer = null;
       }
-      if (activePlayer === player && playbackState.status === "loading") {
+      if (playbackStarted && activePlayer === player && playbackState.status === "loading") {
         setPlaybackState({ status: "playing" });
       }
     }
@@ -218,6 +222,11 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
       }
     }, 30);
   }
+  if (!effectivePlaybackRange && Number.isFinite(resolvedSource.startPositionMs) && resolvedSource.startPositionMs! > 0) {
+    await player.seekTo(resolvedSource.startPositionMs! / 1000, 0, 0);
+  }
+  if (activePlayer !== player || requestId !== playbackRequestId) return;
+  playbackStarted = true;
   player.play();
   if (activePlayer === player && player.currentStatus.isLoaded && playbackState.status === "loading") {
     setPlaybackState({ status: "playing" });
