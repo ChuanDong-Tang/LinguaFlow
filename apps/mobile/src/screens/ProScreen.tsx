@@ -1,3 +1,4 @@
+import { PointsUsageSheet } from "./shared/PointsUsageSheet";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -130,6 +131,7 @@ export function ProScreen({
     isRenew && activeAutoRenew && autoRenewBelongsToCurrentPlatform && autoRenew.cancelAtPeriodEnd;
   const liveProductPrices = resolveMembershipPriceLabels(appleIap, productQuotes);
   const productPrices = liveProductPrices;
+  const [pointsUsageVisible, setPointsUsageVisible] = useState(false);
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
   const membershipStatusLabel = resolveMembershipStatusLabel({
     isMember: isRenew,
@@ -1109,6 +1111,7 @@ export function ProScreen({
     return (
       <View style={styles.compactContainer}>
         {iapBridge}
+        <PointsUsageSheet visible={pointsUsageVisible} onClose={() => setPointsUsageVisible(false)} />
         <View style={styles.compactPlanGrid}>
           <View style={[styles.compactPlanCard, currentTier === "free" && styles.compactPlanCardCurrent]}>
             <View style={styles.compactPlanTitleRow}>
@@ -1116,9 +1119,12 @@ export function ProScreen({
               {currentTier === "free" ? <Text style={styles.compactCurrentBadge}>{t("pro.compact.current")}</Text> : null}
             </View>
             <View style={styles.compactBenefitList}>
-              {[t("pro.compact.free.basic_ai"), t("pro.compact.free.record"), t("pro.compact.free.practice")].map((benefit) => <View key={benefit} style={styles.compactBenefitRow}>
+              {[t("pro.compact.free.basic_ai"), t("pro.compact.free.images")].map((benefit, index) => <View key={benefit} style={styles.compactBenefitRow}>
                 <Ionicons name="checkmark-circle-outline" size={15} color="#444444" style={styles.compactBenefitIcon} />
-                <Text style={styles.compactBenefitText}>{benefit}</Text>
+                <View style={styles.compactBenefitContent}>
+                  <Text style={[styles.compactBenefitText, styles.compactBenefitLabel]}>{benefit}</Text>
+                  {index === 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t("pro.points.title")} hitSlop={10} style={styles.pointsInfoButton} onPress={() => setPointsUsageVisible(true)}><Ionicons name="information-circle-outline" size={15} color="#999999" /></Pressable> : null}
+                </View>
               </View>)}
             </View>
           </View>
@@ -1147,10 +1153,13 @@ export function ProScreen({
                   {currentTier === tier ? <Text style={styles.compactCurrentBadge}>{t("pro.compact.current")}</Text> : null}
                 </View>
                 <View style={styles.compactBenefitList}>
-                  {benefits.map((benefit) => (
+                  {benefits.map((benefit, index) => (
                     <View key={benefit} style={styles.compactBenefitRow}>
                       <Ionicons name="checkmark-circle-outline" size={15} color="#444444" style={styles.compactBenefitIcon} />
-                      <Text style={styles.compactBenefitText}>{benefit}</Text>
+                      <View style={styles.compactBenefitContent}>
+                  <Text style={[styles.compactBenefitText, styles.compactBenefitLabel]}>{benefit}</Text>
+                  {index === 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t("pro.points.title")} hitSlop={10} style={styles.pointsInfoButton} onPress={() => setPointsUsageVisible(true)}><Ionicons name="information-circle-outline" size={15} color="#999999" /></Pressable> : null}
+                </View>
                     </View>
                   ))}
                 </View>
@@ -1932,6 +1941,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
     includeFontPadding: false,
   },
+  compactBenefitContent: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 5 },
+  compactBenefitLabel: { flex: 0, flexShrink: 1 },
+  pointsInfoButton: { width: 20, height: 20, alignItems: "center", justifyContent: "center" },
   compactBenefitText: {
     includeFontPadding: false,
     flex: 1,

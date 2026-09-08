@@ -1402,6 +1402,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const quickNoteActualLineCount = Math.max(1, quickNoteLineCount, quickNoteExplicitLineCount);
   const quickNoteVisibleLineCount = Math.min(7, quickNoteActualLineCount);
   const quickNoteInputHeight = 20 + quickNoteVisibleLineCount * 24;
+  const quickNoteSendDisabled = quickNoteCreating || (!draft.text.trim() && !draft.images.length)
+    || preparingDraftImageCount > 0 || draft.images.some((image) => image.status !== "ready");
   const quickNoteNeedsFullEditor = draft.text.length > 0
     && (quickNoteActualLineCount >= 3 || draft.text.length >= 100);
   useEffect(() => {
@@ -1535,7 +1537,19 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               void Haptics.selectionAsync().catch(() => undefined);
               void updateDraftImageDescription(!draft.generateImageDescription);
             }}
-          ><Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{t("quick_note.image_description_on")}{draft.generateImageDescription ? " ✅" : ""}</Text></Pressable> : null}
+          ><Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{t("quick_note.image_description_on")}</Text><Ionicons name={draft.generateImageDescription ? "checkmark-circle" : "ellipse-outline"} size={17} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} /></Pressable> : null}
+          {quickNoteAddMenuVisible ? <View style={styles.quickNoteAddMenu}>
+            {(["camera", "library"] as const).map((source) => <Pressable
+              key={source}
+              accessibilityRole="button"
+              disabled={quickNoteCreating}
+              style={styles.quickNoteAddMenuItem}
+              onPress={() => { setQuickNoteAddMenuVisible(false); Keyboard.dismiss(); void pickImage(source); }}
+            >
+              <Ionicons name={source === "camera" ? "camera-outline" : "image-outline"} size={22} color={theme.colors.textSecondary} />
+              <Text style={styles.quickNoteAddMenuText}>{t(source === "camera" ? "card_detail.photo.camera" : "card_detail.photo.library")}</Text>
+            </Pressable>)}
+          </View> : null}
           <View style={styles.unifiedComposerControls}>
             <View style={styles.unifiedComposerLeftRail}>
               {quickNoteNeedsFullEditor ? <Pressable accessibilityLabel={t("quick_note.expand_editor")} hitSlop={8} style={styles.unifiedComposerExpand} onPress={openCardComposer}>
@@ -1545,7 +1559,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
                 </View>
               </Pressable> : null}
               <View style={styles.unifiedComposerRailSpacer} />
-              <Pressable accessibilityLabel={t("card_detail.photo.camera")} disabled={quickNoteCreating} style={styles.unifiedComposerTool} onPress={() => { Keyboard.dismiss(); void pickImage("camera"); }}><Ionicons name="camera-outline" size={24} color={theme.colors.textSecondary} /></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.add_attachment")} accessibilityState={{ expanded: quickNoteAddMenuVisible, disabled: quickNoteCreating }} disabled={quickNoteCreating} hitSlop={6} style={styles.unifiedComposerTool} onPress={() => setQuickNoteAddMenuVisible((visible) => !visible)}><Ionicons name={quickNoteAddMenuVisible ? "close" : "add"} size={25} color={theme.colors.textSecondary} /></Pressable>
             </View>
             <Reanimated.View style={[styles.unifiedComposerInputArea, quickNoteAnimatedHeightStyle]}>
             <Text
@@ -1564,7 +1578,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               value={draft.text}
               onChangeText={updateQuickNoteText}
               onSelectionChange={({ nativeEvent }) => quickNoteStt.onSelectionChange(nativeEvent.selection)}
-              onFocus={() => { if (quickNoteStt.status !== "idle") void quickNoteStt.toggle(); }}
+              onFocus={() => { setQuickNoteAddMenuVisible(false); if (quickNoteStt.status !== "idle") void quickNoteStt.toggle(); }}
               placeholder={t("quick_note.placeholder")}
               placeholderTextColor={theme.colors.textMuted}
               maxLength={cardLimits.contentChars}
@@ -1575,14 +1589,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             />
             </Reanimated.View>
             <View style={styles.unifiedComposerRightRail}>
-              <Pressable accessibilityLabel={t("card_detail.photo.library")} disabled={quickNoteCreating} style={styles.unifiedComposerTool} onPress={() => { Keyboard.dismiss(); void pickImage("library"); }}><Ionicons name="image-outline" size={23} color={theme.colors.textSecondary} /></Pressable>
-              {!draft.text.trim() && !draft.images.length ? <RealtimeSttButton
+              <RealtimeSttButton
                 status={quickNoteStt.status}
                 audioLevel={quickNoteStt.audioLevel}
                 disabled={quickNoteCreating}
                 iconSize={19}
                 style={styles.unifiedComposerMic}
                 onPress={() => {
+                  setQuickNoteAddMenuVisible(false);
                   Keyboard.dismiss();
                   quickNoteInputRef.current?.blur();
                   if (quickNoteStt.status === "idle") {
@@ -1591,9 +1605,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
                   }
                   void quickNoteStt.toggle();
                 }}
-              /> : <Pressable accessibilityLabel={t("quick_note.a11y.send")} disabled={quickNoteCreating} style={[styles.unifiedComposerSend, quickNoteCreating && styles.unifiedComposerSendDisabled]} onPress={() => { setQuickNoteAddMenuVisible(false); void sendQuickNote(); }}>
-                {quickNoteCreating ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={19} color={theme.colors.surface} />}
-              </Pressable>}
+              />
+              <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.a11y.send")} accessibilityState={{ disabled: quickNoteSendDisabled }} hitSlop={8} disabled={quickNoteSendDisabled} style={[styles.unifiedComposerSend, quickNoteSendDisabled && styles.unifiedComposerSendDisabled]} onPress={() => { setQuickNoteAddMenuVisible(false); void sendQuickNote(); }}>
+                {quickNoteCreating ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={16} color={theme.colors.surface} />}
+              </Pressable>
             </View>
           </View>
         </View>
@@ -3206,6 +3221,9 @@ const styles = StyleSheet.create({
   inspirationActionText: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
   inspirationAssistant: { width: 34, height: 34, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE4DC", borderRadius: 17, backgroundColor: "#EAF6F1", alignItems: "center", justifyContent: "center" },
   unifiedComposerBar: { minHeight: 60, padding: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DEDC", borderRadius: 26, backgroundColor: "rgba(255,255,255,0.97)", gap: 6, shadowColor: "#000000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9 },
+  quickNoteAddMenu: { flexDirection: "row", gap: 10, paddingHorizontal: 6, paddingVertical: 6 },
+  quickNoteAddMenuItem: { flex: 1, minHeight: 44, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: theme.colors.surfaceMuted },
+  quickNoteAddMenuText: { fontSize: 13, color: theme.colors.textSecondary, flexShrink: 1 },
   unifiedComposerControls: { flexDirection: "row", alignItems: "flex-end", gap: 4 },
   unifiedComposerLeftRail: { alignSelf: "stretch", width: 36, alignItems: "center" },
   unifiedComposerRightRail: { flexDirection: "row", alignItems: "center", gap: 3 },
@@ -3233,14 +3251,11 @@ const styles = StyleSheet.create({
   unifiedComposerTool: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   unifiedComposerToolbarSpacer: { flex: 1 },
   unifiedComposerMic: { width: 38, height: 38, borderRadius: 19, flexShrink: 0 },
-  unifiedComposerSend: { width: 40, height: 40, marginHorizontal: 2, borderRadius: 20, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
-  unifiedComposerSendDisabled: { opacity: 0.7 },
-  quickNoteAddMenu: { position: "absolute", left: 4, bottom: 60, minWidth: 210, paddingVertical: 7, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DEDC", backgroundColor: theme.colors.surface, shadowColor: "#000000", shadowOpacity: 0.14, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 12 },
-  quickNoteAddMenuItem: { minHeight: 45, paddingHorizontal: 15, flexDirection: "row", alignItems: "center", gap: 12 },
-  quickNoteAddMenuText: { color: theme.colors.text, fontSize: 16 },
+  unifiedComposerSend: { width: 28, height: 28, marginHorizontal: 5, marginVertical: 6, borderRadius: 14, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  unifiedComposerSendDisabled: { backgroundColor: "#C5C9C7" },
   quickNoteAddMenuDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 14, backgroundColor: theme.colors.border },
   quickNoteAttachmentRow: { paddingHorizontal: 7, paddingTop: 5, paddingBottom: 2, gap: 8 },
-  imageDescriptionChoice: { alignSelf: "flex-start", minHeight: 30, marginHorizontal: 7, paddingHorizontal: 10, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  imageDescriptionChoice: { alignSelf: "flex-end", flexDirection: "row", gap: 6, minHeight: 30, marginHorizontal: 7, paddingHorizontal: 10, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   imageDescriptionChoiceActive: { borderColor: "rgba(82,121,108,0.28)", backgroundColor: theme.colors.accentSoft },
   imageDescriptionChoicePressed: { opacity: 0.58 },
   imageDescriptionChoiceText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" },

@@ -668,7 +668,7 @@ export class CardService {
       : currentOriginalContentHash;
     const rewrittenText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "rewrittenText", current.rewrittenText, this.limits.contentMaxChars);
     const translationText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "translationText", current.translationText, this.limits.contentMaxChars);
-    const replyText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "replyText", current.replyText, this.limits.contentMaxChars);
+    const replyText = originalChanged ? null : normalizePatchedText(patch, "replyText", current.replyText, this.limits.contentMaxChars);
     const collectionId = Object.prototype.hasOwnProperty.call(patch, "collectionId") ? patch.collectionId?.trim() || null : current.collectionId;
     const hasRecordedAt = Object.prototype.hasOwnProperty.call(patch, "recordedAt");
     const hasDateKey = Object.prototype.hasOwnProperty.call(patch, "dateKey");
@@ -791,7 +791,7 @@ export class CardService {
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
     if (!current || current.clientId === TUTORIAL_CLIENT_ID || current.status !== "completed") throw new CardNotFoundError();
-    if (current.mode === "corpus" && input.target !== "auxiliary") {
+    if (current.mode === "corpus" && input.target !== "auxiliary" && input.target !== "reply") {
       throw new CardValidationError("Imported material does not generate rewritten content");
     }
     if (current.mode === "corpus" && !(await this.entitlementService.getCurrentEntitlement(input.userId)).isPro) {
@@ -1232,7 +1232,7 @@ export class CardService {
       userId: input.userId,
       requestId: input.requestId,
       operation: input.operation,
-      feature: "rewrite",
+      feature: "organization",
       systemPrompt: prompt.systemPrompt,
       userPrompt: prompt.userPrompt,
       languageCode: input.card.languageCode,

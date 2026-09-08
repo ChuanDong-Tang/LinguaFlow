@@ -4,6 +4,12 @@ import { dateKeyRangeInTimeZone } from "../time/businessClock.js";
 
 export const USAGE_API_VERSION = "v2";
 
+// Only rewrites and replies consume the user’s OIO allowance. Keep free
+// operations in the usage ledger so provider usage remains observable.
+function consumesOioPoints(feature: string): boolean {
+  return feature === "rewrite" || feature === "reply";
+}
+
 export class TokenQuotaExceededError extends Error {
   readonly code = "TOKEN_QUOTA_EXCEEDED";
   constructor(readonly remainingTokens: number, readonly refreshAt: Date) {
@@ -329,6 +335,7 @@ export class UsageV2Service {
     metadata?: Record<string, string | number | boolean | null>;
   }): Promise<TokenReservationView> {
     assertPositiveInteger(input.estimatedTokens, "estimatedTokens");
+    const reservedTokens = consumesOioPoints(input.feature) ? input.estimatedTokens : 0;
     const usage = await this.getCurrentUsage(input.userId);
     const periodStart = new Date(usage.token.periodStart);
     try {
@@ -342,12 +349,12 @@ export class UsageV2Service {
         where: { userId_apiVersion_periodStart: { userId: input.userId, apiVersion: USAGE_API_VERSION, periodStart } },
       });
       if (!cycle) throw new Error("TOKEN_CYCLE_NOT_FOUND");
-      const changed = await tx.$executeRawUnsafe(
+      const changed = reservedTokens === 0 ? 1 : await tx.$executeRawUnsafe(
         `UPDATE "ai_token_cycles"
             SET "reservedTokens" = "reservedTokens" + $1, "updatedAt" = NOW()
           WHERE "id" = $2
             AND "usedTokens" + "reservedTokens" + $1 <= "quotaTokens"`,
-        input.estimatedTokens,
+        reservedTokens,
         cycle.id,
       );
       if (changed === 0) {
@@ -360,7 +367,7 @@ export class UsageV2Service {
           requestId: input.requestId,
           feature: input.feature,
           status: "reserved",
-          reservedTokens: input.estimatedTokens,
+          reservedTokens,
           provider: input.provider,
           model: input.model,
           metadata: input.metadata,
@@ -386,7 +393,6 @@ export class UsageV2Service {
   }): Promise<TokenReservationView> {
     assertNonnegativeInteger(input.inputTokens, "inputTokens");
     assertNonnegativeInteger(input.outputTokens, "outputTokens");
-    const totalTokens = input.inputTokens + input.outputTokens;
     return this.prisma.$transaction(async (tx) => {
       await lockUsageRequest(tx, input.userId, input.requestId);
       const transaction = await tx.aiTokenTransaction.findUnique({
@@ -394,6 +400,7 @@ export class UsageV2Service {
       });
       if (!transaction) throw new Error("TOKEN_RESERVATION_NOT_FOUND");
       if (transaction.status !== "reserved") return tokenTransactionView(transaction);
+      const totalTokens = consumesOioPoints(transaction.feature) ? input.inputTokens + input.outputTokens : 0;
       const changed = await tx.$executeRawUnsafe(
         `UPDATE "ai_token_cycles"
             SET "reservedTokens" = "reservedTokens" - $1,
@@ -401,7 +408,7 @@ export class UsageV2Service {
                 "updatedAt" = NOW()
           WHERE "id" = $3
             AND "reservedTokens" >= $1
-            AND "usedTokens" + "reservedTokens" - $1 + $2 <= "quotaTokens"`,
+            AND ($2 = 0 OR "usedTokens" + "reservedTokens" - $1 + $2 <= "quotaTokens")`,
         transaction.reservedTokens,
         totalTokens,
         transaction.cycleId,

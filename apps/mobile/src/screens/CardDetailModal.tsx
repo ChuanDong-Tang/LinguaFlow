@@ -1,3 +1,4 @@
+import { resolveCardPlaybackProgress } from "../services/tts/cardPlaybackProgress";
 import { saveTutorialPractice } from "../services/card/tutorialPracticeStorage";
 import { alignCardSpeechMarks } from "@lf/core/text/cardSpeechText";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -80,12 +81,21 @@ import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText";
 type DetailTab = "review" | "cloze" | "dictation";
 type ClozeInputMode = "keyboard" | "choice";
 type ClozeInteractionMode = "edit" | ClozeInputMode;
+type CardLanguageControl = { label: string; mode: ContentDisplayMode; loading: boolean; onPress: () => void };
 type ContentDisplayMode = "target" | "bilingual" | "auxiliary";
 type PendingClozeCheckHandler = () => boolean;
 
+function CardLanguageModeIcon({ mode }: { mode: ContentDisplayMode }) {
+  return <View accessible={false} style={styles.cardLanguageIcon}>
+    <Text style={[styles.cardLanguageLetter, styles.cardLanguageTarget, mode !== "auxiliary" && styles.cardLanguageLetterActive]}>A</Text>
+    <Text style={styles.cardLanguageSlash}>/</Text>
+    <Text style={[styles.cardLanguageLetter, styles.cardLanguageAuxiliary, mode !== "target" && styles.cardLanguageLetterActive]}>文</Text>
+  </View>;
+}
+
 function initialClozeInteractionMode(autoStart: boolean, blankCount: number): ClozeInteractionMode {
   if (!autoStart || blankCount === 0) return "edit";
-  return blankCount === 1 ? "keyboard" : "choice";
+  return "choice";
 }
 type ClozeChoiceOption = { value: string; incorrect: boolean };
 type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; height: number };
@@ -197,6 +207,15 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   const [editing, setEditing] = useState(initialEditing && !detail?.isSample);
   const [detailActionMenuVisible, setDetailActionMenuVisible] = useState(false);
   const [playbackMode, setPlaybackMode] = useState(false);
+  const languageControlRef = useRef<CardLanguageControl | null>(null);
+  const [languageControl, setLanguageControl] = useState<Omit<CardLanguageControl, "onPress"> | null>(null);
+  const updateLanguageControl = useCallback((control: CardLanguageControl) => {
+    languageControlRef.current = control;
+    setLanguageControl((current) => current?.label === control.label && current.mode === control.mode && current.loading === control.loading ? current : { label: control.label, mode: control.mode, loading: control.loading });
+  }, []);
+  const languageButton = languageControl ? <Pressable accessibilityRole="button" accessibilityLabel={languageControl.label} disabled={languageControl.loading} style={styles.cardModeOption} onPress={() => languageControlRef.current?.onPress()}>
+    {languageControl.loading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <CardLanguageModeIcon mode={languageControl.mode} />}
+  </Pressable> : null;
   const playbackModeCardIdRef = useRef(detail?.id ?? null);
   const practiceMode = tab === "dictation";
   const [clozeState, setClozeState] = useState<CardClozeState>({ schemaVersion: 1, blanks: [] });
@@ -570,12 +589,13 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
             </Pressable>
           </View> : <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>}
           <View style={styles.headerEnd}>
+            {tab === "review" ? languageButton : null}
             {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Ionicons name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={!detail?.isSample && hasProAccess === true} /></View> : null}
@@ -1714,7 +1734,7 @@ function ImageDescriptionToggleAction({ active, loading, onPress }: { active: bo
       void Haptics.selectionAsync().catch(() => undefined);
       onPress();
     }}
-  ><Text style={[styles.imageDescriptionToggleText, active && styles.imageDescriptionToggleTextActive]}>{t("quick_note.image_description_on")}{active ? " ✅" : ""}</Text></Pressable>;
+  ><Text style={[styles.imageDescriptionToggleText, active && styles.imageDescriptionToggleTextActive]}>{t("quick_note.image_description_on")}</Text><Ionicons name={active ? "checkmark-circle" : "ellipse-outline"} size={17} color={active ? "#52796C" : theme.colors.textMuted} /></Pressable>;
 }
 
 function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, onClose, onRemove, onCoverPositionChange }: {
@@ -1898,12 +1918,13 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ hidePhraseRecommendation = false, detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onLearningContentClozeChange, onSelectLearningContent, onActivateLearningContent, onSaveOriginal, onUpdateMetadata, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, onImageSwipeContextChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ onLanguageControlChange, hidePhraseRecommendation = true, detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onLearningContentClozeChange, onSelectLearningContent, onActivateLearningContent, onSaveOriginal, onUpdateMetadata, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, onImageSwipeContextChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
   playbackMode: boolean;
   practiceEnabled: boolean;
+  onLanguageControlChange?: (control: CardLanguageControl) => void;
   hidePhraseRecommendation?: boolean;
   canUseDictation: boolean;
   autoStartClozePractice: boolean;
@@ -1950,9 +1971,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     return Math.max(0, selectedIndex);
   });
   const currentImage = images[Math.min(imageIndex, Math.max(0, images.length - 1))];
-  const playbackImage = contentBinding.contentType.startsWith("image:")
-    ? images.find((image) => `image:${image.id}` === contentBinding.contentType) ?? currentImage
-    : currentImage;
+  const playbackImage = images[0];
   const currentImageContentType = currentImage ? `image:${currentImage.id}` as CardLearningContentType : null;
   const currentImageBlock = currentImageContentType
     ? detail.contentBlocks.find((block) => block.contentType === currentImageContentType)
@@ -1961,17 +1980,15 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   const originalBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "original") ?? null;
   const primaryTextBlock = rewriteBlock ?? originalBlock;
   const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
-  const playbackPrimaryBlock = detail.contentBlocks.find((block) =>
-    block.contentType === contentBinding.contentType && block.contentVersion === contentBinding.contentVersion,
-  ) ?? rewriteBlock
-    ?? detail.contentBlocks.find((block) => block.contentType === "original")
-    ?? null;
+  const firstImageBlock = images[0] ? detail.contentBlocks.find((block) => block.contentType === `image:${images[0]!.id}`) : null;
+  const playbackBlocks = useMemo(() => [firstImageBlock, primaryTextBlock, replyBlock]
+    .filter((block): block is NonNullable<typeof block> => Boolean(block?.segments.length)), [firstImageBlock, primaryTextBlock, replyBlock]);
+  const playbackPrimaryBlock = playbackBlocks[0] ?? null;
   const playbackBinding = playbackPrimaryBlock
     ? { contentType: playbackPrimaryBlock.contentType, contentVersion: playbackPrimaryBlock.contentVersion }
     : contentBinding;
   const currentImageIsLearningContent = currentImageContentType === contentBinding.contentType;
   const currentImageAuxiliary = new Map((currentImageBlock?.auxiliarySegments ?? currentImage?.descriptionAuxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
-  const playbackAuxiliary = new Map((playbackPrimaryBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const wholeCardPracticeBlocks = cardPracticeContentBlocks(detail).filter((block) => block.learningAccess === undefined || block.learningAccess === "enabled");
   const practiceBlanksForBlock = (block: CardRecordDetail["contentBlocks"][number]) => block.contentType === contentBinding.contentType && block.contentVersion === contentBinding.contentVersion
     ? clozeState.blanks
@@ -1997,6 +2014,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   const clozeInputMode: ClozeInputMode = clozeMode === "choice" ? "choice" : "keyboard";
   const [choiceTrayOptions, setChoiceTrayOptions] = useState<ClozeChoiceOption[]>([]);
   const [activeChoiceOwnerKey, setActiveChoiceOwnerKey] = useState<string | null>(null);
+  const [selectedChoiceBlankId, setSelectedChoiceBlankId] = useState<string | null>(null);
   const activeChoiceOwnerKeyRef = useRef<string | null>(null);
   const choiceAnswerHandlersRef = useRef(new Map<string, (value: string) => void>());
   const pendingClozeCheckHandlersRef = useRef(new Map<string, PendingClozeCheckHandler>());
@@ -2043,13 +2061,8 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   const [answersVisible, setAnswersVisible] = useState(false);
   const [displayMode, setDisplayMode] = useState<ContentDisplayMode>(detail.isSample ? "bilingual" : "target");
   const [auxiliaryLoading, setAuxiliaryLoading] = useState(false);
-  const displayModeLabel = t(displayMode === "target"
-    ? "card_detail.display.target"
-    : displayMode === "bilingual"
-      ? "card_detail.display.bilingual"
-      : "card_detail.display.auxiliary");
-  const targetLanguageShort = compactLanguageLabel(detail.languageCode);
-  const auxiliaryLanguageShort = compactLanguageLabel(playbackPrimaryBlock?.auxiliaryLanguageCode ?? getLanguage());
+  const auxiliaryDisplayLanguage = playbackPrimaryBlock?.auxiliaryLanguageCode ?? getLanguage();
+  const displayModeLabel = cardDisplayModeLabel(displayMode, detail.languageCode, auxiliaryDisplayLanguage);
   const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "translation", boolean>>({ imageDescription: false, learning: false, reply: false, translation: false });
   const [articleAudioLoading, setArticleAudioLoading] = useState(false);
   const [sentenceAudioLoadingKey, setSentenceAudioLoadingKey] = useState<string | null>(null);
@@ -2061,6 +2074,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }>;
     deliveryMode: "buffered" | "streaming";
     generationId?: string;
+    durationMs?: number | null;
   }>>());
   const [articleSentenceMarks, setArticleSentenceMarks] = useState<Array<{
     text: string;
@@ -2069,6 +2083,8 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     startMs: number;
     durationMs: number;
   }>>([]);
+  const [articleTimelineDurationMs, setArticleTimelineDurationMs] = useState<number | null>(null);
+  const [articleMarkOffset, setArticleMarkOffset] = useState(0);
   const [articleStreaming, setArticleStreaming] = useState(false);
   const timelineAbortRef = useRef<AbortController | null>(null);
   useEffect(() => () => timelineAbortRef.current?.abort(), [detail.id, playbackBinding.contentType, playbackBinding.contentVersion]);
@@ -2197,20 +2213,12 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     ?? (practiceEnabled && onGeneratePhraseRecommendation
       ? { contentType: contentBinding.contentType, seen: false, exhausted: false, items: [] }
       : null);
-  const articleRows = useMemo(() => playbackPrimaryBlock ? buildCardClozeSentenceRows({
-    ...detail,
-    languageCode: playbackPrimaryBlock.languageCode,
-    rewriteSegments: playbackPrimaryBlock.segments,
-    auxiliarySegments: playbackPrimaryBlock.auxiliarySegments,
-    auxiliaryLanguageCode: playbackPrimaryBlock.auxiliaryLanguageCode,
-    practice: playbackPrimaryBlock.practice,
-  }, asCardClozeState(playbackPrimaryBlock.practice?.clozeState), true) : [], [detail, playbackPrimaryBlock]);
-  const articleReplySegments = useMemo(
-    () => playbackPrimaryBlock?.contentType === "rewrite" || playbackPrimaryBlock?.contentType === "original"
-      ? replyBlock?.segments ?? []
-      : [],
-    [playbackPrimaryBlock?.contentType, replyBlock],
-  );
+  const articleRows = useMemo(() => playbackBlocks.flatMap((block) => buildCardClozeSentenceRows({
+    ...detail, languageCode: block.languageCode, rewriteSegments: block.segments,
+  }, asCardClozeState(block.practice?.clozeState), true).map((row) => ({
+    ...row, playbackBlock: block,
+    auxiliary: (block.auxiliarySegments ?? []).find((item) => item.ordinal === block.segments.find((segment) => segment.id === row.segmentId)?.ordinal)?.text,
+  }))), [detail, playbackBlocks]);
   const replyAuxiliary = new Map((replyBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const rewriteAuxiliary = new Map((rewriteBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const expressionPending = pendingGenerationTargets.includes("expression");
@@ -2250,7 +2258,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     }
     const mark = articleSentenceMarks[activeIndex]!;
     if (playback.positionMs < mark.startMs || (articleStreaming && playback.positionMs >= mark.startMs + mark.durationMs)) return null;
-    return activeIndex;
+    return articleMarkOffset + activeIndex;
   })();
   const activeSentenceKey = (() => {
     if (!playback.hasActiveAudio || playback.status === "loading" || !playback.activeNavigationKey) return null;
@@ -2277,7 +2285,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       : playback.activeNavigationKey.startsWith(replyNavigationPrefix) ? replyNavigationPrefix : null;
     if (!replyPrefix) return null;
     const replyIndex = Number(playback.activeNavigationKey.slice(replyPrefix.length));
-    return Number.isInteger(replyIndex) ? articleRows.length + replyIndex : null;
+    return Number.isInteger(replyIndex) ? articleRows.findIndex((row) => row.segmentId === replyBlock?.segments[replyIndex]?.id) : null;
   })();
   useEffect(() => {
     if (!playbackMode || lyricsDraggingRef.current || activePlaybackLyricIndex === null) return;
@@ -2370,10 +2378,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     setRecommendationOverride(detail.phraseRecommendation);
   }, [contentBinding.contentType, detail.phraseRecommendation, detailRecommendationMatchesBinding, imageIsDefaultLearningContent, recommendationBelongsElsewhere]);
   const updateChoiceTrayOptions = useCallback((ownerKey: string, next: ClozeChoiceOption[]) => {
-    if (next.length) {
-      activeChoiceOwnerKeyRef.current = ownerKey;
-      setActiveChoiceOwnerKey(ownerKey);
-    }
+    if (activeChoiceOwnerKeyRef.current !== ownerKey) return;
     setChoiceTrayOptions((current) => {
       if (!next.length && activeChoiceOwnerKeyRef.current !== ownerKey) return current;
       if (current.length === next.length && current.every((option, index) => option.value === next[index]?.value && option.incorrect === next[index]?.incorrect)) {
@@ -2386,6 +2391,23 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     activeChoiceOwnerKeyRef.current = ownerKey;
     setActiveChoiceOwnerKey(ownerKey);
   }, []);
+  const choiceBlankQueue = [currentImageBlock, primaryTextBlock, replyBlock]
+    .filter((block): block is NonNullable<typeof block> => Boolean(block) && (block!.learningAccess === undefined || block!.learningAccess === "enabled"))
+    .flatMap((block) => [...practiceBlanksForBlock(block)]
+      .sort((a, b) => (block.segments.findIndex((segment) => segment.id === a.segmentId) - block.segments.findIndex((segment) => segment.id === b.segmentId)) || a.startUtf16 - b.startUtf16)
+      .map((blank) => ({ ownerKey: `${block.contentType}:${block.contentVersion}`, blankId: blank.id })));
+  const choiceQueueKey = JSON.stringify(choiceBlankQueue);
+  useEffect(() => {
+    if (clozeMode !== "choice") { setSelectedChoiceBlankId(null); return; }
+    if (choiceBlankQueue.some((item) => item.ownerKey === activeChoiceOwnerKey && item.blankId === selectedChoiceBlankId)) return;
+    const first = choiceBlankQueue[0];
+    if (first) { activateChoiceOwner(first.ownerKey); setSelectedChoiceBlankId(first.blankId); }
+  }, [clozeMode, detail.id, choiceQueueKey, activeChoiceOwnerKey, selectedChoiceBlankId, activateChoiceOwner]);
+  const advanceChoiceBlank = (ownerKey: string, blankId: string) => {
+    const index = choiceBlankQueue.findIndex((item) => item.ownerKey === ownerKey && item.blankId === blankId);
+    const next = choiceBlankQueue[Math.min(index + 1, choiceBlankQueue.length - 1)];
+    if (index >= 0 && next) { activateChoiceOwner(next.ownerKey); setSelectedChoiceBlankId(next.blankId); }
+  };
   const registerChoiceAnswerHandler = useCallback((ownerKey: string, handler: ((value: string) => void) | null) => {
     if (handler) choiceAnswerHandlersRef.current.set(ownerKey, handler);
     else choiceAnswerHandlersRef.current.delete(ownerKey);
@@ -2420,7 +2442,6 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     // auto-enter practice after the user exits it or creates a blank in edit mode.
     setClozeMode((current) => {
       if (wholeCardBlankCount === 0) return "edit";
-      if (current === "choice" && wholeCardBlankCount < 2) return "keyboard";
       return current;
     });
   }, [wholeCardBlankCount]);
@@ -2448,10 +2469,6 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       setAnswersVisible(false);
       return;
     }
-    if (mode === "choice" && wholeCardBlankCount < 2) {
-      showNotice({ message: t("card_detail.cloze.choice_unavailable"), type: "info", position: "top-center" });
-      return;
-    }
     if (wholeCardBlankCount === 0) return;
     setClozeMode(mode);
     setAnswersVisible(false);
@@ -2468,6 +2485,14 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       .catch((error) => showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.try_again"), type: "error", position: "top-center" }))
       .finally(() => setAuxiliaryLoading(false));
   }
+
+  useEffect(() => {
+    onLanguageControlChange?.({
+      label: displayModeLabel,
+      mode: displayMode,
+      loading: auxiliaryLoading, onPress: cycleDisplayMode,
+    });
+  }, [onLanguageControlChange, displayMode, displayModeLabel, auxiliaryLoading, detail, contentBinding.contentType, contentBinding.contentVersion, onActivateLearningContent]);
 
   async function copySection(text: string): Promise<void> {
     if (!text.trim()) return;
@@ -2717,24 +2742,25 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     }
   }
 
-  function prepareWholeArticleAudio(): Promise<{
+  function prepareWholeArticleAudio(block: CardRecordDetail["contentBlocks"][number]): Promise<{
     audioUrl: string;
     sentenceMarks: Array<{ text: string; textStart: number; textEnd: number; startMs: number; durationMs: number }>;
     deliveryMode: "buffered" | "streaming";
     generationId?: string;
+    durationMs?: number | null;
   }> {
     if (detail.source !== "card") return Promise.reject(new Error("Article is unavailable"));
     const entryId = detail.id.slice("card:".length);
-    const requestKey = ["card-article-whole", entryId, playbackBinding.contentType, playbackBinding.contentVersion].join("-");
+    const requestKey = ["card-article-whole", entryId, block.contentType, block.contentVersion].join("-");
     const existing = wholeArticleAudioPromisesRef.current.get(requestKey);
     if (existing) return existing;
     const request = (async () => {
-      const audio = await getCardArticleAudio({ entryId, ...playbackBinding });
+      const audio = await getCardArticleAudio({ entryId, contentType: block.contentType, contentVersion: block.contentVersion });
       const deliveryMode = audio.deliveryMode ?? "buffered";
       const sentenceMarks = alignCardSpeechMarks(
-        articleRows.map((row) => ({ id: row.segmentId, text: row.text })),
+        block.segments.map((segment) => ({ id: segment.id, text: segment.text })),
         audio.sentenceMarks ?? [],
-        playbackPrimaryBlock?.languageCode ?? detail.languageCode,
+        block.languageCode,
         deliveryMode === "streaming",
       );
       if (!sentenceMarks) throw new Error(t("card_detail.playback.timeline_unavailable"));
@@ -2742,7 +2768,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
         const source = { url: audio.audioUrl, cacheKey: [requestKey, audio.provider, audio.voiceCode].join("-") };
         void preloadTtsAudio(source).catch(() => undefined);
       }
-      return { audioUrl: audio.audioUrl, sentenceMarks, deliveryMode, generationId: audio.generationId };
+      return { audioUrl: audio.audioUrl, sentenceMarks, deliveryMode, generationId: audio.generationId, durationMs: audio.durationMs };
     })();
     wholeArticleAudioPromisesRef.current.set(requestKey, request);
     void request.then((audio) => {
@@ -2753,18 +2779,21 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     return request;
   }
 
-  async function followArticleTimeline(generationId: string, sessionId: number, controller: AbortController): Promise<void> {
+  async function followArticleTimeline(generationId: string, sessionId: number, controller: AbortController, block: CardRecordDetail["contentBlocks"][number]): Promise<void> {
     while (!controller.signal.aborted && isTtsPlaybackSessionCurrent(sessionId)) {
       try {
         const timeline = await getCardAudioTimeline(generationId, controller.signal);
         if (controller.signal.aborted || !isTtsPlaybackSessionCurrent(sessionId)) return;
         const marks = alignCardSpeechMarks(
-          articleRows.map((row) => ({ id: row.segmentId, text: row.text })),
+          block.segments.map((segment) => ({ id: segment.id, text: segment.text })),
           timeline.sentenceMarks,
-          playbackPrimaryBlock?.languageCode ?? detail.languageCode,
+          block.languageCode,
           timeline.status !== "ready",
         );
-        if (marks) setArticleSentenceMarks(marks);
+        if (marks) {
+          setArticleSentenceMarks(marks);
+          if (timeline.durationMs && timeline.durationMs > 0) setArticleTimelineDurationMs(timeline.durationMs);
+        }
         if (timeline.status === "ready" || timeline.status === "failed") return;
       } catch {
         if (controller.signal.aborted) return;
@@ -2782,26 +2811,34 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     const rows = articleRows;
     if (!rows.length) return;
     timelineAbortRef.current?.abort();
+    setArticleTimelineDurationMs(null);
+    setArticleSentenceMarks([]);
     setArticleAudioLoading(true);
     const sessionId = beginTtsPlaybackSession();
     try {
-      const audio = await prepareWholeArticleAudio();
+      const selectedRow = rows[startIndex];
+      if (!selectedRow) return;
+      const block = selectedRow.playbackBlock;
+      const blockStart = rows.findIndex((row) => row.playbackBlock.contentType === block.contentType);
+      const nextBlockStart = blockStart + block.segments.length;
+      const audio = await prepareWholeArticleAudio(block);
       if (!isTtsPlaybackSessionCurrent(sessionId)) return;
+      setArticleMarkOffset(blockStart);
+      setArticleTimelineDurationMs(audio.durationMs ?? null);
       setArticleStreaming(audio.deliveryMode === "streaming");
       setArticleSentenceMarks(audio.sentenceMarks);
       // A live MPEG stream cannot seek. Use the selected sentence while the full asset is being generated.
-      if (audio.deliveryMode === "streaming" && (startIndex > 0 || loopSingleSentence)) {
+      if (audio.deliveryMode === "streaming" && (startIndex > blockStart || loopSingleSentence)) {
         await playStandaloneSentence(rows[startIndex]!, () => {
           if (startIndex + 1 < rows.length) void playArticle(startIndex + 1);
-          else if (articleReplySegments.length) void playReplyFrom(0, undefined, true, sessionId);
           else if (getTtsPlaybackState().loopMode === "all") void playArticle();
         }, sessionId);
         return;
       }
       const controller = new AbortController();
       timelineAbortRef.current = controller;
-      if (audio.deliveryMode === "streaming" && audio.generationId) void followArticleTimeline(audio.generationId, sessionId, controller);
-      const startMark = audio.sentenceMarks[startIndex];
+      if (audio.deliveryMode === "streaming" && audio.generationId) void followArticleTimeline(audio.generationId, sessionId, controller, block);
+      const startMark = audio.sentenceMarks[startIndex - blockStart];
       await playTtsAudio({
         url: audio.audioUrl,
         loadTimeoutMs: audio.deliveryMode === "streaming" ? 45000 : undefined,
@@ -2816,11 +2853,8 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
         onError: () => controller.abort(),
         onFinished: () => {
           controller.abort();
-          if (articleReplySegments.length) {
-            void playReplyFrom(0, () => {
-              if (getTtsPlaybackState().loopMode === "all") void playArticle();
-            }, true, sessionId);
-          } else if (getTtsPlaybackState().loopMode === "all") void playArticle();
+          if (nextBlockStart < rows.length) void playArticle(nextBlockStart);
+          else if (getTtsPlaybackState().loopMode === "all") void playArticle();
         },
       });
     } catch (error) {
@@ -2834,7 +2868,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   }
 
   function jumpToArticleSentence(index: number): void {
-    const mark = articleSentenceMarks[index];
+    const mark = articleSentenceMarks[index - articleMarkOffset];
     if (playback.loopMode === "one") {
       void playArticle(index, true);
       return;
@@ -2872,7 +2906,6 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     setLyricsScrubIndex(null);
     if (index === null) return;
     if (index < articleRows.length) jumpToArticleSentence(index);
-    else void playReplyFrom(index - articleRows.length);
   }
 
   function cycleCardLoopMode(): void {
@@ -2883,7 +2916,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       void playArticle(activeArticleMarkIndex ?? 0, true);
       return;
     }
-    const currentMark = activeArticleMarkIndex === null ? null : articleSentenceMarks[activeArticleMarkIndex];
+    const currentMark = activeArticleMarkIndex === null ? null : articleSentenceMarks[activeArticleMarkIndex - articleMarkOffset];
     setTtsPlaybackLoopRange(nextMode === "one" && currentMark ? {
       startMs: currentMark.startMs,
       endMs: currentMark.startMs + currentMark.durationMs,
@@ -2896,18 +2929,20 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     sessionId = beginTtsPlaybackSession(),
   ): Promise<void> {
     if (detail.source !== "card") return;
+    const block = detail.contentBlocks.find((candidate) => candidate.segments.some((segment) => segment.id === row.segmentId));
+    const binding = block ? { contentType: block.contentType, contentVersion: block.contentVersion } : contentBinding;
     setSentenceAudioLoadingKey(row.key);
     try {
       const audio = await getCardSegmentAudio({
         entryId: detail.id.slice("card:".length),
         segmentId: row.segmentId,
         sourceKind: "review_segment",
-        ...contentBinding,
+        ...binding,
       });
       if (!isTtsPlaybackSessionCurrent(sessionId)) return;
       await playTtsAudio({
         url: audio.audioUrl,
-        cacheKey: ["card-segment", detail.id, row.segmentId, contentBinding.contentVersion, audio.provider, audio.voiceCode].join("-"),
+        cacheKey: ["card-segment", detail.id, row.segmentId, binding.contentVersion, audio.provider, audio.voiceCode].join("-"),
         loopScope: "one",
         navigationKey: `card:${detail.id}:sentence:${row.key}`,
         sessionId,
@@ -2935,11 +2970,11 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     } else if (key.startsWith(articleReplyNavigationPrefix) || key.startsWith(replyNavigationPrefix)) {
       const prefix = key.startsWith(articleReplyNavigationPrefix) ? articleReplyNavigationPrefix : replyNavigationPrefix;
       const replyIndex = Number(key.slice(prefix.length));
-      if (Number.isInteger(replyIndex)) queueIndex = articleRows.length + replyIndex;
+      if (Number.isInteger(replyIndex)) queueIndex = articleRows.findIndex((row) => row.segmentId === replyBlock?.segments[replyIndex]?.id);
     } else {
       return;
     }
-    const queueLength = articleRows.length + articleReplySegments.length;
+    const queueLength = articleRows.length;
     if (!Number.isInteger(queueIndex) || queueIndex < 0 || queueIndex >= queueLength) {
       setTtsNavigationControls(null);
       return;
@@ -2947,13 +2982,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     const wraps = playback.loopMode === "all" && queueLength > 1;
     const playQueueIndex = (nextQueueIndex: number) => {
       const normalized = (nextQueueIndex + queueLength) % queueLength;
-      if (normalized < articleRows.length) {
-        jumpToArticleSentence(normalized);
-      } else {
-        void playReplyFrom(normalized - articleRows.length, () => {
-          if (getTtsPlaybackState().loopMode === "all" && articleRows[0]) void playArticle();
-        }, true);
-      }
+      jumpToArticleSentence(normalized);
     };
     setTtsNavigationControls({
       canNavigatePrevious: queueIndex > 0 || wraps,
@@ -2970,7 +2999,6 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     playback.activeNavigationKey,
     playback.hasActiveAudio,
     playback.loopMode,
-    articleReplySegments.length,
     replyNavigationPrefix,
     sentenceNavigationPrefix,
   ]);
@@ -3143,10 +3171,17 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     );
     const playing = playbackBelongsToCard && playback.status === "playing";
     const loading = articleAudioLoading || playbackBelongsToCard && playback.status === "loading";
-    const durationMs = playback.durationMs ?? 0;
-    const progress = playbackBelongsToCard && durationMs > 0
-      ? Math.max(0, Math.min(1, playback.positionMs / durationMs))
-      : 0;
+    const wholeBlockPlaying = playbackBelongsToCard && Boolean(playback.activeNavigationKey?.startsWith(articleNavigationPrefix));
+    const activePlaybackBlock = articleRows[articleMarkOffset]?.playbackBlock;
+    const resolvedProgress = resolveCardPlaybackProgress({
+      positionMs: playback.positionMs,
+      playerDurationMs: playback.durationMs,
+      timelineDurationMs: wholeBlockPlaying ? articleTimelineDurationMs : null,
+      sentenceMarks: wholeBlockPlaying ? articleSentenceMarks : [],
+      sentenceTexts: wholeBlockPlaying ? activePlaybackBlock?.segments.map((segment) => segment.text) ?? [] : [],
+    });
+    const durationMs = resolvedProgress.durationMs;
+    const progress = playbackBelongsToCard ? resolvedProgress.progress : 0;
     const progressLoading = loading && !playing;
     const loopLabel = playback.loopMode === "one"
       ? t("card_detail.playback.loop_one")
@@ -3181,33 +3216,24 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
         >
           {articleRows.map((row, index) => {
             const active = (lyricsScrubIndex ?? activePlaybackLyricIndex) === index;
-            const ordinal = detail.rewriteSegments.find((segment) => segment.id === row.segmentId)?.ordinal;
-            const auxiliary = ordinal === undefined ? undefined : playbackAuxiliary.get(ordinal);
-            const sentenceMark = articlePlaybackActive ? articleSentenceMarks[index] : undefined;
+            const auxiliary = row.auxiliary;
+            const sentenceMark = articlePlaybackActive ? articleSentenceMarks[index - articleMarkOffset] : undefined;
             const rowProgress = lyricsScrubIndex !== null
               ? active ? 1 : 0
               : active && sentenceMark && sentenceMark.durationMs > 0
               ? Math.max(0, Math.min(1, (playback.positionMs - sentenceMark.startMs) / sentenceMark.durationMs))
               : active ? progress : 0;
             return <Pressable key={row.key} style={styles.cardPlaybackLyricRow} onLayout={(event) => lyricLayoutsRef.current.set(index, event.nativeEvent.layout)} onPress={() => jumpToArticleSentence(index)}>
-              <KaraokeText
+              {displayMode !== "auxiliary" ? <KaraokeText
                 text={row.text}
                 active={active}
                 progress={rowProgress}
                 blankRanges={row.blanks.map(({ blank }) => ({ start: blank.startUtf16, end: blank.endUtf16 }))}
-              />
-              {auxiliary ? <Text style={styles.cardPlaybackAuxiliary}>{auxiliary}</Text> : null}
+              /> : null}
+              {displayMode !== "target" && auxiliary ? <Text style={styles.cardPlaybackAuxiliary}>{auxiliary}</Text> : null}
             </Pressable>;
           })}
-          {articleReplySegments.map((segment, index) => {
-            const lyricIndex = articleRows.length + index;
-            const active = (lyricsScrubIndex ?? activePlaybackLyricIndex) === lyricIndex;
-            const rowProgress = lyricsScrubIndex !== null ? active ? 1 : 0 : active ? progress : 0;
-            return <Pressable key={`reply:${segment.id}`} style={styles.cardPlaybackLyricRow} onLayout={(event) => lyricLayoutsRef.current.set(lyricIndex, event.nativeEvent.layout)} onPress={() => void playReplyFrom(index)}>
-              <KaraokeText text={segment.text} active={active} progress={rowProgress} />
-              {replyAuxiliary.get(segment.ordinal) ? <Text style={styles.cardPlaybackAuxiliary}>{replyAuxiliary.get(segment.ordinal)}</Text> : null}
-            </Pressable>;
-          })}
+
         </ScrollView>
       </View>
       <View style={styles.cardPlaybackBar}>
@@ -3278,6 +3304,9 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       loadingSentenceKey={sentenceAudioLoadingKey}
       choiceOwnerKey={ownerKey}
       activeChoiceOwnerKey={activeChoiceOwnerKey}
+      selectedChoiceBlankId={activeChoiceOwnerKey === ownerKey ? selectedChoiceBlankId : null}
+      onSelectChoiceBlank={(blankId) => { activateChoiceOwner(ownerKey); setSelectedChoiceBlankId(blankId); }}
+      onChoiceAnswered={(blankId) => advanceChoiceBlank(ownerKey, blankId)}
       onChoiceOwnerChange={activateChoiceOwner}
       onChoiceOptionsChange={(options) => updateChoiceTrayOptions(ownerKey, options)}
       onChoiceAnswerHandlerChange={(handler) => registerChoiceAnswerHandler(ownerKey, handler)}
@@ -3389,7 +3418,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
                 {primaryTextBlock ? renderLearningBlock(primaryTextBlock) : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
                 {auxiliaryMissing ? <FailedGenerationSection target="auxiliary" retrying={retryingGenerationTarget === "auxiliary"} onRetry={onRetryGeneration} /> : null}
                 {primaryText.trim() ? <View style={styles.rewriteModuleActions}>
-                  {!detail.replyText && detail.mode !== "corpus" && detail.originalText.trim() ? <Pressable
+                  {!detail.replyText && !detail.isSample && detail.originalText.trim() ? <Pressable
                     accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")}
                     disabled={!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null}
                     style={({ pressed }) => [styles.replyGenerateButton, (!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null) && styles.replyGenerateButtonDisabled, pressed && styles.replyGenerateButtonPressed]}
@@ -3420,8 +3449,9 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     {fillMode && clozeInputMode === "choice" && choiceTrayOptions.length ? <View style={styles.detailChoiceTray}>
       {choiceTrayOptions.map((option) => <Pressable
         key={option.value}
-        disabled={savingCloze}
-        style={[styles.clozeChoiceOption, option.incorrect && styles.clozeChoiceOptionIncorrect]}
+        disabled={savingCloze || !option.value}
+        accessible={Boolean(option.value)}
+        style={[styles.clozeChoiceOption, !option.value && styles.clozeChoiceOptionEmpty, option.incorrect && styles.clozeChoiceOptionIncorrect]}
         onPress={() => {
           if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.(option.value);
         }}
@@ -3430,12 +3460,10 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
       </Pressable>)}
     </View> : null}
     <View ref={actionBarRef} style={styles.detailActionBar}>
-      <DetailActionButton label={displayModeLabel} textIcon={displayMode === "target" ? targetLanguageShort : displayMode === "bilingual" ? `${targetLanguageShort}+${auxiliaryLanguageShort}` : auxiliaryLanguageShort} active={displayMode !== "target"} loading={auxiliaryLoading} onPress={cycleDisplayMode} />
       {!detail.isSample ? <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={!practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} /> : null}
-      {!hidePhraseRecommendation ? <DetailActionButton label={t("card_detail.recommendation.button")} icon="sparkles" buttonText={t("card_detail.recommendation.short")} loading={recommendationLoading} disabled={!practiceEnabled || !frontLearningReady || !onGeneratePhraseRecommendation || phraseRecommendation?.exhausted === true} onPress={openPhraseRecommendation} /> : null}
-      <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("keyboard")} />
-      <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice"} disabled={!wholeCardPracticeBlocks.length || wholeCardBlankCount < 2} onPress={() => toggleClozeMode("choice")} />
       <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => setAnswersVisible((current) => !current)} />
+      <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("keyboard")} />
+      <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("choice")} />
     </View>
     <Modal visible={recommendationTaskVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
       <Pressable style={styles.recommendationBackdrop} onPress={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
@@ -3703,6 +3731,17 @@ function DetailActionButton({ label, icon, textIcon, buttonText, active = false,
   </Pressable>;
 }
 
+function cardDisplayModeLabel(mode: ContentDisplayMode, target: string, auxiliary: string): string {
+  const name = (code: string) => code.startsWith("zh") ? t("card_detail.display.name_zh")
+    : code.startsWith("ja") ? t("card_detail.display.name_ja")
+    : code.startsWith("en") ? t("card_detail.display.name_en") : code;
+  if (mode !== "bilingual") return tf("card_detail.display.only_language", { language: name(mode === "target" ? target : auxiliary) });
+  const languages = getLanguage().startsWith("zh")
+    ? `${compactLanguageLabel(auxiliary)}${compactLanguageLabel(target)}`
+    : `${name(auxiliary)} / ${name(target)}`;
+  return tf("card_detail.display.both_languages", { languages });
+}
+
 function compactLanguageLabel(languageCode: string): string {
   const locale = getLanguage();
   if (locale === "en-US") {
@@ -3838,7 +3877,7 @@ function ReasonBadge({ reason }: { reason: CardRelationReason }) {
   return <View style={[styles.reasonBadge, reason.type === "progress" && styles.reasonProgress, reason.type === "phrase" && styles.reasonPhrase]}><Text style={styles.reasonText}>{label}</Text></View>;
 }
 
-function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerPool, onClozeChange, onAddBlank, onBlankLongPress, onPlaySentence, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, displayMode = "target", activeSentenceKey = null, loadingSentenceKey = null, choiceOwnerKey, activeChoiceOwnerKey, onChoiceOwnerChange, onChoiceOptionsChange, onChoiceAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
+function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerPool, onClozeChange, onAddBlank, onBlankLongPress, onPlaySentence, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, displayMode = "target", activeSentenceKey = null, loadingSentenceKey = null, choiceOwnerKey, activeChoiceOwnerKey, selectedChoiceBlankId, onSelectChoiceBlank, onChoiceAnswered, onChoiceOwnerChange, onChoiceOptionsChange, onChoiceAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
   detail: CardRecordDetail;
   contentBinding: CardContentBinding;
   clozeState: CardClozeState;
@@ -3857,6 +3896,9 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
   loadingSentenceKey?: string | null;
   choiceOwnerKey?: string;
   activeChoiceOwnerKey?: string | null;
+  selectedChoiceBlankId?: string | null;
+  onSelectChoiceBlank?: (blankId: string) => void;
+  onChoiceAnswered?: (blankId: string) => void;
   onChoiceOwnerChange?: (ownerKey: string) => void;
   onChoiceOptionsChange?: (options: ClozeChoiceOption[]) => void;
   onChoiceAnswerHandlerChange?: (handler: ((value: string) => void) | null) => void;
@@ -3884,15 +3926,18 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
   onChoiceOptionsChangeRef.current = onChoiceOptionsChange;
   onChoiceAnswerHandlerChangeRef.current = onChoiceAnswerHandlerChange;
   onPendingClozeCheckHandlerChangeRef.current = onPendingClozeCheckHandlerChange;
-  const effectiveActiveChoiceBlankIndex = fillMode && inputMode === "choice"
+  const selectedIndex = selectedChoiceBlankId === undefined
     ? activeChoiceBlankIndex
+    : clozeState.blanks.findIndex((blank) => blank.id === selectedChoiceBlankId);
+  const effectiveActiveChoiceBlankIndex = fillMode && inputMode === "choice" && selectedIndex !== null && selectedIndex >= 0
+    ? selectedIndex
     : null;
   useLayoutEffect(() => {
     setAnswers({});
     setCheckedAnswers({});
   }, [detail.id, contentBinding.contentType, contentBinding.contentVersion]);
   useLayoutEffect(() => {
-    setActiveChoiceBlankIndex(null);
+    setActiveChoiceBlankIndex(fillMode && inputMode === "choice" && clozeState.blanks.length ? 0 : null);
     if (!fillMode) Keyboard.dismiss();
   }, [detail.id, contentBinding.contentType, contentBinding.contentVersion, fillMode, inputMode]);
   useEffect(() => {
@@ -3907,7 +3952,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
     const distractors = (choiceAnswerPool ?? clozeState.blanks.map((blank) => blank.answer))
       .map((answer) => answer.trim())
       .filter((answer, index, all) => normalizeAnswer(answer) !== correctKey && all.findIndex((candidate) => normalizeAnswer(candidate) === normalizeAnswer(answer)) === index);
-    if (!distractors.length) return [];
+    if (!distractors.length) return [activeBlank.answer, ""];
     const seed = Array.from(activeBlank.id).reduce((sum, character) => (sum * 31 + character.codePointAt(0)!) >>> 0, 7);
     const distractor = distractors[seed % distractors.length]!;
     return seed % 2 === 0 ? [activeBlank.answer, distractor] : [distractor, activeBlank.answer];
@@ -4096,14 +4141,17 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
 
   function chooseAnswer(value: string): void {
     const blankIndex = effectiveActiveChoiceBlankIndex;
-    if (blankIndex === null || saving) return;
+    if (blankIndex === null || saving || !value.trim()) return;
     const activeBlank = clozeState.blanks[blankIndex];
     if (!activeBlank) return;
     setAnswers((current) => ({ ...current, [activeBlank.id]: value }));
-    const answerCorrect = normalizeAnswer(value) === normalizeAnswer(activeBlank.answer);
     void check(blankIndex, value);
-    if (!answerCorrect) return;
-    setActiveChoiceBlankIndex(null);
+    if (onChoiceAnswered) onChoiceAnswered(activeBlank.id);
+    else {
+      const ordered = sentenceRows.flatMap((row) => row.blanks.map((item) => item.blankIndex));
+      const position = ordered.indexOf(blankIndex);
+      setActiveChoiceBlankIndex(ordered[Math.min(position + 1, ordered.length - 1)] ?? blankIndex);
+    }
   }
 
   const chooseAnswerRef = useRef(chooseAnswer);
@@ -4164,7 +4212,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
                   active={activeSentenceKey === row.key}
                   loading={loadingSentenceKey === row.key}
                   fillMode={fillMode}
-                  showTarget={displayMode !== "auxiliary" || fillMode}
+                  showTarget={displayMode !== "auxiliary"}
                   inputMode={inputMode}
                   activeChoiceBlankIndex={effectiveActiveChoiceBlankIndex}
                   onLookup={(term, start, end, anchor) => lookupInSentence(row, term, start, end, anchor)}
@@ -4176,6 +4224,8 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
                   onCheckAnswer={(blankIndex) => void check(blankIndex)}
                   onActivateChoiceBlank={(blankIndex) => {
                     setActiveChoiceBlankIndex(blankIndex);
+                    const blank = clozeState.blanks[blankIndex];
+                    if (blank) onSelectChoiceBlank?.(blank.id);
                     if (choiceOwnerKey) onChoiceOwnerChange?.(choiceOwnerKey);
                   }}
                   onChangeAnswer={(blankIndex, value) => {
@@ -4194,7 +4244,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
               const activeBlankId = effectiveActiveChoiceBlankIndex === null ? null : clozeState.blanks[effectiveActiveChoiceBlankIndex]?.id;
               const selected = Boolean(activeBlankId) && normalizeAnswer(answers[activeBlankId!] ?? "") === normalizeAnswer(option);
               const incorrect = selected && checkedAnswers[activeBlankId!] === "incorrect";
-              return <Pressable key={option} disabled={saving} style={[styles.clozeChoiceOption, incorrect && styles.clozeChoiceOptionIncorrect]} onPress={() => chooseAnswer(option)}>
+              return <Pressable key={option} disabled={saving || !option} accessible={Boolean(option)} style={[styles.clozeChoiceOption, !option && styles.clozeChoiceOptionEmpty, incorrect && styles.clozeChoiceOptionIncorrect]} onPress={() => chooseAnswer(option)}>
                 <Text numberOfLines={2} style={[styles.clozeChoiceOptionText, incorrect && styles.clozeChoiceOptionTextIncorrect]}>{option}</Text>
               </Pressable>;
             })}
@@ -4379,9 +4429,9 @@ function ClozePracticeBlank({ expectedText, answer, checked, mastered = false, r
       </View>
       <View style={styles.cardBlankContent}>
         {showInput ? <>
-          <TextInput ref={inputRef} autoFocus accessibilityLabel={t("card_detail.tab.cloze")} value={answer} editable={!disabled} onChangeText={onChangeAnswer} autoCapitalize="none" autoCorrect={false} selectionColor={theme.colors.text} style={styles.cardBlankInput} />
+          <TextInput ref={inputRef} onSubmitEditing={onCheck} accessibilityLabel={t("card_detail.tab.cloze")} value={answer} editable={!disabled} onChangeText={onChangeAnswer} autoCapitalize="none" autoCorrect={false} selectionColor={theme.colors.text} style={styles.cardBlankInput} />
           <Text pointerEvents="none" numberOfLines={1} style={styles.cardBlankCheckedText}>{coloredAnswer ?? answer}</Text>
-        </> : <Text pointerEvents="none" numberOfLines={1} style={styles.cardBlankStaticText}>{revealed ? expectedText : choiceEnabled ? answer : ""}</Text>}
+        </> : <Text pointerEvents="none" numberOfLines={1} style={styles.cardBlankStaticText}>{revealed || checked === "correct" ? expectedText : answer}</Text>}
       </View>
     </Pressable>
     <Pressable
@@ -4428,76 +4478,58 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   onTextSelectionStart?: () => void;
   onTextSelectionEnd?: () => void;
 }) {
-  const [editingBlankId, setEditingBlankId] = useState<string | null>(null);
-  const editingBlank = row.blanks.find(({ blank }) => blank.id === editingBlankId);
-  const insets = useSafeAreaInsets();
-  const ranges = row.blanks.map(({ blank }, groupIndex) => ({
-    start: blank.startUtf16 - row.textStart,
-    end: blank.endUtf16 - row.textStart,
-    groupIndex,
-  }));
-  const blankRanges = ranges.filter((_, index) => !revealed && checkedAnswers[row.blanks[index]!.blank.id] !== "correct");
-  const correctRanges = ranges.filter((_, index) => {
-    const blank = row.blanks[index]!.blank;
-    return blank.mastered || checkedAnswers[blank.id] === "correct";
+  const content: React.ReactNode[] = [];
+  let cursor = row.textStart;
+  row.blanks.forEach(({ blank, blankIndex }) => {
+    if (blank.startUtf16 > cursor) content.push(...renderClozeLookupText(row.text, cursor, blank.startUtf16, onLookup, onAddBlank, onTextSelectionStart, onTextSelectionEnd));
+    const answer = answers[blank.id] ?? "";
+    const checked = checkedAnswers[blank.id];
+    content.push(<ClozePracticeBlank
+      key={blank.id}
+      expectedText={blank.answer}
+      answer={answer}
+      checked={checked}
+      mastered={blank.mastered}
+      revealed={revealed}
+      editing={fillMode}
+      fillEnabled={fillMode}
+      inputMode={inputMode}
+      choiceActive={fillMode && !revealed && inputMode === "choice" && activeChoiceBlankIndex === blankIndex}
+      disabled={saving}
+      onLongPress={(anchor) => onBlankLongPress?.(blank, anchor)}
+      onChangeAnswer={(value) => onChangeAnswer(blankIndex, value)}
+      onCheck={() => onCheckAnswer(blankIndex)}
+      onActivateChoice={() => onActivateChoiceBlank(blankIndex)}
+    />);
+    cursor = blank.endUtf16;
   });
-  useEffect(() => {
-    if (!fillMode || inputMode !== "keyboard" || revealed) setEditingBlankId(null);
-  }, [fillMode, inputMode, revealed]);
-  const closeEditor = () => { Keyboard.dismiss(); setEditingBlankId(null); };
-  return <>
-    {/* Always lay out the original sentence once. Blanks only change glyph paint. */}
-    <SelectableMessageText
-      text={row.text.slice(row.textStart, row.textEnd)}
-      style={styles.clozeSentence}
-      highlightRanges={ranges}
-      blankRanges={blankRanges}
-      correctRanges={correctRanges}
-      answersVisible={revealed}
-      enableDictionaryMenu
-      enableClozeMenu={Boolean(onAddBlank)}
-      onSelectionStart={onTextSelectionStart}
-      onSelectionEnd={onTextSelectionEnd}
-      onDictionarySelection={(payload) => onLookup(payload.selectedText, row.textStart + payload.start, row.textStart + payload.end, payload.selectionRect)}
-      onSelectionChange={onAddBlank ? (payload) => onAddBlank(row.textStart + payload.start, row.textStart + payload.end, payload.selectedText, payload.selectionRect) : undefined}
-      onClozeRangePress={(index, anchor) => {
-        const item = row.blanks[index];
-        if (!item || saving) return;
-        if (!fillMode || revealed) onBlankLongPress?.(item.blank, anchor);
-        else if (inputMode === "choice") onActivateChoiceBlank(item.blankIndex);
-        else setEditingBlankId(item.blank.id);
-      }}
-      onClozeRangeLongPress={onBlankLongPress ? (index, anchor) => {
-        const item = row.blanks[index];
-        if (item && !saving) onBlankLongPress(item.blank, anchor);
-      } : undefined}
-    />
-    <Modal visible={Boolean(editingBlank) && fillMode && inputMode === "keyboard" && !revealed} transparent animationType="fade" onRequestClose={closeEditor}>
-      <KeyboardAvoidingView behavior="padding" style={styles.clozeEditorOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} accessibilityLabel={t("card_detail.a11y.close")} onPress={closeEditor} />
-        <View style={[styles.clozeEditorSheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <View style={styles.clozeEditorHeader}>
-            <Text style={styles.clozeEditorTitle}>{t("card_detail.tab.cloze")}</Text>
-            <Pressable hitSlop={10} accessibilityLabel={t("card_detail.a11y.close")} onPress={closeEditor}><Ionicons name="close" size={22} color={theme.colors.text} /></Pressable>
-          </View>
-          {editingBlank ? <ClozePracticeBlank
-            key={editingBlank.blank.id}
-            expectedText={editingBlank.blank.answer}
-            answer={answers[editingBlank.blank.id] ?? ""}
-            checked={checkedAnswers[editingBlank.blank.id]}
-            mastered={editingBlank.blank.mastered}
-            editing
-            fillEnabled
-            inputMode="keyboard"
-            disabled={saving}
-            onLongPress={() => undefined}
-            onChangeAnswer={(value) => onChangeAnswer(editingBlank.blankIndex, value)}
-            onCheck={() => onCheckAnswer(editingBlank.blankIndex)}
-          /> : null}
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  </>;
+  if (cursor < row.textEnd) content.push(...renderClozeLookupText(row.text, cursor, row.textEnd, onLookup, onAddBlank, onTextSelectionStart, onTextSelectionEnd));
+  return <View style={styles.clozeFlow}>{content}</View>;
+}
+
+function renderClozeLookupText(
+  text: string,
+  start: number,
+  end: number,
+  onLookup: (term: string, start: number, end: number, anchor?: NativeTextSelectionPayload["selectionRect"]) => void,
+  onAddBlank?: (start: number, end: number, selectedText: string, selectionRect?: NativeTextSelectionPayload["selectionRect"]) => void,
+  onTextSelectionStart?: () => void,
+  onTextSelectionEnd?: () => void,
+): React.ReactNode[] {
+  const chunk = text.slice(start, end);
+  if (!chunk) return [];
+  return [<SelectableMessageText
+    key={`selectable-${start}-${end}`}
+    text={chunk}
+    style={styles.clozeSentence}
+    containerStyle={styles.clozeSelectableGap}
+    enableDictionaryMenu
+    enableClozeMenu={Boolean(onAddBlank)}
+    onSelectionStart={onTextSelectionStart}
+    onSelectionEnd={onTextSelectionEnd}
+    onDictionarySelection={(payload) => onLookup(payload.selectedText, start + payload.start, start + payload.end, payload.selectionRect)}
+    onSelectionChange={onAddBlank ? (payload) => onAddBlank(start + payload.start, start + payload.end, payload.selectedText, payload.selectionRect) : undefined}
+  />];
 }
 
 function asCardClozeState(value: unknown): CardClozeState {
@@ -4574,8 +4606,14 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: theme.colors.canvas },
   header: { height: 60, paddingHorizontal: 8, flexDirection: "row", alignItems: "center" },
   headerButton: { width: 64, minHeight: 44, justifyContent: "center" }, close: { color: theme.colors.textSecondary, fontSize: 15 }, title: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 16, fontWeight: "500" },
-  cardModeSwitch: { flex: 1, height: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 30 },
+  cardModeSwitch: { flex: 1, height: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 },
   cardModeOption: { minWidth: 42, height: 44, alignItems: "center", justifyContent: "center" },
+  cardLanguageIcon: { width: 25, height: 25, position: "relative" },
+  cardLanguageLetter: { position: "absolute", color: "#C7C7C7", fontSize: 12, lineHeight: 15, fontWeight: "600", includeFontPadding: false },
+  cardLanguageTarget: { left: 0, top: 0 },
+  cardLanguageAuxiliary: { right: 0, bottom: 0 },
+  cardLanguageLetterActive: { color: theme.colors.text },
+  cardLanguageSlash: { position: "absolute", left: 9, top: 3, color: "#999999", fontSize: 19, lineHeight: 21, includeFontPadding: false },
   cardModeOptionText: { color: "#AAAAAA", fontSize: 15, lineHeight: 21, fontWeight: "500" },
   cardModeOptionTextActive: { color: theme.colors.text, fontWeight: "600" },
   historyButtons: { width: 82, flexDirection: "row", alignItems: "center" },
@@ -4749,6 +4787,7 @@ const styles = StyleSheet.create({
   inlineClozeSentenceList: { paddingVertical: 0 },
   inlineClozeSentenceRow: { minHeight: 0, marginHorizontal: 0, paddingHorizontal: 0, paddingVertical: 5 },
   clozeChoiceTray: { marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, flexDirection: "row", gap: 9 },
+  clozeChoiceOptionEmpty: { opacity: 0 },
   clozeChoiceOption: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   clozeChoiceOptionIncorrect: { borderColor: "#D98B87", backgroundColor: "#FCE7E5" },
   clozeChoiceOptionText: { color: theme.colors.text, fontSize: 15, lineHeight: 20, fontWeight: "500", textAlign: "center" },
@@ -4766,19 +4805,15 @@ const styles = StyleSheet.create({
   clozeSentenceRowActive: { backgroundColor: theme.colors.accentSoft },
   clozeSentencePlay: { width: 34, minHeight: 34, marginTop: -1, marginRight: -5, alignItems: "center", justifyContent: "center" },
   clozeSentenceBody: { flex: 1, paddingTop: 1 },
-  clozeEditorOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.16)" },
-  clozeEditorSheet: { paddingHorizontal: 24, paddingTop: 18, borderTopLeftRadius: 18, borderTopRightRadius: 18, backgroundColor: theme.colors.surface },
-  clozeEditorHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20 },
-  clozeEditorTitle: { fontSize: 16, color: theme.colors.text },
   clozeSentence: { color: "#242424", fontSize: 17, lineHeight: 28 },
   originalLearningSentence: { color: theme.colors.text },
   replyLearningSentence: { color: theme.colors.text },
-  auxiliarySentence: { marginTop: 3, color: "#666666", fontSize: 16, lineHeight: 25 },
+  auxiliarySentence: { marginTop: 3, color: "#666666", fontSize: 13, lineHeight: 20 },
   imageDescriptionSection: { gap: 7 },
   imageDescriptionBody: { paddingHorizontal: 6, paddingTop: 2, paddingBottom: 6 },
   imageIntegratedSection: { marginTop: 0, paddingTop: 7, borderTopWidth: 0 },
   imageBottomRightAction: { position: "absolute", right: 10, bottom: 10, zIndex: 4 },
-  imageDescriptionToggleAction: { alignSelf: "flex-end", minHeight: 40, marginTop: 9, paddingHorizontal: 13, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  imageDescriptionToggleAction: { flexDirection: "row", gap: 6, alignSelf: "flex-end", minHeight: 40, marginTop: 9, paddingHorizontal: 13, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   imageDescriptionToggleActionActive: { borderColor: "rgba(82,121,108,0.28)", backgroundColor: theme.colors.accentSoft },
   imageDescriptionToggleActionPressed: { opacity: 0.72, transform: [{ scale: 0.97 }] },
   imageDescriptionToggleText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: "600" },
@@ -4811,6 +4846,8 @@ const styles = StyleSheet.create({
   cardBlankCheckedText: { position: "absolute", left: 0, top: 0, height: 28, paddingHorizontal: 0, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
   cardBlankCheckedWordCorrect: { color: theme.colors.success },
   cardBlankCheckedWordIncorrect: { color: theme.colors.danger },
+  clozeFlow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
+  clozeSelectableGap: { alignSelf: "auto", flexShrink: 1, maxWidth: "100%" },
   cardBlankUnit: { height: 28, maxWidth: "100%", flexShrink: 1, flexDirection: "row", alignItems: "center" },
   cardBlankCheckButton: { width: 20, height: 20, marginLeft: 3, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   cardBlankCheckButtonDisabled: { opacity: 0.45 },

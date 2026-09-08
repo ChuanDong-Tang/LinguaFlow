@@ -273,7 +273,7 @@ export class ChatGenerationService {
         await this.usageV2Service.reserveTokens({
           userId: input.userId,
           requestId: input.requestId,
-          feature: "rewrite",
+          feature: input.companionMode === "simple_reply" ? "reply" : "rewrite",
           estimatedTokens: Array.from(meteredInput).length + 4_000,
           provider: effectiveProvider,
           model: effectiveModel,
