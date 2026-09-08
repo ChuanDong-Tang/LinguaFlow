@@ -2989,11 +2989,11 @@ async function prepareCorpusDraftForSave(draft: CardDraft): Promise<CardDraft | 
     return null;
   }
   const extraction = extractTargetLanguageCorpus(draft.text, languageCode);
-  if (!extraction.text) {
+  if (extraction.excludedSentences.length && !await confirmCorpusLanguageFilter()) return null;
+  if (!extraction.text && !draft.images.length) {
     Alert.alert(t("card_detail.corpus_no_target_title"), t("card_detail.corpus_no_target_message"));
     return null;
   }
-  if (extraction.excludedSentences.length && !await confirmCorpusLanguageFilter()) return null;
   return { ...draft, text: extraction.text };
 }
 

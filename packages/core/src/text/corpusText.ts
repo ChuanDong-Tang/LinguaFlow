@@ -1,5 +1,5 @@
 import { segmentLearningSentences } from "./learningText.js";
-import { isEntireTargetLanguageText } from "./targetLanguageRanges.js";
+import { isTargetLanguageCode } from "../language/targetLanguages.js";
 
 export type TargetLanguageCorpusExtraction = {
   text: string;
@@ -23,10 +23,30 @@ export function extractTargetLanguageCorpus(text: string, languageCode: string):
   const kept: string[] = [];
   const excludedSentences: string[] = [];
   for (const sentence of sentences) {
-    if (isEntireTargetLanguageText(sentence, languageCode)) kept.push(sentence);
-    else if (/\p{Letter}/u.test(sentence)) excludedSentences.push(sentence);
+    const classification = classifyCorpusSentence(sentence, languageCode);
+    if (classification === "target") kept.push(sentence);
+    else if (classification === "other") excludedSentences.push(sentence);
   }
   return { text: kept.join("\n"), sentences: kept, excludedSentences };
+}
+
+function classifyCorpusSentence(sentence: string, languageCode: string): "target" | "other" | "neutral" {
+  if (!isTargetLanguageCode(languageCode)) return "other";
+  const letters = [...sentence.matchAll(/\p{Letter}/gu)].map((match) => match[0]);
+  if (!letters.length) return "neutral";
+  const latin = letters.filter((letter) => /\p{Script=Latin}/u.test(letter)).length;
+  const han = letters.filter((letter) => /\p{Script=Han}/u.test(letter)).length;
+  const kana = letters.filter((letter) => /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(letter)).length;
+  const japanese = han + kana;
+  const other = Math.max(0, letters.length - latin - kana - han);
+  if (languageCode === "en-US") {
+    // Permit occasional names or borrowed words from another script, while a
+    // clearly non-Latin sentence is still filtered out.
+    return latin > 0 && latin >= (japanese + other) * 2 ? "target" : "other";
+  }
+  // Kana is the reliable Japanese signal. Latin product names are common in
+  // otherwise Japanese sentences, so only treat them as foreign when dominant.
+  return kana > 0 && japanese >= (latin + other) ? "target" : "other";
 }
 
 function splitUniversalSentences(text: string): string[] {

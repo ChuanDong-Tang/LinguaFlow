@@ -773,11 +773,11 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
     let savedOriginalText = originalText.trim();
     if (detail.mode === "corpus" && savedOriginalText) {
       const extraction = extractTargetLanguageCorpus(savedOriginalText, detail.languageCode);
-      if (!extraction.text) {
+      if (extraction.excludedSentences.length && !await confirmCorpusLanguageFilter()) return;
+      if (!extraction.text && !images.length) {
         Alert.alert(t("card_detail.corpus_no_target_title"), t("card_detail.corpus_no_target_message"));
         return;
       }
-      if (extraction.excludedSentences.length && !await confirmCorpusLanguageFilter()) return;
       savedOriginalText = extraction.text;
     }
     setSaving(true);
@@ -2053,11 +2053,11 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     if (!next || originalSaving || originalStt.status !== "idle" || !onSaveOriginal) return;
     if (detail.mode === "corpus") {
       const extraction = extractTargetLanguageCorpus(next, detail.languageCode);
-      if (!extraction.text) {
+      if (extraction.excludedSentences.length && !await confirmCorpusLanguageFilter()) return;
+      if (!extraction.text && !images.length) {
         Alert.alert(t("card_detail.corpus_no_target_title"), t("card_detail.corpus_no_target_message"));
         return;
       }
-      if (extraction.excludedSentences.length && !await confirmCorpusLanguageFilter()) return;
       next = extraction.text;
     }
     setOriginalSaving(true);
