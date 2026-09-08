@@ -3108,9 +3108,14 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
               maxLength={3000}
               placeholder={t("card_detail.original_placeholder")}
               placeholderTextColor={theme.colors.textMuted}
-              style={styles.moduleComposerInput}
+              style={[styles.moduleComposerInput, styles.standaloneOriginalInput]}
               textAlignVertical="top"
               onChangeText={originalStt.onChangeText}
+              onFocus={() => {
+                const end = originalDraft.length;
+                originalStt.onSelectionChange({ start: end, end });
+                requestAnimationFrame(() => originalInputRef.current?.setNativeProps({ selection: { start: end, end } }));
+              }}
               onSelectionChange={(event) => {
                 originalStt.onSelectionChange(event.nativeEvent.selection);
               }}
@@ -4313,6 +4318,7 @@ const styles = StyleSheet.create({
   moduleActionButton: { width: 34, height: 32, marginTop: 5, alignItems: "center", justifyContent: "center", borderRadius: 16 },
   moduleComposer: { marginTop: 8, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted },
   moduleComposerInput: { minHeight: 72, maxHeight: 180, padding: 0, color: theme.colors.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" },
+  standaloneOriginalInput: { height: 132, minHeight: 132, maxHeight: 132 },
   moduleComposerActions: { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   moduleComposerSecondary: { minHeight: 36, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   moduleComposerSecondaryText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "500" },
