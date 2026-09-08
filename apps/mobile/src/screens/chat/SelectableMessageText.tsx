@@ -8,6 +8,7 @@ import {
   View,
   type StyleProp,
   type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import { t } from "../../i18n";
 import {
@@ -48,6 +49,7 @@ export type SelectableMessageTextRef = {
 type Props = {
   text: string;
   style?: StyleProp<TextStyle>;
+  containerStyle?: StyleProp<ViewStyle>;
   highlightRanges?: NativeClozeHighlightRange[];
   blankRanges?: NativeClozeBlankRange[];
   answersVisible?: boolean;
@@ -213,6 +215,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
   function SelectableMessageText({
     text,
     style,
+    containerStyle,
     highlightRanges,
     blankRanges,
     answersVisible = false,
@@ -379,7 +382,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     });
 
     return (
-      <View style={[styles.nativeTextContainer, nativeContentHeight > 0 ? { minHeight: nativeContentHeight } : null]}>
+      <View style={[styles.nativeTextContainer, containerStyle, nativeContentHeight > 0 ? { minHeight: nativeContentHeight } : null]}>
         <Text pointerEvents="none" style={layoutBaseTextStyle}>
           {layoutTextContent}
         </Text>

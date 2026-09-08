@@ -233,6 +233,14 @@ export interface CardRepository {
     promptDifficultySnapshot: string;
     promptVersion: string;
   }): Promise<CardEntryEntity[]>;
+  createTutorial(input: {
+    userId: string;
+    dateKey: string;
+    languageCode: string;
+    appLocaleSnapshot: AppLocale;
+    promptDifficultySnapshot: string;
+    promptVersion: string;
+  }): Promise<CardEntryEntity[]>;
   createQueued(input: CreateQueuedCardEntryInput): Promise<CardEntryEntity>;
   createDirect(input: CreateDirectCardEntryInput): Promise<CardEntryEntity>;
   updateContent(input: {
@@ -357,6 +365,7 @@ export interface CardRepository {
     dateKey?: string;
     fromDateKey?: string;
     sortDirection?: "asc" | "desc";
+    includeLegacySamples?: boolean;
     limit: number;
     cursor?: { createdAt: Date; id: string };
   }): Promise<CardEntryEntity[]>;

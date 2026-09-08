@@ -675,15 +675,20 @@ function completedCards(rows: CardRecordSummary[]): CardRecordSummary[] {
 function hasRecallCloze(detail: CardRecordDetail | null): boolean {
   if (!detail) return false;
   const blocks = detail.contentBlocks ?? [];
-  const learningBlock = blocks.find((block) => block.contentType === "rewrite")
-    ?? blocks.find((block) => block.contentType === "original")
-    ?? blocks[0];
-  const practice = learningBlock?.practice ?? detail.practice;
-  const state = practice?.clozeState;
-  return Boolean(
-    practice?.hasCloze
-    || state && typeof state === "object" && "blanks" in state && Array.isArray(state.blanks) && state.blanks.length > 0,
-  );
+  const hasRewrite = blocks.some((block) => block.contentType === "rewrite");
+  const practiceBlocks = blocks.filter((block) => {
+    if (block.contentType.startsWith("image:") || block.contentType === "reply") return true;
+    if (detail.mode === "corpus") return block.contentType === "original";
+    return block.contentType === "rewrite" || !hasRewrite && block.contentType === "original";
+  });
+  const practices = practiceBlocks.length ? practiceBlocks.map((block) => block.practice) : [detail.practice];
+  return practices.some((practice) => {
+    const state = practice?.clozeState;
+    return Boolean(
+      practice?.hasCloze
+      || state && typeof state === "object" && "blanks" in state && Array.isArray(state.blanks) && state.blanks.length > 0,
+    );
+  });
 }
 function shuffle<T>(items: T[]): T[] { for (let index = items.length - 1; index > 0; index -= 1) { const target = Math.floor(Math.random() * (index + 1)); [items[index], items[target]] = [items[target]!, items[index]!]; } return items; }
 

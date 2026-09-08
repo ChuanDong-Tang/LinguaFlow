@@ -1,5 +1,6 @@
-import React from "react";
-import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useState } from "react";
+import { restoreTutorialCard } from "../services/api/cardApi";
+import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
@@ -22,6 +23,7 @@ type AboutScreenProps = {
 };
 
 export function AboutScreen({ onBack }: AboutScreenProps) {
+  const [restoring, setRestoring] = useState(false);
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -47,6 +49,12 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
         </SectionCard>
 
         <SectionCard title={t("about.more")}>
+          <InfoRow icon="school-outline" label={t("tutorial.restore")} value={restoring ? "…" : ""} onPress={() => {
+            if (restoring) return;
+            setRestoring(true);
+            void restoreTutorialCard().then(() => Alert.alert(t("tutorial.restored")))
+              .catch(() => Alert.alert(t("card_detail.error.try_again"))).finally(() => setRestoring(false));
+          }} />
           <InfoRow icon="information-circle-outline" label={t("about.version")} value={getAppVersionText()} />
           <InfoRow icon="shield-outline" label={t("about.privacy")} value="" onPress={() => openUrl(PRIVACY_URL)} />
           <InfoRow icon="document-text-outline" label={t("about.terms")} value="" onPress={() => openUrl(TERMS_URL)} isLast />

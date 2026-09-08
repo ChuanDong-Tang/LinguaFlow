@@ -146,6 +146,7 @@ export function CardDetailNavigator({
       setPendingGenerationTargets([]);
       return;
     }
+    if (detailCacheRef.current.get(request.recordId)?.detail.isSample) detailCacheRef.current.delete(request.recordId);
     const cached = detailCacheRef.current.get(request.recordId);
     setDetail(cached?.detail ?? null);
     setPendingGenerationTargets(cached?.pendingTargets ?? []);
@@ -220,6 +221,7 @@ export function CardDetailNavigator({
   }
 
   function close(): void {
+    if (detail?.isSample) detailCacheRef.current.delete(detail.id);
     requestSequenceRef.current += 1;
     setDetail(null);
     setHistory([]);

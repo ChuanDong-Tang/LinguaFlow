@@ -32,6 +32,7 @@ import Sortable from "react-native-sortables";
 import {
   createCardEntry,
   bootstrapCard,
+  subscribeTutorialRestored,
   createCardCollection,
   deleteCardCollection,
   deleteCardRecord,
@@ -342,6 +343,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       if (sequence === refreshSequenceRef.current) setLoading(false);
     }
   }, [libraryView, sortMode]);
+
+  useEffect(() => subscribeTutorialRestored(() => { void refresh(); }), [refresh]);
 
   const refreshGeneratedTopic = useCallback((recordId: string) => {
     if (topicRefreshTimersRef.current.has(recordId)) return;
@@ -1163,7 +1166,25 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     setLibraryView(view);
   }
 
+  function hideTutorial(recordId: string): void {
+    void deleteCardRecord(recordId)
+      .then(() => {
+        setRecords((rows) => rows.filter((row) => row.id !== recordId));
+        void refresh();
+      })
+      .catch(() => Alert.alert(t("main.error.delete_failed")));
+  }
+
   function confirmDelete(recordId: string): void {
+    if (records.find((record) => record.id === recordId)?.isSample) {
+      Alert.alert(t("tutorial.hide"), t("tutorial.hint"), [
+        { text: t("common.cancel"), style: "cancel" },
+        { text: t("tutorial.hide"), onPress: () => void deleteCardRecord(recordId)
+          .then(() => setRecords((rows) => rows.filter((row) => row.id !== recordId)))
+          .catch(() => Alert.alert(t("main.error.delete_failed"))) },
+      ]);
+      return;
+    }
     if (libraryView === TRASH_VIEW) {
       Alert.alert("彻底删除这张卡片？", "删除后无法恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "彻底删除", style: "destructive", onPress: () => void permanentlyDeleteCardRecord(recordId).then(() => setRecords((rows) => rows.filter((row) => row.id !== recordId))).catch(() => Alert.alert(t("main.error.delete_failed"))) }]);
       return;
@@ -1423,10 +1444,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
       <FlatList
         style={styles.libraryList}
-        data={records}
+        data={[...records].filter((record) => !selectingRecords || !record.isSample).sort((a, b) => Number(b.isSample) - Number(a.isSample))}
         keyExtractor={(record) => record.id}
         renderItem={({ item: record }) => (
-          <CardCard record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onThumbnailError={recoverFailedThumbnail} />
+          <CardCard record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
         )}
         contentContainerStyle={styles.list}
         alwaysBounceVertical={false}
@@ -1467,7 +1488,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             left: Math.min(windowSize.width - 140, Math.max(12, recordActionMenu.anchor.x + recordActionMenu.anchor.width - 128)),
           },
         ]}>
-          {libraryView === TRASH_VIEW ? <><Pressable style={styles.recordActionItem} onPress={() => { const id = recordActionMenu.record.id; setRecordActionMenu(null); restoreFromTrash(id); }}><Ionicons name="arrow-undo-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.recordActionText}>恢复</Text></Pressable><View style={styles.recordActionDivider} /></> : recordActionMenu.record.source === "card" ? <>
+          {libraryView === TRASH_VIEW ? <><Pressable style={styles.recordActionItem} onPress={() => { const id = recordActionMenu.record.id; setRecordActionMenu(null); restoreFromTrash(id); }}><Ionicons name="arrow-undo-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.recordActionText}>恢复</Text></Pressable><View style={styles.recordActionDivider} /></> : recordActionMenu.record.source === "card" && !recordActionMenu.record.isSample ? <>
             <Pressable style={styles.recordActionItem} onPress={() => {
               const record = recordActionMenu.record;
               setRecordActionMenu(null);
@@ -1484,7 +1505,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             confirmDelete(recordId);
           }}>
             <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
-            <Text style={[styles.recordActionText, styles.recordActionDanger]}>{t("common.delete")}</Text>
+            <Text style={[styles.recordActionText, styles.recordActionDanger]}>{t(recordActionMenu.record.isSample ? "tutorial.hide" : "common.delete")}</Text>
           </Pressable>
         </View>
       </View> : null}
@@ -1501,19 +1522,20 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               <Pressable accessibilityLabel={t("common.remove")} hitSlop={6} style={styles.quickNoteAttachmentRemove} onPress={() => removeDraftImage(image.localUri)}>
                 <Ionicons name="close" size={13} color={theme.colors.surface} />
               </Pressable>
-              {image.status === "ready" ? <Pressable
-                accessibilityRole="switch"
-                accessibilityState={{ checked: draft.generateImageDescription }}
-                hitSlop={6}
-                style={({ pressed }) => [styles.quickNoteImageDescriptionAction, draft.generateImageDescription && styles.quickNoteImageDescriptionActionActive, pressed && styles.quickNoteImageDescriptionActionPressed]}
-                onPress={() => {
-                  void Haptics.selectionAsync().catch(() => undefined);
-                  void updateDraftImageDescription(!draft.generateImageDescription);
-                }}
-              ><Ionicons name={draft.generateImageDescription ? "checkmark" : "sparkles"} size={13} color={theme.colors.surface} /></Pressable> : null}
             </View>)}
             {preparingDraftImageCount > 0 ? <View style={[styles.quickNoteAttachment, styles.quickNoteAttachmentPreparing]}><ActivityIndicator size="small" color={theme.colors.textMuted} /></View> : null}
           </ScrollView> : null}
+          {draft.images.some((image) => image.status === "ready") ? <Pressable
+            accessibilityRole="switch"
+            accessibilityLabel={t("quick_note.image_description_on")}
+            accessibilityState={{ checked: draft.generateImageDescription }}
+            hitSlop={6}
+            style={({ pressed }) => [styles.imageDescriptionChoice, draft.generateImageDescription && styles.imageDescriptionChoiceActive, pressed && styles.imageDescriptionChoicePressed]}
+            onPress={() => {
+              void Haptics.selectionAsync().catch(() => undefined);
+              void updateDraftImageDescription(!draft.generateImageDescription);
+            }}
+          ><Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{t("quick_note.image_description_on")}{draft.generateImageDescription ? " ✅" : ""}</Text></Pressable> : null}
           <View style={styles.unifiedComposerControls}>
             <View style={styles.unifiedComposerLeftRail}>
               {quickNoteNeedsFullEditor ? <Pressable accessibilityLabel={t("quick_note.expand_editor")} hitSlop={8} style={styles.unifiedComposerExpand} onPress={openCardComposer}>
@@ -2891,7 +2913,7 @@ async function stabilizeRecordThumbnails(
   }));
 }
 
-function CardCard({ record, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError }: {
+function CardCard({ record, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
   record: CardRecordSummary;
   collectionName?: string;
   selecting?: boolean;
@@ -2899,6 +2921,7 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
   onPress?: (origin?: CardDetailRequest["origin"]) => void;
   onOpenActions: (anchor: RecordActionAnchor) => void;
   onThumbnailError: () => void;
+  onHideTutorial?: () => void;
 }) {
   const processing = record.status !== "completed";
   const previewText = record.rewrittenPreview?.trim() || record.originalPreview;
@@ -2941,7 +2964,12 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
           <View style={styles.cardFooter}>
             <Text numberOfLines={1} style={styles.cardTime}>{formatCardDateLabel(record.dateKey)} · {formatTime(record.recordedAt ?? record.createdAt)}</Text>
             {collectionName ? <Text numberOfLines={1} style={styles.cardCollection}>{collectionName}</Text> : null}
-            {record.isSample ? <Text style={styles.sampleBadge}>{t("main.card.sample")}</Text> : null}
+            {record.isSample ? <>
+              <Text style={styles.sampleBadge}>{t("main.card.sample")}</Text>
+              <Pressable accessibilityLabel={t("tutorial.hide")} hitSlop={8} onPress={(event) => { event.stopPropagation(); onHideTutorial?.(); }}>
+                <Text style={styles.sampleBadge}>{t("tutorial.hide")}</Text>
+              </Pressable>
+            </> : null}
             {processing ? <ActivityIndicator size="small" color={theme.colors.accent} /> : !selecting ? (
               <Pressable ref={moreButtonRef} accessibilityLabel={t("quick_note.actions")} style={styles.cardMoreButton} hitSlop={8} onPress={(event) => {
                 event.stopPropagation();
@@ -3212,14 +3240,13 @@ const styles = StyleSheet.create({
   quickNoteAddMenuText: { color: theme.colors.text, fontSize: 16 },
   quickNoteAddMenuDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 14, backgroundColor: theme.colors.border },
   quickNoteAttachmentRow: { paddingHorizontal: 7, paddingTop: 5, paddingBottom: 2, gap: 8 },
-  imageDescriptionChoice: { alignSelf: "flex-start", minHeight: 30, marginHorizontal: 7, paddingHorizontal: 10, borderRadius: 15, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 6 },
+  imageDescriptionChoice: { alignSelf: "flex-start", minHeight: 30, marginHorizontal: 7, paddingHorizontal: 10, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  imageDescriptionChoiceActive: { borderColor: "rgba(82,121,108,0.28)", backgroundColor: theme.colors.accentSoft },
+  imageDescriptionChoicePressed: { opacity: 0.58 },
   imageDescriptionChoiceText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" },
   imageDescriptionChoiceTextActive: { color: "#52796C" },
   quickNoteAttachment: { width: 66, height: 66, borderRadius: 13, overflow: "visible", backgroundColor: theme.colors.surfaceMuted },
   quickNoteAttachmentImage: { width: 66, height: 66, borderRadius: 13 },
-  quickNoteImageDescriptionAction: { position: "absolute", right: 4, bottom: 4, width: 27, height: 27, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(35,35,35,0.72)", borderWidth: 1, borderColor: "rgba(255,255,255,0.72)" },
-  quickNoteImageDescriptionActionActive: { backgroundColor: "#52796C" },
-  quickNoteImageDescriptionActionPressed: { opacity: 0.72, transform: [{ scale: 0.94 }] },
   quickNoteAttachmentOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.34)" },
   quickNoteAttachmentPreparing: { alignItems: "center", justifyContent: "center", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border },
   quickNoteAttachmentRemove: { position: "absolute", top: -5, right: -5, width: 21, height: 21, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(27,31,30,0.82)", borderWidth: 2, borderColor: theme.colors.surface },

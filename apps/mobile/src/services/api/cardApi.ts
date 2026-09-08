@@ -309,10 +309,22 @@ export async function deleteCardImageUpload(uploadId: string): Promise<void> {
   await request<void>(`/cards/image-uploads/${encodeURIComponent(uploadId)}`, { method: "DELETE" });
 }
 
+const tutorialRestoredListeners = new Set<() => void>();
+export function subscribeTutorialRestored(listener: () => void): () => void {
+  tutorialRestoredListeners.add(listener);
+  return () => { tutorialRestoredListeners.delete(listener); };
+}
+
+export async function restoreTutorialCard(): Promise<CardRecordSummary[]> {
+  const cards = await request<CardRecordSummary[]>("/cards/tutorial/restore", { method: "POST", body: "{}" });
+  tutorialRestoredListeners.forEach((listener) => listener());
+  return cards;
+}
+
 export async function bootstrapCard(): Promise<CardRecordSummary[]> {
   return request<CardRecordSummary[]>("/cards/bootstrap", {
     method: "POST",
-    body: "{}",
+    body: JSON.stringify({ tutorial: true }),
   });
 }
 
@@ -361,6 +373,7 @@ export async function getCardRecordPage(input?: {
   sort?: "newest" | "oldest";
 }): Promise<CardRecordPage> {
   const params = new URLSearchParams();
+  params.set("tutorial", "v1");
   if (input?.dateKey) params.set("dateKey", input.dateKey);
   if (input?.collectionId) params.set("collectionId", input.collectionId);
   if (input?.unclassified) params.set("unclassified", "true");

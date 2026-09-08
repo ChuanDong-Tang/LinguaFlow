@@ -22,11 +22,11 @@ export class PrismaCardCollectionRepository {
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }, { id: "asc" }],
         include: {
           _count: {
-            select: { cards: { where: { status: "completed", deletedAt: null } } },
+            select: { cards: { where: { isSample: false, status: "completed", deletedAt: null } } },
           },
         },
       }),
-      this.prisma.card.count({ where: { userId, collectionId: null, status: "completed", deletedAt: null } }),
+      this.prisma.card.count({ where: { userId, collectionId: null, isSample: false, status: "completed", deletedAt: null } }),
     ]);
     return {
       collections: collections.map((collection) => ({
@@ -70,7 +70,7 @@ export class PrismaCardCollectionRepository {
       where: { id: collectionId },
       include: {
         _count: {
-          select: { cards: { where: { status: "completed", deletedAt: null } } },
+          select: { cards: { where: { isSample: false, status: "completed", deletedAt: null } } },
         },
       },
     });
@@ -175,7 +175,7 @@ export class PrismaCardCollectionRepository {
         where: {
           id: { in: input.cardIds },
           userId: input.userId,
-          status: "completed",
+          isSample: false, status: "completed",
           deletedAt: null,
         },
         data: { collectionId: input.collectionId },
@@ -193,7 +193,7 @@ export class PrismaCardCollectionRepository {
       where: {
         id: input.cardId,
         userId: input.userId,
-        status: "completed",
+        isSample: false, status: "completed",
         deletedAt: null,
       },
       data: { title: input.title },

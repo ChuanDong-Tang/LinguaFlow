@@ -118,8 +118,20 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     if (!deps.cardEnabled) return cardDisabled(reply, requestId);
     const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/bootstrap");
     if (!userId) return;
-    const data = await deps.cardService.bootstrap(userId);
+    const data = await deps.cardService.bootstrap(userId, (req.body as { tutorial?: unknown } | null)?.tutorial === true);
     return reply.status(200).send({ ok: true, request_id: requestId, data });
+  });
+
+  app.post("/cards/tutorial/restore", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/tutorial/restore");
+    if (!userId) return;
+    try {
+      const data = await deps.cardService.restoreTutorial(userId);
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) { return handleCardError(reply, requestId, error); }
   });
 
   app.get("/cards/search", async (req, reply) => {
@@ -838,6 +850,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       cursor?: unknown;
       fromDateKey?: unknown;
       sort?: unknown;
+      tutorial?: unknown;
     };
     try {
       const data = await deps.cardService.listLibraryPage(userId, {
@@ -846,6 +859,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         fromDateKey: typeof query.fromDateKey === "string" && query.fromDateKey ? query.fromDateKey : undefined,
         limit: Number(query.limit),
         cursor: typeof query.cursor === "string" && query.cursor ? query.cursor : undefined,
+        tutorial: query.tutorial === "v1",
         sort: query.sort === "oldest" ? "oldest" : "newest",
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });

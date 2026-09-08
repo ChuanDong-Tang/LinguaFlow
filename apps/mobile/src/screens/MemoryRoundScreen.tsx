@@ -187,16 +187,16 @@ export function MemoryRoundScreen({
         if (!isCurrentRun()) return;
         setRound((current) => markQuestionResultSynced(current, resultId));
       });
-      const pendingRecordIds = new Set(pendingResults.map((result) => result.recordId));
-      const availableCandidates = candidates.filter((candidate) => !pendingRecordIds.has(candidate.recordId) && candidate.clozeState.blanks.length > 0);
+      const pendingCandidateKeys = new Set(pendingResults.map((result) => memoryCandidateKey(result.recordId, result.contentType, result.contentVersion)));
+      const availableCandidates = candidates.filter((candidate) => !pendingCandidateKeys.has(memoryCandidateKey(candidate.recordId, candidate.contentType, candidate.contentVersion)) && candidate.clozeState.blanks.length > 0);
       candidatePoolRef.current = availableCandidates;
-      const candidatesById = new Map(validated.map((candidate) => [candidate.recordId, candidate]));
+      const candidatesById = new Map(validated.map((candidate) => [memoryCandidateKey(candidate.recordId, candidate.contentType, candidate.contentVersion), candidate]));
       const storedCurrentId = stored?.questions[stored.currentIndex]?.id ?? null;
       const resumed = stored
         ? {
             ...stored,
             questions: stored.questions.flatMap((question) => {
-              const candidate = candidatesById.get(question.recordId);
+              const candidate = candidatesById.get(memoryCandidateKey(question.recordId, question.contentType, question.contentVersion));
               const currentBlankIds = new Set(candidate?.clozeState.blanks.map((blank) => blank.id) ?? []);
               if (!candidate || !candidate.segments.some((segment) => segment.id === question.segmentId) || !question.blankIds.every((blankId) => currentBlankIds.has(blankId))) return [];
               return [{
@@ -225,7 +225,8 @@ export function MemoryRoundScreen({
         return;
       }
       const firstCandidate = availableCandidates[Math.floor(Math.random() * availableCandidates.length)];
-      const questions = firstCandidate ? buildQuestions([firstCandidate], new Map(), new Map(), availableCandidates) : [];
+      const firstCardCandidates = firstCandidate ? availableCandidates.filter((candidate) => candidate.recordId === firstCandidate.recordId) : [];
+      const questions = buildQuestions(firstCardCandidates, new Map(), new Map(), availableCandidates);
       if (!questions.length) {
         await clearStoredRound(resolvedOwnerId);
         onResumeStateChange(false);
@@ -564,7 +565,8 @@ export function MemoryRoundScreen({
     for (const item of currentRound.questions) {
       if (item.recordId === selected.recordId && item.task !== "legacy") previousTasksBySegment.set(item.segmentId, item.task);
     }
-    const generated = buildQuestions([selected], relationTopics, previousTasksBySegment, candidatePoolRef.current).map((item, index) => ({
+    const selectedCardCandidates = candidates.filter((candidate) => candidate.recordId === selected.recordId);
+    const generated = buildQuestions(selectedCardCandidates, relationTopics, previousTasksBySegment, candidatePoolRef.current).map((item, index) => ({
       ...item,
       id: `${item.id}:chain:${currentRound.questions.length}:${index}`,
     }));
@@ -675,7 +677,8 @@ export function MemoryRoundScreen({
       const relationTopics = relationTopic ? new Map([[selected.recordId, relationTopic]]) : new Map<string, string>();
       const swapSequence = nextCardSwapSequenceRef.current + 1;
       nextCardSwapSequenceRef.current = swapSequence;
-      const replacement = buildQuestions([selected], relationTopics, new Map(), candidatePoolRef.current).map((item, index) => ({
+      const selectedCardCandidates = candidatePoolRef.current.filter((candidate) => candidate.recordId === selected.recordId);
+      const replacement = buildQuestions(selectedCardCandidates, relationTopics, new Map(), candidatePoolRef.current).map((item, index) => ({
         ...item,
         id: `${item.id}:swap:${swapSequence}:${index}`,
       }));
@@ -1261,6 +1264,10 @@ function baseQuestion(candidate: CardMemoryRoundCandidate, segmentId: string, se
     relationHint: null,
     ...value,
   };
+}
+
+function memoryCandidateKey(recordId: string, contentType: CardLearningContentType | null, contentVersion: string | null): string {
+  return `${recordId}\u0000${contentType ?? "legacy"}\u0000${contentVersion ?? "legacy"}`;
 }
 
 function isCompatibleDistractor(answer: string, candidate: string): boolean {

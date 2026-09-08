@@ -1,3 +1,5 @@
+import { TUTORIAL_CLIENT_ID, tutorialContent } from "../../services/card/cardTutorial.js";
+import { buildCardContentSegments } from "../../services/card/cardContentSegments.js";
 import type {
   CompleteCardEntryInput,
   CreateDirectCardEntryInput,
@@ -152,6 +154,7 @@ export class PrismaCardRepository implements CardRepository {
       where: {
         userId,
         deletedAt: null,
+        AND: [{ OR: [{ isSample: false }, { clientId: { in: ["sample:v1:1", "sample:v1:2"] } }] }],
         status: { notIn: ["failed", "deleted"] },
         ...collectionWhere,
         ...(fromDateKey ? { dateKey: { gte: fromDateKey } } : {}),
@@ -169,6 +172,7 @@ export class PrismaCardRepository implements CardRepository {
     dateKey?: string;
     fromDateKey?: string;
     sortDirection?: "asc" | "desc";
+    includeLegacySamples?: boolean;
     limit: number;
     cursor?: { createdAt: Date; id: string };
   }): Promise<CardEntryEntity[]> {
@@ -197,6 +201,7 @@ export class PrismaCardRepository implements CardRepository {
       where: {
         userId: input.userId,
         deletedAt: null,
+        ...(input.includeLegacySamples ? { AND: [{ OR: [{ isSample: false }, { clientId: { in: ["sample:v1:1", "sample:v1:2"] } }] }] } : { isSample: false }),
         status: { notIn: ["failed", "deleted"] },
         ...collectionWhere,
         ...(input.dateKey ? { dateKey: input.dateKey } : input.fromDateKey ? { dateKey: { gte: input.fromDateKey } } : {}),
@@ -283,6 +288,46 @@ export class PrismaCardRepository implements CardRepository {
         orderBy: [{ createdAt: "asc" }],
         include: includeSegments,
       });
+      return completed.map(toEntry);
+    });
+  }
+
+  async createTutorial(input: {
+    userId: string;
+    dateKey: string;
+    languageCode: string;
+    appLocaleSnapshot: AppLocale;
+    promptDifficultySnapshot: string;
+    promptVersion: string;
+  }): Promise<CardEntryEntity[]> {
+    const sample = tutorialContent(input.languageCode, input.appLocaleSnapshot);
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize concurrent bootstrap/language refresh requests for this account.
+      await tx.$queryRawUnsafe('SELECT 1 FROM pg_advisory_xact_lock(hashtext($1))', `tutorial:${input.userId}`);
+      await hideCompletedSamples(tx, input.userId, new Date());
+      const data = {
+        title: sample.title, originalText: null, originalContentHash: null,
+        rewrittenText: sample.text, rewrittenLanguageCode: input.languageCode,
+        rewrittenSourceHash: createHash("sha256").update(sample.text).digest("hex"), topic: sample.title,
+        languageCode: input.languageCode, appLocaleSnapshot: input.appLocaleSnapshot,
+        auxiliarySegments: sample.auxiliary, auxiliaryLanguageCode: input.appLocaleSnapshot,
+        inputChars: 0, outputChars: 0,
+      };
+      await tx.card.createMany({ data: [{
+        ...data, userId: input.userId, dateKey: input.dateKey,
+        promptDifficultySnapshot: input.promptDifficultySnapshot, promptVersion: input.promptVersion,
+        clientId: TUTORIAL_CLIENT_ID, status: "completed", isSample: true, publishedAt: new Date(),
+      }], skipDuplicates: true });
+      let row = await tx.card.findFirst({ where: { userId: input.userId, clientId: TUTORIAL_CLIENT_ID }, include: includeSegments });
+      const changed = row.rewrittenText !== sample.text || row.appLocaleSnapshot !== input.appLocaleSnapshot;
+      if (changed) row = await tx.card.update({ where: { id: row.id }, data, include: includeSegments });
+      const writes = buildCardContentSegments([{ contentType: "rewrite", text: sample.text, languageCode: input.languageCode, sourceHash: data.rewrittenSourceHash }]);
+      await syncContentSegments(tx, row.id, writes);
+      if (changed || !row.segments.length) {
+        await tx.cardRewriteSegment.deleteMany({ where: { entryId: row.id } });
+        await tx.cardRewriteSegment.createMany({ data: writes[0]!.segments.map((segment) => ({ entryId: row.id, ...segment })) });
+      }
+      const completed = await tx.card.findMany({ where: { id: row.id, status: "completed", deletedAt: null }, include: includeSegments });
       return completed.map(toEntry);
     });
   }
@@ -950,6 +995,7 @@ export class PrismaCardRepository implements CardRepository {
     const rows = await this.prisma.card.findMany({
       where: {
         userId,
+        isSample: false,
         dateKey,
         status: { in: ["queued", "processing", "completed"] },
       },
@@ -964,6 +1010,7 @@ export class PrismaCardRepository implements CardRepository {
     const rows = await this.prisma.card.findMany({
       where: {
         userId,
+        isSample: false,
         dateKey: { gte: fromDateKey, lte: toDateKey },
         status: { in: ["queued", "processing", "completed"] },
       },
@@ -1320,7 +1367,7 @@ export class PrismaCardRepository implements CardRepository {
 
   async permanentlyDelete(entryId: string, userId: string): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      const card = await tx.card.findFirst({ where: { id: entryId, userId, status: "deleted" }, select: { id: true } });
+      const card = await tx.card.findFirst({ where: { id: entryId, userId, isSample: false, status: "deleted" }, select: { id: true } });
       if (!card) return false;
       await tx.cardImageAsset.updateMany({ where: { entryId }, data: { status: "cleanup_pending" } });
       await tx.card.delete({ where: { id: entryId } });
@@ -1329,13 +1376,13 @@ export class PrismaCardRepository implements CardRepository {
   }
 
   async listDeletedByUser(userId: string): Promise<CardEntryEntity[]> {
-    const rows = await this.prisma.card.findMany({ where: { userId, status: "deleted" }, orderBy: { deletedAt: "desc" }, include: includeSegments });
+    const rows = await this.prisma.card.findMany({ where: { userId, isSample: false, status: "deleted" }, orderBy: { deletedAt: "desc" }, include: includeSegments });
     return rows.map(toEntry);
   }
 
   async deleteExpiredTrash(before: Date): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
-      const cards = await tx.card.findMany({ where: { status: "deleted", deletedAt: { lt: before } }, select: { id: true }, take: 500 });
+      const cards = await tx.card.findMany({ where: { isSample: false, status: "deleted", deletedAt: { lt: before } }, select: { id: true }, take: 500 });
       if (!cards.length) return 0;
       const ids = cards.map((card: { id: string }) => card.id);
       await tx.cardImageAsset.updateMany({ where: { entryId: { in: ids } }, data: { status: "cleanup_pending" } });
@@ -2413,10 +2460,6 @@ function sampleRows(languageCode: string, appLocale: AppLocale): Array<{ origina
   return CARD_SAMPLE_ROWS[languageCode].map((row, index) => ({ ...row, topic: topics[index]! }));
 }
 
-function sampleContentHash(text: string): string {
-  return `sample:v1:${Buffer.from(text.normalize("NFKC")).toString("base64url").slice(0, 64)}`;
-}
-
 const CARD_SAMPLE_ROWS: Record<TargetLanguageCode, Array<{ originalText: string; rewrittenText: string }>> = {
   "ja-JP": [
       { originalText: "下班路上风很舒服，我慢慢走回了家。", rewrittenText: "仕事帰りの風が気持ちよくて、ゆっくり歩いて帰った。" },
@@ -2427,6 +2470,10 @@ const CARD_SAMPLE_ROWS: Record<TargetLanguageCode, Array<{ originalText: string;
     { originalText: "今天给自己做了一顿简单的晚饭，意外地很好吃。", rewrittenText: "I made myself a simple dinner today, and it turned out surprisingly good." },
   ],
 };
+
+function sampleContentHash(text: string): string {
+  return `sample:v1:${Buffer.from(text.normalize("NFKC")).toString("base64url").slice(0, 64)}`;
+}
 
 function toPracticeState(row: any): CardPracticeStateEntity {
   return {
@@ -2460,7 +2507,7 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 async function hideCompletedSamples(tx: any, userId: string, hiddenAt: Date): Promise<void> {
   const visibleSamples = await tx.card.findMany({
-    where: { userId, isSample: true, status: "completed", deletedAt: null },
+    where: { userId, isSample: true, clientId: { not: TUTORIAL_CLIENT_ID }, status: "completed", deletedAt: null },
     select: { id: true },
   });
   const sampleIds = visibleSamples.map((sample: { id: string }) => sample.id);

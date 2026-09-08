@@ -1,3 +1,4 @@
+import { TUTORIAL_CLIENT_ID, tutorialPractice } from "./cardTutorial.js";
 import { countGraphemes, isUtf16GraphemeBoundary, truncateGraphemes } from "@lf/core/text/grapheme.js";
 import {
   countCardCharacters,
@@ -10,7 +11,7 @@ import {
 } from "@lf/core/text/cardText.js";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
-import type { CardRepository, CardEntryEntity, CardLearningContentType } from "@lf/core/ports/repository/CardRepository.js";
+import type { CardRepository, CardEntryEntity, CardLearningContentType, CardPracticeStateEntity, CardSegmentEntity } from "@lf/core/ports/repository/CardRepository.js";
 import type { UserPreferenceRepository } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import type {
   CreateCardEntryInput,
@@ -459,11 +460,13 @@ export class CardService {
     return this.detail(input.userId, input.recordId);
   }
 
-  async bootstrap(userId: string): Promise<CardRecordSummaryView[]> {
-    await this.repository.hideSamplesIfRealCardExists(userId, new Date());
-    if (await this.repository.hasAnyByUser(userId)) return [];
+  async bootstrap(userId: string, tutorial = false): Promise<CardRecordSummaryView[]> {
+    if (!tutorial) {
+      await this.repository.hideSamplesIfRealCardExists(userId, new Date());
+      if (await this.repository.hasAnyByUser(userId)) return [];
+    }
     const preference = await this.userPreferenceRepository.getByUserId(userId);
-    const entries = await this.repository.createSamples({
+    const entries = await this.repository[tutorial ? "createTutorial" : "createSamples"]({
       userId,
       dateKey: formatDateKeyInTimeZone(new Date()),
       languageCode: preference.learningLanguage,
@@ -474,6 +477,13 @@ export class CardService {
     return entries.map((entry) => toSummary(entry, this.limits.topicMaxChars));
   }
 
+  async restoreTutorial(userId: string): Promise<CardRecordSummaryView[]> {
+    await this.bootstrap(userId, true);
+    const entry = await this.repository.findByUserClientId(userId, TUTORIAL_CLIENT_ID);
+    if (entry?.status === "deleted") await this.repository.restoreDeleted(entry.id, userId);
+    return this.bootstrap(userId, true);
+  }
+
   async create(input: {
     userId: string;
     requestId: string;
@@ -481,6 +491,7 @@ export class CardService {
     trustedSource?: { dateKey: string; createdAt: Date };
   }): Promise<CardRecordSummaryView> {
     const clientId = input.body.clientId.trim();
+    if (clientId.startsWith("sample:")) throw new CardValidationError("Reserved client id");
     const mode = input.body.mode === "corpus" ? "corpus" : "rewrite";
     const title = normalizeTitle(input.body.title, this.limits.titleMaxChars);
     let originalText = normalizeCardBodyText(input.body.originalText);
@@ -641,7 +652,7 @@ export class CardService {
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, userId);
-    if (!current || current.status !== "completed") throw new CardNotFoundError();
+    if (!current || current.clientId === TUTORIAL_CLIENT_ID || current.status !== "completed") throw new CardNotFoundError();
     const currentOriginalContentHash = current.originalContentHash ?? (current.originalText ? cardContentHash(current.originalText) : null);
     if (generated && generated.sourceHash !== currentOriginalContentHash) {
       throw new CardContentConflictError("The original Card content changed while AI generation was running");
@@ -779,7 +790,7 @@ export class CardService {
     const parsed = parseCardRecordId(input.recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
-    if (!current || current.status !== "completed") throw new CardNotFoundError();
+    if (!current || current.clientId === TUTORIAL_CLIENT_ID || current.status !== "completed") throw new CardNotFoundError();
     if (current.mode === "corpus" && input.target !== "auxiliary") {
       throw new CardValidationError("Imported material does not generate rewritten content");
     }
@@ -995,7 +1006,7 @@ export class CardService {
     const parsed = parseCardRecordId(input.recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
-    if (!current || current.status !== "completed") throw new CardNotFoundError();
+    if (!current || current.clientId === TUTORIAL_CLIENT_ID || current.status !== "completed") throw new CardNotFoundError();
     const requestedImage = input.imageId
       ? current.images.find((image) => image.id === input.imageId)
       : undefined;
@@ -1415,7 +1426,7 @@ export class CardService {
     const parsed = parseCardRecordId(input.recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const current = await this.repository.findByIdForUser(parsed.sourceId, input.userId);
-    if (!current || current.status !== "completed") throw new CardNotFoundError();
+    if (!current || current.clientId === TUTORIAL_CLIENT_ID || current.status !== "completed") throw new CardNotFoundError();
 
     const originalText = normalizeCardBodyText(input.body.originalText);
     if (!originalText || countCardCharacters(originalText) > this.limits.contentMaxChars) {
@@ -1603,6 +1614,7 @@ export class CardService {
     limit?: number;
     cursor?: string;
     sort?: "newest" | "oldest";
+    tutorial?: boolean;
   }) {
     if (input.dateKey) assertDateKey(input.dateKey);
     if (input.fromDateKey) assertDateKey(input.fromDateKey);
@@ -1610,6 +1622,8 @@ export class CardService {
     const configuredMax = Math.max(1, Math.min(50, Math.floor(this.listPageSizeMax)));
     const requestedLimit = Number.isFinite(input.limit) ? Math.floor(input.limit!) : configuredMax;
     const limit = Math.max(1, Math.min(configuredMax, requestedLimit));
+    const tutorial = input.tutorial && !input.cursor && input.collectionId === undefined && !input.dateKey && !input.fromDateKey
+      ? await this.bootstrap(userId, true) : [];
     const cursor = input.cursor ? decodeCardCursor(input.cursor) : undefined;
     const entries = await this.repository.listPageByUser({
       userId,
@@ -1617,6 +1631,7 @@ export class CardService {
       dateKey: input.dateKey,
       fromDateKey: input.fromDateKey,
       sortDirection: input.sort === "oldest" ? "asc" : "desc",
+      includeLegacySamples: !input.tutorial,
       limit: limit + 1,
       cursor,
     });
@@ -1624,7 +1639,7 @@ export class CardService {
     const pageEntries = entries.slice(0, limit);
     const items = await Promise.all(pageEntries.map((entry) => this.summaryWithImage(entry)));
     const last = hasMore ? pageEntries[pageEntries.length - 1] : undefined;
-    return { items, nextCursor: last ? encodeCardCursor(last.recordedAt, last.id) : null };
+    return { items: [...tutorial, ...items], nextCursor: last ? encodeCardCursor(last.recordedAt, last.id) : null };
   }
 
   async listDateKeys(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]> {
@@ -1764,7 +1779,7 @@ export class CardService {
           startUtf16: segment.startUtf16,
           endUtf16: segment.endUtf16,
         })),
-        practice: state?.contentVersion === contentVersion ? toPracticeView(state) : null,
+        practice: entry.clientId === TUTORIAL_CLIENT_ID ? tutorialPractice(segments, entry.languageCode) : state?.contentVersion === contentVersion ? toPracticeView(state) : null,
         auxiliarySegments,
         auxiliaryLanguageCode,
         learningAccess,
@@ -1855,7 +1870,7 @@ export class CardService {
     }
     if (imageUploadId !== null) {
       const current = await this.repository.findByIdForUser(parsed.sourceId, userId);
-      if (!current || current.status !== "completed") throw new CardNotFoundError();
+      if (!current || current.clientId === TUTORIAL_CLIENT_ID || current.status !== "completed") throw new CardNotFoundError();
     }
     try {
       const updated = await this.repository.replaceEntryImage({
@@ -1880,7 +1895,7 @@ export class CardService {
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card" || !imageUploadId.trim()) throw new CardValidationError("Invalid image");
     const current = await this.repository.findByIdForUser(parsed.sourceId, userId);
-    if (!current || current.status !== "completed") throw new CardNotFoundError();
+    if (!current || current.clientId === TUTORIAL_CLIENT_ID || current.status !== "completed") throw new CardNotFoundError();
     const trimmedImageUploadId = imageUploadId.trim();
     if (!current.images.some((image) => image.id === trimmedImageUploadId) && current.images.length >= this.limits.imagesMaxPerCard) {
       throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);
@@ -1940,7 +1955,7 @@ export class CardService {
     const parsed = parseCardRecordId(recordId);
     if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
     const entry = await this.repository.findByIdForUser(parsed.sourceId, userId);
-    if (!entry || entry.status !== "completed") throw new CardNotFoundError();
+    if (!entry || entry.clientId === TUTORIAL_CLIENT_ID || entry.status !== "completed") throw new CardNotFoundError();
     const contentBinding = resolveContentBinding(entry, binding);
     const entitlement = await this.entitlementService.getCurrentEntitlement(userId);
     if (!entitlement.isPro) throw new CardLearningAccessError("Dictation requires Pro");
@@ -1997,6 +2012,24 @@ export class CardService {
     const detail = await this.detail(userId, recordId);
     const entry = await this.repository.findByIdForUser(parsed.sourceId, userId);
     if (!entry) throw new CardNotFoundError();
+    if (entry.clientId === TUTORIAL_CLIENT_ID) {
+      const block = detail.contentBlocks.find((block) => block.contentType === (input.contentType ?? "rewrite"));
+      if (!block || (input.contentVersion && input.contentVersion !== block.contentVersion)) throw new CardPracticeConflictError();
+      const practice = tutorialPractice(block.segments, block.languageCode);
+      const state = normalizeClozeState(practice.clozeState);
+      if (input.operation.type === "master" || input.operation.type === "memory_result") {
+        const operation = input.operation;
+        state.blanks.forEach((blank) => {
+          if (operation.type === "master" ? blank.id === operation.blankId : operation.blankIds.includes(blank.id)) blank.mastered = true;
+        });
+      } else if (input.operation.type === "remove") {
+        const blankId = input.operation.blankId;
+        state.blanks = state.blanks.filter((blank) => blank.id !== blankId);
+      } else if (input.operation.type === "add") {
+        throw new CardValidationError("Use the preset tutorial blank");
+      }
+      return { ...practice, clozeState: state, clozeVersion: input.baseVersion + 1 };
+    }
     const contentBinding = resolveContentBinding(entry, input);
     const effectiveContentType = contentBinding?.contentType ?? (entry.rewrittenText ? "rewrite" : "original");
     if (effectiveContentType === "original" && !(await this.entitlementService.getCurrentEntitlement(userId)).isPro) {
@@ -2201,10 +2234,14 @@ export class CardService {
     requested?: Array<{ recordId: string; contentType: CardLearningContentType | null; contentVersion: string | null }>,
   ): Promise<CardMemoryRoundCandidateView[]> {
     const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(60, Math.floor(limit))) : 40;
-    const requestedBySourceId = new Map<string, NonNullable<typeof requested>[number]>();
+    const requestedBySourceId = new Map<string, Array<NonNullable<typeof requested>[number]>>();
     const sourceIds = requested?.flatMap((item) => {
       const parsed = parseCardRecordId(item.recordId);
-      if (parsed?.source === "card") requestedBySourceId.set(parsed.sourceId, item);
+      if (parsed?.source === "card") {
+        const bindings = requestedBySourceId.get(parsed.sourceId) ?? [];
+        bindings.push(item);
+        requestedBySourceId.set(parsed.sourceId, bindings);
+      }
       return parsed?.source === "card" ? [parsed.sourceId] : [];
     });
     const entitlement = await this.entitlementService.getCurrentEntitlement(userId);
@@ -2228,12 +2265,22 @@ export class CardService {
       contentByCard.set(state.cardId, states);
     }
     const now = Date.now();
-    const ranked = eligibleEntries.flatMap((entry) => {
-      const requestedBinding = requestedBySourceId.get(entry.id);
+    const rankedByContent = eligibleEntries.flatMap<{
+      entry: CardEntryEntity;
+      state: CardPracticeStateEntity;
+      contentType: CardLearningContentType | null;
+      contentVersion: string | null;
+      clozeState: CardClozeState;
+      segments: CardSegmentEntity[];
+      priority: number;
+      random: number;
+    }>((entry) => {
+      const requestedBindings = requestedBySourceId.get(entry.id);
       const currentContentStates = (contentByCard.get(entry.id) ?? [])
         .filter((state) => {
           const cloze = normalizeClozeState(state.clozeState);
-          return (!requestedBinding || requestedBinding.contentType === state.contentType && requestedBinding.contentVersion === state.contentVersion)
+          return (!requestedBindings || requestedBindings.some((binding) => binding.contentType === state.contentType && binding.contentVersion === state.contentVersion))
+            && isCardPracticeContent(entry, state.contentType)
             && (state.contentType !== "original" || entitlement.isPro) && cloze.blanks.length > 0 && entry.contentSegments.some((segment) =>
             segment.contentType === state.contentType && segment.contentVersion === state.contentVersion,
           );
@@ -2243,31 +2290,48 @@ export class CardService {
         - memoryRoundPriority(right.clozeLastResult, right.clozeNextReviewAt, right.updatedAt, now)
         || memoryContentPriority(left.contentType) - memoryContentPriority(right.contentType),
       );
-      const contentState = currentContentStates[0] ?? null;
-      const legacyState = contentState || requestedBinding?.contentType ? null : legacyByCard.get(entry.id) ?? null;
-      if (!contentState && legacyState && !entry.rewrittenText && !entitlement.isPro) return [];
-      const state = contentState ?? legacyState;
-      if (!state) return [];
-      const clozeState = normalizeClozeState(state.clozeState);
-      if (!clozeState.blanks.length) return [];
-      const contentType = contentState?.contentType ?? null;
-      const contentVersion = contentState?.contentVersion ?? null;
-      const segments = contentState
-        ? entry.contentSegments.filter((segment) => segment.contentType === contentState.contentType && segment.contentVersion === contentState.contentVersion)
-        : entry.segments;
-      if (!segments.length) return [];
+      const contentCandidates = currentContentStates.flatMap((state) => {
+        const clozeState = normalizeClozeState(state.clozeState);
+        const segments = entry.contentSegments.filter((segment) => segment.contentType === state.contentType && segment.contentVersion === state.contentVersion);
+        if (!segments.length) return [];
+        return [{
+          entry,
+          state,
+          contentType: state.contentType as CardLearningContentType | null,
+          contentVersion: state.contentVersion as string | null,
+          clozeState,
+          segments,
+          priority: memoryRoundPriority(state.clozeLastResult, state.clozeNextReviewAt, state.updatedAt, now),
+          random: Math.random(),
+        }];
+      });
+      if (contentCandidates.length) return contentCandidates;
+      if (requestedBindings && !requestedBindings.some((binding) => binding.contentType === null)) return [];
+      const legacyState = legacyByCard.get(entry.id) ?? null;
+      if (!legacyState || !entry.rewrittenText && !entitlement.isPro) return [];
+      const clozeState = normalizeClozeState(legacyState.clozeState);
+      if (!clozeState.blanks.length || !entry.segments.length) return [];
       return [{
         entry,
-        state,
-        contentType,
-        contentVersion,
+        state: legacyState,
+        contentType: null,
+        contentVersion: null,
         clozeState,
-        segments,
-        priority: memoryRoundPriority(state.clozeLastResult, state.clozeNextReviewAt, state.updatedAt, now),
+        segments: entry.segments,
+        priority: memoryRoundPriority(legacyState.clozeLastResult, legacyState.clozeNextReviewAt, legacyState.updatedAt, now),
         random: Math.random(),
       }];
-    }).sort((left, right) => left.priority - right.priority || left.random - right.random)
-      .slice(0, safeLimit);
+    }).sort((left, right) => left.priority - right.priority || left.random - right.random);
+    const selectedCardIds = new Set<string>();
+    for (const candidate of rankedByContent) {
+      selectedCardIds.add(candidate.entry.id);
+      if (selectedCardIds.size >= safeLimit) break;
+    }
+    const cardOrder = new Map([...selectedCardIds].map((cardId, index) => [cardId, index]));
+    const ranked = rankedByContent
+      .filter((candidate) => selectedCardIds.has(candidate.entry.id))
+      .sort((left, right) => cardOrder.get(left.entry.id)! - cardOrder.get(right.entry.id)!
+        || memoryContentPriority(left.contentType ?? "original") - memoryContentPriority(right.contentType ?? "original"));
 
     return Promise.all(ranked.map(async ({ entry, state, contentType, contentVersion, clozeState, segments }) => {
       const summary = await this.summaryWithImage(entry).catch(() => toSummary(entry, this.limits.topicMaxChars));
@@ -2360,6 +2424,12 @@ function memoryContentPriority(contentType: CardLearningContentType): number {
   if (contentType.startsWith("image:")) return 1;
   if (contentType === "reply") return 2;
   return 3;
+}
+
+function isCardPracticeContent(entry: CardEntryEntity, contentType: CardLearningContentType): boolean {
+  if (contentType.startsWith("image:") || contentType === "reply") return true;
+  if (entry.mode === "corpus") return contentType === "original";
+  return contentType === "rewrite" || !entry.rewrittenText && contentType === "original";
 }
 
 function memoryRoundPriority(
