@@ -65,6 +65,7 @@ import {
   parseCardAutoClozeOutput,
 } from "@lf/core/Prompts/cardAutoClozePrompt.js";
 import { findTargetLanguageRanges, isEntireTargetLanguageText } from "@lf/core/text/targetLanguageRanges.js";
+import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText.js";
 import {
   buildCardImageDescriptionPrompt,
   CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
@@ -482,7 +483,7 @@ export class CardService {
     const clientId = input.body.clientId.trim();
     const mode = input.body.mode === "corpus" ? "corpus" : "rewrite";
     const title = normalizeTitle(input.body.title, this.limits.titleMaxChars);
-    const originalText = normalizeCardBodyText(input.body.originalText);
+    let originalText = normalizeCardBodyText(input.body.originalText);
     const rewrittenText = mode === "corpus" ? "" : normalizeCardBodyText(input.body.rewrittenText);
     const translationText = mode === "corpus" ? "" : normalizeCardBodyText(input.body.translationText);
     const replyText = mode === "corpus" ? "" : normalizeCardBodyText(input.body.replyText);
@@ -495,7 +496,6 @@ export class CardService {
       ...(imageUploadId ? [imageUploadId] : []),
     ].map((value) => value.trim()).filter(Boolean)));
     if (!clientId || clientId.length > 128) throw new CardValidationError("Invalid client id");
-    const primaryText = rewrittenText || originalText;
     const inputChars = countCardCharacters(originalText || rewrittenText);
     if ((inputChars < 1 && imageUploadIds.length < 1) || inputChars > this.limits.contentMaxChars) {
       throw new CardValidationError(`A Card must contain a record, expression, or image and no more than ${this.limits.contentMaxChars} characters`);
@@ -503,9 +503,6 @@ export class CardService {
     if (requestedRewrite && !originalText) throw new CardValidationError("Original text is required for AI rewrite");
     if (imageUploadIds.length > this.limits.imagesMaxPerCard) {
       throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);
-    }
-    if (mode === "corpus" && imageUploadIds.length) {
-      throw new CardValidationError("Imported material must be text");
     }
     const duplicate = await this.repository.findByUserClientId(input.userId, clientId);
     if (duplicate) {
@@ -528,6 +525,16 @@ export class CardService {
     });
 
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
+    if (mode === "corpus" && originalText) {
+      originalText = extractTargetLanguageCorpus(originalText, preference.learningLanguage).text;
+    }
+    const primaryText = rewrittenText || originalText;
+    if (!primaryText && !imageUploadIds.length) {
+      throw new CardValidationError("Imported material does not contain the selected learning language");
+    }
+    if (countCardCharacters(primaryText) > this.limits.contentMaxChars) {
+      throw new CardValidationError(`A Card must contain no more than ${this.limits.contentMaxChars} characters`);
+    }
     const originalLanguageCode = preference.learningLanguage;
     // Avoid generating a duplicate when the original already matches the
     // learning-language snapshot. Numbers, punctuation and emoji are neutral.
@@ -640,7 +647,10 @@ export class CardService {
       throw new CardContentConflictError("The original Card content changed while AI generation was running");
     }
     const title = Object.prototype.hasOwnProperty.call(patch, "title") ? normalizeTitle(patch.title, this.limits.titleMaxChars) : current.title;
-    const originalText = normalizePatchedText(patch, "originalText", current.originalText, this.limits.contentMaxChars);
+    let originalText = normalizePatchedText(patch, "originalText", current.originalText, this.limits.contentMaxChars);
+    if (current.mode === "corpus" && Object.prototype.hasOwnProperty.call(patch, "originalText") && originalText) {
+      originalText = extractTargetLanguageCorpus(originalText, current.languageCode).text;
+    }
     const originalChanged = normalizeCardContent(originalText) !== normalizeCardContent(current.originalText);
     const originalContentHash = originalChanged
       ? (originalText ? cardContentHash(originalText) : null)
@@ -1847,7 +1857,6 @@ export class CardService {
     if (imageUploadId !== null) {
       const current = await this.repository.findByIdForUser(parsed.sourceId, userId);
       if (!current || current.status !== "completed") throw new CardNotFoundError();
-      if (current.mode === "corpus") throw new CardValidationError("Imported material does not support images");
     }
     try {
       const updated = await this.repository.replaceEntryImage({
@@ -1873,7 +1882,6 @@ export class CardService {
     if (!parsed || parsed.source !== "card" || !imageUploadId.trim()) throw new CardValidationError("Invalid image");
     const current = await this.repository.findByIdForUser(parsed.sourceId, userId);
     if (!current || current.status !== "completed") throw new CardNotFoundError();
-    if (current.mode === "corpus") throw new CardValidationError("Imported material does not support images");
     const trimmedImageUploadId = imageUploadId.trim();
     if (!current.images.some((image) => image.id === trimmedImageUploadId) && current.images.length >= this.limits.imagesMaxPerCard) {
       throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);

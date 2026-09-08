@@ -85,12 +85,13 @@ import { isCardGenerationInProgress, isCardRecordGenerationInProgress, setCardGe
 import { getLanguage, t, tf } from "../i18n";
 import { CollectionPickerModal } from "./shared/CollectionPickerModal";
 import { CalendarSidebarPreview, CardCalendarScreen } from "./CardCalendarScreen";
-import { getCurrentEntitlement, getUserProfile, type CurrentEntitlement, type UserProfile } from "../services/api/meApi";
+import { getCurrentEntitlement, getUserPreference, getUserProfile, type CurrentEntitlement, type UserProfile } from "../services/api/meApi";
 import { getSession } from "../services/auth/authStorage";
 import { getCachedEntitlementForUser, setCachedEntitlement } from "../services/entitlement/entitlementCache";
 import { stabilizeProfileAvatar, stabilizeSignedImage } from "../services/image/signedImageCache";
 import { useRealtimeSttInput } from "../hooks/useRealtimeSttInput";
 import { RealtimeSttButton } from "../components/RealtimeSttButton";
+import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText";
 
 type MainScreenProps = {
   isActive: boolean;
@@ -703,7 +704,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   async function sendQuickNote(): Promise<void> {
     if (submitInFlightRef.current) return;
     if (quickNoteStt.status !== "idle") await quickNoteStt.toggle();
-    const snapshot = draftRef.current;
+    let snapshot = draftRef.current;
+    const preparedCorpusDraft = await prepareCorpusDraftForSave(snapshot);
+    if (!preparedCorpusDraft) return;
+    snapshot = preparedCorpusDraft;
     const text = snapshot.text.trim();
     const count = countGraphemes(text);
     if ((count < 1 && snapshot.images.length < 1) || count > cardLimits.contentChars) {
@@ -821,7 +825,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       Alert.alert(t("main.error.try_later"), t("main.error.card_processing"));
       return;
     }
-    const snapshot = draftRef.current;
+    let snapshot = draftRef.current;
+    const preparedCorpusDraft = await prepareCorpusDraftForSave(snapshot);
+    if (!preparedCorpusDraft) return;
+    snapshot = preparedCorpusDraft;
     const text = snapshot.text.trim();
     const count = countGraphemes(text);
     if ((count < 1 && snapshot.images.length < 1) || count > cardLimits.contentChars) {
@@ -2967,7 +2974,34 @@ function countGraphemes(value: string): number {
 }
 
 function trackedGenerationTargets(draft: CardDraft, selectedTargets: CardGenerationTarget[]): CardGenerationTarget[] {
-  return draft.mode === "corpus" ? ["auxiliary"] : selectedTargets;
+  return draft.mode === "corpus" ? (draft.text.trim() ? ["auxiliary"] : []) : selectedTargets;
+}
+
+async function prepareCorpusDraftForSave(draft: CardDraft): Promise<CardDraft | null> {
+  if (draft.mode !== "corpus" || !draft.text.trim()) return draft;
+  let languageCode: string;
+  try {
+    languageCode = (await getUserPreference()).learningLanguage;
+  } catch {
+    Alert.alert(t("card_detail.error.cannot_save"), t("main.error.network_retry"));
+    return null;
+  }
+  const extraction = extractTargetLanguageCorpus(draft.text, languageCode);
+  if (!extraction.text) {
+    Alert.alert(t("card_detail.corpus_no_target_title"), t("card_detail.corpus_no_target_message"));
+    return null;
+  }
+  if (extraction.excludedSentences.length && !await confirmCorpusLanguageFilter()) return null;
+  return { ...draft, text: extraction.text };
+}
+
+function confirmCorpusLanguageFilter(): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert(t("card_detail.corpus_language_title"), t("card_detail.corpus_language_message"), [
+      { text: t("common.cancel"), style: "cancel", onPress: () => resolve(false) },
+      { text: t("card_detail.corpus_language_confirm"), onPress: () => resolve(true) },
+    ], { cancelable: true, onDismiss: () => resolve(false) });
+  });
 }
 
 function automaticClozeContentTypes(

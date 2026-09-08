@@ -71,6 +71,7 @@ import {
   shouldStartRecommendationPractice,
 } from "../services/card/clozeOnboarding";
 import OioCharacter from "../../assets/app/oio-character.svg";
+import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText";
 
 type DetailTab = "review" | "cloze" | "dictation";
 type ClozeInputMode = "keyboard" | "choice";
@@ -530,7 +531,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         </View>
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review hidePhraseRecommendation={hidePhraseRecommendation} key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review hidePhraseRecommendation={hidePhraseRecommendation} key={`${practiceDetail.id}:${contentBinding.contentType}`} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={recallPosition ? setRecallInteractionLocked : undefined} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={hasProAccess === true} /></View> : null}
@@ -769,11 +770,21 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
   const canSave = (contentCount > 0 || images.length > 0) && contentCount <= limits.contentChars && !saving;
   async function save(): Promise<void> {
     if (!canSave) return;
+    let savedOriginalText = originalText.trim();
+    if (detail.mode === "corpus" && savedOriginalText) {
+      const extraction = extractTargetLanguageCorpus(savedOriginalText, detail.languageCode);
+      if (!extraction.text) {
+        Alert.alert(t("card_detail.corpus_no_target_title"), t("card_detail.corpus_no_target_message"));
+        return;
+      }
+      if (extraction.excludedSentences.length && !await confirmCorpusLanguageFilter()) return;
+      savedOriginalText = extraction.text;
+    }
     setSaving(true);
     try {
       await onSave({
         title: title.trim() || null,
-        originalText: originalText.trim(),
+        originalText: savedOriginalText,
         collectionId,
         selectedTargets: detail.mode === "corpus" ? [] : (["expression", "reply"] as const).filter((target) => selectedTargets[target]),
       });
@@ -836,18 +847,17 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
       <KeyboardAvoidingView style={styles.draftContentPage} behavior="height">
         <>
           <ScrollView style={styles.draftEditorScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.draftEditorContent} showsVerticalScrollIndicator={false} alwaysBounceVertical={false} bounces={false}>
-            {detail.mode !== "corpus" ? <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.recordedAt ?? detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} /> : null}
+            <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(detail.recordedAt ?? detail.createdAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} />
             <CollectionPickerRow collections={collections} value={collectionId} onChange={setCollectionId} />
             <TextInput value={title} editable={!saving} maxLength={limits.titleChars} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.draftTitleInput} onChangeText={setTitle} />
             <View style={styles.draftOriginalEditor}>
               <TextInput multiline scrollEnabled={false} value={originalText} editable={!saving} onChangeText={originalStt.onChangeText} onSelectionChange={(event) => originalStt.onSelectionChange(event.nativeEvent.selection)} maxLength={limits.contentChars} placeholder={detail.mode === "corpus" ? t("card_detail.input_corpus") : t("card_detail.original_placeholder")} placeholderTextColor={theme.colors.textMuted} style={[styles.draftBlockInput, styles.draftBlockInputFeatured]} textAlignVertical="top" />
             </View>
           </ScrollView>
-          {detail.mode !== "corpus" && Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onAddImage?.("camera"); }} onOpenAll={() => { setPhotoRailVisible(false); onAddImage?.("library"); }} /> : null}
+          {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onAddImage?.("camera"); }} onOpenAll={() => { setPhotoRailVisible(false); onAddImage?.("library"); }} /> : null}
         </>
         <DraftComposerToolbar
           imageCount={images.length}
-          hideMedia={detail.mode === "corpus"}
           actionLabel={t("card_detail.save_action")}
           sttStatus={originalStt.status}
           sttAudioLevel={originalStt.audioLevel}
@@ -864,6 +874,15 @@ function ExistingCardEditor({ detail, limits, imageAdding, onAddImage, onRemoveI
       </KeyboardAvoidingView>
     </SafeAreaView>
   </View>;
+}
+
+function confirmCorpusLanguageFilter(): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert(t("card_detail.corpus_language_title"), t("card_detail.corpus_language_message"), [
+      { text: t("common.cancel"), style: "cancel", onPress: () => resolve(false) },
+      { text: t("card_detail.corpus_language_confirm"), onPress: () => resolve(true) },
+    ], { cancelable: true, onDismiss: () => resolve(false) });
+  });
 }
 
 function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onImageDescriptionChange, onCollectionChange, onCreateCollection, onRenameCollection, onDeleteCollection, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage, onCoverPositionChange }: {
@@ -893,7 +912,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   const processing = draft.submitted;
   const count = countGraphemes(draft.text);
   const imagesReady = draft.images.every((image) => image.status === "ready");
-  const canSave = (draft.mode === "corpus" ? count > 0 : count > 0 || draft.images.length > 0) && count <= limits.contentChars && imagesReady;
+  const canSave = (count > 0 || draft.images.length > 0) && count <= limits.contentChars && imagesReady;
   const [photoRailVisible, setPhotoRailVisible] = useState(false);
   const [recentPhotos, setRecentPhotos] = useState<MediaLibrary.Asset[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
@@ -987,7 +1006,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                 style={styles.draftTitleInput}
                 onChangeText={(value) => onChangeField?.("title", value)}
               />
-              {draft.mode !== "corpus" ? <>
+              <>
                 <CardImageGallery
                   images={draft.images.map((image) => ({
                     key: image.localUri,
@@ -1004,8 +1023,8 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                   onRemove={confirmRemoveDraftImage}
                   onCoverPositionChange={onCoverPositionChange ? async (localUri, focusX, focusY) => { await onCoverPositionChange(localUri, focusX, focusY); } : undefined}
                 />
-                {draft.images.length ? <ImageDescriptionToggleAction active={draft.generateImageDescription} loading={sending} onPress={() => onImageDescriptionChange?.(!draft.generateImageDescription)} /> : null}
-              </> : null}
+                {draft.mode !== "corpus" && draft.images.length ? <ImageDescriptionToggleAction active={draft.generateImageDescription} loading={sending} onPress={() => onImageDescriptionChange?.(!draft.generateImageDescription)} /> : null}
+              </>
               <View style={styles.draftOriginalEditor}>
                 <TextInput
                   ref={originalInputRef}
@@ -1034,11 +1053,10 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                 />
               </View>
             </ScrollView>
-            {draft.mode !== "corpus" && Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - draft.images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
+            {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - draft.images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
             </>
             <DraftComposerToolbar
               imageCount={draft.images.length}
-              hideMedia={draft.mode === "corpus"}
               actionLabel={draft.mode === "corpus" ? t("card_detail.save_action") : t("card_detail.rewrite_action")}
               sttStatus={originalStt.status}
               sttAudioLevel={originalStt.audioLevel}
@@ -2031,8 +2049,17 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
     }
   };
   async function saveOriginalModule(): Promise<void> {
-    const next = originalDraft.trim();
+    let next = originalDraft.trim();
     if (!next || originalSaving || originalStt.status !== "idle" || !onSaveOriginal) return;
+    if (detail.mode === "corpus") {
+      const extraction = extractTargetLanguageCorpus(next, detail.languageCode);
+      if (!extraction.text) {
+        Alert.alert(t("card_detail.corpus_no_target_title"), t("card_detail.corpus_no_target_message"));
+        return;
+      }
+      if (extraction.excludedSentences.length && !await confirmCorpusLanguageFilter()) return;
+      next = extraction.text;
+    }
     setOriginalSaving(true);
     try {
       await onSaveOriginal(next);
@@ -3063,7 +3090,7 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
             const image = images[index];
             if (image) onSelectLearningContent?.(`image:${image.id}`);
           }} />
-          {currentImage ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} onLayout={currentImageIsLearningContent ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
+          {currentImage && detail.mode !== "corpus" ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} onLayout={currentImageIsLearningContent ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
             <CollapsibleCardSection
               label={t("card_detail.image_description")}
               tone="image"

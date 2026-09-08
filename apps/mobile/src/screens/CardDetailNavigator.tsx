@@ -433,7 +433,9 @@ export function CardDetailNavigator({
         updated = await stabilizeCardDetailImages(detail, updated);
         setDetail(updated);
         detailCacheRef.current.set(detail.id, { detail: updated, loadedAt: Date.now() });
-        const targets = input.selectedTargets as CardGenerationTarget[];
+        const targets = detail.mode === "corpus" && input.originalText.trim()
+          ? ["auxiliary" as const]
+          : input.selectedTargets as CardGenerationTarget[];
         if (!targets.length) {
           await setCardGenerationState(detail.id, null);
           onChanged();
@@ -480,6 +482,9 @@ function automaticClozeTypes(
   targets: CardGenerationTarget[],
 ): CardLearningContentType[] {
   const types: CardLearningContentType[] = [];
+  if (detail.mode === "corpus" && targets.includes("auxiliary") && detail.contentBlocks.find((block) => block.contentType === "original")?.learningAccess === "enabled") {
+    types.push("original");
+  }
   if (targets.includes("expression")) {
     if (detail.rewrittenText?.trim()) types.push("rewrite");
     else if (detail.contentBlocks.find((block) => block.contentType === "original")?.learningAccess === "enabled") types.push("original");
