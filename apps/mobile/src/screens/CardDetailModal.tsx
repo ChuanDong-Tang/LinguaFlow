@@ -2099,6 +2099,9 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
   const rewriteAuxiliary = new Map((rewriteBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const expressionPending = pendingGenerationTargets.includes("expression");
   const expressionFailed = failedGenerationTargets.includes("expression");
+  const replyPending = pendingGenerationTargets.includes("reply");
+  const replyFailed = failedGenerationTargets.includes("reply");
+  const replyGenerating = replyPending || retryingGenerationTarget === "reply";
   const imageDescriptionPending = Boolean(currentImage && (
     pendingGenerationTargets.includes("image_description")
     || currentImage.descriptionStatus === "pending"
@@ -3146,7 +3149,20 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
                           </View></View>)
                         : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
                 {auxiliaryMissing ? <FailedGenerationSection target="auxiliary" retrying={retryingGenerationTarget === "auxiliary"} onRetry={onRetryGeneration} /> : null}
-                {(rewriteBlock?.text ?? learningText).trim() ? <CardSectionCopyButton onPress={() => void copySection(rewriteBlock?.text ?? learningText)} /> : null}
+                {(rewriteBlock?.text ?? learningText).trim() ? <View style={styles.rewriteModuleActions}>
+                  {!detail.replyText && detail.mode !== "corpus" && detail.originalText.trim() ? <Pressable
+                    accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")}
+                    disabled={!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null}
+                    style={({ pressed }) => [styles.replyGenerateButton, (!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null) && styles.replyGenerateButtonDisabled, pressed && styles.replyGenerateButtonPressed]}
+                    onPress={() => onRetryGeneration?.("reply")}
+                  >
+                    {replyGenerating
+                      ? <ActivityIndicator size="small" color="#52796C" />
+                      : <Ionicons name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color="#52796C" />}
+                    <Text style={styles.replyGenerateButtonText}>{t(replyGenerating ? "card_detail.generating" : replyFailed ? "common.retry" : "chat.settings.generate_reply")}</Text>
+                  </Pressable> : null}
+                  <CardSectionCopyButton onPress={() => void copySection(rewriteBlock?.text ?? learningText)} />
+                </View> : null}
               </CollapsibleCardSection>
               : expressionPending
                 ? <PendingGenerationSection target="expression" />
@@ -3162,11 +3178,6 @@ function Review({ hidePhraseRecommendation = false, detail, imageAdding, content
                   </View>
                 </View>)}
             <CardSectionCopyButton onPress={() => void copySection(replyBlock.text)} />
-          </CollapsibleCardSection> : detail.originalText.trim() && pendingGenerationTargets.includes("reply") ? <PendingGenerationSection target="reply" /> : detail.originalText.trim() && failedGenerationTargets.includes("reply") ? <FailedGenerationSection target="reply" retrying={retryingGenerationTarget === "reply"} onRetry={onRetryGeneration} /> : detail.mode !== "corpus" && detail.originalText.trim() ? <CollapsibleCardSection label={t("card_detail.reply")} collapsed={collapsedSections.reply} onToggle={() => toggleSection("reply")}>
-            <Pressable disabled={!onRetryGeneration || retryingGenerationTarget !== null} style={[styles.moduleGenerateButton, (!onRetryGeneration || retryingGenerationTarget !== null) && styles.moduleGenerateButtonDisabled]} onPress={() => onRetryGeneration?.("reply")}>
-              {retryingGenerationTarget === "reply" ? <ActivityIndicator size="small" color="#52796C" /> : <Ionicons name="chatbubble-ellipses-outline" size={18} color="#52796C" />}
-              <Text style={styles.moduleGenerateButtonText}>{t("chat.settings.generate_reply")}</Text>
-            </Pressable>
           </CollapsibleCardSection> : null}
           {relatedContent}
         </KeyboardAwareScrollView>
@@ -4303,9 +4314,11 @@ const styles = StyleSheet.create({
   moduleComposerActions: { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   moduleComposerSend: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
   moduleComposerSendDisabled: { opacity: 0.38 },
-  moduleGenerateButton: { alignSelf: "flex-start", minHeight: 40, marginTop: 8, paddingHorizontal: 13, borderRadius: 20, backgroundColor: "#EAF6F1", flexDirection: "row", alignItems: "center", gap: 7 },
-  moduleGenerateButtonDisabled: { opacity: 0.45 },
-  moduleGenerateButtonText: { color: "#52796C", fontSize: 14, fontWeight: "600" },
+  rewriteModuleActions: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 7 },
+  replyGenerateButton: { minHeight: 32, marginTop: 5, paddingHorizontal: 11, borderRadius: 16, backgroundColor: "#EAF6F1", flexDirection: "row", alignItems: "center", gap: 6 },
+  replyGenerateButtonDisabled: { opacity: 0.5 },
+  replyGenerateButtonPressed: { opacity: 0.68 },
+  replyGenerateButtonText: { color: "#52796C", fontSize: 13, fontWeight: "600" },
   collapsibleSectionHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 8 },
   collapsibleSectionHeaderPressed: { opacity: 0.66 },
   sectionGenerateAction: { minHeight: 32, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 5 },
