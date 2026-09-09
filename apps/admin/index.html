@@ -1,0 +1,4383 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinguaFlow Admin</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --panel-soft: #f9fafb;
+      --border: #dfe3ea;
+      --border-strong: #c7ced8;
+      --text: #15171a;
+      --muted: #667085;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --danger: #b42318;
+      --warn: #b54708;
+      --success: #067647;
+      --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .shell {
+      min-height: 100vh;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(244, 246, 248, 0.94);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .topbar-inner {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 16px 20px;
+      display: grid;
+      grid-template-columns: 220px 1fr auto;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .brand p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .auth-grid {
+      display: grid;
+      grid-template-columns: minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(140px, 0.8fr);
+      gap: 8px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      height: 36px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 7px 9px;
+      background: #fff;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    input[readonly] {
+      background: var(--panel-soft);
+    }
+
+    .top-actions {
+      display: grid;
+      grid-template-columns: 92px 92px;
+      gap: 8px;
+      align-self: end;
+    }
+
+    .btn {
+      min-height: 36px;
+      border: 1px solid var(--primary);
+      border-radius: 7px;
+      background: var(--primary);
+      color: #fff;
+      padding: 7px 10px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .btn:hover {
+      background: var(--primary-dark);
+    }
+
+    .btn.secondary {
+      background: #fff;
+      color: #1f2937;
+      border-color: var(--border-strong);
+    }
+
+    .btn.secondary:hover {
+      background: var(--panel-soft);
+    }
+
+    .btn.danger {
+      background: var(--danger);
+      border-color: var(--danger);
+    }
+
+    .btn.ghost {
+      background: transparent;
+      color: var(--primary);
+      border-color: transparent;
+      padding-inline: 4px;
+    }
+
+    .main {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 18px 20px 30px;
+    }
+
+    .status-line {
+      min-height: 24px;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .tab {
+      width: auto;
+      min-width: 96px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: #344054;
+      padding: 9px 14px;
+      font-weight: 700;
+    }
+
+    .tab.active {
+      background: #111827;
+      border-color: #111827;
+      color: #fff;
+    }
+
+    .panel {
+      display: none;
+    }
+
+    .panel.active {
+      display: block;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .section {
+      padding: 14px;
+    }
+
+    .section+.section {
+      border-top: 1px solid var(--border);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .section-subtitle {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 8px;
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .metric small {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+    }
+
+    .product-kpis {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .product-kpi {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: linear-gradient(180deg, #fff, #fbfcfe);
+    }
+
+    .product-kpi span,
+    .chart-legend,
+    .chart-note {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .product-kpi strong {
+      display: block;
+      margin-top: 9px;
+      font-size: 28px;
+    }
+
+    .product-kpi small {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+    }
+
+    .chart-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 0.65fr;
+      gap: 12px;
+    }
+
+    .chart-panel {
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    .chart-title {
+      margin: 0 0 4px;
+      font-size: 14px;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 9px 0;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .line-chart {
+      width: 100%;
+      height: 260px;
+      display: block;
+      overflow: visible;
+    }
+
+    .chart-axis {
+      stroke: #e4e7ec;
+      stroke-width: 1;
+    }
+
+    .chart-label {
+      fill: #98a2b3;
+      font-size: 10px;
+    }
+
+    .feature-bars {
+      display: grid;
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .feature-row-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .feature-track {
+      height: 8px;
+      margin-top: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #eef1f5;
+    }
+
+    .feature-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: #6d5dfc;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+      gap: 12px;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 10px;
+      align-items: end;
+    }
+
+    .form-row.three {
+      grid-template-columns: minmax(220px, 1fr) 140px 140px;
+    }
+
+    .inline-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      min-width: 900px;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--border);
+      padding: 8px 9px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 12px;
+    }
+
+    th {
+      color: #475467;
+      background: var(--panel-soft);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-all;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .status-active,
+    .status-paid,
+    .status-success,
+    .status-processed {
+      color: var(--success);
+      background: #ecfdf3;
+      border-color: #abefc6;
+    }
+
+    .status-pending,
+    .status-billing_retry {
+      color: var(--warn);
+      background: #fffaeb;
+      border-color: #fedf89;
+    }
+
+    .status-failed,
+    .status-refunded,
+    .status-cancelled,
+    .status-expired {
+      color: var(--danger);
+      background: #fef3f2;
+      border-color: #fecdca;
+    }
+
+    .status-closed,
+    .status-ignored {
+      color: #344054;
+      background: #f2f4f7;
+      border-color: #d0d5dd;
+    }
+
+    .status-pass {
+      color: var(--success);
+      background: #ecfdf3;
+      border-color: #abefc6;
+    }
+
+    .status-warn {
+      color: var(--warn);
+      background: #fffaeb;
+      border-color: #fedf89;
+    }
+
+    .status-fail {
+      color: var(--danger);
+      background: #fef3f2;
+      border-color: #fecdca;
+    }
+
+    .json-box {
+      max-height: 260px;
+      overflow: auto;
+      margin: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0b1020;
+      color: #d8e2ff;
+      padding: 10px;
+      font-size: 12px;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .fact {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--panel-soft);
+    }
+
+    .fact span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .fact strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 13px;
+      word-break: break-all;
+    }
+
+    .mt {
+      margin-top: 12px;
+    }
+
+    @media (max-width: 980px) {
+
+      .topbar-inner,
+      .auth-grid,
+      .two-col,
+      .form-row,
+      .form-row.three,
+      .metrics,
+      .product-kpis,
+      .chart-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .top-actions,
+      .inline-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .tabs {
+        overflow: auto;
+      }
+    }
+
+    /* Admin workspace */
+    :root {
+      --bg: #f5f6f8;
+      --panel-soft: #f7f8fa;
+      --border: #e5e7eb;
+      --border-strong: #d1d5db;
+      --text: #18202f;
+      --muted: #697386;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --sidebar: #111827;
+      --sidebar-soft: #1f2937;
+      --shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 8px 28px rgba(15, 23, 42, 0.04);
+    }
+
+    body {
+      background:
+        radial-gradient(circle at 78% -20%, rgba(37, 99, 235, 0.07), transparent 30rem),
+        var(--bg);
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 22px 14px 16px;
+      color: #fff;
+      background:
+        radial-gradient(circle at 0 0, rgba(59, 130, 246, 0.22), transparent 17rem),
+        var(--sidebar);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 0 9px 24px;
+    }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .brand h1 {
+      color: #fff;
+      font-size: 15px;
+      letter-spacing: -0.01em;
+    }
+
+    .brand p {
+      color: #9ca3af;
+      font-size: 11px;
+    }
+
+    .primary-nav {
+      display: block;
+      margin: 0;
+    }
+
+    .nav-group+.nav-group {
+      margin-top: 18px;
+    }
+
+    .nav-label {
+      padding: 0 11px 7px;
+      color: #6b7280;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+
+    .primary-nav .tab {
+      position: relative;
+      width: 100%;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 2px 0;
+      border: 0;
+      border-radius: 9px;
+      padding: 9px 11px;
+      color: #c7ced8;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 500;
+      text-align: left;
+    }
+
+    .primary-nav .tab::before {
+      width: 7px;
+      height: 7px;
+      flex: 0 0 auto;
+      border: 1px solid #6b7280;
+      border-radius: 3px;
+      content: "";
+    }
+
+    .primary-nav .tab:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .primary-nav .tab.active {
+      color: #fff;
+      background: var(--sidebar-soft);
+      box-shadow: inset 2px 0 #60a5fa;
+    }
+
+    .primary-nav .tab.active::before {
+      border-color: #60a5fa;
+      background: #60a5fa;
+    }
+
+    .sidebar-foot {
+      margin-top: auto;
+      padding: 16px 10px 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      color: #7f8999;
+      font-size: 11px;
+      line-height: 1.55;
+    }
+
+    .workspace {
+      min-width: 0;
+    }
+
+    .topbar {
+      background: rgba(255, 255, 255, 0.88);
+      border-bottom-color: rgba(229, 231, 235, 0.9);
+    }
+
+    .topbar-inner {
+      max-width: none;
+      min-height: 76px;
+      padding: 14px 30px;
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .page-heading h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.3;
+      letter-spacing: -0.02em;
+    }
+
+    .page-heading p {
+      max-width: 680px;
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .topbar-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-line {
+      max-width: 320px;
+      min-height: 0;
+      margin: 0;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .connection-settings {
+      position: relative;
+    }
+
+    .connection-settings summary {
+      min-width: 92px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 11px;
+      background: #fff;
+      color: #374151;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      list-style: none;
+      text-align: center;
+    }
+
+    .connection-settings summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .connection-settings[open] summary {
+      border-color: #93b4f7;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .connection-popover {
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      z-index: 30;
+      width: min(420px, calc(100vw - 32px));
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.15);
+    }
+
+    .connection-popover .auth-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .connection-popover .top-actions {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .main {
+      max-width: 1540px;
+      padding: 26px 30px 42px;
+    }
+
+    .card {
+      overflow: hidden;
+      border-color: rgba(225, 228, 234, 0.92);
+      border-radius: 15px;
+    }
+
+    .section {
+      padding: 22px;
+    }
+
+    .section-head {
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 16px;
+      letter-spacing: -0.01em;
+    }
+
+    .section-subtitle {
+      max-width: 920px;
+      margin-top: 5px;
+      line-height: 1.55;
+    }
+
+    .metrics {
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      min-height: 104px;
+      border-color: #eaecf0;
+      border-radius: 12px;
+      padding: 15px;
+      background: linear-gradient(145deg, #fff, #fbfcfe);
+    }
+
+    .metric strong {
+      margin-top: 10px;
+      font-size: 26px;
+      letter-spacing: -0.03em;
+    }
+
+    .two-col {
+      gap: 22px;
+    }
+
+    input,
+    select {
+      height: 38px;
+      border-radius: 9px;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: #8bb0f7;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.09);
+    }
+
+    .btn {
+      min-height: 38px;
+      border-radius: 9px;
+    }
+
+    .table-wrap {
+      border-color: #e7e9ee;
+      border-radius: 11px;
+    }
+
+    th,
+    td {
+      padding: 10px 11px;
+    }
+
+    th {
+      color: #5b6575;
+      background: #f8f9fb;
+    }
+
+    tbody tr:hover {
+      background: #fafbfc;
+    }
+
+    .json-box,
+    .fact {
+      border-radius: 11px;
+    }
+
+    .section .tabs {
+      gap: 5px;
+      padding: 4px;
+      border-radius: 10px;
+      background: var(--panel-soft);
+    }
+
+    .section .tabs .tab {
+      min-width: 74px;
+      border: 0;
+      background: transparent;
+      font-size: 12px;
+    }
+
+    .section .tabs .tab.active {
+      color: #1f2937;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+
+    @media (max-width: 1100px) {
+      .shell {
+        display: block;
+      }
+
+      .sidebar {
+        position: static;
+        height: auto;
+        display: block;
+        padding: 12px 18px;
+        overflow: visible;
+      }
+
+      .brand {
+        padding: 0 0 10px;
+      }
+
+      .brand p,
+      .sidebar-foot,
+      .nav-label {
+        display: none;
+      }
+
+      .primary-nav {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+      }
+
+      .nav-group {
+        display: contents;
+      }
+
+      .nav-group+.nav-group {
+        margin: 0;
+      }
+
+      .primary-nav .tab {
+        width: auto;
+        min-width: max-content;
+        padding: 8px 11px;
+      }
+
+      .primary-nav .tab.active {
+        box-shadow: inset 0 -2px #60a5fa;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .topbar-inner {
+        min-height: 0;
+        padding: 13px 16px;
+        align-items: flex-start;
+      }
+
+      .page-heading h1 {
+        font-size: 17px;
+      }
+
+      .page-heading p,
+      .status-line {
+        display: none;
+      }
+
+      .topbar-controls {
+        flex: 0 0 auto;
+      }
+
+      .connection-popover {
+        position: fixed;
+        top: 64px;
+        right: 12px;
+        left: 12px;
+        width: auto;
+      }
+
+      .main {
+        padding: 16px 12px 30px;
+      }
+
+      .section {
+        padding: 16px;
+      }
+
+      .section-head {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .two-col,
+      .form-row,
+      .form-row.three,
+      .metrics {
+        grid-template-columns: 1fr !important;
+      }
+
+      .inline-actions {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+      }
+
+      .inline-actions .btn {
+        flex: 1 1 auto;
+      }
+
+      .mini-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">LF</div>
+        <div>
+          <h1>LinguaFlow Admin</h1>
+          <p>运营与系统工作台</p>
+        </div>
+      </div>
+      <nav class="tabs primary-nav" aria-label="管理后台主导航">
+        <div class="nav-group">
+          <div class="nav-label">运营</div>
+          <button class="tab active" data-tab="overview">运营概览</button>
+          <button class="tab" data-tab="contacts">用户触达</button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">运行</div>
+          <button class="tab" data-tab="resources">运行监控</button>
+          <button class="tab" data-tab="cardops">Card 任务</button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">业务</div>
+          <button class="tab" data-tab="user">用户排障</button>
+          <button class="tab" data-tab="payments">支付订阅</button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">审计</div>
+          <button class="tab" data-tab="security">安全审计</button>
+          <button class="tab" data-tab="adminaudit">管理员操作</button>
+          <button class="tab" data-tab="logs">系统事件</button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">发布</div>
+          <button class="tab" data-tab="audit">生产检查</button>
+        </div>
+      </nav>
+      <div class="sidebar-foot">
+        只读查询优先。人工变更与支付操作均写入审计日志。
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <div class="page-heading">
+            <h1 id="pageTitle">运营概览</h1>
+            <p id="pageSubtitle">查看用户活跃、额度消耗与核心服务成本。</p>
+          </div>
+          <div class="topbar-controls">
+            <div id="statusLine" class="status-line" title="连接状态">尚未登录</div>
+            <details class="connection-settings">
+              <summary>连接设置</summary>
+              <div class="connection-popover">
+                <div class="auth-grid">
+                  <div class="field">
+                    <label>API Base URL</label>
+                    <input id="apiBase" />
+                  </div>
+                  <div class="field">
+                    <label>管理员账号</label>
+                    <input id="account" placeholder="邮箱 / 手机号 / 用户名" />
+                  </div>
+                  <div class="field">
+                    <label>管理员密码</label>
+                    <input id="password" type="password" placeholder="密码" />
+                  </div>
+                </div>
+                <div class="top-actions">
+                  <button id="btnLogin" class="btn">登录</button>
+                  <button id="btnLogout" class="btn secondary">清空状态</button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </header>
+
+      <main class="main">
+        <input id="token" type="hidden" />
+
+        <section id="panel-overview" class="panel active">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">运营概览</h2>
+                  <p id="overviewClock" class="section-subtitle">未加载</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="btnOverview7d" class="btn secondary">近 7 天</button>
+                  <button id="btnOverview14d" class="btn secondary">近 14 天</button>
+                  <button id="btnOverview30d" class="btn secondary">近 30 天</button>
+                </div>
+              </div>
+              <div class="form-row" style="margin-bottom:12px">
+                <div class="field">
+                  <label>开始日期</label>
+                  <input id="overviewFromDate" type="date" />
+                </div>
+                <div class="field">
+                  <label>结束日期</label>
+                  <input id="overviewToDate" type="date" />
+                </div>
+                <button id="btnLoadOverview" class="btn">查询概览</button>
+                <span class="muted">最多查询 90 天，默认近 14 天。</span>
+              </div>
+              <div id="metrics" class="metrics"></div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">用户增长与留存</h2>
+                  <p class="section-subtitle">活跃用户=当天使用任一已统计功能的去重用户；流失=昨日活跃但今日未使用任何功能。</p>
+                </div>
+              </div>
+              <div id="productKpis" class="product-kpis"></div>
+              <div class="chart-grid mt">
+                <div class="chart-panel">
+                  <h3 class="chart-title">用户趋势</h3>
+                  <div id="growthLegend" class="chart-legend"></div>
+                  <div id="growthChart"></div>
+                </div>
+                <div class="chart-panel">
+                  <h3 class="chart-title">新增用户次日留存</h3>
+                  <p class="chart-note">昨日注册用户中，今天使用过任一已统计功能的比例。</p>
+                  <div id="retentionChart"></div>
+                </div>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">功能使用情况</h2>
+                  <p class="section-subtitle">展示所选时间范围内各核心功能的去重用户和行为量；练习、回忆和查词历史由状态更新时间推算。</p>
+                </div>
+              </div>
+              <div class="chart-grid">
+                <div class="chart-panel">
+                  <h3 class="chart-title">每日功能用户趋势</h3>
+                  <div id="featureLegend" class="chart-legend"></div>
+                  <div id="featureChart"></div>
+                </div>
+                <div class="chart-panel">
+                  <h3 class="chart-title">功能渗透</h3>
+                  <p class="chart-note">功能日活合计 ÷ 全部核心日活合计，用于比较功能相对热度。</p>
+                  <div id="featureBars" class="feature-bars"></div>
+                </div>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">每日用户活跃</h2>
+                  <p class="section-subtitle">卡片活跃=当天新增卡片、练习或打开回忆的去重用户；AI 助手使用单独统计，不计入卡片活跃。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>日期</th>
+                      <th>总用户</th>
+                      <th>卡片活跃</th>
+                      <th>新增卡片用户</th>
+                      <th>新增卡片数</th>
+                      <th>练习用户</th>
+                      <th>回忆用户</th>
+                      <th>AI 助手用户</th>
+                      <th>会员用户</th>
+                      <th>Plus 用户</th>
+                      <th>Pro 用户</th>
+                      <th>会员占比</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dailyActivityTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">TTS 成本估算</h2>
+                  <p class="section-subtitle">仅按真实新生成的成功请求估算：success 且 cacheHit=false 且 deduped=false。缓存命中和并发复用不计 Azure
+                    生成成本。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>日期</th>
+                      <th>总请求</th>
+                      <th>成功</th>
+                      <th>失败</th>
+                      <th>新生成</th>
+                      <th>生成字符</th>
+                      <th>估算成本</th>
+                      <th>缓存命中</th>
+                      <th>并发复用</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ttsCostTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">额度记录概览</h2>
+                  <p class="section-subtitle">Pro 按 entitlements.dateKey 归档；普通用户 free_trial 是累计池，当前只展示累计已用，不是每日差值。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>日期</th>
+                      <th>额度记录用户数</th>
+                      <th>平均累计已用</th>
+                      <th>累计已用合计</th>
+                      <th>用满人数</th>
+                      <th>Pro 用满</th>
+                      <th>免费用满</th>
+                    </tr>
+                  </thead>
+                  <tbody id="usageTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-resources" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">API 运行概览</h2>
+                  <p id="apiMetricsMeta" class="section-subtitle">查看请求量、响应时间、错误与慢请求。</p>
+                </div>
+                <div class="inline-actions">
+                  <select id="apiMetricsWindow" aria-label="API 统计窗口">
+                    <option value="15">近 15 分钟</option>
+                    <option value="60">近 1 小时</option>
+                    <option value="120">近 2 小时</option>
+                  </select>
+                  <button id="btnLoadResources" class="btn">刷新</button>
+                  <button id="btnToggleResourceAutoRefresh" class="btn secondary">开启 15 秒刷新</button>
+                </div>
+              </div>
+              <div id="apiMetrics" class="metrics"></div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">接口响应排行</h2>
+                  <p class="section-subtitle">按 p95 从慢到快排列；流式 AI 接口统计的是完整生成耗时，不等同于首字延迟。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>接口</th>
+                      <th>请求</th>
+                      <th>平均</th>
+                      <th>p50</th>
+                      <th>p95</th>
+                      <th>p99</th>
+                      <th>4xx</th>
+                      <th>5xx</th>
+                      <th>慢请求</th>
+                      <th>阈值</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody id="apiMetricsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">AI 与媒体资源池</h2>
+                  <p id="resourceMeta" class="section-subtitle">监控最近一分钟请求、实时并发，以及所选窗口内的峰值、耗时与限流。</p>
+                </div>
+              </div>
+              <div id="resourceAlerts" class="metrics"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>资源</th>
+                      <th>最近一分钟</th>
+                      <th>当前并发</th>
+                      <th>窗口峰值</th>
+                      <th>平均耗时</th>
+                      <th>成功 / 失败</th>
+                      <th>限流</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody id="resourceTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">流式 TTS Worker</h2>
+                  <p id="ttsStreamingMeta" class="section-subtitle">查看后台生成队列、Worker 心跳，以及排队、首包和完整生成耗时。</p>
+                </div>
+              </div>
+              <div id="ttsStreamingMetrics" class="metrics"></div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">数据库查询</h2>
+                  <p id="databaseMetricsMeta" class="section-subtitle">仅保存操作类型、表名和聚合耗时，不保存 SQL、参数或用户数据。</p>
+                </div>
+              </div>
+              <div id="databaseMetrics" class="metrics"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>操作</th>
+                      <th>涉及表</th>
+                      <th>查询数</th>
+                      <th>平均</th>
+                      <th>p50</th>
+                      <th>p95</th>
+                      <th>p99</th>
+                      <th>慢查询</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody id="databaseMetricsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">维护 Worker</h2>
+                  <p id="maintenanceWorkerMeta" class="section-subtitle">查看清理任务是否持续运行；超过两个执行周期未上报将标记为过期。</p>
+                </div>
+              </div>
+              <div id="maintenanceWorkerMetrics" class="metrics"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>任务</th>
+                      <th>健康度</th>
+                      <th>本轮结果</th>
+                      <th>最近运行</th>
+                      <th>耗时</th>
+                      <th>删除</th>
+                      <th>连续失败</th>
+                      <th>异常</th>
+                    </tr>
+                  </thead>
+                  <tbody id="maintenanceWorkerTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">近 24 小时限流记录</h2>
+                  <p class="section-subtitle">持久记录 LLM、STT、TTS、Embedding 与图片上传的限流及图片额度耗尽。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>资源</th>
+                      <th>类型</th>
+                      <th>范围</th>
+                      <th>次数</th>
+                      <th>最近发生</th>
+                    </tr>
+                  </thead>
+                  <tbody id="resourceLimitTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-cardops" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">Card 运行状态</h2>
+                  <p id="cardOpsMeta" class="section-subtitle">尚未加载。默认手动刷新，避免管理页自身制造额外压力。</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="btnLoadCardOperations" class="btn">刷新状态</button>
+                  <button id="btnToggleCardAutoRefresh" class="btn secondary">开启 30 秒刷新</button>
+                </div>
+              </div>
+              <div id="cardOpsMetrics" class="metrics"></div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">Worker 队列</h2>
+                  <p class="section-subtitle">ready 表示现在可以领取；scheduled retry 尚未到重试时间；expired lease 应尽快归零。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>任务</th>
+                      <th>Ready</th>
+                      <th>处理中</th>
+                      <th>定时重试</th>
+                      <th>过期 Lease</th>
+                      <th>最老等待</th>
+                      <th>24h 完成</th>
+                      <th>24h 失败</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cardJobTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section two-col">
+              <div>
+                <div class="section-head">
+                  <div>
+                    <h2 class="section-title">Redis 并发槽</h2>
+                    <p id="cardRedisMeta" class="section-subtitle">未加载</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table style="min-width:520px">
+                    <thead>
+                      <tr>
+                        <th>任务</th>
+                        <th>活跃</th>
+                        <th>上限</th>
+                        <th>使用率</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cardSlotsTbody"></tbody>
+                  </table>
+                </div>
+                <div class="section-head mt">
+                  <div>
+                    <h2 class="section-title">近 24 小时限流拒绝</h2>
+                    <p class="section-subtitle">仅展示发生过拒绝的 scope；计数窗口从首次拒绝开始滚动 24 小时。</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table style="min-width:520px">
+                    <thead>
+                      <tr>
+                        <th>Scope</th>
+                        <th>拒绝次数</th>
+                        <th>窗口剩余</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cardRateLimitTbody"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <div class="section-head">
+                  <div>
+                    <h2 class="section-title">当前保护配置</h2>
+                    <p class="section-subtitle">只读展示服务端实际生效值，不在页面内直接修改。</p>
+                  </div>
+                </div>
+                <pre id="cardOpsConfigJson" class="json-box">{}</pre>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">最近失败任务</h2>
+                  <p class="section-subtitle">最多 25 条，不返回 Card 正文或 Phrase 内容。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>失败时间</th>
+                      <th>任务</th>
+                      <th>来源</th>
+                      <th>尝试</th>
+                      <th>错误</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cardFailedJobsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-user" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">用户查询与排障</h2>
+                  <p class="section-subtitle">先查询用户，再打开诊断详情。补 Pro / 取消 Pro 都会写审计。</p>
+                </div>
+              </div>
+              <div class="form-row three">
+                <div class="field">
+                  <label>搜索用户</label>
+                  <input id="userSearch" placeholder="userId / 昵称（现有 API 支持）" />
+                </div>
+                <button id="btnSearchUsers" class="btn">搜索</button>
+                <button id="btnLoadDiagnostics" class="btn secondary">查诊断</button>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>昵称</th>
+                      <th>邮箱</th>
+                      <th>手机</th>
+                      <th>状态</th>
+                      <th>角色</th>
+                      <th>创建时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="usersTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">AI Token 用量监控</h2>
+                  <p class="section-subtitle">当前额度只显示实际正在扣减的周期；旧额度作为历史记录，不计入当前可用额度。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>状态</th>
+                      <th>周期</th>
+                      <th>套餐</th>
+                      <th>已用</th>
+                      <th>预留</th>
+                      <th>额度</th>
+                      <th>剩余</th>
+                      <th>使用率</th>
+                      <th>来源</th>
+                    </tr>
+                  </thead>
+                  <tbody id="currentTokenCycleTbody"></tbody>
+                </table>
+              </div>
+              <details id="historicalTokenCycles" class="mt">
+                <summary id="historicalTokenCyclesSummary">历史额度周期</summary>
+                <p class="section-subtitle">仅用于核对历史消耗，不会叠加到当前额度，也不会继续扣减。</p>
+                <div class="table-wrap mt">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>状态</th>
+                        <th>周期</th>
+                        <th>套餐</th>
+                        <th>已用</th>
+                        <th>预留</th>
+                        <th>额度</th>
+                        <th>剩余</th>
+                        <th>使用率</th>
+                        <th>来源</th>
+                      </tr>
+                    </thead>
+                    <tbody id="historicalTokenCyclesTbody"></tbody>
+                  </table>
+                </div>
+              </details>
+              <div class="section-head mt">
+                <div>
+                  <h2 class="section-title">近 30 天按功能汇总</h2>
+                  <p class="section-subtitle">只把 settled 流水计入实际 token；released 表示失败后已释放，pending 表示仍在预留。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>功能</th>
+                      <th>请求</th>
+                      <th>成功</th>
+                      <th>释放</th>
+                      <th>待结算</th>
+                      <th>输入</th>
+                      <th>输出</th>
+                      <th>总计</th>
+                      <th>单次峰值</th>
+                      <th>最近使用</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tokenFeatureUsageTbody"></tbody>
+                </table>
+              </div>
+              <div class="section-head mt">
+                <div>
+                  <h2 class="section-title">最近 200 条 Token 流水</h2>
+                  <p class="section-subtitle">可按 requestId 对照服务日志，排查重复请求、计量来源和模型消耗。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>功能</th>
+                      <th>状态</th>
+                      <th>输入</th>
+                      <th>输出</th>
+                      <th>总计</th>
+                      <th>预留</th>
+                      <th>计量</th>
+                      <th>模型</th>
+                      <th>requestId</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tokenTransactionsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section two-col">
+              <div>
+                <div class="section-head">
+                  <div>
+                    <h2 class="section-title">诊断摘要</h2>
+                    <p id="diagnosticsMeta" class="section-subtitle">未加载</p>
+                  </div>
+                  <div class="inline-actions">
+                    <select id="manualGrantPlan" aria-label="手动开通套餐">
+                      <option value="pro_monthly">Pro</option>
+                      <option value="plus_monthly">Plus</option>
+                    </select>
+                    <input id="manualGrantMonths" type="number" min="1" max="12" step="1" value="1" aria-label="手动开通月数"
+                      style="width:72px" />
+                    <button id="btnGrantMembership" class="btn secondary">手动开通会员</button>
+                    <button id="btnCancelPro" class="btn danger">取消会员</button>
+                  </div>
+                </div>
+                <div id="userFacts" class="mini-grid"></div>
+                <pre id="userJson" class="json-box mt">{}</pre>
+              </div>
+              <div>
+                <div class="section-head">
+                  <div>
+                    <h2 class="section-title">最近额度</h2>
+                    <p class="section-subtitle">最近 60 个 dateKey</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>日期</th>
+                        <th>使用</th>
+                        <th>上限</th>
+                        <th>剩余</th>
+                      </tr>
+                    </thead>
+                    <tbody id="entitlementsTbody"></tbody>
+                  </table>
+                </div>
+                <div class="section-head mt">
+                  <div>
+                    <h2 class="section-title">Apple 绑定</h2>
+                    <p class="section-subtitle">appAccountToken / originalTransactionId</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>token</th>
+                        <th>original</th>
+                        <th>latest</th>
+                      </tr>
+                    </thead>
+                    <tbody id="appleLinksTbody"></tbody>
+                  </table>
+                </div>
+                <div class="section-head mt">
+                  <div>
+                    <h2 class="section-title">支付宝绑定</h2>
+                    <p class="section-subtitle">商户客户 ID / 更新时间</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>customerId</th>
+                        <th>创建时间</th>
+                        <th>更新时间</th>
+                      </tr>
+                    </thead>
+                    <tbody id="alipayLinksTbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">用户最近记录</h2>
+                  <p class="section-subtitle">订单、订阅、自动续费、支付事件、系统日志</p>
+                </div>
+              </div>
+              <div class="tabs" style="margin-bottom:10px">
+                <button class="tab active" data-user-subtab="diagOrders">订单</button>
+                <button class="tab" data-user-subtab="diagSubs">订阅</button>
+                <button class="tab" data-user-subtab="diagAutoRenew">自动续费</button>
+                <button class="tab" data-user-subtab="diagAutoRenewCharges">续费扣款</button>
+                <button class="tab" data-user-subtab="diagPaymentEvents">支付事件</button>
+                <button class="tab" data-user-subtab="diagEvents">系统日志</button>
+              </div>
+              <div id="diagOrders" class="diag-subpanel table-wrap"></div>
+              <div id="diagSubs" class="diag-subpanel table-wrap" style="display:none"></div>
+              <div id="diagAutoRenew" class="diag-subpanel table-wrap" style="display:none"></div>
+              <div id="diagAutoRenewCharges" class="diag-subpanel table-wrap" style="display:none"></div>
+              <div id="diagPaymentEvents" class="diag-subpanel table-wrap" style="display:none"></div>
+              <div id="diagEvents" class="diag-subpanel table-wrap" style="display:none"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-contacts" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">用户触达名单</h2>
+                  <p class="section-subtitle">每页固定显示 50 人；当前版本只查询名单，不发送邮件。</p>
+                </div>
+              </div>
+              <div class="form-row"
+                style="grid-template-columns:minmax(200px,1.4fr) repeat(3,minmax(140px,1fr)) repeat(2,140px)">
+                <div class="field">
+                  <label>搜索</label>
+                  <input id="contactSearch" placeholder="用户 ID / 昵称 / 邮箱 / 手机" />
+                </div>
+                <div class="field">
+                  <label>会员状态</label>
+                  <select id="contactMembership">
+                    <option value="all">全部</option>
+                    <option value="plus">Plus</option>
+                    <option value="pro">Pro</option>
+                    <option value="expired">已过期</option>
+                    <option value="cancelled">已取消</option>
+                    <option value="non_member">非会员</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>邮箱状态</label>
+                  <select id="contactEmail">
+                    <option value="all">全部</option>
+                    <option value="with_email">有邮箱</option>
+                    <option value="without_email">无邮箱</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>自动续费协议</label>
+                  <select id="contactAutoRenew">
+                    <option value="all">全部</option>
+                    <option value="active">有效</option>
+                    <option value="cancelled">已取消</option>
+                    <option value="billing_retry">扣款重试</option>
+                    <option value="pending">待生效</option>
+                    <option value="paused">已暂停</option>
+                    <option value="expired">已过期</option>
+                    <option value="none">无协议</option>
+                  </select>
+                </div>
+                <button id="btnLoadContactUsers" class="btn">查询用户</button>
+                <button id="btnExportContactUsers" class="btn secondary">导出账号 CSV</button>
+              </div>
+              <div id="contactMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>用户 ID</th>
+                      <th>昵称</th>
+                      <th>邮箱</th>
+                      <th>手机</th>
+                      <th>账号状态</th>
+                      <th>会员状态</th>
+                      <th>订阅状态</th>
+                      <th>续费渠道</th>
+                      <th>自动续费协议</th>
+                      <th>开始时间</th>
+                      <th>到期时间</th>
+                      <th>注册时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="contactUsersTbody"></tbody>
+                </table>
+              </div>
+              <div class="section-head mt" style="margin-bottom:0">
+                <span id="contactPageInfo" class="muted">尚未查询</span>
+                <div class="inline-actions">
+                  <button id="btnPrevContactUsers" class="btn secondary" disabled>上一页</button>
+                  <button id="btnNextContactUsers" class="btn secondary" disabled>下一页</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-payments" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">自动续费状态</h2>
+                  <p class="section-subtitle">仅统计当前会员：active 表示仍会续费，cancelled 表示权益有效但已关闭续费。</p>
+                </div>
+                <button id="btnRefreshPaymentSummary" class="btn secondary">刷新状态</button>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>渠道</th>
+                      <th>状态</th>
+                      <th>数量</th>
+                    </tr>
+                  </thead>
+                  <tbody id="autoRenewSummaryTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">支付订单</h2>
+                  <p class="section-subtitle">汇总支付订单和支付宝续费扣款；支付订单支持手动关单/退款，操作会写审计。</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>订单状态</label>
+                  <select id="orderStatus">
+                    <option value="">全部</option>
+                    <option value="pending">pending</option>
+                    <option value="paid">paid</option>
+                    <option value="closed">closed</option>
+                    <option value="failed">failed</option>
+                    <option value="refunded">refunded</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>用户 ID</label>
+                  <input id="orderUserId" placeholder="可空" />
+                </div>
+                <button id="btnLoadOrders" class="btn">查询订单</button>
+                <button id="btnLoadSubscriptions" class="btn secondary">查询订阅</button>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>用户</th>
+                      <th>渠道</th>
+                      <th>类型</th>
+                      <th>状态</th>
+                      <th>产品</th>
+                      <th>金额</th>
+                      <th>渠道单号</th>
+                      <th>创建时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ordersTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">订阅列表</h2>
+                  <p class="section-subtitle">按用户和状态过滤</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>订阅状态</label>
+                  <select id="subscriptionStatus">
+                    <option value="">全部</option>
+                    <option value="active">active</option>
+                    <option value="expired">expired</option>
+                    <option value="cancelled">cancelled</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>用户 ID</label>
+                  <input id="subscriptionUserId" placeholder="可空" />
+                </div>
+                <button id="btnLoadSubscriptions2" class="btn">查询订阅</button>
+                <span class="muted"></span>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>来源</th>
+                      <th>开始</th>
+                      <th>到期</th>
+                      <th>sourceOrderId</th>
+                    </tr>
+                  </thead>
+                  <tbody id="subscriptionsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-audit" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">生产功能检查</h2>
+                  <p class="section-subtitle">使用当前管理员 Access Token 验证真实 API；默认仅执行只读请求，不创建订单、不扣额度、不修改用户数据。</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="btnRunProductionAudit" class="btn">开始检查</button>
+                  <button id="btnClearProductionAudit" class="btn secondary">清空结果</button>
+                </div>
+              </div>
+              <div id="auditSessionFacts" class="mini-grid"></div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">检查结果</h2>
+                  <p id="productionAuditMeta" class="section-subtitle">尚未执行</p>
+                </div>
+              </div>
+              <div id="productionAuditMetrics" class="metrics"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>结果</th>
+                      <th>检查项</th>
+                      <th>接口</th>
+                      <th>HTTP</th>
+                      <th>耗时</th>
+                      <th>说明</th>
+                    </tr>
+                  </thead>
+                  <tbody id="productionAuditTbody"></tbody>
+                </table>
+              </div>
+              <pre id="productionAuditJson" class="json-box mt">{}</pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-security" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">内容安全拦截</h2>
+                  <p class="section-subtitle">查看本地规则拦截记录；日志只保存分类、规则和文本 hash，不保存原文。</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="btnLoadContentSafetyLogs" class="btn">查询拦截</button>
+                  <button id="btnPrevContentSafetyLogs" class="btn secondary" disabled>上一页</button>
+                  <button id="btnNextContentSafetyLogs" class="btn secondary" disabled>下一页</button>
+                  <select id="contentSafetyLimit">
+                    <option value="50">50 条</option>
+                    <option value="100" selected>100 条</option>
+                    <option value="200">200 条</option>
+                  </select>
+                  <button id="btnFillContentSafetyFilter" class="btn secondary">填入系统日志筛选</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>阶段</th>
+                      <th>分类</th>
+                      <th>规则</th>
+                      <th>命中词</th>
+                      <th>来源</th>
+                      <th>建议</th>
+                      <th>标签</th>
+                      <th>分数</th>
+                      <th>腾讯关键词</th>
+                      <th>入口</th>
+                      <th>文本 hash</th>
+                      <th>长度</th>
+                    </tr>
+                  </thead>
+                  <tbody id="contentSafetyTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-logs" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">系统事件</h2>
+                  <p class="section-subtitle">按事件类型查看通用日志与各服务调用记录；切换分类时只加载当前分类。</p>
+                </div>
+              </div>
+              <div class="tabs" style="margin-bottom:10px">
+                <button class="tab active" data-event-subtab="eventGeneral">通用事件</button>
+                <button class="tab" data-event-subtab="eventTts">TTS</button>
+                <button class="tab" data-event-subtab="eventStt">STT</button>
+                <button class="tab" data-event-subtab="eventDictionary">智能词典</button>
+              </div>
+            </div>
+            <div id="eventGeneral" class="section event-subpanel">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">通用系统事件</h2>
+                  <p class="section-subtitle">默认查 failed，最多 200 条</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>Module</label>
+                  <input id="logModule" placeholder="payment / auth / admin / content_safety" />
+                </div>
+                <div class="field">
+                  <label>Event</label>
+                  <input id="logEvent" placeholder="可空" />
+                </div>
+                <div class="field">
+                  <label>Status</label>
+                  <select id="logStatus">
+                    <option value="failed">failed</option>
+                    <option value="">全部</option>
+                    <option value="success">success</option>
+                    <option value="ignored">ignored</option>
+                  </select>
+                </div>
+                <button id="btnLoadLogs" class="btn">查询日志</button>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>模块</th>
+                      <th>事件</th>
+                      <th>级别</th>
+                      <th>状态</th>
+                      <th>错误码</th>
+                      <th>错误信息</th>
+                      <th>Metadata</th>
+                    </tr>
+                  </thead>
+                  <tbody id="logsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="eventTts" class="section event-subpanel" style="display:none">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">TTS 调用记录</h2>
+                  <p class="section-subtitle">分解前置查询、缓存、锁等待、并发排队、Azure 合成、COS 上传和数据库落库耗时。</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>User ID</label>
+                  <input id="ttsLogUserId" placeholder="可空" />
+                </div>
+                <div class="field">
+                  <label>Status</label>
+                  <select id="ttsLogStatus">
+                    <option value="">全部</option>
+                    <option value="success">success</option>
+                    <option value="failed">failed</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Cache Hit</label>
+                  <select id="ttsLogCacheHit">
+                    <option value="">全部</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </div>
+                <button id="btnLoadTtsLogs" class="btn">查询 TTS</button>
+              </div>
+              <div id="ttsLogMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>内容</th>
+                      <th>语言 / 音色</th>
+                      <th>字符</th>
+                      <th>缓存</th>
+                      <th>复用</th>
+                      <th>总耗时</th>
+                      <th>阶段耗时</th>
+                      <th>消息</th>
+                      <th>错误</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ttsLogsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="eventStt" class="section event-subpanel" style="display:none">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">STT 调用记录</h2>
+                  <p class="section-subtitle">实时语音识别请求、音频时长、计费秒数、识别结果和错误</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>User ID</label>
+                  <input id="sttLogUserId" placeholder="可空" />
+                </div>
+                <div class="field">
+                  <label>Status</label>
+                  <select id="sttLogStatus">
+                    <option value="">全部</option>
+                    <option value="success">success</option>
+                    <option value="failed">failed</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Language Mode</label>
+                  <select id="sttLanguageIdMode">
+                    <option value="">全部</option>
+                    <option value="at_start">at_start</option>
+                    <option value="continuous">continuous</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Recognized</label>
+                  <select id="sttRecognizedTextPresent">
+                    <option value="">全部</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </div>
+                <button id="btnLoadSttLogs" class="btn">查询 STT</button>
+                <button id="btnUseSttFilter" class="btn secondary">填入系统日志筛选</button>
+              </div>
+              <div id="sttMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>Provider</th>
+                      <th>模式</th>
+                      <th>候选语言</th>
+                      <th>检测语言</th>
+                      <th>音频秒</th>
+                      <th>计费秒</th>
+                      <th>转写字符</th>
+                      <th>耗时</th>
+                      <th>错误</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sttLogsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="eventDictionary" class="section event-subpanel" style="display:none">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">智能词典调用记录</h2>
+                  <p class="section-subtitle">来自 system_event_logs / dictionary.lookup，不扣用户字符额度</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>Status</label>
+                  <select id="dictionaryLogStatus">
+                    <option value="">全部</option>
+                    <option value="success">success</option>
+                    <option value="failed">failed</option>
+                  </select>
+                </div>
+                <button id="btnLoadDictionaryLogs" class="btn">查询智能词典</button>
+                <button id="btnUseDictionaryFilter" class="btn secondary">填入系统日志筛选</button>
+                <span class="muted"></span>
+              </div>
+              <div id="dictionaryMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>用户</th>
+                      <th>状态</th>
+                      <th>词长</th>
+                      <th>输入</th>
+                      <th>输出</th>
+                      <th>耗时</th>
+                      <th>语言</th>
+                      <th>消息</th>
+                      <th>错误</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dictionaryLogsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-adminaudit" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">管理员操作记录</h2>
+                  <p class="section-subtitle">查询后台人工操作及其对象、原因和请求标识。</p>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
+                  <label>Target Type</label>
+                  <input id="auditTargetType" placeholder="user / payment_order / subscription" />
+                </div>
+                <div class="field">
+                  <label>Target ID</label>
+                  <input id="auditTargetId" placeholder="可空" />
+                </div>
+                <button id="btnLoadAuditLogs" class="btn">查询操作</button>
+                <span class="muted"></span>
+              </div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>管理员</th>
+                      <th>动作</th>
+                      <th>对象</th>
+                      <th>原因</th>
+                      <th>requestId</th>
+                    </tr>
+                  </thead>
+                  <tbody id="auditTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = {
+      activeUserId: "",
+      diagnostics: null,
+      overview: null,
+      orders: [],
+      subscriptions: [],
+      productionAudit: [],
+      cardOperations: null,
+      cardOperationsTimer: null,
+      resources: null,
+      operations: null,
+      resourceTimer: null,
+      contactUsersPage: 1,
+      contactUsersTotalPages: 0,
+      loadedAuditViews: new Set(),
+    };
+    const DEFAULT_API_BASE_BY_HOST = {
+      "admin.yueyantech.com": "https://api.yueyantech.com",
+      "admin-test.yueyantech.com": "https://api-test.yueyantech.com",
+    };
+    const TAB_META = {
+      overview: ["运营概览", "查看用户活跃、额度消耗与核心服务成本。"],
+      resources: ["运行监控", "先看 API 健康与延迟，再定位 AI、媒体资源和限流。"],
+      cardops: ["Card 任务", "监控生成任务、队列积压、并发槽与限流保护。"],
+      user: ["用户排障", "定位单个用户的账号、会员、额度与支付状态。"],
+      contacts: ["用户触达", "筛选可触达用户并导出账号名单。"],
+      payments: ["支付订阅", "查询订单、订阅与自动续费状态。"],
+      security: ["安全审计", "查看内容安全规则的拦截结果，不展示用户原文。"],
+      adminaudit: ["管理员操作", "追踪后台人工操作、目标对象与请求标识。"],
+      logs: ["系统事件", "按分类查询通用事件及 TTS、STT、智能词典调用记录。"],
+      audit: ["生产检查", "执行发布前检查并确认生产环境配置。"],
+    };
+
+    function setStatus(message) {
+      $("statusLine").textContent = message;
+      $("statusLine").title = message;
+    }
+
+    function resolveDefaultApiBase() {
+      const metaApiBase = document.querySelector('meta[name="lf-api-base"]')?.content?.trim();
+      const runtimeApiBase = typeof window.LF_ADMIN_API_BASE === "string" ? window.LF_ADMIN_API_BASE.trim() : "";
+      const configured = runtimeApiBase || metaApiBase;
+      if (configured) return normalizeApiBase(configured);
+
+      if (window.location.protocol === "file:" || ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+        return "http://localhost:3001";
+      }
+      return DEFAULT_API_BASE_BY_HOST[window.location.hostname] || "";
+    }
+
+    function normalizeApiBase(value) {
+      return String(value || "").trim().replace(/\/+$/, "");
+    }
+
+    function shouldUseSavedApiBase(apiBase) {
+      if (!apiBase) return false;
+      if (window.location.protocol !== "https:") return true;
+      try {
+        const url = new URL(apiBase);
+        return url.protocol === "https:" && !["localhost", "127.0.0.1"].includes(url.hostname);
+      } catch {
+        return false;
+      }
+    }
+
+    function loadLocal() {
+      const saved = JSON.parse(localStorage.getItem("lf_admin_local") || "{}");
+      const savedApiBase = normalizeApiBase(saved.apiBase);
+      $("apiBase").value = shouldUseSavedApiBase(savedApiBase) ? savedApiBase : resolveDefaultApiBase();
+      if (saved.token) $("token").value = saved.token;
+      if (saved.account) $("account").value = saved.account;
+    }
+
+    function saveLocal() {
+      localStorage.setItem(
+        "lf_admin_local",
+        JSON.stringify({
+          apiBase: $("apiBase").value.trim(),
+          token: $("token").value.trim(),
+          account: $("account").value.trim(),
+        })
+      );
+    }
+
+    async function login() {
+      const apiBase = normalizeApiBase($("apiBase").value);
+      $("apiBase").value = apiBase;
+      const account = $("account").value.trim();
+      const password = $("password").value;
+      if (!apiBase || !account || !password) throw new Error("请填写 API、账号和密码");
+      const res = await adminFetch(`${apiBase}/auth/admin-password-login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account, password }),
+      },
+        apiBase
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+      const accessToken = data?.data?.accessToken || "";
+      if (!accessToken) throw new Error("登录成功但未返回 access token");
+      $("token").value = accessToken;
+      saveLocal();
+    }
+
+    async function request(path, options = {}) {
+      const apiBase = normalizeApiBase($("apiBase").value);
+      $("apiBase").value = apiBase;
+      const token = $("token").value.trim();
+      if (!apiBase || !token) throw new Error("请先登录");
+      const res = await adminFetch(`${apiBase}${path}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          ...(options.headers || {}),
+        },
+      }, apiBase);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || JSON.stringify(data) || `HTTP ${res.status}`);
+      return data;
+    }
+
+    async function adminFetch(url, options, apiBase) {
+      try {
+        return await fetch(url, options);
+      } catch (error) {
+        if (error instanceof TypeError) {
+          const pageProtocol = window.location.protocol;
+          const apiProtocol = (() => {
+            try {
+              return new URL(apiBase).protocol;
+            } catch {
+              return "";
+            }
+          })();
+          const mixedContentHint =
+            pageProtocol === "https:" && apiProtocol === "http:" ? "当前后台是 HTTPS，API Base 也必须使用 HTTPS。" : "";
+          throw new Error(
+            [
+              "无法连接 API。请检查 API Base URL 是否正确、服务是否在线，以及服务端 CORS_ALLOW_ORIGINS 是否包含当前后台域名。",
+              mixedContentHint,
+              `当前 API Base: ${apiBase || "(空)"}`,
+            ]
+              .filter(Boolean)
+              .join(" ")
+          );
+        }
+        throw error;
+      }
+    }
+
+    function decodeAccessTokenPayload(token) {
+      const parts = String(token || "").split(".");
+      if (parts.length !== 3) throw new Error("Access Token 不是合法的 JWT 格式");
+      const normalized = parts[1].replaceAll("-", "+").replaceAll("_", "/");
+      const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+      try {
+        const binary = atob(padded);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        return JSON.parse(new TextDecoder().decode(bytes));
+      } catch {
+        throw new Error("Access Token payload 无法解析");
+      }
+    }
+
+    function inspectCurrentSession() {
+      const apiBase = normalizeApiBase($("apiBase").value);
+      const token = $("token").value.trim();
+      if (!apiBase || !token) throw new Error("请先登录并获取 Access Token");
+      const payload = decodeAccessTokenPayload(token);
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const expiresAt = typeof payload.exp === "number" ? new Date(payload.exp * 1000) : null;
+      const issuedAt = typeof payload.iat === "number" ? new Date(payload.iat * 1000) : null;
+      const expired = !expiresAt || payload.exp <= nowSeconds;
+      return {
+        apiBase,
+        userId: typeof payload.sub === "string" ? payload.sub : "",
+        sessionId: typeof payload.sid === "string" ? payload.sid : "",
+        tokenType: typeof payload.typ === "string" ? payload.typ : "",
+        issuedAt,
+        expiresAt,
+        expired,
+        payload,
+      };
+    }
+
+    function renderAuditSession(session) {
+      const facts = [
+        ["API", session.apiBase],
+        ["用户 ID", session.userId || "缺失"],
+        ["Session ID", session.sessionId || "缺失（旧 Token）"],
+        ["Token 类型", session.tokenType || "缺失"],
+        ["签发时间", session.issuedAt ? fmtDate(session.issuedAt) : "缺失"],
+        ["过期时间", session.expiresAt ? fmtDate(session.expiresAt) : "缺失"],
+      ];
+      $("auditSessionFacts").innerHTML = facts.map(([label, value]) => `
+          <div class="fact">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+          </div>
+        `).join("");
+    }
+
+    async function auditRequest(path, timeoutMs = 15000) {
+      const apiBase = normalizeApiBase($("apiBase").value);
+      const token = $("token").value.trim();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const startedAt = performance.now();
+      try {
+        const response = await adminFetch(`${apiBase}${path}`, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          signal: controller.signal,
+        }, apiBase);
+        const data = await response.json().catch(() => null);
+        return {
+          httpStatus: response.status,
+          durationMs: Math.round(performance.now() - startedAt),
+          data,
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    function auditResultStatus(result) {
+      if (!result || result.httpStatus < 200 || result.httpStatus >= 300 || result.data?.ok !== true) {
+        return "fail";
+      }
+      return "pass";
+    }
+
+    function auditErrorMessage(result) {
+      return result?.data?.error?.message || result?.data?.error || `HTTP ${result?.httpStatus ?? "未知"}`;
+    }
+
+    function paymentHealthAudit(result) {
+      if (auditResultStatus(result) === "fail") {
+        return { status: "fail", detail: auditErrorMessage(result) };
+      }
+      const providers = result.data?.data?.providers || {};
+      const failed = Object.entries(providers).filter(([, value]) => value?.enabled && !value?.ok).map(([name]) => name);
+      const disabled = Object.entries(providers).filter(([, value]) => !value?.enabled).map(([name]) => name);
+      if (failed.length) return { status: "fail", detail: `已启用但异常：${failed.join(", ")}` };
+      if (disabled.length) return { status: "warn", detail: `配置正常；未启用：${disabled.join(", ")}` };
+      return { status: "pass", detail: `支付渠道正常：${Object.keys(providers).join(", ")}` };
+    }
+
+    function opsAlertsAudit(result) {
+      if (auditResultStatus(result) === "fail") {
+        return { status: "fail", detail: auditErrorMessage(result) };
+      }
+      const data = result.data?.data || {};
+      const thresholds = data.thresholds || {};
+      const exceeded = Object.entries(thresholds)
+        .filter(([key, threshold]) => Number(data[key] || 0) > Number(threshold))
+        .map(([key]) => `${key}=${data[key]}`);
+      return exceeded.length
+        ? { status: "warn", detail: `超过告警阈值：${exceeded.join("；")}` }
+        : { status: "pass", detail: "最近 24 小时核心指标未超过告警阈值" };
+    }
+
+    function renderProductionAudit() {
+      const rows = state.productionAudit;
+      const counts = { pass: 0, warn: 0, fail: 0 };
+      rows.forEach((row) => {
+        if (counts[row.status] !== undefined) counts[row.status] += 1;
+      });
+      $("productionAuditMetrics").innerHTML = [
+        ["检查项", rows.length, "total"],
+        ["通过", counts.pass, "PASS"],
+        ["警告", counts.warn, "WARN"],
+        ["失败", counts.fail, "FAIL"],
+      ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+      $("productionAuditTbody").innerHTML = rows.map((row) => `
+          <tr>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.name)}</td>
+            <td class="mono">${escapeHtml(row.endpoint)}</td>
+            <td>${escapeHtml(row.httpStatus ?? "-")}</td>
+            <td>${row.durationMs == null ? "-" : `${escapeHtml(row.durationMs)} ms`}</td>
+            <td>${escapeHtml(row.detail)}</td>
+          </tr>
+        `).join("") || rowEmpty(6, "尚未执行审计");
+      $("productionAuditJson").textContent = JSON.stringify({
+        generatedAt: new Date().toISOString(),
+        summary: { total: rows.length, ...counts },
+        checks: rows,
+      }, null, 2);
+    }
+
+    async function runProductionAudit() {
+      const session = inspectCurrentSession();
+      renderAuditSession(session);
+      state.productionAudit = [];
+      const sessionStatus = session.expired || session.tokenType !== "access"
+        ? "fail"
+        : session.sessionId
+          ? "pass"
+          : "warn";
+      state.productionAudit.push({
+        status: sessionStatus,
+        name: "Access Token / Session",
+        endpoint: "JWT 本地解析",
+        httpStatus: null,
+        durationMs: null,
+        detail: session.expired
+          ? "Access Token 已过期"
+          : session.tokenType !== "access"
+            ? `Token 类型异常：${session.tokenType || "缺失"}`
+            : session.sessionId
+              ? "Token 格式、类型、有效期和 Session ID 正常；签名由后续认证接口验证"
+              : "Token 有效但没有 Session ID，可能是旧版 Token",
+      });
+      renderProductionAudit();
+
+      const today = todayDateKey();
+      const checks = [
+        {
+          name: "API / 数据库 / Redis",
+          endpoint: "/health",
+          evaluate: (result) => {
+            if (auditResultStatus(result) === "fail") return { status: "fail", detail: auditErrorMessage(result) };
+            const health = result.data?.data || {};
+            const bad = ["api", "db", "redis"].filter((key) => health[key] && health[key].ok !== true);
+            return bad.length
+              ? { status: "fail", detail: `异常组件：${bad.join(", ")}` }
+              : { status: "pass", detail: health.redis?.skipped ? "API、数据库正常；Redis 未配置并已跳过" : "API、数据库、Redis 正常" };
+          },
+        },
+        { name: "业务时钟", endpoint: "/clock", detail: "业务时间接口正常" },
+        { name: "管理员权限与概览", endpoint: `/admin/metrics/overview?fromDate=${today}&toDate=${today}`, detail: "管理员 Token、数据库聚合查询正常" },
+        { name: "运营告警", endpoint: "/admin/ops/alerts", evaluate: opsAlertsAudit },
+        { name: "用户偏好", endpoint: "/me/preferences", detail: "用户身份与偏好读取正常" },
+        { name: "会员状态", endpoint: "/me/subscription", detail: "会员状态查询正常" },
+        { name: "当前额度", endpoint: "/me/entitlement", detail: "额度查询正常" },
+        { name: "支付配置", endpoint: "/payment/health", evaluate: paymentHealthAudit },
+        {
+          name: "Plus 月度产品",
+          endpoint: "/payment/products/plus-monthly",
+          evaluate: (result) => auditResultStatus(result) === "pass" && result.data?.data?.productCode === "plus_monthly"
+            ? { status: "pass", detail: `${result.data.data.displayPrice || result.data.data.amount} ${result.data.data.currency || ""}`.trim() }
+            : { status: "fail", detail: auditErrorMessage(result) },
+        },
+        {
+          name: "Pro 月度产品",
+          endpoint: "/payment/products/pro-monthly",
+          evaluate: (result) => auditResultStatus(result) === "pass" && result.data?.data?.productCode === "pro_monthly"
+            ? { status: "pass", detail: `${result.data.data.displayPrice || result.data.data.amount} ${result.data.data.currency || ""}`.trim() }
+            : { status: "fail", detail: auditErrorMessage(result) },
+        },
+        { name: "聊天联系人配置", endpoint: "/chat/contacts", detail: "聊天联系人配置读取正常" },
+        { name: "AI 模型配置", endpoint: "/chat/ai-options", detail: "AI Provider 和模型配置读取正常" },
+        { name: "TTS 声音配置", endpoint: "/tts/voices", detail: "TTS 声音列表读取正常" },
+      ];
+
+      $("btnRunProductionAudit").disabled = true;
+      $("productionAuditMeta").textContent = `执行中：0 / ${checks.length}`;
+      setStatus("正在执行生产功能审计...");
+      try {
+        for (let index = 0; index < checks.length; index += 1) {
+          const check = checks[index];
+          try {
+            const result = await auditRequest(check.endpoint);
+            const evaluated = check.evaluate
+              ? check.evaluate(result)
+              : auditResultStatus(result) === "pass"
+                ? { status: "pass", detail: check.detail }
+                : { status: "fail", detail: auditErrorMessage(result) };
+            state.productionAudit.push({
+              status: evaluated.status,
+              name: check.name,
+              endpoint: `GET ${check.endpoint}`,
+              httpStatus: result.httpStatus,
+              durationMs: result.durationMs,
+              detail: evaluated.detail,
+            });
+          } catch (error) {
+            state.productionAudit.push({
+              status: "fail",
+              name: check.name,
+              endpoint: `GET ${check.endpoint}`,
+              httpStatus: null,
+              durationMs: null,
+              detail: error instanceof DOMException && error.name === "AbortError"
+                ? "请求超过 15 秒"
+                : error instanceof Error ? error.message : String(error),
+            });
+          }
+          $("productionAuditMeta").textContent = `执行中：${index + 1} / ${checks.length}`;
+          renderProductionAudit();
+        }
+      } finally {
+        $("btnRunProductionAudit").disabled = false;
+      }
+      const failed = state.productionAudit.filter((row) => row.status === "fail").length;
+      const warned = state.productionAudit.filter((row) => row.status === "warn").length;
+      $("productionAuditMeta").textContent = `完成于 ${fmtDate(new Date())} · ${failed} 失败 · ${warned} 警告`;
+      setStatus(failed ? `生产检查完成：${failed} 项失败` : warned ? `生产检查完成：${warned} 项警告` : "生产检查全部通过");
+    }
+
+    function clearProductionAudit() {
+      state.productionAudit = [];
+      $("auditSessionFacts").innerHTML = "";
+      $("productionAuditMeta").textContent = "尚未执行";
+      renderProductionAudit();
+      $("productionAuditJson").textContent = "{}";
+      setStatus("已清空生产检查结果");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function fmtDate(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString("zh-CN", { hour12: false });
+    }
+
+    function statusPill(status) {
+      return `<span class="pill status-${escapeHtml(status || "unknown")}">${escapeHtml(status)}</span>`;
+    }
+
+    function rowEmpty(colspan, text = "暂无数据") {
+      return `<tr><td colspan="${colspan}" class="muted">${escapeHtml(text)}</td></tr>`;
+    }
+
+    function setTab(name) {
+      document.querySelectorAll(".tab[data-tab]").forEach((item) => {
+        item.classList.toggle("active", item.dataset.tab === name);
+      });
+      document.querySelectorAll(".panel").forEach((item) => {
+        item.classList.toggle("active", item.id === `panel-${name}`);
+      });
+      const [title, subtitle] = TAB_META[name] || TAB_META.overview;
+      $("pageTitle").textContent = title;
+      $("pageSubtitle").textContent = subtitle;
+      document.title = `${title} · LinguaFlow Admin`;
+    }
+
+    function todayDateKey() {
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, "0");
+      const day = String(today.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function addDays(dateKey, days) {
+      const date = new Date(`${dateKey}T00:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() + days);
+      return date.toISOString().slice(0, 10);
+    }
+
+    function setOverviewRange(days, toDate = todayDateKey()) {
+      $("overviewToDate").value = toDate;
+      $("overviewFromDate").value = addDays(toDate, -(days - 1));
+    }
+
+    async function loadOverview() {
+      setStatus("正在加载概览...");
+      const qs = new URLSearchParams();
+      if ($("overviewFromDate").value) qs.set("fromDate", $("overviewFromDate").value);
+      if ($("overviewToDate").value) qs.set("toDate", $("overviewToDate").value);
+      const res = await request(`/admin/metrics/overview?${qs.toString()}`);
+      state.overview = res.data || {};
+      renderOverview(res.data || {});
+      setStatus("概览已刷新");
+    }
+
+    async function loadCardOperations() {
+      setStatus("正在加载 Card 运行状态...");
+      const res = await request("/admin/card/operations");
+      state.cardOperations = res.data || {};
+      renderCardOperations(state.cardOperations);
+      setStatus("Card 运行状态已刷新");
+    }
+
+    async function loadResources() {
+      setStatus("正在加载运行监控...");
+      const minutes = Number($("apiMetricsWindow").value || 15);
+      const [resourceRes, operationsRes] = await Promise.all([
+        request(`/admin/resources/overview?minutes=${encodeURIComponent(minutes)}`),
+        request(`/admin/operations/overview?minutes=${encodeURIComponent(minutes)}`),
+      ]);
+      state.resources = resourceRes.data || {};
+      state.operations = operationsRes.data || {};
+      renderApiMetrics(state.operations.api);
+      renderDatabaseMetrics(state.operations.database);
+      renderMaintenanceWorkers(state.operations.maintenance);
+      renderResources(state.resources);
+      renderTtsStreaming(state.resources.ttsStreaming);
+      setStatus("运行监控已刷新");
+    }
+
+    function renderApiMetrics(api) {
+      const summary = api?.summary || {};
+      const routes = Array.isArray(api?.routes) ? api.routes : [];
+      const requests = Number(summary.requests || 0);
+      const serverErrors = Number(summary.serverErrors || 0);
+      const slowRequests = Number(summary.slowRequests || 0);
+      const errorRate = requests ? serverErrors / requests : 0;
+      const slowRate = requests ? slowRequests / requests : 0;
+      $("apiMetricsMeta").textContent = api
+        ? `${api.redisShared ? "Redis 跨实例统计" : "单实例内存统计"} · 近 ${api.windowMinutes} 分钟 · 刷新于 ${fmtDate(api.generatedAt)}`
+        : "API 指标尚不可用";
+      $("apiMetrics").innerHTML = [
+        ["请求量", requests, `近 ${api?.windowMinutes || 0} 分钟`],
+        ["平均响应", summary.averageDurationMs == null ? "—" : formatDurationMs(summary.averageDurationMs), "全部非探活请求"],
+        ["p95", summary.p95DurationMs == null ? "—" : formatDurationMs(summary.p95DurationMs), "95% 请求不超过此值"],
+        ["p99", summary.p99DurationMs == null ? "—" : formatDurationMs(summary.p99DurationMs), "长尾响应"],
+        ["5xx", serverErrors, `${(errorRate * 100).toFixed(2)}%`],
+        ["慢请求", slowRequests, `${(slowRate * 100).toFixed(2)}%`],
+      ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "—")}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+      $("apiMetricsTbody").innerHTML = routes.map((row) => {
+        const routeRequests = Number(row.requests || 0);
+        const routeServerErrors = Number(row.serverErrors || 0);
+        const routeSlow = Number(row.slowRequests || 0);
+        const routeSlowRate = routeRequests ? routeSlow / routeRequests : 0;
+        const routeThresholdMs = Number(row.slowThresholdMs || 1000);
+        const enoughSamples = routeRequests >= 20;
+        const status = routeServerErrors > 0
+          ? "告警"
+          : !enoughSamples
+            ? "样本不足"
+            : routeSlowRate >= 0.05 || Number(row.p95DurationMs || 0) >= routeThresholdMs
+              ? "提醒"
+              : "正常";
+        const statusClass = status === "告警" ? "status-fail" : status === "提醒" || status === "样本不足" ? "status-warn" : "status-pass";
+        return `<tr>
+            <td><span class="pill">${escapeHtml(row.method)}</span> <span class="mono">${escapeHtml(row.route)}</span></td>
+            <td>${escapeHtml(routeRequests)}</td>
+            <td>${escapeHtml(row.averageDurationMs == null ? "—" : formatDurationMs(row.averageDurationMs))}</td>
+            <td>${escapeHtml(row.p50DurationMs == null ? "—" : formatDurationMs(row.p50DurationMs))}</td>
+            <td><strong>${escapeHtml(row.p95DurationMs == null ? "—" : formatDurationMs(row.p95DurationMs))}</strong></td>
+            <td>${escapeHtml(row.p99DurationMs == null ? "—" : formatDurationMs(row.p99DurationMs))}</td>
+            <td>${escapeHtml(row.clientErrors || 0)}</td>
+            <td>${escapeHtml(routeServerErrors)}</td>
+            <td>${escapeHtml(routeSlow)}</td>
+            <td>${escapeHtml(formatDurationMs(routeThresholdMs))}</td>
+            <td><span class="pill ${statusClass}">${status}</span></td>
+          </tr>`;
+      }).join("") || rowEmpty(11, "统计窗口内暂无请求");
+    }
+
+    function renderResources(data) {
+      const rows = Array.isArray(data.resources) ? data.resources : [];
+      const limitRows = Array.isArray(data.limitEvents24h) ? data.limitEvents24h : [];
+      const labels = { llm: "LLM", stt: "STT", tts: "TTS", embedding: "Embedding", image_upload: "图片上传" };
+      const scopeLabels = {
+        user_rate: "单用户频率",
+        global_rate: "全局频率",
+        user_concurrency: "单用户并发",
+        global_concurrency: "全局并发",
+        user_quota: "用户额度",
+        unknown: "未知",
+      };
+      const evaluated = rows.map((row) => {
+        const rpmRatio = Number(row.requestLimit) > 0 ? Number(row.requestsLastMinute) / Number(row.requestLimit) : 0;
+        const concurrencyRatio = Number(row.concurrencyLimit) > 0 ? Number(row.currentConcurrency) / Number(row.concurrencyLimit) : 0;
+        const peakRatio = Number(row.concurrencyLimit) > 0 ? Number(row.peakConcurrencyLastMinute) / Number(row.concurrencyLimit) : 0;
+        const ratio = Math.max(rpmRatio, concurrencyRatio, peakRatio);
+        const status = Number(row.limitedLastMinute) > 0 || ratio >= 0.9 ? "告警" : ratio >= 0.7 ? "提醒" : "正常";
+        return { ...row, rpmRatio, concurrencyRatio, ratio, status };
+      });
+      const warningCount = evaluated.filter((row) => row.status !== "正常").length;
+      const limitedCount = evaluated.reduce((sum, row) => sum + Number(row.limitedLastMinute || 0), 0);
+      const limited24h = limitRows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+      $("resourceMeta").textContent = `${data.redisShared ? "Redis 跨实例统计" : "单实例内存统计"} · 最近 ${data.windowMinutes || 1} 分钟 · 刷新于 ${fmtDate(data.generatedAt)}`;
+      $("resourceAlerts").innerHTML = [
+        ["资源池", evaluated.length, "LLM / STT / TTS / Embedding"],
+        ["需要关注", warningCount, warningCount ? "达到阈值或发生限流" : "当前负载正常"],
+        ["窗口限流", limitedCount, `最近 ${data.windowMinutes || 1} 分钟`],
+        ["24 小时限流", limited24h, "含图片上传与额度"],
+        ["统计方式", data.redisShared ? "跨实例" : "单实例", data.redisShared ? "所有服务共享" : "仅当前进程"],
+      ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+      $("resourceTbody").innerHTML = evaluated.map((row) => {
+        const statusClass = row.status === "告警" ? "status-fail" : row.status === "提醒" ? "status-warn" : "status-pass";
+        return `<tr>
+            <td><strong>${escapeHtml(labels[row.resource] || row.resource)}</strong></td>
+            <td>${escapeHtml(row.requestsLastMinute)} / ${escapeHtml(row.requestLimit)} <span class="muted">(${Math.round(row.rpmRatio * 100)}%)</span></td>
+            <td>${escapeHtml(row.currentConcurrency)} / ${escapeHtml(row.concurrencyLimit)} <span class="muted">(${Math.round(row.concurrencyRatio * 100)}%)</span></td>
+            <td>${escapeHtml(row.peakConcurrencyLastMinute)} / ${escapeHtml(row.concurrencyLimit)}</td>
+            <td>${row.averageDurationMs == null ? "—" : escapeHtml(formatDurationMs(row.averageDurationMs))}</td>
+            <td>${escapeHtml(row.succeededLastMinute)} / ${escapeHtml(row.failedLastMinute)}</td>
+            <td>${escapeHtml(row.limitedLastMinute)}</td>
+            <td><span class="pill ${statusClass}">${escapeHtml(row.status)}</span></td>
+          </tr>`;
+      }).join("") || rowEmpty(8, "暂无资源数据");
+      $("resourceLimitTbody").innerHTML = limitRows.map((row) => `<tr>
+          <td><strong>${escapeHtml(labels[row.resource] || row.resource)}</strong></td>
+          <td>${escapeHtml(row.event === "resource.quota_exceeded" ? "额度耗尽" : "限流")}</td>
+          <td>${escapeHtml(scopeLabels[row.scope] || row.scope)}</td>
+          <td>${escapeHtml(row.count)}</td>
+          <td>${escapeHtml(fmtDate(row.lastOccurredAt))}</td>
+        </tr>`).join("") || rowEmpty(5, "近 24 小时没有限流记录");
+    }
+
+    function renderTtsStreaming(streaming) {
+      const enabled = streaming?.enabled === true;
+      if (!enabled) {
+        $("ttsStreamingMeta").textContent = "流式 TTS 未启用；启用后这里会显示队列与 Worker 的实时状态。";
+        $("ttsStreamingMetrics").innerHTML = [["运行状态", "未启用", "TTS_STREAMING_ENABLED=false"]]
+          .map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+        return;
+      }
+      if (streaming.unavailable) {
+        $("ttsStreamingMeta").textContent = "流式 TTS 已启用，但 Redis 队列指标暂时不可读取。";
+        $("ttsStreamingMetrics").innerHTML = `<div class="metric"><span>运行状态</span><strong>指标不可用</strong><small>检查 Redis 连接；业务请求不会因监控读取失败而中断</small></div>`;
+        return;
+      }
+      const queued = Number(streaming.queued || 0);
+      const running = Number(streaming.running || 0);
+      const workers = Number(streaming.onlineWorkers || 0);
+      const succeeded = Number(streaming.succeeded || 0);
+      const failed = Number(streaming.failed || 0);
+      const completed = succeeded + failed;
+      const failureRate = completed ? failed / completed : 0;
+      const oldestAge = streaming.oldestRunningAgeMs == null ? null : Number(streaming.oldestRunningAgeMs);
+      const health = workers === 0
+        ? "无 Worker"
+        : oldestAge != null && oldestAge >= 120000
+          ? "任务阻塞"
+          : queued > workers * 4 || failureRate >= 0.1
+            ? "需要关注"
+            : "正常";
+      $("ttsStreamingMeta").textContent = `Redis 队列实时状态 · 近 ${streaming.windowMinutes || 1} 分钟聚合 · Worker 30 秒无心跳视为离线`;
+      $("ttsStreamingMetrics").innerHTML = [
+        ["整体状态", health, workers ? `${workers} 个 Worker 在线` : "请确认 tts 或 all Worker 组已启动"],
+        ["等待 / 处理中", `${queued} / ${running}`, oldestAge == null ? "当前无处理中任务" : `最老任务已运行 ${formatDuration(oldestAge / 1000)}`],
+        ["创建 / 复用", `${Number(streaming.created || 0)} / ${Number(streaming.reused || 0)}`, `近 ${streaming.windowMinutes || 1} 分钟`],
+        ["成功 / 失败", `${succeeded} / ${failed}`, completed ? `失败率 ${(failureRate * 100).toFixed(1)}%` : "窗口内暂无完成任务"],
+        ["平均排队", streaming.averageQueueWaitMs == null ? "—" : formatDurationMs(streaming.averageQueueWaitMs), "创建到 Worker 接单"],
+        ["平均首包", streaming.averageFirstChunkMs == null ? "—" : formatDurationMs(streaming.averageFirstChunkMs), "Worker 接单到首段音频"],
+        ["平均生成", streaming.averageDurationMs == null ? "—" : formatDurationMs(streaming.averageDurationMs), "Worker 完整生成耗时"],
+        ["已接单", Number(streaming.started || 0), "包含成功、失败及仍在运行"],
+      ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+    }
+
+    function renderDatabaseMetrics(database) {
+      const summary = database?.summary || {};
+      const rows = Array.isArray(database?.operations) ? database.operations : [];
+      const queries = Number(summary.queries || 0);
+      const errors = Number(summary.errors || 0);
+      const slowQueries = Number(summary.slowQueries || 0);
+      const errorRate = queries ? errors / queries : 0;
+      const slowRate = queries ? slowQueries / queries : 0;
+      const overallStatus = errors >= 5 && errorRate >= 0.01
+        ? "大面积异常"
+        : errors > 0 || slowRate >= 0.05
+          ? "需要关注"
+          : "正常";
+      $("databaseMetricsMeta").textContent = database
+        ? `${database.redisShared ? "API 与 Worker 跨实例统计" : "当前 API 进程统计"} · 近 ${database.windowMinutes} 分钟 · 慢查询阈值 ${database.slowThresholdMs}ms`
+        : "数据库指标尚不可用";
+      $("databaseMetrics").innerHTML = [
+        ["查询量", queries, `近 ${database?.windowMinutes || 0} 分钟`],
+        ["平均耗时", summary.averageDurationMs == null ? "—" : formatDurationMs(summary.averageDurationMs), "database query duration"],
+        ["p95 / p99", `${summary.p95DurationMs ?? "—"} / ${summary.p99DurationMs ?? "—"} ms`, "长尾查询"],
+        ["慢查询", slowQueries, `${(slowRate * 100).toFixed(2)}%`],
+        ["数据库错误", errors, `${(errorRate * 100).toFixed(2)}%`],
+        ["整体状态", overallStatus, overallStatus === "大面积异常" ? "错误数和错误率同时越线" : "仅大面积异常标红"],
+      ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+      $("databaseMetricsTbody").innerHTML = rows.map((row) => {
+        const rowSlowRate = Number(row.queries) ? Number(row.slowQueries || 0) / Number(row.queries) : 0;
+        const status = rowSlowRate >= 0.1 || Number(row.p95DurationMs || 0) >= Number(database.slowThresholdMs || 250) * 2
+          ? "较慢"
+          : rowSlowRate > 0
+            ? "偶发慢"
+            : "正常";
+        const statusClass = status === "较慢" ? "status-warn" : "status-pass";
+        return `<tr>
+            <td><span class="pill">${escapeHtml(row.operation)}</span></td>
+            <td class="mono">${escapeHtml(row.tables?.join(", ") || "—")}</td>
+            <td>${escapeHtml(row.queries || 0)}</td>
+            <td>${row.averageDurationMs == null ? "—" : escapeHtml(formatDurationMs(row.averageDurationMs))}</td>
+            <td>${row.p50DurationMs == null ? "—" : escapeHtml(formatDurationMs(row.p50DurationMs))}</td>
+            <td><strong>${row.p95DurationMs == null ? "—" : escapeHtml(formatDurationMs(row.p95DurationMs))}</strong></td>
+            <td>${row.p99DurationMs == null ? "—" : escapeHtml(formatDurationMs(row.p99DurationMs))}</td>
+            <td>${escapeHtml(row.slowQueries || 0)}</td>
+            <td><span class="pill ${statusClass}">${escapeHtml(status)}</span></td>
+          </tr>`;
+      }).join("") || rowEmpty(9, "统计窗口内暂无数据库查询");
+    }
+
+    function renderMaintenanceWorkers(input) {
+      const rows = Array.isArray(input) ? input : [];
+      const healthy = rows.filter((row) => row.health === "healthy").length;
+      const failed = rows.filter((row) => row.health === "failed").length;
+      const stale = rows.filter((row) => row.health === "stale").length;
+      const unknown = rows.filter((row) => row.health === "unknown").length;
+      const disabled = rows.filter((row) => row.health === "disabled").length;
+      const degraded = rows.filter((row) => row.health === "degraded").length;
+      const lastRunAt = rows.map((row) => row.lastRunAt).filter(Boolean).sort().at(-1) || null;
+      $("maintenanceWorkerMeta").textContent = lastRunAt
+        ? `最近上报 ${fmtDate(lastRunAt)} · 超过两个执行周期未上报将标记为过期`
+        : "尚未找到维护 Worker 运行记录，请确认 maintenance 或 all Worker 组已启动。";
+      $("maintenanceWorkerMetrics").innerHTML = [
+        ["维护任务", rows.length, "已纳入监控的清理任务"],
+        ["正常", healthy, "按计划持续上报"],
+        ["失败", failed, failed ? "最近一轮执行失败" : "最近一轮无失败"],
+        ["部分失败", degraded, degraded ? "部分对象清理失败" : "无部分失败"],
+        ["过期", stale, stale ? "超过两个执行周期" : "无过期任务"],
+        ["未见记录", unknown, unknown ? "检查 Worker 部署或配置" : "全部已有运行记录"],
+        ["已禁用", disabled, disabled ? "由服务器配置关闭" : "无禁用任务"],
+      ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+      const healthLabels = { healthy: "正常", degraded: "部分失败", failed: "失败", stale: "过期", unknown: "未见记录", disabled: "已禁用" };
+      const roundLabels = {
+        success: "成功",
+        success_empty: "成功，无数据",
+        success_partial: "部分成功",
+        failed: "失败",
+        skipped_disabled: "已禁用",
+        skipped_circuit_open: "熔断跳过",
+        skipped_lock_miss: "其他实例执行",
+        unknown: "未知",
+      };
+      $("maintenanceWorkerTbody").innerHTML = rows.map((row) => {
+        const statusClass = row.health === "failed" ? "status-fail" : row.health === "degraded" || row.health === "stale" || row.health === "unknown" || row.health === "disabled" ? "status-warn" : "status-pass";
+        const error = row.errorMessage || row.errorCode || (row.circuitOpenUntil ? `熔断至 ${fmtDate(row.circuitOpenUntil)}` : row.failedRows ? `${row.failedRows} 个对象失败` : "");
+        return `<tr>
+            <td><strong>${escapeHtml(row.label)}</strong><br><span class="mono muted">${escapeHtml(row.key)}</span></td>
+            <td><span class="pill ${statusClass}">${escapeHtml(healthLabels[row.health] || row.health)}</span></td>
+            <td>${escapeHtml(roundLabels[row.roundStatus] || row.roundStatus)}</td>
+            <td>${row.lastRunAt ? `${escapeHtml(fmtDate(row.lastRunAt))}<br><span class="muted">${escapeHtml(formatDuration(row.ageMs / 1000))}前</span>` : "—"}</td>
+            <td>${row.lastRunAt ? escapeHtml(formatDurationMs(row.durationMs)) : "—"}</td>
+            <td>${escapeHtml(row.deletedRows || 0)}${row.batchCount ? ` <span class="muted">/ ${escapeHtml(row.batchCount)} 批</span>` : ""}</td>
+            <td>${escapeHtml(row.consecutiveFailures || 0)}</td>
+            <td>${escapeHtml(error || "—")}</td>
+          </tr>`;
+      }).join("") || rowEmpty(8, "暂无维护 Worker 数据");
+    }
+
+    function toggleResourceAutoRefresh() {
+      if (state.resourceTimer) {
+        clearInterval(state.resourceTimer);
+        state.resourceTimer = null;
+        $("btnToggleResourceAutoRefresh").textContent = "开启 15 秒刷新";
+        return;
+      }
+      state.resourceTimer = setInterval(() => {
+        if ($("panel-resources").classList.contains("active") && $("token").value.trim()) void loadResources().catch(() => undefined);
+      }, 15_000);
+      $("btnToggleResourceAutoRefresh").textContent = "关闭自动刷新";
+    }
+
+    function renderCardOperations(data) {
+      const card = data.card || {};
+      const redis = data.redis || {};
+      const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+      const failedJobs = Array.isArray(data.failedJobs) ? data.failedJobs : [];
+      const rateLimitRejections = Array.isArray(redis.rateLimitRejections) ? redis.rateLimitRejections : [];
+      $("cardOpsMeta").textContent = data.generatedAt
+        ? `统计窗口 ${fmtDate(data.window?.from)} 至 ${fmtDate(data.window?.to)} · 刷新于 ${fmtDate(data.generatedAt)}`
+        : "未加载";
+      const metrics = [
+        ["Card 总量", card.total, "未删除"],
+        ["Rewrite 排队", card.queuedNow, `最老 ${formatDuration(card.oldestQueuedWaitSeconds)}`],
+        ["Rewrite 处理中", card.processingNow, "当前"],
+        ["24h 完成", card.completed24h, "completed"],
+        ["24h 失败", card.failed24h, "failed"],
+        ["完成 p50", formatDurationMs(card.completionP50Ms), "创建到发布"],
+        ["完成 p95", formatDurationMs(card.completionP95Ms), "创建到发布"],
+        ["Job Ready", jobs.reduce((sum, row) => sum + Number(row.readyQueued || 0), 0), "可立即领取"],
+        ["Job 处理中", jobs.reduce((sum, row) => sum + Number(row.processing || 0), 0), "全部类型"],
+        ["Job 过期 Lease", jobs.reduce((sum, row) => sum + Number(row.expiredLease || 0), 0), "应为 0"],
+        ["24h Job 失败", jobs.reduce((sum, row) => sum + Number(row.failed24h || 0), 0), "全部类型"],
+        ["24h 限流拒绝", rateLimitRejections.reduce((sum, row) => sum + Number(row.count || 0), 0), "滚动窗口"],
+        ["Redis", redis.available ? "正常" : "不可用", redis.error || "共享并发槽"],
+      ];
+      $("cardOpsMetrics").innerHTML = metrics.map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+      $("cardJobTbody").innerHTML = jobs.map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.jobType)}</td>
+            <td>${escapeHtml(row.readyQueued)}</td>
+            <td>${escapeHtml(row.processing)}</td>
+            <td>${escapeHtml(row.scheduledRetry)}</td>
+            <td>${escapeHtml(row.expiredLease)}</td>
+            <td>${escapeHtml(formatDuration(row.oldestReadyWaitSeconds))}</td>
+            <td>${escapeHtml(row.completed24h)}</td>
+            <td>${escapeHtml(row.failed24h)}</td>
+          </tr>
+        `).join("") || rowEmpty(8);
+      $("cardRedisMeta").textContent = redis.available
+        ? "Redis 正常；活跃 slot 只统计尚未过期的租约。"
+        : `Redis 不可用：${redis.error || "未知错误"}`;
+      $("cardSlotsTbody").innerHTML = (redis.slots || []).map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.scope)}</td>
+            <td>${escapeHtml(row.active)}</td>
+            <td>${escapeHtml(row.limit)}</td>
+            <td>${escapeHtml(`${row.utilization}%`)}</td>
+          </tr>
+        `).join("") || rowEmpty(4, redis.available ? "暂无活跃槽" : "Redis 不可用");
+      $("cardRateLimitTbody").innerHTML = rateLimitRejections.map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.scope)}</td>
+            <td>${escapeHtml(row.count)}</td>
+            <td>${escapeHtml(row.ttlSeconds == null ? "" : formatDuration(row.ttlSeconds))}</td>
+          </tr>
+        `).join("") || rowEmpty(3, redis.available ? "当前窗口没有限流拒绝" : "Redis 不可用");
+      $("cardOpsConfigJson").textContent = JSON.stringify(data.config || {}, null, 2);
+      $("cardFailedJobsTbody").innerHTML = failedJobs.map((row) => `
+          <tr>
+            <td>${escapeHtml(fmtDate(row.failedAt))}</td>
+            <td class="mono">${escapeHtml(row.jobType)}</td>
+            <td class="mono">${escapeHtml(`${row.sourceKind}:${row.sourceId}`)}</td>
+            <td>${escapeHtml(row.attempts)}</td>
+            <td>${escapeHtml(row.lastError || "")}</td>
+          </tr>
+        `).join("") || rowEmpty(5);
+    }
+
+    function toggleCardOperationsAutoRefresh() {
+      if (state.cardOperationsTimer) {
+        clearInterval(state.cardOperationsTimer);
+        state.cardOperationsTimer = null;
+        $("btnToggleCardAutoRefresh").textContent = "开启 30 秒刷新";
+        setStatus("已关闭 Card 运行状态自动刷新");
+        return;
+      }
+      state.cardOperationsTimer = setInterval(() => {
+        if ($("panel-cardops").classList.contains("active") && $("token").value.trim()) {
+          void loadCardOperations().catch((error) => setStatus(`Card 自动刷新失败：${error instanceof Error ? error.message : String(error)}`));
+        }
+      }, 30_000);
+      $("btnToggleCardAutoRefresh").textContent = "关闭自动刷新";
+      setStatus("已开启 Card 运行状态 30 秒刷新");
+    }
+
+    function formatDuration(seconds) {
+      const value = Number(seconds || 0);
+      if (!Number.isFinite(value) || value <= 0) return "0 秒";
+      if (value < 60) return `${Math.round(value)} 秒`;
+      if (value < 3600) return `${Math.floor(value / 60)} 分 ${Math.round(value % 60)} 秒`;
+      return `${Math.floor(value / 3600)} 小时 ${Math.floor((value % 3600) / 60)} 分`;
+    }
+
+    function formatDurationMs(milliseconds) {
+      const value = Number(milliseconds || 0);
+      if (!Number.isFinite(value) || value <= 0) return "0 秒";
+      return formatDuration(value / 1000);
+    }
+
+    function renderLineChart(targetId, rows, series, options = {}) {
+      const target = $(targetId);
+      if (!target) return;
+      if (!rows.length) {
+        target.innerHTML = '<div class="muted" style="padding:70px 0;text-align:center">暂无趋势数据</div>';
+        return;
+      }
+      const width = 720;
+      const height = 260;
+      const padding = { left: 42, right: 16, top: 18, bottom: 30 };
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const values = rows.flatMap((row) => series.map((item) => Number(item.value(row))).filter(Number.isFinite));
+      const maxValue = Math.max(Number(options.maxValue || 0), ...values, 1);
+      const roundedMax = options.maxValue || Math.ceil(maxValue / Math.max(1, Math.pow(10, Math.floor(Math.log10(maxValue)) - 1))) * Math.max(1, Math.pow(10, Math.floor(Math.log10(maxValue)) - 1));
+      const x = (index) => padding.left + (rows.length === 1 ? plotWidth / 2 : index * plotWidth / (rows.length - 1));
+      const y = (value) => padding.top + plotHeight - Math.max(0, Number(value || 0)) / roundedMax * plotHeight;
+      const grid = [0, .25, .5, .75, 1].map((ratio) => {
+        const gridY = padding.top + plotHeight * (1 - ratio);
+        const label = options.percent ? `${Math.round(roundedMax * ratio)}%` : Math.round(roundedMax * ratio);
+        return `<line class="chart-axis" x1="${padding.left}" y1="${gridY}" x2="${width - padding.right}" y2="${gridY}"/><text class="chart-label" x="${padding.left - 7}" y="${gridY + 3}" text-anchor="end">${label}</text>`;
+      }).join("");
+      const lines = series.map((item) => {
+        const points = rows.map((row, index) => {
+          const value = Number(item.value(row));
+          return Number.isFinite(value) ? `${x(index)},${y(value)}` : null;
+        }).filter(Boolean).join(" ");
+        return points ? `<polyline points="${points}" fill="none" stroke="${item.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : "";
+      }).join("");
+      const labelIndexes = [...new Set([0, Math.floor((rows.length - 1) / 2), rows.length - 1])];
+      const labels = labelIndexes.map((index) => `<text class="chart-label" x="${x(index)}" y="${height - 8}" text-anchor="middle">${escapeHtml(String(rows[index].dateKey || "").slice(5))}</text>`).join("");
+      target.innerHTML = `<svg class="line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="趋势折线图">${grid}${lines}${labels}</svg>`;
+    }
+
+    function renderLegend(targetId, series) {
+      $(targetId).innerHTML = series.map((item) => `<span class="legend-item"><i class="legend-dot" style="background:${item.color}"></i>${escapeHtml(item.label)}</span>`).join("");
+    }
+
+    function renderProductAnalytics(data) {
+      const rows = Array.isArray(data.productDailyMetrics) ? data.productDailyMetrics : [];
+      const latest = rows.at(-1) || {};
+      const totalNewUsers = rows.reduce((sum, row) => sum + Number(row.newUsers || 0), 0);
+      const retention = latest.newUserD1RetentionRate == null ? "—" : `${Number(latest.newUserD1RetentionRate).toFixed(1)}%`;
+      $("productKpis").innerHTML = [
+        ["期间新增用户", totalNewUsers, `${rows.length || 0} 天合计`],
+        ["最新日活跃", latest.activeUsers || 0, latest.dateKey || "—"],
+        ["最新日回访用户", latest.returningUsers || 0, "注册早于当天的活跃用户"],
+        ["最新日流失", latest.churnedUsers || 0, "昨日活跃、今日未活跃"],
+        ["新增用户次留", retention, `${latest.newUserD1RetainedUsers || 0} / ${latest.previousNewUsers || 0} 人`],
+      ].map(([label, value, hint]) => `<div class="product-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+
+      const growthSeries = [
+        { label: "活跃用户", color: "#2563eb", value: (row) => row.activeUsers },
+        { label: "新增用户", color: "#12b76a", value: (row) => row.newUsers },
+        { label: "回访用户", color: "#7f56d9", value: (row) => row.returningUsers },
+        { label: "流失用户", color: "#f04438", value: (row) => row.churnedUsers },
+      ];
+      renderLegend("growthLegend", growthSeries);
+      renderLineChart("growthChart", rows, growthSeries);
+      renderLineChart("retentionChart", rows, [
+        { label: "新增用户次留", color: "#f79009", value: (row) => row.newUserD1RetentionRate },
+      ], { maxValue: 100, percent: true });
+
+      const featureDefinitions = [
+        { key: "card", label: "创建卡片", color: "#2563eb" },
+        { key: "practice", label: "练习", color: "#7f56d9" },
+        { key: "recall", label: "回忆", color: "#f79009" },
+        { key: "assistant", label: "AI 助手", color: "#12b76a" },
+        { key: "tts", label: "语音播放", color: "#06aed4" },
+        { key: "dictionary", label: "查词", color: "#ee46bc" },
+        { key: "image", label: "图片", color: "#6172f3" },
+      ];
+      const featureSeries = featureDefinitions.map((item) => ({
+        ...item,
+        value: (row) => row.features?.[item.key]?.users || 0,
+      }));
+      renderLegend("featureLegend", featureSeries);
+      renderLineChart("featureChart", rows, featureSeries);
+      const featureTotals = featureDefinitions.map((item) => ({
+        ...item,
+        users: rows.reduce((sum, row) => sum + Number(row.features?.[item.key]?.users || 0), 0),
+        actions: rows.reduce((sum, row) => sum + Number(row.features?.[item.key]?.actions || 0), 0),
+      }));
+      const allFeatureUsers = featureTotals.reduce((sum, item) => sum + item.users, 0);
+      $("featureBars").innerHTML = featureTotals.map((item) => {
+        const ratio = allFeatureUsers ? item.users / allFeatureUsers * 100 : 0;
+        return `<div><div class="feature-row-head"><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.users)} 日活人次 · ${escapeHtml(item.actions)} 条记录</span></div><div class="feature-track"><div class="feature-fill" style="width:${ratio.toFixed(2)}%;background:${item.color}"></div></div></div>`;
+      }).join("") || '<span class="muted">暂无功能使用数据</span>';
+    }
+
+    function renderOverview(data) {
+      const summary = data.summary || {};
+      const ttsCost = data.ttsCost || {};
+      const memberUsers = summary.memberUsers ?? summary.proUsers;
+      const nonMemberUsers = summary.nonMemberUsers ?? summary.nonProUsers;
+      $("overviewClock").textContent = data.clock
+        ? `${data.range?.fromDate || ""} 至 ${data.range?.toDate || ""} · ${data.clock.businessTimeZone} · ${fmtDate(data.clock.serverNowIso)}`
+        : "未加载";
+      renderProductAnalytics(data);
+      const cards = [
+        ["累计有效用户", summary.totalUsers, `${nonMemberUsers ?? 0} 位非会员`],
+        ["当前付费会员", memberUsers, `Plus ${summary.plusUsers ?? 0} · Pro ${summary.proUsers ?? 0}`],
+        ["会员转化率", percent(memberUsers, summary.totalUsers), "当前有效会员 ÷ 有效用户"],
+        ["期间 TTS 成本", ttsCost.estimatedCost || "USD 0.00", `${ttsCost.generatedRequests ?? 0} 次真实新生成`],
+      ];
+      $("metrics").innerHTML = cards.map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+      $("usageTbody").innerHTML = (data.recentUsage || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.dateKey)}</td>
+            <td>${escapeHtml(row.users)}</td>
+            <td>${escapeHtml(row.avgUsedChars)}</td>
+            <td>${escapeHtml(row.totalUsedChars)}</td>
+            <td>${escapeHtml(row.quotaFullUsers)}</td>
+            <td>${escapeHtml(row.proQuotaFullUsers)}</td>
+            <td>${escapeHtml(row.freeQuotaFullUsers)}</td>
+          </tr>
+        `).join("") || rowEmpty(7);
+      $("autoRenewSummaryTbody").innerHTML = (data.autoRenewSummary || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.provider)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.count)}</td>
+          </tr>
+        `).join("") || rowEmpty(3);
+      $("dailyActivityTbody").innerHTML = (data.dailyUserActivity || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.dateKey)}</td>
+            <td>${escapeHtml(row.totalUsers)}</td>
+            <td>${escapeHtml(row.activeUsers)}</td>
+            <td>${escapeHtml(row.cardCreatingUsers)}</td>
+            <td>${escapeHtml(row.cardsCreated)}</td>
+            <td>${escapeHtml(row.practiceUsers)}</td>
+            <td>${escapeHtml(row.recallUsers)}</td>
+            <td>${escapeHtml(row.assistantUsers)}</td>
+            <td>${escapeHtml(row.memberUsers ?? row.proUsers)}</td>
+            <td>${escapeHtml(row.plusUsers ?? 0)}</td>
+            <td>${escapeHtml(row.proUsers)}</td>
+            <td>${escapeHtml(percent(row.memberUsers ?? row.proUsers, row.totalUsers))}</td>
+          </tr>
+        `).join("") || rowEmpty(12);
+      $("ttsCostTbody").innerHTML = (data.dailyTtsUsage || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.dateKey)}</td>
+            <td>${escapeHtml(row.totalRequests)}</td>
+            <td>${escapeHtml(row.successRequests)}</td>
+            <td>${escapeHtml(row.failedRequests)}</td>
+            <td>${escapeHtml(row.generatedRequests)}</td>
+            <td>${escapeHtml(row.generatedChars)}</td>
+            <td>${escapeHtml(row.estimatedCost)}</td>
+            <td>${escapeHtml(row.cacheHitRequests)}</td>
+            <td>${escapeHtml(row.dedupedRequests)}</td>
+          </tr>
+        `).join("") || rowEmpty(9);
+    }
+
+    function percent(part, total) {
+      const p = Number(part || 0);
+      const t = Number(total || 0);
+      if (!t) return "0%";
+      return `${((p / t) * 100).toFixed(1)}%`;
+    }
+
+    async function searchUsers() {
+      const q = $("userSearch").value.trim();
+      setStatus("正在搜索用户...");
+      const qs = new URLSearchParams();
+      if (q) qs.set("q", q);
+      const res = await request(`/admin/users?${qs.toString()}`);
+      const users = Array.isArray(res.data) ? res.data : [];
+      $("usersTbody").innerHTML = users.map((user) => `
+          <tr>
+            <td class="mono">${escapeHtml(user.id)}</td>
+            <td>${escapeHtml(user.nickname)}</td>
+            <td>${escapeHtml(user.email)}</td>
+            <td>${escapeHtml(user.phone)}</td>
+            <td>${statusPill(user.status)}</td>
+            <td>${escapeHtml(user.role)}</td>
+            <td>${escapeHtml(fmtDate(user.createdAt))}</td>
+            <td><button class="btn secondary" data-user-id="${escapeHtml(user.id)}">诊断</button></td>
+          </tr>
+        `).join("") || rowEmpty(8);
+      setStatus(`搜索完成：${users.length} 个用户`);
+    }
+
+    const membershipLabels = {
+      plus: "Plus",
+      pro: "Pro",
+      expired: "已过期",
+      cancelled: "已取消",
+      non_member: "非会员",
+    };
+
+    function buildContactUsersQuery(page) {
+      const qs = new URLSearchParams({
+        page: String(page),
+        membership: $("contactMembership").value,
+        email: $("contactEmail").value,
+        autoRenew: $("contactAutoRenew").value,
+      });
+      const q = $("contactSearch").value.trim();
+      if (q) qs.set("q", q);
+      return qs;
+    }
+
+    async function loadContactUsers(options = {}) {
+      if (options.resetPage) state.contactUsersPage = 1;
+      setStatus("正在查询用户触达名单...");
+      const qs = buildContactUsersQuery(state.contactUsersPage);
+      const res = await request(`/admin/contact-users?${qs.toString()}`);
+      const users = Array.isArray(res.data) ? res.data : [];
+      const pagination = res.pagination || {};
+      const summary = res.summary || {};
+      state.contactUsersPage = Number(pagination.page || 1);
+      state.contactUsersTotalPages = Number(pagination.totalPages || 0);
+
+      $("contactMetrics").innerHTML = [
+        ["筛选结果", summary.total ?? 0, "全部匹配用户"],
+        ["有邮箱", summary.withEmail ?? 0, "可用于后续邮件触达"],
+        ["无邮箱", summary.withoutEmail ?? 0, "暂不可邮件触达"],
+        ["当前页", users.length, "每页最多 50 人"],
+      ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+
+      $("contactUsersTbody").innerHTML = users.map((user) => `
+          <tr>
+            <td class="mono">${escapeHtml(user.id)}</td>
+            <td>${escapeHtml(user.nickname || "-")}</td>
+            <td>${escapeHtml(user.email || "-")}</td>
+            <td>${escapeHtml(user.phone || "-")}</td>
+            <td>${statusPill(user.accountStatus)}</td>
+            <td>${escapeHtml(membershipLabels[user.membershipStatus] || user.membershipStatus)}</td>
+            <td>${escapeHtml(user.subscriptionStatus || "-")}</td>
+            <td>${escapeHtml(user.autoRenewProvider || "-")}</td>
+            <td>${escapeHtml(user.autoRenewStatus || "无协议")}</td>
+            <td>${escapeHtml(fmtDate(user.startedAt) || "-")}</td>
+            <td>${escapeHtml(fmtDate(user.expiresAt) || "-")}</td>
+            <td>${escapeHtml(fmtDate(user.createdAt))}</td>
+            <td><button class="btn secondary" data-contact-op="set-email" data-user-id="${escapeHtml(user.id)}" data-user-email="${escapeHtml(user.email || "")}">设置邮箱</button></td>
+          </tr>
+        `).join("") || rowEmpty(13);
+
+      const total = Number(pagination.total || 0);
+      const totalPages = state.contactUsersTotalPages;
+      $("contactPageInfo").textContent = totalPages
+        ? `第 ${state.contactUsersPage} / ${totalPages} 页，共 ${total} 人`
+        : "没有符合条件的用户";
+      $("btnPrevContactUsers").disabled = state.contactUsersPage <= 1;
+      $("btnNextContactUsers").disabled = !totalPages || state.contactUsersPage >= totalPages;
+      setStatus(`用户触达名单已加载：第 ${state.contactUsersPage} 页，${users.length} 人`);
+    }
+
+    function csvCell(value) {
+      let text = value == null ? "" : String(value);
+      if (/^[=+\-@]/.test(text)) text = `'${text}`;
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+
+    function csvDate(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+    }
+
+    async function exportContactUsers() {
+      const button = $("btnExportContactUsers");
+      button.disabled = true;
+      setStatus("正在准备账号信息 CSV...");
+      try {
+        const first = await request(`/admin/contact-users?${buildContactUsersQuery(1).toString()}`);
+        const users = Array.isArray(first.data) ? [...first.data] : [];
+        const totalPages = Number(first.pagination?.totalPages || 0);
+        for (let page = 2; page <= totalPages; page += 1) {
+          setStatus(`正在导出账号信息：${page} / ${totalPages} 页...`);
+          const res = await request(`/admin/contact-users?${buildContactUsersQuery(page).toString()}`);
+          if (Array.isArray(res.data)) users.push(...res.data);
+        }
+
+        const headers = [
+          "用户ID", "昵称", "邮箱", "手机", "账号状态", "角色", "会员状态", "订阅ID",
+          "订阅套餐", "订阅状态", "续费渠道", "自动续费协议", "会员开始时间", "会员到期时间", "注册时间",
+        ];
+        const rows = users.map((user) => [
+          user.id, user.nickname, user.email, user.phone, user.accountStatus, user.role,
+          membershipLabels[user.membershipStatus] || user.membershipStatus,
+          user.subscriptionId, user.plan, user.subscriptionStatus, user.autoRenewProvider,
+          user.autoRenewStatus, csvDate(user.startedAt), csvDate(user.expiresAt), csvDate(user.createdAt),
+        ]);
+        const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+        const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `用户账号信息-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setStatus(`账号信息 CSV 已导出：${users.length} 人`);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function setContactUserEmail(userId, currentEmail) {
+      const input = prompt(currentEmail ? "修改邮箱" : "添加邮箱", currentEmail || "");
+      if (input === null) return;
+      const email = input.trim();
+      if (!email) throw new Error("请输入邮箱");
+      if (currentEmail && email.toLowerCase() !== currentEmail.toLowerCase()) {
+        if (!confirm(`确定将邮箱从 ${currentEmail} 修改为 ${email}？`)) return;
+      }
+      await request(`/admin/users/${encodeURIComponent(userId)}/email`, {
+        method: "PATCH",
+        body: JSON.stringify({ email }),
+      });
+      setStatus(`用户 ${userId} 的邮箱已设置为 ${email.toLowerCase()}`);
+      await loadContactUsers();
+    }
+
+    async function loadDiagnostics(userId = $("userSearch").value.trim()) {
+      if (!userId) throw new Error("请输入 userId");
+      state.activeUserId = userId;
+      setStatus(`正在加载用户 ${userId} 诊断...`);
+      const res = await request(`/admin/users/${encodeURIComponent(userId)}/diagnostics`);
+      state.diagnostics = res.data;
+      renderDiagnostics(res.data);
+      setStatus("用户诊断已加载");
+    }
+
+    function renderDiagnostics(data) {
+      const user = data.user || {};
+      const sub = data.currentSubscription;
+      const autoRenew = data.currentAutoRenew;
+      $("diagnosticsMeta").textContent = user.id ? `当前用户：${user.id}` : "未加载";
+      $("userFacts").innerHTML = [
+        ["用户 ID", user.id],
+        ["昵称", user.nickname || "-"],
+        ["邮箱/手机", `${user.email || "-"} / ${user.phone || "-"}`],
+        ["账号状态", user.status],
+        ["当前 Pro", sub ? `是，到期 ${fmtDate(sub.expiresAt)}` : "否"],
+        ["会员来源", sub ? subscriptionSourceLabel(sub.sourceOrderId, autoRenew?.provider) : "-"],
+        ["自动续费", autoRenew ? `${autoRenew.provider} / ${autoRenew.status}` : "无"],
+      ].map(([label, value]) => `
+          <div class="fact"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+        `).join("");
+      $("userJson").textContent = JSON.stringify({
+        user: data.user,
+        currentSubscription: data.currentSubscription,
+        currentAutoRenew: data.currentAutoRenew,
+      }, null, 2);
+      $("entitlementsTbody").innerHTML = (data.entitlements || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.dateKey)}</td>
+            <td>${escapeHtml(row.usedTotalChars)}</td>
+            <td>${escapeHtml(row.dailyTotalLimit)}</td>
+            <td>${escapeHtml(Number(row.dailyTotalLimit || 0) - Number(row.usedTotalChars || 0))}</td>
+          </tr>
+        `).join("") || rowEmpty(4);
+      $("appleLinksTbody").innerHTML = (data.appleIapAccountLinks || []).map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.appAccountToken)}</td>
+            <td class="mono">${escapeHtml(row.originalTransactionId)}</td>
+            <td class="mono">${escapeHtml(row.latestTransactionId)}</td>
+          </tr>
+        `).join("") || rowEmpty(3);
+      const alipayLink = data.alipayAccountLink;
+      $("alipayLinksTbody").innerHTML = alipayLink ? `
+          <tr>
+            <td class="mono">${escapeHtml(alipayLink.customerId)}</td>
+            <td>${escapeHtml(fmtDate(alipayLink.createdAt))}</td>
+            <td>${escapeHtml(fmtDate(alipayLink.updatedAt))}</td>
+          </tr>
+        ` : rowEmpty(3);
+      const tokenCycles = data.aiTokenCycles || [];
+      const currentTokenCycle = tokenCycles.find((row) => row.id === data.currentAiTokenCycleId) || null;
+      const historicalTokenCycles = tokenCycles.filter((row) => row.id !== data.currentAiTokenCycleId);
+      const tokenCycleRow = (row, current) => {
+        const quota = Number(row.quotaTokens || 0);
+        const used = Number(row.usedTokens || 0);
+        const reserved = Number(row.reservedTokens || 0);
+        const remaining = Math.max(0, quota - used - reserved);
+        const usagePercent = quota > 0 ? `${((used + reserved) * 100 / quota).toFixed(1)}%` : "-";
+        const isFuture = !current && new Date(row.periodStart).getTime() > Date.now();
+        return `
+          <tr>
+            <td><span class="pill ${current ? "status-pass" : isFuture ? "status-warn" : ""}">${current ? "当前扣减" : isFuture ? "未来周期" : "历史"}</span></td>
+            <td>${escapeHtml(`${fmtDate(row.periodStart)} - ${fmtDate(row.periodEnd)}`)}</td>
+            <td>${escapeHtml(row.tier)}</td>
+            <td>${escapeHtml(used)}</td>
+            <td>${escapeHtml(reserved)}</td>
+            <td>${escapeHtml(quota)}</td>
+            <td>${escapeHtml(remaining)}</td>
+            <td>${escapeHtml(usagePercent)}</td>
+            <td>${escapeHtml(row.grantSource)}</td>
+          </tr>
+        `;
+      };
+      $("currentTokenCycleTbody").innerHTML = currentTokenCycle
+        ? tokenCycleRow(currentTokenCycle, true)
+        : rowEmpty(9);
+      $("historicalTokenCyclesTbody").innerHTML = historicalTokenCycles
+        .map((row) => tokenCycleRow(row, false)).join("") || rowEmpty(9);
+      $("historicalTokenCyclesSummary").textContent = `历史额度周期（${historicalTokenCycles.length}）`;
+      $("historicalTokenCycles").style.display = historicalTokenCycles.length ? "block" : "none";
+      $("tokenFeatureUsageTbody").innerHTML = (data.aiTokenFeatureUsage || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.feature)}</td>
+            <td>${escapeHtml(row.requestCount)}</td>
+            <td>${escapeHtml(row.settledCount)}</td>
+            <td>${escapeHtml(row.releasedCount)}</td>
+            <td>${escapeHtml(row.pendingCount)}</td>
+            <td>${escapeHtml(row.inputTokens)}</td>
+            <td>${escapeHtml(row.outputTokens)}</td>
+            <td>${escapeHtml(row.totalTokens)}</td>
+            <td>${escapeHtml(row.maxTokens)}</td>
+            <td>${escapeHtml(fmtDate(row.lastUsedAt))}</td>
+          </tr>
+        `).join("") || rowEmpty(10);
+      $("tokenTransactionsTbody").innerHTML = (data.aiTokenTransactions || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td>${escapeHtml(row.feature)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.inputTokens)}</td>
+            <td>${escapeHtml(row.outputTokens)}</td>
+            <td>${escapeHtml(row.totalTokens)}</td>
+            <td>${escapeHtml(row.reservedTokens)}</td>
+            <td>${escapeHtml(row.meteringSource || "-")}</td>
+            <td>${escapeHtml([row.provider, row.model].filter(Boolean).join(" / ") || "-")}</td>
+            <td class="mono">${escapeHtml(row.requestId)}</td>
+          </tr>
+        `).join("") || rowEmpty(10);
+      renderDiagTables(data);
+    }
+
+    function renderDiagTables(data) {
+      $("diagOrders").innerHTML = tableHtml(["ID", "状态", "金额", "渠道单号", "创建时间"], (data.orders || []).map((row) => [
+        mono(row.id), statusPill(row.status), `${row.amount} ${row.currency}`, mono(row.providerOrderId), fmtDate(row.createdAt),
+      ]));
+      $("diagSubs").innerHTML = tableHtml(["ID", "状态", "来源", "开始", "到期", "sourceOrderId"], (data.subscriptions || []).map((row) => [
+        mono(row.id), statusPill(row.status), subscriptionSourceLabel(row.sourceOrderId), fmtDate(row.startedAt), fmtDate(row.expiresAt), mono(row.sourceOrderId),
+      ]));
+      $("diagAutoRenew").innerHTML = tableHtml(["ID", "渠道", "状态", "agreement", "latest", "周期结束"], (data.autoRenewSubscriptions || []).map((row) => [
+        mono(row.id), paymentProviderLabel(row.provider), statusPill(row.status), mono(row.providerAgreementId), mono(row.latestTransactionId), fmtDate(row.currentPeriodEnd),
+      ]));
+      $("diagAutoRenewCharges").innerHTML = tableHtml(["支付时间", "渠道", "套餐", "状态", "金额", "周期结束", "扣款标识"], (data.autoRenewCharges || []).map((row) => [
+        fmtDate(row.paidAt || row.createdAt), paymentProviderLabel(row.provider), row.productCode, statusPill(row.status), formatPaymentAmount(row.amount, row.currency), fmtDate(row.periodEnd), mono(row.providerChargeId),
+      ]));
+      $("diagPaymentEvents").innerHTML = tableHtml(["时间", "渠道", "事件", "状态", "providerOrderId", "错误"], (data.paymentEvents || []).map((row) => [
+        fmtDate(row.createdAt), row.provider, mono(row.eventType), statusPill(row.status), mono(row.providerOrderId), row.errorMessage || "",
+      ]));
+      $("diagEvents").innerHTML = tableHtml(["时间", "模块", "事件", "状态", "错误"], (data.systemEventLogs || []).map((row) => [
+        fmtDate(row.createdAt), row.module, mono(row.event), statusPill(row.status), row.errorMessage,
+      ]));
+    }
+
+    function mono(value) {
+      return `<span class="mono">${escapeHtml(value)}</span>`;
+    }
+
+    function paymentProviderLabel(provider) {
+      const labels = { alipay: "支付宝", apple: "Apple", google_play: "Google Play", wechat: "微信支付" };
+      return labels[String(provider || "").toLowerCase()] || provider || "-";
+    }
+
+    function subscriptionSourceLabel(sourceOrderId, provider) {
+      const source = String(sourceOrderId || "").toLowerCase();
+      if (source.startsWith("alipay_autorenew:")) return "支付宝自动续费";
+      if (source.startsWith("apple_autorenew:") || source.startsWith("apple_iap:")) return "Apple IAP";
+      if (source.startsWith("google_play_autorenew:") || source.startsWith("google_play_iap:")) return "Google Play";
+      if (source.startsWith("wechat_autorenew:")) return "微信支付自动续费";
+      if (source.startsWith("admin_")) return "后台手动开通";
+      return provider ? paymentProviderLabel(provider) : sourceOrderId || "-";
+    }
+
+    function formatPaymentAmount(amount, currency) {
+      if (amount == null) return "-";
+      const value = Number(amount);
+      if (!Number.isFinite(value)) return `${amount} ${currency || ""}`.trim();
+      return `${(value / 100).toFixed(2)} ${currency || ""}`.trim();
+    }
+
+    function tableHtml(headers, rows) {
+      return `
+          <table>
+            <thead><tr>${headers.map((item) => `<th>${escapeHtml(item)}</th>`).join("")}</tr></thead>
+            <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell ?? ""}</td>`).join("")}</tr>`).join("") || rowEmpty(headers.length)}</tbody>
+          </table>
+        `;
+    }
+
+    async function grantMembership() {
+      const userId = state.activeUserId || $("userSearch").value.trim();
+      if (!userId) throw new Error("请先选择用户");
+      const button = $("btnGrantMembership");
+      if (button.disabled) return;
+      const plan = $("manualGrantPlan").value;
+      const months = Number($("manualGrantMonths").value);
+      if (!Number.isInteger(months) || months < 1 || months > 12) {
+        throw new Error("开通月数必须是 1 到 12 的整数");
+      }
+      const planLabel = plan === "plus_monthly" ? "Plus" : "Pro";
+      const reason = prompt(`手动开通 ${months} 个月 ${planLabel} 的原因（必填）`);
+      if (!reason) return;
+      const requestId = `admin_grant_${crypto.randomUUID()}`;
+      button.disabled = true;
+      try {
+        const res = await request(`/admin/users/${encodeURIComponent(userId)}/grant-membership`, {
+          method: "POST",
+          headers: { "X-Request-Id": requestId },
+          body: JSON.stringify({ reason, months, plan }),
+        });
+        await loadDiagnostics(userId);
+        const startsAt = res.data?.subscription?.startedAt;
+        alert(`已开通 ${months} 个月 ${planLabel}${startsAt ? `，开始时间：${fmtDate(startsAt)}` : ""}`);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function cancelProNextDay() {
+      const userId = state.activeUserId || $("userSearch").value.trim();
+      if (!userId) throw new Error("请先选择用户");
+      const reason = prompt("取消 Pro 的原因（必填，次日 00:00 生效）");
+      if (!reason) return;
+      await request(`/admin/users/${encodeURIComponent(userId)}/cancel-pro-next-day`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+      await loadDiagnostics(userId);
+      alert("已设置为次日 00:00 失效");
+    }
+
+    async function loadOrders() {
+      const qs = new URLSearchParams();
+      if ($("orderStatus").value) qs.set("status", $("orderStatus").value);
+      if ($("orderUserId").value.trim()) qs.set("userId", $("orderUserId").value.trim());
+      const res = await request(`/admin/orders?${qs.toString()}`);
+      state.orders = Array.isArray(res.data) ? res.data : [];
+      $("ordersTbody").innerHTML = state.orders.map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.id)}</td>
+            <td class="mono">${escapeHtml(row.userId)}</td>
+            <td>${escapeHtml(paymentProviderLabel(row.provider))}</td>
+            <td>${escapeHtml(row.recordType === "subscription_initial"
+        ? "订阅首期"
+        : row.recordType === "subscription_renewal"
+          ? "自动续费"
+          : row.recordType === "subscription_payment"
+            ? "订阅扣款"
+            : row.recordType === "one_time_purchase"
+              ? "单次购买"
+              : "支付订单")}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.productCode)}</td>
+            <td>${escapeHtml(row.amount)} ${escapeHtml(row.currency)}</td>
+            <td class="mono">${escapeHtml(row.providerOrderId)}</td>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td class="inline-actions">
+              ${row.canManageOrder !== true ? "-" : `
+                <button class="btn danger" data-order-op="refund" data-order-id="${escapeHtml(row.id)}">退款</button>
+                <button class="btn secondary" data-order-op="close" data-order-id="${escapeHtml(row.id)}">关单</button>
+              `}
+            </td>
+          </tr>
+        `).join("") || rowEmpty(10);
+      setStatus(`订单查询完成：${state.orders.length} 条`);
+    }
+
+    async function loadSubscriptions() {
+      const qs = new URLSearchParams();
+      if ($("subscriptionStatus").value) qs.set("status", $("subscriptionStatus").value);
+      const userId = $("subscriptionUserId").value.trim() || $("orderUserId").value.trim();
+      if (userId) qs.set("userId", userId);
+      const res = await request(`/admin/subscriptions?${qs.toString()}`);
+      state.subscriptions = Array.isArray(res.data) ? res.data : [];
+      $("subscriptionsTbody").innerHTML = state.subscriptions.map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.id)}</td>
+            <td class="mono">${escapeHtml(row.userId)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(subscriptionSourceLabel(row.sourceOrderId))}</td>
+            <td>${escapeHtml(fmtDate(row.startedAt))}</td>
+            <td>${escapeHtml(fmtDate(row.expiresAt))}</td>
+            <td class="mono">${escapeHtml(row.sourceOrderId)}</td>
+          </tr>
+        `).join("") || rowEmpty(7);
+      setStatus(`订阅查询完成：${state.subscriptions.length} 条`);
+    }
+
+    async function runOrderOp(op, id) {
+      if (op === "refund") {
+        const reason = prompt("退款原因（必填，默认次日 00:00 生效）");
+        if (!reason) return;
+        const refundReference = prompt("退款凭证号（可空）") || "";
+        await request(`/admin/orders/${encodeURIComponent(id)}/manual-refund`, {
+          method: "POST",
+          body: JSON.stringify({ reason, refundReference }),
+        });
+        alert("已提交手动退款");
+      }
+      if (op === "close") {
+        const reason = prompt("关单原因（必填）");
+        if (!reason) return;
+        await request(`/admin/orders/${encodeURIComponent(id)}/manual-close`, {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        });
+      }
+      await loadOrders();
+    }
+
+    async function loadLogs() {
+      const qs = new URLSearchParams();
+      qs.set("limit", "100");
+      if ($("logModule").value.trim()) qs.set("module", $("logModule").value.trim());
+      if ($("logEvent").value.trim()) qs.set("event", $("logEvent").value.trim());
+      if ($("logStatus").value.trim()) qs.set("status", $("logStatus").value.trim());
+      const res = await request(`/admin/system-event-logs?${qs.toString()}`);
+      const rows = Array.isArray(res.data) ? res.data : [];
+      $("logsTbody").innerHTML = rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td class="mono">${escapeHtml(row.userId)}</td>
+            <td>${escapeHtml(row.module)}</td>
+            <td class="mono">${escapeHtml(row.event)}</td>
+            <td>${escapeHtml(row.level)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(row.errorCode)}</td>
+            <td>${escapeHtml(row.errorMessage)}</td>
+            <td>${row.metadata && typeof row.metadata === "object" && Object.keys(row.metadata).length
+          ? `<details><summary>查看</summary><pre class="mono" style="margin:8px 0 0;white-space:pre-wrap;word-break:break-all">${escapeHtml(JSON.stringify(row.metadata, null, 2))}</pre></details>`
+          : "-"}</td>
+          </tr>
+        `).join("") || rowEmpty(9);
+      setStatus(`系统日志：${rows.length} 条`);
+    }
+
+    let contentSafetyPageIndex = 0;
+    let contentSafetyPageCursors = [null];
+    let contentSafetyNextCursor = null;
+
+    async function loadContentSafetyLogs(options = {}) {
+      if (options.reset) {
+        contentSafetyPageIndex = 0;
+        contentSafetyPageCursors = [null];
+        contentSafetyNextCursor = null;
+      }
+      const cursor = contentSafetyPageCursors[contentSafetyPageIndex];
+      const qs = new URLSearchParams();
+      qs.set("limit", $("contentSafetyLimit").value || "100");
+      qs.set("module", "content_safety");
+      qs.set("event", "content_safety.blocked");
+      qs.set("status", "failed");
+      if (cursor?.createdAt && cursor?.id) {
+        qs.set("cursorCreatedAt", cursor.createdAt);
+        qs.set("cursorId", cursor.id);
+      }
+      const res = await request(`/admin/system-event-logs?${qs.toString()}`);
+      const rows = Array.isArray(res.data) ? res.data : [];
+      contentSafetyNextCursor = res.pagination?.nextCursor || null;
+      $("contentSafetyTbody").innerHTML = rows.map((row) => {
+        const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+        const vendorKeywords = Array.isArray(metadata.vendorKeywords)
+          ? metadata.vendorKeywords.join(", ")
+          : metadata.vendorKeywords || "-";
+        return `
+            <tr>
+              <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+              <td class="mono">${escapeHtml(row.userId)}</td>
+              <td>${escapeHtml(metadata.stage)}</td>
+              <td>${escapeHtml(metadata.category)}</td>
+              <td class="mono">${escapeHtml(metadata.ruleId)}</td>
+              <td class="mono">${escapeHtml(metadata.matchedTerm || "-")}</td>
+              <td>${escapeHtml(metadata.vendor || "local")}</td>
+              <td>${escapeHtml(metadata.vendorSuggestion || "-")}</td>
+              <td>${escapeHtml(metadata.vendorLabel || "-")}${metadata.vendorSubLabel ? ` / ${escapeHtml(metadata.vendorSubLabel)}` : ""}</td>
+              <td>${escapeHtml(metadata.vendorScore ?? "-")}</td>
+              <td class="mono">${escapeHtml(vendorKeywords)}</td>
+              <td class="mono">${escapeHtml(metadata.path)}</td>
+              <td class="mono">${escapeHtml(metadata.textHash)}</td>
+              <td>${escapeHtml(metadata.textLength)}</td>
+            </tr>
+          `;
+      }).join("") || rowEmpty(14);
+      $("btnPrevContentSafetyLogs").disabled = contentSafetyPageIndex <= 0;
+      $("btnNextContentSafetyLogs").disabled = !contentSafetyNextCursor;
+      setStatus(`内容安全拦截：第 ${contentSafetyPageIndex + 1} 页，${rows.length} 条${contentSafetyNextCursor ? "，还有下一页" : ""}`);
+    }
+
+    async function loadNextContentSafetyLogs() {
+      if (!contentSafetyNextCursor) return;
+      contentSafetyPageCursors[contentSafetyPageIndex + 1] = contentSafetyNextCursor;
+      contentSafetyPageIndex += 1;
+      await loadContentSafetyLogs();
+    }
+
+    async function loadPrevContentSafetyLogs() {
+      if (contentSafetyPageIndex <= 0) return;
+      contentSafetyPageIndex -= 1;
+      await loadContentSafetyLogs();
+    }
+
+    function fillContentSafetyFilter() {
+      $("logModule").value = "content_safety";
+      $("logEvent").value = "content_safety.blocked";
+      $("logStatus").value = "failed";
+      setTab("logs");
+      setEventSubtab("eventGeneral");
+      setStatus("已填入内容安全日志筛选条件");
+    }
+
+    async function loadDictionaryLogs() {
+      const qs = new URLSearchParams();
+      qs.set("limit", "100");
+      qs.set("module", "dictionary");
+      qs.set("event", "dictionary.lookup");
+      if ($("dictionaryLogStatus").value.trim()) qs.set("status", $("dictionaryLogStatus").value.trim());
+      const res = await request(`/admin/system-event-logs?${qs.toString()}`);
+      const rows = Array.isArray(res.data) ? res.data : [];
+      renderDictionaryLogs(rows);
+      setStatus(`智能词典调用：${rows.length} 条`);
+    }
+
+    function renderDictionaryLogs(rows) {
+      const summary = rows.reduce((acc, row) => {
+        const meta = row.metadata || {};
+        acc.total += 1;
+        if (row.status === "success") acc.success += 1;
+        if (row.status === "failed") acc.failed += 1;
+        acc.inputChars += Number(meta.inputChars || 0);
+        acc.outputChars += Number(meta.outputChars || 0);
+        acc.durationMs += Number(meta.durationMs || 0);
+        return acc;
+      }, { total: 0, success: 0, failed: 0, inputChars: 0, outputChars: 0, durationMs: 0 });
+      const avgDuration = summary.total ? Math.round(summary.durationMs / summary.total) : 0;
+      $("dictionaryMetrics").innerHTML = [
+        ["查询数", summary.total, "latest 100"],
+        ["成功 / 失败", `${summary.success} / ${summary.failed}`, "system status"],
+        ["输入字符", summary.inputChars, "context + term"],
+        ["输出字符", summary.outputChars, "model output"],
+        ["平均耗时", `${avgDuration} ms`, "server duration"],
+      ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+      $("dictionaryLogsTbody").innerHTML = rows.map((row) => {
+        const meta = row.metadata || {};
+        const language = `${meta.targetLanguage || "-"} / ${meta.uiLanguage || "-"}`;
+        const message = meta.messageId || row.requestId || "";
+        return `
+            <tr>
+              <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+              <td class="mono">${escapeHtml(row.userId)}</td>
+              <td>${statusPill(row.status)}</td>
+              <td>${escapeHtml(meta.termLength ?? "")}</td>
+              <td>${escapeHtml(meta.inputChars ?? "")}</td>
+              <td>${escapeHtml(meta.outputChars ?? "")}</td>
+              <td>${escapeHtml(meta.durationMs ?? "")}</td>
+              <td>${escapeHtml(language)}</td>
+              <td class="mono">${escapeHtml(message)}</td>
+              <td>${escapeHtml(row.errorMessage || row.errorCode || "")}</td>
+            </tr>
+          `;
+      }).join("") || rowEmpty(10);
+    }
+
+    function useDictionaryLogFilter() {
+      $("logModule").value = "dictionary";
+      $("logEvent").value = "dictionary.lookup";
+      $("logStatus").value = "";
+      setEventSubtab("eventGeneral");
+      setStatus("已填入智能词典系统日志筛选");
+    }
+
+    async function loadTtsLogs() {
+      const qs = new URLSearchParams();
+      qs.set("limit", "100");
+      if ($("ttsLogUserId").value.trim()) qs.set("userId", $("ttsLogUserId").value.trim());
+      if ($("ttsLogStatus").value.trim()) qs.set("status", $("ttsLogStatus").value.trim());
+      if ($("ttsLogCacheHit").value.trim()) qs.set("cacheHit", $("ttsLogCacheHit").value.trim());
+      const res = await request(`/admin/tts/request-logs?${qs.toString()}`);
+      const rows = Array.isArray(res.data) ? res.data : [];
+      renderTtsLogs(rows);
+      setStatus(`TTS 调用：${rows.length} 条`);
+    }
+
+    function renderTtsLogs(rows) {
+      const durations = rows
+        .map((row) => Number(row.durationMs || 0))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .sort((left, right) => left - right);
+      const summary = rows.reduce((acc, row) => {
+        acc.total += 1;
+        if (row.status === "success") acc.success += 1;
+        if (row.status === "failed") acc.failed += 1;
+        if (row.cacheHit) acc.cacheHits += 1;
+        if (row.deduped) acc.deduped += 1;
+        if (row.status === "success" && !row.cacheHit && !row.deduped) {
+          acc.generatedRequests += 1;
+          acc.generatedChars += Number(row.sourceTextChars || 0);
+        }
+        return acc;
+      }, { total: 0, success: 0, failed: 0, cacheHits: 0, deduped: 0, generatedRequests: 0, generatedChars: 0 });
+      const averageDuration = durations.length
+        ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length)
+        : 0;
+      const p95Duration = durations.length
+        ? durations[Math.min(durations.length - 1, Math.ceil(durations.length * 0.95) - 1)]
+        : 0;
+      const cacheRate = summary.total ? `${(summary.cacheHits / summary.total * 100).toFixed(1)}%` : "0%";
+      const phaseFields = ["preparationMs", "cacheLookupMs", "lockWaitMs", "queueWaitMs", "synthesisMs", "storageMs", "persistenceMs"];
+      const phaseRows = rows.filter((row) => phaseFields.some((field) => row[field] !== null && row[field] !== undefined));
+      const cacheDurations = phaseRows.filter((row) => row.cacheHit).map((row) => Number(row.durationMs || 0)).filter(Number.isFinite);
+      const generatedDurations = phaseRows
+        .filter((row) => !row.cacheHit && !row.deduped && row.status === "success")
+        .map((row) => Number(row.durationMs || 0))
+        .filter(Number.isFinite);
+      const phaseAverage = (field, options = {}) => {
+        const values = phaseRows
+          .filter((row) => row[field] !== null && row[field] !== undefined)
+          .map((row) => Number(row[field]))
+          .filter((value) => Number.isFinite(value) && (!options.positiveOnly || value > 0));
+        return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : null;
+      };
+      const percentile = (values, ratio) => {
+        if (!values.length) return null;
+        const sorted = [...values].sort((left, right) => left - right);
+        return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)];
+      };
+      $("ttsLogMetrics").innerHTML = [
+        ["请求数", summary.total, "latest 100 · user initiated"],
+        ["成功 / 失败", `${summary.success} / ${summary.failed}`, "request status"],
+        ["缓存命中率", cacheRate, `${summary.cacheHits} cache hits`],
+        ["新生成", summary.generatedRequests, `${summary.generatedChars} chars`],
+        ["分段覆盖", `${phaseRows.length} / ${rows.length}`, "new-format / loaded logs"],
+        ["缓存 P95", formatOptionalMs(percentile(cacheDurations, 0.95)), "cache-hit end-to-end"],
+        ["生成 P95", formatOptionalMs(percentile(generatedDurations, 0.95)), "new generation end-to-end"],
+        ["Azure 平均", formatOptionalMs(phaseAverage("synthesisMs", { positiveOnly: true })), "generated requests only"],
+        ["COS 平均", formatOptionalMs(phaseAverage("storageMs", { positiveOnly: true })), "generated requests only"],
+        ["排队 / 锁等待", formatOptionalMsPair(phaseAverage("queueWaitMs"), phaseAverage("lockWaitMs")), "concurrency / dedupe"],
+        ["前置 / 缓存查询", formatOptionalMsPair(phaseAverage("preparationMs"), phaseAverage("cacheLookupMs")), "auth + DB / asset lookup"],
+        ["数据库落库", formatOptionalMs(phaseAverage("persistenceMs", { positiveOnly: true })), "generated requests only"],
+        ["整体平均 / P95", `${averageDuration} / ${p95Duration} ms`, "end-to-end server latency"],
+      ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+      const sourceLabels = { full: "整篇", rewrite: "润色", reply: "回复" };
+      $("ttsLogsTbody").innerHTML = rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td class="mono">${escapeHtml(row.userId)}</td>
+            <td>${statusPill(row.status)}</td>
+            <td>${escapeHtml(sourceLabels[row.sourceKey] || row.sourceKey || "-")}</td>
+            <td>${escapeHtml(`${row.languageCode || "-"} / ${row.voiceCode || "-"}`)}</td>
+            <td>${escapeHtml(row.sourceTextChars ?? "")}</td>
+            <td>${escapeHtml(row.cacheHit ? "hit" : "miss")}</td>
+            <td>${escapeHtml(row.deduped ? "yes" : "no")}</td>
+            <td>${escapeHtml(row.durationMs == null ? "" : `${row.durationMs} ms`)}</td>
+            <td class="mono">${formatTtsPhaseTimings(row)}</td>
+            <td class="mono">${escapeHtml(row.messageId || "")}</td>
+            <td>${escapeHtml(row.errorMessage || row.errorCode || "")}</td>
+          </tr>
+        `).join("") || rowEmpty(12);
+    }
+
+    function formatTtsPhaseTimings(row) {
+      const rawPhases = [
+        ["前置", row.preparationMs],
+        ["缓存", row.cacheLookupMs],
+        ["锁", row.lockWaitMs],
+        ["排队", row.queueWaitMs],
+        ["Azure", row.synthesisMs],
+        ["COS", row.storageMs],
+        ["落库", row.persistenceMs],
+      ];
+      if (!rawPhases.some(([, value]) => value !== null && value !== undefined)) {
+        return '<span class="muted">旧数据无分段</span>';
+      }
+      const phases = rawPhases.filter(([label, value]) => {
+        if (label === "前置" || label === "缓存") return value !== null && value !== undefined;
+        return Number(value || 0) > 0;
+      });
+      if (!phases.length) return '<span class="muted">各阶段 &lt;1ms</span>';
+      const slowest = phases.reduce((current, candidate) => Number(candidate[1]) > Number(current[1]) ? candidate : current);
+      return phases.map(([label, value]) => {
+        const content = `${escapeHtml(label)} ${escapeHtml(value)}ms`;
+        return label === slowest[0] ? `<strong>${content}</strong>` : content;
+      }).join("<br>");
+    }
+
+    function formatOptionalMs(value) {
+      return value === null || value === undefined ? "—" : `${value} ms`;
+    }
+
+    function formatOptionalMsPair(left, right) {
+      const format = (value) => value === null || value === undefined ? "—" : value;
+      return `${format(left)} / ${format(right)} ms`;
+    }
+
+    async function loadSttLogs() {
+      const qs = new URLSearchParams();
+      qs.set("limit", "100");
+      if ($("sttLogUserId").value.trim()) qs.set("userId", $("sttLogUserId").value.trim());
+      if ($("sttLogStatus").value.trim()) qs.set("status", $("sttLogStatus").value.trim());
+      if ($("sttLanguageIdMode").value.trim()) qs.set("languageIdMode", $("sttLanguageIdMode").value.trim());
+      if ($("sttRecognizedTextPresent").value.trim()) {
+        qs.set("recognizedTextPresent", $("sttRecognizedTextPresent").value.trim());
+      }
+      const res = await request(`/admin/stt/request-logs?${qs.toString()}`);
+      const rows = Array.isArray(res.data) ? res.data : [];
+      renderSttLogs(rows);
+      setStatus(`STT 调用：${rows.length} 条`);
+    }
+
+    function renderSttLogs(rows) {
+      const summary = rows.reduce((acc, row) => {
+        acc.total += 1;
+        if (row.status === "success") acc.success += 1;
+        if (row.status === "failed") acc.failed += 1;
+        acc.audioSeconds += Math.ceil(Number(row.audioDurationMs || 0) / 1000);
+        acc.billableSeconds += Number(row.billableSeconds || 0);
+        acc.transcriptChars += Number(row.transcriptChars || 0);
+        return acc;
+      }, { total: 0, success: 0, failed: 0, audioSeconds: 0, billableSeconds: 0, transcriptChars: 0 });
+      $("sttMetrics").innerHTML = [
+        ["请求数", summary.total, "latest 100"],
+        ["成功 / 失败", `${summary.success} / ${summary.failed}`, "request status"],
+        ["音频秒", summary.audioSeconds, "estimated"],
+        ["计费秒", summary.billableSeconds, "rounded"],
+        ["转写字符", summary.transcriptChars, "final text"],
+      ].map(([label, value, hint]) => `
+          <div class="metric">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value ?? 0)}</strong>
+            <small>${escapeHtml(hint)}</small>
+          </div>
+        `).join("");
+      $("sttLogsTbody").innerHTML = rows.map((row) => {
+        const languages = Array.isArray(row.candidateLanguages)
+          ? row.candidateLanguages.join(",")
+          : String(row.candidateLanguages || "");
+        return `
+            <tr>
+              <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+              <td class="mono">${escapeHtml(row.userId)}</td>
+              <td>${statusPill(row.status)}</td>
+              <td>${escapeHtml(row.provider)}</td>
+              <td>${escapeHtml(row.languageIdMode)}</td>
+              <td>${escapeHtml(languages)}</td>
+              <td>${escapeHtml(row.detectedLanguage || "-")}</td>
+              <td>${escapeHtml(Math.ceil(Number(row.audioDurationMs || 0) / 1000))}</td>
+              <td>${escapeHtml(row.billableSeconds)}</td>
+              <td>${escapeHtml(row.transcriptChars)}</td>
+              <td>${escapeHtml(row.durationMs ?? "")}</td>
+              <td>${escapeHtml(row.errorMessage || row.errorCode || "")}</td>
+            </tr>
+          `;
+      }).join("") || rowEmpty(12);
+    }
+
+    function useSttLogFilter() {
+      $("logModule").value = "stt";
+      $("logEvent").value = "stt.realtime";
+      $("logStatus").value = "failed";
+      setEventSubtab("eventGeneral");
+      setStatus("已填入 STT 系统日志筛选");
+    }
+
+    async function loadAuditLogs() {
+      const qs = new URLSearchParams();
+      qs.set("limit", "100");
+      if ($("auditTargetType").value.trim()) qs.set("targetType", $("auditTargetType").value.trim());
+      if ($("auditTargetId").value.trim()) qs.set("targetId", $("auditTargetId").value.trim());
+      const res = await request(`/admin/audit-logs?${qs.toString()}`);
+      const rows = Array.isArray(res.data) ? res.data : [];
+      $("auditTbody").innerHTML = rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(fmtDate(row.createdAt))}</td>
+            <td class="mono">${escapeHtml(row.adminId)}</td>
+            <td class="mono">${escapeHtml(row.action)}</td>
+            <td>${escapeHtml(row.targetType)} / <span class="mono">${escapeHtml(row.targetId)}</span></td>
+            <td>${escapeHtml(row.reason)}</td>
+            <td class="mono">${escapeHtml(row.requestId)}</td>
+          </tr>
+        `).join("") || rowEmpty(6);
+      setStatus(`管理员操作：${rows.length} 条`);
+    }
+
+    function setEventSubtab(name) {
+      document.querySelectorAll(".tab[data-event-subtab]").forEach((item) => {
+        item.classList.toggle("active", item.dataset.eventSubtab === name);
+      });
+      document.querySelectorAll(".event-subpanel").forEach((panel) => {
+        panel.style.display = panel.id === name ? "block" : "none";
+      });
+    }
+
+    async function loadAuditView(name) {
+      if (state.loadedAuditViews.has(name)) return;
+      const loaders = {
+        security: () => loadContentSafetyLogs({ reset: true }),
+        adminaudit: loadAuditLogs,
+        eventGeneral: loadLogs,
+        eventTts: loadTtsLogs,
+        eventStt: loadSttLogs,
+        eventDictionary: loadDictionaryLogs,
+      };
+      const loader = loaders[name];
+      if (!loader) return;
+      await loader();
+      state.loadedAuditViews.add(name);
+    }
+
+    function bindEvents() {
+      document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
+        tab.addEventListener("click", guard(async () => {
+          setTab(tab.dataset.tab);
+          if (tab.dataset.tab === "cardops" && !state.cardOperations) {
+            await loadCardOperations();
+          }
+          if (tab.dataset.tab === "resources" && !state.resources) await loadResources();
+          if (tab.dataset.tab === "security") await loadAuditView("security");
+          if (tab.dataset.tab === "adminaudit") await loadAuditView("adminaudit");
+          if (tab.dataset.tab === "logs") await loadAuditView("eventGeneral");
+        }));
+      });
+      document.querySelectorAll(".tab[data-event-subtab]").forEach((tab) => {
+        tab.addEventListener("click", guard(async () => {
+          const name = tab.dataset.eventSubtab;
+          setEventSubtab(name);
+          await loadAuditView(name);
+        }));
+      });
+      document.querySelectorAll(".tab[data-user-subtab]").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          document.querySelectorAll(".tab[data-user-subtab]").forEach((item) => item.classList.toggle("active", item === tab));
+          document.querySelectorAll(".diag-subpanel").forEach((panel) => {
+            panel.style.display = panel.id === tab.dataset.userSubtab ? "block" : "none";
+          });
+        });
+      });
+      $("btnLogin").addEventListener("click", guard(async () => {
+        setStatus("登录中...");
+        await login();
+        state.loadedAuditViews.clear();
+        document.querySelector(".connection-settings")?.removeAttribute("open");
+        setStatus("登录成功");
+      }));
+      $("btnLogout").addEventListener("click", () => {
+        if (state.cardOperationsTimer) clearInterval(state.cardOperationsTimer);
+        state.cardOperationsTimer = null;
+        if (state.resourceTimer) clearInterval(state.resourceTimer);
+        state.resourceTimer = null;
+        $("token").value = "";
+        $("password").value = "";
+        state.loadedAuditViews.clear();
+        saveLocal();
+        document.querySelector(".connection-settings")?.removeAttribute("open");
+        setStatus("已清空登录状态");
+      });
+      $("btnLoadOverview").addEventListener("click", guard(loadOverview));
+      $("btnLoadCardOperations").addEventListener("click", guard(loadCardOperations));
+      $("btnToggleCardAutoRefresh").addEventListener("click", toggleCardOperationsAutoRefresh);
+      $("btnLoadResources").addEventListener("click", guard(loadResources));
+      $("btnToggleResourceAutoRefresh").addEventListener("click", toggleResourceAutoRefresh);
+      $("apiMetricsWindow").addEventListener("change", guard(loadResources));
+      $("btnOverview7d").addEventListener("click", guard(async () => {
+        setOverviewRange(7);
+        await loadOverview();
+      }));
+      $("btnOverview14d").addEventListener("click", guard(async () => {
+        setOverviewRange(14);
+        await loadOverview();
+      }));
+      $("btnOverview30d").addEventListener("click", guard(async () => {
+        setOverviewRange(30);
+        await loadOverview();
+      }));
+      $("btnRefreshPaymentSummary").addEventListener("click", guard(loadOverview));
+      $("btnSearchUsers").addEventListener("click", guard(searchUsers));
+      $("btnLoadContactUsers").addEventListener("click", guard(() => loadContactUsers({ resetPage: true })));
+      $("btnExportContactUsers").addEventListener("click", guard(exportContactUsers));
+      $("btnPrevContactUsers").addEventListener("click", guard(async () => {
+        if (state.contactUsersPage <= 1) return;
+        state.contactUsersPage -= 1;
+        await loadContactUsers();
+      }));
+      $("btnNextContactUsers").addEventListener("click", guard(async () => {
+        if (state.contactUsersPage >= state.contactUsersTotalPages) return;
+        state.contactUsersPage += 1;
+        await loadContactUsers();
+      }));
+      $("contactUsersTbody").addEventListener("click", guard(async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement) || target.dataset.contactOp !== "set-email") return;
+        const userId = target.dataset.userId || "";
+        if (!userId) return;
+        await setContactUserEmail(userId, target.dataset.userEmail || "");
+      }));
+      $("btnLoadDiagnostics").addEventListener("click", guard(() => loadDiagnostics()));
+      $("btnGrantMembership").addEventListener("click", guard(grantMembership));
+      $("btnCancelPro").addEventListener("click", guard(cancelProNextDay));
+      $("btnLoadOrders").addEventListener("click", guard(loadOrders));
+      $("btnLoadSubscriptions").addEventListener("click", guard(loadSubscriptions));
+      $("btnLoadSubscriptions2").addEventListener("click", guard(loadSubscriptions));
+      $("btnRunProductionAudit").addEventListener("click", guard(runProductionAudit));
+      $("btnClearProductionAudit").addEventListener("click", clearProductionAudit);
+      $("btnLoadLogs").addEventListener("click", guard(loadLogs));
+      $("btnLoadContentSafetyLogs").addEventListener("click", guard(() => loadContentSafetyLogs({ reset: true })));
+      $("btnPrevContentSafetyLogs").addEventListener("click", guard(loadPrevContentSafetyLogs));
+      $("btnNextContentSafetyLogs").addEventListener("click", guard(loadNextContentSafetyLogs));
+      $("contentSafetyLimit").addEventListener("change", guard(() => loadContentSafetyLogs({ reset: true })));
+      $("btnFillContentSafetyFilter").addEventListener("click", fillContentSafetyFilter);
+      $("btnLoadDictionaryLogs").addEventListener("click", guard(loadDictionaryLogs));
+      $("btnUseDictionaryFilter").addEventListener("click", useDictionaryLogFilter);
+      $("btnLoadTtsLogs").addEventListener("click", guard(loadTtsLogs));
+      $("btnLoadSttLogs").addEventListener("click", guard(loadSttLogs));
+      $("btnUseSttFilter").addEventListener("click", useSttLogFilter);
+      $("btnLoadAuditLogs").addEventListener("click", guard(loadAuditLogs));
+      $("usersTbody").addEventListener("click", guard(async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+        const userId = target.getAttribute("data-user-id");
+        if (!userId) return;
+        $("userSearch").value = userId;
+        await loadDiagnostics(userId);
+      }));
+      $("ordersTbody").addEventListener("click", guard(async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+        const op = target.getAttribute("data-order-op");
+        const id = target.getAttribute("data-order-id");
+        if (!op || !id) return;
+        await runOrderOp(op, id);
+      }));
+    }
+
+    function guard(fn) {
+      return async (...args) => {
+        try {
+          await fn(...args);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus(`出错：${message}`);
+          alert(message);
+        }
+      };
+    }
+
+    loadLocal();
+    setOverviewRange(14);
+    renderProductionAudit();
+    bindEvents();
+    if ($("token").value.trim()) {
+      setStatus("已加载本地登录状态");
+    }
+  </script>
+</body>
+
+</html>

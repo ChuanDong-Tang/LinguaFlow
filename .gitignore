@@ -37,4 +37,7 @@ agent.md
 # Local agent skills and release outputs.
 /skills/
 /ci/cd/
+/apps/mobile/*.apk
+/apps/mobile/*.aab
 /apps/mobile/*.ipa
+/apps/website/downloads/*.apk

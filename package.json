@@ -4,7 +4,9 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev:web": "npm --prefix apps/web run dev",
+        "dev:website": "npm --prefix apps/website run dev",
+        "dev:admin": "npm --prefix apps/admin run dev",
+        "dev:web": "npm run dev:admin",
         "dev:mobile": "npm --prefix apps/mobile run start",
         "dev:api": "npm --prefix api run dev",
         "dev:worker": "node --env-file-if-exists=.env --import tsx server/worker.dev.mjs",

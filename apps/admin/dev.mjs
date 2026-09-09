@@ -28,5 +28,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[web] admin page running at http://localhost:${PORT}`);
+  console.log(`[admin] page running at http://localhost:${PORT}`);
 });
