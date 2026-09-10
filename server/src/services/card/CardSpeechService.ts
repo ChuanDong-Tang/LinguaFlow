@@ -48,6 +48,7 @@ export type CardSpeechGenerateInput = {
   sourceText: string;
   sourceTextHash: string;
   sentenceSegments?: Array<Omit<CardSpeechSegment, "segmentId"> & { segmentId?: string }>;
+  displaySentenceSegments?: Array<{ segmentId: string; text: string }>;
 };
 
 export type PreparedCardArticleSpeech = {
@@ -190,8 +191,11 @@ export class CardSpeechService {
     const cacheKey = sha256([input.userId, input.entryId, input.contentType, input.contentVersion, "review_article", provider, voiceCode, languageCode, sourceTextHash].join("\n"));
     const context = { entryId: input.entryId, segmentId: "__article__" };
     const cached = await this.repository.findReadySpeechAsset(cacheKey);
+    const displaySentenceSegments = segments.map((segment) => ({ segmentId: segment.id, text: segment.text }));
     return {
-      cached: cached ? this.toView(await this.refreshUrlIfNeeded(cached), true, context) : null,
+      cached: cached
+        ? withDisplaySentenceText(this.toView(await this.refreshUrlIfNeeded(cached), true, context), displaySentenceSegments)
+        : null,
       graphemeCount,
       generation: {
         userId: input.userId,
@@ -205,6 +209,7 @@ export class CardSpeechService {
         sourceText,
         sourceTextHash,
         sentenceSegments,
+        displaySentenceSegments,
       },
     };
   }
@@ -391,7 +396,7 @@ export class CardSpeechService {
       objectUrlExpiresAt: uploaded.objectUrlExpiresAt,
       durationMs: synthesized.durationMs,
       wordMarks: synthesized.wordMarks,
-      sentenceMarks: synthesized.sentenceMarks,
+      sentenceMarks: withDisplaySentenceMarkText(synthesized.sentenceMarks, input.displaySentenceSegments),
     });
   }
 
@@ -423,6 +428,40 @@ export class CardSpeechService {
       cached,
     };
   }
+}
+
+/**
+ * Keep article timelines compatible with clients that validate mark text.
+ *
+ * For an `original` Card block, speech synthesis intentionally receives only
+ * the target-language portion of each persisted sentence. Its timing marks
+ * therefore contain that reduced speech text, while the player displays and
+ * validates against the complete (often bilingual) Card sentence. Replacing
+ * only `mark.text` with the display text preserves the provider timings and
+ * segment identity, and also repairs responses for already-cached assets
+ * without regenerating audio.
+ */
+function withDisplaySentenceText(
+  asset: CardSpeechAssetView,
+  displaySegments: Array<{ segmentId: string; text: string }>,
+): CardSpeechAssetView {
+  if (!Array.isArray(asset.sentenceMarks)) return asset;
+  return {
+    ...asset,
+    sentenceMarks: withDisplaySentenceMarkText(asset.sentenceMarks as CardSpeechSentenceMark[], displaySegments),
+  };
+}
+
+function withDisplaySentenceMarkText(
+  marks: CardSpeechSentenceMark[],
+  displaySegments?: Array<{ segmentId: string; text: string }>,
+): CardSpeechSentenceMark[] {
+  if (!displaySegments?.length) return marks;
+  const textBySegmentId = new Map(displaySegments.map((segment) => [segment.segmentId, segment.text]));
+  return marks.map((mark) => {
+    const text = mark.segmentId ? textBySegmentId.get(mark.segmentId) : undefined;
+    return text === undefined ? mark : { ...mark, text };
+  });
 }
 
 function emptySynthesisResult(): SynthesizeSpeechResult {

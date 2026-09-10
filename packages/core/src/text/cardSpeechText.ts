@@ -47,6 +47,33 @@ export function alignCardSpeechMarks(
   if (marks.some((mark, index) => !Number.isFinite(mark.startMs) || mark.startMs < 0
     || !Number.isFinite(mark.durationMs) || mark.durationMs <= 0
     || index > 0 && mark.startMs < marks[index - 1]!.startMs)) return null;
+  // Current assets carry the persisted Card segment id. It is the stable
+  // identity for a timeline: original Card rows may contain bilingual text,
+  // while TTS intentionally synthesizes and returns only the target-language
+  // part. Comparing those two text representations would reject a valid asset.
+  if (marks.every((mark) => Boolean(mark.segmentId))) {
+    let cursor = 0;
+    const aligned: CardSpeechSentenceMark[] = [];
+    for (const row of rows) {
+      const first = marks[cursor];
+      if (!first) return allowPartial ? aligned : null;
+      if (first.segmentId !== row.id) return null;
+      let last = first;
+      cursor += 1;
+      while (cursor < marks.length && marks[cursor]!.segmentId === row.id) {
+        last = marks[cursor]!;
+        cursor += 1;
+      }
+      aligned.push({
+        segmentId: row.id, text: row.text,
+        textStart: first.textStart, textEnd: last.textEnd,
+        startMs: first.startMs, durationMs: last.startMs + last.durationMs - first.startMs,
+      });
+    }
+    return cursor === marks.length ? aligned : null;
+  }
+
+  // Assets created before segment ids were persisted still need text matching.
   const comparisonText = (text: string) => normalizeLearningText({ text, languageCode }).normalize("NFKC").replace(/\s+/gu, "");
   let cursor = 0;
   const aligned: CardSpeechSentenceMark[] = [];
