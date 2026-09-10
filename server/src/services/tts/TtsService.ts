@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { MessageRepository } from "@lf/core/ports/repository/MessageRepository.js";
 import type { TtsAssetEntity, TtsAssetRepository, TtsSourceKey } from "@lf/core/ports/repository/TtsAssetRepository.js";
 import type { TtsRequestLogRepository } from "@lf/core/ports/repository/TtsRequestLogRepository.js";
@@ -11,6 +11,8 @@ import type { TtsProvider } from "./TtsProvider.js";
 import type { TtsStorageProvider } from "./TtsStorageProvider.js";
 import { isConfiguredTtsVoice, listTtsVoiceOptions, resolveDefaultTtsVoice } from "./TtsVoiceCatalog.js";
 import { segmentLearningSentences } from "../text/learningSentenceSegmenter.js";
+import type { UsageV2Service } from "../usage/UsageV2Service.js";
+import { generateWithTtsPointBilling } from "../usage/TtsPointMeter.js";
 
 export class TtsAccessDeniedError extends Error {
   readonly code = "TTS_ACCESS_DENIED";
@@ -120,6 +122,7 @@ export class TtsService {
     private readonly ttsRequestLogRepository?: TtsRequestLogRepository,
     private readonly redisClient?: RedisClient | null,
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly usageV2Service?: UsageV2Service,
   ) {}
 
   async getOrCreateMessageAsset(input: {
@@ -268,6 +271,7 @@ export class TtsService {
       sourceKey,
       sourceText,
       sourceTextHash,
+      billingRequestId: input.requestId ?? randomUUID(),
     }, timings);
     ttsGenerationLocks.set(lockKey, generation);
     try {
@@ -446,6 +450,7 @@ export class TtsService {
     sourceKey: TtsSourceKey;
     sourceText: string;
     sourceTextHash: string;
+    billingRequestId: string;
   }, timings: TtsPhaseTimings): Promise<TtsGenerationResult> {
     const cacheLookupStartedAt = Date.now();
     let cached: TtsAssetEntity | null;
@@ -456,85 +461,95 @@ export class TtsService {
     }
     if (cached) return { asset: cached, cacheHit: true, deduped: false };
 
-    const sentenceSegments = segmentLearningSentences({
-      text: input.sourceText,
-      languageCode: input.languageCode,
-      minSegmentChars: 1,
-    });
-    const synthesize = async () => {
-      const synthesisStartedAt = Date.now();
-      try {
-        return await withRetry(
-          () => this.ttsProvider.synthesize({
-            text: input.sourceText,
-            languageCode: input.languageCode,
-            voiceCode: input.voiceCode,
-            sentenceSegments,
-          }),
-          readPositiveInt(process.env.TTS_SYNTHESIS_MAX_ATTEMPTS, 2)
-        );
-      } finally {
-        timings.synthesisMs += Date.now() - synthesisStartedAt;
-      }
-    };
-    const governedStartedAt = Date.now();
-    const synthesisBefore = timings.synthesisMs;
-    let synthesized: Awaited<ReturnType<TtsProvider["synthesize"]>>;
-    try {
-      synthesized = this.resourceGovernor
-        ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
-        : await synthesize();
-    } finally {
-      const synthesisElapsed = timings.synthesisMs - synthesisBefore;
-      timings.queueWaitMs += Math.max(0, Date.now() - governedStartedAt - synthesisElapsed);
-    }
-    const objectKey = buildObjectKey({
+    return generateWithTtsPointBilling({
+      usageService: this.usageV2Service,
       userId: input.userId,
-      messageId: input.messageId,
+      requestId: input.billingRequestId,
+      text: input.sourceText,
       provider: input.provider,
-      voiceCode: input.voiceCode,
-      sourceKey: input.sourceKey,
-      sourceTextHash: input.sourceTextHash,
-      format: synthesized.format,
+      operation: "message_tts",
+      generate: async () => {
+        const sentenceSegments = segmentLearningSentences({
+          text: input.sourceText,
+          languageCode: input.languageCode,
+          minSegmentChars: 1,
+        });
+        const synthesize = async () => {
+          const synthesisStartedAt = Date.now();
+          try {
+            return await withRetry(
+              () => this.ttsProvider.synthesize({
+                text: input.sourceText,
+                languageCode: input.languageCode,
+                voiceCode: input.voiceCode,
+                sentenceSegments,
+              }),
+              readPositiveInt(process.env.TTS_SYNTHESIS_MAX_ATTEMPTS, 2)
+            );
+          } finally {
+            timings.synthesisMs += Date.now() - synthesisStartedAt;
+          }
+        };
+        const governedStartedAt = Date.now();
+        const synthesisBefore = timings.synthesisMs;
+        let synthesized: Awaited<ReturnType<TtsProvider["synthesize"]>>;
+        try {
+          synthesized = this.resourceGovernor
+            ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
+            : await synthesize();
+        } finally {
+          const synthesisElapsed = timings.synthesisMs - synthesisBefore;
+          timings.queueWaitMs += Math.max(0, Date.now() - governedStartedAt - synthesisElapsed);
+        }
+        const objectKey = buildObjectKey({
+          userId: input.userId,
+          messageId: input.messageId,
+          provider: input.provider,
+          voiceCode: input.voiceCode,
+          sourceKey: input.sourceKey,
+          sourceTextHash: input.sourceTextHash,
+          format: synthesized.format,
+        });
+        const storageStartedAt = Date.now();
+        let uploaded: Awaited<ReturnType<TtsStorageProvider["upload"]>>;
+        try {
+          uploaded = await withRetry(
+            () => this.storageProvider.upload({
+              key: objectKey,
+              body: synthesized.audio,
+              contentType: synthesized.contentType,
+            }),
+            readPositiveInt(process.env.TTS_STORAGE_MAX_ATTEMPTS, 2)
+          );
+        } finally {
+          timings.storageMs += Date.now() - storageStartedAt;
+        }
+        const persistenceStartedAt = Date.now();
+        let asset: TtsAssetEntity;
+        try {
+          asset = await this.ttsAssetRepository.createReady({
+            userId: input.userId,
+            messageId: input.messageId,
+            provider: input.provider,
+            voiceCode: input.voiceCode,
+            languageCode: input.languageCode,
+            sourceKey: input.sourceKey,
+            sourceText: input.sourceText,
+            sourceTextHash: input.sourceTextHash,
+            format: synthesized.format,
+            objectKey: uploaded.objectKey,
+            objectUrl: uploaded.objectUrl,
+            objectUrlExpiresAt: uploaded.objectUrlExpiresAt,
+            durationMs: synthesized.durationMs,
+            wordMarks: synthesized.wordMarks,
+            sentenceMarks: synthesized.sentenceMarks,
+          });
+        } finally {
+          timings.persistenceMs += Date.now() - persistenceStartedAt;
+        }
+        return { asset, cacheHit: false, deduped: false };
+      },
     });
-    const storageStartedAt = Date.now();
-    let uploaded: Awaited<ReturnType<TtsStorageProvider["upload"]>>;
-    try {
-      uploaded = await withRetry(
-        () => this.storageProvider.upload({
-          key: objectKey,
-          body: synthesized.audio,
-          contentType: synthesized.contentType,
-        }),
-        readPositiveInt(process.env.TTS_STORAGE_MAX_ATTEMPTS, 2)
-      );
-    } finally {
-      timings.storageMs += Date.now() - storageStartedAt;
-    }
-    const persistenceStartedAt = Date.now();
-    let asset: TtsAssetEntity;
-    try {
-      asset = await this.ttsAssetRepository.createReady({
-        userId: input.userId,
-        messageId: input.messageId,
-        provider: input.provider,
-        voiceCode: input.voiceCode,
-        languageCode: input.languageCode,
-        sourceKey: input.sourceKey,
-        sourceText: input.sourceText,
-        sourceTextHash: input.sourceTextHash,
-        format: synthesized.format,
-        objectKey: uploaded.objectKey,
-        objectUrl: uploaded.objectUrl,
-        objectUrlExpiresAt: uploaded.objectUrlExpiresAt,
-        durationMs: synthesized.durationMs,
-        wordMarks: synthesized.wordMarks,
-        sentenceMarks: synthesized.sentenceMarks,
-      });
-    } finally {
-      timings.persistenceMs += Date.now() - persistenceStartedAt;
-    }
-    return { asset, cacheHit: false, deduped: false };
   }
 
   private async createReadyAssetWithLock(input: {
@@ -546,6 +561,7 @@ export class TtsService {
     sourceKey: TtsSourceKey;
     sourceText: string;
     sourceTextHash: string;
+    billingRequestId: string;
   }, timings: TtsPhaseTimings): Promise<TtsGenerationResult> {
     if (!this.redisClient) {
       return this.createReadyAsset(input, timings);

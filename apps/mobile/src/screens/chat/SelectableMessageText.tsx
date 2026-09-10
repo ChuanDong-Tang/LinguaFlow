@@ -42,6 +42,11 @@ export type NativeClozeBlankRange = {
   end: number;
 };
 
+export type NativeClozeAnswerRange = NativeClozeBlankRange & {
+  text: string;
+  incorrect?: boolean;
+};
+
 export type SelectableMessageTextRef = {
   clearSelection: () => void;
 };
@@ -55,6 +60,8 @@ type Props = {
   answersVisible?: boolean;
   visualsHidden?: boolean;
   correctRanges?: NativeClozeBlankRange[];
+  answerRanges?: NativeClozeAnswerRange[];
+  activeRange?: NativeClozeBlankRange | null;
   trailingElement?: React.ReactNode;
   enableClozeMenu?: boolean;
   enableDictionaryMenu?: boolean;
@@ -192,6 +199,8 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     answersVisible = false,
     visualsHidden = false,
     correctRanges,
+    answerRanges,
+    activeRange,
     trailingElement,
     enableClozeMenu = true,
     enableDictionaryMenu = false,
@@ -220,10 +229,10 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       return value;
     }, [blankRanges, text]);
     const correct = React.useMemo(() => normalizeBlankRanges(text, correctRanges), [correctRanges, text]);
+    const trailingText = typeof trailingElement === "string" ? trailingElement : "";
     const nativeText = React.useMemo(() => {
-      const trailingText = typeof trailingElement === "string" ? trailingElement : "";
-      return trailingText ? `${text}${trailingText}` : text;
-    }, [text, trailingElement]);
+      return `${text}${trailingText}`;
+    }, [text, trailingText]);
     const layoutText = nativeText;
     const nativeHighlightRangesJson = React.useMemo(() => rangesToJson(highlights), [highlights]);
     const nativeBlankRangesJson = React.useMemo(
@@ -231,6 +240,8 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       [blanks, text],
     );
     const nativeCorrectRangesJson = React.useMemo(() => rangesToJson(correct), [correct]);
+    const nativeAnswerRangesJson = React.useMemo(() => JSON.stringify(answerRanges ?? []), [answerRanges]);
+    const nativeActiveRangeJson = React.useMemo(() => JSON.stringify(activeRange ? [activeRange] : []), [activeRange]);
     const flattenedTextStyle = React.useMemo(() => StyleSheet.flatten(style) ?? {}, [style]);
     const nativeTextRef = React.useRef<React.ElementRef<typeof ChatSelectableTextView> | null>(null);
     const [nativeContentHeight, setNativeContentHeight] = React.useState(0);
@@ -359,6 +370,8 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           highlightRangesJson={nativeHighlightRangesJson}
           blankRangesJson={nativeBlankRangesJson}
           correctRangesJson={nativeCorrectRangesJson}
+          answerRangesJson={nativeAnswerRangesJson}
+          activeRangeJson={nativeActiveRangeJson}
           answersVisible={answersVisible}
           visualsHidden={visualsHidden}
           textColor={typeof flattenedTextStyle.color === "string" ? flattenedTextStyle.color : "#111111"}

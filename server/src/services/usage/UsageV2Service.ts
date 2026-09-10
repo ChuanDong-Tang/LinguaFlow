@@ -4,10 +4,18 @@ import { dateKeyRangeInTimeZone } from "../time/businessClock.js";
 
 export const USAGE_API_VERSION = "v2";
 
-// Only rewrites and replies consume the user’s OIO allowance. Keep free
-// operations in the usage ledger so provider usage remains observable.
+export const AI_OUTPUT_POINTS_PER_CHARACTER = 1;
+export const TTS_POINTS_PER_CHARACTER = 1;
+
+// Keep free operations in the usage ledger so provider usage remains observable.
 function consumesOioPoints(feature: string): boolean {
-  return feature === "rewrite" || feature === "reply";
+  return feature === "rewrite" || feature === "reply" || feature === "tts";
+}
+
+function billedPoints(feature: string, characters: number): number {
+  if (feature === "rewrite" || feature === "reply") return characters * AI_OUTPUT_POINTS_PER_CHARACTER;
+  if (feature === "tts") return characters * TTS_POINTS_PER_CHARACTER;
+  return 0;
 }
 
 export class TokenQuotaExceededError extends Error {
@@ -328,7 +336,7 @@ export class UsageV2Service {
   async reserveTokens(input: {
     userId: string;
     requestId: string;
-    feature: "rewrite" | "organization" | "reply" | "dictionary";
+    feature: "rewrite" | "organization" | "reply" | "dictionary" | "tts";
     estimatedTokens: number;
     provider?: string;
     model?: string;
@@ -386,6 +394,7 @@ export class UsageV2Service {
     requestId: string;
     inputTokens: number;
     outputTokens: number;
+    billableCharacters: number;
     meteringSource: "provider" | "tokenizer";
     provider?: string;
     model?: string;
@@ -393,6 +402,7 @@ export class UsageV2Service {
   }): Promise<TokenReservationView> {
     assertNonnegativeInteger(input.inputTokens, "inputTokens");
     assertNonnegativeInteger(input.outputTokens, "outputTokens");
+    assertNonnegativeInteger(input.billableCharacters, "billableCharacters");
     return this.prisma.$transaction(async (tx) => {
       await lockUsageRequest(tx, input.userId, input.requestId);
       const transaction = await tx.aiTokenTransaction.findUnique({
@@ -400,7 +410,7 @@ export class UsageV2Service {
       });
       if (!transaction) throw new Error("TOKEN_RESERVATION_NOT_FOUND");
       if (transaction.status !== "reserved") return tokenTransactionView(transaction);
-      const totalTokens = consumesOioPoints(transaction.feature) ? input.inputTokens + input.outputTokens : 0;
+      const totalTokens = billedPoints(transaction.feature, input.billableCharacters);
       const changed = await tx.$executeRawUnsafe(
         `UPDATE "ai_token_cycles"
             SET "reservedTokens" = "reservedTokens" - $1,
@@ -424,7 +434,13 @@ export class UsageV2Service {
           meteringSource: input.meteringSource,
           provider: input.provider ?? transaction.provider,
           model: input.model ?? transaction.model,
-          ...(input.metadata ? { metadata: { ...jsonObject(transaction.metadata), ...input.metadata } } : {}),
+          metadata: {
+            ...jsonObject(transaction.metadata),
+            ...(input.metadata ?? {}),
+            billingUnit: "character",
+            billableCharacters: input.billableCharacters,
+            pointsPerCharacter: transaction.feature === "tts" ? TTS_POINTS_PER_CHARACTER : consumesOioPoints(transaction.feature) ? AI_OUTPUT_POINTS_PER_CHARACTER : 0,
+          },
           settledAt: new Date(),
         },
       });

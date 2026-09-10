@@ -547,10 +547,10 @@ export class CardService {
       throw new CardValidationError(`A Card must contain no more than ${this.limits.contentMaxChars} characters`);
     }
     const originalLanguageCode = preference.learningLanguage;
-    // Avoid generating a duplicate when the original already matches the
-    // learning-language snapshot. Numbers, punctuation and emoji are neutral.
-    const generateRewrite = requestedRewrite
-      && !isEntireTargetLanguageText(originalText, preference.learningLanguage);
+    // Rewrite-mode cards always create a real rewrite layer when requested,
+    // even when the source already uses the learning language. Corpus-mode
+    // cards are the only cards that intentionally learn from the original.
+    const generateRewrite = requestedRewrite;
     const dateKey = input.trustedSource?.dateKey ?? formatDateKeyInTimeZone(new Date());
     const originalContentHash = originalText ? cardContentHash(originalText) : null;
     if (!generateRewrite) {
@@ -818,7 +818,7 @@ export class CardService {
       : current.originalContentHash ?? (current.originalText ? cardContentHash(current.originalText) : null);
     if (!sourceHash) throw new CardValidationError("No original content version is available");
     if (input.usageApiVersion !== "v2") {
-      await this.entitlementService.assertCanUse(input.userId, countCardCharacters(sourceText), { dateKey: current.dateKey });
+      await this.entitlementService.assertCanUse(input.userId, 1, { dateKey: current.dateKey });
     }
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
     const generationLanguageCode = input.target === "auxiliary"
@@ -923,7 +923,7 @@ export class CardService {
     if (input.usageApiVersion !== "v2") {
       await this.entitlementService.consumeUpToLimit(
         input.userId,
-        countCardCharacters(sourceText) + countCardCharacters(output),
+        countCardCharacters(output),
         { dateKey: current.dateKey },
       );
     }
@@ -1279,7 +1279,7 @@ export class CardService {
       userId: input.userId,
       requestId: input.requestId,
       feature: input.feature,
-      estimatedTokens: estimateTokenReservation(meteredPrompt, input.maxOutputTokens) + (input.imageUrls?.length ?? 0) * 1_200,
+      estimatedTokens: estimateTokenReservation(meteredPrompt, input.maxOutputTokens),
       provider: this.aiProvider.providerName,
       model: this.aiProvider.modelName,
       metadata: {
@@ -1479,7 +1479,7 @@ export class CardService {
     const preference = await this.userPreferenceRepository.getByUserId(input.userId);
     const dateKey = formatDateKeyInTimeZone(new Date());
     if (input.usageApiVersion !== "v2") {
-      await this.entitlementService.assertCanUse(input.userId, countCardCharacters(sourceText), { dateKey });
+      await this.entitlementService.assertCanUse(input.userId, 1, { dateKey });
     }
     const prompt = input.target === "expression"
       ? buildCardExpressionPrompt({
@@ -1555,7 +1555,7 @@ export class CardService {
       throw error;
     }
     if (input.usageApiVersion !== "v2") {
-      await this.entitlementService.consumeUpToLimit(input.userId, countCardCharacters(sourceText) + countCardCharacters(output), { dateKey });
+      await this.entitlementService.consumeUpToLimit(input.userId, countCardCharacters(output), { dateKey });
     }
     if (input.target === "expression") {
       try {
@@ -2847,8 +2847,8 @@ function cardUsageFeature(target: CardGeneratedContentTarget): "rewrite" | "orga
   return "reply";
 }
 
-function estimateTokenReservation(prompt: string, maxOutputTokens: number): number {
-  return Math.max(1, Array.from(prompt).length + maxOutputTokens);
+function estimateTokenReservation(_prompt: string, maxOutputTokens: number): number {
+  return Math.max(1, maxOutputTokens);
 }
 
 function platformAiErrorMessage(error: unknown): string | null {
@@ -2893,6 +2893,7 @@ async function settleGeneratedUsage(
     requestId,
     inputTokens,
     outputTokens,
+    billableCharacters: countCardCharacters(output),
     meteringSource: usage ? "provider" : "tokenizer",
     provider: provider.providerName,
     model: provider.modelName,

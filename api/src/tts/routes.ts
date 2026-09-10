@@ -28,6 +28,7 @@ import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { ResourceLimitedError, type ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 import type { TtsStreamingCoordinator } from "@lf/server/services/tts/TtsStreamingCoordinator.js";
 import { once } from "node:events";
+import { TokenQuotaExceededError } from "@lf/server/services/usage/UsageV2Service.js";
 
 export interface TtsRouteDeps {
   ttsService: TtsService;
@@ -184,10 +185,11 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       if (typeof body?.text !== "string" || !body.text.trim()) throw new CardValidationError("发音内容不能为空");
       const rateLimitResult = await consumeTtsRateLimit(deps.rateLimiter, userId, deps.resourceGovernor);
       if (!rateLimitResult.allowed) return reply.status(429).send({ ok: false, request_id: requestId, error: { code: rateLimitResult.code, message: "发音请求过于频繁，请稍后再试" } });
-      const data = await deps.cardSpeechService.getOrCreateDictionaryTerm({ userId, term: body.text, languageCode: typeof body.languageCode === "string" ? body.languageCode : "en-US" });
+      const data = await deps.cardSpeechService.getOrCreateDictionaryTerm({ userId, term: body.text, languageCode: typeof body.languageCode === "string" ? body.languageCode : "en-US", requestId });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       if (error instanceof ResourceLimitedError) return resourceLimitedReply(reply, requestId);
+      if (error instanceof TokenQuotaExceededError) return tokenQuotaExceededReply(reply, requestId, error);
       if (error instanceof UnauthorizedError) return reply.status(401).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
       if (error instanceof AccountDisabledError || error instanceof AccountPendingDeleteError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
       if (error instanceof CardSpeechProRequiredError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "需要 Plus 或 Pro 才能使用高质量发音" } });
@@ -205,10 +207,11 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       if (typeof body?.term !== "string" || !body.term.trim()) throw new CardValidationError("Invalid dictionary term");
       const rateLimitResult = await consumeTtsRateLimit(deps.rateLimiter, userId, deps.resourceGovernor);
       if (!rateLimitResult.allowed) return reply.status(429).send({ ok: false, request_id: requestId, error: { code: rateLimitResult.code, message: "发音请求过于频繁，请稍后再试" } });
-      const data = await deps.cardSpeechService.getOrCreateDictionaryTerm({ userId, term: body.term, languageCode: typeof body.languageCode === "string" ? body.languageCode : "en-US" });
+      const data = await deps.cardSpeechService.getOrCreateDictionaryTerm({ userId, term: body.term, languageCode: typeof body.languageCode === "string" ? body.languageCode : "en-US", requestId });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       if (error instanceof ResourceLimitedError) return resourceLimitedReply(reply, requestId);
+      if (error instanceof TokenQuotaExceededError) return tokenQuotaExceededReply(reply, requestId, error);
       if (error instanceof UnauthorizedError) return reply.status(401).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
       if (error instanceof AccountDisabledError || error instanceof AccountPendingDeleteError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
       if (error instanceof CardSpeechProRequiredError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "需要 Plus 或 Pro 才能使用高质量发音" } });
@@ -318,6 +321,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       });
     } catch (error) {
       if (error instanceof ResourceLimitedError) return resourceLimitedReply(reply, requestId);
+      if (error instanceof TokenQuotaExceededError) return tokenQuotaExceededReply(reply, requestId, error);
       if (error instanceof TtsProRequiredError) {
         return reply.status(403).send({
           ok: false,
@@ -434,6 +438,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       const contentVersion = typeof query.contentVersion === "string" ? query.contentVersion : undefined;
       const articleInput = {
         userId,
+        requestId,
         entryId: String(params.entryId ?? ""),
         contentType: contentType ?? "rewrite",
         contentVersion: contentVersion ?? "",
@@ -491,6 +496,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
             ? { ...(await deps.cardSpeechService.getOrCreateArticle(articleInput)), deliveryMode: "buffered" as const }
         : await deps.cardSpeechService.getOrCreateSegment({
             userId,
+            requestId,
             entryId: String(params.entryId ?? ""),
             segmentId,
             sourceKind: query.sourceKind === "dictation_sentence" ? "dictation_sentence" : "review_segment",
@@ -502,6 +508,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       if (error instanceof ResourceLimitedError) return resourceLimitedReply(reply, requestId);
+      if (error instanceof TokenQuotaExceededError) return tokenQuotaExceededReply(reply, requestId, error);
       if (error instanceof CardSpeechProRequiredError) {
         return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "当前内容的发音或听写需要 Pro" } });
       }
@@ -547,6 +554,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
     try {
       const data = await deps.cardSpeechService.getOrCreateSelection({
         userId,
+        requestId,
         entryId: String(params.entryId ?? ""),
         segmentId: String(body?.segmentId ?? ""),
         startUtf16: Number(body?.startUtf16 ?? body?.start),
@@ -557,6 +565,7 @@ export function registerTtsRoutes(app: FastifyInstance, deps: TtsRouteDeps): voi
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
       if (error instanceof ResourceLimitedError) return resourceLimitedReply(reply, requestId);
+      if (error instanceof TokenQuotaExceededError) return tokenQuotaExceededReply(reply, requestId, error);
       if (error instanceof CardSpeechProRequiredError) return reply.status(403).send({ ok: false, request_id: requestId, error: { code: error.code, message: "当前内容的发音或听写需要 Pro" } });
       if (error instanceof CardNotFoundError) return reply.status(404).send({ ok: false, request_id: requestId, error: { code: error.code, message: "记录不存在" } });
       if (error instanceof CardValidationError) return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.message } });
@@ -694,6 +703,18 @@ function readTtsRangeRawInput(req: FastifyRequest): Record<string, unknown> {
       textEnd: body.textEnd,
     },
   };
+}
+
+function tokenQuotaExceededReply(reply: FastifyReply, requestId: string, error: TokenQuotaExceededError) {
+  return reply.status(402).send({
+    ok: false,
+    request_id: requestId,
+    error: {
+      code: error.code,
+      message: error.message,
+      details: { remaining: error.remainingTokens, refreshAt: error.refreshAt.toISOString() },
+    },
+  });
 }
 
 async function writeTtsRangeRejectedLog(

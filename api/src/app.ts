@@ -432,6 +432,7 @@ export function createApp() {
     ttsRequestLogRepository,
     redisClient,
     resourceGovernor,
+    usageV2Service,
   );
   const cardSpeechService = new CardSpeechService(
     cardRepository,
@@ -442,6 +443,7 @@ export function createApp() {
     redisClient,
     resourceGovernor,
     runtimeConfig.cardContentMaxChars,
+    usageV2Service,
   );
   const ttsStreamingEnabled = process.env.TTS_STREAMING_ENABLED?.trim().toLowerCase() === "true";
   const ttsStreamingTicketSecret = process.env.TTS_STREAMING_TICKET_SECRET?.trim() ?? "";

@@ -14,6 +14,8 @@
 - (void)setHighlightRangesJson:(NSString *)json;
 - (void)setBlankRangesJson:(NSString *)json;
 - (void)setCorrectRangesJson:(NSString *)json;
+- (void)setAnswerRangesJson:(NSString *)json;
+- (void)setActiveRangeJson:(NSString *)json;
 - (void)setAnswersVisible:(BOOL)visible;
 - (void)setVisualsHidden:(BOOL)hidden;
 - (void)setTextColor:(NSString *)color;

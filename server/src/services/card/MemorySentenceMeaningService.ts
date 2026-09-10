@@ -95,6 +95,7 @@ export class MemorySentenceMeaningService {
         requestId: input.requestId,
         inputTokens: tokenUsage?.inputTokens ?? Math.ceil(Array.from(meteredPrompt).length / 2),
         outputTokens: tokenUsage?.outputTokens ?? Math.ceil(Array.from(output).length / 2),
+        billableCharacters: Array.from(output).length,
         meteringSource: tokenUsage ? "provider" : "tokenizer",
         provider: input.provider,
         model: input.model,

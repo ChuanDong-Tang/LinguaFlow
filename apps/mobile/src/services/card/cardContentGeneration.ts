@@ -5,7 +5,6 @@ import {
   CardApiError,
   type CardRecordDetail,
 } from "../api/cardApi";
-import { isEntireTargetLanguageText } from "@lf/core/text/targetLanguageRanges";
 
 export type CardGenerationTarget = "expression" | "translation" | "auxiliary" | "reply" | "image_description";
 
@@ -26,10 +25,6 @@ export async function generateMissingCardContent(
   for (let index = 0; index < targets.length; index += 1) {
     const target = targets[index]!;
     if (hasGeneratedContent(detail, target)) continue;
-    if (target === "expression" && isEntireTargetLanguageText(detail.originalText, detail.languageCode)) {
-      generatedTargets.push(target);
-      continue;
-    }
     try {
       if (target === "image_description") {
         detail = await generateCardImageDescriptions(detail.id);

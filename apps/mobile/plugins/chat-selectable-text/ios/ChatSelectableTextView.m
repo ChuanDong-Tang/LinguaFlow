@@ -9,6 +9,8 @@
 @property (nonatomic, copy) NSString *highlightRangesJson;
 @property (nonatomic, copy) NSString *blankRangesJson;
 @property (nonatomic, copy) NSString *correctRangesJson;
+@property (nonatomic, copy) NSString *answerRangesJson;
+@property (nonatomic, copy) NSString *activeRangeJson;
 @property (nonatomic, copy) NSArray<NSString *> *menuOptions;
 @property (nonatomic, strong) UIColor *currentTextColor;
 @property (nonatomic, strong) NSNumber *currentFontSize;
@@ -32,6 +34,8 @@
 - (void)handleCopyAction;
 - (void)drawHighlightBackgroundsInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect;
 - (void)drawBlankUnderlinesInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect;
+- (void)drawAnswerTextsInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect;
+- (void)drawActiveRangeBordersInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect;
 @end
 
 @interface ChatSelectableTextInnerTextView : UITextView
@@ -93,7 +97,9 @@
 {
   [self.owner drawHighlightBackgroundsInTextView:self dirtyRect:rect];
   [super drawRect:rect];
+  [self.owner drawAnswerTextsInTextView:self dirtyRect:rect];
   [self.owner drawBlankUnderlinesInTextView:self dirtyRect:rect];
+  [self.owner drawActiveRangeBordersInTextView:self dirtyRect:rect];
 }
 
 @end
@@ -107,6 +113,8 @@
     _highlightRangesJson = @"[]";
     _blankRangesJson = @"[]";
     _correctRangesJson = @"[]";
+    _answerRangesJson = @"[]";
+    _activeRangeJson = @"[]";
     _menuOptions = @[];
     _currentTextColor = [UIColor colorWithRed:17.0 / 255.0 green:17.0 / 255.0 blue:17.0 / 255.0 alpha:1.0];
     _currentFontSize = @17;
@@ -139,7 +147,10 @@
 
     _rangeTapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeTap:)];
     _rangeTapRecognizer.delegate = self;
-    _rangeTapRecognizer.cancelsTouchesInView = NO;
+    // A cloze-range tap is an app action, not a UITextView selection tap. Letting
+    // the same touch continue into UITextView can make it steal first responder
+    // status from the shared answer input after React Native focuses it.
+    _rangeTapRecognizer.cancelsTouchesInView = YES;
     [_textView addGestureRecognizer:_rangeTapRecognizer];
 
     _rangeLongPressRecognizer = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleRangeLongPress:)];
@@ -204,6 +215,18 @@
 {
   _correctRangesJson = json ?: @"[]";
   [self applyText];
+}
+
+- (void)setAnswerRangesJson:(NSString *)json
+{
+  _answerRangesJson = json ?: @"[]";
+  [self.textView setNeedsDisplay];
+}
+
+- (void)setActiveRangeJson:(NSString *)json
+{
+  _activeRangeJson = json ?: @"[]";
+  [self.textView setNeedsDisplay];
 }
 
 - (void)setAnswersVisible:(BOOL)visible
@@ -430,6 +453,65 @@
   }
 }
 
+- (void)drawAnswerTextsInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect
+{
+  if (self.visualsHidden || textView.textStorage.length == 0) return;
+  NSData *data = [(self.answerRangesJson ?: @"[]") dataUsingEncoding:NSUTF8StringEncoding];
+  NSArray *items = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+  if (![items isKindOfClass:NSArray.class]) return;
+  NSLayoutManager *layoutManager = textView.layoutManager;
+  [layoutManager ensureLayoutForTextContainer:textView.textContainer];
+  NSDictionary *baseAttributes = @{ NSFontAttributeName: [self fontForCurrentStyle] };
+  for (id value in items) {
+    if (![value isKindOfClass:NSDictionary.class]) continue;
+    NSDictionary *item = value;
+    NSRange range = [self safeRangeFromDictionary:item length:textView.textStorage.length];
+    NSString *answer = [item[@"text"] isKindOfClass:NSString.class] ? item[@"text"] : @"";
+    if (range.length == 0 || answer.length == 0) continue;
+    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:range actualCharacterRange:nil];
+    CGRect rect = [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:textView.textContainer];
+    rect.origin.x += textView.textContainerInset.left;
+    rect.origin.y += textView.textContainerInset.top;
+    if (!CGRectIntersectsRect(rect, dirtyRect)) continue;
+    UIColor *color = [item[@"incorrect"] boolValue]
+      ? [self colorFromString:@"#C65353" fallback:self.currentTextColor]
+      : self.currentTextColor;
+    NSMutableDictionary *attributes = [baseAttributes mutableCopy];
+    attributes[NSForegroundColorAttributeName] = color;
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    CGContextSaveGState(context);
+    CGContextClipToRect(context, rect);
+    [answer drawAtPoint:rect.origin withAttributes:attributes];
+    CGContextRestoreGState(context);
+  }
+}
+
+- (void)drawActiveRangeBordersInTextView:(UITextView *)textView dirtyRect:(CGRect)dirtyRect
+{
+  if (self.visualsHidden || textView.textStorage.length == 0) return;
+  NSLayoutManager *layoutManager = textView.layoutManager;
+  [layoutManager ensureLayoutForTextContainer:textView.textContainer];
+  UIColor *borderColor = [self colorFromString:@"#D05F78" fallback:self.currentTextColor];
+  for (NSDictionary *item in [self parseRanges:self.activeRangeJson]) {
+    NSRange range = [self safeRangeFromDictionary:item length:textView.textStorage.length];
+    if (range.length == 0) continue;
+    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:range actualCharacterRange:nil];
+    [layoutManager enumerateLineFragmentsForGlyphRange:glyphRange usingBlock:^(CGRect lineRect, CGRect usedRect, NSTextContainer *container, NSRange lineGlyphRange, BOOL *stop) {
+      NSRange fragment = NSIntersectionRange(glyphRange, lineGlyphRange);
+      if (fragment.length == 0) return;
+      CGRect rect = [layoutManager boundingRectForGlyphRange:fragment inTextContainer:container];
+      rect.origin.x += textView.textContainerInset.left;
+      rect.origin.y += textView.textContainerInset.top;
+      rect = CGRectInset(rect, 0.75, 0.75);
+      if (!CGRectIntersectsRect(rect, dirtyRect)) return;
+      UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:3.0];
+      path.lineWidth = 1.5;
+      [borderColor setStroke];
+      [path stroke];
+    }];
+  }
+}
+
 - (void)emitContentHeightIfNeeded
 {
   if (!self.onContentHeightChange) return;
@@ -619,7 +701,7 @@
   if (!range || !self.onClozeRangePress) return;
   NSRange safeRange = [self safeRangeFromDictionary:range length:self.textView.textStorage.length];
   CGRect rect = [self selectionRectForRange:safeRange];
-  self.onClozeRangePress(@{
+  NSDictionary *event = @{
     @"groupIndex": range[@"groupIndex"] ?: @0,
     @"selectionRect": @{
       @"pageX": @(rect.origin.x),
@@ -627,6 +709,12 @@
       @"width": @(rect.size.width),
       @"height": @(rect.size.height)
     }
+  };
+  // Finish UITextView's tap cycle before asking React Native to focus the
+  // answer input. This keeps the focus transfer single and deterministic.
+  [self.textView resignFirstResponder];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (self.onClozeRangePress) self.onClozeRangePress(event);
   });
 }
 

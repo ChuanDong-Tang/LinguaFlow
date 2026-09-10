@@ -21,6 +21,7 @@ import {
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
+import { countGraphemes } from "@lf/core/text/grapheme.js";
 
 type ChatGenerationStreamServiceInput = ChatGenerationStreamRequestBody & {
   userId: string;
@@ -269,12 +270,11 @@ export class ChatGenerationService {
     try {
       if (input.usageApiVersion === "v2") {
         if (!this.usageV2Service) throw new Error("V2 usage is unavailable");
-        const meteredInput = `${input.systemPrompt ?? ""}\n${input.text}`;
         await this.usageV2Service.reserveTokens({
           userId: input.userId,
           requestId: input.requestId,
           feature: input.companionMode === "simple_reply" ? "reply" : "rewrite",
-          estimatedTokens: Array.from(meteredInput).length + 4_000,
+          estimatedTokens: 4_000,
           provider: effectiveProvider,
           model: effectiveModel,
         });
@@ -346,6 +346,7 @@ export class ChatGenerationService {
           requestId: input.requestId,
           inputTokens: tokenUsage?.inputTokens ?? Math.ceil(Array.from(`${input.systemPrompt ?? ""}\n${input.text}`).length / 2),
           outputTokens: tokenUsage?.outputTokens ?? Math.ceil(Array.from(assistantText).length / 2),
+          billableCharacters: countGraphemes(assistantText),
           meteringSource: tokenUsage ? "provider" : "tokenizer",
           provider: effectiveProvider,
           model: effectiveModel,
@@ -380,7 +381,7 @@ export class ChatGenerationService {
         await onEvent({ type: "delta", text: outputBuffer });
         outputBuffer = "";
       }
-      const totalChars = input.text.length + assistantText.length;
+      const totalChars = countGraphemes(assistantText);
       try {
         if (input.usageApiVersion !== "v2") {
         // 输出长度由模型决定；用户只要有额度发起本轮，就让回复完整返回，最终扣费最多扣到当日上限。
@@ -413,6 +414,7 @@ export class ChatGenerationService {
             requestId: input.requestId,
             inputTokens: tokenUsage?.inputTokens ?? Math.ceil(Array.from(`${input.systemPrompt ?? ""}\n${input.text}`).length / 2),
             outputTokens: tokenUsage?.outputTokens ?? Math.ceil(Array.from(assistantText).length / 2),
+            billableCharacters: countGraphemes(assistantText),
             meteringSource: tokenUsage ? "provider" : "tokenizer",
             provider: effectiveProvider,
             model: effectiveModel,
@@ -552,7 +554,7 @@ export class ChatGenerationService {
     assistantText: string,
     dateKey?: string
   ): Promise<void> {
-    const chargeChars = input.text.length + assistantText.length;
+    const chargeChars = countGraphemes(assistantText);
     // 用户主动停止时同样按已产生内容计费，但不允许额度被扣成超额。
     await this.entitlementService.consumeUpToLimit(input.userId, chargeChars, { dateKey });
   }
@@ -562,7 +564,7 @@ export class ChatGenerationService {
     assistantText: string,
     dateKey?: string
   ): Promise<void> {
-    const chargeChars = input.text.length + assistantText.length;
+    const chargeChars = countGraphemes(assistantText);
     // 用户输入通过安全检查、但诱导模型生成违规内容时，按已产生内容计费。
     await this.entitlementService.consumeUpToLimit(input.userId, chargeChars, { dateKey });
   }

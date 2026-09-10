@@ -6,16 +6,13 @@ import { t } from "../../i18n";
 import { theme } from "../../theme";
 
 const features = [
-  { key: "pro.points.rewrite", charged: true },
-  { key: "pro.points.reply", charged: true },
   { key: "pro.points.dictionary", charged: false },
-  { key: "pro.points.translation", charged: false },
-  { key: "pro.points.image_description", charged: false },
-  { key: "pro.points.reading", charged: false },
-  { key: "pro.points.playback", charged: false },
-  { key: "pro.points.cloze", charged: false },
-  { key: "pro.points.dictation", charged: false },
   { key: "pro.points.voice_input", charged: false },
+  { key: "pro.points.playback", charged: false },
+  { key: "pro.points.rewrite", charged: true, rateKey: "pro.points.ai_rate" },
+  { key: "pro.points.reply", charged: true, rateKey: "pro.points.ai_rate" },
+  { key: "pro.points.assistant_beta", charged: true, rateKey: "pro.points.ai_rate" },
+  { key: "pro.points.tts", charged: true, rateKey: "pro.points.tts_rate" },
 ] as const;
 
 export function PointsUsageSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
@@ -39,17 +36,16 @@ export function PointsUsageSheet({ visible, onClose }: { visible: boolean; onClo
                   <View style={styles.featureText}>
                     <Text style={styles.label}>{t(feature.key)}</Text>
                     {feature.charged ? <Text style={styles.description}>
-                      {t("pro.points.counting")}
+                      {t(feature.key === "pro.points.tts" ? "pro.points.tts_counting" : "pro.points.counting")}
                     </Text> : null}
                   </View>
                   <Text style={[styles.value, !feature.charged && styles.free]}>
-                    {t(feature.charged ? "pro.points.rate" : "pro.points.free")}
+                    {t(feature.charged ? feature.rateKey : "pro.points.free")}
                   </Text>
                 </View>
               </React.Fragment>
             ))}
           </View>
-          <Text style={styles.note}>{t("pro.points.short_note")}</Text>
         </ScrollView>
       </View>
     </View>
@@ -69,5 +65,4 @@ const styles = StyleSheet.create({
   value: { fontSize: 14, fontWeight: "600", color: theme.colors.text, textAlign: "right", flexShrink: 1 },
   free: { color: "#3F7D65" },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
-  note: { fontSize: 12, lineHeight: 20, color: theme.colors.textMuted },
 });

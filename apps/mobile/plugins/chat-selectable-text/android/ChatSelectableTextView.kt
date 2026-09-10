@@ -105,6 +105,8 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   private var highlightRangesJson: String = "[]"
   private var blankRangesJson: String = "[]"
   private var correctRangesJson: String = "[]"
+  private var answerRangesJson: String = "[]"
+  private var activeRangeJson: String = "[]"
   private var answersVisible: Boolean = false
   private var visualsHidden: Boolean = false
   private var menuOptions: List<String> = emptyList()
@@ -168,6 +170,16 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   fun setCorrectRangesJson(value: String) {
     correctRangesJson = value
     requestApplyText()
+  }
+
+  fun setAnswerRangesJson(value: String) {
+    answerRangesJson = value
+    invalidate()
+  }
+
+  fun setActiveRangeJson(value: String) {
+    activeRangeJson = value
+    invalidate()
   }
 
   fun setAnswersVisible(value: Boolean) {
@@ -355,6 +367,10 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     }
 
     super.onDraw(canvas)
+    val answerPaint = Paint(paint).apply { isAntiAlias = true }
+    parseAnswerRanges(answerRangesJson).forEach { range ->
+      drawAnswerRange(canvas, textLayout, textLength, range, answerPaint)
+    }
     val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
       color = Color.parseColor("#D05F78")
       strokeWidth = 2f * density
@@ -365,6 +381,34 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         canvas.drawLine(left, bottom + density, right, bottom + density, linePaint)
       }
     }
+    val activePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.parseColor("#D05F78")
+      strokeWidth = 1.5f * density
+      style = Paint.Style.STROKE
+    }
+    parseRanges(activeRangeJson).forEach { range ->
+      drawRangeLines(textLayout, textLength, range) { left, top, right, bottom ->
+        val inset = activePaint.strokeWidth / 2f
+        canvas.drawRoundRect(left + inset, top + inset, right - inset, bottom - inset, 3f * density, 3f * density, activePaint)
+      }
+    }
+  }
+
+  private fun drawAnswerRange(canvas: Canvas, textLayout: android.text.Layout, textLength: Int, range: AnswerRange, answerPaint: Paint) {
+    val safeStart = range.start.coerceIn(0, textLength)
+    val safeEnd = range.end.coerceIn(safeStart, textLength)
+    if (safeStart >= safeEnd || range.text.isEmpty()) return
+    val line = textLayout.getLineForOffset(safeStart)
+    val left = compoundPaddingLeft + textLayout.getPrimaryHorizontal(safeStart)
+    val right = compoundPaddingLeft + textLayout.getPrimaryHorizontal(safeEnd)
+    val clipLeft = minOf(left, right)
+    val clipRight = maxOf(left, right)
+    if (clipRight <= clipLeft) return
+    answerPaint.color = Color.parseColor(if (range.incorrect) "#C65353" else "#242424")
+    val checkpoint = canvas.save()
+    canvas.clipRect(clipLeft, textLayout.getLineTop(line).toFloat(), clipRight, textLayout.getLineBottom(line).toFloat())
+    canvas.drawText(range.text, left, extendedPaddingTop - scrollY + textLayout.getLineBaseline(line).toFloat(), answerPaint)
+    canvas.restoreToCount(checkpoint)
   }
 
   private inline fun drawRangeLines(
@@ -767,6 +811,21 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     }
   }
 
+  private fun parseAnswerRanges(json: String): List<AnswerRange> {
+    return try {
+      val array = JSONArray(json)
+      (0 until array.length()).mapNotNull { index ->
+        val item = array.optJSONObject(index) ?: return@mapNotNull null
+        val start = item.optInt("start", 0)
+        val end = item.optInt("end", start)
+        val answer = item.optString("text", "")
+        if (start < end && answer.isNotEmpty()) AnswerRange(start, end, answer, item.optBoolean("incorrect", false)) else null
+      }
+    } catch (_: Exception) {
+      emptyList()
+    }
+  }
+
   private fun parseColor(value: String, fallback: Int): Int {
     return try {
       Color.parseColor(value)
@@ -776,4 +835,5 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   }
 
   private data class Range(val start: Int, val end: Int, val groupIndex: Int)
+  private data class AnswerRange(val start: Int, val end: Int, val text: String, val incorrect: Boolean)
 }

@@ -206,6 +206,8 @@ const ttsStreamingWorker = ttsStreamingCoordinator
         ttsStorageProvider,
         workerRedisClient,
         resourceGovernor,
+        runtime.cardContentMaxChars,
+        usageV2Service,
       ),
       systemEventLogRepository,
     )

@@ -115,17 +115,22 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
         getActiveRecallSession(resumeMode),
         getActiveRecallSession("blind"),
       ]);
+      const completedTodayRows = completedCards(todayRows);
+      const completedYesterdayRows = completedCards(yesterdayRows);
+      const resumableActive = active?.nodes.length && await canResumeRecallSession(active, yesterday)
+        ? active
+        : null;
       const validKeys = [...keys].sort();
-      setTodayCards(completedCards(todayRows));
-      setYesterdayCards(completedCards(yesterdayRows));
+      setTodayCards(completedTodayRows);
+      setYesterdayCards(completedYesterdayRows);
       setDateKeys(validKeys);
-      setActiveSession(active?.nodes.length ? active : null);
+      setActiveSession(resumableActive);
       setBlindSession(blind?.nodes.length && isBlindRecallSession(blind) ? blind : null);
       if (launchRequest && handledLaunchRef.current !== launchRequest.key) {
         handledLaunchRef.current = launchRequest.key;
-        if (resumeMode === "recent" && active?.nodes.length && active.launchContext?.query?.startsWith("recent:")) {
+        if (resumeMode === "recent" && resumableActive && isRecentRecallSession(resumableActive)) {
           try {
-            await openSession(active, true);
+            await openSession(resumableActive, true);
             setDirectLaunchPending(false);
             return;
           } catch (error) {
@@ -139,10 +144,10 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
         }
         else {
           const rows = launchRequest.mode === "today"
-            ? completedCards(todayRows)
+            ? completedTodayRows
             : launchRequest.mode === "yesterday"
-              ? completedCards(yesterdayRows)
-              : [...completedCards(yesterdayRows), ...completedCards(todayRows)]
+              ? completedYesterdayRows
+              : [...completedYesterdayRows, ...completedTodayRows]
                 .sort((left, right) => Date.parse(left.recordedAt ?? left.createdAt) - Date.parse(right.recordedAt ?? right.createdAt));
           if (!rows.length) {
             setDirectLaunchPending(false);
@@ -562,6 +567,25 @@ function RecallChoice({ icon, title, subtitle, disabled, onPress }: { icon: Reac
 
 function isBlindRecallSession(session: RecallSession | null): boolean {
   return typeof session?.launchContext?.query === "string" && session.launchContext.query.startsWith("blind:");
+}
+
+function isRecentRecallSession(session: RecallSession | null): boolean {
+  return typeof session?.launchContext?.query === "string" && session.launchContext.query.startsWith("recent:");
+}
+
+async function canResumeRecallSession(session: RecallSession, oldestDateKey: string): Promise<boolean> {
+  if (!isRecentRecallSession(session)) return true;
+  const saved = await AsyncStorage.getItem(recallPositionKey(session.id)).catch(() => null);
+  const savedNodeId = readRecallBookmark(saved, session.lastOpenedAt);
+  const resumeNode = session.nodes[recallResumeIndex(session.nodes, savedNodeId)];
+  if (!resumeNode) return false;
+  try {
+    const card = await getCardRecord(resumeNode.recordId);
+    const cardDate = new Date(card.recordedAt ?? card.createdAt);
+    return !Number.isNaN(cardDate.getTime()) && localDateKey(cardDate) >= oldestDateKey;
+  } catch {
+    return false;
+  }
 }
 
 function TopicModal({ visible, value, searchState, onChange, onClose, onSubmit }: { visible: boolean; value: string; searchState: "idle" | "searching" | "empty"; onChange: (value: string) => void; onClose: () => void; onSubmit: () => void }) {

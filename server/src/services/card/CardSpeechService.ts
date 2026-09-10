@@ -13,6 +13,8 @@ import { CardNotFoundError, CardValidationError } from "./CardService.js";
 import type { RedisClient } from "../../infrastructure/redis/redisClient.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { buildCardSpeechText, type CardSpeechSegment, type CardSpeechSentenceMark } from "@lf/core/text/cardSpeechText.js";
+import type { UsageV2Service } from "../usage/UsageV2Service.js";
+import { generateWithTtsPointBilling } from "../usage/TtsPointMeter.js";
 
 export class CardSpeechProRequiredError extends Error {
   readonly code = "PRO_REQUIRED";
@@ -47,6 +49,7 @@ export type CardSpeechGenerateInput = {
   languageCode: string;
   sourceText: string;
   sourceTextHash: string;
+  billingRequestId: string;
   sentenceSegments?: Array<Omit<CardSpeechSegment, "segmentId"> & { segmentId?: string }>;
   displaySentenceSegments?: Array<{ segmentId: string; text: string }>;
 };
@@ -67,6 +70,7 @@ export class CardSpeechService {
     private readonly redisClient?: RedisClient | null,
     private readonly resourceGovernor?: ResourceGovernor,
     private readonly articleMaxChars = DEFAULT_CARD_CONTENT_MAX_CHARS,
+    private readonly usageV2Service?: UsageV2Service,
   ) {}
 
   async getOrCreateSegment(input: {
@@ -78,6 +82,7 @@ export class CardSpeechService {
     endUtf16?: number;
     contentType?: CardLearningContentType;
     contentVersion?: string;
+    requestId?: string;
   }): Promise<CardSpeechAssetView> {
     const entry = await this.repository.findByIdForUser(input.entryId, input.userId);
     if (!entry || entry.status !== "completed") throw new CardNotFoundError();
@@ -143,13 +148,14 @@ export class CardSpeechService {
       languageCode,
       sourceText,
       sourceTextHash,
+      billingRequestId: input.requestId ?? randomUUID(),
     });
     generations.set(cacheKey, generation);
     try { return this.toView(await generation, false); }
     finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
   }
 
-  async getOrCreateArticle(input: { userId: string; entryId: string; contentType: CardLearningContentType; contentVersion: string }): Promise<CardSpeechAssetView> {
+  async getOrCreateArticle(input: { userId: string; entryId: string; contentType: CardLearningContentType; contentVersion: string; requestId?: string }): Promise<CardSpeechAssetView> {
     const prepared = await this.prepareArticle(input);
     if (prepared.cached) return prepared.cached;
     const { generation: generationInput } = prepared;
@@ -162,7 +168,7 @@ export class CardSpeechService {
     finally { if (generations.get(generationInput.cacheKey) === generation) generations.delete(generationInput.cacheKey); }
   }
 
-  async prepareArticle(input: { userId: string; entryId: string; contentType: CardLearningContentType; contentVersion: string }): Promise<PreparedCardArticleSpeech> {
+  async prepareArticle(input: { userId: string; entryId: string; contentType: CardLearningContentType; contentVersion: string; requestId?: string }): Promise<PreparedCardArticleSpeech> {
     const entry = await this.repository.findByIdForUser(input.entryId, input.userId);
     if (!entry || entry.status !== "completed") throw new CardNotFoundError();
     const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
@@ -208,6 +214,7 @@ export class CardSpeechService {
         languageCode,
         sourceText,
         sourceTextHash,
+        billingRequestId: input.requestId ?? randomUUID(),
         sentenceSegments,
         displaySentenceSegments,
       },
@@ -223,16 +230,26 @@ export class CardSpeechService {
     const cached = await this.repository.findReadySpeechAsset(input.cacheKey);
     if (cached) return { asset: await this.refreshUrlIfNeeded(cached), synthesis: emptySynthesisResult() };
     if (!this.provider.synthesizeStreaming) throw new Error("TTS_STREAMING_NOT_SUPPORTED");
-    const synthesize = () => this.provider.synthesizeStreaming!({
+    return generateWithTtsPointBilling({
+      usageService: this.usageV2Service,
+      userId: input.userId,
+      requestId: input.billingRequestId,
       text: input.sourceText,
-      languageCode: input.languageCode,
-      voiceCode: input.voiceCode,
-      sentenceSegments: input.sentenceSegments ?? [{ text: input.sourceText, textStart: 0, textEnd: input.sourceText.length }],
-    }, { onAudioChunk, onSentenceMarks });
-    const synthesized = this.resourceGovernor
-      ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
-      : await synthesize();
-    return { asset: await this.persistSynthesis(input, synthesized, generationId), synthesis: synthesized };
+      provider: input.provider,
+      operation: "card_tts_streaming",
+      generate: async () => {
+        const synthesize = () => this.provider.synthesizeStreaming!({
+          text: input.sourceText,
+          languageCode: input.languageCode,
+          voiceCode: input.voiceCode,
+          sentenceSegments: input.sentenceSegments ?? [{ text: input.sourceText, textStart: 0, textEnd: input.sourceText.length }],
+        }, { onAudioChunk, onSentenceMarks });
+        const synthesized = this.resourceGovernor
+          ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
+          : await synthesize();
+        return { asset: await this.persistSynthesis(input, synthesized, generationId), synthesis: synthesized };
+      },
+    });
   }
 
   async getOrCreateSelection(input: {
@@ -243,6 +260,7 @@ export class CardSpeechService {
     endUtf16: number;
     contentType?: CardLearningContentType;
     contentVersion?: string;
+    requestId?: string;
   }): Promise<CardSpeechAssetView> {
     const entitlement = await this.entitlementService.getCurrentEntitlement(input.userId);
     if (!entitlement.features.highQualityTts) throw new CardSpeechProRequiredError();
@@ -296,13 +314,14 @@ export class CardSpeechService {
       languageCode,
       sourceText,
       sourceTextHash,
+      billingRequestId: input.requestId ?? randomUUID(),
     });
     generations.set(cacheKey, generation);
     try { return this.toView(await generation, false, context); }
     finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
   }
 
-  async getOrCreateDictionaryTerm(input: { userId: string; term: string; languageCode?: string }): Promise<CardSpeechAssetView> {
+  async getOrCreateDictionaryTerm(input: { userId: string; term: string; languageCode?: string; requestId?: string }): Promise<CardSpeechAssetView> {
     const languageCode = input.languageCode === "ja-JP" ? "ja-JP" : "en-US";
     const sourceText = normalizeLearningText({ text: input.term, languageCode });
     if (!sourceText || countGraphemes(sourceText) > 3_000) throw new CardValidationError("发音内容需要包含 1 到 3000 个字符");
@@ -324,7 +343,7 @@ export class CardSpeechService {
     if (cached) return this.toView(await this.refreshUrlIfNeeded(cached), true, context);
     const existing = generations.get(cacheKey);
     if (existing) return this.toView(await existing, true, context);
-    const generation = this.generateWithLock({ userId: input.userId, entryId: null, segmentId: null, sourceKind: "dictionary_term", cacheKey, provider, voiceCode, languageCode, sourceText, sourceTextHash });
+    const generation = this.generateWithLock({ userId: input.userId, entryId: null, segmentId: null, sourceKind: "dictionary_term", cacheKey, provider, voiceCode, languageCode, sourceText, sourceTextHash, billingRequestId: input.requestId ?? randomUUID() });
     generations.set(cacheKey, generation);
     try { return this.toView(await generation, false, context); }
     finally { if (generations.get(cacheKey) === generation) generations.delete(cacheKey); }
@@ -359,16 +378,26 @@ export class CardSpeechService {
   }
 
   private async generate(input: CardSpeechGenerateInput): Promise<CardSpeechAssetEntity> {
-    const synthesize = () => this.provider.synthesize({
+    return generateWithTtsPointBilling({
+      usageService: this.usageV2Service,
+      userId: input.userId,
+      requestId: input.billingRequestId,
       text: input.sourceText,
-      languageCode: input.languageCode,
-      voiceCode: input.voiceCode,
-      sentenceSegments: input.sentenceSegments ?? [{ text: input.sourceText, textStart: 0, textEnd: input.sourceText.length }],
+      provider: input.provider,
+      operation: `card_tts_${input.sourceKind}`,
+      generate: async () => {
+        const synthesize = () => this.provider.synthesize({
+          text: input.sourceText,
+          languageCode: input.languageCode,
+          voiceCode: input.voiceCode,
+          sentenceSegments: input.sentenceSegments ?? [{ text: input.sourceText, textStart: 0, textEnd: input.sourceText.length }],
+        });
+        const synthesized = this.resourceGovernor
+          ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
+          : await synthesize();
+        return this.persistSynthesis(input, synthesized, randomUUID());
+      },
     });
-    const synthesized = this.resourceGovernor
-      ? await this.resourceGovernor.executeConcurrency("tts", input.userId, synthesize)
-      : await synthesize();
-    return this.persistSynthesis(input, synthesized, randomUUID());
   }
 
   private async persistSynthesis(

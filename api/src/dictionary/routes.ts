@@ -207,6 +207,7 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
             requestId,
             inputTokens: generated.usage?.inputTokens ?? Math.ceil(Array.from(meteredPrompt).length / 2),
             outputTokens: generated.usage?.outputTokens ?? Math.ceil(Array.from(generated.text).length / 2),
+            billableCharacters: Array.from(generated.text).length,
             meteringSource: generated.usage ? "provider" : "tokenizer",
             provider,
             model,

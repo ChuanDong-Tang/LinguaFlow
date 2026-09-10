@@ -379,7 +379,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     ),
     grokTimeoutMs: readPositiveInt(env.GROK_TIMEOUT_MS ?? env.OPENAI_TIMEOUT_MS ?? env.ChatGPT_TIMEOUT_MS, 20_000),
     quotaTimeZone: env.LF_QUOTA_TIME_ZONE?.trim() || "Asia/Shanghai",
-    usageV2ConfigVersion: env.LF_USAGE_V2_CONFIG_VERSION?.trim() || "usage-v2.2",
+    usageV2ConfigVersion: env.LF_USAGE_V2_CONFIG_VERSION?.trim() || "usage-v2.3-character-points",
     freeMonthlyTokenLimit: readPositiveInt(env.LF_V2_FREE_MONTHLY_TOKEN_LIMIT, 10_000),
     plusMonthlyTokenLimit: readPositiveInt(env.LF_V2_PLUS_MONTHLY_TOKEN_LIMIT, 250_000),
     proMonthlyTokenLimit: readPositiveInt(env.LF_V2_PRO_MONTHLY_TOKEN_LIMIT, 500_000),

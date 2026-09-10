@@ -35,6 +35,16 @@ class ChatSelectableTextViewManager : SimpleViewManager<ChatSelectableTextView>(
     view.setCorrectRangesJson(value ?: "[]")
   }
 
+  @ReactProp(name = "answerRangesJson")
+  fun setAnswerRangesJson(view: ChatSelectableTextView, value: String?) {
+    view.setAnswerRangesJson(value ?: "[]")
+  }
+
+  @ReactProp(name = "activeRangeJson")
+  fun setActiveRangeJson(view: ChatSelectableTextView, value: String?) {
+    view.setActiveRangeJson(value ?: "[]")
+  }
+
   @ReactProp(name = "answersVisible", defaultBoolean = false)
   fun setAnswersVisible(view: ChatSelectableTextView, value: Boolean) {
     view.setAnswersVisible(value)

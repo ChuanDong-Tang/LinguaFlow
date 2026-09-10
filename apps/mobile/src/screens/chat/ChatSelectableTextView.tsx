@@ -36,6 +36,8 @@ type NativeProps = ViewProps & {
   highlightRangesJson?: string;
   blankRangesJson?: string;
   correctRangesJson?: string;
+  answerRangesJson?: string;
+  activeRangeJson?: string;
   answersVisible?: boolean;
   visualsHidden?: boolean;
   textColor?: string;

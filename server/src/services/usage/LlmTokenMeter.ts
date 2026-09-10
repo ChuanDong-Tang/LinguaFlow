@@ -1,5 +1,6 @@
 import type { AIProvider, ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { UsageV2Service } from "./UsageV2Service.js";
+import { countGraphemes } from "@lf/core/text/grapheme.js";
 
 export type LlmUsageFeature = "rewrite" | "organization" | "reply" | "dictionary";
 export type ProviderTokenUsage = Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
@@ -11,8 +12,8 @@ export function isPlatformMigrationBillingExempt(payload: unknown): boolean {
     === CHAT_HISTORY_MIGRATION_BILLING_EXEMPTION;
 }
 
-export function estimateLlmTokenReservation(prompt: string, maxOutputTokens: number): number {
-  return Math.max(1, Array.from(prompt).length + maxOutputTokens);
+export function estimateLlmTokenReservation(_prompt: string, maxOutputTokens: number): number {
+  return Math.max(1, maxOutputTokens);
 }
 
 export async function reserveLlmTokenUsage(input: {
@@ -48,6 +49,7 @@ export async function settleLlmTokenUsage(input: {
     requestId: input.requestId,
     inputTokens: input.usage?.inputTokens ?? Math.ceil(Array.from(input.prompt).length / 2),
     outputTokens: input.usage?.outputTokens ?? Math.ceil(Array.from(input.output).length / 2),
+    billableCharacters: countGraphemes(input.output),
     meteringSource: input.usage ? "provider" : "tokenizer",
     provider: input.provider.providerName,
     model: input.provider.modelName,
