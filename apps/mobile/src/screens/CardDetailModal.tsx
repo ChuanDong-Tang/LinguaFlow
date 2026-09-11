@@ -3379,7 +3379,18 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       }}
       onKeyboardTrayChange={(state) => setKeyboardTray((current) => {
         if (activeKeyboardOwnerKey !== ownerKey) return current;
-        return state ? { ownerKey, ...state } : null;
+        if (!state) return current?.ownerKey === ownerKey ? null : current;
+        if (
+          current?.ownerKey === ownerKey
+          && current.blankId === state.blankId
+          && current.value === state.value
+          && current.incorrect === state.incorrect
+        ) return current;
+        return {
+          ownerKey,
+          ...state,
+          anchor: state.anchor ?? (current?.ownerKey === ownerKey && current.blankId === state.blankId ? current.anchor : undefined),
+        };
       })}
       selectedKeyboardBlankId={activeKeyboardOwnerKey === ownerKey ? keyboardTray?.blankId ?? null : null}
       onKeyboardAnswered={(blankId) => completeKeyboardBlank(ownerKey, blankId)}
@@ -4403,13 +4414,16 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
           <View style={[styles.clozeSentenceList, embedded && styles.inlineClozeSentenceList]}>{sentenceRows.map((row) => {
             const segment = detail.rewriteSegments.find((candidate) => candidate.id === row.segmentId);
             const auxiliaryText = segment ? auxiliaryByOrdinal.get(segment.ordinal) : undefined;
+            const keyboardEditing = fillMode && inputMode === "keyboard"
+              && effectiveActiveKeyboardBlankIndex !== null
+              && row.blanks.some((item) => item.blankIndex === effectiveActiveKeyboardBlankIndex);
             return <View
               key={row.key}
               ref={(node) => {
                 if (node) sentenceRowRefsRef.current.set(row.key, node);
                 else sentenceRowRefsRef.current.delete(row.key);
               }}
-              style={[styles.clozeSentenceRow, embedded && styles.inlineClozeSentenceRow]}
+              style={[styles.clozeSentenceRow, embedded && styles.inlineClozeSentenceRow, keyboardEditing && styles.clozeSentenceRowEditing]}
             >
               <View style={styles.clozeSentenceBody}>
                 <StableCardSentence
@@ -4573,95 +4587,6 @@ function buildCardClozeSentenceRows(detail: CardRecordDetail, clozeState: CardCl
   });
 }
 
-function ClozePracticeBlank({ expectedText, answer, checked, mastered = false, revealed = false, fillMode, inputMode, choiceActive, keyboardActive, disabled, onLongPress, onChangeAnswer, onCheck, onActivateChoice, onActivateKeyboard }: {
-  expectedText: string;
-  answer: string;
-  checked?: "correct" | "incorrect";
-  mastered?: boolean;
-  revealed?: boolean;
-  fillMode: boolean;
-  inputMode: ClozeInputMode;
-  choiceActive: boolean;
-  keyboardActive: boolean;
-  disabled: boolean;
-  onLongPress: (anchor?: CardBlankActionAnchor) => void;
-  onChangeAnswer: (value: string) => void;
-  onCheck: () => void;
-  onActivateChoice: () => void;
-  onActivateKeyboard: () => void;
-}) {
-  const inputRef = useRef<TextInput>(null);
-  const longPressHandledRef = useRef(false);
-  const showInput = fillMode && inputMode === "keyboard" && !revealed && checked !== "correct";
-  const showExpected = revealed || checked === "correct";
-  const blankWords = expectedText.trim().split(/\s+/u).filter(Boolean);
-
-  useEffect(() => {
-    if (!showInput || !keyboardActive) return;
-    const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, [keyboardActive, showInput]);
-
-  return <>
-    <View style={styles.cardBlankUnit}><Pressable
-      style={styles.cardBlankField}
-      onPressIn={() => { longPressHandledRef.current = false; }}
-      onLongPress={(event) => {
-        longPressHandledRef.current = true;
-        onLongPress({ pageX: event.nativeEvent.pageX, pageY: event.nativeEvent.pageY, width: 1, height: 24 });
-      }}
-      onPress={(event) => {
-        if (longPressHandledRef.current) { longPressHandledRef.current = false; return; }
-        const anchor = { pageX: event.nativeEvent.pageX, pageY: event.nativeEvent.pageY, width: 1, height: 24 };
-        if (!fillMode || revealed) { onLongPress(anchor); return; }
-        if (inputMode === "choice") onActivateChoice();
-        else {
-          onActivateKeyboard();
-          inputRef.current?.focus();
-        }
-      }}
-    >
-      <Text pointerEvents="none" numberOfLines={1} style={styles.cardBlankMeasure}>{expectedText || " "}</Text>
-      <View pointerEvents="none" style={[
-        styles.cardBlankBackground,
-        (mastered || checked === "correct") && styles.cardBlankBackgroundCorrect,
-        checked === "incorrect" && styles.cardBlankBackgroundIncorrect,
-        (choiceActive || keyboardActive) && styles.cardBlankBackgroundActive,
-      ]} />
-      <View pointerEvents="none" style={styles.cardBlankUnderlineRow}>
-        {(blankWords.length ? blankWords : [expectedText || " "]).map((word, index) => <View
-          key={`${index}:${word}`}
-          style={[styles.cardBlankUnderlineSegment, { flexGrow: Math.max(1, Array.from(word).length) }]}
-        />)}
-      </View>
-      <View style={styles.cardBlankContent}>
-        {showInput ? <TextInput
-          ref={inputRef}
-          value={answer}
-          editable={!disabled}
-          accessibilityLabel={t("card_detail.tab.cloze")}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="done"
-          selectionColor={theme.colors.text}
-          style={[styles.cardBlankInput, checked === "incorrect" && styles.cardBlankInputIncorrect]}
-          onFocus={onActivateKeyboard}
-          onChangeText={onChangeAnswer}
-          onSubmitEditing={onCheck}
-        /> : <Text pointerEvents="none" numberOfLines={1} style={[styles.cardBlankStaticText, checked === "incorrect" && styles.cardBlankStaticTextIncorrect]}>{showExpected ? expectedText : answer}</Text>}
-      </View>
-    </Pressable></View>
-    {fillMode && inputMode === "keyboard" && !revealed ? <Pressable
-      accessibilityLabel={t("card_detail.dictation.check")}
-      disabled={!answer.trim() || disabled}
-      style={[styles.cardBlankCheckButton, (!answer.trim() || disabled) && styles.cardBlankCheckButtonDisabled]}
-      onPress={onCheck}
-    >
-      <Ionicons name="checkmark" size={13} color={theme.colors.textMuted} />
-    </Pressable> : null}
-  </>;
-}
-
 function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving, fillMode, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onActivateChoiceBlank, onActivateKeyboardBlank, onChangeKeyboardAnswer, onCheckKeyboardAnswer, onTextSelectionStart, onTextSelectionEnd }: {
   row: CardClozeSentenceRow;
   answers: Record<string, string>;
@@ -4682,57 +4607,238 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   onTextSelectionStart?: () => void;
   onTextSelectionEnd?: () => void;
 }) {
-  const content: React.ReactNode[] = [];
-  let cursor = row.textStart;
-  row.blanks.forEach(({ blank, blankIndex }) => {
-    if (blank.startUtf16 > cursor) content.push(...renderClozeLookupText(row.text, cursor, blank.startUtf16, onLookup, onAddBlank, onTextSelectionStart, onTextSelectionEnd));
-    content.push(<ClozePracticeBlank
-      key={blank.id}
-      expectedText={blank.answer}
-      answer={answers[blank.id] ?? ""}
-      checked={checkedAnswers[blank.id]}
-      mastered={blank.mastered}
-      revealed={revealed}
-      fillMode={fillMode}
-      inputMode={inputMode}
-      choiceActive={fillMode && !revealed && inputMode === "choice" && activeChoiceBlankIndex === blankIndex}
-      keyboardActive={fillMode && !revealed && inputMode === "keyboard" && activeKeyboardBlankIndex === blankIndex}
-      disabled={saving}
-      onLongPress={(anchor) => onBlankLongPress?.(blank, anchor)}
-      onChangeAnswer={(value) => onChangeKeyboardAnswer(blankIndex, value)}
-      onCheck={() => onCheckKeyboardAnswer(blankIndex)}
-      onActivateChoice={() => onActivateChoiceBlank(blankIndex)}
-      onActivateKeyboard={() => onActivateKeyboardBlank(blankIndex)}
-    />);
-    cursor = blank.endUtf16;
-  });
-  if (cursor < row.textEnd) content.push(...renderClozeLookupText(row.text, cursor, row.textEnd, onLookup, onAddBlank, onTextSelectionStart, onTextSelectionEnd));
-  return <View style={styles.clozeFlow}>{content}</View>;
-}
+  const flowRef = useRef<View>(null);
+  const keyboardInputRef = useRef<TextInput>(null);
+  const keyboardFocusRequestRef = useRef(0);
+  const [keyboardFrame, setKeyboardFrame] = useState<{
+    blankId: string;
+    focusRequest: number;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const rangeLayoutRef = useRef(new Map<string, { signature: string; lines: Array<{ x: number; y: number; width: number; height: number }> }>());
+  const [, setRangeLayoutRevision] = useState(0);
+  const sentenceText = row.text.slice(row.textStart, row.textEnd);
+  const rangeTargets = row.blanks.flatMap(({ blank, blankIndex }) => {
+    const start = blank.startUtf16 - row.textStart;
+    const selectedText = sentenceText.slice(start, blank.endUtf16 - row.textStart);
+    const wordRuns = Array.from(selectedText.matchAll(/\S+/gu)).map((match) => ({
+      start: start + (match.index ?? 0),
+      end: start + (match.index ?? 0) + match[0].length,
+    }));
+    const runs = wordRuns.length ? wordRuns : [{ start, end: blank.endUtf16 - row.textStart }];
+    return runs.map((range, wordIndex) => ({ ...range, blank, blankIndex, wordIndex, wordCount: runs.length }));
+  }).map((target, groupIndex) => ({ ...target, groupIndex }));
+  const ranges = rangeTargets.map(({ start, end, groupIndex }) => ({ start, end, groupIndex }));
+  const phraseRanges = row.blanks.map(({ blank, blankIndex }) => ({
+    start: blank.startUtf16 - row.textStart,
+    end: blank.endUtf16 - row.textStart,
+    groupIndex: rangeTargets.find((target) => target.blankIndex === blankIndex)?.groupIndex ?? blankIndex,
+  }));
+  const highlightRanges = [...ranges, ...phraseRanges];
+  const hiddenRanges = revealed ? [] : phraseRanges;
+  const correctRanges = row.blanks
+    .filter(({ blank }) => blank.mastered || checkedAnswers[blank.id] === "correct")
+    .map(({ blank }) => ({
+      start: blank.startUtf16 - row.textStart,
+      end: blank.endUtf16 - row.textStart,
+    }));
+  const activeBlankIndex = fillMode && !revealed
+    ? inputMode === "choice" ? activeChoiceBlankIndex : activeKeyboardBlankIndex
+    : null;
+  const activeItem = activeBlankIndex === null ? null : row.blanks.find((item) => item.blankIndex === activeBlankIndex);
+  const keyboardItem = fillMode && !revealed && inputMode === "keyboard" && activeItem
+    && checkedAnswers[activeItem.blank.id] !== "correct" ? activeItem : null;
+  const keyboardWordTargets = keyboardItem
+    ? rangeTargets.filter((target) => target.blank.id === keyboardItem.blank.id)
+    : [];
+  const keyboardAnswer = keyboardItem ? answers[keyboardItem.blank.id] ?? "" : "";
+  const activeRange = activeItem && inputMode === "choice"
+    ? { start: activeItem.blank.startUtf16 - row.textStart, end: activeItem.blank.endUtf16 - row.textStart }
+    : null;
+  const keyboardRange = keyboardItem
+    ? {
+      start: keyboardItem.blank.startUtf16 - row.textStart,
+      end: keyboardItem.blank.endUtf16 - row.textStart,
+    }
+    : null;
+  const answerRanges = buildCardClozeAnswerRanges(sentenceText, row, answers, checkedAnswers, revealed)
+    .filter((range) => !keyboardRange || range.end <= keyboardRange.start || range.start >= keyboardRange.end);
+  const activeKeyboardFrame = keyboardItem && keyboardFrame?.blankId === keyboardItem.blank.id ? keyboardFrame : null;
 
-function renderClozeLookupText(
-  text: string,
-  start: number,
-  end: number,
-  onLookup: (term: string, start: number, end: number, anchor?: NativeTextSelectionPayload["selectionRect"]) => void,
-  onAddBlank?: (start: number, end: number, selectedText: string, selectionRect?: NativeTextSelectionPayload["selectionRect"]) => void,
-  onTextSelectionStart?: () => void,
-  onTextSelectionEnd?: () => void,
-): React.ReactNode[] {
-  const chunk = text.slice(start, end);
-  if (!chunk) return [];
-  return [<SelectableMessageText
-    key={`selectable-${start}-${end}`}
-    text={chunk}
-    style={styles.clozeSentence}
-    containerStyle={styles.clozeSelectableGap}
-    enableDictionaryMenu
-    enableClozeMenu={Boolean(onAddBlank)}
-    onSelectionStart={onTextSelectionStart}
-    onSelectionEnd={onTextSelectionEnd}
-    onDictionarySelection={(payload) => onLookup(payload.selectedText, start + payload.start, start + payload.end, payload.selectionRect)}
-    onSelectionChange={onAddBlank ? (payload) => onAddBlank(start + payload.start, start + payload.end, payload.selectedText, payload.selectionRect) : undefined}
-  />];
+  const recordRangeLayout = (rangeIndex: number, part: "prefix" | "through", lines: Array<{ x: number; y: number; width: number; height: number }>) => {
+    const key = `${rangeIndex}:${part}`;
+    const signature = lines.map((line) => `${line.x}:${line.y}:${line.width}:${line.height}`).join("|");
+    if (rangeLayoutRef.current.get(key)?.signature === signature) return;
+    rangeLayoutRef.current.set(key, { signature, lines });
+    setRangeLayoutRevision((current) => current + 1);
+  };
+  const measuredFrameFor = (target: typeof rangeTargets[number] | null) => {
+    if (!target) return null;
+    const prefixLines = rangeLayoutRef.current.get(`${target.groupIndex}:prefix`)?.lines ?? [];
+    const throughLines = rangeLayoutRef.current.get(`${target.groupIndex}:through`)?.lines ?? [];
+    const throughLine = throughLines[throughLines.length - 1];
+    if (!throughLine) return null;
+    const prefixLine = prefixLines[prefixLines.length - 1];
+    const wrapped = !prefixLine || throughLines.length > prefixLines.length;
+    const left = wrapped ? throughLine.x : prefixLine.x + prefixLine.width;
+    return {
+      left,
+      top: throughLine.y,
+      width: Math.max(28, throughLine.x + throughLine.width - left),
+      height: Math.max(24, throughLine.height),
+    };
+  };
+  const measuredWordFrames = keyboardWordTargets
+    .map(measuredFrameFor)
+    .filter((frame): frame is NonNullable<typeof frame> => Boolean(frame));
+  const firstMeasuredWordFrame = measuredWordFrames[0] ?? null;
+  const lastMeasuredWordFrame = measuredWordFrames[measuredWordFrames.length - 1] ?? null;
+  const measuredPhraseFrame = firstMeasuredWordFrame && lastMeasuredWordFrame
+    && Math.abs(firstMeasuredWordFrame.top - lastMeasuredWordFrame.top) < 2
+    ? {
+      left: firstMeasuredWordFrame.left,
+      top: Math.min(firstMeasuredWordFrame.top, lastMeasuredWordFrame.top),
+      width: Math.max(28, lastMeasuredWordFrame.left + lastMeasuredWordFrame.width - firstMeasuredWordFrame.left),
+      height: Math.max(firstMeasuredWordFrame.height, lastMeasuredWordFrame.height),
+    }
+    : null;
+  const measuredCheckFrame = measuredFrameFor(keyboardWordTargets[keyboardWordTargets.length - 1] ?? null);
+  const displayInputFrame = measuredPhraseFrame && activeKeyboardFrame
+    ? {
+      ...measuredPhraseFrame,
+      top: activeKeyboardFrame.top,
+      height: activeKeyboardFrame.height,
+    }
+    : activeKeyboardFrame;
+
+  const activateBlank = (rangeIndex: number, selectionRect?: CardBlankActionAnchor) => {
+    const target = rangeTargets.find((item) => item.groupIndex === rangeIndex);
+    if (!target) return;
+    if (!fillMode) onBlankLongPress?.(target.blank, selectionRect);
+    else if (!revealed && inputMode === "choice") onActivateChoiceBlank(target.blankIndex);
+    else if (!revealed) {
+      const keepExistingFocus = keyboardItem?.blank.id === target.blank.id && keyboardInputRef.current?.isFocused();
+      if (selectionRect) {
+        if (keepExistingFocus) {
+          onActivateKeyboardBlank(target.blankIndex, selectionRect);
+          return;
+        }
+        const focusRequest = keepExistingFocus && keyboardFrame
+          ? keyboardFrame.focusRequest
+          : keyboardFocusRequestRef.current + 1;
+        if (!keepExistingFocus) keyboardFocusRequestRef.current = focusRequest;
+        flowRef.current?.measureInWindow((pageX, pageY) => {
+          if (!keepExistingFocus && keyboardFocusRequestRef.current !== focusRequest) return;
+          setKeyboardFrame({
+            blankId: target.blank.id,
+            focusRequest,
+            left: selectionRect.pageX - pageX,
+            top: selectionRect.pageY - pageY,
+            width: Math.max(28, selectionRect.width),
+            height: Math.max(24, selectionRect.height),
+          });
+        });
+      }
+      onActivateKeyboardBlank(target.blankIndex, selectionRect);
+    }
+  };
+
+  return <View ref={flowRef} style={styles.clozeFlow}>
+    <SelectableMessageText
+      text={sentenceText}
+      style={styles.clozeSentence}
+      containerStyle={styles.clozeSelectableGap}
+      highlightRanges={highlightRanges}
+      blankRanges={hiddenRanges}
+      preserveHighlightRangeOrder
+      splitBlankRangesByWord={false}
+      correctRanges={correctRanges}
+      answerRanges={answerRanges}
+      activeRange={activeRange}
+      enableDictionaryMenu
+      enableClozeMenu={Boolean(onAddBlank)}
+      onSelectionStart={onTextSelectionStart}
+      onSelectionEnd={onTextSelectionEnd}
+      onDictionarySelection={(payload) => onLookup(
+        payload.selectedText,
+        row.textStart + payload.start,
+        row.textStart + payload.end,
+        payload.selectionRect,
+      )}
+      onSelectionChange={onAddBlank ? (payload) => onAddBlank(
+        row.textStart + payload.start,
+        row.textStart + payload.end,
+        payload.selectedText,
+        payload.selectionRect,
+      ) : undefined}
+      onClozeRangeLongPress={(rangeIndex, selectionRect) => {
+        const target = rangeTargets.find((item) => item.groupIndex === rangeIndex);
+        if (target) onBlankLongPress?.(target.blank, selectionRect);
+      }}
+      onClozeRangePress={activateBlank}
+    />
+    {keyboardItem ? keyboardWordTargets.flatMap((target) => [
+      <Text
+        key={`${target.groupIndex}:prefix`}
+        pointerEvents="none"
+        numberOfLines={0}
+        style={[styles.clozeSentence, styles.clozeRangeMeasure]}
+        onTextLayout={(event) => recordRangeLayout(target.groupIndex, "prefix", event.nativeEvent.lines)}
+      >{sentenceText.slice(0, target.start)}</Text>,
+      <Text
+        key={`${target.groupIndex}:through`}
+        pointerEvents="none"
+        numberOfLines={0}
+        style={[styles.clozeSentence, styles.clozeRangeMeasure]}
+        onTextLayout={(event) => recordRangeLayout(target.groupIndex, "through", event.nativeEvent.lines)}
+      >{sentenceText.slice(0, target.end)}</Text>,
+    ]) : null}
+    {keyboardItem && activeKeyboardFrame && displayInputFrame ? <>
+      <TextInput
+        key={`${keyboardItem.blank.id}:${activeKeyboardFrame.focusRequest}`}
+        ref={keyboardInputRef}
+        autoFocus
+        value={keyboardAnswer}
+        editable={!saving}
+        accessibilityLabel={t("card_detail.tab.cloze")}
+        autoCapitalize="none"
+        autoCorrect={false}
+        multiline={false}
+        blurOnSubmit={false}
+        returnKeyType="done"
+        selectionColor={theme.colors.text}
+        style={[
+          styles.clozeInlineInput,
+          {
+            left: displayInputFrame.left,
+            top: displayInputFrame.top + 1,
+            width: displayInputFrame.width,
+            height: displayInputFrame.height,
+          },
+        ]}
+        onChangeText={(value) => onChangeKeyboardAnswer(keyboardItem.blankIndex, value)}
+        onSubmitEditing={() => onCheckKeyboardAnswer(keyboardItem.blankIndex)}
+      />
+      <Pressable
+        accessibilityLabel={t("card_detail.dictation.check")}
+        disabled={!answers[keyboardItem.blank.id]?.trim() || saving}
+        style={[
+          styles.clozeInlineCheck,
+          {
+            left: (measuredCheckFrame ?? displayInputFrame).left + (measuredCheckFrame ?? displayInputFrame).width + 3,
+            top: (measuredCheckFrame ?? displayInputFrame).top + ((measuredCheckFrame ?? displayInputFrame).height - 20) / 2,
+          },
+          (!answers[keyboardItem.blank.id]?.trim() || saving) && styles.clozeInlineCheckDisabled,
+        ]}
+        onPress={() => onCheckKeyboardAnswer(keyboardItem.blankIndex)}
+      >
+        <Ionicons name="checkmark" size={13} color={theme.colors.textSecondary} />
+      </Pressable>
+    </> : null}
+  </View>;
 }
 
 function buildCardClozeAnswerRanges(
@@ -4744,8 +4850,7 @@ function buildCardClozeAnswerRanges(
 ): NativeClozeAnswerRange[] {
   if (revealed) return [];
   return row.blanks.flatMap(({ blank }) => {
-    if (checkedAnswers[blank.id] === "correct") return [];
-    const answer = answers[blank.id] ?? "";
+    const answer = checkedAnswers[blank.id] === "correct" ? blank.answer : answers[blank.id] ?? "";
     if (!answer) return [];
     const start = blank.startUtf16 - row.textStart;
     const selectedText = sentenceText.slice(start, blank.endUtf16 - row.textStart);
@@ -5010,6 +5115,7 @@ const styles = StyleSheet.create({
   emptyPracticeTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "600" },
   clozeSentenceList: { paddingVertical: 8 },
   clozeSentenceRow: { minHeight: 52, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 9, borderRadius: theme.radius.control, flexDirection: "row", alignItems: "flex-start" },
+  clozeSentenceRowEditing: { position: "relative", zIndex: 40 },
   inlineClozePractice: { marginTop: 14 },
   inlineClozeSentenceList: { paddingVertical: 0 },
   inlineClozeSentenceRow: { minHeight: 0, marginHorizontal: 0, paddingHorizontal: 0, paddingVertical: 5 },
@@ -5021,7 +5127,7 @@ const styles = StyleSheet.create({
   clozeChoiceOptionText: { color: theme.colors.text, fontSize: 15, lineHeight: 20, fontWeight: "500", textAlign: "center" },
   clozeChoiceOptionTextIncorrect: { color: theme.colors.danger },
   stableSentence: { alignSelf: "stretch", overflow: "visible", flexDirection: "row", alignItems: "flex-end" },
-  stableSentenceContent: { flex: 1, minWidth: 0 },
+  stableSentenceContent: { flex: 1, minWidth: 0, zIndex: 10, overflow: "visible" },
   inlineSentencePlayTrailing: { width: 24, height: 24, marginLeft: 5, marginBottom: 2, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   stableSentenceActive: { borderRadius: 7, backgroundColor: theme.colors.surfaceMuted },
   inlineSentenceActions: { minHeight: 34, marginTop: 4, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
@@ -5033,22 +5139,6 @@ const styles = StyleSheet.create({
   clozeSentenceRowActive: { backgroundColor: theme.colors.accentSoft },
   clozeSentencePlay: { width: 34, minHeight: 34, marginTop: -1, marginRight: -5, alignItems: "center", justifyContent: "center" },
   clozeSentenceBody: { flex: 1, paddingTop: 1 },
-  cardBlankUnit: { height: 28, maxWidth: "100%", flexShrink: 1, alignItems: "center" },
-  cardBlankField: { height: 28, flexShrink: 1, position: "relative", alignItems: "center", justifyContent: "center" },
-  cardBlankMeasure: { minWidth: 28, maxWidth: 240, height: 28, opacity: 0, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, includeFontPadding: false },
-  cardBlankBackground: { position: "absolute", left: 0, right: 0, top: 4, bottom: 5, backgroundColor: "#FFF0B8" },
-  cardBlankBackgroundCorrect: { backgroundColor: "#DDF2DF" },
-  cardBlankBackgroundIncorrect: { backgroundColor: "#FCE1DF" },
-  cardBlankBackgroundActive: { borderWidth: 1.5, borderColor: "#D05F78", borderRadius: 3 },
-  cardBlankUnderlineRow: { position: "absolute", left: 0, right: 0, bottom: 4, height: 1.5, flexDirection: "row", gap: 3 },
-  cardBlankUnderlineSegment: { minWidth: 4, height: 1.5, backgroundColor: "#D05F78", flexBasis: 0 },
-  cardBlankContent: { ...StyleSheet.absoluteFillObject },
-  cardBlankInput: { width: "100%", height: 28, paddingHorizontal: 0, paddingTop: 4, paddingBottom: 4, borderWidth: 0, backgroundColor: "transparent", color: theme.colors.text, fontSize: 17, lineHeight: 20, fontWeight: "400", letterSpacing: 0, textAlign: "left", textAlignVertical: "center", includeFontPadding: false },
-  cardBlankInputIncorrect: { color: theme.colors.danger },
-  cardBlankStaticText: { width: "100%", height: 28, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
-  cardBlankStaticTextIncorrect: { color: theme.colors.danger },
-  cardBlankCheckButton: { width: 20, height: 20, marginLeft: 3, marginTop: 4, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
-  cardBlankCheckButtonDisabled: { opacity: 0.45 },
   clozeSentence: { color: "#242424", fontSize: 17, lineHeight: 28 },
   originalLearningSentence: { color: theme.colors.text },
   replyLearningSentence: { color: theme.colors.text },
@@ -5081,8 +5171,12 @@ const styles = StyleSheet.create({
   imageDescriptionSentenceRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   imageDescriptionSentenceBody: { flex: 1 },
   clozeRevealButton: { alignSelf: "flex-end", minHeight: 34, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 5 },
-  clozeFlow: { position: "relative", flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
-  clozeSelectableGap: { alignSelf: "auto", flexShrink: 1, maxWidth: "100%" },
+  clozeFlow: { position: "relative", zIndex: 10, alignSelf: "stretch", overflow: "visible" },
+  clozeRangeMeasure: { position: "absolute", left: 0, right: 0, top: 0, opacity: 0 },
+  clozeInlineInput: { position: "absolute", zIndex: 60, paddingHorizontal: 0, paddingVertical: 0, borderWidth: 0, backgroundColor: "transparent", color: theme.colors.text, fontSize: 17, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
+  clozeInlineCheck: { position: "absolute", zIndex: 80, width: 20, height: 20, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  clozeInlineCheckDisabled: { opacity: 1 },
+  clozeSelectableGap: { alignSelf: "stretch" },
   clozeGap: { color: theme.colors.accentStrong, fontWeight: "700" },
   clozeActionText: { color: theme.colors.accentStrong, fontSize: 13 },
   inlineAudioButton: { marginTop: 10, alignSelf: "flex-start", minHeight: 36, paddingHorizontal: 11, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 6 }, inlineAudioText: { color: theme.colors.accentStrong, fontSize: 12, fontWeight: "600" },

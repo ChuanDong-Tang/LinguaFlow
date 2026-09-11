@@ -57,6 +57,8 @@ type Props = {
   containerStyle?: StyleProp<ViewStyle>;
   highlightRanges?: NativeClozeHighlightRange[];
   blankRanges?: NativeClozeBlankRange[];
+  preserveHighlightRangeOrder?: boolean;
+  splitBlankRangesByWord?: boolean;
   answersVisible?: boolean;
   visualsHidden?: boolean;
   correctRanges?: NativeClozeBlankRange[];
@@ -104,8 +106,8 @@ function clampRange(range: NativeClozeHighlightRange, textLength: number): Nativ
   return { start, end, groupIndex: range.groupIndex };
 }
 
-function normalizeBlockedRanges(text: string, ranges?: NativeClozeHighlightRange[]): Required<NativeClozeHighlightRange>[] {
-  return (ranges ?? [])
+function normalizeBlockedRanges(text: string, ranges?: NativeClozeHighlightRange[], preserveOrder = false): Required<NativeClozeHighlightRange>[] {
+  const normalized = (ranges ?? [])
     .map((range, index) => {
       const clamped = clampRange(range, text.length);
       if (!clamped) return null;
@@ -115,8 +117,9 @@ function normalizeBlockedRanges(text: string, ranges?: NativeClozeHighlightRange
         groupIndex: clamped.groupIndex ?? index,
       };
     })
-    .filter((range): range is Required<NativeClozeHighlightRange> => !!range)
-    .sort((a, b) => a.start - b.start || a.end - b.end)
+    .filter((range): range is Required<NativeClozeHighlightRange> => !!range);
+  if (preserveOrder) return normalized;
+  return normalized.sort((a, b) => a.start - b.start || a.end - b.end)
     .reduce<Required<NativeClozeHighlightRange>[]>((kept, range) => {
       const previous = kept[kept.length - 1];
       if (previous && range.start < previous.end) return kept;
@@ -196,6 +199,8 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     containerStyle,
     highlightRanges,
     blankRanges,
+    preserveHighlightRangeOrder = false,
+    splitBlankRangesByWord = true,
     answersVisible = false,
     visualsHidden = false,
     correctRanges,
@@ -218,7 +223,10 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const renderStart = perfNow();
     const clozeMenuOption = t("cloze.menu");
     const dictionaryMenuOption = t("dictionary.menu");
-    const highlights = React.useMemo(() => normalizeBlockedRanges(text, highlightRanges), [highlightRanges, text]);
+    const highlights = React.useMemo(
+      () => normalizeBlockedRanges(text, highlightRanges, preserveHighlightRangeOrder),
+      [highlightRanges, preserveHighlightRangeOrder, text],
+    );
     const blanks = React.useMemo(() => {
       const startedAt = perfNow();
       const value = normalizeBlankRanges(text, blankRanges);
@@ -236,8 +244,8 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const layoutText = nativeText;
     const nativeHighlightRangesJson = React.useMemo(() => rangesToJson(highlights), [highlights]);
     const nativeBlankRangesJson = React.useMemo(
-      () => rangesToJson(splitBlankRangesIntoWordRuns(text, blanks)),
-      [blanks, text],
+      () => rangesToJson(splitBlankRangesByWord ? splitBlankRangesIntoWordRuns(text, blanks) : blanks),
+      [blanks, splitBlankRangesByWord, text],
     );
     const nativeCorrectRangesJson = React.useMemo(() => rangesToJson(correct), [correct]);
     const nativeAnswerRangesJson = React.useMemo(() => JSON.stringify(answerRanges ?? []), [answerRanges]);
