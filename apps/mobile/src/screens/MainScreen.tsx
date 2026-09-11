@@ -676,7 +676,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             }
           }
           if (!snapshot.clozeRanges.length) {
-            const contentTypes = automaticClozeContentTypes(detail, generation.generatedTargets);
+            const contentTypes = automaticClozeContentTypes(detail, selectedTargets);
             if (contentTypes.length) detail = await generateCardAutomaticCloze(detail.id, contentTypes).catch((error) => {
               console.warn("[card] automatic cloze failed", error);
               return detail;
@@ -949,7 +949,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         }
       }
       if (!snapshot.clozeRanges.length) {
-        const contentTypes = automaticClozeContentTypes(detail, generation.generatedTargets);
+        const contentTypes = automaticClozeContentTypes(detail, selectedTargets);
         if (contentTypes.length) detail = await generateCardAutomaticCloze(detail.id, contentTypes).catch((error) => {
           console.warn("[card] automatic cloze failed", error);
           return detail;

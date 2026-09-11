@@ -2484,15 +2484,12 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     }
     finishClozePractice();
   };
-  const advanceKeyboardBlank = (ownerKey: string, blankId: string) => {
-    const index = practiceBlankQueue.findIndex((item) => item.ownerKey === ownerKey && item.blankId === blankId);
+  const completeKeyboardBlank = (ownerKey: string, blankId: string) => {
     completedKeyboardBlankKeysRef.current.add(`${ownerKey}:${blankId}`);
-    const next = index >= 0
-      ? practiceBlankQueue.slice(index + 1).find((item) => !completedKeyboardBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`))
-      : undefined;
-    if (next) {
-      setActiveKeyboardOwnerKey(next.ownerKey);
-      setKeyboardTray({ ownerKey: next.ownerKey, blankId: next.blankId, value: "", incorrect: false });
+    const hasRemaining = practiceBlankQueue.some((item) => !completedKeyboardBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`));
+    if (hasRemaining) {
+      setActiveKeyboardOwnerKey(null);
+      setKeyboardTray(null);
       return;
     }
     finishClozePractice();
@@ -3385,6 +3382,11 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       answersVisible={answersVisible}
       displayMode={displayMode}
       activeSentenceKey={activeSentenceKey}
+      sentenceAudioLoadingKey={sentenceAudioLoadingKey}
+      onPlaySentence={(row) => {
+        if (activeSentenceKey === row.key) stopTtsAudio();
+        else void playStandaloneSentence(row);
+      }}
       choiceOwnerKey={ownerKey}
       activeChoiceOwnerKey={activeChoiceOwnerKey}
       selectedChoiceBlankId={activeChoiceOwnerKey === ownerKey ? selectedChoiceBlankId : null}
@@ -3404,6 +3406,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
         return state ? { ownerKey, ...state } : null;
       })}
       selectedKeyboardBlankId={activeKeyboardOwnerKey === ownerKey ? keyboardTray?.blankId ?? null : null}
+      onKeyboardAnswered={(blankId) => completeKeyboardBlank(ownerKey, blankId)}
       onKeyboardAnswerHandlerChange={(handler) => registerKeyboardAnswerHandler(ownerKey, handler)}
       onPendingClozeCheckHandlerChange={(handler) => registerBlockPendingClozeCheck(ownerKey, handler)}
       onClozeAttempt={onClozeAttempt}
@@ -3476,6 +3479,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
                 : currentImage.descriptionStatus === "failed"
                   ? <FailedGenerationSection target="image_description" showLabel={false} retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
                   : null}
+              {currentImageBlock.text.trim() ? <CardSectionCopyButton onPress={() => void copySection(currentImageBlock.text)} /> : null}
             </> : pendingGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "pending" || currentImage.descriptionStatus === "auxiliary_pending"
               ? <PendingGenerationSection target="image_description" showLabel={false} />
               : failedGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "failed" || currentImage.descriptionStatus === "not_requested"
@@ -3559,7 +3563,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("choice")} />
     </View>
     <Modal
-      visible={fillMode && Boolean(activePracticePrompt)}
+      visible={clozeMode === "choice" && Boolean(activePracticePrompt)}
       transparent
       animationType="fade"
       statusBarTranslucent
@@ -3626,7 +3630,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
               onSubmitEditing={() => {
                 if (!keyboardTray?.value.trim()) return;
                 const result = keyboardAnswerHandlersRef.current.get(keyboardTray.ownerKey)?.check(keyboardTray.blankId, keyboardTray.value);
-                if (result?.correct) advanceKeyboardBlank(keyboardTray.ownerKey, keyboardTray.blankId);
+                if (result?.correct) completeKeyboardBlank(keyboardTray.ownerKey, keyboardTray.blankId);
                 else if (result && !result.correct) setKeyboardTray((current) => current ? { ...current, incorrect: true } : null);
               }}
             />
@@ -3637,7 +3641,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
               onPress={() => {
                 if (!keyboardTray) return;
                 const result = keyboardAnswerHandlersRef.current.get(keyboardTray.ownerKey)?.check(keyboardTray.blankId, keyboardTray.value);
-                if (result?.correct) advanceKeyboardBlank(keyboardTray.ownerKey, keyboardTray.blankId);
+                if (result?.correct) completeKeyboardBlank(keyboardTray.ownerKey, keyboardTray.blankId);
                 else if (result && !result.correct) setKeyboardTray((current) => current ? { ...current, incorrect: true } : null);
               }}
             >
@@ -4107,7 +4111,7 @@ function ReasonBadge({ reason }: { reason: CardRelationReason }) {
   return <View style={[styles.reasonBadge, reason.type === "progress" && styles.reasonProgress, reason.type === "phrase" && styles.reasonPhrase]}><Text style={styles.reasonText}>{label}</Text></View>;
 }
 
-function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerPool, onClozeChange, onAddBlank, onBlankLongPress, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, displayMode = "target", activeSentenceKey = null, choiceOwnerKey, activeChoiceOwnerKey, selectedChoiceBlankId, onSelectChoiceBlank, onChoiceAnswered, onChoiceOwnerChange, onChoiceOptionsChange, onChoiceAnswerHandlerChange, activeKeyboardOwnerKey, selectedKeyboardBlankId, onActivateKeyboardOwner, onKeyboardTrayChange, onKeyboardAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
+function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerPool, onClozeChange, onAddBlank, onBlankLongPress, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, displayMode = "target", activeSentenceKey = null, sentenceAudioLoadingKey = null, onPlaySentence, choiceOwnerKey, activeChoiceOwnerKey, selectedChoiceBlankId, onSelectChoiceBlank, onChoiceAnswered, onChoiceOwnerChange, onChoiceOptionsChange, onChoiceAnswerHandlerChange, activeKeyboardOwnerKey, selectedKeyboardBlankId, onActivateKeyboardOwner, onKeyboardTrayChange, onKeyboardAnswered, onKeyboardAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
   detail: CardRecordDetail;
   contentBinding: CardContentBinding;
   clozeState: CardClozeState;
@@ -4122,6 +4126,8 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
   answersVisible?: boolean;
   displayMode?: ContentDisplayMode;
   activeSentenceKey?: string | null;
+  sentenceAudioLoadingKey?: string | null;
+  onPlaySentence?: (row: CardClozeSentenceRow) => void;
   choiceOwnerKey?: string;
   activeChoiceOwnerKey?: string | null;
   selectedChoiceBlankId?: string | null;
@@ -4134,6 +4140,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
   selectedKeyboardBlankId?: string | null;
   onActivateKeyboardOwner?: (state: Omit<ClozeKeyboardTrayState, "ownerKey">) => void;
   onKeyboardTrayChange?: (state: Omit<ClozeKeyboardTrayState, "ownerKey"> | null) => void;
+  onKeyboardAnswered?: (blankId: string) => void;
   onKeyboardAnswerHandlerChange?: (handler: ClozeKeyboardHandler | null) => void;
   onPendingClozeCheckHandlerChange?: (handler: PendingClozeCheckHandler | null) => void;
   onClozeAttempt?: (input: { recordId: string; blankId: string; correct: boolean }) => void;
@@ -4150,8 +4157,12 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
   const [choiceAnswers, setChoiceAnswers] = useState<Record<string, string>>({});
   const [keyboardCheckedAnswers, setKeyboardCheckedAnswers] = useState<Record<string, "correct" | "incorrect">>({});
   const [choiceCheckedAnswers, setChoiceCheckedAnswers] = useState<Record<string, "correct" | "incorrect">>({});
-  const answers = inputMode === "keyboard" ? keyboardAnswers : choiceAnswers;
-  const checkedAnswers = inputMode === "keyboard" ? keyboardCheckedAnswers : choiceCheckedAnswers;
+  const [sessionAnswers, setSessionAnswers] = useState<Record<string, string>>({});
+  const [sessionCheckedAnswers, setSessionCheckedAnswers] = useState<Record<string, "correct" | "incorrect">>({});
+  const activeAnswers = inputMode === "keyboard" ? keyboardAnswers : choiceAnswers;
+  const activeCheckedAnswers = inputMode === "keyboard" ? keyboardCheckedAnswers : choiceCheckedAnswers;
+  const answers = fillMode ? activeAnswers : sessionAnswers;
+  const checkedAnswers = fillMode ? activeCheckedAnswers : sessionCheckedAnswers;
   const setAnswers = inputMode === "keyboard" ? setKeyboardAnswers : setChoiceAnswers;
   const setCheckedAnswers = inputMode === "keyboard" ? setKeyboardCheckedAnswers : setChoiceCheckedAnswers;
   const [activeChoiceBlankIndex, setActiveChoiceBlankIndex] = useState<number | null>(null);
@@ -4187,6 +4198,8 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
     setChoiceAnswers({});
     setKeyboardCheckedAnswers({});
     setChoiceCheckedAnswers({});
+    setSessionAnswers({});
+    setSessionCheckedAnswers({});
   }, [detail.id, contentBinding.contentType, contentBinding.contentVersion]);
   useLayoutEffect(() => {
     setActiveChoiceBlankIndex(fillMode && inputMode === "choice" && clozeState.blanks.length ? 0 : null);
@@ -4224,6 +4237,8 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
       [blank.id]: answerCorrect ? "correct" as const : "incorrect" as const,
     };
     setCheckedAnswers(nextChecked);
+    setSessionAnswers((current) => ({ ...current, [blank.id]: submittedAnswer }));
+    setSessionCheckedAnswers((current) => ({ ...current, [blank.id]: answerCorrect ? "correct" : "incorrect" }));
     const revealedBlankIndexes = new Set(answersVisible ? clozeState.blanks.map((_, index) => index) : []);
     const allChecked = clozeState.blanks.every((candidate, index) => nextChecked[candidate.id] || revealedBlankIndexes.has(index));
     let effectiveVersion = clozeVersion;
@@ -4313,9 +4328,17 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
       const correct = normalizeAnswer(answer) === normalizeAnswer(blank.answer);
       nextChecked[blank.id] = correct ? "correct" : "incorrect";
       onClozeAttempt?.({ recordId: detail.id, blankId: blank.id, correct });
-      return { blank, blankIndex, correct };
+      return { blank, blankIndex, answer, correct };
     });
     setCheckedAnswers(nextChecked);
+    setSessionAnswers((current) => ({
+      ...current,
+      ...Object.fromEntries(outcomes.map(({ blank, answer }) => [blank.id, answer])),
+    }));
+    setSessionCheckedAnswers((current) => ({
+      ...current,
+      ...Object.fromEntries(outcomes.map(({ blank, correct }) => [blank.id, correct ? "correct" as const : "incorrect" as const])),
+    }));
 
     let effectiveState = clozeState;
     let effectiveVersion = clozeVersion;
@@ -4409,6 +4432,15 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
     }
   }
 
+  function submitKeyboardAnswer(blankIndex: number): void {
+    const blank = clozeState.blanks[blankIndex];
+    const value = blank ? keyboardAnswers[blank.id] ?? "" : "";
+    if (!blank || saving || !value.trim()) return;
+    const correct = normalizeAnswer(value) === normalizeAnswer(blank.answer);
+    void check(blankIndex, value);
+    if (correct) onKeyboardAnswered?.(blank.id);
+  }
+
   const chooseAnswerRef = useRef(chooseAnswer);
   chooseAnswerRef.current = chooseAnswer;
   const keyboardHandlerRef = useRef<ClozeKeyboardHandler>({ change: () => undefined, check: () => null });
@@ -4499,11 +4531,13 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
                   revealed={answersVisible}
                   saving={saving}
                   active={activeSentenceKey === row.key}
+                  loading={sentenceAudioLoadingKey === row.key}
                   fillMode={fillMode}
                   showTarget={displayMode !== "auxiliary"}
                   inputMode={inputMode}
                   activeChoiceBlankIndex={effectiveActiveChoiceBlankIndex}
                   activeKeyboardBlankIndex={effectiveActiveKeyboardBlankIndex}
+                  onPlay={onPlaySentence ? () => onPlaySentence(row) : undefined}
                   onLookup={(term, start, end, anchor) => lookupInSentence(row, term, start, end, anchor)}
                   onAddBlank={segment && !saving && onAddBlank ? (payload) => onAddBlank(segment, payload) : undefined}
                   onBlankLongPress={onBlankLongPress}
@@ -4526,6 +4560,17 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
                       anchor,
                     });
                   }}
+                  onChangeKeyboardAnswer={(blankIndex, value) => {
+                    const blank = clozeState.blanks[blankIndex];
+                    if (!blank) return;
+                    setKeyboardAnswers((current) => ({ ...current, [blank.id]: value }));
+                    setKeyboardCheckedAnswers((current) => {
+                      const next = { ...current };
+                      delete next[blank.id];
+                      return next;
+                    });
+                  }}
+                  onCheckKeyboardAnswer={submitKeyboardAnswer}
                 />
                 {displayMode !== "target" && auxiliaryText ? <Text selectable style={styles.auxiliarySentence}>{auxiliaryText}</Text> : null}
               </View>
@@ -4548,7 +4593,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
   return <View style={styles.reviewPage}><KeyboardAwareScrollView bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.practiceContent} alwaysBounceVertical={false}>{practice}</KeyboardAwareScrollView>{dictionaryPopover}</View>;
 }
 
-function StableCardSentence({ row, contentType, answers, checkedAnswers, revealed, saving, active, fillMode, showTarget = true, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onActivateChoiceBlank, onActivateKeyboardBlank, onTextSelectionStart, onTextSelectionEnd }: {
+function StableCardSentence({ row, contentType, answers, checkedAnswers, revealed, saving, active, loading, fillMode, showTarget = true, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onPlay, onActivateChoiceBlank, onActivateKeyboardBlank, onChangeKeyboardAnswer, onCheckKeyboardAnswer, onTextSelectionStart, onTextSelectionEnd }: {
   row: CardClozeSentenceRow;
   contentType: CardLearningContentType;
   answers: Record<string, string>;
@@ -4556,6 +4601,7 @@ function StableCardSentence({ row, contentType, answers, checkedAnswers, reveale
   revealed: boolean;
   saving: boolean;
   active: boolean;
+  loading: boolean;
   fillMode: boolean;
   showTarget?: boolean;
   inputMode: ClozeInputMode;
@@ -4564,31 +4610,49 @@ function StableCardSentence({ row, contentType, answers, checkedAnswers, reveale
   onLookup: (term: string, start: number, end: number, anchor?: NativeTextSelectionPayload["selectionRect"]) => void;
   onAddBlank?: (payload: NativeTextSelectionPayload) => void;
   onBlankLongPress?: (blank: CardClozeState["blanks"][number], anchor?: CardBlankActionAnchor) => void;
+  onPlay?: () => void;
   onActivateChoiceBlank: (blankIndex: number) => void;
   onActivateKeyboardBlank: (blankIndex: number, anchor?: CardBlankActionAnchor) => void;
+  onChangeKeyboardAnswer: (blankIndex: number, value: string) => void;
+  onCheckKeyboardAnswer: (blankIndex: number) => void;
   onTextSelectionStart?: () => void;
   onTextSelectionEnd?: () => void;
 }) {
   return <View style={[styles.stableSentence, active && styles.stableSentenceActive]}>
-    {showTarget ? <View style={styles.stableSentenceContent}>
-      <CardBlankSentenceFlow
-        row={row}
-        answers={answers}
-        checkedAnswers={checkedAnswers}
-        revealed={revealed}
-        fillMode={fillMode}
-        inputMode={inputMode}
-        activeChoiceBlankIndex={activeChoiceBlankIndex}
-        activeKeyboardBlankIndex={activeKeyboardBlankIndex}
-        onLookup={onLookup}
-        onBlankLongPress={onBlankLongPress}
-        onAddBlank={onAddBlank ? (start, end, selectedText, selectionRect) => onAddBlank({ start, end, selectedText, selectionRect }) : undefined}
-        onTextSelectionStart={onTextSelectionStart}
-        onTextSelectionEnd={onTextSelectionEnd}
-        onActivateChoiceBlank={onActivateChoiceBlank}
-        onActivateKeyboardBlank={onActivateKeyboardBlank}
-      />
-    </View> : null}
+    {showTarget ? <>
+      <View style={styles.stableSentenceContent}>
+        <CardBlankSentenceFlow
+          row={row}
+          answers={answers}
+          checkedAnswers={checkedAnswers}
+          revealed={revealed}
+          saving={saving}
+          fillMode={fillMode}
+          inputMode={inputMode}
+          activeChoiceBlankIndex={activeChoiceBlankIndex}
+          activeKeyboardBlankIndex={activeKeyboardBlankIndex}
+          onLookup={onLookup}
+          onBlankLongPress={onBlankLongPress}
+          onAddBlank={onAddBlank ? (start, end, selectedText, selectionRect) => onAddBlank({ start, end, selectedText, selectionRect }) : undefined}
+          onTextSelectionStart={onTextSelectionStart}
+          onTextSelectionEnd={onTextSelectionEnd}
+          onActivateChoiceBlank={onActivateChoiceBlank}
+          onActivateKeyboardBlank={onActivateKeyboardBlank}
+          onChangeKeyboardAnswer={onChangeKeyboardAnswer}
+          onCheckKeyboardAnswer={onCheckKeyboardAnswer}
+        />
+      </View>
+      {onPlay ? <Pressable
+        accessibilityLabel={t("card_detail.a11y.play_sentence")}
+        disabled={loading}
+        style={styles.inlineSentencePlayTrailing}
+        onPress={onPlay}
+      >
+        {loading
+          ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+          : <Ionicons name={active ? "stop" : "play"} size={14} color={theme.colors.textSecondary} />}
+      </Pressable> : null}
+    </> : null}
   </View>;
 }
 
@@ -4620,11 +4684,95 @@ function buildCardClozeSentenceRows(detail: CardRecordDetail, clozeState: CardCl
   });
 }
 
-function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, fillMode, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onActivateChoiceBlank, onActivateKeyboardBlank, onTextSelectionStart, onTextSelectionEnd }: {
+function ClozePracticeBlank({ expectedText, answer, checked, mastered = false, revealed = false, fillMode, inputMode, choiceActive, keyboardActive, disabled, onLongPress, onChangeAnswer, onCheck, onActivateChoice, onActivateKeyboard }: {
+  expectedText: string;
+  answer: string;
+  checked?: "correct" | "incorrect";
+  mastered?: boolean;
+  revealed?: boolean;
+  fillMode: boolean;
+  inputMode: ClozeInputMode;
+  choiceActive: boolean;
+  keyboardActive: boolean;
+  disabled: boolean;
+  onLongPress: (anchor?: CardBlankActionAnchor) => void;
+  onChangeAnswer: (value: string) => void;
+  onCheck: () => void;
+  onActivateChoice: () => void;
+  onActivateKeyboard: () => void;
+}) {
+  const inputRef = useRef<TextInput>(null);
+  const longPressHandledRef = useRef(false);
+  const showInput = fillMode && inputMode === "keyboard" && !revealed;
+  const showExpected = revealed || checked === "correct";
+
+  useEffect(() => {
+    if (!showInput || !keyboardActive) return;
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [keyboardActive, showInput]);
+
+  return <>
+    <View style={styles.cardBlankUnit}><Pressable
+      style={styles.cardBlankField}
+      onPressIn={() => { longPressHandledRef.current = false; }}
+      onLongPress={(event) => {
+        longPressHandledRef.current = true;
+        onLongPress({ pageX: event.nativeEvent.pageX, pageY: event.nativeEvent.pageY, width: 1, height: 24 });
+      }}
+      onPress={(event) => {
+        if (longPressHandledRef.current) { longPressHandledRef.current = false; return; }
+        const anchor = { pageX: event.nativeEvent.pageX, pageY: event.nativeEvent.pageY, width: 1, height: 24 };
+        if (!fillMode || revealed) { onLongPress(anchor); return; }
+        if (inputMode === "choice") onActivateChoice();
+        else {
+          onActivateKeyboard();
+          inputRef.current?.focus();
+        }
+      }}
+    >
+      <Text pointerEvents="none" numberOfLines={1} style={styles.cardBlankMeasure}>{expectedText || " "}</Text>
+      <View pointerEvents="none" style={[
+        styles.cardBlankBackground,
+        (mastered || checked === "correct") && styles.cardBlankBackgroundCorrect,
+        checked === "incorrect" && styles.cardBlankBackgroundIncorrect,
+        (choiceActive || keyboardActive) && styles.cardBlankBackgroundActive,
+      ]} />
+      <View pointerEvents="none" style={styles.cardBlankUnderline} />
+      <View style={styles.cardBlankContent}>
+        {showInput ? <TextInput
+          ref={inputRef}
+          value={answer}
+          editable={!disabled}
+          accessibilityLabel={t("card_detail.tab.cloze")}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="done"
+          selectionColor={theme.colors.text}
+          style={[styles.cardBlankInput, checked === "incorrect" && styles.cardBlankInputIncorrect]}
+          onFocus={onActivateKeyboard}
+          onChangeText={onChangeAnswer}
+          onSubmitEditing={onCheck}
+        /> : <Text pointerEvents="none" numberOfLines={1} style={[styles.cardBlankStaticText, checked === "incorrect" && styles.cardBlankStaticTextIncorrect]}>{showExpected ? expectedText : answer}</Text>}
+      </View>
+    </Pressable></View>
+    {fillMode && inputMode === "keyboard" && !revealed ? <Pressable
+      accessibilityLabel={t("card_detail.dictation.check")}
+      disabled={!answer.trim() || disabled}
+      style={[styles.cardBlankCheckButton, (!answer.trim() || disabled) && styles.cardBlankCheckButtonDisabled]}
+      onPress={onCheck}
+    >
+      <Ionicons name="checkmark" size={13} color={theme.colors.textMuted} />
+    </Pressable> : null}
+  </>;
+}
+
+function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving, fillMode, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onActivateChoiceBlank, onActivateKeyboardBlank, onChangeKeyboardAnswer, onCheckKeyboardAnswer, onTextSelectionStart, onTextSelectionEnd }: {
   row: CardClozeSentenceRow;
   answers: Record<string, string>;
   checkedAnswers: Record<string, "correct" | "incorrect">;
   revealed: boolean;
+  saving: boolean;
   fillMode: boolean;
   inputMode: ClozeInputMode;
   activeChoiceBlankIndex: number | null;
@@ -4634,83 +4782,62 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, fillMod
   onBlankLongPress?: (blank: CardClozeState["blanks"][number], anchor?: CardBlankActionAnchor) => void;
   onActivateChoiceBlank: (blankIndex: number) => void;
   onActivateKeyboardBlank: (blankIndex: number, anchor?: CardBlankActionAnchor) => void;
+  onChangeKeyboardAnswer: (blankIndex: number, value: string) => void;
+  onCheckKeyboardAnswer: (blankIndex: number) => void;
   onTextSelectionStart?: () => void;
   onTextSelectionEnd?: () => void;
 }) {
-  const sentenceText = row.text.slice(row.textStart, row.textEnd);
-  const ranges = row.blanks.map(({ blank, blankIndex }) => ({
-    start: blank.startUtf16 - row.textStart,
-    end: blank.endUtf16 - row.textStart,
-    groupIndex: blankIndex,
-  }));
-  // Keep the blank underline as a stable positional cue after an answer turns
-  // correct; correctness changes the fill color, not the blank's geometry.
-  const hiddenRanges = revealed ? [] : ranges;
-  const correctRanges = row.blanks
-    .filter(({ blank }) => blank.mastered || checkedAnswers[blank.id] === "correct")
-    .map(({ blank }) => ({
-      start: blank.startUtf16 - row.textStart,
-      end: blank.endUtf16 - row.textStart,
-    }));
-  // Keyboard answers live in the shared tray below the card. Mirroring the
-  // same text inside the sentence duplicates the input and makes the line
-  // jump while typing; keep only the focused blank outline in the article.
-  const answerRanges = fillMode && inputMode === "keyboard"
-    ? []
-    : buildCardClozeAnswerRanges(sentenceText, row, answers, checkedAnswers, revealed);
-  const activeBlankIndex = fillMode && !revealed
-    ? inputMode === "choice" ? activeChoiceBlankIndex : activeKeyboardBlankIndex
-    : null;
-  const activeItem = activeBlankIndex === null ? null : row.blanks.find((item) => item.blankIndex === activeBlankIndex);
-  const activeRange = activeItem ? {
-    start: activeItem.blank.startUtf16 - row.textStart,
-    end: activeItem.blank.endUtf16 - row.textStart,
-  } : null;
-  const activateBlank = (blankIndex: number, selectionRect?: CardBlankActionAnchor) => {
-    const target = row.blanks.find((item) => item.blankIndex === blankIndex);
-    if (!target) return;
-    if (!fillMode) {
-      onBlankLongPress?.(target.blank, selectionRect);
-    } else if (!revealed && inputMode === "choice") {
-      onActivateChoiceBlank(blankIndex);
-    } else if (!revealed) {
-      onActivateKeyboardBlank(blankIndex, selectionRect);
-    }
-  };
+  const content: React.ReactNode[] = [];
+  let cursor = row.textStart;
+  row.blanks.forEach(({ blank, blankIndex }) => {
+    if (blank.startUtf16 > cursor) content.push(...renderClozeLookupText(row.text, cursor, blank.startUtf16, onLookup, onAddBlank, onTextSelectionStart, onTextSelectionEnd));
+    content.push(<ClozePracticeBlank
+      key={blank.id}
+      expectedText={blank.answer}
+      answer={answers[blank.id] ?? ""}
+      checked={checkedAnswers[blank.id]}
+      mastered={blank.mastered}
+      revealed={revealed}
+      fillMode={fillMode}
+      inputMode={inputMode}
+      choiceActive={fillMode && !revealed && inputMode === "choice" && activeChoiceBlankIndex === blankIndex}
+      keyboardActive={fillMode && !revealed && inputMode === "keyboard" && activeKeyboardBlankIndex === blankIndex}
+      disabled={saving}
+      onLongPress={(anchor) => onBlankLongPress?.(blank, anchor)}
+      onChangeAnswer={(value) => onChangeKeyboardAnswer(blankIndex, value)}
+      onCheck={() => onCheckKeyboardAnswer(blankIndex)}
+      onActivateChoice={() => onActivateChoiceBlank(blankIndex)}
+      onActivateKeyboard={() => onActivateKeyboardBlank(blankIndex)}
+    />);
+    cursor = blank.endUtf16;
+  });
+  if (cursor < row.textEnd) content.push(...renderClozeLookupText(row.text, cursor, row.textEnd, onLookup, onAddBlank, onTextSelectionStart, onTextSelectionEnd));
+  return <View style={styles.clozeFlow}>{content}</View>;
+}
 
-  return <View style={styles.clozeFlow}>
-      <SelectableMessageText
-        text={sentenceText}
-        style={styles.clozeSentence}
-        containerStyle={styles.clozeSelectableGap}
-        highlightRanges={ranges}
-        blankRanges={hiddenRanges}
-        correctRanges={correctRanges}
-        answerRanges={answerRanges}
-        activeRange={activeRange}
-        enableDictionaryMenu
-        enableClozeMenu={Boolean(onAddBlank)}
-        onSelectionStart={onTextSelectionStart}
-        onSelectionEnd={onTextSelectionEnd}
-        onDictionarySelection={(payload) => onLookup(
-          payload.selectedText,
-          row.textStart + payload.start,
-          row.textStart + payload.end,
-          payload.selectionRect,
-        )}
-        onSelectionChange={onAddBlank ? (payload) => onAddBlank(
-          row.textStart + payload.start,
-          row.textStart + payload.end,
-          payload.selectedText,
-          payload.selectionRect,
-        ) : undefined}
-        onClozeRangeLongPress={(blankIndex, selectionRect) => {
-          const target = row.blanks.find((item) => item.blankIndex === blankIndex);
-          if (target) onBlankLongPress?.(target.blank, selectionRect);
-        }}
-        onClozeRangePress={activateBlank}
-      />
-    </View>;
+function renderClozeLookupText(
+  text: string,
+  start: number,
+  end: number,
+  onLookup: (term: string, start: number, end: number, anchor?: NativeTextSelectionPayload["selectionRect"]) => void,
+  onAddBlank?: (start: number, end: number, selectedText: string, selectionRect?: NativeTextSelectionPayload["selectionRect"]) => void,
+  onTextSelectionStart?: () => void,
+  onTextSelectionEnd?: () => void,
+): React.ReactNode[] {
+  const chunk = text.slice(start, end);
+  if (!chunk) return [];
+  return [<SelectableMessageText
+    key={`selectable-${start}-${end}`}
+    text={chunk}
+    style={styles.clozeSentence}
+    containerStyle={styles.clozeSelectableGap}
+    enableDictionaryMenu
+    enableClozeMenu={Boolean(onAddBlank)}
+    onSelectionStart={onTextSelectionStart}
+    onSelectionEnd={onTextSelectionEnd}
+    onDictionarySelection={(payload) => onLookup(payload.selectedText, start + payload.start, start + payload.end, payload.selectionRect)}
+    onSelectionChange={onAddBlank ? (payload) => onAddBlank(start + payload.start, start + payload.end, payload.selectedText, payload.selectionRect) : undefined}
+  />];
 }
 
 function buildCardClozeAnswerRanges(
@@ -5021,6 +5148,7 @@ const styles = StyleSheet.create({
   clozeChoiceOptionTextIncorrect: { color: theme.colors.danger },
   stableSentence: { alignSelf: "stretch", overflow: "visible", flexDirection: "row", alignItems: "flex-end" },
   stableSentenceContent: { flex: 1, minWidth: 0 },
+  inlineSentencePlayTrailing: { width: 24, height: 24, marginLeft: 5, marginBottom: 2, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   stableSentenceActive: { borderRadius: 7, backgroundColor: theme.colors.surfaceMuted },
   inlineSentenceActions: { minHeight: 34, marginTop: 4, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   inlineSentenceActionSpacer: { flex: 1 },
@@ -5031,6 +5159,21 @@ const styles = StyleSheet.create({
   clozeSentenceRowActive: { backgroundColor: theme.colors.accentSoft },
   clozeSentencePlay: { width: 34, minHeight: 34, marginTop: -1, marginRight: -5, alignItems: "center", justifyContent: "center" },
   clozeSentenceBody: { flex: 1, paddingTop: 1 },
+  cardBlankUnit: { height: 28, maxWidth: "100%", flexShrink: 1, alignItems: "center" },
+  cardBlankField: { height: 28, flexShrink: 1, position: "relative", alignItems: "center", justifyContent: "center" },
+  cardBlankMeasure: { minWidth: 28, maxWidth: 240, height: 28, opacity: 0, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, includeFontPadding: false },
+  cardBlankBackground: { position: "absolute", left: 0, right: 0, top: 4, bottom: 5, backgroundColor: "#FFF0B8" },
+  cardBlankBackgroundCorrect: { backgroundColor: "#DDF2DF" },
+  cardBlankBackgroundIncorrect: { backgroundColor: "#FCE1DF" },
+  cardBlankBackgroundActive: { borderWidth: 1.5, borderColor: "#D05F78", borderRadius: 3 },
+  cardBlankUnderline: { position: "absolute", left: 0, right: 0, bottom: 4, height: 1.5, backgroundColor: "#D05F78" },
+  cardBlankContent: { ...StyleSheet.absoluteFillObject },
+  cardBlankInput: { width: "100%", height: 28, paddingHorizontal: 0, paddingTop: 4, paddingBottom: 4, borderWidth: 0, backgroundColor: "transparent", color: theme.colors.text, fontSize: 17, lineHeight: 20, fontWeight: "400", letterSpacing: 0, textAlign: "left", textAlignVertical: "center", includeFontPadding: false },
+  cardBlankInputIncorrect: { color: theme.colors.danger },
+  cardBlankStaticText: { width: "100%", height: 28, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
+  cardBlankStaticTextIncorrect: { color: theme.colors.danger },
+  cardBlankCheckButton: { width: 20, height: 20, marginLeft: 3, marginTop: 4, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  cardBlankCheckButtonDisabled: { opacity: 0.45 },
   clozeSentence: { color: "#242424", fontSize: 17, lineHeight: 28 },
   originalLearningSentence: { color: theme.colors.text },
   replyLearningSentence: { color: theme.colors.text },

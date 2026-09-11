@@ -239,7 +239,7 @@ export function CardDetailNavigator({
     try {
       await setCardGenerationState(detail.id, { pendingTargets: [target], failedTargets: failedGenerationTargets.filter((candidate) => candidate !== target) });
       const generation = await generateMissingCardContent(detail, [target]);
-      const autoClozeDetail = await applyAutomaticCloze(generation.detail, generation.generatedTargets);
+      const autoClozeDetail = await applyAutomaticCloze(generation.detail, [target]);
       const stableDetail = await stabilizeCardDetailImages(detail, autoClozeDetail);
       setDetail(stableDetail);
       detailCacheRef.current.set(detail.id, { detail: stableDetail, loadedAt: Date.now() });
@@ -448,7 +448,7 @@ export function CardDetailNavigator({
         setFailedGenerationTargets([]);
         onChanged();
         void generateMissingCardContent(updated, targets).then(async (generation) => {
-          const autoClozeDetail = await applyAutomaticCloze(generation.detail, generation.generatedTargets);
+          const autoClozeDetail = await applyAutomaticCloze(generation.detail, targets);
           const stableDetail = await stabilizeCardDetailImages(updated, autoClozeDetail);
           setDetail(stableDetail);
           setPendingGenerationTargets([]);
