@@ -40,11 +40,20 @@
         "simulator": false
       }
     },
+    "google": {
+      "environment": "production",
+      "autoIncrement": true,
+      "distribution": "store",
+      "channel": "production-google",
+      "android": {
+        "buildType": "app-bundle"
+      }
+    },
     "china": {
       "environment": "production",
       "autoIncrement": true,
       "distribution": "store",
-      "channel": "production",
+      "channel": "production-china",
       "android": {
         "buildType": "apk"
       }

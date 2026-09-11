@@ -1,13 +1,24 @@
 const isPreview = process.env.EAS_BUILD_PROFILE === "preview";
 
 const scheme = isPreview ? "oio-preview" : "oio";
+const updateChannelByBuildProfile = {
+  preview: "preview",
+  google: "production-google",
+  china: "production-china",
+};
+const updateChannel = process.env.EXPO_UPDATES_CHANNEL?.trim()
+  || updateChannelByBuildProfile[process.env.EAS_BUILD_PROFILE]
+  || "production";
+const updatesUrl = process.env.EXPO_UPDATES_URL?.trim()
+  || "https://api.yueyantech.com/updates/manifest";
+const updateSigningCertificate = process.env.EXPO_UPDATES_CODE_SIGNING_CERTIFICATE?.trim();
 
 module.exports = {
   expo: {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.1.1",
+    version: "1.1.2",
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
@@ -86,9 +97,21 @@ module.exports = {
       "./plugins/with-android-release-signing",
     ],
     owner: "reedtang",
-    runtimeVersion: "1.1.1",
+    runtimeVersion: "1.1.2",
     updates: {
-      url: "https://u.expo.dev/0a8b5bb4-bdb1-4950-b3e9-6e2530b9c836",
+      url: updatesUrl,
+      requestHeaders: {
+        "expo-channel-name": updateChannel,
+      },
+      ...(updateSigningCertificate
+        ? {
+            codeSigningCertificate: updateSigningCertificate,
+            codeSigningMetadata: {
+              keyid: "main",
+              alg: "rsa-v1_5-sha256",
+            },
+          }
+        : {}),
     },
   },
 };

@@ -77,6 +77,7 @@ import { registerTtsRoutes } from "./tts/routes.js";
 import { registerDictionaryRoutes } from "./dictionary/routes.js";
 import { registerSttRoutes } from "./stt/routes.js";
 import { registerAppVersionRoutes } from "./appVersion/routes.js";
+import { registerExpoUpdateRoutes } from "./updates/routes.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 import { writeSystemEventLog } from "./lib/systemEventLog.js";
@@ -539,6 +540,7 @@ export function createApp() {
       systemEventLogRepository,
     });
     registerAppVersionRoutes(app);
+    registerExpoUpdateRoutes(app);
     registerAdminRoutes(app, { prisma, subscriptionService, systemEventLogRepository, resourceGovernor, apiRequestMetrics, databaseQueryMetrics, ttsStreamingCoordinator });
 
     app.get("/health", async (req, reply) => {

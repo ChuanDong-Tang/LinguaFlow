@@ -12,7 +12,8 @@
     "web": "expo start --web",
     "build:ios:preview": "npx eas-cli build --platform ios --profile preview",
     "build:ios:testflight": "npx eas-cli build --platform ios --profile testflight",
-    "build:ios:production": "npx eas-cli build --platform ios --profile production"
+    "build:ios:production": "npx eas-cli build --platform ios --profile production",
+    "publish:update": "node --env-file-if-exists=../../.env --env-file-if-exists=.env ./scripts/publish-self-hosted-update.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
