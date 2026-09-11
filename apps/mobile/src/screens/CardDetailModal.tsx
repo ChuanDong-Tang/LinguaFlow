@@ -98,13 +98,6 @@ function initialClozeInteractionMode(autoStart: boolean, blankCount: number): Cl
   return "choice";
 }
 type ClozeChoiceOption = { value: string; incorrect: boolean };
-type ClozePracticePrompt = {
-  sentenceText: string;
-  blankStart: number;
-  blankEnd: number;
-  auxiliaryText?: string;
-  playbackRow: CardClozeSentenceRow;
-};
 type ClozeKeyboardTrayState = { ownerKey: string; blankId: string; value: string; incorrect: boolean; anchor?: CardBlankActionAnchor };
 type ClozeKeyboardCheckResult = { correct: boolean };
 type ClozeKeyboardHandler = {
@@ -1973,6 +1966,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const learningTargetRef = useRef<View>(null);
   const learningTargetContentYRef = useRef(0);
   const flipCardScrollRef = useRef<React.ComponentRef<typeof KeyboardAwareScrollView>>(null);
+  const flipCardScrollYRef = useRef(0);
   const actionBarRef = useRef<View>(null);
   const images = useMemo(
     () => detail.images?.length ? detail.images : detail.image ? [detail.image] : [],
@@ -2035,7 +2029,6 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const keyboardAnswerHandlersRef = useRef(new Map<string, ClozeKeyboardHandler>());
   const completedChoiceBlankKeysRef = useRef(new Set<string>());
   const completedKeyboardBlankKeysRef = useRef(new Set<string>());
-  const keyboardTrayInputRef = useRef<TextInput>(null);
   const practiceKeyboardDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingClozeCheckHandlersRef = useRef(new Map<string, PendingClozeCheckHandler>());
   const [blankAction, setBlankAction] = useState<{
@@ -2406,6 +2399,15 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     activeChoiceOwnerKeyRef.current = ownerKey;
     setActiveChoiceOwnerKey(ownerKey);
   }, []);
+  const focusChoiceSentence = useCallback((target: { y: number; height: number }) => {
+    const visibleTop = 88;
+    const visibleBottom = Math.max(visibleTop + 120, reviewWindowHeight - 132);
+    const targetCenter = target.y + target.height / 2;
+    const visibleCenter = (visibleTop + visibleBottom) / 2;
+    const nextY = Math.max(0, flipCardScrollYRef.current + targetCenter - visibleCenter);
+    if (Math.abs(nextY - flipCardScrollYRef.current) < 8) return;
+    flipCardScrollRef.current?.scrollTo({ y: nextY, animated: true });
+  }, [reviewWindowHeight]);
   const orderedPracticeBlocks = [
     ...wholeCardPracticeBlocks.filter((block) => block.contentType.startsWith("image:")),
     ...wholeCardPracticeBlocks.filter((block) => block.contentType === "rewrite" || block.contentType === "original"),
@@ -2417,32 +2419,18 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       .flatMap((blank) => {
         const segment = block.segments.find((candidate) => candidate.id === blank.segmentId);
         if (!segment) return [];
-        return [{
-          ownerKey: `${block.contentType}:${block.contentVersion}`,
-          blankId: blank.id,
-          prompt: {
-            sentenceText: segment.text,
-            blankStart: blank.startUtf16,
-            blankEnd: blank.endUtf16,
-            auxiliaryText: (block.auxiliarySegments
-              ?? (block.contentType.startsWith("image:")
-                ? images.find((image) => `image:${image.id}` === block.contentType)?.descriptionAuxiliarySegments
-                : undefined))?.find((candidate) => candidate.ordinal === segment.ordinal)?.text,
-            playbackRow: {
-              key: `${segment.id}:sentence-0-${segment.text.length}`,
-              segmentId: segment.id,
-              text: segment.text,
-              textStart: 0,
-              textEnd: segment.text.length,
-              blanks: [],
-            },
-          } satisfies ClozePracticePrompt,
-        }];
+        return [{ ownerKey: `${block.contentType}:${block.contentVersion}`, blankId: blank.id }];
       }));
   const practiceQueueKey = JSON.stringify(practiceBlankQueue);
   useEffect(() => {
     if (clozeMode !== "choice") { setSelectedChoiceBlankId(null); return; }
     if (practiceBlankQueue.some((item) => item.ownerKey === activeChoiceOwnerKey && item.blankId === selectedChoiceBlankId)) return;
+    const next = practiceBlankQueue.find((item) => !completedChoiceBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`));
+    if (next) {
+      activateChoiceOwner(next.ownerKey);
+      setSelectedChoiceBlankId(next.blankId);
+      return;
+    }
     activeChoiceOwnerKeyRef.current = null;
     setActiveChoiceOwnerKey(null);
     setSelectedChoiceBlankId(null);
@@ -2493,27 +2481,6 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       return;
     }
     finishClozePractice();
-  };
-  const activePracticePrompt = clozeInputMode === "choice"
-    ? practiceBlankQueue.find((item) => item.ownerKey === activeChoiceOwnerKey && item.blankId === selectedChoiceBlankId)?.prompt ?? null
-    : practiceBlankQueue.find((item) => item.ownerKey === keyboardTray?.ownerKey && item.blankId === keyboardTray?.blankId)?.prompt ?? null;
-  const practicePromptPlaybackActive = Boolean(activePracticePrompt && activeSentenceKey === activePracticePrompt.playbackRow.key);
-  const practicePromptLoading = Boolean(activePracticePrompt && (
-    sentenceAudioLoadingKey === activePracticePrompt.playbackRow.key
-    || practicePromptPlaybackActive && playback.status === "loading"
-  ));
-  const practicePromptPlaying = practicePromptPlaybackActive && playback.status === "playing";
-  const closePracticePanel = () => {
-    if (clozeInputMode === "choice") {
-      activeChoiceOwnerKeyRef.current = null;
-      setActiveChoiceOwnerKey(null);
-      setSelectedChoiceBlankId(null);
-      setChoiceTrayOptions([]);
-      return;
-    }
-    setActiveKeyboardOwnerKey(null);
-    setKeyboardTray(null);
-    dismissKeyboardAfterPracticePanelCloses();
   };
   const registerChoiceAnswerHandler = useCallback((ownerKey: string, handler: ((value: string) => void) | null) => {
     if (handler) choiceAnswerHandlersRef.current.set(ownerKey, handler);
@@ -2593,6 +2560,14 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     if (wholeCardBlankCount === 0) return;
     setClozeMode(mode);
     setAnswersVisible(false);
+    if (mode === "choice") {
+      completedChoiceBlankKeysRef.current.clear();
+      const first = practiceBlankQueue[0];
+      if (first) {
+        activateChoiceOwner(first.ownerKey);
+        setSelectedChoiceBlankId(first.blankId);
+      }
+    }
     if (mode !== "keyboard") {
       setActiveKeyboardOwnerKey(null);
       setKeyboardTray(null);
@@ -3395,6 +3370,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       onChoiceOwnerChange={activateChoiceOwner}
       onChoiceOptionsChange={(options) => updateChoiceTrayOptions(ownerKey, options)}
       onChoiceAnswerHandlerChange={(handler) => registerChoiceAnswerHandler(ownerKey, handler)}
+      onChoiceSentenceFocus={focusChoiceSentence}
       activeKeyboardOwnerKey={activeKeyboardOwnerKey}
       onActivateKeyboardOwner={(state) => {
         cancelPendingPracticeKeyboardDismiss();
@@ -3427,6 +3403,8 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           extraKeyboardSpace={16}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={keyboardTray ? "none" : "interactive"}
+          onScroll={(event) => { flipCardScrollYRef.current = event.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={16}
           contentContainerStyle={[
             styles.flipCardContent,
           ]}
@@ -3556,101 +3534,25 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       </View>
     </View>
     {onRecallFinish ? <Pressable style={styles.recallFinishButton} onPress={onRecallFinish}><Text style={styles.recallFinishButtonText}>{t("recall.end_node")}</Text><Ionicons name="checkmark" size={18} color={theme.colors.surface} /></Pressable> : null}
+    {clozeMode === "choice" && choiceTrayOptions.length ? <View style={styles.detailChoiceTray}>
+      {choiceTrayOptions.map((option) => <Pressable
+        key={option.value}
+        disabled={savingCloze || !option.value}
+        accessible={Boolean(option.value)}
+        style={[styles.clozeChoiceOption, !option.value && styles.clozeChoiceOptionEmpty, option.incorrect && styles.clozeChoiceOptionIncorrect]}
+        onPress={() => {
+          if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.(option.value);
+        }}
+      >
+        <Text numberOfLines={2} style={[styles.clozeChoiceOptionText, option.incorrect && styles.clozeChoiceOptionTextIncorrect]}>{option.value}</Text>
+      </Pressable>)}
+    </View> : null}
     <View ref={actionBarRef} style={styles.detailActionBar}>
       {!detail.isSample ? <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={!practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} /> : null}
       <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => setAnswersVisible((current) => !current)} />
       <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("keyboard")} />
       <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("choice")} />
     </View>
-    <Modal
-      visible={clozeMode === "choice" && Boolean(activePracticePrompt)}
-      transparent
-      animationType="fade"
-      statusBarTranslucent
-      onRequestClose={closePracticePanel}
-    >
-      <KeyboardAvoidingView style={styles.clozePracticeOverlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        <Pressable style={styles.clozePracticeBackdrop} onPress={closePracticePanel} />
-        <View style={styles.clozePracticePanel}>
-          <View style={styles.clozePracticeHeader}>
-            {activePracticePrompt ? <ClozePracticePromptText
-              key={`${activePracticePrompt.playbackRow.key}:${activePracticePrompt.blankStart}:${activePracticePrompt.blankEnd}`}
-              prompt={activePracticePrompt}
-            /> : null}
-            <View style={styles.clozePracticeHeaderActions}>
-              <Pressable
-                accessibilityLabel={t("card_detail.a11y.play_sentence")}
-                disabled={practicePromptLoading || !activePracticePrompt}
-                style={[styles.clozePracticePlay, practicePromptLoading && styles.detailKeyboardCheckDisabled]}
-                onPress={() => {
-                  if (!activePracticePrompt) return;
-                  if (practicePromptPlaybackActive) stopTtsAudio();
-                  else void playStandaloneSentence(activePracticePrompt.playbackRow);
-                }}
-              >
-                {practicePromptLoading
-                  ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                  : <Ionicons name={practicePromptPlaying ? "stop" : "play"} size={17} color={theme.colors.textSecondary} />}
-              </Pressable>
-              <Pressable accessibilityLabel={t("card_detail.recommendation.close")} hitSlop={8} style={styles.clozePracticeClose} onPress={closePracticePanel}>
-                <Ionicons name="close" size={20} color={theme.colors.textMuted} />
-              </Pressable>
-            </View>
-          </View>
-          {clozeInputMode === "choice" ? <View style={styles.clozePracticeChoices}>
-            {choiceTrayOptions.map((option) => <Pressable
-              key={option.value}
-              disabled={savingCloze || !option.value}
-              accessible={Boolean(option.value)}
-              style={[styles.clozeChoiceOption, !option.value && styles.clozeChoiceOptionEmpty, option.incorrect && styles.clozeChoiceOptionIncorrect]}
-              onPress={() => {
-                if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.(option.value);
-              }}
-            >
-              <Text numberOfLines={2} style={[styles.clozeChoiceOptionText, option.incorrect && styles.clozeChoiceOptionTextIncorrect]}>{option.value}</Text>
-            </Pressable>)}
-          </View> : <View style={styles.clozePracticeInputRow}>
-            <TextInput
-              ref={keyboardTrayInputRef}
-              value={keyboardTray?.value ?? ""}
-              editable={Boolean(keyboardTray) && !savingCloze}
-              accessibilityLabel={t("card_detail.tab.cloze")}
-              placeholder={t("memory_round.type_answer")}
-              placeholderTextColor={theme.colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="done"
-              selectionColor={theme.colors.text}
-              style={[styles.detailKeyboardInput, keyboardTray?.incorrect && styles.detailKeyboardInputIncorrect]}
-              onChangeText={(value) => {
-                if (!keyboardTray) return;
-                setKeyboardTray((current) => current ? { ...current, value, incorrect: false } : null);
-                keyboardAnswerHandlersRef.current.get(keyboardTray.ownerKey)?.change(keyboardTray.blankId, value);
-              }}
-              onSubmitEditing={() => {
-                if (!keyboardTray?.value.trim()) return;
-                const result = keyboardAnswerHandlersRef.current.get(keyboardTray.ownerKey)?.check(keyboardTray.blankId, keyboardTray.value);
-                if (result?.correct) completeKeyboardBlank(keyboardTray.ownerKey, keyboardTray.blankId);
-                else if (result && !result.correct) setKeyboardTray((current) => current ? { ...current, incorrect: true } : null);
-              }}
-            />
-            <Pressable
-              accessibilityLabel={t("card_detail.dictation.check")}
-              disabled={savingCloze || !keyboardTray?.value.trim()}
-              style={[styles.detailKeyboardCheck, (savingCloze || !keyboardTray?.value.trim()) && styles.detailKeyboardCheckDisabled]}
-              onPress={() => {
-                if (!keyboardTray) return;
-                const result = keyboardAnswerHandlersRef.current.get(keyboardTray.ownerKey)?.check(keyboardTray.blankId, keyboardTray.value);
-                if (result?.correct) completeKeyboardBlank(keyboardTray.ownerKey, keyboardTray.blankId);
-                else if (result && !result.correct) setKeyboardTray((current) => current ? { ...current, incorrect: true } : null);
-              }}
-            >
-              <Ionicons name="checkmark" size={18} color={theme.colors.surface} />
-            </Pressable>
-          </View>}
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
     <Modal visible={recommendationTaskVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
       <Pressable style={styles.recommendationBackdrop} onPress={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
         <Pressable style={styles.recommendationSheet} onPress={() => undefined}>
@@ -3747,54 +3649,6 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     </Modal>
     </View>
   );
-}
-
-function ClozePracticePromptText({ prompt }: { prompt: ClozePracticePrompt }) {
-  const [auxiliaryRevealed, setAuxiliaryRevealed] = useState(false);
-  const auxiliaryReveal = useRef(new Animated.Value(0)).current;
-  const start = Math.max(0, Math.min(prompt.blankStart, prompt.sentenceText.length));
-  const end = Math.max(start, Math.min(prompt.blankEnd, prompt.sentenceText.length));
-  const mask = prompt.sentenceText.slice(start, end).replace(/\S/gu, "_") || "____";
-  const toggleAuxiliary = () => {
-    const next = !auxiliaryRevealed;
-    setAuxiliaryRevealed(next);
-    Animated.timing(auxiliaryReveal, {
-      toValue: next ? 1 : 0,
-      duration: 140,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  };
-  return <View style={styles.clozePracticePromptCopy}>
-    <Text style={styles.clozePracticeSentence}>
-      {prompt.sentenceText.slice(0, start)}
-      <Text style={styles.clozePracticeSentenceBlank}>{mask}</Text>
-      {prompt.sentenceText.slice(end)}
-    </Text>
-    {prompt.auxiliaryText?.trim() ? <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={t(auxiliaryRevealed ? "card_detail.cloze.hide_auxiliary" : "card_detail.cloze.reveal_auxiliary")}
-      accessibilityState={{ expanded: auxiliaryRevealed }}
-      style={styles.clozePracticeAuxiliaryButton}
-      onPress={toggleAuxiliary}
-    >
-      <View style={styles.clozePracticeAuxiliaryLayers}>
-        <Text accessible={false} style={[styles.clozePracticeAuxiliary, styles.clozePracticeAuxiliaryMeasure]}>{prompt.auxiliaryText}</Text>
-        <Animated.Text
-          accessible={false}
-          pointerEvents="none"
-          style={[styles.clozePracticeAuxiliary, styles.clozePracticeAuxiliaryLayer, styles.clozePracticeAuxiliaryInkBlur, {
-            opacity: auxiliaryReveal.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-          }]}
-        >{prompt.auxiliaryText}</Animated.Text>
-        <Animated.Text
-          accessible={false}
-          pointerEvents="none"
-          style={[styles.clozePracticeAuxiliary, styles.clozePracticeAuxiliaryLayer, { opacity: auxiliaryReveal }]}
-        >{prompt.auxiliaryText}</Animated.Text>
-      </View>
-    </Pressable> : null}
-  </View>;
 }
 
 function RecordTimeEditorModal({ visible, value, onClose, onSave }: {
@@ -4111,7 +3965,7 @@ function ReasonBadge({ reason }: { reason: CardRelationReason }) {
   return <View style={[styles.reasonBadge, reason.type === "progress" && styles.reasonProgress, reason.type === "phrase" && styles.reasonPhrase]}><Text style={styles.reasonText}>{label}</Text></View>;
 }
 
-function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerPool, onClozeChange, onAddBlank, onBlankLongPress, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, displayMode = "target", activeSentenceKey = null, sentenceAudioLoadingKey = null, onPlaySentence, choiceOwnerKey, activeChoiceOwnerKey, selectedChoiceBlankId, onSelectChoiceBlank, onChoiceAnswered, onChoiceOwnerChange, onChoiceOptionsChange, onChoiceAnswerHandlerChange, activeKeyboardOwnerKey, selectedKeyboardBlankId, onActivateKeyboardOwner, onKeyboardTrayChange, onKeyboardAnswered, onKeyboardAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
+function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerPool, onClozeChange, onAddBlank, onBlankLongPress, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, displayMode = "target", activeSentenceKey = null, sentenceAudioLoadingKey = null, onPlaySentence, choiceOwnerKey, activeChoiceOwnerKey, selectedChoiceBlankId, onSelectChoiceBlank, onChoiceAnswered, onChoiceOwnerChange, onChoiceOptionsChange, onChoiceAnswerHandlerChange, onChoiceSentenceFocus, activeKeyboardOwnerKey, selectedKeyboardBlankId, onActivateKeyboardOwner, onKeyboardTrayChange, onKeyboardAnswered, onKeyboardAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
   detail: CardRecordDetail;
   contentBinding: CardContentBinding;
   clozeState: CardClozeState;
@@ -4136,6 +3990,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
   onChoiceOwnerChange?: (ownerKey: string) => void;
   onChoiceOptionsChange?: (options: ClozeChoiceOption[]) => void;
   onChoiceAnswerHandlerChange?: (handler: ((value: string) => void) | null) => void;
+  onChoiceSentenceFocus?: (target: { y: number; height: number }) => void;
   activeKeyboardOwnerKey?: string | null;
   selectedKeyboardBlankId?: string | null;
   onActivateKeyboardOwner?: (state: Omit<ClozeKeyboardTrayState, "ownerKey">) => void;
@@ -4176,6 +4031,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
   const onKeyboardTrayChangeRef = useRef(onKeyboardTrayChange);
   const onKeyboardAnswerHandlerChangeRef = useRef(onKeyboardAnswerHandlerChange);
   const onPendingClozeCheckHandlerChangeRef = useRef(onPendingClozeCheckHandlerChange);
+  const sentenceRowRefsRef = useRef(new Map<string, View>());
   onChoiceOptionsChangeRef.current = onChoiceOptionsChange;
   onChoiceAnswerHandlerChangeRef.current = onChoiceAnswerHandlerChange;
   onKeyboardTrayChangeRef.current = onKeyboardTrayChange;
@@ -4187,6 +4043,18 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
   const effectiveActiveChoiceBlankIndex = fillMode && inputMode === "choice" && selectedIndex !== null && selectedIndex >= 0
     ? selectedIndex
     : null;
+  const activeChoiceSentenceKey = effectiveActiveChoiceBlankIndex === null
+    ? null
+    : sentenceRows.find((row) => row.blanks.some((item) => item.blankIndex === effectiveActiveChoiceBlankIndex))?.key ?? null;
+  useEffect(() => {
+    if (!activeChoiceSentenceKey || !onChoiceSentenceFocus) return;
+    const frame = requestAnimationFrame(() => {
+      sentenceRowRefsRef.current.get(activeChoiceSentenceKey)?.measureInWindow((_x, y, _width, height) => {
+        if (height > 0) onChoiceSentenceFocus({ y, height });
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeChoiceSentenceKey, onChoiceSentenceFocus]);
   const selectedKeyboardIndex = selectedKeyboardBlankId === undefined
     ? activeKeyboardBlankIndex
     : clozeState.blanks.findIndex((blank) => blank.id === selectedKeyboardBlankId);
@@ -4237,7 +4105,13 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
       [blank.id]: answerCorrect ? "correct" as const : "incorrect" as const,
     };
     setCheckedAnswers(nextChecked);
-    setSessionAnswers((current) => ({ ...current, [blank.id]: submittedAnswer }));
+    if (inputMode === "keyboard" && !answerCorrect) {
+      setAnswers((current) => ({ ...current, [blank.id]: "" }));
+    }
+    setSessionAnswers((current) => ({
+      ...current,
+      [blank.id]: inputMode === "keyboard" && !answerCorrect ? "" : submittedAnswer,
+    }));
     setSessionCheckedAnswers((current) => ({ ...current, [blank.id]: answerCorrect ? "correct" : "incorrect" }));
     const revealedBlankIndexes = new Set(answersVisible ? clozeState.blanks.map((_, index) => index) : []);
     const allChecked = clozeState.blanks.every((candidate, index) => nextChecked[candidate.id] || revealedBlankIndexes.has(index));
@@ -4331,9 +4205,15 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
       return { blank, blankIndex, answer, correct };
     });
     setCheckedAnswers(nextChecked);
+    if (inputMode === "keyboard") {
+      setAnswers((current) => ({
+        ...current,
+        ...Object.fromEntries(outcomes.filter(({ correct }) => !correct).map(({ blank }) => [blank.id, ""])),
+      }));
+    }
     setSessionAnswers((current) => ({
       ...current,
-      ...Object.fromEntries(outcomes.map(({ blank, answer }) => [blank.id, answer])),
+      ...Object.fromEntries(outcomes.map(({ blank, answer, correct }) => [blank.id, inputMode === "keyboard" && !correct ? "" : answer])),
     }));
     setSessionCheckedAnswers((current) => ({
       ...current,
@@ -4439,6 +4319,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
     const correct = normalizeAnswer(value) === normalizeAnswer(blank.answer);
     void check(blankIndex, value);
     if (correct) onKeyboardAnswered?.(blank.id);
+    else setKeyboardAnswers((current) => ({ ...current, [blank.id]: "" }));
   }
 
   const chooseAnswerRef = useRef(chooseAnswer);
@@ -4455,6 +4336,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
       if (!blank || saving || !value.trim()) return null;
       const correct = normalizeAnswer(value) === normalizeAnswer(blank.answer);
       void check(blankIndex, value);
+      if (!correct) setKeyboardAnswers((current) => ({ ...current, [blank.id]: "" }));
       return { correct };
     },
   };
@@ -4521,7 +4403,14 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
           <View style={[styles.clozeSentenceList, embedded && styles.inlineClozeSentenceList]}>{sentenceRows.map((row) => {
             const segment = detail.rewriteSegments.find((candidate) => candidate.id === row.segmentId);
             const auxiliaryText = segment ? auxiliaryByOrdinal.get(segment.ordinal) : undefined;
-            return <View key={row.key} style={[styles.clozeSentenceRow, embedded && styles.inlineClozeSentenceRow]}>
+            return <View
+              key={row.key}
+              ref={(node) => {
+                if (node) sentenceRowRefsRef.current.set(row.key, node);
+                else sentenceRowRefsRef.current.delete(row.key);
+              }}
+              style={[styles.clozeSentenceRow, embedded && styles.inlineClozeSentenceRow]}
+            >
               <View style={styles.clozeSentenceBody}>
                 <StableCardSentence
                   row={row}
@@ -4703,8 +4592,9 @@ function ClozePracticeBlank({ expectedText, answer, checked, mastered = false, r
 }) {
   const inputRef = useRef<TextInput>(null);
   const longPressHandledRef = useRef(false);
-  const showInput = fillMode && inputMode === "keyboard" && !revealed;
+  const showInput = fillMode && inputMode === "keyboard" && !revealed && checked !== "correct";
   const showExpected = revealed || checked === "correct";
+  const blankWords = expectedText.trim().split(/\s+/u).filter(Boolean);
 
   useEffect(() => {
     if (!showInput || !keyboardActive) return;
@@ -4738,7 +4628,12 @@ function ClozePracticeBlank({ expectedText, answer, checked, mastered = false, r
         checked === "incorrect" && styles.cardBlankBackgroundIncorrect,
         (choiceActive || keyboardActive) && styles.cardBlankBackgroundActive,
       ]} />
-      <View pointerEvents="none" style={styles.cardBlankUnderline} />
+      <View pointerEvents="none" style={styles.cardBlankUnderlineRow}>
+        {(blankWords.length ? blankWords : [expectedText || " "]).map((word, index) => <View
+          key={`${index}:${word}`}
+          style={[styles.cardBlankUnderlineSegment, { flexGrow: Math.max(1, Array.from(word).length) }]}
+        />)}
+      </View>
       <View style={styles.cardBlankContent}>
         {showInput ? <TextInput
           ref={inputRef}
@@ -5077,28 +4972,6 @@ const styles = StyleSheet.create({
   recommendationPracticeOptionTextWrong: { color: theme.colors.textMuted, textDecorationLine: "line-through" },
   recommendationPracticeSkip: { minHeight: 38, marginTop: 7, alignItems: "center", justifyContent: "center" },
   recommendationPracticeSkipText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 19, fontWeight: "500" },
-  clozePracticeOverlay: { flex: 1, justifyContent: "flex-end" },
-  clozePracticeBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(17, 17, 17, 0.16)" },
-  clozePracticePanel: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 28, borderTopLeftRadius: 22, borderTopRightRadius: 22, backgroundColor: theme.colors.surface, gap: 16, shadowColor: "#000", shadowOpacity: 0.14, shadowRadius: 18, shadowOffset: { width: 0, height: -4 }, elevation: 18 },
-  clozePracticeHeader: { minHeight: 54, paddingLeft: 2, flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  clozePracticePromptCopy: { flex: 1, minWidth: 0 },
-  clozePracticeSentence: { color: theme.colors.text, fontSize: 17, lineHeight: 27 },
-  clozePracticeSentenceBlank: { color: "#D05F78", backgroundColor: "#FFF0B8", fontWeight: "700" },
-  clozePracticeAuxiliaryButton: { alignSelf: "stretch", marginTop: 5, minHeight: 24, justifyContent: "center" },
-  clozePracticeAuxiliary: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 },
-  clozePracticeAuxiliaryLayers: { position: "relative", alignSelf: "stretch" },
-  clozePracticeAuxiliaryMeasure: { opacity: 0 },
-  clozePracticeAuxiliaryLayer: { position: "absolute", top: 0, left: 0, right: 0 },
-  clozePracticeAuxiliaryInkBlur: { color: "rgba(32, 32, 32, 0.04)", textShadowColor: "rgba(32, 32, 32, 0.78)", textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
-  clozePracticeHeaderActions: { flexDirection: "row", alignItems: "center", gap: 2 },
-  clozePracticePlay: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
-  clozePracticeClose: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-  clozePracticeChoices: { flexDirection: "row", gap: 9 },
-  clozePracticeInputRow: { flexDirection: "row", alignItems: "center", gap: 9 },
-  detailKeyboardInput: { flex: 1, height: 44, paddingHorizontal: 12, paddingVertical: 0, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surfaceMuted, color: theme.colors.text, fontSize: 15, lineHeight: 20, textAlignVertical: "center", includeFontPadding: false },
-  detailKeyboardInputIncorrect: { borderColor: "#D98B87", backgroundColor: "#FCE7E5", color: theme.colors.danger },
-  detailKeyboardCheck: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
-  detailKeyboardCheckDisabled: { opacity: 0.45 },
   detailActionButton: { flex: 1, minWidth: 40, maxWidth: 48, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   detailActionButtonActive: { backgroundColor: theme.colors.text },
   detailActionButtonDisabled: { opacity: 0.28 },
@@ -5141,6 +5014,7 @@ const styles = StyleSheet.create({
   inlineClozeSentenceList: { paddingVertical: 0 },
   inlineClozeSentenceRow: { minHeight: 0, marginHorizontal: 0, paddingHorizontal: 0, paddingVertical: 5 },
   clozeChoiceTray: { marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, flexDirection: "row", gap: 9 },
+  detailChoiceTray: { minHeight: 60, paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "stretch", gap: 9 },
   clozeChoiceOptionEmpty: { opacity: 0 },
   clozeChoiceOption: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   clozeChoiceOptionIncorrect: { borderColor: "#D98B87", backgroundColor: "#FCE7E5" },
@@ -5166,7 +5040,8 @@ const styles = StyleSheet.create({
   cardBlankBackgroundCorrect: { backgroundColor: "#DDF2DF" },
   cardBlankBackgroundIncorrect: { backgroundColor: "#FCE1DF" },
   cardBlankBackgroundActive: { borderWidth: 1.5, borderColor: "#D05F78", borderRadius: 3 },
-  cardBlankUnderline: { position: "absolute", left: 0, right: 0, bottom: 4, height: 1.5, backgroundColor: "#D05F78" },
+  cardBlankUnderlineRow: { position: "absolute", left: 0, right: 0, bottom: 4, height: 1.5, flexDirection: "row", gap: 3 },
+  cardBlankUnderlineSegment: { minWidth: 4, height: 1.5, backgroundColor: "#D05F78", flexBasis: 0 },
   cardBlankContent: { ...StyleSheet.absoluteFillObject },
   cardBlankInput: { width: "100%", height: 28, paddingHorizontal: 0, paddingTop: 4, paddingBottom: 4, borderWidth: 0, backgroundColor: "transparent", color: theme.colors.text, fontSize: 17, lineHeight: 20, fontWeight: "400", letterSpacing: 0, textAlign: "left", textAlignVertical: "center", includeFontPadding: false },
   cardBlankInputIncorrect: { color: theme.colors.danger },
