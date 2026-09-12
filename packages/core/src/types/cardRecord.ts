@@ -86,7 +86,7 @@ export interface CardImageDetailView extends CardImageThumbnailView {
   descriptionLanguageCode: string | null;
   descriptionAuxiliarySegments: Array<{ ordinal: number; text: string }>;
   descriptionAuxiliaryLanguageCode: string | null;
-  descriptionStatus: "not_requested" | "pending" | "auxiliary_pending" | "completed" | "failed";
+  descriptionStatus: "not_requested" | "pending" | "auxiliary_pending" | "auxiliary_failed" | "completed" | "failed";
 }
 
 export interface CardPracticeSummaryView {

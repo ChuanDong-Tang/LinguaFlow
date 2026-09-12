@@ -22,29 +22,53 @@ export async function generateMissingCardContent(
   const generatedTargets: CardGenerationTarget[] = [];
   let resourceLimited = false;
 
-  for (let index = 0; index < targets.length; index += 1) {
-    const target = targets[index]!;
-    if (hasGeneratedContent(detail, target)) continue;
+  const requestedTargets = [...new Set(targets)];
+  const independentTargets = requestedTargets.filter((target) => target !== "auxiliary" && !hasGeneratedContent(detail, target));
+  if (independentTargets.length === 1) {
+    const target = independentTargets[0]!;
     try {
-      if (target === "image_description") {
-        detail = await generateCardImageDescriptions(detail.id);
-      } else if (target === "auxiliary") {
-        const sourceBlock = detail.contentBlocks.find((block) => block.contentType === "rewrite")
-          ?? detail.contentBlocks.find((block) => block.contentType === "original")
-          ?? detail.contentBlocks[0];
-        if (!sourceBlock) throw new Error("No content is available for auxiliary generation");
-        detail = await generateCardContent(detail.id, target, sourceBlock.contentType);
-      } else {
-        detail = await generateCardContent(detail.id, target);
-      }
+      detail = await generateTarget(detail, target);
       generatedTargets.push(target);
     } catch (error) {
       failedTargets.push(target);
-      const limited = isCardResourceLimitedError(error);
-      resourceLimited ||= limited;
-      if (limited) {
-        failedTargets.push(...targets.slice(index + 1).filter((remaining) => !hasGeneratedContent(detail, remaining)));
-        break;
+      resourceLimited ||= isCardResourceLimitedError(error);
+    }
+  } else if (independentTargets.length > 1) {
+    const results = await Promise.all(independentTargets.map(async (target) => {
+      try {
+        return { target, detail: await generateTarget(initialDetail, target), error: null };
+      } catch (error) {
+        return { target, detail: null, error };
+      }
+    }));
+    for (const result of results) {
+      if (result.detail) {
+        detail = result.detail;
+        generatedTargets.push(result.target);
+      } else {
+        failedTargets.push(result.target);
+        resourceLimited ||= isCardResourceLimitedError(result.error);
+      }
+    }
+    try {
+      // Concurrent responses are snapshots taken at slightly different times.
+      // Reload once so the caller receives the merged expression and image state.
+      detail = await getCardRecord(initialDetail.id);
+    } catch {
+      // Keep the newest successful response; the regular detail refresh will reconcile it.
+    }
+  }
+
+  if (requestedTargets.includes("auxiliary") && !hasGeneratedContent(detail, "auxiliary")) {
+    if (resourceLimited) {
+      failedTargets.push("auxiliary");
+    } else {
+      try {
+        detail = await generateTarget(detail, "auxiliary");
+        generatedTargets.push("auxiliary");
+      } catch (error) {
+        failedTargets.push("auxiliary");
+        resourceLimited ||= isCardResourceLimitedError(error);
       }
     }
   }
@@ -70,6 +94,16 @@ export async function generateMissingCardContent(
     ],
     resourceLimited,
   };
+}
+
+async function generateTarget(detail: CardRecordDetail, target: CardGenerationTarget): Promise<CardRecordDetail> {
+  if (target === "image_description") return generateCardImageDescriptions(detail.id);
+  if (target !== "auxiliary") return generateCardContent(detail.id, target);
+  const sourceBlock = detail.contentBlocks.find((block) => block.contentType === "rewrite")
+    ?? detail.contentBlocks.find((block) => block.contentType === "original")
+    ?? detail.contentBlocks[0];
+  if (!sourceBlock) throw new Error("No content is available for auxiliary generation");
+  return generateCardContent(detail.id, target, sourceBlock.contentType);
 }
 
 export function isCardResourceLimitedError(error: unknown): boolean {

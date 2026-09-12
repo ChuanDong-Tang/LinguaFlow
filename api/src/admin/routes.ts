@@ -1881,7 +1881,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const runtime = getRuntimeConfig();
     const now = new Date();
     const from = new Date(now.getTime() - 24 * 60 * 60 * 1_000);
-    const [uploadRows, queueRows, workerRows, modelRows, totalRows, statusRows, backlogRows, failedJobs] = await Promise.all([
+    const [uploadRows, queueRows, workerRows, modelRows, totalRows, statusRows, backlogRows, failedJobs, unresolvedFailureRows] = await Promise.all([
       deps.prisma.$queryRawUnsafe(
         `SELECT COUNT(*)::int AS "sampleCount",
                 COALESCE(AVG(GREATEST(0, EXTRACT(EPOCH FROM ("moderatedAt" - "createdAt")) * 1000)), 0)::float8 AS "averageMs",
@@ -1967,8 +1967,19 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            FROM "card_enrichment_jobs"
           WHERE "jobType" = 'generate_image_description'
             AND status = 'failed'
+            AND "failedAt" >= $1
           ORDER BY "failedAt" DESC NULLS LAST
           LIMIT 10`,
+        from,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS count
+           FROM "card_enrichment_jobs" j
+           JOIN "card_image_assets" i ON i.id = j."sourceId"
+          WHERE j."jobType" = 'generate_image_description'
+            AND j.status = 'failed'
+            AND i."entryId" IS NOT NULL
+            AND i."descriptionStatus" NOT IN ('completed', 'disabled')`,
       ),
     ]);
     const phase = (key: string, label: string, rows: Array<Record<string, unknown>>, note: string) => ({
@@ -2000,6 +2011,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
           oldestReadyWaitSeconds: ageSeconds(oldestReadyAt, now),
         },
         failedJobs,
+        unresolvedFailedCount: Number(unresolvedFailureRows[0]?.count ?? 0),
         thresholds: {
           readyQueuedWarn: 5,
           oldestReadyWaitWarnSeconds: 10,

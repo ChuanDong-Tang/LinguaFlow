@@ -102,6 +102,8 @@ const includeSegments = {
   images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }] },
 } as const;
 
+const TEXT_CONTENT_TYPES: ReadonlySet<string> = new Set(["original", "rewrite", "reply"]);
+
 export class PrismaCardRepository implements CardRepository {
   constructor(private readonly prisma: PrismaCardClient) {}
 
@@ -569,7 +571,12 @@ export class PrismaCardRepository implements CardRepository {
           data: input.segments.map((segment) => ({ entryId: input.entryId, ...segment })),
         });
       }
-      await syncContentSegments(tx, input.entryId, input.contentSegments);
+      await syncScopedContentSegments(
+        tx,
+        input.entryId,
+        input.contentSegments.filter((write) => TEXT_CONTENT_TYPES.has(write.contentType)),
+        TEXT_CONTENT_TYPES,
+      );
       if (embeddingContentChanged) {
         await tx.cardEmbedding.deleteMany({ where: { cardId: input.entryId, userId: input.userId } });
         // Every indexed occurrence addresses the previous original/rewrite text.
@@ -842,6 +849,21 @@ export class PrismaCardRepository implements CardRepository {
     await this.prisma.cardImageAsset.updateMany({
       where: { id: { in: imageIds }, entryId, userId },
       data: { descriptionStatus: "failed", descriptionError: error.slice(0, 500), descriptionUpdatedAt: new Date() },
+    });
+    return this.findByIdForUser(entryId, userId);
+  }
+
+  async markImageDescriptionAuxiliaryFailed(entryId: string, userId: string, imageIds: string[], error: string): Promise<CardEntryEntity | null> {
+    if (!imageIds.length) return this.findByIdForUser(entryId, userId);
+    await this.prisma.cardImageAsset.updateMany({
+      where: {
+        id: { in: imageIds },
+        entryId,
+        userId,
+        descriptionText: { not: null },
+        descriptionStatus: { in: ["pending", "auxiliary_pending"] },
+      },
+      data: { descriptionStatus: "auxiliary_failed", descriptionError: error.slice(0, 500), descriptionUpdatedAt: new Date() },
     });
     return this.findByIdForUser(entryId, userId);
   }
@@ -2069,6 +2091,21 @@ async function syncContentSegments(
   }
 }
 
+async function syncScopedContentSegments(
+  tx: any,
+  entryId: string,
+  writes: CardContentSegmentWrite[],
+  managedTypes: ReadonlySet<string>,
+): Promise<void> {
+  const wantedTypes = new Set<string>(writes.map((write) => write.contentType));
+  const obsoleteTypes = [...managedTypes].filter((contentType) => !wantedTypes.has(contentType));
+  if (obsoleteTypes.length) {
+    await tx.cardContentSegment.deleteMany({ where: { entryId, contentType: { in: obsoleteTypes } } });
+    await tx.cardContentPracticeState.deleteMany({ where: { cardId: entryId, contentType: { in: obsoleteTypes } } });
+  }
+  await syncContentSegments(tx, entryId, writes, false);
+}
+
 async function enqueueTopicGeneration(
   tx: any,
   input: { userId: string; cardId: string; inputHash: string },
@@ -2576,7 +2613,7 @@ function toImageAsset(row: any): CardImageAssetEntity {
     descriptionAuxiliarySegments: row.descriptionAuxiliarySegments ?? null,
     descriptionAuxiliaryLanguageCode: row.descriptionAuxiliaryLanguageCode ?? null,
     descriptionAuxiliaryPromptVersion: row.descriptionAuxiliaryPromptVersion ?? null,
-    descriptionStatus: row.descriptionStatus === "pending" || row.descriptionStatus === "auxiliary_pending" || row.descriptionStatus === "completed" || row.descriptionStatus === "failed"
+    descriptionStatus: row.descriptionStatus === "pending" || row.descriptionStatus === "auxiliary_pending" || row.descriptionStatus === "auxiliary_failed" || row.descriptionStatus === "completed" || row.descriptionStatus === "failed"
       ? row.descriptionStatus
       : "not_requested",
     descriptionError: row.descriptionError ?? null,

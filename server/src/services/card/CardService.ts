@@ -1038,41 +1038,66 @@ export class CardService {
       : []);
     const failedImageIds: string[] = [];
     let firstFailure: unknown = null;
-    const missing = images.filter((image) => !image.descriptionText?.trim());
+    const missing = input.forceRegenerate ? images : images.filter((image) => !image.descriptionText?.trim());
+
+    const persistDescriptionTexts = async (descriptions: StagedDescription[]): Promise<void> => {
+      if (input.forceRegenerate || !descriptions.length) return;
+      const contentSegments = buildCardContentSegments(descriptions.map((description) => ({
+        contentType: imageDescriptionContentType(description.imageId),
+        text: description.text,
+        languageCode: description.languageCode,
+        sourceHash: cardContentHash(description.text),
+      })));
+      const saved = await this.repository.saveImageDescriptionTexts({
+        entryId: current.id,
+        userId: input.userId,
+        descriptions: descriptions.map(({ imageId, text, languageCode }) => {
+          const image = current.images.find((candidate) => candidate.id === imageId)!;
+          return {
+            imageId,
+            text,
+            languageCode,
+            sourceHash: image.fileMd5 ?? cardContentHash(image.originalObjectKey),
+            promptVersion: CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
+            resultVersion: CARD_IMAGE_DESCRIPTION_RESULT_VERSION,
+          };
+        }),
+        contentSegments,
+      });
+      if (!saved) throw new CardContentConflictError("The Card images changed while descriptions were being saved");
+    };
+
+    // Existing main descriptions (for example an auxiliary-only retry) remain
+    // visible while the supporting text is regenerated.
+    await persistDescriptionTexts(staged);
 
     if (missing.length) {
-      try {
-        const generated = await this.generateImageDescriptionTexts({
-          userId: input.userId,
-          requestId: `${input.requestId}:descriptions:batch`,
-          operation: "card.generate.image_descriptions.batch",
-          images: missing,
-          card: current,
-          billingMode: input.billingMode,
-        });
-        staged.push(...generated);
-      } catch (batchError) {
-        firstFailure = batchError;
-        if (missing.length === 1 || !shouldRetryImageDescriptionsIndividually(batchError)) {
-          failedImageIds.push(...missing.map((image) => image.id));
-        } else {
-          firstFailure = null;
-          for (const [index, image] of missing.entries()) {
-            try {
-              const [generated] = await this.generateImageDescriptionTexts({
-                userId: input.userId,
-                requestId: `${input.requestId}:descriptions:single:${index}`,
-                operation: "card.generate.image_descriptions.single",
-                images: [image],
-                card: current,
-                billingMode: input.billingMode,
-              });
-              if (!generated) throw new CardValidationError("Generated image description is empty");
-              staged.push(generated);
-            } catch (error) {
-              firstFailure ??= error;
-              failedImageIds.push(image.id);
-            }
+      // Generate at most two images at once. Each successful image is persisted
+      // immediately, so a multi-image Card becomes useful progressively without
+      // consuming every per-user LLM slot.
+      for (let offset = 0; offset < missing.length; offset += 2) {
+        const results = await Promise.all(missing.slice(offset, offset + 2).map(async (image, chunkIndex) => {
+          try {
+            const [description] = await this.generateImageDescriptionTexts({
+              userId: input.userId,
+              requestId: `${input.requestId}:descriptions:single:${offset + chunkIndex}`,
+              operation: "card.generate.image_descriptions.single",
+              images: [image],
+              card: current,
+              billingMode: input.billingMode,
+            });
+            if (!description) throw new CardValidationError("Generated image description is empty");
+            await persistDescriptionTexts([description]);
+            return { description, imageId: image.id, error: null };
+          } catch (error) {
+            return { description: null, imageId: image.id, error };
+          }
+        }));
+        for (const result of results) {
+          if (result.description) staged.push(result.description);
+          else {
+            firstFailure ??= result.error;
+            failedImageIds.push(result.imageId);
           }
         }
       }
@@ -1099,28 +1124,6 @@ export class CardService {
         }),
       ]);
 
-    if (staged.length && !input.forceRegenerate) {
-      const descriptionsSaved = await this.repository.saveImageDescriptionTexts({
-        entryId: current.id,
-        userId: input.userId,
-        descriptions: staged.map(({ imageId, text, languageCode }) => {
-          const image = current.images.find((candidate) => candidate.id === imageId)!;
-          return {
-            imageId,
-            text,
-            languageCode,
-            sourceHash: image.fileMd5 ?? cardContentHash(image.originalObjectKey),
-            promptVersion: CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
-            resultVersion: CARD_IMAGE_DESCRIPTION_RESULT_VERSION,
-          };
-        }),
-        contentSegments,
-      });
-      if (!descriptionsSaved) {
-        await this.repository.markImageDescriptionsFailed(current.id, input.userId, images.map((image) => image.id), "IMAGE_DESCRIPTION_SAVE_CONFLICT").catch(() => null);
-        throw new CardContentConflictError("The Card images changed while descriptions were being saved");
-      }
-    }
     if (failedImageIds.length) {
       const failureMessage = firstFailure instanceof Error ? firstFailure.message : "IMAGE_DESCRIPTION_GENERATION_FAILED";
       await (input.forceRegenerate
@@ -1196,7 +1199,7 @@ export class CardService {
             staged.map((description) => description.imageId),
             failureMessage,
           )
-        : this.repository.markImageDescriptionsFailed(
+        : this.repository.markImageDescriptionAuxiliaryFailed(
             current.id,
             input.userId,
             staged.map((description) => description.imageId),
@@ -2392,15 +2395,6 @@ function isInvalidAutoClozeCandidate(
     || !isUtf16GraphemeBoundary(segment.text, endUtf16)
     || (contentType === "original" && !findTargetLanguageRanges(segment.text, block.languageCode)
       .some((range) => startUtf16 >= range.startUtf16 && endUtf16 <= range.endUtf16));
-}
-
-function shouldRetryImageDescriptionsIndividually(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  if (error.message === "CARD_IMAGE_DESCRIPTION_INVALID_FORMAT"
-    || error.message === "CARD_IMAGE_DESCRIPTION_MISMATCH"
-    || error.message === "Generated content is empty") return true;
-  const upstream = error as Error & { code?: string; status?: number };
-  return upstream.code === "UPSTREAM_AI_ERROR" && (upstream.status === 400 || upstream.status === 422);
 }
 
 function contentSegmentsUseCurrentVersion(entry: CardEntryEntity): boolean {

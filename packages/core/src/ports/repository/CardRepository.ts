@@ -148,7 +148,7 @@ export interface CardImageAssetEntity {
   descriptionAuxiliarySegments: unknown | null;
   descriptionAuxiliaryLanguageCode: string | null;
   descriptionAuxiliaryPromptVersion: string | null;
-  descriptionStatus: "not_requested" | "pending" | "auxiliary_pending" | "completed" | "failed";
+  descriptionStatus: "not_requested" | "pending" | "auxiliary_pending" | "auxiliary_failed" | "completed" | "failed";
   descriptionError: string | null;
   descriptionUpdatedAt: Date | null;
   expiresAt: Date;
@@ -314,6 +314,7 @@ export interface CardRepository {
     contentSegments: CardContentSegmentWrite[];
   }): Promise<CardEntryEntity | null>;
   markImageDescriptionsFailed(entryId: string, userId: string, imageIds: string[], error: string): Promise<CardEntryEntity | null>;
+  markImageDescriptionAuxiliaryFailed(entryId: string, userId: string, imageIds: string[], error: string): Promise<CardEntryEntity | null>;
   restoreImageDescriptionsAfterRefreshFailure(
     entryId: string,
     userId: string,

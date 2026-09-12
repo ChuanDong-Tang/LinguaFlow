@@ -102,7 +102,10 @@ export class ChatGPTAIProvider implements AIProvider {
           }] : userPrompt,
           ...(input.maxOutputTokens ? { max_output_tokens: input.maxOutputTokens } : {}),
           reasoning: {
-            effort: "medium",
+            // Image descriptions are short, concrete outputs. Lower reasoning
+            // removes avoidable deliberation while text rewrites keep the
+            // existing quality-oriented setting.
+            effort: input.imageUrls?.length ? "low" : "medium",
           },
         }),
         signal: controller.signal,

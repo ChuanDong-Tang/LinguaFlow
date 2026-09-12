@@ -207,6 +207,46 @@ export function CardDetailNavigator({
     if (!state?.pendingTargets.length) void loadDetail(recordId);
   }), [request?.key]);
 
+  useEffect(() => {
+    const recordId = request?.recordId;
+    if (!recordId || !pendingGenerationTargets.length) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const startedAt = Date.now();
+    const poll = async () => {
+      try {
+        const resolved = await getCardRecord(recordId);
+        if (cancelled) return;
+        const previous = detailCacheRef.current.get(recordId)?.detail;
+        const stableDetail = await stabilizeCardDetailImages(previous, resolved);
+        if (cancelled) return;
+        const visiblePendingTargets = pendingGenerationTargets.filter((target) => !hasGeneratedContent(stableDetail, target));
+        setDetail(stableDetail);
+        setPendingGenerationTargets((current) => current.length === visiblePendingTargets.length
+          && current.every((target, index) => target === visiblePendingTargets[index])
+          ? current
+          : visiblePendingTargets);
+        detailCacheRef.current.set(recordId, {
+          detail: stableDetail,
+          pendingTargets: visiblePendingTargets,
+          failedTargets: failedGenerationTargets,
+          loadedAt: Date.now(),
+        });
+      } catch {
+        // A transient refresh failure must not interrupt the generation request.
+      }
+      if (!cancelled) {
+        const elapsedMs = Date.now() - startedAt;
+        if (elapsedMs < 60_000) timer = setTimeout(poll, elapsedMs < 12_000 ? 1_000 : 3_000);
+      }
+    };
+    timer = setTimeout(poll, 700);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [failedGenerationTargets.join("|"), pendingGenerationTargets.join("|"), request?.key, request?.recordId]);
+
   async function openRelated(recordId: string, _reasons: CardRelationReason[]): Promise<void> {
     if (!await loadDetail(recordId)) return;
     const next = [...history.slice(0, historyIndex + 1), recordId].slice(-100);

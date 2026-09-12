@@ -3463,15 +3463,17 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
             <View style={[styles.imageDescriptionSection, styles.imageDescriptionBody]}>
             {currentImageBlock && currentImage.descriptionText ? <>
               {renderLearningBlock(currentImageBlock)}
-              {pendingGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "auxiliary_pending"
-                ? <PendingGenerationSection target="image_description" showLabel={false} />
-                : currentImage.descriptionStatus === "failed"
-                  ? <FailedGenerationSection target="image_description" showLabel={false} retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
+              {currentImage.descriptionStatus === "auxiliary_pending"
+                ? <PendingGenerationSection target="image_description" showLabel={false} message={t("card_detail.image_description_auxiliary_pending")} />
+                : currentImage.descriptionStatus === "auxiliary_failed"
+                  ? <FailedGenerationSection target="image_description" showLabel={false} message={t("card_detail.image_description_auxiliary_failed")} retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
+                  : currentImage.descriptionStatus === "failed"
+                    ? <FailedGenerationSection target="image_description" showLabel={false} retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
                   : null}
               {currentImageBlock.text.trim() ? <CardSectionCopyButton onPress={() => void copySection(currentImageBlock.text)} /> : null}
             </> : pendingGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "pending" || currentImage.descriptionStatus === "auxiliary_pending"
-              ? <PendingGenerationSection target="image_description" showLabel={false} />
-              : failedGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "failed" || currentImage.descriptionStatus === "not_requested"
+                           ? <PendingGenerationSection target="image_description" showLabel={false} message={t("card_detail.image_description_pending")} />
+              : failedGenerationTargets.includes("image_description") || currentImage.descriptionStatus === "failed" || currentImage.descriptionStatus === "auxiliary_failed" || currentImage.descriptionStatus === "not_requested"
                 ? <FailedGenerationSection target="image_description" showLabel={false} retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
                 : null}
             </View>
@@ -3754,7 +3756,7 @@ function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, 
   </View>;
 }
 
-function PendingGenerationSection({ target, showLabel = true }: { target: CardGenerationTarget; showLabel?: boolean }) {
+function PendingGenerationSection({ target, showLabel = true, message }: { target: CardGenerationTarget; showLabel?: boolean; message?: string }) {
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const animation = Animated.loop(Animated.timing(progress, { toValue: 1, duration: 1050, easing: Easing.linear, useNativeDriver: true }));
@@ -3764,7 +3766,10 @@ function PendingGenerationSection({ target, showLabel = true }: { target: CardGe
   const label = generationTargetLabel(target);
   return <View style={[styles.pendingGenerationSection, !showLabel && styles.nestedGenerationSection]}>
     {showLabel ? <Text style={styles.sectionLabelInline}>{label}</Text> : null}
-    <View style={styles.generatingDots}>{[0, 1, 2].map((index) => <Animated.View key={index} style={[styles.generatingDot, { opacity: progress.interpolate({ inputRange: [0, .33, .66, 1], outputRange: index === 0 ? [.25, 1, .25, .25] : index === 1 ? [.25, .25, 1, .25] : [.25, .25, .25, 1] }) }]} />)}</View>
+    <View style={styles.generatingStatusRow}>
+      <View style={styles.generatingDots}>{[0, 1, 2].map((index) => <Animated.View key={index} style={[styles.generatingDot, { opacity: progress.interpolate({ inputRange: [0, .33, .66, 1], outputRange: index === 0 ? [.25, 1, .25, .25] : index === 1 ? [.25, .25, 1, .25] : [.25, .25, .25, 1] }) }]} />)}</View>
+      {message ? <Text style={styles.generatingStatusText}>{message}</Text> : null}
+    </View>
   </View>;
 }
 
@@ -3780,9 +3785,10 @@ function generationTargetLabel(target: CardGenerationTarget): string {
       : t("card_detail.module.expression_description");
 }
 
-function FailedGenerationSection({ target, showLabel = true, retrying, onRetry }: {
+function FailedGenerationSection({ target, showLabel = true, message, retrying, onRetry }: {
   target: CardGenerationTarget;
   showLabel?: boolean;
+  message?: string;
   retrying: boolean;
   onRetry?: (target: CardGenerationTarget) => void;
 }) {
@@ -3790,7 +3796,7 @@ function FailedGenerationSection({ target, showLabel = true, retrying, onRetry }
   return <View style={[styles.failedGenerationSection, !showLabel && styles.nestedGenerationSection]}>
     <View style={styles.failedGenerationCopy}>
       {showLabel ? <Text style={styles.sectionLabelInline}>{label}</Text> : null}
-      <Text style={styles.failedGenerationText}>{t("card_detail.not_generated")}</Text>
+      <Text style={styles.failedGenerationText}>{message ?? t("card_detail.not_generated")}</Text>
     </View>
     <Pressable disabled={retrying} style={styles.failedGenerationRetry} onPress={() => onRetry?.(target)}>
       {retrying ? <ActivityIndicator size="small" color={theme.colors.text} /> : <Ionicons name="refresh" size={18} color={theme.colors.text} />}
@@ -4930,6 +4936,8 @@ const styles = StyleSheet.create({
   pendingGenerationSection: { minHeight: 68, marginTop: 24, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, gap: 12 },
   generatingDots: { height: 18, flexDirection: "row", alignItems: "center", gap: 5 },
   generatingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.textSecondary },
+  generatingStatusRow: { minHeight: 18, flexDirection: "row", alignItems: "center", gap: 10 },
+  generatingStatusText: { flex: 1, color: theme.colors.textMuted, fontSize: 13, lineHeight: 18 },
   failedGenerationSection: { minHeight: 64, marginTop: 24, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   nestedGenerationSection: { minHeight: 52, marginTop: 4, paddingTop: 0, borderTopWidth: 0 },
   failedGenerationCopy: { gap: 5 },

@@ -2841,12 +2841,14 @@
       renderImageDescriptionPerformance(data);
       const backlog = data.backlog || {};
       const failed = Array.isArray(data.failedJobs) ? data.failedJobs.length : 0;
+      const unresolvedFailed = Number(data.unresolvedFailedCount || 0);
       const thresholds = data.thresholds || {};
       if (Number(backlog.readyQueued || 0) > Number(thresholds.readyQueuedWarn || 5)
         || Number(backlog.oldestReadyWaitSeconds || 0) > Number(thresholds.oldestReadyWaitWarnSeconds || 10)) {
         return { status: "warn", detail: `队列积压 ${backlog.readyQueued || 0}，最老等待 ${formatDuration(backlog.oldestReadyWaitSeconds)}` };
       }
-      if (failed) return { status: "warn", detail: `性能数据正常返回；存在 ${failed} 条最近失败任务` };
+      if (unresolvedFailed) return { status: "warn", detail: `存在 ${unresolvedFailed} 条当前未恢复的失败任务` };
+      if (failed) return { status: "warn", detail: `最近 24 小时存在 ${failed} 条失败任务` };
       return { status: "pass", detail: "图片描述分阶段性能数据正常返回" };
     }
 
