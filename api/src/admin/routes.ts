@@ -12,6 +12,7 @@ import type { ResourceGovernor } from "@lf/server/services/resource/ResourceGove
 import type { ApiRequestMetrics } from "@lf/server/services/observability/ApiRequestMetrics.js";
 import type { DatabaseQueryMetrics } from "@lf/server/services/observability/DatabaseQueryMetrics.js";
 import type { TtsStreamingCoordinator } from "@lf/server/services/tts/TtsStreamingCoordinator.js";
+import { getWebsiteAnalytics } from "./websiteAnalytics.js";
 
 export interface AdminRouteDeps {
   subscriptionService: SubscriptionService;
@@ -67,6 +68,23 @@ export interface AdminRouteDeps {
 }
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps): void {
+  app.get("/admin/website/analytics", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    try {
+      const data = await getWebsiteAnalytics((req.query as Record<string, unknown>)?.days);
+      return reply.status(200).send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to read website analytics");
+      return reply.status(503).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "WEBSITE_ANALYTICS_UNAVAILABLE", message: "官网访问统计暂时不可用" },
+      });
+    }
+  });
+
   app.get("/admin/resources/overview", async (req, reply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;

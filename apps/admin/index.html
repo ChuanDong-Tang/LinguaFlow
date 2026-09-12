@@ -1109,6 +1109,7 @@
         </div>
         <div class="nav-group">
           <div class="nav-label">审计</div>
+          <button class="tab" data-tab="website">官网访问</button>
           <button class="tab" data-tab="security">安全审计</button>
           <button class="tab" data-tab="adminaudit">管理员操作</button>
           <button class="tab" data-tab="logs">系统事件</button>
@@ -2086,6 +2087,47 @@
           </div>
         </section>
 
+        <section id="panel-website" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">官网访问</h2>
+                  <p id="websiteAnalyticsMeta" class="section-subtitle">汇总官网 Nginx 日志，不展示访客 IP 或原始访问记录。</p>
+                </div>
+                <div class="inline-actions">
+                  <select id="websiteAnalyticsDays" aria-label="官网统计时间范围">
+                    <option value="1">近 24 小时</option>
+                    <option value="7" selected>近 7 天</option>
+                    <option value="14">近 14 天</option>
+                  </select>
+                  <button id="btnLoadWebsiteAnalytics" class="btn">刷新</button>
+                </div>
+              </div>
+              <div id="websiteAnalyticsMetrics" class="metrics">
+                <div class="metric"><span>页面访问</span><strong>—</strong><small>登录后自动加载</small></div>
+                <div class="metric"><span>访客数</span><strong>—</strong><small>只展示汇总数量</small></div>
+                <div class="metric"><span>iOS 下载点击</span><strong>—</strong><small>App Store 按钮</small></div>
+                <div class="metric"><span>Android 下载点击</span><strong>—</strong><small>安装包下载按钮</small></div>
+              </div>
+            </div>
+            <div class="section two-col">
+              <div>
+                <div class="section-head"><h2 class="section-title">热门页面</h2></div>
+                <div class="table-wrap">
+                  <table><thead><tr><th>页面</th><th>路径</th><th>访问</th></tr></thead><tbody id="websitePagesTbody"><tr><td colspan="3" class="muted">登录后自动加载</td></tr></tbody></table>
+                </div>
+              </div>
+              <div>
+                <div class="section-head"><h2 class="section-title">外部来源</h2></div>
+                <div class="table-wrap">
+                  <table><thead><tr><th>来源</th><th>访问</th></tr></thead><tbody id="websiteSourcesTbody"><tr><td colspan="2" class="muted">登录后自动加载</td></tr></tbody></table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="panel-audit" class="panel">
           <div class="card">
             <div class="section">
@@ -2452,6 +2494,7 @@
       orders: [],
       subscriptions: [],
       productionAudit: [],
+      websiteAnalytics: null,
       imageDescriptionPerformance: null,
       cardOperations: null,
       cardOperationsTimer: null,
@@ -2474,6 +2517,7 @@
       user: ["用户排障", "定位单个用户的账号、会员、额度与支付状态。"],
       contacts: ["用户触达", "筛选可触达用户并导出账号名单。"],
       payments: ["支付订阅", "查询订单、订阅与自动续费状态。"],
+      website: ["官网访问", "查看官网与 Wiki 的访问、来源和下载点击。"],
       security: ["安全审计", "查看内容安全规则的拦截结果，不展示用户原文。"],
       adminaudit: ["管理员操作", "追踪后台人工操作、目标对象与请求标识。"],
       logs: ["系统事件", "按分类查询通用事件及 TTS、STT、智能词典调用记录。"],
@@ -3015,6 +3059,31 @@
     function setOverviewRange(days, toDate = todayDateKey()) {
       $("overviewToDate").value = toDate;
       $("overviewFromDate").value = addDays(toDate, -(days - 1));
+    }
+
+    async function loadWebsiteAnalytics() {
+      const days = Number($("websiteAnalyticsDays").value || 7);
+      setStatus("正在加载官网访问统计...");
+      const res = await request(`/admin/website/analytics?days=${encodeURIComponent(days)}`);
+      const data = res.data || {};
+      state.websiteAnalytics = data;
+      const windowLabel = days === 1 ? "近 24 小时" : `近 ${days} 天`;
+      $("websiteAnalyticsMetrics").innerHTML = [
+        ["页面访问", data.pageViews ?? 0, windowLabel],
+        ["访客数", data.uniqueVisitors ?? 0, "按日志中的网络地址去重，仅显示数量"],
+        ["iOS 下载点击", data.downloads?.ios ?? 0, "App Store 按钮"],
+        ["Android 下载点击", data.downloads?.android ?? 0, "安装包下载按钮"],
+      ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+      const pages = Array.isArray(data.topPages) ? data.topPages : [];
+      $("websitePagesTbody").innerHTML = pages.map((row) => `
+        <tr><td>${escapeHtml(row.label)}</td><td class="mono">${escapeHtml(row.path)}</td><td>${escapeHtml(row.views)}</td></tr>
+      `).join("") || rowEmpty(3, "该时间范围内暂无官网访问");
+      const sources = Array.isArray(data.sources) ? data.sources : [];
+      $("websiteSourcesTbody").innerHTML = sources.map((row) => `
+        <tr><td>${escapeHtml(row.source)}</td><td>${escapeHtml(row.visits)}</td></tr>
+      `).join("") || rowEmpty(2, "该时间范围内暂无外部来源");
+      $("websiteAnalyticsMeta").textContent = `${windowLabel} · 刷新于 ${fmtDate(data.generatedAt)}`;
+      setStatus(`官网访问：${data.pageViews ?? 0} 次`);
     }
 
     async function loadOverview() {
@@ -4448,6 +4517,7 @@
             await loadCardOperations();
           }
           if (tab.dataset.tab === "resources" && !state.resources) await loadResources();
+          if (tab.dataset.tab === "website" && !state.websiteAnalytics) await loadWebsiteAnalytics();
           if (tab.dataset.tab === "imageperf") await loadAuditView("imageperf");
           if (tab.dataset.tab === "security") await loadAuditView("security");
           if (tab.dataset.tab === "adminaudit") await loadAuditView("adminaudit");
@@ -4489,6 +4559,8 @@
         setStatus("已清空登录状态");
       });
       $("btnLoadOverview").addEventListener("click", guard(loadOverview));
+      $("btnLoadWebsiteAnalytics").addEventListener("click", guard(loadWebsiteAnalytics));
+      $("websiteAnalyticsDays").addEventListener("change", guard(loadWebsiteAnalytics));
       $("btnLoadCardOperations").addEventListener("click", guard(loadCardOperations));
       $("btnToggleCardAutoRefresh").addEventListener("click", toggleCardOperationsAutoRefresh);
       $("btnLoadResources").addEventListener("click", guard(loadResources));

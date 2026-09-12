@@ -21,6 +21,39 @@ git pull --ff-only
 当前官网和管理后台都是静态文件，不需要安装依赖或执行构建，拉取完成后即可
 由 Nginx 提供最新文件。Nginx 配置没有改变时也不需要 reload。
 
+## 官网 404
+
+官网是多页静态站点，不应将未知地址回退到首页。站点配置使用：
+
+```nginx
+error_page 404 /404.html;
+
+location / {
+    try_files $uri $uri/ =404;
+}
+
+location = /404.html {
+    internal;
+}
+```
+
+修改后先运行 `sudo nginx -t`，通过后再运行 `sudo systemctl reload nginx`。
+
+## 基础访问统计
+
+官网不设置统计 Cookie，也不依赖第三方脚本。页面访问和来源使用 Nginx access
+log；iOS 与 Android 下载点击会额外请求带 `oio_event` 参数的站内静态资源，便于
+在同一份日志中计数。
+
+日常查看入口是管理后台的“审计 → 官网访问”，支持近 24 小时、7 天和 14 天。
+只有后台接口不可用、需要在服务器排障时，才运行以下命令：
+
+```bash
+sudo bash ci/website-analytics-report.sh
+```
+
+脚本只输出汇总结果，不显示访客 IP、完整来源地址或 User-Agent。
+
 如果暂时不方便修改现有 Nginx root，可以让原来的 `/www/oio` 和
 `/www/oio-admin` 指向仓库内对应目录的符号链接。切换前应先备份并核对现有
 目录，不能直接覆盖正在使用的目录。

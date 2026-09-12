@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f7f5ef"/>
+  <path d="M0 0h1200v12H0z" fill="#e8c44f"/>
+  <g fill="none" stroke="#d8d9d3" stroke-width="2">
+    <path d="M755 108c108 38 188 112 241 222"/>
+    <path d="M767 506c104-21 190-77 258-166"/>
+  </g>
+  <g transform="translate(72 64)">
+    <text x="0" y="54" fill="#20231f" font-family="Georgia,serif" font-size="58" font-weight="700">OIO</text>
+    <text x="130" y="49" fill="#527160" font-family="Georgia,serif" font-size="20" font-style="italic">Life × Language</text>
+    <text x="0" y="212" fill="#20231f" font-family="PingFang SC,Noto Sans SC,sans-serif" font-size="74" font-weight="650">让英文在生活里</text>
+    <text x="0" y="304" fill="#20231f" font-family="PingFang SC,Noto Sans SC,sans-serif" font-size="74" font-weight="650">自然长出来</text>
+    <text x="4" y="370" fill="#666b65" font-family="PingFang SC,Noto Sans SC,sans-serif" font-size="27">记录生活，无痛用英文。</text>
+  </g>
+  <g transform="translate(770 122) rotate(3 150 190)">
+    <rect width="300" height="390" rx="20" fill="#fff" stroke="#c9cbc5" stroke-width="2"/>
+    <text x="30" y="55" fill="#8f6815" font-family="Arial,sans-serif" font-size="16" font-weight="700">TODAY</text>
+    <text x="30" y="112" fill="#20231f" font-family="PingFang SC,Noto Sans SC,sans-serif" font-size="26">差点坐过站</text>
+    <path d="M30 148h240" stroke="#e1e3de"/>
+    <text x="30" y="210" fill="#20231f" font-family="Georgia,serif" font-size="25">I almost missed</text>
+    <text x="30" y="247" fill="#20231f" font-family="Georgia,serif" font-size="25">my stop.</text>
+    <rect x="30" y="305" width="118" height="38" rx="19" fill="#fff6ce" stroke="#e4c44e"/>
+    <text x="54" y="330" fill="#735b13" font-family="Arial,sans-serif" font-size="14">再次遇见</text>
+  </g>
+</svg>
