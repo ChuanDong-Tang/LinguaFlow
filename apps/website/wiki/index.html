@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OIO Wiki · 让英文在生活里自然发生</title>
+  <meta name="description" content="为什么从生活中学英文，以及 OIO 与背单词软件有什么不同。">
+  <link rel="canonical" href="https://yueyantech.com/wiki/">
+  <link rel="icon" href="../assets/shared/brand/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../site.css">
+</head>
+<body class="wiki-page">
+  <header class="site-header">
+    <a class="header-brand" href="../app.html" aria-label="OIO 首页"><strong>OIO</strong><span>Life × Language</span></a>
+    <nav aria-label="主导航"><button class="header-group-button" type="button" data-join-group>加入群聊</button><a href="../app.html">App</a><a class="active" href="./">Wiki</a><a class="account-nav-link" href="../account.html" data-account-link>登录</a></nav>
+  </header>
+
+  <main class="wiki-main page-width">
+    <aside class="wiki-index" aria-label="本页目录">
+      <span>OIO WIKI · 01</span>
+      <nav>
+        <a href="#why">为什么从生活开始</a>
+        <a href="#method">OIO 的方法</a>
+        <a href="#difference">与背单词的不同</a>
+      </nav>
+    </aside>
+
+    <article class="wiki-article">
+      <header class="wiki-hero">
+        <span>OIO 的学习理念</span>
+        <h1>让英文在生活里<br>自然发生</h1>
+        <p>很多人学过不少英文，却很难说出刚刚发生的生活。问题不一定是学得不够，而是学过的语言没有和自己的生活建立联系。</p>
+      </header>
+
+      <section id="why">
+        <span class="wiki-number">01</span>
+        <h2>为什么从生活开始</h2>
+        <p>课本里的主题和例句能帮助我们理解英文，却未必能表达自己的今天。</p>
+        <p>真实生活自带情境、情绪和再次发生的可能。你想记录、想说给别人听的事，才更容易成为真正会用的英文。</p>
+      </section>
+
+      <section id="method">
+        <span class="wiki-number">02</span>
+        <h2>OIO 的方法</h2>
+        <ol class="wiki-method">
+          <li><strong>捕捉</strong><span>记下此刻发生的事。</span></li>
+          <li><strong>表达</strong><span>把它变成自然、能说出口的英文。</span></li>
+          <li><strong>再遇见</strong><span>在回忆或相似场景里，再次遇见这句英文。</span></li>
+        </ol>
+        <figure class="wiki-example">
+          <blockquote>我只是想躺一会儿，结果睡到了晚上。</blockquote>
+          <figcaption>I only meant to lie down for a bit, but I ended up sleeping until evening.</figcaption>
+        </figure>
+      </section>
+
+      <section id="difference">
+        <span class="wiki-number">03</span>
+        <h2>它和背单词有什么不同</h2>
+        <p>课程、词典和背单词帮助你理解语言；OIO 帮助你获得表达自己生活的语言。它们并不冲突，只是在解决不同的问题。</p>
+        <p>OIO 不承诺不花力气就学会英文。你仍然需要理解、开口和使用，只是这些努力都落在与你有关的内容上。</p>
+      </section>
+
+      <footer class="wiki-end">
+        <p>不是把生活变成教材。<br>是让英文成为生活的一部分。</p>
+        <a href="../app.html">了解 OIO App <span aria-hidden="true">→</span></a>
+      </footer>
+    </article>
+  </main>
+
+  <footer class="site-footer wiki-footer">
+    <span>© 2026 永嘉跃言科技有限责任公司</span>
+    <nav class="legal-links" aria-label="法律信息"><a href="../legal/terms/">用户协议</a><a href="../legal/privacy/">隐私政策</a></nav>
+  </footer>
+  <dialog class="wecom-dialog group-dialog" id="group-dialog" aria-labelledby="group-dialog-title">
+    <button class="dialog-close" type="button" aria-label="关闭群聊二维码窗口">×</button>
+    <h2 id="group-dialog-title">加入群聊</h2>
+    <p>获取 App 的一手资讯。</p>
+    <img class="group-qr" src="../assets/shared/qr/wechat-group.png" width="182" height="182" alt="OIO 微信群二维码">
+  </dialog>
+  <script type="module" src="../site-auth.js"></script>
+  <script>
+    var groupDialog = document.getElementById('group-dialog');
+    document.addEventListener('click', function (event) { if (event.target.closest('[data-join-group]')) groupDialog.showModal(); });
+    groupDialog.querySelector('.dialog-close').addEventListener('click', function () { groupDialog.close(); });
+    groupDialog.addEventListener('click', function (event) { if (event.target === groupDialog) groupDialog.close(); });
+  </script>
+</body>
+</html>
