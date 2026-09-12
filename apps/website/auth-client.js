@@ -194,6 +194,10 @@ export function getEntitlement() {
   return authorizedRequest("/me/entitlement");
 }
 
+export function getUsageV2() {
+  return authorizedRequest("/me/usage/v2");
+}
+
 export async function logout() {
   const session = getStoredSession();
   if (session) {

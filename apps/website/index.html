@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="0; url=app.html">
   <title>OIO · 让英文在生活里自然发生</title>
   <meta name="description" content="OIO 让英文在真实生活里自然发生。">
   <link rel="icon" href="assets/shared/brand/favicon.svg" type="image/svg+xml">
@@ -11,7 +12,7 @@
 <body class="home-page">
   <header class="site-header">
     <a class="header-brand" href="index.html" aria-label="OIO 首页"><strong>OIO</strong><span>Life × Language</span></a>
-    <nav aria-label="主导航"><a class="active" href="index.html">首页</a><a href="app.html">App</a><a href="community.html">社群</a><button class="header-group-button" type="button" data-join-group>加入群聊</button><a class="account-nav-link" href="account.html" data-account-link>登录</a></nav>
+    <nav aria-label="主导航"><a class="active" href="index.html" hidden>首页</a><a href="app.html">App</a><a href="community.html" hidden>社群</a><button class="header-group-button" type="button" data-join-group>加入群聊</button><a class="account-nav-link" href="account.html" data-account-link>登录</a></nav>
   </header>
 
   <main class="home-main">
@@ -42,7 +43,7 @@
       <h1>让英文在生活里<span>自然发生</span></h1>
     </section>
 
-    <section class="entrances" aria-label="选择进入 OIO">
+    <section class="entrances app-only" aria-label="进入 OIO App">
       <article class="entrance app-entrance">
         <a class="entrance-panel-link" href="app.html" aria-label="查看 OIO App 介绍"></a>
         <div class="entrance-copy">
@@ -67,7 +68,7 @@
         </div>
       </article>
 
-      <a class="entrance community-entrance" href="community.html">
+      <a class="entrance community-entrance" href="community.html" hidden>
         <div class="entrance-copy">
           <span>OIO 社群</span>
         </div>
@@ -85,7 +86,7 @@
           </svg>
         </div>
       </a>
-      <div class="shared-transfer-card" aria-hidden="true">
+      <div class="shared-transfer-card" aria-hidden="true" hidden>
         <span class="shared-card-dot"></span>
         <i></i><i></i><i></i><b></b>
       </div>
@@ -102,7 +103,7 @@
   <dialog class="wecom-dialog group-dialog" id="group-dialog" aria-labelledby="group-dialog-title">
     <button class="dialog-close" type="button" aria-label="关闭群聊二维码窗口">×</button>
     <h2 id="group-dialog-title">加入群聊</h2>
-    <p>加入 OIO 群聊，获取 App 与社群的一手资讯。</p>
+    <p>获取 App 的一手资讯。</p>
     <img class="group-qr" src="assets/shared/qr/wechat-group.png" width="182" height="182" alt="OIO 微信群二维码">
   </dialog>
   <script type="module" src="site-auth.js"></script>

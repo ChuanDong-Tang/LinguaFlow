@@ -7,6 +7,7 @@ import {
   getBindings,
   getProfile,
   getEntitlement,
+  getUsageV2,
   loginWithPasscode,
   loginWithPassword,
   logout,
@@ -17,6 +18,7 @@ import {
 
 const loginView = document.getElementById("login-view");
 const accountView = document.getElementById("account-view");
+const accountIntro = document.getElementById("account-intro");
 const loginForm = document.getElementById("login-form");
 const statusBox = document.getElementById("login-status");
 const submitButton = document.getElementById("login-submit");
@@ -232,6 +234,7 @@ function messageFor(error, fallback) {
 function showLogin(message = "") {
   currentProfile = null;
   currentBindings = null;
+  accountIntro.hidden = false;
   loginView.hidden = false;
   accountView.hidden = true;
   setStatus(message, message ? "error" : "");
@@ -244,13 +247,31 @@ function tierLabel(tier) {
 }
 
 function formatExpiry(value) {
-  if (!value) return "长期有效";
+  if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : `${date.getFullYear()} 年 ${date.getMonth() + 1} 月 ${date.getDate()} 日到期`;
+  return Number.isNaN(date.getTime()) ? "—" : `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
+}
+
+function formatPoints(value) {
+  return Number.isFinite(value) ? new Intl.NumberFormat("zh-CN").format(Math.max(0, value)) : "—";
+}
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes >= 1024 ** 3) return `${formatDecimal(bytes / 1024 ** 3)} GB`;
+  if (bytes >= 1024 ** 2) return `${formatDecimal(bytes / 1024 ** 2)} MB`;
+  if (bytes >= 1024) return `${formatDecimal(bytes / 1024)} KB`;
+  return `${Math.round(bytes)} B`;
+}
+
+function formatDecimal(value) {
+  return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value);
 }
 
 async function renderAccount() {
   if (!getStoredSession()) return showLogin();
+  accountIntro.hidden = true;
   loginView.hidden = true;
   accountView.hidden = false;
   accountView.classList.add("loading");
@@ -258,14 +279,17 @@ async function renderAccount() {
   document.getElementById("account-id").textContent = "";
   document.getElementById("edit-profile-button").disabled = true;
   document.getElementById("app-tier").textContent = "正在读取……";
-  document.getElementById("app-expiry").textContent = "正在读取 App 权益……";
+  document.getElementById("app-expiry").textContent = "读取中";
+  document.getElementById("points-remaining").textContent = "读取中";
+  document.getElementById("images-remaining").textContent = "读取中";
   try {
-    const [profileResult, entitlementResult, bindingsResult] = await Promise.allSettled([
+    const [profileResult, entitlementResult, bindingsResult, usageResult] = await Promise.allSettled([
       getProfile(),
       getEntitlement(),
       getBindings(),
+      getUsageV2(),
     ]);
-    const authFailure = [profileResult, entitlementResult, bindingsResult]
+    const authFailure = [profileResult, entitlementResult, bindingsResult, usageResult]
       .find((result) => result.status === "rejected" && isTerminalAuthError(result.reason));
     if (authFailure?.status === "rejected") {
       clearStoredSession();
@@ -292,10 +316,20 @@ async function renderAccount() {
       const tier = entitlement.tier ?? "free";
       document.getElementById("app-tier").textContent = tierLabel(tier);
       document.getElementById("app-tier-card").dataset.tier = tier;
-      document.getElementById("app-expiry").textContent = tier === "free" ? "当前使用免费版" : formatExpiry(entitlement.expiresAt);
+      document.getElementById("app-expiry").textContent = tier === "free" ? "—" : formatExpiry(entitlement.expiresAt);
     } else {
       document.getElementById("app-tier").textContent = "暂时无法读取";
-      document.getElementById("app-expiry").textContent = messageFor(entitlementResult.reason, "请稍后刷新重试");
+      document.getElementById("app-expiry").textContent = "—";
+    }
+
+    if (usageResult.status === "fulfilled") {
+      document.getElementById("points-remaining").textContent = formatPoints(usageResult.value.token?.remaining);
+      document.getElementById("images-remaining").textContent = formatBytes(
+        usageResult.value.images?.remainingBytes ?? usageResult.value.images?.remainingUploadBytes,
+      );
+    } else {
+      document.getElementById("points-remaining").textContent = "暂时无法读取";
+      document.getElementById("images-remaining").textContent = "暂时无法读取";
     }
   } catch (error) {
     document.getElementById("account-name").textContent = "账号信息暂时无法读取";

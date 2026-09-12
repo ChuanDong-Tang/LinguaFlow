@@ -3,20 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OIO 账号 · App 与社群身份</title>
-  <meta name="description" content="登录 OIO 账号，查看 App 与社群身份。">
+  <title>OIO 账号</title>
+  <meta name="description" content="登录 OIO 账号，查看账号资料与 App 身份。">
   <link rel="icon" href="assets/shared/brand/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="site.css">
 </head>
 <body class="account-page">
   <header class="site-header">
     <a class="header-brand" href="index.html" aria-label="OIO 首页"><strong>OIO</strong><span>Life × Language</span></a>
-    <nav aria-label="主导航"><a href="index.html">首页</a><a href="app.html">App</a><a href="community.html">社群</a><button class="header-group-button" type="button" data-join-group>加入群聊</button><a class="account-nav-link active" href="account.html" data-account-link>登录</a></nav>
+    <nav aria-label="主导航"><a href="index.html" hidden>首页</a><a href="app.html">App</a><a href="community.html" hidden>社群</a><button class="header-group-button" type="button" data-join-group>加入群聊</button><a class="account-nav-link active" href="account.html" data-account-link>登录</a></nav>
   </header>
 
   <main class="account-main page-width">
+    <aside class="account-intro" id="account-intro" aria-label="OIO 账号说明">
+      <span>ONE OIO ACCOUNT</span>
+      <h1>让英文在生活里<br>自然发生。</h1>
+    </aside>
     <section class="login-card" id="login-view" aria-labelledby="login-title">
-      <div class="account-card-heading"><span class="account-mark" aria-hidden="true">O</span><div><h1 id="login-title">登录 OIO</h1><p>使用与 App 相同的账号</p></div></div>
+      <div class="account-card-heading"><span>ACCOUNT</span><h1 id="login-title">登录 OIO</h1></div>
       <div class="login-tabs" aria-label="登录方式">
         <button class="active" type="button" aria-pressed="true" data-login-method="passcode">验证码</button>
         <button type="button" aria-pressed="false" data-login-method="password">密码</button>
@@ -44,26 +48,23 @@
     <section class="account-dashboard" id="account-view" hidden aria-labelledby="account-name">
       <header class="account-profile">
         <span class="account-avatar" id="account-avatar">O</span>
-        <div><p>我的 OIO</p><h2 id="account-name">正在读取账号……</h2><span id="account-id"></span></div>
+        <div><h2 id="account-name">正在读取账号……</h2><span id="account-id"></span></div>
         <div class="account-profile-actions">
           <button class="account-secondary-button" id="edit-profile-button" type="button">编辑资料</button>
           <button class="account-secondary-button" id="logout-button" type="button">退出登录</button>
         </div>
       </header>
-      <div class="identity-heading"><h2>账号身份</h2><span>App 与社群独立计费，共用这一个账号。</span></div>
-      <div class="identity-grid">
-        <article class="identity-card app-identity" id="app-tier-card" data-tier="free">
-          <div class="identity-card-top"><span>OIO APP</span><i>App 身份</i></div>
-          <h3 id="app-tier">普通用户</h3>
-          <p id="app-expiry">正在读取 App 权益……</p>
-          <a href="app.html">查看 App</a>
-        </article>
-        <article class="identity-card community-identity">
-          <div class="identity-card-top"><span>OIO 社群</span><i>社群身份</i></div>
-          <h3>暂未接入</h3>
-          <p>社群身份将在支付系统接入后显示</p>
-          <a href="community.html">查看社群</a>
-        </article>
+      <div class="account-overview" id="app-tier-card" data-tier="free">
+        <dl class="account-metrics">
+          <div><dt>身份</dt><dd id="app-tier">普通用户</dd></div>
+          <div><dt>到期时间</dt><dd id="app-expiry">读取中</dd></div>
+          <div><dt>剩余 OIO 点数</dt><dd id="points-remaining">读取中</dd></div>
+          <div><dt>剩余图片流量</dt><dd id="images-remaining">读取中</dd></div>
+        </dl>
+        <!-- 支付入口暂时隐藏，待支付宝订阅、扫码与优惠码方案确定后接入。 -->
+        <div class="membership-entry" id="membership-entry" hidden>
+          <button class="membership-button" id="membership-action" type="button">开通会员</button>
+        </div>
       </div>
     </section>
   </main>
@@ -72,14 +73,13 @@
   <dialog class="wecom-dialog group-dialog" id="group-dialog" aria-labelledby="group-dialog-title">
     <button class="dialog-close" type="button" aria-label="关闭群聊二维码窗口">×</button>
     <h2 id="group-dialog-title">加入群聊</h2>
-    <p>加入 OIO 群聊，获取 App 与社群的一手资讯。</p>
+    <p>获取 App 的一手资讯。</p>
     <img class="group-qr" src="assets/shared/qr/wechat-group.png" width="182" height="182" alt="OIO 微信群二维码">
   </dialog>
   <dialog class="profile-edit-dialog" id="profile-edit-dialog" aria-labelledby="profile-edit-title">
     <button class="dialog-close" id="profile-edit-close" type="button" aria-label="关闭编辑资料窗口">×</button>
     <form id="profile-edit-form">
       <h2 id="profile-edit-title">编辑账号资料</h2>
-      <p>修改后会同步到 OIO App。</p>
       <div class="profile-avatar-editor">
         <span class="profile-edit-avatar" id="profile-edit-avatar">O</span>
         <div>
