@@ -11,11 +11,8 @@ pnpm-debug.log*
 .env
 .env.*
 
-# Local dev notes. Keep the 1.0.7 implementation contract versioned.
-/dev-notes/*
-!/dev-notes/1.0.7/
-/dev-notes/1.0.7/*
-!/dev-notes/1.0.7/1.0.7开发计划.md
+# Local documentation.
+/docs/
 
 .vercel
 AGENTS.md

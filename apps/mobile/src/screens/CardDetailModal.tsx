@@ -3194,11 +3194,12 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
 
   function lookupBlankAction(): void {
     if (!blankAction) return;
-    const { blank, segmentText } = blankAction;
-    const payload = {
+    const { blank, segmentText, anchor } = blankAction;
+    const payload: NativeTextSelectionPayload = {
       start: blank.startUtf16,
       end: blank.endUtf16,
       selectedText: segmentText.slice(blank.startUtf16, blank.endUtf16),
+      selectionRect: anchor,
     };
     setBlankAction(null);
     lookupText(segmentText, payload, blank.segmentId);
@@ -4644,9 +4645,17 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
     groupIndex: rangeTargets.find((target) => target.blankIndex === blankIndex)?.groupIndex ?? blankIndex,
   }));
   const highlightRanges = [...ranges, ...phraseRanges];
-  const hiddenRanges = revealed ? [] : phraseRanges;
+  const blankIsCorrect = ({ blank }: typeof row.blanks[number]) => checkedAnswers[blank.id] === "correct";
+  const hiddenRanges = revealed
+    ? []
+    : row.blanks
+      .filter((item) => !blankIsCorrect(item))
+      .map(({ blank }) => ({
+        start: blank.startUtf16 - row.textStart,
+        end: blank.endUtf16 - row.textStart,
+      }));
   const correctRanges = row.blanks
-    .filter(({ blank }) => blank.mastered || checkedAnswers[blank.id] === "correct")
+    .filter(blankIsCorrect)
     .map(({ blank }) => ({
       start: blank.startUtf16 - row.textStart,
       end: blank.endUtf16 - row.textStart,
@@ -4681,7 +4690,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
     rangeLayoutRef.current.set(key, { signature, lines });
     setRangeLayoutRevision((current) => current + 1);
   };
-  const measuredFrameFor = (target: typeof rangeTargets[number] | null) => {
+  const measuredFrameFor = (target: typeof rangeTargets[number] | null, minimumWidth = 28) => {
     if (!target) return null;
     const prefixLines = rangeLayoutRef.current.get(`${target.groupIndex}:prefix`)?.lines ?? [];
     const throughLines = rangeLayoutRef.current.get(`${target.groupIndex}:through`)?.lines ?? [];
@@ -4693,10 +4702,13 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
     return {
       left,
       top: throughLine.y,
-      width: Math.max(28, throughLine.x + throughLine.width - left),
+      width: Math.max(minimumWidth, throughLine.x + throughLine.width - left),
       height: Math.max(24, throughLine.height),
     };
   };
+  const underlineFrames = rangeTargets
+    .map((target) => ({ target, frame: measuredFrameFor(target, 0) }))
+    .filter((item): item is { target: typeof rangeTargets[number]; frame: NonNullable<typeof item.frame> } => Boolean(item.frame));
   const measuredWordFrames = keyboardWordTargets
     .map(measuredFrameFor)
     .filter((frame): frame is NonNullable<typeof frame> => Boolean(frame));
@@ -4719,6 +4731,14 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
       height: activeKeyboardFrame.height,
     }
     : activeKeyboardFrame;
+  const submitActiveKeyboardAnswer = () => {
+    if (!keyboardItem || !keyboardAnswer.trim() || saving) return;
+    if (normalizeAnswer(keyboardAnswer) !== normalizeAnswer(keyboardItem.blank.answer)) {
+      keyboardInputRef.current?.clear();
+      onChangeKeyboardAnswer(keyboardItem.blankIndex, "");
+    }
+    onCheckKeyboardAnswer(keyboardItem.blankIndex);
+  };
 
   const activateBlank = (rangeIndex: number, selectionRect?: CardBlankActionAnchor) => {
     const target = rangeTargets.find((item) => item.groupIndex === rangeIndex);
@@ -4760,7 +4780,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
       highlightRanges={highlightRanges}
       blankRanges={hiddenRanges}
       preserveHighlightRangeOrder
-      splitBlankRangesByWord={false}
+      splitBlankRangesByWord
       correctRanges={correctRanges}
       answerRanges={answerRanges}
       activeRange={activeRange}
@@ -4786,7 +4806,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
       }}
       onClozeRangePress={activateBlank}
     />
-    {keyboardItem ? keyboardWordTargets.flatMap((target) => [
+    {rangeTargets.flatMap((target) => [
       <Text
         key={`${target.groupIndex}:prefix`}
         pointerEvents="none"
@@ -4801,7 +4821,19 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
         style={[styles.clozeSentence, styles.clozeRangeMeasure]}
         onTextLayout={(event) => recordRangeLayout(target.groupIndex, "through", event.nativeEvent.lines)}
       >{sentenceText.slice(0, target.end)}</Text>,
-    ]) : null}
+    ])}
+    {underlineFrames.map(({ target, frame }) => <View
+      key={`${target.groupIndex}:underline`}
+      pointerEvents="none"
+      style={[
+        styles.clozeUnderlineSegment,
+        {
+          left: frame.left,
+          top: frame.top + frame.height - 2,
+          width: frame.width,
+        },
+      ]}
+    />)}
     {keyboardItem && activeKeyboardFrame && displayInputFrame ? <>
       <TextInput
         key={`${keyboardItem.blank.id}:${activeKeyboardFrame.focusRequest}`}
@@ -4826,7 +4858,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
           },
         ]}
         onChangeText={(value) => onChangeKeyboardAnswer(keyboardItem.blankIndex, value)}
-        onSubmitEditing={() => onCheckKeyboardAnswer(keyboardItem.blankIndex)}
+        onSubmitEditing={submitActiveKeyboardAnswer}
       />
       <Pressable
         accessibilityLabel={t("card_detail.dictation.check")}
@@ -4839,7 +4871,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
           },
           (!answers[keyboardItem.blank.id]?.trim() || saving) && styles.clozeInlineCheckDisabled,
         ]}
-        onPress={() => onCheckKeyboardAnswer(keyboardItem.blankIndex)}
+        onPress={submitActiveKeyboardAnswer}
       >
         <Ionicons name="checkmark" size={13} color={theme.colors.textSecondary} />
       </Pressable>
@@ -4856,7 +4888,7 @@ function buildCardClozeAnswerRanges(
 ): NativeClozeAnswerRange[] {
   if (revealed) return [];
   return row.blanks.flatMap(({ blank }) => {
-    const answer = checkedAnswers[blank.id] === "correct" ? blank.answer : answers[blank.id] ?? "";
+    const answer = checkedAnswers[blank.id] === "correct" ? "" : answers[blank.id] ?? "";
     if (!answer) return [];
     const start = blank.startUtf16 - row.textStart;
     const selectedText = sentenceText.slice(start, blank.endUtf16 - row.textStart);
@@ -5181,6 +5213,7 @@ const styles = StyleSheet.create({
   clozeRevealButton: { alignSelf: "flex-end", minHeight: 34, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 5 },
   clozeFlow: { position: "relative", zIndex: 10, alignSelf: "stretch", overflow: "visible" },
   clozeRangeMeasure: { position: "absolute", left: 0, right: 0, top: 0, opacity: 0 },
+  clozeUnderlineSegment: { position: "absolute", zIndex: 20, height: 2, backgroundColor: "#D05F78" },
   clozeInlineInput: { position: "absolute", zIndex: 60, paddingHorizontal: 0, paddingVertical: 0, borderWidth: 0, backgroundColor: "transparent", color: theme.colors.text, fontSize: 17, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
   clozeInlineCheck: { position: "absolute", zIndex: 80, width: 20, height: 20, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   clozeInlineCheckDisabled: { opacity: 1 },
