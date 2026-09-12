@@ -151,8 +151,10 @@ profileForm.addEventListener("submit", async (event) => {
     if (nickname !== profile.nickname) profile = await updateProfileNickname(nickname);
     if (pendingAvatar) profile = await uploadAvatar(pendingAvatar);
     else if (removeAvatarRequested && profile.avatar) profile = await removeProfileAvatar();
+    const avatarReady = await preloadImage(profile.avatar?.thumbnailUrl);
     currentProfile = profile;
     applyProfile(profile, currentBindings);
+    if (!avatarReady) renderAvatar(document.getElementById("account-avatar"), { ...profile, avatar: null });
     closeProfileEditor();
   } catch (error) {
     setProfileStatus(messageFor(error, "资料保存失败，请稍后再试"), "error");
@@ -299,7 +301,9 @@ async function renderAccount() {
     if (profileResult.status === "fulfilled") {
       currentProfile = profileResult.value;
       currentBindings = bindingsResult.status === "fulfilled" ? bindingsResult.value : null;
+      const avatarReady = await preloadImage(currentProfile.avatar?.thumbnailUrl);
       applyProfile(currentProfile, currentBindings);
+      if (!avatarReady) renderAvatar(document.getElementById("account-avatar"), { ...currentProfile, avatar: null });
       if (bindingsResult.status === "rejected") {
         document.getElementById("account-id").textContent = "账号绑定信息暂时无法读取";
       }
@@ -367,6 +371,25 @@ function renderAvatar(element, profile, preferFullSize = false) {
   const avatarUrl = preferFullSize ? profile?.avatar?.url : profile?.avatar?.thumbnailUrl;
   element.style.backgroundImage = avatarUrl ? `url("${avatarUrl}")` : "";
   element.textContent = avatarUrl ? "" : (profile?.nickname || "O").slice(0, 1).toUpperCase();
+}
+
+function preloadImage(url) {
+  if (!url) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const image = new Image();
+    let settled = false;
+    const finish = (loaded) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(loaded);
+    };
+    const timeout = setTimeout(() => finish(false), 2500);
+    image.onload = () => finish(true);
+    image.onerror = () => finish(false);
+    image.src = url;
+    if (image.complete) finish(image.naturalWidth > 0);
+  });
 }
 
 function openProfileEditor() {
