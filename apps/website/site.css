@@ -442,9 +442,9 @@ h1,h2,h3{font-family:var(--heading)!important}
 
 /* Community page */
 .community-page{color:#20251f;background:#fff}
-:is(.home-page,.app-page,.community-page,.account-page) .site-header{position:sticky;z-index:50;top:0;isolation:isolate;background:transparent;border-color:transparent}
-:is(.home-page,.app-page,.community-page,.account-page) .site-header::before{content:"";position:absolute;z-index:-1;top:0;bottom:-1px;left:50%;width:100vw;transform:translateX(-50%);background:rgba(255,255,255,.96);border-bottom:1px solid #e1e5df;backdrop-filter:blur(12px)}
-:is(.home-page,.app-page,.community-page,.account-page) .site-header nav{align-items:center}:is(.home-page,.app-page,.community-page,.account-page) .site-header nav a{color:#5f665e}:is(.home-page,.app-page,.community-page,.account-page) .site-header nav a:hover,:is(.home-page,.app-page,.community-page,.account-page) .site-header nav a.active{color:#20251f}
+:is(.home-page,.app-page,.community-page,.account-page,.wiki-page) .site-header{position:sticky;z-index:50;top:0;isolation:isolate;background:transparent;border-color:transparent}
+:is(.home-page,.app-page,.community-page,.account-page,.wiki-page) .site-header::before{content:"";position:absolute;z-index:-1;top:0;bottom:-1px;left:50%;width:100vw;transform:translateX(-50%);background:#fff;border-bottom:1px solid #e1e5df}
+:is(.home-page,.app-page,.community-page,.account-page,.wiki-page) .site-header nav{align-items:center}:is(.home-page,.app-page,.community-page,.account-page,.wiki-page) .site-header nav a{color:#5f665e}:is(.home-page,.app-page,.community-page,.account-page,.wiki-page) .site-header nav a:hover,:is(.home-page,.app-page,.community-page,.account-page,.wiki-page) .site-header nav a.active{color:#20251f}
 .header-group-button{margin:0;padding:0;color:#5f665e;background:transparent;border:0;font:inherit;cursor:pointer;transition:color .2s ease}.header-group-button:hover{color:#20251f}
 .community-hero{width:min(1420px,calc(100% - 48px));min-height:1050px;padding:78px 0 0;display:grid;grid-template-columns:1fr;gap:44px;align-items:start;overflow:visible;border-bottom:1px solid #e1e5df}
 .community-hero-copy{max-width:100%;margin:0 auto;text-align:center}.community-label,.community-section-head>span,.method-copy>span,.courses-heading>span,.community-founding>div>span,.dialog-label{margin:0 0 18px;color:#df704f;font-size:13px;font-weight:700;letter-spacing:.04em}
