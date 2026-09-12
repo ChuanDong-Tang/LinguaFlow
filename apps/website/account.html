@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OIO 账号 · App 与社群身份</title>
+  <meta name="description" content="登录 OIO 账号，查看 App 与社群身份。">
+  <link rel="icon" href="assets/shared/brand/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body class="account-page">
+  <header class="site-header">
+    <a class="header-brand" href="index.html" aria-label="OIO 首页"><strong>OIO</strong><span>Life × Language</span></a>
+    <nav aria-label="主导航"><a href="index.html">首页</a><a href="app.html">App</a><a href="community.html">社群</a><button class="header-group-button" type="button" data-join-group>加入群聊</button><a class="account-nav-link active" href="account.html" data-account-link>登录</a></nav>
+  </header>
+
+  <main class="account-main page-width">
+    <section class="login-card" id="login-view" aria-labelledby="login-title">
+      <div class="account-card-heading"><span class="account-mark" aria-hidden="true">O</span><div><h1 id="login-title">登录 OIO</h1><p>使用与 App 相同的账号</p></div></div>
+      <div class="login-tabs" aria-label="登录方式">
+        <button class="active" type="button" aria-pressed="true" data-login-method="passcode">验证码</button>
+        <button type="button" aria-pressed="false" data-login-method="password">密码</button>
+      </div>
+      <form id="login-form" novalidate>
+        <div id="passcode-fields">
+          <div class="channel-switch" aria-label="选择邮箱或手机号">
+            <button class="active" type="button" aria-pressed="true" data-login-channel="email">邮箱</button>
+            <button type="button" aria-pressed="false" data-login-channel="phone">手机号</button>
+          </div>
+          <label class="form-field" id="email-field"><span>邮箱</span><input id="email" name="email" type="email" autocomplete="email" placeholder="name@example.com"></label>
+          <label class="form-field" id="phone-field" hidden><span>手机号</span><span class="phone-input"><i>+86</i><input id="phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="请输入手机号"></span></label>
+          <label class="form-field"><span>验证码</span><span class="code-input"><input id="passcode" name="passcode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="请输入验证码"><button id="send-code" type="button">获取验证码</button></span></label>
+        </div>
+        <div id="password-fields" hidden>
+          <label class="form-field"><span>手机号或邮箱</span><input id="password-account" name="account" type="text" autocomplete="username" placeholder="请输入手机号或邮箱"></label>
+          <label class="form-field"><span>密码</span><input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码"></label>
+        </div>
+        <label class="agreement"><input id="agreement" name="agreement" type="checkbox"><span>我已阅读并同意 <a href="legal/terms/" target="_blank">用户协议</a> 和 <a href="legal/privacy/" target="_blank">隐私政策</a></span></label>
+        <p class="form-status" id="login-status" role="status" hidden></p>
+        <button class="account-primary-button" id="login-submit" type="submit">继续</button>
+      </form>
+    </section>
+
+    <section class="account-dashboard" id="account-view" hidden aria-labelledby="account-name">
+      <header class="account-profile">
+        <span class="account-avatar" id="account-avatar">O</span>
+        <div><p>我的 OIO</p><h2 id="account-name">正在读取账号……</h2><span id="account-id"></span></div>
+        <div class="account-profile-actions">
+          <button class="account-secondary-button" id="edit-profile-button" type="button">编辑资料</button>
+          <button class="account-secondary-button" id="logout-button" type="button">退出登录</button>
+        </div>
+      </header>
+      <div class="identity-heading"><h2>账号身份</h2><span>App 与社群独立计费，共用这一个账号。</span></div>
+      <div class="identity-grid">
+        <article class="identity-card app-identity" id="app-tier-card" data-tier="free">
+          <div class="identity-card-top"><span>OIO APP</span><i>App 身份</i></div>
+          <h3 id="app-tier">普通用户</h3>
+          <p id="app-expiry">正在读取 App 权益……</p>
+          <a href="app.html">查看 App</a>
+        </article>
+        <article class="identity-card community-identity">
+          <div class="identity-card-top"><span>OIO 社群</span><i>社群身份</i></div>
+          <h3>暂未接入</h3>
+          <p>社群身份将在支付系统接入后显示</p>
+          <a href="community.html">查看社群</a>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer account-footer"><span>© 2026 永嘉跃言科技有限责任公司</span><nav class="legal-links"><a href="legal/terms/">用户协议</a><a href="legal/privacy/">隐私政策</a></nav></footer>
+  <dialog class="wecom-dialog group-dialog" id="group-dialog" aria-labelledby="group-dialog-title">
+    <button class="dialog-close" type="button" aria-label="关闭群聊二维码窗口">×</button>
+    <h2 id="group-dialog-title">加入群聊</h2>
+    <p>加入 OIO 群聊，获取 App 与社群的一手资讯。</p>
+    <img class="group-qr" src="assets/shared/qr/wechat-group.png" width="182" height="182" alt="OIO 微信群二维码">
+  </dialog>
+  <dialog class="profile-edit-dialog" id="profile-edit-dialog" aria-labelledby="profile-edit-title">
+    <button class="dialog-close" id="profile-edit-close" type="button" aria-label="关闭编辑资料窗口">×</button>
+    <form id="profile-edit-form">
+      <h2 id="profile-edit-title">编辑账号资料</h2>
+      <p>修改后会同步到 OIO App。</p>
+      <div class="profile-avatar-editor">
+        <span class="profile-edit-avatar" id="profile-edit-avatar">O</span>
+        <div>
+          <label class="profile-file-button" for="profile-avatar-file">更换头像</label>
+          <input id="profile-avatar-file" name="avatar" type="file" accept="image/*" hidden>
+          <button class="profile-avatar-remove" id="profile-avatar-remove" type="button">移除头像</button>
+        </div>
+      </div>
+      <label class="form-field"><span>用户名</span><input id="profile-nickname" name="nickname" type="text" maxlength="24" autocomplete="nickname" required></label>
+      <p class="form-status" id="profile-edit-status" role="status" hidden></p>
+      <div class="profile-edit-actions">
+        <button class="account-secondary-button" id="profile-edit-cancel" type="button">取消</button>
+        <button class="account-primary-button" id="profile-edit-save" type="submit">保存修改</button>
+      </div>
+    </form>
+  </dialog>
+  <script type="module" src="site-auth.js"></script>
+  <script type="module" src="account.js"></script>
+  <script>
+    var groupDialog = document.getElementById('group-dialog');
+    document.addEventListener('click', function (event) { if (event.target.closest('[data-join-group]')) groupDialog.showModal(); });
+    groupDialog.querySelector('.dialog-close').addEventListener('click', function () { groupDialog.close(); });
+    groupDialog.addEventListener('click', function (event) { if (event.target === groupDialog) groupDialog.close(); });
+  </script>
+</body>
+</html>

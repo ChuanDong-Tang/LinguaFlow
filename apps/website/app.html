@@ -11,7 +11,7 @@
 <body class="app-page">
   <header class="site-header">
     <a class="header-brand" href="index.html" aria-label="OIO 首页"><strong>OIO</strong><span>Life × Language</span></a>
-    <nav><a class="active" href="app.html">App</a><a href="community.html">社群</a><button class="header-group-button" type="button" data-join-group>加入群聊</button></nav>
+    <nav aria-label="主导航"><a href="index.html">首页</a><a class="active" href="app.html">App</a><a href="community.html">社群</a><button class="header-group-button" type="button" data-join-group>加入群聊</button><a class="account-nav-link" href="account.html" data-account-link>登录</a></nav>
   </header>
 
   <main>
@@ -124,9 +124,10 @@
   <dialog class="wecom-dialog group-dialog" id="group-dialog" aria-labelledby="group-dialog-title">
     <button class="dialog-close" type="button" aria-label="关闭群聊二维码窗口">×</button>
     <h2 id="group-dialog-title">加入群聊</h2>
-    <p>使用微信扫码加入 OIO 群聊。</p>
+    <p>加入 OIO 群聊，获取 App 与社群的一手资讯。</p>
     <img class="group-qr" src="assets/shared/qr/wechat-group.png" width="182" height="182" alt="OIO 微信群二维码">
   </dialog>
+  <script type="module" src="site-auth.js"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
     if (location.hash === '#how') {
