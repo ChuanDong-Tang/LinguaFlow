@@ -572,7 +572,7 @@ h1,h2,h3{font-family:var(--heading)!important}
 .wiki-search>i::after{content:"";width:6px;height:1.7px;position:absolute;right:-5px;bottom:-2px;background:currentColor;transform:rotate(45deg)}
 .wiki-search input{min-width:0;height:100%;padding:0 8px 0 10px;flex:1;color:#20231f;background:transparent;border:0;outline:0;font:13px var(--sans)}
 .wiki-search input:focus-visible{outline:0}
-.wiki-search kbd{margin-right:8px;padding:3px 6px;color:#686d66;background:#fff;border:1px solid #d9dcd6;border-radius:5px;font:11px/1.2 var(--sans)}
+.wiki-search kbd{display:none}
 .wiki-topbar nav{display:flex;align-items:center;gap:20px;font-size:13px}.wiki-topbar nav a{color:#646963;text-decoration:none;white-space:nowrap}.wiki-topbar nav a:hover,.wiki-topbar nav a.active{color:#20231f}.wiki-topbar nav [data-account-link]{display:none}
 .wiki-menu-button{display:none;color:#333832;background:#fff;border:1px solid #d9dcd6;border-radius:6px;font:13px var(--sans)}
 .wiki-shell{width:min(1440px,calc(100% - 48px));min-height:calc(100vh - 68px);margin:0 auto;display:grid;grid-template-columns:246px minmax(0,720px) 180px;gap:clamp(38px,4vw,62px);align-items:start}
