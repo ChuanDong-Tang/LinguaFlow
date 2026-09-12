@@ -273,15 +273,15 @@ async function renderAccount() {
   if (!getStoredSession()) return showLogin();
   accountIntro.hidden = true;
   loginView.hidden = true;
-  accountView.hidden = false;
+  accountView.hidden = true;
   accountView.classList.add("loading");
-  document.getElementById("account-name").textContent = "正在读取账号……";
+  document.getElementById("account-name").textContent = "OIO 用户";
   document.getElementById("account-id").textContent = "";
   document.getElementById("edit-profile-button").disabled = true;
-  document.getElementById("app-tier").textContent = "正在读取……";
-  document.getElementById("app-expiry").textContent = "读取中";
-  document.getElementById("points-remaining").textContent = "读取中";
-  document.getElementById("images-remaining").textContent = "读取中";
+  document.getElementById("app-tier").textContent = "—";
+  document.getElementById("app-expiry").textContent = "—";
+  document.getElementById("points-remaining").textContent = "—";
+  document.getElementById("images-remaining").textContent = "—";
   try {
     const [profileResult, entitlementResult, bindingsResult, usageResult] = await Promise.allSettled([
       getProfile(),
@@ -336,6 +336,7 @@ async function renderAccount() {
     document.getElementById("account-id").textContent = messageFor(error, "请稍后刷新重试");
   } finally {
     accountView.classList.remove("loading");
+    if (loginView.hidden) accountView.hidden = false;
   }
 }
 
