@@ -26,7 +26,7 @@ a{color:inherit} img{max-width:100%}
 .site-header nav a{min-height:32px;position:relative;display:inline-flex;align-items:center;color:var(--muted);text-decoration:none}
 .site-header nav a:hover,.site-header nav a.active{color:var(--ink)}
 .site-header nav a.active::after{content:"";height:2px;position:absolute;right:0;bottom:1px;left:0;background:#d6a934;border-radius:2px}
-.site-header .account-nav-link{min-height:32px;padding:0 1px;position:relative;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);background:transparent;border-radius:0;font-weight:650;transition:color .2s ease}
+.site-header .account-nav-link{min-height:32px;padding:0 1px;position:relative;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);background:transparent;border-radius:0;font-weight:400;transition:color .2s ease}
 .site-header .account-nav-link:hover,.site-header .account-nav-link.signed-in{color:var(--ink);background:transparent;transform:none}
 .site-header .account-nav-link.active{color:var(--ink);background:transparent;transform:none}
 .site-header .account-nav-link.active::after{content:"";height:2px;position:absolute;right:1px;bottom:1px;left:1px;background:#d6a934;border-radius:2px}
