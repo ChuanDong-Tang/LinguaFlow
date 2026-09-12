@@ -1071,7 +1071,7 @@
         </div>
         <div class="nav-group">
           <div class="nav-label">发布</div>
-          <button class="tab" data-tab="audit">生产检查</button>
+          <button class="tab" data-tab="audit">发布与性能</button>
         </div>
       </nav>
       <div class="sidebar-foot">
@@ -1998,6 +1998,39 @@
             <div class="section">
               <div class="section-head">
                 <div>
+                  <h2 class="section-title">图片描述链路</h2>
+                  <p id="imageDescriptionPerformanceMeta" class="section-subtitle">运行检查后显示最近 24 小时的上传、排队和生成耗时。</p>
+                </div>
+              </div>
+              <div id="imageDescriptionBacklogMetrics" class="metrics"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>阶段</th>
+                      <th>样本</th>
+                      <th>平均</th>
+                      <th>p50</th>
+                      <th>p95</th>
+                      <th>口径</th>
+                    </tr>
+                  </thead>
+                  <tbody id="imageDescriptionPhaseTbody"></tbody>
+                </table>
+              </div>
+              <details class="mt">
+                <summary>最近失败任务</summary>
+                <div class="table-wrap mt">
+                  <table>
+                    <thead><tr><th>失败时间</th><th>任务 ID</th><th>尝试</th><th>错误</th></tr></thead>
+                    <tbody id="imageDescriptionFailureTbody"></tbody>
+                  </table>
+                </div>
+              </details>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
                   <h2 class="section-title">检查结果</h2>
                   <p id="productionAuditMeta" class="section-subtitle">尚未执行</p>
                 </div>
@@ -2343,6 +2376,7 @@
       orders: [],
       subscriptions: [],
       productionAudit: [],
+      imageDescriptionPerformance: null,
       cardOperations: null,
       cardOperationsTimer: null,
       resources: null,
@@ -2366,7 +2400,7 @@
       security: ["安全审计", "查看内容安全规则的拦截结果，不展示用户原文。"],
       adminaudit: ["管理员操作", "追踪后台人工操作、目标对象与请求标识。"],
       logs: ["系统事件", "按分类查询通用事件及 TTS、STT、智能词典调用记录。"],
-      audit: ["生产检查", "执行发布前检查并确认生产环境配置。"],
+      audit: ["发布与性能", "检查生产配置，并定位图片描述耗时发生在哪个阶段。"],
     };
 
     function setStatus(message) {
@@ -2603,6 +2637,52 @@
         : { status: "pass", detail: "最近 24 小时核心指标未超过告警阈值" };
     }
 
+    function renderImageDescriptionPerformance(data) {
+      state.imageDescriptionPerformance = data || null;
+      const phases = Array.isArray(data?.phases) ? data.phases : [];
+      const backlog = data?.backlog || {};
+      const statuses = Array.isArray(data?.statuses) ? data.statuses : [];
+      const failures = Array.isArray(data?.failedJobs) ? data.failedJobs : [];
+      const statusCount = (name) => Number(statuses.find((row) => row.status === name)?.count || 0);
+      $("imageDescriptionPerformanceMeta").textContent = data?.generatedAt
+        ? `最近 24 小时 · 刷新于 ${fmtDate(data.generatedAt)} · 模型耗时从本版本部署后开始采集`
+        : "运行检查后显示最近 24 小时的上传、排队和生成耗时。";
+      $("imageDescriptionBacklogMetrics").innerHTML = [
+        ["等待处理", backlog.readyQueued || 0, `最老 ${formatDuration(backlog.oldestReadyWaitSeconds)}`],
+        ["处理中", backlog.processing || 0, "当前 Worker"],
+        ["等待重试", backlog.scheduledRetry || 0, "尚未到重试时间"],
+        ["24h 完成", statusCount("completed"), "图片描述"],
+        ["24h 失败", statusCount("failed"), `${failures.length} 条最近记录`],
+      ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
+      $("imageDescriptionPhaseTbody").innerHTML = phases.map((row) => `<tr>
+          <td><strong>${escapeHtml(row.label)}</strong></td>
+          <td>${escapeHtml(row.sampleCount || 0)}</td>
+          <td>${row.sampleCount ? escapeHtml(formatDurationMs(row.averageMs)) : "—"}</td>
+          <td>${row.sampleCount ? escapeHtml(formatDurationMs(row.p50Ms)) : "—"}</td>
+          <td>${row.sampleCount ? `<strong>${escapeHtml(formatDurationMs(row.p95Ms))}</strong>` : "—"}</td>
+          <td class="muted">${escapeHtml(row.note || "")}</td>
+        </tr>`).join("") || rowEmpty(6, "尚未加载性能数据");
+      $("imageDescriptionFailureTbody").innerHTML = failures.map((row) => `<tr>
+          <td>${escapeHtml(fmtDate(row.failedAt))}</td>
+          <td class="mono">${escapeHtml(row.id)}</td>
+          <td>${escapeHtml(row.attempts)}</td>
+          <td>${escapeHtml(row.lastError || "—")}</td>
+        </tr>`).join("") || rowEmpty(4, "最近没有失败任务");
+    }
+
+    function imageDescriptionPerformanceAudit(result) {
+      if (auditResultStatus(result) === "fail") return { status: "fail", detail: auditErrorMessage(result) };
+      const data = result.data?.data || {};
+      renderImageDescriptionPerformance(data);
+      const backlog = data.backlog || {};
+      const failed = Array.isArray(data.failedJobs) ? data.failedJobs.length : 0;
+      if (Number(backlog.readyQueued || 0) > 10 || Number(backlog.oldestReadyWaitSeconds || 0) > 300) {
+        return { status: "warn", detail: `队列积压 ${backlog.readyQueued || 0}，最老等待 ${formatDuration(backlog.oldestReadyWaitSeconds)}` };
+      }
+      if (failed) return { status: "warn", detail: `性能数据正常返回；存在 ${failed} 条最近失败任务` };
+      return { status: "pass", detail: "图片描述分阶段性能数据正常返回" };
+    }
+
     function renderProductionAudit() {
       const rows = state.productionAudit;
       const counts = { pass: 0, warn: 0, fail: 0 };
@@ -2642,6 +2722,7 @@
       const session = inspectCurrentSession();
       renderAuditSession(session);
       state.productionAudit = [];
+      renderImageDescriptionPerformance(null);
       const sessionStatus = session.expired || session.tokenType !== "access"
         ? "fail"
         : session.sessionId
@@ -2680,6 +2761,7 @@
         { name: "业务时钟", endpoint: "/clock", detail: "业务时间接口正常" },
         { name: "管理员权限与概览", endpoint: `/admin/metrics/overview?fromDate=${today}&toDate=${today}`, detail: "管理员 Token、数据库聚合查询正常" },
         { name: "运营告警", endpoint: "/admin/ops/alerts", evaluate: opsAlertsAudit },
+        { name: "图片描述性能", endpoint: "/admin/card/image-description-performance", evaluate: imageDescriptionPerformanceAudit },
         { name: "用户偏好", endpoint: "/me/preferences", detail: "用户身份与偏好读取正常" },
         { name: "会员状态", endpoint: "/me/subscription", detail: "会员状态查询正常" },
         { name: "当前额度", endpoint: "/me/entitlement", detail: "额度查询正常" },
@@ -2750,6 +2832,7 @@
 
     function clearProductionAudit() {
       state.productionAudit = [];
+      renderImageDescriptionPerformance(null);
       $("auditSessionFacts").innerHTML = "";
       $("productionAuditMeta").textContent = "尚未执行";
       renderProductionAudit();
@@ -4373,6 +4456,7 @@
     loadLocal();
     setOverviewRange(14);
     renderProductionAudit();
+    renderImageDescriptionPerformance(null);
     bindEvents();
     if ($("token").value.trim()) {
       setStatus("已加载本地登录状态");

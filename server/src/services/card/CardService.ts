@@ -1291,23 +1291,29 @@ export class CardService {
     let output = "";
     let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     let settled = false;
+    let modelDurationMs: number | null = null;
     try {
-      await this.executeForegroundLlm(input.userId, input.requestId, input.operation, () => this.aiProvider!.generateChatTextStream({
-        userId: input.userId,
-        text: input.userPrompt,
-        languageCode: input.languageCode,
-        appLocale: input.appLocale,
-        promptDifficulty: input.difficulty,
-        companionMode: "rewrite_only",
-        systemPrompt: input.systemPrompt,
-        rawUserPrompt: true,
-        maxOutputTokens: input.maxOutputTokens,
-        temperature: input.temperature,
-        imageUrls: input.imageUrls,
-      }, (event) => {
-        if (event.type === "delta") output += event.text;
-        if (event.type === "done") usage = event.usage;
-      }));
+      const modelStartedAt = Date.now();
+      try {
+        await this.executeForegroundLlm(input.userId, input.requestId, input.operation, () => this.aiProvider!.generateChatTextStream({
+          userId: input.userId,
+          text: input.userPrompt,
+          languageCode: input.languageCode,
+          appLocale: input.appLocale,
+          promptDifficulty: input.difficulty,
+          companionMode: "rewrite_only",
+          systemPrompt: input.systemPrompt,
+          rawUserPrompt: true,
+          maxOutputTokens: input.maxOutputTokens,
+          temperature: input.temperature,
+          imageUrls: input.imageUrls,
+        }, (event) => {
+          if (event.type === "delta") output += event.text;
+          if (event.type === "done") usage = event.usage;
+        }));
+      } finally {
+        modelDurationMs = Date.now() - modelStartedAt;
+      }
       output = output.trim();
       if (!output) throw new CardValidationError("Generated content is empty");
       this.contentSafetyService?.assertAllowed(output, "output");
@@ -1326,14 +1332,14 @@ export class CardService {
         output,
         this.aiProvider,
         (input.imageUrls?.length ?? 0) * 1_200,
-        { operation: input.operation, imageCount: input.imageUrls?.length ?? 0, providerUsageReported: Boolean(usage), ...input.usageMetadata },
-      ); else await this.logPlatformImageUsage(input, usage, meteredPrompt, output, "success");
+        { operation: input.operation, imageCount: input.imageUrls?.length ?? 0, providerUsageReported: Boolean(usage), ...input.usageMetadata, modelDurationMs },
+      ); else await this.logPlatformImageUsage({ ...input, usageMetadata: { ...input.usageMetadata, modelDurationMs } }, usage, meteredPrompt, output, "success");
       settled = true;
       return output;
     } catch (error) {
       if (!settled) {
         if (input.billingMode === "platform") {
-          await this.logPlatformImageUsage(input, usage, meteredPrompt, output, "failed", error);
+          await this.logPlatformImageUsage({ ...input, usageMetadata: { ...input.usageMetadata, modelDurationMs } }, usage, meteredPrompt, output, "failed", error);
         } else if (output) {
           await settleGeneratedUsage(
             this.usageV2Service!,
@@ -1344,7 +1350,7 @@ export class CardService {
             output,
             this.aiProvider,
             (input.imageUrls?.length ?? 0) * 1_200,
-            { operation: input.operation, imageCount: input.imageUrls?.length ?? 0, providerUsageReported: Boolean(usage), ...input.usageMetadata },
+            { operation: input.operation, imageCount: input.imageUrls?.length ?? 0, providerUsageReported: Boolean(usage), ...input.usageMetadata, modelDurationMs },
           )
             .catch(async () => this.usageV2Service?.releaseTokens(input.userId, input.requestId).catch(() => undefined));
         } else {

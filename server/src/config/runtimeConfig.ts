@@ -337,7 +337,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardImageDescriptionBackfillBatchSize: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_BATCH_SIZE, 20),
     cardImageDescriptionBackfillMaxOutstanding: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_MAX_OUTSTANDING, 40),
     cardImageDescriptionBackfillScanIntervalMs: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_SCAN_INTERVAL_MS, 300_000),
-    cardImageDescriptionBackfillJobIntervalMs: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_JOB_INTERVAL_MS, 15_000),
+    cardImageDescriptionBackfillJobIntervalMs: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_JOB_INTERVAL_MS, 1_000),
     cardImageDescriptionBackfillMinimumAgeMs: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_MINIMUM_AGE_MS, 86_400_000),
     cardImageDescriptionBackfillRefreshOutdated: readBoolean(env.CARD_IMAGE_DESCRIPTION_BACKFILL_REFRESH_OUTDATED, false),
     cardImageDescriptionBackfillMaxAttempts: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_MAX_ATTEMPTS, 3),

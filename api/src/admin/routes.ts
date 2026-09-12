@@ -1855,6 +1855,136 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     });
   });
 
+  app.get("/admin/card/image-description-performance", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const now = new Date();
+    const from = new Date(now.getTime() - 24 * 60 * 60 * 1_000);
+    const [uploadRows, queueRows, workerRows, modelRows, totalRows, statusRows, backlogRows, failedJobs] = await Promise.all([
+      deps.prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS "sampleCount",
+                COALESCE(AVG(GREATEST(0, EXTRACT(EPOCH FROM ("moderatedAt" - "createdAt")) * 1000)), 0)::float8 AS "averageMs",
+                COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("moderatedAt" - "createdAt")) * 1000)), 0)::float8 AS "p50Ms",
+                COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("moderatedAt" - "createdAt")) * 1000)), 0)::float8 AS "p95Ms"
+           FROM "card_image_assets"
+          WHERE "moderatedAt" >= $1`,
+        from,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS "sampleCount",
+                COALESCE(AVG(GREATEST(0, EXTRACT(EPOCH FROM ("processingAt" - "createdAt")) * 1000)), 0)::float8 AS "averageMs",
+                COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("processingAt" - "createdAt")) * 1000)), 0)::float8 AS "p50Ms",
+                COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("processingAt" - "createdAt")) * 1000)), 0)::float8 AS "p95Ms"
+          FROM "card_enrichment_jobs"
+          WHERE "jobType" = 'generate_image_description'
+            AND priority > 0
+            AND "processingAt" >= $1`,
+        from,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS "sampleCount",
+                COALESCE(AVG(GREATEST(0, EXTRACT(EPOCH FROM ("completedAt" - "processingAt")) * 1000)), 0)::float8 AS "averageMs",
+                COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("completedAt" - "processingAt")) * 1000)), 0)::float8 AS "p50Ms",
+                COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("completedAt" - "processingAt")) * 1000)), 0)::float8 AS "p95Ms"
+           FROM "card_enrichment_jobs"
+          WHERE "jobType" = 'generate_image_description'
+            AND priority > 0
+            AND status = 'completed'
+            AND "completedAt" >= $1`,
+        from,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS "sampleCount",
+                COALESCE(AVG("durationMs"), 0)::float8 AS "averageMs",
+                COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY "durationMs"), 0)::float8 AS "p50Ms",
+                COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY "durationMs"), 0)::float8 AS "p95Ms"
+           FROM (
+             SELECT (metadata->>'modelDurationMs')::float8 AS "durationMs"
+               FROM "ai_token_transactions"
+              WHERE metadata->>'operation' LIKE 'card.generate.image_descriptions.%'
+                AND "createdAt" >= $1
+                AND metadata->>'modelDurationMs' ~ '^[0-9]+$'
+             UNION ALL
+             SELECT (metadata->>'modelDurationMs')::float8 AS "durationMs"
+               FROM "ai_usage_events"
+              WHERE operation LIKE 'card.generate.image_descriptions.%'
+                AND "createdAt" >= $1
+                AND metadata->>'modelDurationMs' ~ '^[0-9]+$'
+           ) samples`,
+        from,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS "sampleCount",
+                COALESCE(AVG(GREATEST(0, EXTRACT(EPOCH FROM ("completedAt" - "createdAt")) * 1000)), 0)::float8 AS "averageMs",
+                COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("completedAt" - "createdAt")) * 1000)), 0)::float8 AS "p50Ms",
+                COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY GREATEST(0, EXTRACT(EPOCH FROM ("completedAt" - "createdAt")) * 1000)), 0)::float8 AS "p95Ms"
+           FROM "card_enrichment_jobs"
+          WHERE "jobType" = 'generate_image_description'
+            AND priority > 0
+            AND status = 'completed'
+            AND "completedAt" >= $1`,
+        from,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT "descriptionStatus" AS status, COUNT(*)::int AS count
+           FROM "card_image_assets"
+          WHERE "descriptionUpdatedAt" >= $1
+          GROUP BY "descriptionStatus"`,
+        from,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT
+           COUNT(*) FILTER (WHERE status = 'queued' AND "availableAt" <= now())::int AS "readyQueued",
+           COUNT(*) FILTER (WHERE status = 'processing')::int AS processing,
+           COUNT(*) FILTER (WHERE status = 'queued' AND "availableAt" > now())::int AS "scheduledRetry",
+           MIN("createdAt") FILTER (WHERE status = 'queued' AND "availableAt" <= now()) AS "oldestReadyAt"
+         FROM "card_enrichment_jobs"
+         WHERE "jobType" = 'generate_image_description'`,
+      ),
+      deps.prisma.$queryRawUnsafe(
+        `SELECT id, attempts, "lastError", "failedAt"
+           FROM "card_enrichment_jobs"
+          WHERE "jobType" = 'generate_image_description'
+            AND status = 'failed'
+          ORDER BY "failedAt" DESC NULLS LAST
+          LIMIT 10`,
+      ),
+    ]);
+    const phase = (key: string, label: string, rows: Array<Record<string, unknown>>, note: string) => ({
+      key,
+      label,
+      note,
+      ...(rows[0] ?? { sampleCount: 0, averageMs: 0, p50Ms: 0, p95Ms: 0 }),
+    });
+    const backlog = backlogRows[0] ?? {};
+    const oldestReadyAt = dateOrNull(backlog.oldestReadyAt);
+
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: {
+        generatedAt: now.toISOString(),
+        window: { from: from.toISOString(), to: now.toISOString() },
+        phases: [
+          phase("uploadModeration", "上传 + 审核", uploadRows, "从创建上传任务到内容审核完成；当前暂不能继续拆分"),
+          phase("queue", "任务排队", queueRows, "从任务创建到 Worker 开始处理；不含后台补录"),
+          phase("model", "模型生成", modelRows, "模型请求及并发等待；部署本版本后开始采集"),
+          phase("worker", "Worker 总处理", workerRows, "含读取图片、模型生成与结果落库；不含后台补录"),
+          phase("total", "生成端到端", totalRows, "从生成任务创建到完成；不含后台补录"),
+        ],
+        statuses: statusRows,
+        backlog: {
+          ...backlog,
+          oldestReadyAt,
+          oldestReadyWaitSeconds: ageSeconds(oldestReadyAt, now),
+        },
+        failedJobs,
+      },
+    });
+  });
+
   app.get("/admin/ops/alerts", async (req, reply) => {
     const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
     if (!admin) return;
