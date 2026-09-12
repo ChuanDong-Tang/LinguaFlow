@@ -1860,6 +1860,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     if (!admin) return;
 
     const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const runtime = getRuntimeConfig();
     const now = new Date();
     const from = new Date(now.getTime() - 24 * 60 * 60 * 1_000);
     const [uploadRows, queueRows, workerRows, modelRows, totalRows, statusRows, backlogRows, failedJobs] = await Promise.all([
@@ -1981,6 +1982,15 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
           oldestReadyWaitSeconds: ageSeconds(oldestReadyAt, now),
         },
         failedJobs,
+        thresholds: {
+          readyQueuedWarn: 5,
+          oldestReadyWaitWarnSeconds: 10,
+          oldestReadyWaitAlertSeconds: 30,
+        },
+        config: {
+          pollIntervalMs: runtime.cardImageDescriptionBackfillJobIntervalMs,
+          workerConcurrency: 1,
+        },
       },
     });
   });

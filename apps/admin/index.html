@@ -261,6 +261,49 @@
       color: var(--muted);
     }
 
+    .performance-health {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+      padding: 14px 16px;
+      border: 1px solid #d9e2ec;
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    .performance-health[data-state="normal"] {
+      border-color: #b7dfc7;
+      background: #f3faf6;
+    }
+
+    .performance-health[data-state="warn"] {
+      border-color: #f1d28c;
+      background: #fffaf0;
+    }
+
+    .performance-health[data-state="alert"] {
+      border-color: #efb3b3;
+      background: #fff5f5;
+    }
+
+    .performance-health strong {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 14px;
+    }
+
+    .performance-health span,
+    .performance-health small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .performance-health .pill {
+      flex: none;
+    }
+
     .product-kpis {
       display: grid;
       grid-template-columns: repeat(5, minmax(150px, 1fr));
@@ -1057,6 +1100,7 @@
           <div class="nav-label">运行</div>
           <button class="tab" data-tab="resources">运行监控</button>
           <button class="tab" data-tab="cardops">Card 任务</button>
+          <button class="tab" data-tab="imageperf">图片性能</button>
         </div>
         <div class="nav-group">
           <div class="nav-label">业务</div>
@@ -1071,7 +1115,7 @@
         </div>
         <div class="nav-group">
           <div class="nav-label">发布</div>
-          <button class="tab" data-tab="audit">发布与性能</button>
+          <button class="tab" data-tab="audit">生产检查</button>
         </div>
       </nav>
       <div class="sidebar-foot">
@@ -1980,30 +2024,27 @@
           </div>
         </section>
 
-        <section id="panel-audit" class="panel">
+        <section id="panel-imageperf" class="panel">
           <div class="card">
             <div class="section">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">生产功能检查</h2>
-                  <p class="section-subtitle">使用当前管理员 Access Token 验证真实 API；默认仅执行只读请求，不创建订单、不扣额度、不修改用户数据。</p>
+                  <h2 class="section-title">图片描述性能</h2>
+                  <p id="imageDescriptionPerformanceMeta" class="section-subtitle">查看最近 24 小时的上传、排队和生成耗时。</p>
                 </div>
-                <div class="inline-actions">
-                  <button id="btnRunProductionAudit" class="btn">开始检查</button>
-                  <button id="btnClearProductionAudit" class="btn secondary">清空结果</button>
-                </div>
+                <button id="btnLoadImageDescriptionPerformance" class="btn">刷新</button>
               </div>
-              <div id="auditSessionFacts" class="mini-grid"></div>
+              <div id="imageDescriptionPressure" class="performance-health" data-state="unknown"></div>
+              <div id="imageDescriptionBacklogMetrics" class="metrics"></div>
             </div>
             <div class="section">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">图片描述链路</h2>
-                  <p id="imageDescriptionPerformanceMeta" class="section-subtitle">运行检查后显示最近 24 小时的上传、排队和生成耗时。</p>
+                  <h2 class="section-title">分阶段耗时</h2>
+                  <p class="section-subtitle">用 p50 看常态，用 p95 看慢请求。</p>
                 </div>
               </div>
-              <div id="imageDescriptionBacklogMetrics" class="metrics"></div>
-              <div class="table-wrap mt">
+              <div class="table-wrap">
                 <table>
                   <thead>
                     <tr>
@@ -2018,6 +2059,20 @@
                   <tbody id="imageDescriptionPhaseTbody"></tbody>
                 </table>
               </div>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">容量判断</h2>
+                  <p class="section-subtitle">当前主要约束是模型并发和 Worker 吞吐，不是服务器 CPU。</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>指标</th><th>当前</th><th>判断线</th><th>状态</th></tr></thead>
+                  <tbody id="imageDescriptionCapacityTbody"></tbody>
+                </table>
+              </div>
               <details class="mt">
                 <summary>最近失败任务</summary>
                 <div class="table-wrap mt">
@@ -2027,6 +2082,24 @@
                   </table>
                 </div>
               </details>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-audit" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">生产功能检查</h2>
+                  <p class="section-subtitle">使用当前管理员 Access Token 验证真实 API；默认仅执行只读请求，不创建订单、不扣额度、不修改用户数据。</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="btnRunProductionAudit" class="btn">开始检查</button>
+                  <button id="btnClearProductionAudit" class="btn secondary">清空结果</button>
+                </div>
+              </div>
+              <div id="auditSessionFacts" class="mini-grid"></div>
             </div>
             <div class="section">
               <div class="section-head">
@@ -2051,7 +2124,10 @@
                   <tbody id="productionAuditTbody"></tbody>
                 </table>
               </div>
-              <pre id="productionAuditJson" class="json-box mt">{}</pre>
+              <details class="mt">
+                <summary>原始检查结果</summary>
+                <pre id="productionAuditJson" class="json-box mt">{}</pre>
+              </details>
             </div>
           </div>
         </section>
@@ -2394,13 +2470,14 @@
       overview: ["运营概览", "查看用户活跃、额度消耗与核心服务成本。"],
       resources: ["运行监控", "先看 API 健康与延迟，再定位 AI、媒体资源和限流。"],
       cardops: ["Card 任务", "监控生成任务、队列积压、并发槽与限流保护。"],
+      imageperf: ["图片性能", "查看上传、排队、模型生成与 Worker 的实际耗时。"],
       user: ["用户排障", "定位单个用户的账号、会员、额度与支付状态。"],
       contacts: ["用户触达", "筛选可触达用户并导出账号名单。"],
       payments: ["支付订阅", "查询订单、订阅与自动续费状态。"],
       security: ["安全审计", "查看内容安全规则的拦截结果，不展示用户原文。"],
       adminaudit: ["管理员操作", "追踪后台人工操作、目标对象与请求标识。"],
       logs: ["系统事件", "按分类查询通用事件及 TTS、STT、智能词典调用记录。"],
-      audit: ["发布与性能", "检查生产配置，并定位图片描述耗时发生在哪个阶段。"],
+      audit: ["生产检查", "执行发布前检查并确认生产环境配置。"],
     };
 
     function setStatus(message) {
@@ -2643,15 +2720,39 @@
       const backlog = data?.backlog || {};
       const statuses = Array.isArray(data?.statuses) ? data.statuses : [];
       const failures = Array.isArray(data?.failedJobs) ? data.failedJobs : [];
+      const thresholds = data?.thresholds || {};
+      const config = data?.config || {};
       const statusCount = (name) => Number(statuses.find((row) => row.status === name)?.count || 0);
+      const readyQueued = Number(backlog.readyQueued || 0);
+      const oldestWait = Number(backlog.oldestReadyWaitSeconds || 0);
+      const queueWarn = Number(thresholds.readyQueuedWarn || 5);
+      const waitWarn = Number(thresholds.oldestReadyWaitWarnSeconds || 10);
+      const waitAlert = Number(thresholds.oldestReadyWaitAlertSeconds || 30);
+      const pollIntervalMs = Number(config.pollIntervalMs || 0);
+      const workerConcurrency = Number(config.workerConcurrency || 1);
+      const queuePhase = phases.find((row) => row.key === "queue");
+      const workerPhase = phases.find((row) => row.key === "worker");
+      const throughputPerMinute = Number(workerPhase?.p50Ms) > 0 ? Math.max(1, Math.floor(60_000 / Number(workerPhase.p50Ms))) : null;
+      const pressureState = oldestWait > waitAlert ? "alert" : readyQueued > queueWarn || oldestWait > waitWarn ? "warn" : "normal";
+      const pressureLabel = pressureState === "alert" ? "告警" : pressureState === "warn" ? "关注" : "正常";
+      const pressureDetail = !data
+        ? "登录后刷新以读取生产数据"
+        : pressureState === "alert"
+          ? `最老任务已等待 ${formatDuration(oldestWait)}`
+          : pressureState === "warn"
+            ? `队列 ${readyQueued} 个，最老等待 ${formatDuration(oldestWait)}`
+            : "当前无明显积压";
       $("imageDescriptionPerformanceMeta").textContent = data?.generatedAt
         ? `最近 24 小时 · 刷新于 ${fmtDate(data.generatedAt)} · 模型耗时从本版本部署后开始采集`
-        : "运行检查后显示最近 24 小时的上传、排队和生成耗时。";
+        : "查看最近 24 小时的上传、排队和生成耗时。";
+      $("imageDescriptionPressure").dataset.state = data ? pressureState : "unknown";
+      const pressurePillStatus = pressureState === "normal" ? "pass" : pressureState === "alert" ? "fail" : "warn";
+      $("imageDescriptionPressure").innerHTML = `<div><strong>运行状态：${escapeHtml(data ? pressureLabel : "未加载")}</strong><span>${escapeHtml(pressureDetail)}</span></div><span class="pill status-${escapeHtml(data ? pressurePillStatus : "closed")}">${escapeHtml(data ? pressureLabel : "未加载")}</span>`;
       $("imageDescriptionBacklogMetrics").innerHTML = [
-        ["等待处理", backlog.readyQueued || 0, `最老 ${formatDuration(backlog.oldestReadyWaitSeconds)}`],
+        ["24h 用户任务", Number(queuePhase?.sampleCount || 0), "不含后台补录"],
+        ["等待处理", readyQueued, `最老 ${formatDuration(oldestWait)}`],
         ["处理中", backlog.processing || 0, "当前 Worker"],
-        ["等待重试", backlog.scheduledRetry || 0, "尚未到重试时间"],
-        ["24h 完成", statusCount("completed"), "图片描述"],
+        ["估算吞吐", throughputPerMinute ? `${throughputPerMinute} / 分钟` : "—", "单 Worker，按 p50"],
         ["24h 失败", statusCount("failed"), `${failures.length} 条最近记录`],
       ].map(([label, value, hint]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`).join("");
       $("imageDescriptionPhaseTbody").innerHTML = phases.map((row) => `<tr>
@@ -2662,6 +2763,19 @@
           <td>${row.sampleCount ? `<strong>${escapeHtml(formatDurationMs(row.p95Ms))}</strong>` : "—"}</td>
           <td class="muted">${escapeHtml(row.note || "")}</td>
         </tr>`).join("") || rowEmpty(6, "尚未加载性能数据");
+      const capacityRows = data ? [
+        ["等待任务", readyQueued, `超过 ${queueWarn} 个需关注`, readyQueued > queueWarn ? "warn" : "pass"],
+        ["最老等待", formatDuration(oldestWait), `超过 ${waitWarn} 秒关注，${waitAlert} 秒告警`, oldestWait > waitAlert ? "fail" : oldestWait > waitWarn ? "warn" : "pass"],
+        ["Worker 轮询", pollIntervalMs ? formatDurationMs(pollIntervalMs) : "—", "建议不超过 1 秒", pollIntervalMs > 1_000 ? "warn" : "pass"],
+        ["Worker 并发", workerConcurrency, "当前为串行处理", workerConcurrency === 1 ? "pass" : "warn"],
+        ["单 Worker 吞吐", throughputPerMinute ? `约 ${throughputPerMinute} / 分钟` : "样本不足", "由 Worker p50 估算", throughputPerMinute ? "pass" : "warn"],
+      ] : [];
+      $("imageDescriptionCapacityTbody").innerHTML = capacityRows.map(([label, current, threshold, status]) => `<tr>
+          <td><strong>${escapeHtml(label)}</strong></td>
+          <td>${escapeHtml(current)}</td>
+          <td class="muted">${escapeHtml(threshold)}</td>
+          <td><span class="pill status-${escapeHtml(status)}">${status === "pass" ? "正常" : status === "warn" ? "关注" : "告警"}</span></td>
+        </tr>`).join("") || rowEmpty(4, "尚未加载容量数据");
       $("imageDescriptionFailureTbody").innerHTML = failures.map((row) => `<tr>
           <td>${escapeHtml(fmtDate(row.failedAt))}</td>
           <td class="mono">${escapeHtml(row.id)}</td>
@@ -2670,13 +2784,22 @@
         </tr>`).join("") || rowEmpty(4, "最近没有失败任务");
     }
 
+    async function loadImageDescriptionPerformance() {
+      setStatus("正在加载图片性能...");
+      const res = await request("/admin/card/image-description-performance");
+      renderImageDescriptionPerformance(res.data || {});
+      setStatus("图片性能已更新");
+    }
+
     function imageDescriptionPerformanceAudit(result) {
       if (auditResultStatus(result) === "fail") return { status: "fail", detail: auditErrorMessage(result) };
       const data = result.data?.data || {};
       renderImageDescriptionPerformance(data);
       const backlog = data.backlog || {};
       const failed = Array.isArray(data.failedJobs) ? data.failedJobs.length : 0;
-      if (Number(backlog.readyQueued || 0) > 10 || Number(backlog.oldestReadyWaitSeconds || 0) > 300) {
+      const thresholds = data.thresholds || {};
+      if (Number(backlog.readyQueued || 0) > Number(thresholds.readyQueuedWarn || 5)
+        || Number(backlog.oldestReadyWaitSeconds || 0) > Number(thresholds.oldestReadyWaitWarnSeconds || 10)) {
         return { status: "warn", detail: `队列积压 ${backlog.readyQueued || 0}，最老等待 ${formatDuration(backlog.oldestReadyWaitSeconds)}` };
       }
       if (failed) return { status: "warn", detail: `性能数据正常返回；存在 ${failed} 条最近失败任务` };
@@ -2722,7 +2845,6 @@
       const session = inspectCurrentSession();
       renderAuditSession(session);
       state.productionAudit = [];
-      renderImageDescriptionPerformance(null);
       const sessionStatus = session.expired || session.tokenType !== "access"
         ? "fail"
         : session.sessionId
@@ -2832,7 +2954,6 @@
 
     function clearProductionAudit() {
       state.productionAudit = [];
-      renderImageDescriptionPerformance(null);
       $("auditSessionFacts").innerHTML = "";
       $("productionAuditMeta").textContent = "尚未执行";
       renderProductionAudit();
@@ -2874,6 +2995,7 @@
       $("pageTitle").textContent = title;
       $("pageSubtitle").textContent = subtitle;
       document.title = `${title} · LinguaFlow Admin`;
+      if (window.location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
     }
 
     function todayDateKey() {
@@ -4304,6 +4426,7 @@
     async function loadAuditView(name) {
       if (state.loadedAuditViews.has(name)) return;
       const loaders = {
+        imageperf: loadImageDescriptionPerformance,
         security: () => loadContentSafetyLogs({ reset: true }),
         adminaudit: loadAuditLogs,
         eventGeneral: loadLogs,
@@ -4325,6 +4448,7 @@
             await loadCardOperations();
           }
           if (tab.dataset.tab === "resources" && !state.resources) await loadResources();
+          if (tab.dataset.tab === "imageperf") await loadAuditView("imageperf");
           if (tab.dataset.tab === "security") await loadAuditView("security");
           if (tab.dataset.tab === "adminaudit") await loadAuditView("adminaudit");
           if (tab.dataset.tab === "logs") await loadAuditView("eventGeneral");
@@ -4409,6 +4533,7 @@
       $("btnLoadOrders").addEventListener("click", guard(loadOrders));
       $("btnLoadSubscriptions").addEventListener("click", guard(loadSubscriptions));
       $("btnLoadSubscriptions2").addEventListener("click", guard(loadSubscriptions));
+      $("btnLoadImageDescriptionPerformance").addEventListener("click", guard(loadImageDescriptionPerformance));
       $("btnRunProductionAudit").addEventListener("click", guard(runProductionAudit));
       $("btnClearProductionAudit").addEventListener("click", clearProductionAudit);
       $("btnLoadLogs").addEventListener("click", guard(loadLogs));
@@ -4458,6 +4583,8 @@
     renderProductionAudit();
     renderImageDescriptionPerformance(null);
     bindEvents();
+    const initialTab = window.location.hash.slice(1);
+    if (TAB_META[initialTab] && $("panel-" + initialTab)) setTab(initialTab);
     if ($("token").value.trim()) {
       setStatus("已加载本地登录状态");
     }
