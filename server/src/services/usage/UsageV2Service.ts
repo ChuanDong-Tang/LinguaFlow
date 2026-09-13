@@ -78,6 +78,7 @@ export type UsageV2View = {
 
 type TokenCycleRow = {
   id: string;
+  tier: string;
   quotaTokens: number;
   reservedTokens: number;
   usedTokens: number;
@@ -99,6 +100,7 @@ type UsagePrismaClient = {
   aiTokenCycle: {
     upsert(args: any): Promise<TokenCycleRow>;
     findUnique(args: any): Promise<TokenCycleRow | null>;
+    update(args: any): Promise<TokenCycleRow>;
   };
   imageStorageAccount: {
     upsert(args: any): Promise<ImageAccountRow>;
@@ -158,6 +160,23 @@ export class UsageV2Service {
       // A paid cycle keeps the grant snapshot it was created with.
       update: {},
     });
+    // A manual tier overlay changes the ceiling without creating a fresh usage
+    // window. On downgrade, never set the ceiling below already consumed or
+    // reserved points; that simply leaves no further allowance this cycle.
+    if (cycle.tier !== subscription.tier) {
+      const reconciledQuotaTokens = Math.max(
+        quotaTokens,
+        cycle.usedTokens + cycle.reservedTokens,
+      );
+      cycle = await this.prisma.aiTokenCycle.update({
+        where: { id: cycle.id },
+        data: {
+          tier: subscription.tier,
+          quotaTokens: reconciledQuotaTokens,
+          configVersion: config.usageV2ConfigVersion,
+        },
+      });
+    }
     cycle = await this.reconcilePrematureTokenUsage(userId, cycle, now);
     const capacityBytes = BigInt(monthlyImageUploadLimit(subscription.tier));
     const imageAccount = await this.ensureImageUploadCycle({
@@ -618,9 +637,10 @@ function resolveTokenPeriod(
   now: Date,
   timeZone: string,
 ): { start: Date; end: Date } {
-  if (!subscription.subscription) return calendarMonthUtcWindow(now, timeZone);
-  const start = subscription.subscription.startedAt;
-  const subscriptionEnd = subscription.subscription.expiresAt;
+  const anchor = subscription.billingSubscription ?? subscription.subscription;
+  if (!anchor) return calendarMonthUtcWindow(now, timeZone);
+  const start = anchor.startedAt;
+  const subscriptionEnd = anchor.expiresAt;
   for (let index = 0; index < 240; index += 1) {
     const cursor = addUtcMonthsClamped(start, index);
     const next = addUtcMonthsClamped(start, index + 1);
@@ -663,9 +683,10 @@ function resolveGrantPeriod(
   subscription: Awaited<ReturnType<SubscriptionService["getCurrentSubscription"]>>,
   launchedAt: Date,
 ): { start: Date; end: Date; prorated: boolean } {
+  const anchor = subscription.billingSubscription ?? subscription.subscription;
   const prorated = Boolean(
-    subscription.subscription &&
-    subscription.subscription.startedAt < launchedAt &&
+    anchor &&
+    anchor.startedAt < launchedAt &&
     launchedAt > period.start &&
     launchedAt < period.end
   );

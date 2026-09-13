@@ -346,9 +346,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            FROM "subscriptions" sub
            WHERE sub."userId" = u.id
            ORDER BY
-             CASE WHEN sub.status = 'active' AND sub."startedAt" <= now() AND sub."expiresAt" > now() THEN 0 ELSE 1 END,
+             CASE
+               WHEN sub.status = 'active' AND sub."startedAt" <= now() AND sub."expiresAt" > now() AND sub.plan = 'pro_monthly' THEN 0
+               WHEN sub.status = 'active' AND sub."startedAt" <= now() AND sub."expiresAt" > now() AND sub.plan = 'plus_monthly' THEN 1
+               ELSE 2
+             END,
+             sub."expiresAt" DESC,
              sub."updatedAt" DESC,
-             sub."expiresAt" DESC
+             sub."createdAt" DESC
            LIMIT 1
          ) s ON true
          LEFT JOIN LATERAL (
@@ -675,7 +680,10 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const now = new Date();
     const currentSubscription = subscriptions
       .filter((item) => item.status === "active" && item.startedAt <= now && item.expiresAt > now)
-      .sort((left, right) => right.expiresAt.getTime() - left.expiresAt.getTime())[0] ?? null;
+      .sort((left, right) => {
+        const tierDifference = membershipPlanRank(right.plan) - membershipPlanRank(left.plan);
+        return tierDifference || right.expiresAt.getTime() - left.expiresAt.getTime();
+      })[0] ?? null;
     const currentAutoRenew =
       (autoRenewSubscriptions as any[]).find((item) =>
         ["pending", "active", "billing_retry"].includes(String(item.status))
@@ -773,10 +781,12 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            SELECT id FROM "users" WHERE status = 'active'
          ),
          active_memberships AS (
-           SELECT DISTINCT "userId", plan
+           SELECT DISTINCT ON ("userId") "userId", plan
            FROM "subscriptions"
            WHERE status = 'active'
+             AND "startedAt" <= now()
              AND "expiresAt" > now()
+           ORDER BY "userId", CASE WHEN plan = 'pro_monthly' THEN 0 ELSE 1 END, "expiresAt" DESC
          ),
          today_entitlements AS (
            SELECT "userId","dateKey","dailyTotalLimit","usedTotalChars"
@@ -1218,13 +1228,20 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
           },
         });
 
-        const activeSubscription = await tx.subscription.findFirst({
-          where: {
-            userId: beforeOrder.userId,
-            status: "active",
-          },
-          orderBy: { expiresAt: "desc" },
-        });
+        const sourceProvider = paymentGrantProvider(beforeOrder.provider);
+        const sourceOrderIds = paymentGrantSourceOrderIds(beforeOrder);
+        const activeSubscription = sourceProvider && sourceOrderIds.length
+          ? await tx.subscription.findFirst({
+              where: {
+                userId: beforeOrder.userId,
+                sourceType: "payment",
+                sourceProvider,
+                sourceOrderId: { in: sourceOrderIds },
+                status: "active",
+              },
+              orderBy: { expiresAt: "desc" },
+            })
+          : null;
 
         let beforeSubscription = null;
         let afterSubscription = null;
@@ -1233,8 +1250,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
           afterSubscription = await tx.subscription.update({
             where: { id: activeSubscription.id },
             data: {
-              status: "cancelled",
-              expiresAt: effectiveAt,
+              status: "active",
+              expiresAt: activeSubscription.expiresAt < effectiveAt ? activeSubscription.expiresAt : effectiveAt,
+              revokedAt: effectiveAt,
             },
           });
         }
@@ -1402,12 +1420,23 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         error: { code: "RESOURCE_NOT_FOUND", message: "Subscription not found" },
       });
     }
+    if (before.sourceType !== "manual") {
+      return reply.status(409).send({
+        ok: false,
+        request_id: requestId,
+        error: {
+          code: "PAYMENT_GRANT_IMMUTABLE",
+          message: "Paid membership periods are controlled by their payment provider",
+        },
+      });
+    }
 
     const updated = await deps.prisma.subscription.update({
       where: { id },
       data: {
         status,
         expiresAt,
+        revokedAt: status === "active" ? null : new Date(),
       },
     });
 
@@ -1490,7 +1519,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     };
     try {
       result = await deps.prisma.$transaction(async (tx) => {
-        // Serialize grants for one user so repeated clicks cannot create overlapping periods.
+        // Serialize one user's manual extension calculation so concurrent grants
+        // cannot both extend from the same previous expiry.
         await tx.$queryRawUnsafe(
           'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
           `admin-membership:${userId}`,
@@ -1498,11 +1528,10 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
 
         const existingByRequest = await tx.subscription.findUnique({ where: { sourceOrderId } });
         if (existingByRequest) {
-          const expectedExpiresAt = addCalendarMonthsClamped(existingByRequest.startedAt, months);
           if (
             existingByRequest.userId !== userId ||
             existingByRequest.plan !== plan ||
-            existingByRequest.expiresAt.getTime() !== expectedExpiresAt.getTime()
+            existingByRequest.sourceType !== "manual"
           ) {
             throw new AdminBusinessError(
               409,
@@ -1519,42 +1548,33 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         }
 
         const now = new Date();
-        const autoRenewRows = await tx.autoRenewSubscription.findMany({
+        const latestManual = await tx.subscription.findFirst({
           where: {
             userId,
-            status: { in: ["pending", "active", "billing_retry", "paused"] },
-          },
-          orderBy: { updatedAt: "desc" },
-        });
-        const renewable = autoRenewRows.find((row: any) => autoRenewMayChargeAgain(row));
-        if (renewable) {
-          throw new AdminBusinessError(
-            409,
-            "AUTO_RENEW_CONFLICT",
-            `The user still has a renewable ${renewable.provider} subscription; cancel renewal before granting manual membership`,
-          );
-        }
-
-        const latestScheduled = await tx.subscription.findFirst({
-          where: {
-            userId,
+            plan,
+            sourceType: "manual",
             status: "active",
             expiresAt: { gt: now },
           },
           orderBy: [{ expiresAt: "desc" }, { createdAt: "desc" }],
         });
-        const scheduledAfter = latestScheduled?.expiresAt && latestScheduled.expiresAt > now
-          ? latestScheduled.expiresAt
+        const extensionBase = latestManual?.expiresAt && latestManual.expiresAt > now
+          ? latestManual.expiresAt
           : now;
-        const expiresAt = addCalendarMonthsClamped(scheduledAfter, months);
+        // Keep one continuous quota anchor when an active manual grant is
+        // extended. Resetting startedAt here would create a fresh usage cycle.
+        const startedAt = latestManual?.startedAt ?? now;
+        const expiresAt = addCalendarMonthsClamped(extensionBase, months);
         const subscription = await tx.subscription.create({
           data: {
             userId,
             plan,
             status: "active",
-            startedAt: scheduledAfter,
+            startedAt,
             expiresAt,
             sourceOrderId,
+            sourceType: "manual",
+            sourceProvider: null,
           },
         });
 
@@ -1571,19 +1591,21 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
             afterData: {
               plan,
               months,
+              sourceType: "manual",
+              sourceProvider: null,
               sourceOrderId,
               subscriptionId: subscription.id,
               startedAt: subscription.startedAt,
               expiresAt: subscription.expiresAt,
-              scheduledAfterSubscriptionId: latestScheduled?.id ?? null,
+              extendedAfterManualGrantId: latestManual?.id ?? null,
             },
           },
         });
 
         return {
           subscription,
-          scheduledAfterSubscriptionId: latestScheduled?.id ?? null,
-          scheduledAfter,
+          scheduledAfterSubscriptionId: null,
+          scheduledAfter: startedAt,
           alreadyApplied: false,
         };
       });
@@ -1646,60 +1668,118 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       });
     }
 
-    const now = new Date();
-    const effectiveAt = getNextDayStartInBusinessTimeZone(now);
-    const before = await deps.prisma.subscription.findFirst({
-      where: {
-        userId,
-        status: "active",
-        expiresAt: { gt: now },
-      },
-      orderBy: { expiresAt: "desc" },
-    });
-    if (!before) {
-      return reply.status(409).send({
-        ok: false,
-        request_id: requestId,
-        error: { code: "NO_ACTIVE_PRO", message: "User has no active Pro subscription" },
+    let result: { subscriptions: any[]; effectiveAt: Date; alreadyApplied: boolean };
+    try {
+      result = await deps.prisma.$transaction(async (tx) => {
+        // Grant and revoke share this lock. Their commit order therefore defines
+        // the final manual entitlement even when two admins act concurrently.
+        await tx.$queryRawUnsafe(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
+          `admin-membership:${userId}`,
+        );
+
+        const existingAudit = await tx.adminAuditLog.findFirst({
+          where: {
+            requestId,
+            action: "admin.users.cancel_pro_next_day",
+            targetType: "user",
+            targetId: userId,
+          },
+          orderBy: { createdAt: "desc" },
+        });
+        if (existingAudit) {
+          const recordedAfter = (existingAudit.afterData ?? {}) as Record<string, unknown>;
+          const recordedEffectiveAt = new Date(String(recordedAfter.effectiveAt ?? ""));
+          return {
+            subscriptions: [],
+            effectiveAt: Number.isNaN(recordedEffectiveAt.getTime())
+              ? getNextDayStartInBusinessTimeZone(new Date())
+              : recordedEffectiveAt,
+            alreadyApplied: true,
+          };
+        }
+
+        const now = new Date();
+        const effectiveAt = getNextDayStartInBusinessTimeZone(now);
+        const before = await tx.subscription.findMany({
+          where: {
+            userId,
+            plan: "pro_monthly",
+            sourceType: "manual",
+            status: "active",
+            expiresAt: { gt: now },
+          },
+          orderBy: [{ expiresAt: "desc" }, { createdAt: "desc" }],
+        });
+        if (!before.length) {
+          throw new AdminBusinessError(409, "NO_ACTIVE_MANUAL_PRO", "User has no active manual Pro grant");
+        }
+
+        const updated = await Promise.all(before.map((grant: any) => tx.subscription.update({
+          where: { id: grant.id },
+          data: {
+            status: "active",
+            expiresAt: grant.expiresAt < effectiveAt ? grant.expiresAt : effectiveAt,
+            revokedAt: effectiveAt,
+          },
+        })));
+
+        await tx.adminAuditLog.create({
+          data: {
+            id: randomUUID(),
+            adminId: admin.adminId,
+            action: "admin.users.cancel_pro_next_day",
+            targetType: "user",
+            targetId: userId,
+            requestId,
+            ip: req.ip,
+            reason,
+            beforeData: {
+              sourceType: "manual",
+              plan: "pro_monthly",
+              grants: before.map((grant: any) => ({
+                id: grant.id,
+                status: grant.status,
+                expiresAt: grant.expiresAt,
+                revokedAt: grant.revokedAt,
+              })),
+            },
+            afterData: {
+              sourceType: "manual",
+              plan: "pro_monthly",
+              grants: updated.map((grant: any) => ({
+                id: grant.id,
+                status: grant.status,
+                expiresAt: grant.expiresAt,
+                revokedAt: grant.revokedAt,
+              })),
+              effectiveAt,
+              effectivePolicy: `next_day_00:00_${getRuntimeConfig().quotaTimeZone}`,
+            },
+          },
+        });
+
+        return { subscriptions: updated, effectiveAt, alreadyApplied: false };
       });
+    } catch (error) {
+      if (error instanceof AdminBusinessError) {
+        return reply.status(error.status).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
     }
-
-    const updated = await deps.prisma.subscription.update({
-      where: { id: before.id },
-      data: {
-        status: "active",
-        expiresAt: effectiveAt,
-      },
-    });
-
-    await writeAuditLog(deps, {
-      adminId: admin.adminId,
-      action: "admin.users.cancel_pro_next_day",
-      targetType: "user",
-      targetId: userId,
-      requestId,
-      ip: req.ip,
-      reason,
-      beforeData: {
-        subscriptionId: before.id,
-        status: before.status,
-        expiresAt: before.expiresAt,
-      },
-      afterData: {
-        subscriptionId: updated.id,
-        status: updated.status,
-        expiresAt: updated.expiresAt,
-        effectivePolicy: `next_day_00:00_${getRuntimeConfig().quotaTimeZone}`,
-      },
-    });
 
     return reply.status(200).send({
       ok: true,
       request_id: requestId,
       data: {
         userId,
-        subscription: updated,
-        effectiveAt,
+        subscriptions: result.subscriptions,
+        effectiveAt: result.effectiveAt,
+        alreadyApplied: result.alreadyApplied,
         businessTimeZone: getRuntimeConfig().quotaTimeZone,
       },
     });
@@ -2478,12 +2558,31 @@ function classifyPaymentOrderRecordType(order: {
   return "payment_order";
 }
 
-function autoRenewMayChargeAgain(row: { status?: unknown; metadata?: unknown }): boolean {
-  if (row.status === "pending") return true;
-  const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
-    ? row.metadata as Record<string, unknown>
-    : {};
-  return metadata.cancelAtPeriodEnd !== true;
+function paymentGrantProvider(provider: unknown): "apple" | "google_play" | "alipay" | "wechat" | null {
+  if (provider === "apple_iap") return "apple";
+  if (provider === "google_play_iap") return "google_play";
+  if (provider === "alipay") return "alipay";
+  if (provider === "wechat") return "wechat";
+  return null;
+}
+
+function paymentGrantSourceOrderIds(order: { id?: unknown; provider?: unknown; providerOrderId?: unknown }): string[] {
+  const id = typeof order.id === "string" ? order.id : "";
+  const providerOrderId = typeof order.providerOrderId === "string" ? order.providerOrderId : "";
+  const prefixed = !providerOrderId
+    ? ""
+    : order.provider === "apple_iap"
+      ? `apple_iap:${providerOrderId}`
+      : order.provider === "google_play_iap"
+        ? `google_play_iap:${providerOrderId}`
+        : "";
+  return uniqueNonEmptyStrings([id, prefixed]);
+}
+
+function membershipPlanRank(plan: unknown): number {
+  if (plan === "pro_monthly") return 2;
+  if (plan === "plus_monthly") return 1;
+  return 0;
 }
 
 async function writeAuditLog(

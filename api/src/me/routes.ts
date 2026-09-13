@@ -362,6 +362,12 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
         isPlus: subscription.isPlus,
         isMember: subscription.isMember,
         expiresAt: subscription.expiresAt?.toISOString() ?? null,
+        membershipSource: subscription.subscription
+          ? {
+              type: subscription.subscription.sourceType,
+              provider: subscription.subscription.sourceProvider,
+            }
+          : null,
       },
     });
   });

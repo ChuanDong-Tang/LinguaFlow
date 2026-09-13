@@ -36,7 +36,8 @@ export class PaymentEntitlementService {
   ) {}
 
   async assertCanStartNewProPurchase(userId: string): Promise<void> {
-    // 所有“新开一笔 Pro 购买/订阅”的入口先走这里；已有有效 Pro 时不允许再买。
+    // Manual Pro is an overlay, not a billing agreement. Only an existing paid
+    // Pro period blocks another standalone Pro purchase.
     await assertCanGrantSingleProMonthly({
       userId,
       subscriptionService: this.subscriptionService,
@@ -66,6 +67,8 @@ export class PaymentEntitlementService {
       months,
       periodStart: period.periodStart,
       periodEnd: period.periodEnd,
+      sourceType: "payment",
+      sourceProvider: grantProviderForChannel(input.channel),
     });
     if (!result.alreadyApplied) {
       await this.syncAutoRenewBillingAfterGrant(input.userId, result.subscription.expiresAt);
@@ -100,6 +103,12 @@ export class PaymentEntitlementService {
       }),
     });
   }
+}
+
+function grantProviderForChannel(channel: PaymentChannel): "wechat" | "alipay" | "apple" | "google_play" {
+  if (channel === "ios_iap") return "apple";
+  if (channel === "android_iap") return "google_play";
+  return channel;
 }
 
 function resolveMonthsByProductCode(productCode: PaymentProductCode): number {

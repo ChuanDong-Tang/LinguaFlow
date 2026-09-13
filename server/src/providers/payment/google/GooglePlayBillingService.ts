@@ -615,6 +615,8 @@ export class GooglePlayBillingService {
         sourceOrderId: order.id,
         cancelledAt: suspendedAt,
         expiresAt: suspendedAt,
+        sourceType: "payment",
+        sourceProvider: "google_play",
       });
     }
     const autoRenew = providerChargeId
@@ -626,6 +628,8 @@ export class GooglePlayBillingService {
         sourceOrderId: `google_play_iap:${entitlementProviderChargeId}`,
         cancelledAt: suspendedAt,
         expiresAt: suspendedAt,
+        sourceType: "payment",
+        sourceProvider: "google_play",
       });
     }
   }

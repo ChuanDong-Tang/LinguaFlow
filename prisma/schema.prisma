@@ -974,19 +974,23 @@ model ImageStorageTransaction {
 }
 
 model Subscription {
-  id            String             @id @default(cuid())
-  userId        String
-  plan          SubscriptionPlan
-  status        SubscriptionStatus
-  startedAt     DateTime
-  expiresAt     DateTime
-  sourceOrderId String?            @unique
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  id             String                       @id @default(cuid())
+  userId         String
+  plan           SubscriptionPlan
+  status         SubscriptionStatus
+  startedAt      DateTime
+  expiresAt      DateTime
+  sourceOrderId  String?                      @unique
+  sourceType     SubscriptionGrantSourceType  @default(legacy)
+  sourceProvider AutoRenewProvider?
+  revokedAt      DateTime?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status, expiresAt])
+  @@index([userId, sourceType, status, expiresAt])
   @@map("subscriptions")
 }
 
@@ -1299,6 +1303,12 @@ enum SubscriptionStatus {
   active
   expired
   cancelled
+}
+
+enum SubscriptionGrantSourceType {
+  legacy
+  manual
+  payment
 }
 
 enum AutoRenewProvider {

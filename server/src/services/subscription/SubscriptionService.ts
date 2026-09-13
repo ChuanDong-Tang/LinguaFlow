@@ -1,5 +1,7 @@
 import type {
   SubscriptionEntity,
+  SubscriptionGrantProvider,
+  SubscriptionGrantSourceType,
   SubscriptionPlan,
   SubscriptionRepository,
 } from "@lf/core/ports/repository/SubscriptionRepository.js";
@@ -16,6 +18,8 @@ export interface CurrentSubscriptionView {
   isMember: boolean;
   expiresAt: Date | null;
   subscription: SubscriptionEntity | null;
+  /** Paid/legacy grant used to anchor monthly quota windows independently of manual overlays. */
+  billingSubscription: SubscriptionEntity | null;
 }
 
 export interface OpenOrRenewMembershipInput {
@@ -26,6 +30,8 @@ export interface OpenOrRenewMembershipInput {
   now?: Date;
   periodStart?: Date | null;
   periodEnd?: Date | null;
+  sourceType?: SubscriptionGrantSourceType;
+  sourceProvider?: SubscriptionGrantProvider | null;
 }
 
 export interface OpenOrRenewMembershipResult {
@@ -41,7 +47,11 @@ export class SubscriptionService {
     userId: string,
     now = new Date()
   ): Promise<CurrentSubscriptionView> {
-    const subscription = await this.subscriptionRepository.findCurrentActiveByUserId(userId, now);
+    const active = await this.subscriptionRepository.findActiveByUserId(userId, now);
+    const subscription = selectHighestEntitlement(active);
+    const billingSubscription = selectHighestEntitlement(
+      active.filter((grant) => grant.sourceType !== "manual"),
+    );
 
     if (!subscription) {
       return {
@@ -52,6 +62,7 @@ export class SubscriptionService {
         isMember: false,
         expiresAt: null,
         subscription: null,
+        billingSubscription: null,
       };
     }
     const tier = tierForPlan(subscription.plan);
@@ -65,6 +76,7 @@ export class SubscriptionService {
       isMember: tier !== "free",
       expiresAt: subscription.expiresAt,
       subscription,
+      billingSubscription,
     };
   }
 
@@ -72,7 +84,7 @@ export class SubscriptionService {
     return (await this.subscriptionRepository.findBySourceOrderId(sourceOrderId)) !== null;
   }
 
-  /** 支付成功后开通或续期 Pro；sourceOrderId 保证同一订单不会重复发权益。 */
+  /** 支付成功后发放独立会员权益；sourceOrderId 保证同一订单不会重复发放。 */
   async openOrRenewMembership(input: OpenOrRenewMembershipInput): Promise<OpenOrRenewMembershipResult> {
     const months = input.months ?? 1;
     const now = input.now ?? new Date();
@@ -90,6 +102,8 @@ export class SubscriptionService {
           plan: input.plan,
           startedAt: input.periodStart ?? existingByOrder.startedAt,
           expiresAt: input.periodEnd,
+          sourceType: input.sourceType,
+          sourceProvider: input.sourceProvider,
         });
         if (synced) {
           return {
@@ -104,9 +118,19 @@ export class SubscriptionService {
       };
     }
 
-    const current = await this.subscriptionRepository.findCurrentActiveByUserId(input.userId, now);
     const explicitPeriodEnd = input.periodEnd && input.periodEnd > now ? input.periodEnd : null;
-    const currentExpiresAt = current && current.expiresAt > now ? current.expiresAt : null;
+    const sourceType = input.sourceType ?? "legacy";
+    const currentForSource = explicitPeriodEnd
+      ? null
+      : await this.subscriptionRepository.findLatestActiveBySource({
+          userId: input.userId,
+          now,
+          sourceType,
+          sourceProvider: input.sourceProvider,
+        });
+    const currentExpiresAt = currentForSource?.expiresAt && currentForSource.expiresAt > now
+      ? currentForSource.expiresAt
+      : null;
     const startedAt = resolveGrantStart({
       now,
       currentExpiresAt,
@@ -114,9 +138,10 @@ export class SubscriptionService {
       periodStart: input.periodStart,
     });
     const rawExpiresAt = explicitPeriodEnd ?? addCalendarMonthsClamped(startedAt, months);
-    // 支付事件只能延长或保持当前权益，不能把更长的单买权益覆盖成更短的平台订阅周期。
-    const expiresAt =
-      currentExpiresAt && currentExpiresAt > rawExpiresAt ? currentExpiresAt : rawExpiresAt;
+    // Provider periods are authoritative. Fixed-duration purchases only stack
+    // behind grants from the same isolated source; manual and payment expiry
+    // dates must never extend one another.
+    const expiresAt = rawExpiresAt;
 
     const subscription = await this.subscriptionRepository.create({
       userId: input.userId,
@@ -125,6 +150,8 @@ export class SubscriptionService {
       startedAt,
       expiresAt,
       sourceOrderId: input.sourceOrderId,
+      sourceType,
+      sourceProvider: input.sourceProvider ?? null,
     });
 
     return {
@@ -136,6 +163,22 @@ export class SubscriptionService {
 
 function tierForPlan(plan: SubscriptionPlan): MembershipTier {
   return plan === "plus_monthly" ? "plus" : "pro";
+}
+
+function selectHighestEntitlement(active: SubscriptionEntity[]): SubscriptionEntity | null {
+  return [...active].sort((left, right) => {
+    const tierDifference = tierRank(tierForPlan(right.plan)) - tierRank(tierForPlan(left.plan));
+    if (tierDifference !== 0) return tierDifference;
+    const expiryDifference = right.expiresAt.getTime() - left.expiresAt.getTime();
+    if (expiryDifference !== 0) return expiryDifference;
+    return right.createdAt.getTime() - left.createdAt.getTime();
+  })[0] ?? null;
+}
+
+function tierRank(tier: MembershipTier): number {
+  if (tier === "pro") return 2;
+  if (tier === "plus") return 1;
+  return 0;
 }
 
 function resolveGrantStart(input: {

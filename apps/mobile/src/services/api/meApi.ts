@@ -16,6 +16,10 @@ export type CurrentEntitlement = {
   isPlus: boolean;
   isMember: boolean;
   expiresAt: string | null;
+  membershipSource?: {
+    type: "legacy" | "manual" | "payment";
+    provider: "wechat" | "alipay" | "apple" | "google_play" | null;
+  } | null;
   dateKey: string;
   dailyTotalLimit: number;
   validUntil: string | null;

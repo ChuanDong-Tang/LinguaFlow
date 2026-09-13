@@ -29,6 +29,10 @@ export interface CurrentEntitlementView {
   isPlus: boolean;
   isMember: boolean;
   expiresAt: string | null;
+  membershipSource: {
+    type: "legacy" | "manual" | "payment";
+    provider: "wechat" | "alipay" | "apple" | "google_play" | null;
+  } | null;
   dateKey: string;
   dailyTotalLimit: number;
   validUntil: string | null;
@@ -168,6 +172,12 @@ export class EntitlementService {
       isPlus: subscription.isPlus,
       isMember: subscription.isMember,
       expiresAt: subscription.expiresAt?.toISOString() ?? null,
+      membershipSource: subscription.subscription
+        ? {
+            type: subscription.subscription.sourceType,
+            provider: subscription.subscription.sourceProvider,
+          }
+        : null,
       dateKey: quota.dateKey,
       dailyTotalLimit: entitlement.dailyTotalLimit,
       validUntil: null,

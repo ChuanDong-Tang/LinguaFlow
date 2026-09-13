@@ -883,6 +883,8 @@ export class AppleIapService {
       sourceOrderId: input.sourceOrderId,
       cancelledAt: input.revokedAt,
       expiresAt: input.revokedAt,
+      sourceType: "payment",
+      sourceProvider: "apple",
     });
     if (!subscription) {
       return {

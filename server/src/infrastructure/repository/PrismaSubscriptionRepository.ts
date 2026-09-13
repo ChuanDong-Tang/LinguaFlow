@@ -2,6 +2,8 @@
 
 import type {
   CreateSubscriptionInput,
+  SubscriptionGrantProvider,
+  SubscriptionGrantSourceType,
   SubscriptionPlan,
   SubscriptionEntity,
   SubscriptionRepository,
@@ -10,6 +12,7 @@ import type {
 type PrismaSubscriptionClient = {
   subscription: {
     findFirst: (args: any) => Promise<any>;
+    findMany: (args: any) => Promise<any[]>;
     findUnique: (args: any) => Promise<any>;
     updateMany: (args: any) => Promise<{ count: number }>;
     create: (args: any) => Promise<any>;
@@ -19,11 +22,11 @@ type PrismaSubscriptionClient = {
 export class PrismaSubscriptionRepository implements SubscriptionRepository {
   constructor(private readonly prisma: PrismaSubscriptionClient) {}
 
-  async findCurrentActiveByUserId(
+  async findActiveByUserId(
     userId: string,
     now: Date
-  ): Promise<SubscriptionEntity | null> {
-    const row = await this.prisma.subscription.findFirst({
+  ): Promise<SubscriptionEntity[]> {
+    const rows = await this.prisma.subscription.findMany({
       where: {
         userId,
         status: "active",
@@ -34,11 +37,29 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
           gt: now,
         },
       },
-      orderBy: {
-        expiresAt: "desc",
-      },
+      orderBy: [{ expiresAt: "desc" }, { createdAt: "desc" }],
     });
 
+    return rows.map((row: any) => this.toEntity(row));
+  }
+
+  async findLatestActiveBySource(input: {
+    userId: string;
+    now: Date;
+    sourceType: SubscriptionGrantSourceType;
+    sourceProvider?: SubscriptionGrantProvider | null;
+  }): Promise<SubscriptionEntity | null> {
+    const row = await this.prisma.subscription.findFirst({
+      where: {
+        userId: input.userId,
+        status: "active",
+        startedAt: { lte: input.now },
+        expiresAt: { gt: input.now },
+        sourceType: input.sourceType,
+        ...(input.sourceProvider === undefined ? {} : { sourceProvider: input.sourceProvider }),
+      },
+      orderBy: [{ expiresAt: "desc" }, { createdAt: "desc" }],
+    });
     return row ? this.toEntity(row) : null;
   }
 
@@ -56,13 +77,21 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
     sourceOrderId: string;
     cancelledAt: Date;
     expiresAt: Date;
+    sourceType?: SubscriptionGrantSourceType;
+    sourceProvider?: SubscriptionGrantProvider | null;
   }): Promise<SubscriptionEntity | null> {
     const row = await this.prisma.subscription.findUnique({
       where: {
         sourceOrderId: input.sourceOrderId,
       },
     });
-    if (!row || row.status !== "active" || row.expiresAt <= input.cancelledAt) return null;
+    if (
+      !row ||
+      row.status !== "active" ||
+      row.expiresAt <= input.cancelledAt ||
+      (input.sourceType !== undefined && row.sourceType !== input.sourceType) ||
+      (input.sourceProvider !== undefined && row.sourceProvider !== input.sourceProvider)
+    ) return null;
 
     const nextExpiresAt = row.expiresAt < input.expiresAt ? row.expiresAt : input.expiresAt;
     const updated = await this.prisma.subscription.updateMany({
@@ -76,6 +105,7 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
       data: {
         status: "cancelled",
         expiresAt: nextExpiresAt,
+        revokedAt: input.cancelledAt,
       },
     });
     if (updated.count === 0) return null;
@@ -93,11 +123,16 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
     plan: SubscriptionPlan;
     startedAt: Date;
     expiresAt: Date;
+    sourceType?: SubscriptionGrantSourceType;
+    sourceProvider?: SubscriptionGrantProvider | null;
   }): Promise<SubscriptionEntity | null> {
     const current = await this.prisma.subscription.findUnique({
       where: { sourceOrderId: input.sourceOrderId },
     });
     if (!current) return null;
+    // A refund/revocation is terminal for this provider transaction. Replayed
+    // webhooks may reconcile it, but must not reactivate the revoked grant.
+    if (current.revokedAt) return this.toEntity(current);
 
     await this.prisma.subscription.updateMany({
       where: { id: current.id },
@@ -106,6 +141,8 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
         status: "active",
         startedAt: current.startedAt < input.startedAt ? current.startedAt : input.startedAt,
         expiresAt: current.expiresAt > input.expiresAt ? current.expiresAt : input.expiresAt,
+        ...(input.sourceType !== undefined ? { sourceType: input.sourceType } : {}),
+        ...(input.sourceProvider !== undefined ? { sourceProvider: input.sourceProvider } : {}),
       },
     });
     const latest = await this.prisma.subscription.findUnique({
@@ -123,6 +160,8 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
         startedAt: input.startedAt,
         expiresAt: input.expiresAt,
         sourceOrderId: input.sourceOrderId ?? null,
+        sourceType: input.sourceType ?? "legacy",
+        sourceProvider: input.sourceProvider ?? null,
       },
     });
 
@@ -137,6 +176,9 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
     startedAt: Date;
     expiresAt: Date;
     sourceOrderId: string | null;
+    sourceType?: SubscriptionGrantSourceType;
+    sourceProvider?: SubscriptionGrantProvider | null;
+    revokedAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }): SubscriptionEntity {
@@ -148,6 +190,9 @@ export class PrismaSubscriptionRepository implements SubscriptionRepository {
       startedAt: row.startedAt,
       expiresAt: row.expiresAt,
       sourceOrderId: row.sourceOrderId,
+      sourceType: row.sourceType ?? "legacy",
+      sourceProvider: row.sourceProvider ?? null,
+      revokedAt: row.revokedAt ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

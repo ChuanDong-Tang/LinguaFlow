@@ -1597,7 +1597,7 @@
               <div class="section-head">
                 <div>
                   <h2 class="section-title">用户查询与排障</h2>
-                  <p class="section-subtitle">先查询用户，再打开诊断详情。补 Pro / 取消 Pro 都会写审计。</p>
+                  <p class="section-subtitle">先查询用户，再打开诊断详情。手动开通与撤销都会写审计，不影响支付平台续费。</p>
                 </div>
               </div>
               <div class="form-row three">
@@ -1739,7 +1739,7 @@
                     <input id="manualGrantMonths" type="number" min="1" max="12" step="1" value="1" aria-label="手动开通月数"
                       style="width:72px" />
                     <button id="btnGrantMembership" class="btn secondary">手动开通会员</button>
-                    <button id="btnCancelPro" class="btn danger">取消会员</button>
+                    <button id="btnCancelPro" class="btn danger">撤销手动 Pro</button>
                   </div>
                 </div>
                 <div id="userFacts" class="mini-grid"></div>
@@ -2471,6 +2471,7 @@
                       <th>管理员</th>
                       <th>动作</th>
                       <th>对象</th>
+                      <th>权益</th>
                       <th>原因</th>
                       <th>requestId</th>
                     </tr>
@@ -3828,8 +3829,8 @@
         ["昵称", user.nickname || "-"],
         ["邮箱/手机", `${user.email || "-"} / ${user.phone || "-"}`],
         ["账号状态", user.status],
-        ["当前 Pro", sub ? `是，到期 ${fmtDate(sub.expiresAt)}` : "否"],
-        ["会员来源", sub ? subscriptionSourceLabel(sub.sourceOrderId, autoRenew?.provider) : "-"],
+        ["当前会员", sub ? `${sub.plan === "plus_monthly" ? "Plus" : "Pro"}，到期 ${fmtDate(sub.expiresAt)}` : "免费用户"],
+        ["生效来源", sub ? subscriptionSourceLabel(sub.sourceOrderId, sub.sourceProvider, sub.sourceType) : "-"],
         ["自动续费", autoRenew ? `${autoRenew.provider} / ${autoRenew.status}` : "无"],
       ].map(([label, value]) => `
           <div class="fact"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
@@ -3929,7 +3930,7 @@
         mono(row.id), statusPill(row.status), `${row.amount} ${row.currency}`, mono(row.providerOrderId), fmtDate(row.createdAt),
       ]));
       $("diagSubs").innerHTML = tableHtml(["ID", "状态", "来源", "开始", "到期", "sourceOrderId"], (data.subscriptions || []).map((row) => [
-        mono(row.id), statusPill(row.status), subscriptionSourceLabel(row.sourceOrderId), fmtDate(row.startedAt), fmtDate(row.expiresAt), mono(row.sourceOrderId),
+        mono(row.id), statusPill(row.status), subscriptionSourceLabel(row.sourceOrderId, row.sourceProvider, row.sourceType), fmtDate(row.startedAt), fmtDate(row.expiresAt), mono(row.sourceOrderId),
       ]));
       $("diagAutoRenew").innerHTML = tableHtml(["ID", "渠道", "状态", "agreement", "latest", "周期结束"], (data.autoRenewSubscriptions || []).map((row) => [
         mono(row.id), paymentProviderLabel(row.provider), statusPill(row.status), mono(row.providerAgreementId), mono(row.latestTransactionId), fmtDate(row.currentPeriodEnd),
@@ -3954,8 +3955,11 @@
       return labels[String(provider || "").toLowerCase()] || provider || "-";
     }
 
-    function subscriptionSourceLabel(sourceOrderId, provider) {
+    function subscriptionSourceLabel(sourceOrderId, provider, sourceType) {
       const source = String(sourceOrderId || "").toLowerCase();
+      if (sourceType === "manual") return "后台手动权益";
+      if (sourceType === "payment" && provider) return paymentProviderLabel(provider);
+      if (sourceType === "legacy") return "历史权益";
       if (source.startsWith("alipay_autorenew:")) return "支付宝自动续费";
       if (source.startsWith("apple_autorenew:") || source.startsWith("apple_iap:")) return "Apple IAP";
       if (source.startsWith("google_play_autorenew:") || source.startsWith("google_play_iap:")) return "Google Play";
@@ -4012,14 +4016,16 @@
     async function cancelProNextDay() {
       const userId = state.activeUserId || $("userSearch").value.trim();
       if (!userId) throw new Error("请先选择用户");
-      const reason = prompt("取消 Pro 的原因（必填，次日 00:00 生效）");
+      const reason = prompt("撤销手动 Pro 的原因（必填，次日 00:00 生效；不会影响付费订阅）");
       if (!reason) return;
+      const requestId = `admin_revoke_${crypto.randomUUID()}`;
       await request(`/admin/users/${encodeURIComponent(userId)}/cancel-pro-next-day`, {
         method: "POST",
+        headers: { "X-Request-Id": requestId },
         body: JSON.stringify({ reason }),
       });
       await loadDiagnostics(userId);
-      alert("已设置为次日 00:00 失效");
+      alert("手动 Pro 已设置为次日 00:00 失效；付费订阅不受影响");
     }
 
     async function loadOrders() {
@@ -4070,7 +4076,7 @@
             <td class="mono">${escapeHtml(row.id)}</td>
             <td class="mono">${escapeHtml(row.userId)}</td>
             <td>${statusPill(row.status)}</td>
-            <td>${escapeHtml(subscriptionSourceLabel(row.sourceOrderId))}</td>
+            <td>${escapeHtml(subscriptionSourceLabel(row.sourceOrderId, row.sourceProvider, row.sourceType))}</td>
             <td>${escapeHtml(fmtDate(row.startedAt))}</td>
             <td>${escapeHtml(fmtDate(row.expiresAt))}</td>
             <td class="mono">${escapeHtml(row.sourceOrderId)}</td>
@@ -4472,16 +4478,23 @@
       if ($("auditTargetId").value.trim()) qs.set("targetId", $("auditTargetId").value.trim());
       const res = await request(`/admin/audit-logs?${qs.toString()}`);
       const rows = Array.isArray(res.data) ? res.data : [];
+      const membershipAuditLabel = (row) => {
+        const details = row.afterData || row.beforeData || {};
+        if (details.sourceType !== "manual") return "-";
+        const plan = details.plan === "plus_monthly" ? "Plus" : details.plan === "pro_monthly" ? "Pro" : "会员";
+        return `后台手动 ${plan}`;
+      };
       $("auditTbody").innerHTML = rows.map((row) => `
           <tr>
             <td>${escapeHtml(fmtDate(row.createdAt))}</td>
             <td class="mono">${escapeHtml(row.adminId)}</td>
             <td class="mono">${escapeHtml(row.action)}</td>
             <td>${escapeHtml(row.targetType)} / <span class="mono">${escapeHtml(row.targetId)}</span></td>
+            <td>${escapeHtml(membershipAuditLabel(row))}</td>
             <td>${escapeHtml(row.reason)}</td>
             <td class="mono">${escapeHtml(row.requestId)}</td>
           </tr>
-        `).join("") || rowEmpty(6);
+        `).join("") || rowEmpty(7);
       setStatus(`管理员操作：${rows.length} 条`);
     }
 
