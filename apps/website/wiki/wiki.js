@@ -61,13 +61,16 @@ sidebar.innerHTML = `
     <a href="index.html"><strong>OIO Wiki</strong><span>Life grows language.</span></a>
     <button type="button" data-wiki-close aria-label="关闭目录">×</button>
   </div>
+  <div class="wiki-sidebar-search-wrap">
+    <label class="wiki-sidebar-search"><span aria-hidden="true"></span><input type="search" placeholder="搜索 Wiki" aria-label="搜索 Wiki" autocomplete="off"></label>
+    <div class="wiki-search-results" data-search-results hidden></div>
+  </div>
   <nav class="wiki-global-nav">${wikiGroups.map((group) => `
     <section>
       <h2>${group.label}</h2>
       <div>${group.links.map((link) => `<a href="${link.href}" data-title="${link.label} ${link.keywords || ""}"${link.action === "group" ? " data-join-group" : ""}${link.page === currentPage ? ' class="active"' : ""}><i aria-hidden="true">${link.mark}</i><span>${link.label}</span></a>`).join("")}</div>
     </section>`).join("")}
-  </nav>
-  <p class="wiki-search-empty" hidden>没有找到相关页面</p>`;
+  </nav>`;
 
 function markCurrentLink() {
   const currentFile = location.pathname.split("/").pop() || "index.html";
@@ -89,36 +92,6 @@ const toc = document.querySelector("[data-wiki-toc]");
 const sectionHeadings = [...document.querySelectorAll(".wiki-article > section[id] > h2")];
 toc.innerHTML = sectionHeadings.map((heading) => `<a href="#${heading.parentElement.id}">${heading.textContent}</a>`).join("");
 
-const search = document.querySelector(".wiki-search input");
-const empty = sidebar.querySelector(".wiki-search-empty");
-function filterWiki() {
-  const query = search.value.trim().toLocaleLowerCase();
-  let visibleCount = 0;
-  sidebar.querySelectorAll(".wiki-global-nav section").forEach((group) => {
-    let groupCount = 0;
-    group.querySelectorAll("a").forEach((link) => {
-      const visible = !query || link.dataset.title.toLocaleLowerCase().includes(query);
-      link.hidden = !visible;
-      if (visible) groupCount += 1;
-    });
-    group.hidden = groupCount === 0;
-    visibleCount += groupCount;
-  });
-  empty.hidden = visibleCount !== 0;
-}
-search.addEventListener("input", filterWiki);
-search.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  sidebar.querySelector(".wiki-global-nav a:not([hidden])")?.click();
-});
-document.addEventListener("keydown", (event) => {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
-    event.preventDefault();
-    if (matchMedia("(max-width: 920px)").matches) openMenu();
-    search.focus();
-  }
-});
-
 const menuButton = document.querySelector("[data-wiki-menu]");
 const scrim = document.querySelector(".wiki-scrim");
 let menuInvoker;
@@ -139,6 +112,176 @@ document.querySelectorAll("[data-wiki-close]").forEach((control) => control.addE
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && document.body.classList.contains("wiki-menu-open")) closeMenu();
 });
+
+const desktopSearchLabel = document.querySelector(".wiki-topbar .wiki-search");
+const desktopSearchWrap = document.createElement("div");
+desktopSearchWrap.className = "wiki-search-wrap";
+desktopSearchLabel.replaceWith(desktopSearchWrap);
+desktopSearchWrap.append(desktopSearchLabel);
+const desktopSearchResults = document.createElement("div");
+desktopSearchResults.className = "wiki-search-results";
+desktopSearchResults.hidden = true;
+desktopSearchWrap.append(desktopSearchResults);
+
+const searchSources = [
+  { input: desktopSearchLabel.querySelector("input"), results: desktopSearchResults },
+  { input: sidebar.querySelector(".wiki-sidebar-search input"), results: sidebar.querySelector("[data-search-results]") },
+];
+let searchIndex = wikiGroups.flatMap((group) => group.links.map((link) => ({
+  href: link.href,
+  title: link.label,
+  context: group.label,
+  text: link.keywords || "",
+})));
+
+function normalizeText(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function escapeHtml(value) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[character]);
+}
+
+function searchWiki(query) {
+  const normalizedQuery = normalizeText(query).toLocaleLowerCase();
+  if (!normalizedQuery) return [];
+  const terms = normalizedQuery.split(" ").filter(Boolean);
+  return searchIndex
+    .map((entry) => {
+      const title = entry.title.toLocaleLowerCase();
+      const context = entry.context.toLocaleLowerCase();
+      const text = entry.text.toLocaleLowerCase();
+      const haystack = `${title} ${context} ${text}`;
+      if (!terms.every((term) => haystack.includes(term))) return null;
+      let score = 0;
+      if (title === normalizedQuery) score += 120;
+      if (title.startsWith(normalizedQuery)) score += 80;
+      if (title.includes(normalizedQuery)) score += 55;
+      if (context.includes(normalizedQuery)) score += 20;
+      if (text.includes(normalizedQuery)) score += 8;
+      return { ...entry, score };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score || left.title.localeCompare(right.title))
+    .slice(0, 8);
+}
+
+function bindWikiSearch({ input, results }) {
+  let activeIndex = -1;
+  function setActive(nextIndex) {
+    const links = [...results.querySelectorAll("a")];
+    activeIndex = links.length ? (nextIndex + links.length) % links.length : -1;
+    links.forEach((link, index) => link.classList.toggle("active", index === activeIndex));
+    links[activeIndex]?.scrollIntoView({ block: "nearest" });
+  }
+  function render() {
+    const query = input.value;
+    if (!query.trim()) {
+      results.hidden = true;
+      results.innerHTML = "";
+      activeIndex = -1;
+      return;
+    }
+    const matches = searchWiki(query);
+    results.innerHTML = matches.length
+      ? matches.map((entry) => `<a href="${escapeHtml(entry.href)}"><strong>${escapeHtml(entry.title)}</strong><span>${escapeHtml(entry.context)}</span></a>`).join("")
+      : '<p>没有找到相关内容</p>';
+    results.hidden = false;
+    activeIndex = -1;
+  }
+  input.addEventListener("input", render);
+  input.addEventListener("focus", render);
+  input.addEventListener("keydown", (event) => {
+    const links = [...results.querySelectorAll("a")];
+    if (event.key === "ArrowDown" && links.length) {
+      event.preventDefault();
+      setActive(activeIndex + 1);
+    } else if (event.key === "ArrowUp" && links.length) {
+      event.preventDefault();
+      setActive(activeIndex - 1);
+    } else if (event.key === "Enter" && links.length) {
+      event.preventDefault();
+      (links[activeIndex >= 0 ? activeIndex : 0]).click();
+    } else if (event.key === "Escape") {
+      results.hidden = true;
+      input.blur();
+    }
+  });
+  results.addEventListener("click", () => {
+    results.hidden = true;
+    if (document.body.classList.contains("wiki-menu-open")) closeMenu();
+  });
+}
+searchSources.forEach(bindWikiSearch);
+
+document.addEventListener("click", (event) => {
+  searchSources.forEach(({ input, results }) => {
+    if (!input.contains(event.target) && !results.contains(event.target)) results.hidden = true;
+  });
+});
+
+document.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
+    event.preventDefault();
+    const useSidebarSearch = matchMedia("(max-width: 620px)").matches;
+    if (useSidebarSearch) openMenu();
+    (useSidebarSearch ? searchSources[1] : searchSources[0]).input.focus();
+  }
+});
+
+function revealHashTarget() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (!id) return;
+  const target = document.getElementById(id);
+  if (target?.tagName === "DETAILS") target.open = true;
+}
+revealHashTarget();
+window.addEventListener("hashchange", revealHashTarget);
+
+async function buildSearchIndex() {
+  const files = [...new Set(wikiGroups.flatMap((group) => group.links.map((link) => link.href.split("#")[0])))];
+  const documents = await Promise.all(files.map(async (file) => {
+    try {
+      const response = await fetch(file);
+      if (!response.ok) return [];
+      const page = new DOMParser().parseFromString(await response.text(), "text/html");
+      const pageTitle = normalizeText(page.querySelector(".wiki-article h1")?.textContent || file);
+      const entries = [{
+        href: file,
+        title: pageTitle,
+        context: "页面",
+        text: normalizeText(page.querySelector(".wiki-article-head p")?.textContent || ""),
+      }];
+      page.querySelectorAll(".wiki-article > section[id]").forEach((section) => {
+        const heading = normalizeText(section.querySelector(":scope > h2")?.textContent || "");
+        if (heading) entries.push({
+          href: `${file}#${section.id}`,
+          title: heading,
+          context: pageTitle,
+          text: normalizeText(section.textContent || ""),
+        });
+        section.querySelectorAll("details[id] > summary").forEach((summary) => {
+          const details = summary.parentElement;
+          entries.push({
+            href: `${file}#${details.id}`,
+            title: normalizeText(summary.textContent || ""),
+            context: heading || pageTitle,
+            text: normalizeText(details.textContent || ""),
+          });
+        });
+      });
+      return entries;
+    } catch {
+      return [];
+    }
+  }));
+  const unique = new Map();
+  [...searchIndex, ...documents.flat()].forEach((entry) => unique.set(`${entry.href}|${entry.title}`, entry));
+  searchIndex = [...unique.values()];
+}
+void buildSearchIndex();
 
 const groupDialog = document.getElementById("group-dialog");
 let groupInvoker;
