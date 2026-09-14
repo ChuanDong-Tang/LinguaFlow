@@ -13,6 +13,8 @@ const PUBLIC_PAGES = new Map([
   ["/wiki/card.html", "制作 Card"],
   ["/wiki/encounter.html", "再次遇见"],
   ["/wiki/download.html", "下载 OIO"],
+  ["/wiki/changelog.html", "更新日志"],
+  ["/wiki/faq.html", "常见问题"],
   ["/wiki/contact.html", "加入群聊"],
 ]);
 

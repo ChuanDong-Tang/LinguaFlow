@@ -4,11 +4,10 @@ const wikiGroups = [
     links: [
       { page: "home", href: "index.html", label: "什么是 OIO", mark: "○" },
       { page: "card", href: "card.html", label: "制作第一张 Card", mark: "+", keywords: "卡片 新建" },
-      { page: "download", href: "download.html", label: "下载 OIO", mark: "↓", keywords: "iPhone iPad iOS Android 安卓" },
     ],
   },
   {
-    label: "学习理念",
+    label: "学习与思考",
     links: [
       { page: "philosophy", href: "philosophy.html#life", label: "为什么从生活开始", mark: "↘" },
       { page: "philosophy", href: "philosophy.html#personal", label: "属于自己的英文", mark: "✦" },
@@ -17,7 +16,7 @@ const wikiGroups = [
     ],
   },
   {
-    label: "OIO App",
+    label: "使用 OIO",
     links: [
       { page: "card", href: "card.html#capture", label: "捕捉生活", mark: "□" },
       { page: "card", href: "card.html#expression", label: "形成自然表达", mark: "Aa", keywords: "改写 图片描述 OIO 的发现 查词 挖空" },
@@ -25,6 +24,19 @@ const wikiGroups = [
       { page: "encounter", href: "encounter.html#photo", label: "用照片唤醒记忆", mark: "◫", keywords: "图片 回忆" },
       { page: "encounter", href: "encounter.html#related", label: "相关记录", mark: "∞" },
       { page: "encounter", href: "encounter.html#practice", label: "偶遇与记忆游戏", mark: "◇", keywords: "填空 选词 听写 朗读 练习" },
+      { page: "download", href: "download.html", label: "下载 OIO", mark: "↓", keywords: "iPhone iPad iOS Android 安卓" },
+    ],
+  },
+  {
+    label: "产品动态",
+    links: [
+      { page: "changelog", href: "changelog.html", label: "更新日志", mark: "↗", keywords: "版本 新功能 修复 release version" },
+    ],
+  },
+  {
+    label: "帮助",
+    links: [
+      { page: "faq", href: "faq.html", label: "常见问题", mark: "?", keywords: "点数 图片流量 同步 换设备 注销 账号 iOS Android 额度 Card 生活集 回忆" },
     ],
   },
   {
