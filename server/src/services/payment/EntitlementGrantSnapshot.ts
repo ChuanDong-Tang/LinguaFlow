@@ -5,16 +5,24 @@ import type {
   PrepaidLimitMode,
 } from "./PaymentEntitlementService.js";
 import type { PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
+import type { SubscriptionGrantProvider } from "@lf/core/ports/repository/SubscriptionRepository.js";
 
 export type EntitlementGrantSnapshot = Pick<
   GrantEntitlementInput,
   "grantMode" | "periodStart" | "periodEnd" | "prepaidLimit"
 >;
 
+export interface ReplacedEntitlementSnapshot {
+  sourceOrderId: string;
+  provider: SubscriptionGrantProvider;
+  supersededAt: Date;
+}
+
 export function createEntitlementGrantPayload(input: {
   fallbackReason: string;
   source: string;
   grant: EntitlementGrantSnapshot;
+  replacedEntitlement?: ReplacedEntitlementSnapshot | null;
 }): Record<string, unknown> {
   return {
     fallbackReason: input.fallbackReason,
@@ -25,6 +33,34 @@ export function createEntitlementGrantPayload(input: {
       periodEnd: input.grant.periodEnd?.toISOString() ?? null,
       prepaidLimit: input.grant.prepaidLimit ?? null,
     },
+    ...(input.replacedEntitlement
+      ? {
+          replacedEntitlement: {
+            sourceOrderId: input.replacedEntitlement.sourceOrderId,
+            provider: input.replacedEntitlement.provider,
+            supersededAt: input.replacedEntitlement.supersededAt.toISOString(),
+          },
+        }
+      : {}),
+  };
+}
+
+export function resolveReplacedEntitlementFromBenefitPayload(
+  payload: unknown,
+): ReplacedEntitlementSnapshot | null {
+  const raw = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>).replacedEntitlement
+    : null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.sourceOrderId !== "string" || !value.sourceOrderId.trim()) return null;
+  if (!isSubscriptionGrantProvider(value.provider)) return null;
+  const supersededAt = readOptionalDate(value.supersededAt);
+  if (!supersededAt) return null;
+  return {
+    sourceOrderId: value.sourceOrderId.trim(),
+    provider: value.provider,
+    supersededAt,
   };
 }
 
@@ -82,4 +118,8 @@ function readOptionalDate(value: unknown): Date | null {
   if (typeof value !== "string" || !value.trim()) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSubscriptionGrantProvider(value: unknown): value is SubscriptionGrantProvider {
+  return value === "wechat" || value === "alipay" || value === "apple" || value === "google_play";
 }

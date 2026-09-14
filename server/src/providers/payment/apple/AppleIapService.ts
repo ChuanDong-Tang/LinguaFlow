@@ -527,6 +527,11 @@ export class AppleIapService {
 
     let isExistingAppleSubscription = false;
     let shouldTransferAppleSubscription = false;
+    let replacedAppleEntitlement: {
+      sourceOrderId: string;
+      provider: "apple";
+      supersededAt: Date;
+    } | null = null;
     if (purchaseKind === "auto_renew") {
       const now = new Date();
       if (!grantPeriodEnd || grantPeriodEnd <= now) {
@@ -563,6 +568,21 @@ export class AppleIapService {
 
       isExistingAppleSubscription =
         existingByOriginal?.userId === input.userId || existingAutoRenew?.userId === input.userId;
+      if (
+        existingAutoRenew?.userId === input.userId &&
+        existingAutoRenew.productCode !== productCode &&
+        existingAutoRenew.latestTransactionId &&
+        existingAutoRenew.latestTransactionId !== transaction.transactionId
+      ) {
+        replacedAppleEntitlement = {
+          sourceOrderId: createAutoRenewEntitlementSourceOrderId(
+            "apple",
+            existingAutoRenew.latestTransactionId,
+          ),
+          provider: "apple",
+          supersededAt: grantPeriodStart ?? new Date(),
+        };
+      }
     }
 
     if (!existingOrder && !isExistingAppleSubscription) {
@@ -671,6 +691,9 @@ export class AppleIapService {
         prepaidLimit,
       });
       alreadyApplied = result.alreadyApplied;
+      if (replacedAppleEntitlement && this.subscriptionService) {
+        await this.subscriptionService.supersedePaymentGrant(replacedAppleEntitlement);
+      }
     } catch (error) {
       if (error instanceof ProRenewalTooEarlyError) {
         throw error;
@@ -689,6 +712,7 @@ export class AppleIapService {
             periodEnd: grantPeriodEnd,
             prepaidLimit,
           },
+          replacedEntitlement: replacedAppleEntitlement,
         }),
       });
       alreadyApplied = !queued.created;

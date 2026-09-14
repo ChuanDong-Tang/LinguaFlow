@@ -590,6 +590,16 @@ export class AutoRenewService {
       providerAgreementId: input.originalTransactionId,
     });
     if (!subscription) return { status: "ignored", userId: null };
+    // Provider notifications can be delayed or replayed out of order. Reject an
+    // older period before recordPaidCharge grants it or supersedes the current
+    // provider entitlement.
+    if (isStalePaidPeriod(subscription, {
+      productCode: input.productCode ?? subscription.productCode,
+      periodStart: input.periodStart ?? null,
+      periodEnd: input.periodEnd ?? null,
+    })) {
+      return { status: "processed", userId: subscription.userId };
+    }
     await this.recordPaidCharge({
       userId: subscription.userId,
       provider: "apple",
@@ -602,13 +612,6 @@ export class AutoRenewService {
       paidAt: input.periodStart ?? new Date(),
       rawPayload: input.rawPayload ?? null,
     });
-    if (isStalePaidPeriod(subscription, {
-      productCode: input.productCode ?? subscription.productCode,
-      periodStart: input.periodStart ?? null,
-      periodEnd: input.periodEnd ?? null,
-    })) {
-      return { status: "processed", userId: subscription.userId };
-    }
     await this.autoRenewRepository.updateSubscription({
       id: subscription.id,
       ...appliedProductFields(subscription, input.productCode ?? subscription.productCode),
@@ -659,6 +662,13 @@ export class AutoRenewService {
       providerAgreementId: input.purchaseToken,
     });
     if (!subscription) return { status: "ignored", userId: null };
+    if (isStalePaidPeriod(subscription, {
+      productCode: input.productCode ?? subscription.productCode,
+      periodStart: input.periodStart ?? null,
+      periodEnd: input.periodEnd ?? null,
+    })) {
+      return { status: "processed", userId: subscription.userId };
+    }
     await this.recordPaidCharge({
       userId: subscription.userId,
       provider: "google_play",
@@ -671,13 +681,6 @@ export class AutoRenewService {
       paidAt: input.periodStart ?? new Date(),
       rawPayload: input.rawPayload ?? null,
     });
-    if (isStalePaidPeriod(subscription, {
-      productCode: input.productCode ?? subscription.productCode,
-      periodStart: input.periodStart ?? null,
-      periodEnd: input.periodEnd ?? null,
-    })) {
-      return { status: "processed", userId: subscription.userId };
-    }
     await this.autoRenewRepository.updateSubscription({
       id: subscription.id,
       ...appliedProductFields(subscription, input.productCode ?? subscription.productCode),

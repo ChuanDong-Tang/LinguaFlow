@@ -2,7 +2,11 @@ import type { BenefitGrantRepository } from "@lf/core/ports/repository/BenefitGr
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { PaymentEntitlementService } from "../../services/payment/PaymentEntitlementService.js";
-import { resolveGrantInputFromBenefitPayload } from "../../services/payment/EntitlementGrantSnapshot.js";
+import {
+  resolveGrantInputFromBenefitPayload,
+  resolveReplacedEntitlementFromBenefitPayload,
+} from "../../services/payment/EntitlementGrantSnapshot.js";
+import type { SubscriptionService } from "../../services/subscription/SubscriptionService.js";
 
 export interface BenefitGrantWorkerOptions {
   intervalMs?: number;
@@ -19,7 +23,8 @@ export class BenefitGrantWorker {
     private readonly benefitGrantRepository: BenefitGrantRepository,
     private readonly paymentEntitlementService: PaymentEntitlementService,
     private readonly systemEventLogRepository?: SystemEventLogRepository,
-    private readonly options: BenefitGrantWorkerOptions = {}
+    private readonly options: BenefitGrantWorkerOptions = {},
+    private readonly subscriptionService?: SubscriptionService,
   ) {}
 
   start(): void {
@@ -60,6 +65,10 @@ export class BenefitGrantWorker {
             channel: grant.channel,
             payload: grant.payload,
           }));
+          const replacedEntitlement = resolveReplacedEntitlementFromBenefitPayload(grant.payload);
+          if (replacedEntitlement && this.subscriptionService) {
+            await this.subscriptionService.supersedePaymentGrant(replacedEntitlement);
+          }
           await this.benefitGrantRepository.markSuccess(grant.id);
         } catch (error) {
           const message = toErrorMessage(error);

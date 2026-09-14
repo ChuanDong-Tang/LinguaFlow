@@ -136,7 +136,9 @@ const alipayAutoRenewService = new AlipayAutoRenewService(
 const benefitGrantWorker = new BenefitGrantWorker(
   benefitGrantRepository,
   paymentEntitlementService,
-  systemEventLogRepository
+  systemEventLogRepository,
+  {},
+  subscriptionService
 );
 const sessionCleanupWorker = new SessionCleanupWorker(prisma, systemEventLogRepository);
 const ttsStorageProvider = new CosStorageProvider();
