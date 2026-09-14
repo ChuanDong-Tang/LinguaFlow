@@ -107,6 +107,7 @@ export type MobileAppleVerifyTransactionResult = {
   purchaseKind: "single_purchase" | "auto_renew";
   autoRenewSubscriptionId?: string | null;
   alreadyApplied?: boolean;
+  ownershipTransferred?: boolean;
 };
 
 export type MobileGooglePlayVerifyPurchaseResult = {
@@ -239,7 +240,8 @@ export async function resumeAlipayAutoRenewSubscription(
 }
 
 export async function verifyAppleProMonthlyTransaction(
-  transactionId: string
+  transactionId: string,
+  options?: { allowAccountTransfer?: boolean },
 ): Promise<MobileAppleVerifyTransactionResult> {
   const res = await fetchWithTimeout(`${BASE_URL}/payment/ios/verify-transaction`, {
     method: "POST",
@@ -247,7 +249,10 @@ export async function verifyAppleProMonthlyTransaction(
       "Content-Type": "application/json",
       ...(await getAuthHeaders()),
     },
-    body: JSON.stringify({ transactionId }),
+    body: JSON.stringify({
+      transactionId,
+      ...(options?.allowAccountTransfer ? { allowAccountTransfer: true } : {}),
+    }),
   });
   const json = (await res.json()) as ApiResult<MobileAppleVerifyTransactionResult>;
   if (!json.ok) {

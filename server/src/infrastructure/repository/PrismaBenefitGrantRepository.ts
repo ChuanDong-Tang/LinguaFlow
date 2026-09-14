@@ -76,15 +76,13 @@ export class PrismaBenefitGrantRepository implements BenefitGrantRepository {
         },
       });
       if (updated.count > 0) {
-        leased.push(
-          this.toEntity({
-            ...row,
-            status: "processing",
-            attemptCount: Number(row.attemptCount ?? 0) + 1,
-            lastErrorCode: null,
-            lastErrorMsg: null,
-          })
-        );
+        // Another transaction may have reassigned the grant while this worker
+        // was waiting for the row lock. Always use the committed owner instead
+        // of the stale row returned by the initial candidate scan.
+        const leasedRow = await this.prisma.benefitGrant.findUnique({ where: { id: row.id } });
+        if (leasedRow?.status === "processing") {
+          leased.push(this.toEntity(leasedRow));
+        }
       }
     }
     return leased;

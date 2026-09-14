@@ -28,4 +28,22 @@ export interface AppleIapAccountLinkRepository {
     originalTransactionId: string;
     latestTransactionId?: string | null;
   }): Promise<AppleIapAccountLinkEntity>;
+  transferActiveSubscriptionOwnership(input: {
+    toUserId: string;
+    appAccountToken: string;
+    originalTransactionId: string;
+    latestTransactionId: string;
+    productCode: string;
+    periodStart: Date | null;
+    periodEnd: Date;
+    entitlementSourceOrderIds: string[];
+    transferredAt: Date;
+    metadata: Record<string, unknown>;
+  }): Promise<{
+    fromUserId: string;
+    toUserId: string;
+    autoRenewSubscriptionId: string;
+    movedEntitlementCount: number;
+    alreadyTransferred: boolean;
+  }>;
 }

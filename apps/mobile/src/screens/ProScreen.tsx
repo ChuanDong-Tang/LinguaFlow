@@ -991,11 +991,58 @@ export function ProScreen({
     } catch (error) {
       if (!isScreenAlive()) return true;
       if (isAppleTransactionOwnedByDifferentAccount(error)) {
-        safeAlert(t("pro.alert.apple_bound_title"), t("pro.alert.apple_bound_message"));
+        promptAppleSubscriptionTransfer(getAppleTransactionId(existingSubscription));
         return true;
       }
       safeAlert(t("pro.alert.apple_verify_failed"), formatApplePaymentErrorMessage(error));
       return true;
+    }
+  }
+
+  function promptAppleSubscriptionTransfer(transactionId: string): void {
+    if (!isScreenAlive()) return;
+    Alert.alert(
+      t("pro.alert.apple_transfer_title"),
+      t("pro.alert.apple_transfer_message"),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("pro.alert.apple_transfer_action"),
+          onPress: () => void transferAppleSubscriptionToCurrentAccount(transactionId),
+        },
+      ],
+    );
+  }
+
+  async function transferAppleSubscriptionToCurrentAccount(transactionId: string): Promise<void> {
+    if (isAutoRenewLoading || isPaying) return;
+    setIsAutoRenewLoading(true);
+    setIsPaying(true);
+    try {
+      await verifyAppleProMonthlyTransaction(transactionId, {
+        allowAccountTransfer: true,
+      });
+      const entitlementResult = await refreshProEntitlementState();
+      if (!isScreenAlive()) return;
+      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
+      const currentAutoRenew = await getCurrentAutoRenewSubscription();
+      if (!isScreenAlive()) return;
+      applyAutoRenewToState(currentAutoRenew);
+      safeAlert(
+        t("pro.alert.apple_transfer_success_title"),
+        t("pro.alert.apple_transfer_success_message"),
+      );
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      safeAlert(
+        t("pro.alert.apple_transfer_failed_title"),
+        formatApplePaymentErrorMessage(error),
+      );
+    } finally {
+      if (isScreenAlive()) {
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+      }
     }
   }
 
@@ -1042,7 +1089,7 @@ export function ProScreen({
           }).catch(() => { });
         }
         if (isUserInitiatedPurchase) {
-          safeAlert(t("pro.alert.apple_bound_title"), t("pro.alert.apple_bound_message"));
+          promptAppleSubscriptionTransfer(getAppleTransactionId(purchase));
         }
         return;
       }
@@ -1132,6 +1179,7 @@ export function ProScreen({
       }
 
       let lastError: unknown = null;
+      let boundTransactionId: string | null = null;
       for (const purchase of candidates) {
         try {
           const transactionId = getAppleTransactionId(purchase);
@@ -1154,12 +1202,16 @@ export function ProScreen({
           return;
         } catch (error) {
           lastError = error;
+          if (isAppleTransactionOwnedByDifferentAccount(error)) {
+            boundTransactionId = getAppleTransactionId(purchase);
+          }
         }
       }
 
       if (isAppleTransactionOwnedByDifferentAccount(lastError)) {
         if (!silentFailure) {
-          safeAlert(t("pro.alert.restore_failed_title"), t("pro.alert.restore_wrong_account"));
+          if (boundTransactionId) promptAppleSubscriptionTransfer(boundTransactionId);
+          else safeAlert(t("pro.alert.restore_failed_title"), t("pro.alert.restore_wrong_account"));
         }
         return;
       }

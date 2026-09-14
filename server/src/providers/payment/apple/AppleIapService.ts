@@ -45,6 +45,7 @@ export interface VerifyAppleIapTransactionResult {
   purchaseKind: "single_purchase" | "auto_renew";
   sourceOrderId: string;
   alreadyApplied: boolean;
+  ownershipTransferred: boolean;
 }
 
 export type AppleAutoRenewReconcileResult =
@@ -427,6 +428,7 @@ export class AppleIapService {
   async verifyProMonthlyTransaction(input: {
     userId: string;
     transactionId: string;
+    allowAccountTransfer?: boolean;
   }): Promise<VerifyAppleIapTransactionResult> {
     return this.verifyMembershipTransaction(input);
   }
@@ -434,6 +436,7 @@ export class AppleIapService {
   async verifyMembershipTransaction(input: {
     userId: string;
     transactionId: string;
+    allowAccountTransfer?: boolean;
   }): Promise<VerifyAppleIapTransactionResult> {
     const config = loadAppleIapConfig();
 
@@ -480,6 +483,10 @@ export class AppleIapService {
       });
     }
     const { purchaseKind, productCode } = purchase;
+    // Account recovery is only meaningful for renewable subscription chains.
+    // Never let this flag relax ownership checks for one-time purchases.
+    const allowAutoRenewAccountTransfer =
+      input.allowAccountTransfer === true && purchaseKind === "auto_renew";
     const appleAmount = resolveApplePaymentOrderAmount(transaction, productCode);
 
     const originalTransactionId = transaction.originalTransactionId || transaction.transactionId;
@@ -491,7 +498,7 @@ export class AppleIapService {
     }
 
     const expectedAppAccountToken = createAppleAppAccountToken(input.userId);
-    if (!transaction.appAccountToken) {
+    if (!transaction.appAccountToken && !allowAutoRenewAccountTransfer) {
       transaction = await this.backfillMissingAppAccountToken({
         userId: input.userId,
         transaction,
@@ -502,10 +509,14 @@ export class AppleIapService {
         rootCaPem: config.rootCaPem,
       });
     }
-    if (!sameAppleAppAccountToken(transaction.appAccountToken, expectedAppAccountToken)) {
+    if (
+      !allowAutoRenewAccountTransfer &&
+      !sameAppleAppAccountToken(transaction.appAccountToken, expectedAppAccountToken)
+    ) {
       throw new AppleIapVerifyError("appAccountToken mismatch", "APPLE_APP_ACCOUNT_TOKEN_MISMATCH", {
         environment: transaction.environment,
         transactionId: transaction.transactionId,
+        originalTransactionId,
       });
     }
 
@@ -521,12 +532,11 @@ export class AppleIapService {
     const prepaidLimit = purchaseKind === "single_purchase" ? "enforce" : "skip";
 
     const existingOrder = await this.paymentOrderRepository.findByProviderOrderId(transaction.transactionId);
-    if (existingOrder && existingOrder.userId !== input.userId) {
-      throw new AppleIapSubscriptionAlreadyBoundError({ originalTransactionId });
-    }
-
     let isExistingAppleSubscription = false;
     let shouldTransferAppleSubscription = false;
+    let ownershipTransferred = false;
+    let existingAutoRenewForAgreement: Awaited<ReturnType<AutoRenewService["getAppleSubscriptionByOriginalTransactionId"]>> | null = null;
+    let existingAppleLinkForAgreement: Awaited<ReturnType<AppleIapAccountLinkRepository["findByOriginalTransactionId"]>> | null = null;
     let replacedAppleEntitlement: {
       sourceOrderId: string;
       provider: "apple";
@@ -545,8 +555,10 @@ export class AppleIapService {
 
       const existingByOriginal =
         await this.appleIapAccountLinkRepository?.findByOriginalTransactionId(originalTransactionId);
+      existingAppleLinkForAgreement = existingByOriginal ?? null;
       const existingAutoRenew =
         (await this.autoRenewService?.getAppleSubscriptionByOriginalTransactionId(originalTransactionId)) ?? null;
+      existingAutoRenewForAgreement = existingAutoRenew;
       const boundUserId =
         existingByOriginal?.userId !== input.userId
           ? existingByOriginal?.userId
@@ -555,7 +567,7 @@ export class AppleIapService {
             : null;
 
       if (boundUserId) {
-        const canTransfer = await this.canTransferAppleSubscriptionFromUser({
+        const canTransfer = allowAutoRenewAccountTransfer || await this.canTransferAppleSubscriptionFromUser({
           boundUserId,
           existingAutoRenew,
           now,
@@ -582,6 +594,130 @@ export class AppleIapService {
           provider: "apple",
           supersededAt: grantPeriodStart ?? new Date(),
         };
+      }
+    }
+
+    if (existingOrder && existingOrder.userId !== input.userId && purchaseKind !== "auto_renew") {
+      throw new AppleIapSubscriptionAlreadyBoundError({ originalTransactionId });
+    }
+
+    if (allowAutoRenewAccountTransfer) {
+      if (!this.appleIapAccountLinkRepository) {
+        throw new AppleIapVerifyError(
+          "Apple account link repository is not configured",
+          "APPLE_IAP_ACCOUNT_LINK_REPOSITORY_NOT_CONFIGURED",
+        );
+      }
+      if (!existingAutoRenewForAgreement || existingAutoRenewForAgreement.userId === input.userId) {
+        if (!sameAppleAppAccountToken(transaction.appAccountToken, expectedAppAccountToken)) {
+          await setAppAccountToken({
+            environment: transaction.environment,
+            originalTransactionId,
+            appAccountToken: expectedAppAccountToken,
+          }, token);
+          transaction = await fetchTransactionInfo(transaction.transactionId, token, config.rootCaPem);
+        }
+      } else {
+        if (
+          existingAppleLinkForAgreement &&
+          existingAppleLinkForAgreement.userId !== existingAutoRenewForAgreement.userId
+        ) {
+          throw new AppleIapVerifyError(
+            "Apple subscription ownership records are inconsistent",
+            "APPLE_SUBSCRIPTION_TRANSFER_OWNERSHIP_INCONSISTENT",
+          );
+        }
+        const previousTransfer = asRecord(asRecord(existingAutoRenewForAgreement.metadata).ownershipTransfer);
+        if (previousTransfer.latestTransactionId === transaction.transactionId) {
+          throw new AppleIapVerifyError(
+            "Apple subscription was already transferred in this period",
+            "APPLE_SUBSCRIPTION_TRANSFER_ALREADY_USED_FOR_PERIOD",
+          );
+        }
+        const targetAutoRenew = (await this.autoRenewService?.getCurrent(input.userId))?.subscription ?? null;
+        if (targetAutoRenew && targetAutoRenew.id !== existingAutoRenewForAgreement.id) {
+          throw new AppleIapVerifyError(
+            "Target OIO account already has auto renew",
+            "APPLE_SUBSCRIPTION_TRANSFER_TARGET_HAS_AUTORENEW",
+          );
+        }
+        const entitlementSourceOrderIds = [
+          createAutoRenewEntitlementSourceOrderId("apple", transaction.transactionId),
+          ...(existingAutoRenewForAgreement.latestTransactionId
+            ? [createAutoRenewEntitlementSourceOrderId("apple", existingAutoRenewForAgreement.latestTransactionId)]
+            : []),
+        ];
+        const targetMembership = await this.subscriptionService?.getCurrentSubscription(input.userId);
+        const targetPaidMembership = targetMembership?.billingSubscription;
+        if (
+          targetPaidMembership?.sourceType === "payment" &&
+          !(
+            targetPaidMembership.sourceProvider === "apple" &&
+            targetPaidMembership.sourceOrderId &&
+            entitlementSourceOrderIds.includes(targetPaidMembership.sourceOrderId)
+          )
+        ) {
+          throw new AppleIapVerifyError(
+            "Target OIO account already has another paid membership",
+            "APPLE_SUBSCRIPTION_TRANSFER_TARGET_HAS_PAID_MEMBERSHIP",
+          );
+        }
+        const targetLink = await this.appleIapAccountLinkRepository.findByAppAccountToken(
+          expectedAppAccountToken,
+        );
+        if (targetLink && targetLink.userId !== input.userId) {
+          throw new AppleIapVerifyError(
+            "Target appAccountToken belongs to another OIO account",
+            "APPLE_SUBSCRIPTION_TRANSFER_TARGET_TOKEN_CONFLICT",
+          );
+        }
+        try {
+          await setAppAccountToken({
+            environment: transaction.environment,
+            originalTransactionId,
+            appAccountToken: expectedAppAccountToken,
+          }, token);
+          transaction = await fetchTransactionInfo(transaction.transactionId, token, config.rootCaPem);
+        } catch (error) {
+          throw new AppleIapVerifyError(
+            "Apple subscription account update failed",
+            "APPLE_SUBSCRIPTION_TRANSFER_APPLE_ACCOUNT_UPDATE_FAILED",
+            {
+              causeCode: error instanceof AppleIapVerifyError ? error.code : undefined,
+              ...(error instanceof AppleIapVerifyError ? error.details : {}),
+            },
+          );
+        }
+        if (!sameAppleAppAccountToken(transaction.appAccountToken, expectedAppAccountToken)) {
+          throw new AppleIapVerifyError(
+            "appAccountToken transfer did not apply",
+            "APPLE_SUBSCRIPTION_TRANSFER_APP_ACCOUNT_TOKEN_NOT_APPLIED",
+          );
+        }
+        try {
+          await this.appleIapAccountLinkRepository.transferActiveSubscriptionOwnership({
+            toUserId: input.userId,
+            appAccountToken: expectedAppAccountToken,
+            originalTransactionId,
+            latestTransactionId: transaction.transactionId,
+            productCode,
+            periodStart: grantPeriodStart,
+            periodEnd: grantPeriodEnd!,
+            entitlementSourceOrderIds,
+            transferredAt: new Date(),
+            metadata: {
+              source: "apple_user_confirmed_account_transfer",
+              environment: transaction.environment,
+              productId: transaction.productId,
+            },
+          });
+          ownershipTransferred = true;
+          shouldTransferAppleSubscription = false;
+          isExistingAppleSubscription = true;
+        } catch (error) {
+          const code = error instanceof Error ? error.message : "APPLE_SUBSCRIPTION_TRANSFER_FAILED";
+          throw new AppleIapVerifyError(code, code);
+        }
       }
     }
 
@@ -612,7 +748,9 @@ export class AppleIapService {
         productId: transaction.productId,
         appAccountToken: transaction.appAccountToken,
       };
-      if (shouldTransferAppleSubscription) {
+      if (ownershipTransferred) {
+        // The repository moved the agreement and its active period atomically.
+      } else if (shouldTransferAppleSubscription) {
         const existingAutoRenew =
           await this.autoRenewService?.getAppleSubscriptionByOriginalTransactionId(originalTransactionId);
         if (existingAutoRenew) {
@@ -727,6 +865,7 @@ export class AppleIapService {
       purchaseKind,
       sourceOrderId: order.id,
       alreadyApplied,
+      ownershipTransferred,
     };
   }
 

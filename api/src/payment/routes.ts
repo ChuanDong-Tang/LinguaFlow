@@ -61,6 +61,7 @@ const CLIENT_ERROR_MESSAGES = {
   RESOURCE_NOT_FOUND: "Payment order not found.",
   IAP_VERIFY_FAILED: "Unable to verify purchase at the moment.",
   APPLE_SUBSCRIPTION_ALREADY_BOUND: "This Apple subscription is already bound to another OIO account.",
+  APPLE_SUBSCRIPTION_TRANSFER_FAILED: "Unable to transfer this Apple subscription to the current OIO account.",
   GOOGLE_PLAY_SUBSCRIPTION_ALREADY_BOUND: "This Google Play subscription is already bound to another OIO account.",
   IAP_NOTIFY_FAILED: "Notification processing failed.",
   AUTH_UNAUTHORIZED: "Authentication required.",
@@ -81,11 +82,13 @@ function formatCnyPrice(amountCents: number): string {
 
 function isAppleVerifyTransactionRequest(
   value: unknown
-): value is { transactionId: string; } {
+): value is { transactionId: string; allowAccountTransfer?: boolean } {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return (
-    typeof v.transactionId === "string" && v.transactionId.trim().length > 0
+    typeof v.transactionId === "string" &&
+    v.transactionId.trim().length > 0 &&
+    (v.allowAccountTransfer === undefined || typeof v.allowAccountTransfer === "boolean")
   );
 }
 
@@ -919,7 +922,25 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       const data = await deps.appleIapService.verifyProMonthlyTransaction({
         userId: userContext.userId,
         transactionId: body.transactionId.trim(),
+        allowAccountTransfer: body.allowAccountTransfer === true,
       });
+
+      if (data.ownershipTransferred) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.ios.subscription_ownership_transferred",
+          level: "info",
+          status: "success",
+          metadata: {
+            originalTransactionId: data.originalTransactionId,
+            transactionId: data.transactionId,
+            productCode: data.productCode,
+            environment: data.environment,
+          },
+        });
+      }
 
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -949,6 +970,16 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         });
       }
       if (error instanceof AppleIapSubscriptionAlreadyBoundError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.ios.subscription_ownership_conflict",
+          level: "warn",
+          status: "failed",
+          errorCode: error.code,
+          metadata: { originalTransactionId: error.originalTransactionId },
+        });
         return reply.status(409).send({
           ok: false,
           request_id: requestId,
@@ -956,6 +987,49 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
             code: error.code,
             message: CLIENT_ERROR_MESSAGES.APPLE_SUBSCRIPTION_ALREADY_BOUND,
             originalTransactionId: error.originalTransactionId,
+          },
+        });
+      }
+      if (error instanceof AppleIapVerifyError && error.code === "APPLE_APP_ACCOUNT_TOKEN_MISMATCH") {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.ios.subscription_ownership_conflict",
+          level: "warn",
+          status: "failed",
+          errorCode: error.code,
+          metadata: error.details,
+        });
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.APPLE_SUBSCRIPTION_ALREADY_BOUND,
+          },
+        });
+      }
+      if (
+        error instanceof AppleIapVerifyError &&
+        error.code.startsWith("APPLE_SUBSCRIPTION_TRANSFER_")
+      ) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.ios.subscription_ownership_transfer_failed",
+          level: "warn",
+          status: "failed",
+          errorCode: error.code,
+          errorMessage: message,
+        });
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.APPLE_SUBSCRIPTION_TRANSFER_FAILED,
           },
         });
       }
