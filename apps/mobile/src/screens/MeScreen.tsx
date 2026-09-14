@@ -145,37 +145,15 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
     };
   }, [isActive, isMounted, sessionRevision]);
 
-  const quota = useMemo(() => {
-    if (usageV2) {
-      const remainingRatio = Math.max(0, Math.min(1, usageV2.token.remainingPercent / 100));
-      const usedRatio = usageV2.token.quota > 0
-        ? Math.max(0, Math.min(1, usageV2.token.used / usageV2.token.quota))
-        : 0;
-      const usedPercent = Math.round(usedRatio * 1000) / 10;
-      return {
-        dailyTotalLimit: usageV2.token.quota,
-        remainingChars: usageV2.token.remaining,
-        remainingPercent: usageV2.token.remainingPercent,
-        ratio: remainingRatio,
-        usedPercent,
-        usedRatio,
-      };
-    }
-    const dailyTotalLimit = entitlement?.dailyTotalLimit ?? (session?.sessionFlags?.isPro ? 10000 : 10000);
-    const remainingChars = entitlement?.remainingChars ?? null;
-    const ratio = remainingChars === null || dailyTotalLimit <= 0 ? 0 : remainingChars / dailyTotalLimit;
-
-    // 进度条只接受 0-1，避免异常数据把布局撑出容器。
-    const normalizedRatio = Math.max(0, Math.min(1, ratio));
+  const pointsUsage = useMemo(() => {
+    if (!usageV2) return null;
+    const usedRatio = usageV2.token.quota > 0
+      ? Math.max(0, Math.min(1, usageV2.token.used / usageV2.token.quota))
+      : 0;
     return {
-      dailyTotalLimit,
-      remainingChars,
-      remainingPercent: Math.round(normalizedRatio * 100),
-      ratio: normalizedRatio,
-      usedPercent: Math.round((1 - normalizedRatio) * 100),
-      usedRatio: 1 - normalizedRatio,
+      usedRatio,
     };
-  }, [entitlement, session?.sessionFlags?.isPro, usageV2]);
+  }, [usageV2]);
   const imageQuota = useMemo(() => {
     if (!usageV2) return null;
     const capacity = Number(usageV2.images.quotaBytes ?? usageV2.images.capacityBytes);
@@ -191,15 +169,10 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
   const isAdmin = session?.user.role === "admin";
   const isMember = entitlement ? (entitlement.isMember ?? entitlement.isPro) : session?.sessionFlags?.isPro === true;
   const planLabel = resolvePlanLabel(entitlement, session);
-  const quotaTitle = usageV2 ? t("me.quota.v2_title") : isMember ? t("me.quota.pro_title") : t("me.quota.free_title");
-  const quotaLabel = isMember ? t("me.quota.pro_label") : t("me.quota.free_label");
+  const quotaTitle = t("me.quota.v2_title");
   const quotaResetText = usageV2
     ? tf("me.quota.v2_refresh", { time: formatDateTime(usageV2.token.periodEnd) })
-    : isMember
-    ? t("me.quota.reset_daily")
-    : entitlement?.validUntil
-      ? tf("me.quota.valid_until", { time: formatDateTime(entitlement.validUntil) })
-      : t("me.quota.free_valid");
+    : t("me.quota.v2_loading");
   const bindingSummary = bindings?.email.bound
     ? bindings.email.maskedValue ?? t("me.bindings.bound")
     : bindings?.phone.maskedValue ?? t("me.bindings.view");
@@ -251,41 +224,25 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
 
         <View style={styles.quotaCard}>
           <Text style={styles.cardTitle}>{quotaTitle}</Text>
-          {usageV2 ? (
-            <>
-              <UsageMeter
-                label={t("me.quota.v2_ai")}
-                value={tf("me.quota.v2_used_percent", { percent: quota.usedPercent })}
-                ratio={quota.usedRatio}
-                loading={isLoadingEntitlement}
-              />
-              <UsageMeter
-                label={t("me.quota.v2_images")}
-                value={tf("me.quota.v2_used_amount", {
-                  used: formatStorageBytes(usageV2.images.uploadedBytes ?? usageV2.images.usedBytes),
-                  total: formatStorageBytes(usageV2.images.quotaBytes ?? usageV2.images.capacityBytes),
-                })}
-                ratio={imageQuota?.ratio ?? 0}
-              />
-              <Text style={styles.usageRefreshText}>{quotaResetText}</Text>
-            </>
-          ) : (
-            <>
-              <View style={styles.quotaRow}>
-                <Text style={styles.quotaLabel}>{quotaLabel}</Text>
-                <Text style={styles.quotaNumber}>{quota.remainingChars === null ? "--" : formatNumber(quota.remainingChars)}</Text>
-                <Text style={styles.quotaUnit}>{t("me.quota.unit")}</Text>
-                {isLoadingEntitlement ? <ActivityIndicator size="small" color={theme.colors.accentStrong} style={styles.quotaLoading} /> : null}
-              </View>
-              <View style={styles.progressRow}>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${quota.ratio * 100}%` }]} />
-                </View>
-                <Text style={styles.progressText}>{quota.remainingPercent}%</Text>
-              </View>
-              <Text style={styles.resetText}>{quotaResetText}</Text>
-            </>
-          )}
+          <UsageMeter
+            label={t("me.quota.v2_ai")}
+            value={pointsUsage && usageV2 ? tf("me.quota.v2_points_remaining", {
+              remaining: formatNumber(usageV2.token.remaining),
+              total: formatNumber(usageV2.token.quota),
+            }) : "--"}
+            ratio={pointsUsage?.usedRatio ?? 0}
+            loading={!usageV2}
+          />
+          <UsageMeter
+            label={t("me.quota.v2_images")}
+            value={usageV2 ? tf("me.quota.v2_used_amount", {
+              used: formatStorageBytes(usageV2.images.uploadedBytes ?? usageV2.images.usedBytes),
+              total: formatStorageBytes(usageV2.images.quotaBytes ?? usageV2.images.capacityBytes),
+            }) : "--"}
+            ratio={imageQuota?.ratio ?? 0}
+            loading={!usageV2}
+          />
+          <Text style={styles.usageRefreshText}>{quotaResetText}</Text>
         </View>
 
         <MembershipSummaryCard
@@ -328,7 +285,9 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
         <SubscriptionManagementScreen
           onBack={() => setSubscriptionManagerVisible(false)}
           initialEntitlement={entitlement}
+          initialUsage={usageV2}
           onEntitlementChanged={handleEntitlementChanged}
+          onUsageChanged={setUsageV2}
         />
       </Modal>
       <ProfileEditModal

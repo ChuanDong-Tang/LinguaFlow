@@ -36,7 +36,7 @@ import {
 } from "../services/api/paymentApi";
 import { refreshEntitlementAndSession } from "../services/entitlement/entitlementSync";
 import { getCachedEntitlementForUser, isSameEntitlement, setCachedEntitlement } from "../services/entitlement/entitlementCache";
-import { getCurrentEntitlement, type CurrentEntitlement } from "../services/api/meApi";
+import { getCurrentEntitlement, getUsageV2, type CurrentEntitlement, type UsageV2 } from "../services/api/meApi";
 import { getSession, setSession } from "../services/auth/authStorage";
 import {
   APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID,
@@ -74,7 +74,9 @@ type ProScreenProps = {
   onBack?: () => void;
   compact?: boolean;
   initialEntitlement?: CurrentEntitlement | null;
+  initialUsage?: UsageV2 | null;
   onEntitlementChanged?: (entitlement: CurrentEntitlement) => void;
+  onUsageChanged?: (usage: UsageV2) => void;
 };
 type AppleIapBridgeState = Pick<
   ReturnType<typeof useIAP>,
@@ -115,7 +117,9 @@ export function ProScreen({
   onBack = () => {},
   compact = false,
   initialEntitlement = null,
+  initialUsage = null,
   onEntitlementChanged,
+  onUsageChanged,
 }: ProScreenProps) {
   const { isMounted: isScreenAlive, safeAlert } = useMountedGuard();
   const [isPaying, setIsPaying] = useState(false);
@@ -134,6 +138,7 @@ export function ProScreen({
   const [catalogProducts, setCatalogProducts] = useState<MobilePaymentCatalogProduct[]>([]);
   const [billingPeriod, setBillingPeriod] = useState<MobilePaymentBillingPeriod>("year");
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(initialEntitlement);
+  const [usageV2, setUsageV2] = useState<UsageV2 | null>(initialUsage);
   const applePurchaseIntentRef = useRef(false);
   const applePurchaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appleAppAccountTokenRef = useRef<string | null>(null);
@@ -165,7 +170,7 @@ export function ProScreen({
   const liveProductPrices = resolveMembershipPriceLabels(appleIap, productQuotes);
   const productPrices = liveProductPrices;
   const [pointsUsageVisible, setPointsUsageVisible] = useState(false);
-  const quotaBenefit = resolveQuotaBenefit(currentEntitlement);
+  const quotaBenefit = resolveQuotaBenefit(currentEntitlement, usageV2);
   const membershipStatusLabel = resolveMembershipStatusLabel({
     isMember: isRenew,
     expiresAt: proExpiresAt,
@@ -198,9 +203,18 @@ export function ProScreen({
     void saveCachedAutoRenewSubscriptionForCurrentUser(subscription);
   }
 
+  function applyUsageToState(usage: UsageV2): void {
+    setUsageV2(usage);
+    onUsageChanged?.(usage);
+  }
+
   useEffect(() => {
     if (initialEntitlement) applyEntitlementToState(initialEntitlement);
   }, [initialEntitlement]);
+
+  useEffect(() => {
+    if (initialUsage) applyUsageToState(initialUsage);
+  }, [initialUsage]);
 
   function alertOpenSuccess(input?: MembershipTierInput): void {
     const tier = resolveMembershipTier(input);
@@ -245,12 +259,23 @@ export function ProScreen({
     }
   }
 
+  async function loadUsageState(): Promise<UsageV2 | null> {
+    try {
+      const usage = await getUsageV2();
+      if (isScreenAlive()) applyUsageToState(usage);
+      return usage;
+    } catch {
+      return null;
+    }
+  }
+
   async function refreshProEntitlementState(): Promise<Awaited<ReturnType<typeof refreshEntitlementAndSession>> | null> {
     try {
       const result = await refreshEntitlementAndSession();
       if (isScreenAlive()) {
         applyEntitlementToState(result.entitlement);
       }
+      await loadUsageState();
       return result;
     } catch {
       return null;
@@ -355,7 +380,7 @@ export function ProScreen({
         }
       }
 
-      await loadProEntitlementState();
+      await Promise.all([loadProEntitlementState(), loadUsageState()]);
     })();
     return () => {
       cancelled = true;
@@ -1823,7 +1848,7 @@ function formatStorageBytes(value: number): string {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(amount)} ${units[unitIndex]}`;
 }
 
-function resolveQuotaBenefit(entitlement: CurrentEntitlement | null): { title: string; subtitle: string } {
+function resolveQuotaBenefit(entitlement: CurrentEntitlement | null, usage: UsageV2 | null): { title: string; subtitle: string } {
   if (!entitlement) {
     return {
       title: t("pro.quota.syncing_title"),
@@ -1831,20 +1856,16 @@ function resolveQuotaBenefit(entitlement: CurrentEntitlement | null): { title: s
     };
   }
 
-  if (entitlement.isMember ?? entitlement.isPro) {
-    const planName = entitlement.tier === "plus" ? "Plus" : "Pro";
+  if (usage) {
     return {
-      title: tf("pro.quota.member_title", { plan: planName, count: formatNumber(entitlement.dailyTotalLimit) }),
-      subtitle: entitlement.expiresAt
-        ? tf("pro.quota.member_subtitle", { date: formatDate(entitlement.expiresAt) })
-        : t("pro.quota.member_active"),
+      title: t("me.quota.v2_ai"),
+      subtitle: tf("subscription.manager.points_remaining", { count: formatNumber(usage.token.remaining) }),
     };
   }
 
-  const validUntil = entitlement.validUntil ? tf("pro.quota.free_valid_until", { date: formatDate(entitlement.validUntil) }) : "";
   return {
-    title: tf("pro.quota.free_title", { count: formatNumber(entitlement.dailyTotalLimit) }),
-    subtitle: tf("pro.quota.free_subtitle", { count: formatNumber(entitlement.remainingChars), validUntil }),
+    title: t("me.quota.v2_ai"),
+    subtitle: t("subscription.manager.points_unavailable"),
   };
 }
 

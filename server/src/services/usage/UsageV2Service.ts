@@ -157,24 +157,26 @@ export class UsageV2Service {
           : subscription.subscription ? "subscription_cycle" : "free_calendar_month",
         configVersion: config.usageV2ConfigVersion,
       },
-      // A paid cycle keeps the grant snapshot it was created with.
+      // Existing cycles are reconciled below instead of being rewritten by upsert.
       update: {},
     });
-    // A manual tier overlay changes the ceiling without creating a fresh usage
-    // window. On downgrade, never set the ceiling below already consumed or
-    // reserved points; that simply leaves no further allowance this cycle.
-    if (cycle.tier !== subscription.tier) {
-      const reconciledQuotaTokens = Math.max(
-        quotaTokens,
-        cycle.usedTokens + cycle.reservedTokens,
-      );
+    // Keep the current cycle monotonic when plan/config grants change:
+    // - tier changes take effect without opening a fresh usage window;
+    // - same-tier increases are granted immediately;
+    // - same-tier decreases wait for the next cycle, avoiding clawbacks.
+    const reconciledGrant = resolveTokenGrantReconciliation({
+      currentTier: cycle.tier,
+      currentQuotaTokens: cycle.quotaTokens,
+      usedTokens: cycle.usedTokens,
+      reservedTokens: cycle.reservedTokens,
+      targetTier: subscription.tier,
+      targetQuotaTokens: quotaTokens,
+      configVersion: config.usageV2ConfigVersion,
+    });
+    if (reconciledGrant) {
       cycle = await this.prisma.aiTokenCycle.update({
         where: { id: cycle.id },
-        data: {
-          tier: subscription.tier,
-          quotaTokens: reconciledQuotaTokens,
-          configVersion: config.usageV2ConfigVersion,
-        },
+        data: reconciledGrant,
       });
     }
     cycle = await this.reconcilePrematureTokenUsage(userId, cycle, now);
@@ -705,6 +707,28 @@ function tokenLimit(tier: MembershipTier): number {
   if (tier === "pro") return config.proMonthlyTokenLimit;
   if (tier === "plus") return config.plusMonthlyTokenLimit;
   return config.freeMonthlyTokenLimit;
+}
+
+export function resolveTokenGrantReconciliation(input: {
+  currentTier: string;
+  currentQuotaTokens: number;
+  usedTokens: number;
+  reservedTokens: number;
+  targetTier: MembershipTier;
+  targetQuotaTokens: number;
+  configVersion: string;
+}): { tier: MembershipTier; quotaTokens: number; configVersion: string } | null {
+  const tierChanged = input.currentTier !== input.targetTier;
+  const sameTierIncrease = !tierChanged && input.targetQuotaTokens > input.currentQuotaTokens;
+  if (!tierChanged && !sameTierIncrease) return null;
+
+  return {
+    tier: input.targetTier,
+    quotaTokens: tierChanged
+      ? Math.max(input.targetQuotaTokens, input.usedTokens + input.reservedTokens)
+      : input.targetQuotaTokens,
+    configVersion: input.configVersion,
+  };
 }
 
 function monthlyImageUploadLimit(tier: MembershipTier): number {
