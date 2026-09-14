@@ -4,4 +4,8 @@ export type PaymentProviderName = "apple_iap" | "google_play_iap";
 
 export type PaymentOrderStatus = "pending" | "paid" | "closed" | "failed" | "refunded";
 
-export type PaymentProductCode = "plus_monthly" | "pro_monthly";
+export type PaymentProductCode =
+  | "plus_monthly"
+  | "plus_yearly"
+  | "pro_monthly"
+  | "pro_yearly";

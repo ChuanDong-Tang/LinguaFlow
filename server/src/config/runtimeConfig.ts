@@ -29,7 +29,9 @@ export interface PaymentRuntimeConfig {
     privateKey: string | null;
     rootCa: string | null;
     plusMonthlyProductId: string | null;
+    plusYearlyProductId: string | null;
     proMonthlyProductId: string | null;
+    proYearlyProductId: string | null;
     proMonthlyOneTimeProductId: string | null;
     allowSandboxFallback: boolean;
   };
@@ -45,9 +47,13 @@ export interface PaymentRuntimeConfig {
     packageName: string | null;
     serviceAccountJson: string | null;
     plusMonthlyProductId: string | null;
+    plusYearlyProductId: string | null;
     proMonthlyProductId: string | null;
+    proYearlyProductId: string | null;
     plusMonthlyBasePlanId: string | null;
+    plusYearlyBasePlanId: string | null;
     proMonthlyBasePlanId: string | null;
+    proYearlyBasePlanId: string | null;
     notifyToken: string | null;
     notifyOidcAudience: string | null;
     notifyOidcServiceAccountEmail: string | null;
@@ -60,7 +66,9 @@ export interface PaymentRuntimeConfig {
     gatewayUrl: string;
     notifyUrl: string | null;
     plusMonthlyPriceId: string | null;
+    plusYearlyPriceId: string | null;
     proMonthlyPriceId: string | null;
+    proYearlyPriceId: string | null;
     proSpecialPriceId: string | null;
     proSpecialPriceIdentifiers: string[];
     requestTimeoutMs: number;
@@ -548,7 +556,9 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       privateKey: trimToNull(env.APPLE_IAP_PRIVATE_KEY),
       rootCa: trimToNull(env.APPLE_IAP_ROOT_CA),
       plusMonthlyProductId: trimToNull(env.APPLE_IAP_PLUS_MONTHLY_PRODUCT_ID),
+      plusYearlyProductId: trimToNull(env.APPLE_IAP_PLUS_YEARLY_PRODUCT_ID),
       proMonthlyProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_PRODUCT_ID),
+      proYearlyProductId: trimToNull(env.APPLE_IAP_PRO_YEARLY_PRODUCT_ID),
       proMonthlyOneTimeProductId: trimToNull(env.APPLE_IAP_PRO_MONTHLY_ONE_TIME_PRODUCT_ID),
       allowSandboxFallback: readBoolean(env.APPLE_IAP_ALLOW_SANDBOX_FALLBACK, mode !== "production"),
     },
@@ -564,9 +574,13 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       packageName: trimToNull(env.GOOGLE_PLAY_PACKAGE_NAME),
       serviceAccountJson: trimToNull(env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON),
       plusMonthlyProductId: trimToNull(env.GOOGLE_PLAY_PLUS_MONTHLY_PRODUCT_ID),
+      plusYearlyProductId: trimToNull(env.GOOGLE_PLAY_PLUS_YEARLY_PRODUCT_ID),
       proMonthlyProductId: trimToNull(env.GOOGLE_PLAY_PRO_MONTHLY_PRODUCT_ID),
+      proYearlyProductId: trimToNull(env.GOOGLE_PLAY_PRO_YEARLY_PRODUCT_ID),
       plusMonthlyBasePlanId: trimToNull(env.GOOGLE_PLAY_PLUS_MONTHLY_BASE_PLAN_ID),
+      plusYearlyBasePlanId: trimToNull(env.GOOGLE_PLAY_PLUS_YEARLY_BASE_PLAN_ID),
       proMonthlyBasePlanId: trimToNull(env.GOOGLE_PLAY_PRO_MONTHLY_BASE_PLAN_ID),
+      proYearlyBasePlanId: trimToNull(env.GOOGLE_PLAY_PRO_YEARLY_BASE_PLAN_ID),
       notifyToken: trimToNull(env.GOOGLE_PLAY_NOTIFY_TOKEN),
       notifyOidcAudience: trimToNull(env.GOOGLE_PLAY_NOTIFY_OIDC_AUDIENCE),
       notifyOidcServiceAccountEmail: trimToNull(env.GOOGLE_PLAY_NOTIFY_OIDC_SERVICE_ACCOUNT_EMAIL),
@@ -579,7 +593,9 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       gatewayUrl: env.ALIPAY_GATEWAY_URL?.trim() || "https://openapi.alipay.com/gateway.do",
       notifyUrl: trimToNull(env.ALIPAY_NOTIFY_URL),
       plusMonthlyPriceId: trimToNull(env.ALIPAY_PLUS_MONTHLY_PRICE_ID),
+      plusYearlyPriceId: trimToNull(env.ALIPAY_PLUS_YEARLY_PRICE_ID),
       proMonthlyPriceId: trimToNull(env.ALIPAY_PRO_MONTHLY_PRICE_ID),
+      proYearlyPriceId: trimToNull(env.ALIPAY_PRO_YEARLY_PRICE_ID),
       proSpecialPriceId: trimToNull(env.ALIPAY_PRO_SPECIAL_PRICE_ID),
       proSpecialPriceIdentifiers: readCsv(env.ALIPAY_PRO_SPECIAL_PRICE_IDENTIFIERS, []),
       requestTimeoutMs: readPositiveInt(env.ALIPAY_REQUEST_TIMEOUT_MS, 15_000),

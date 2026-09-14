@@ -334,8 +334,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            ar.provider AS "autoRenewProvider",
            ar.status AS "autoRenewStatus",
            CASE
-             WHEN s.status = 'active' AND s."startedAt" <= now() AND s."expiresAt" > now() AND s.plan = 'plus_monthly' THEN 'plus'
-             WHEN s.status = 'active' AND s."startedAt" <= now() AND s."expiresAt" > now() AND s.plan = 'pro_monthly' THEN 'pro'
+             WHEN s.status = 'active' AND s."startedAt" <= now() AND s."expiresAt" > now() AND s.plan IN ('plus_monthly', 'plus_yearly') THEN 'plus'
+             WHEN s.status = 'active' AND s."startedAt" <= now() AND s."expiresAt" > now() AND s.plan IN ('pro_monthly', 'pro_yearly') THEN 'pro'
              WHEN s.id IS NULL THEN 'non_member'
              WHEN s.status = 'cancelled' THEN 'cancelled'
              ELSE 'expired'
@@ -347,8 +347,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            WHERE sub."userId" = u.id
            ORDER BY
              CASE
-               WHEN sub.status = 'active' AND sub."startedAt" <= now() AND sub."expiresAt" > now() AND sub.plan = 'pro_monthly' THEN 0
-               WHEN sub.status = 'active' AND sub."startedAt" <= now() AND sub."expiresAt" > now() AND sub.plan = 'plus_monthly' THEN 1
+               WHEN sub.status = 'active' AND sub."startedAt" <= now() AND sub."expiresAt" > now() AND sub.plan IN ('pro_monthly', 'pro_yearly') THEN 0
+               WHEN sub.status = 'active' AND sub."startedAt" <= now() AND sub."expiresAt" > now() AND sub.plan IN ('plus_monthly', 'plus_yearly') THEN 1
                ELSE 2
              END,
              sub."expiresAt" DESC,
@@ -786,7 +786,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
            WHERE status = 'active'
              AND "startedAt" <= now()
              AND "expiresAt" > now()
-           ORDER BY "userId", CASE WHEN plan = 'pro_monthly' THEN 0 ELSE 1 END, "expiresAt" DESC
+           ORDER BY "userId", CASE WHEN plan IN ('pro_monthly', 'pro_yearly') THEN 0 ELSE 1 END, "expiresAt" DESC
          ),
          today_entitlements AS (
            SELECT "userId","dateKey","dailyTotalLimit","usedTotalChars"
@@ -802,8 +802,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
          SELECT
            (SELECT COUNT(*)::int FROM active_users) AS "totalUsers",
            (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id) AS "memberUsers",
-           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id WHERE am.plan = 'plus_monthly') AS "plusUsers",
-           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id WHERE am.plan = 'pro_monthly') AS "proUsers",
+           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id WHERE am.plan IN ('plus_monthly', 'plus_yearly')) AS "plusUsers",
+           (SELECT COUNT(DISTINCT u.id)::int FROM active_users u JOIN active_memberships am ON am."userId" = u.id WHERE am.plan IN ('pro_monthly', 'pro_yearly')) AS "proUsers",
            (SELECT COUNT(*)::int FROM active_users u LEFT JOIN active_memberships am ON am."userId" = u.id WHERE am."userId" IS NULL) AS "nonMemberUsers",
            (SELECT COUNT(DISTINCT "userId")::int FROM today_entitlements) AS "todayQuotaUsers",
            COALESCE((SELECT ROUND(AVG("usedTotalChars")::numeric, 2)::float8 FROM today_entitlements), 0) AS "todayAvgUsedChars",
@@ -916,7 +916,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
              FROM "subscriptions" s
              JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
              WHERE s.status = 'active'
-               AND s.plan IN ('plus_monthly', 'pro_monthly')
+               AND s.plan IN ('plus_monthly', 'plus_yearly', 'pro_monthly', 'pro_yearly')
                AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
                AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
            ) AS "memberUsers",
@@ -925,7 +925,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
              FROM "subscriptions" s
              JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
              WHERE s.status = 'active'
-               AND s.plan = 'plus_monthly'
+               AND s.plan IN ('plus_monthly', 'plus_yearly')
                AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
                AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
            ) AS "plusUsers",
@@ -934,7 +934,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
              FROM "subscriptions" s
              JOIN "users" u ON u.id = s."userId" AND u.status = 'active'
              WHERE s.status = 'active'
-               AND s.plan = 'pro_monthly'
+               AND s.plan IN ('pro_monthly', 'pro_yearly')
                AND s."startedAt" < ((d.day + 1)::timestamp AT TIME ZONE $3)
                AND s."expiresAt" > (d.day::timestamp AT TIME ZONE $3)
            ) AS "proUsers",
@@ -2580,8 +2580,8 @@ function paymentGrantSourceOrderIds(order: { id?: unknown; provider?: unknown; p
 }
 
 function membershipPlanRank(plan: unknown): number {
-  if (plan === "pro_monthly") return 2;
-  if (plan === "plus_monthly") return 1;
+  if (plan === "pro_monthly" || plan === "pro_yearly") return 2;
+  if (plan === "plus_monthly" || plan === "plus_yearly") return 1;
   return 0;
 }
 

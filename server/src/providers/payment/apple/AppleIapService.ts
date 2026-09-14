@@ -233,6 +233,53 @@ export class AppleIapService {
       renewalInfo: matching.renewalInfo,
       transaction: matching.transaction,
     };
+    const transactionTarget = matching.transaction?.productId
+      ? resolveApplePurchase(matching.transaction.productId, config)
+      : null;
+    const transactionPeriodEnd = dateFromAppleMilliseconds(matching.transaction?.expiresDate);
+    if (
+      transactionTarget?.purchaseKind === "auto_renew" &&
+      matching.transaction?.transactionId &&
+      matching.transaction.transactionId !== subscription.latestTransactionId &&
+      transactionPeriodEnd
+    ) {
+      await this.autoRenewService.handleApplePaidTransaction({
+        originalTransactionId: subscription.providerAgreementId,
+        transactionId: matching.transaction.transactionId,
+        productCode: transactionTarget.productCode,
+        periodStart: dateFromAppleMilliseconds(matching.transaction.purchaseDate),
+        periodEnd: transactionPeriodEnd,
+        rawPayload,
+      });
+    }
+    const effectiveProductCode = transactionTarget?.purchaseKind === "auto_renew"
+      ? transactionTarget.productCode
+      : subscription.productCode;
+    const renewalTarget = matching.renewalInfo?.autoRenewProductId
+      ? resolveApplePurchase(matching.renewalInfo.autoRenewProductId, config)
+      : null;
+    if (
+      renewalTarget?.purchaseKind === "auto_renew" &&
+      renewalTarget.productCode !== effectiveProductCode
+    ) {
+      await this.autoRenewService.confirmScheduledPlanChange({
+        provider: "apple",
+        providerAgreementId: subscription.providerAgreementId,
+        targetProductCode: renewalTarget.productCode,
+        effectiveAt: subscription.currentPeriodEnd,
+        rawPayload,
+      });
+    } else if (
+      renewalTarget?.purchaseKind === "auto_renew" &&
+      renewalTarget.productCode === effectiveProductCode
+    ) {
+      await this.autoRenewService.reconcileRevertedScheduledPlanChange({
+        provider: "apple",
+        providerAgreementId: subscription.providerAgreementId,
+        observedCurrentProductCode: effectiveProductCode,
+        rawPayload,
+      });
+    }
     if (shouldTerminate) {
       await this.autoRenewService.handleAppleCancelled({
         originalTransactionId: subscription.providerAgreementId,
@@ -246,6 +293,10 @@ export class AppleIapService {
         rawPayload,
       });
     }
+    await this.autoRenewService.recoverStaleUnconfirmedPlanChange({
+      provider: "apple",
+      providerAgreementId: subscription.providerAgreementId,
+    });
     return result;
   }
 
@@ -419,7 +470,9 @@ export class AppleIapService {
       throw new AppleIapVerifyError("Product id mismatch", "APPLE_PRODUCT_ID_MISMATCH", {
         expectedProductIds: [
           config.plusProductId,
+          config.plusYearlyProductId,
           config.proProductId,
+          config.proYearlyProductId,
           config.proMonthlyOneTimeProductId,
         ].filter(Boolean),
         actualProductId: transaction.productId,
@@ -973,12 +1026,15 @@ function findAppleSubscriptionStatus(
   statuses: Awaited<ReturnType<typeof fetchSubscriptionStatuses>>["statuses"],
   input: { originalTransactionId: string; productId: string }
 ) {
-  return statuses.find((item) => {
+  const sameAgreement = statuses.filter((item) => {
     const originalTransactionId =
       item.transaction?.originalTransactionId || item.renewalInfo?.originalTransactionId;
-    const productId = item.transaction?.productId || item.renewalInfo?.productId || item.renewalInfo?.autoRenewProductId;
-    return originalTransactionId === input.originalTransactionId && productId === input.productId;
-  }) ?? null;
+    return originalTransactionId === input.originalTransactionId;
+  });
+  return sameAgreement.find((item) => {
+    const productId = item.transaction?.productId || item.renewalInfo?.productId;
+    return productId === input.productId;
+  }) ?? sameAgreement[0] ?? null;
 }
 
 function shouldTerminateAppleAutoRenewFromStatus(
@@ -1019,6 +1075,12 @@ function isAppleRefundOrRevoke(notificationType: string | undefined): boolean {
 function resolveAppleRevocationDate(transaction: { revocationDate?: number | null }): Date | null {
   if (typeof transaction.revocationDate !== "number" || !Number.isFinite(transaction.revocationDate)) return null;
   const date = new Date(transaction.revocationDate);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function dateFromAppleMilliseconds(value: number | null | undefined): Date | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date : null;
 }
 
@@ -1100,13 +1162,25 @@ function isAppleSubscriptionBoundRepositoryError(error: unknown): boolean {
 
 function resolveApplePurchase(
   productId: string,
-  config: { plusProductId: string | null; proProductId: string; proMonthlyOneTimeProductId: string | null }
+  config: {
+    plusProductId: string | null;
+    plusYearlyProductId: string | null;
+    proProductId: string;
+    proYearlyProductId: string | null;
+    proMonthlyOneTimeProductId: string | null;
+  }
 ): { productCode: PaymentProductCode; purchaseKind: VerifyAppleIapTransactionResult["purchaseKind"] } | null {
   if (config.plusProductId && productId === config.plusProductId) {
     return { productCode: "plus_monthly", purchaseKind: "auto_renew" };
   }
+  if (config.plusYearlyProductId && productId === config.plusYearlyProductId) {
+    return { productCode: "plus_yearly", purchaseKind: "auto_renew" };
+  }
   if (productId === config.proProductId) {
     return { productCode: "pro_monthly", purchaseKind: "auto_renew" };
+  }
+  if (config.proYearlyProductId && productId === config.proYearlyProductId) {
+    return { productCode: "pro_yearly", purchaseKind: "auto_renew" };
   }
   if (config.proMonthlyOneTimeProductId && productId === config.proMonthlyOneTimeProductId) {
     return { productCode: "pro_monthly", purchaseKind: "single_purchase" };
@@ -1115,10 +1189,18 @@ function resolveApplePurchase(
 }
 
 function getAppleSubscriptionProductId(
-  config: { plusProductId: string | null; proProductId: string },
+  config: {
+    plusProductId: string | null;
+    plusYearlyProductId: string | null;
+    proProductId: string;
+    proYearlyProductId: string | null;
+  },
   productCode: PaymentProductCode
 ): string | null {
-  return productCode === "plus_monthly" ? config.plusProductId : config.proProductId;
+  if (productCode === "plus_monthly") return config.plusProductId;
+  if (productCode === "plus_yearly") return config.plusYearlyProductId;
+  if (productCode === "pro_yearly") return config.proYearlyProductId;
+  return config.proProductId;
 }
 
 function createAppleAppAccountToken(userId: string): string {

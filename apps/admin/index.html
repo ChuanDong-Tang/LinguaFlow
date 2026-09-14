@@ -3829,7 +3829,7 @@
         ["昵称", user.nickname || "-"],
         ["邮箱/手机", `${user.email || "-"} / ${user.phone || "-"}`],
         ["账号状态", user.status],
-        ["当前会员", sub ? `${sub.plan === "plus_monthly" ? "Plus" : "Pro"}，到期 ${fmtDate(sub.expiresAt)}` : "免费用户"],
+        ["当前会员", sub ? `${membershipPlanLabel(sub.plan)}，到期 ${fmtDate(sub.expiresAt)}` : "免费用户"],
         ["生效来源", sub ? subscriptionSourceLabel(sub.sourceOrderId, sub.sourceProvider, sub.sourceType) : "-"],
         ["自动续费", autoRenew ? `${autoRenew.provider} / ${autoRenew.status}` : "无"],
       ].map(([label, value]) => `
@@ -3966,6 +3966,12 @@
       if (source.startsWith("wechat_autorenew:")) return "微信支付自动续费";
       if (source.startsWith("admin_")) return "后台手动开通";
       return provider ? paymentProviderLabel(provider) : sourceOrderId || "-";
+    }
+
+    function membershipPlanLabel(plan) {
+      const tier = String(plan || "").startsWith("plus_") ? "Plus" : "Pro";
+      const period = String(plan || "").endsWith("_yearly") ? "年费" : "月费";
+      return `${tier} ${period}`;
     }
 
     function formatPaymentAmount(amount, currency) {

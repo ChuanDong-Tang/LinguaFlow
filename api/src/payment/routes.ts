@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { AutoRenewProductCode } from "@lf/core/ports/repository/AutoRenewRepository.js";
 import { timingSafeEqual } from "node:crypto";
 import { ProRenewalTooEarlyError } from "@lf/server/services/payment/ProPrepaidLimit.js";
 import {
@@ -6,6 +7,8 @@ import {
   AutoRenewAlreadyActiveError,
   AutoRenewConcurrentCreateError,
   AutoRenewNotFoundError,
+  AutoRenewPlanAlreadyCurrentError,
+  AutoRenewPlanChangePendingError,
   AutoRenewSwitchBlockedError,
   type AutoRenewService,
 } from "@lf/server/services/payment/AutoRenewService.js";
@@ -148,14 +151,27 @@ function isCancelAutoRenewRequest(value: unknown): value is { autoRenewSubscript
 
 const isResumeAutoRenewRequest = isCancelAutoRenewRequest;
 
-const isCreateAlipayAutoRenewRequest = (value: unknown): value is { productCode: "plus_monthly" | "pro_monthly" } => {
+const isCreateAlipayAutoRenewRequest = (value: unknown): value is { productCode: AutoRenewProductCode } => {
   if (!value || typeof value !== "object") return false;
   return isPaymentProductCode((value as Record<string, unknown>).productCode);
 };
 
-function isPaymentProductCode(value: unknown): value is "plus_monthly" | "pro_monthly" {
-  return value === "plus_monthly" || value === "pro_monthly";
+function isPaymentProductCode(value: unknown): value is AutoRenewProductCode {
+  return ["plus_monthly", "plus_yearly", "pro_monthly", "pro_yearly"].includes(String(value));
 }
+
+function isChangeAutoRenewPlanRequest(value: unknown): value is {
+  autoRenewSubscriptionId: string;
+  targetProductCode: AutoRenewProductCode;
+} {
+  if (!value || typeof value !== "object") return false;
+  const body = value as Record<string, unknown>;
+  return typeof body.autoRenewSubscriptionId === "string"
+    && body.autoRenewSubscriptionId.trim().length > 0
+    && isPaymentProductCode(body.targetProductCode);
+}
+
+const isAbandonAutoRenewPlanChangeRequest = isChangeAutoRenewPlanRequest;
 
 export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDeps): void {
   const config = getRuntimeConfig();
@@ -239,6 +255,39 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         monthlyImageUploadBytes: config.plusImageStorageBytes,
       },
     });
+  });
+
+  app.get("/payment/products", async (_req, reply) => {
+    const productCodes: AutoRenewProductCode[] = [
+      "plus_monthly",
+      "plus_yearly",
+      "pro_monthly",
+      "pro_yearly",
+    ];
+    const quotes = await Promise.all(productCodes.map(async (productCode) => {
+      const quote = await getAlipayProductQuoteOrNull(app, deps, productCode);
+      const tier = productCode.startsWith("plus_") ? "plus" : "pro";
+      const billingPeriod = productCode.endsWith("_yearly") ? "year" : "month";
+      return {
+        productCode,
+        tier,
+        billingPeriod,
+        alipay: {
+          configured: Boolean(quote),
+          amount: quote?.amount ?? null,
+          currency: quote?.currency ?? "CNY",
+          displayPrice: quote ? formatCnyPrice(quote.amount) : null,
+        },
+        apple: {
+          productId: appleProductIdFor(productCode, config),
+        },
+        googlePlay: {
+          productId: googleProductIdFor(productCode, config),
+          basePlanId: googleBasePlanIdFor(productCode, config),
+        },
+      };
+    }));
+    return reply.status(200).send({ ok: true, data: { products: quotes } });
   });
 
   app.get("/payment/autorenew/current", async (req, reply) => {
@@ -350,10 +399,247 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
               nextBillingAt: data.subscription.nextBillingAt?.toISOString() ?? null,
               cancelledAt: data.subscription.cancelledAt?.toISOString() ?? null,
               cancelAtPeriodEnd: readCancelAtPeriodEnd(data.subscription.metadata),
+              pendingProductCode: data.subscription.pendingProductCode,
+              pendingChangeStatus: data.subscription.pendingChangeStatus,
+              pendingChangeEffectiveAt:
+                data.subscription.pendingChangeEffectiveAt?.toISOString() ?? null,
+              pendingChangeRequestedAt:
+                data.subscription.pendingChangeRequestedAt?.toISOString() ?? null,
             }
           : null,
       },
     });
+  });
+
+  app.post("/payment/autorenew/change-plan", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: {
+        routeKey: "autorenew_plan_change",
+        path: "/payment/autorenew/change-plan",
+        limit: config.payment.rateLimitOrdersCreateLimit,
+        windowSec: config.payment.rateLimitOrdersCreateWindowSec,
+        responseType: "api",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+    if (!isChangeAutoRenewPlanRequest(req.body)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid plan change payload" },
+      });
+    }
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+    try {
+      const current = (await deps.autoRenewService.getCurrent(userContext.userId)).subscription;
+      if (!current || current.id !== req.body.autoRenewSubscriptionId.trim()) {
+        throw new AutoRenewNotFoundError();
+      }
+      if (current.provider === "alipay") {
+        const result = await deps.alipayAutoRenewService.changePlan({
+          userId: userContext.userId,
+          subscriptionId: current.id,
+          targetProductCode: req.body.targetProductCode,
+          requestId,
+        });
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.autorenew.plan_change_requested",
+          level: "info",
+          status: "success",
+          metadata: {
+            provider: current.provider,
+            fromProductCode: current.productCode,
+            toProductCode: result.targetProductCode,
+            timing: result.timing,
+            effectiveAt: result.effectiveAt?.toISOString() ?? null,
+          },
+        });
+        return reply.status(200).send({
+          ok: true,
+          request_id: requestId,
+          data: {
+            provider: current.provider,
+            targetProductCode: result.targetProductCode,
+            timing: result.timing,
+            effectiveAt: result.effectiveAt?.toISOString() ?? null,
+            jumpSchema: result.jumpSchema,
+          },
+        });
+      }
+
+      assertStoreProductConfigured(current.provider, req.body.targetProductCode, config);
+
+      const result = await deps.autoRenewService.requestPlanChange({
+        userId: userContext.userId,
+        autoRenewSubscriptionId: current.id,
+        targetProductCode: req.body.targetProductCode,
+        metadata: { source: "app_store_flow_prepared", requestId },
+      });
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.autorenew.plan_change_requested",
+        level: "info",
+        status: "success",
+        metadata: {
+          provider: current.provider,
+          fromProductCode: current.productCode,
+          toProductCode: req.body.targetProductCode,
+          timing: result.timing,
+          effectiveAt: result.effectiveAt?.toISOString() ?? null,
+        },
+      });
+      return reply.status(200).send({
+        ok: true,
+        request_id: requestId,
+        data: {
+          provider: current.provider,
+          targetProductCode: req.body.targetProductCode,
+          timing: result.timing,
+          effectiveAt: result.effectiveAt?.toISOString() ?? null,
+          appleProductId: current.provider === "apple"
+            ? appleProductIdFor(req.body.targetProductCode, config)
+            : null,
+          googlePlayProductId: current.provider === "google_play"
+            ? googleProductIdFor(req.body.targetProductCode, config)
+            : null,
+          googlePlayBasePlanId: current.provider === "google_play"
+            ? googleBasePlanIdFor(req.body.targetProductCode, config)
+            : null,
+          googlePlayReplacementMode: current.provider === "google_play"
+            ? result.timing === "immediate" ? "CHARGE_PRORATED_PRICE" : "DEFERRED"
+            : null,
+        },
+      });
+    } catch (error) {
+      const code = error instanceof AutoRenewPlanAlreadyCurrentError
+        ? error.code
+        : error instanceof AutoRenewPlanChangePendingError
+          ? error.code
+        : error instanceof AutoRenewNotFoundError || error instanceof AutoRenewAccessDeniedError
+          ? "AUTO_RENEW_NOT_FOUND"
+          : error instanceof Error
+            ? error.message.split(":")[0]
+            : "AUTO_RENEW_PLAN_CHANGE_FAILED";
+      const conflict = code === "AUTO_RENEW_PLAN_ALREADY_CURRENT"
+        || code.endsWith("PLAN_CHANGE_ALREADY_PENDING")
+        || code.endsWith("PLAN_CHANGE_CONFIRMATION_PENDING")
+        || code.endsWith("PLAN_CHANGE_WHILE_CANCEL_SCHEDULED");
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.autorenew.plan_change_failed",
+        level: conflict ? "warn" : "error",
+        status: "failed",
+        errorCode: code,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      return reply.status(code === "AUTO_RENEW_NOT_FOUND" ? 404 : conflict ? 409 : 502).send({
+        ok: false,
+        request_id: requestId,
+        error: { code, message: "Unable to change subscription plan" },
+      });
+    }
+  });
+
+  app.post("/payment/autorenew/change-plan/abandon", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: {
+        routeKey: "autorenew_plan_change_abandon",
+        path: "/payment/autorenew/change-plan/abandon",
+        limit: config.payment.rateLimitOrdersCreateLimit,
+        windowSec: config.payment.rateLimitOrdersCreateWindowSec,
+        responseType: "api",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+    if (!isAbandonAutoRenewPlanChangeRequest(req.body)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid abandoned plan change payload" },
+      });
+    }
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+    try {
+      const current = (await deps.autoRenewService.getCurrent(userContext.userId)).subscription;
+      if (!current || current.id !== req.body.autoRenewSubscriptionId.trim()) {
+        throw new AutoRenewNotFoundError();
+      }
+      // An Alipay confirmation link can outlive the app session. Recover it
+      // from an authoritative provider query instead of trusting a closed UI.
+      if (current.provider === "alipay") {
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: "ALIPAY_PLAN_CHANGE_REQUIRES_RECONCILIATION",
+            message: "Alipay plan changes are recovered from provider state.",
+          },
+        });
+      }
+      // Reconcile first so a provider-confirmed change wins over a late or
+      // duplicated client-side "cancelled" callback.
+      if (current.provider === "apple") {
+        await deps.appleIapService.reconcileCurrentAutoRenewForUser(userContext.userId);
+      } else if (current.provider === "google_play") {
+        await deps.googlePlayBillingService.reconcileCurrentAutoRenewForUser(userContext.userId);
+      }
+      const result = await deps.autoRenewService.abandonUnconfirmedPlanChange({
+        userId: userContext.userId,
+        autoRenewSubscriptionId: current.id,
+        targetProductCode: req.body.targetProductCode,
+      });
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.autorenew.plan_change_abandoned",
+        level: "info",
+        status: result.status === "released" ? "success" : "ignored",
+        metadata: {
+          provider: current.provider,
+          targetProductCode: req.body.targetProductCode,
+          recoveryStatus: result.status,
+        },
+      });
+      return reply.status(200).send({ ok: true, request_id: requestId, data: result });
+    } catch (error) {
+      const code = error instanceof AutoRenewNotFoundError || error instanceof AutoRenewAccessDeniedError
+        ? "AUTO_RENEW_NOT_FOUND"
+        : error instanceof AutoRenewPlanChangePendingError
+          ? error.code
+          : "AUTO_RENEW_PLAN_CHANGE_RECOVERY_FAILED";
+      const statusCode = code === "AUTO_RENEW_NOT_FOUND"
+        ? 404
+        : code === "AUTO_RENEW_PLAN_CHANGE_ALREADY_PENDING"
+          ? 409
+          : 502;
+      return reply.status(statusCode).send({
+        ok: false,
+        request_id: requestId,
+        error: { code, message: "Unable to recover abandoned plan change" },
+      });
+    }
   });
 
   app.post("/payment/autorenew/alipay/create", async (req, reply) => {
@@ -1115,7 +1401,7 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
 async function getAlipayProductQuoteOrNull(
   app: FastifyInstance,
   deps: PaymentRouteDeps,
-  productCode: "plus_monthly" | "pro_monthly",
+  productCode: AutoRenewProductCode,
   identity?: { email?: string | null; phone?: string | null },
 ) {
   try {
@@ -1126,6 +1412,55 @@ async function getAlipayProductQuoteOrNull(
       "Unable to load Alipay product price",
     );
     return null;
+  }
+}
+
+function appleProductIdFor(
+  productCode: AutoRenewProductCode,
+  config: ReturnType<typeof getRuntimeConfig>,
+): string | null {
+  if (productCode === "plus_monthly") return config.payment.appleIap.plusMonthlyProductId;
+  if (productCode === "plus_yearly") return config.payment.appleIap.plusYearlyProductId;
+  if (productCode === "pro_monthly") return config.payment.appleIap.proMonthlyProductId;
+  return config.payment.appleIap.proYearlyProductId;
+}
+
+function googleProductIdFor(
+  productCode: AutoRenewProductCode,
+  config: ReturnType<typeof getRuntimeConfig>,
+): string | null {
+  if (productCode === "plus_monthly") return config.payment.googlePlayBilling.plusMonthlyProductId;
+  if (productCode === "plus_yearly") return config.payment.googlePlayBilling.plusYearlyProductId;
+  if (productCode === "pro_monthly") return config.payment.googlePlayBilling.proMonthlyProductId;
+  return config.payment.googlePlayBilling.proYearlyProductId;
+}
+
+function googleBasePlanIdFor(
+  productCode: AutoRenewProductCode,
+  config: ReturnType<typeof getRuntimeConfig>,
+): string | null {
+  if (productCode === "plus_monthly") return config.payment.googlePlayBilling.plusMonthlyBasePlanId;
+  if (productCode === "plus_yearly") return config.payment.googlePlayBilling.plusYearlyBasePlanId;
+  if (productCode === "pro_monthly") return config.payment.googlePlayBilling.proMonthlyBasePlanId;
+  return config.payment.googlePlayBilling.proYearlyBasePlanId;
+}
+
+function assertStoreProductConfigured(
+  provider: "wechat" | "alipay" | "apple" | "google_play",
+  productCode: AutoRenewProductCode,
+  config: ReturnType<typeof getRuntimeConfig>,
+): void {
+  if (provider === "apple" && !appleProductIdFor(productCode, config)) {
+    throw new Error("APPLE_PLAN_PRODUCT_NOT_CONFIGURED");
+  }
+  if (
+    provider === "google_play" &&
+    (!googleProductIdFor(productCode, config) || !googleBasePlanIdFor(productCode, config))
+  ) {
+    throw new Error("GOOGLE_PLAY_PLAN_PRODUCT_NOT_CONFIGURED");
+  }
+  if (provider !== "apple" && provider !== "google_play") {
+    throw new Error("AUTO_RENEW_PLAN_CHANGE_PROVIDER_UNSUPPORTED");
   }
 }
 
@@ -1273,8 +1608,8 @@ async function resolvePaymentUserContext(
 }
 
 type PaymentRateLimitRule = {
-  routeKey: "ios_notify" | "google_play_notify" | "alipay_notify" | "alipay_create";
-  path: "/payment/ios/notify" | "/payment/google-play/notify" | "/payment/autorenew/alipay/notify" | "/payment/autorenew/alipay/create";
+  routeKey: "ios_notify" | "google_play_notify" | "alipay_notify" | "alipay_create" | "autorenew_plan_change" | "autorenew_plan_change_abandon";
+  path: "/payment/ios/notify" | "/payment/google-play/notify" | "/payment/autorenew/alipay/notify" | "/payment/autorenew/alipay/create" | "/payment/autorenew/change-plan" | "/payment/autorenew/change-plan/abandon";
   limit: number;
   windowSec: number;
   responseType: "webhook" | "api";

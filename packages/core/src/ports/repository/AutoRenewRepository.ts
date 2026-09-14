@@ -12,7 +12,13 @@ export type AutoRenewStatus =
 
 export type AutoRenewChargeStatus = "scheduled" | "pending" | "paid" | "failed" | "refunded";
 
-export type AutoRenewProductCode = "plus_monthly" | "pro_monthly";
+export type AutoRenewProductCode =
+  | "plus_monthly"
+  | "plus_yearly"
+  | "pro_monthly"
+  | "pro_yearly";
+
+export type AutoRenewPlanChangeStatus = "pending_confirmation" | "scheduled";
 
 export interface AutoRenewSubscriptionEntity {
   id: string;
@@ -26,6 +32,10 @@ export interface AutoRenewSubscriptionEntity {
   currentPeriodEnd: Date | null;
   nextBillingAt: Date | null;
   cancelledAt: Date | null;
+  pendingProductCode: AutoRenewProductCode | null;
+  pendingChangeStatus: AutoRenewPlanChangeStatus | null;
+  pendingChangeEffectiveAt: Date | null;
+  pendingChangeRequestedAt: Date | null;
   metadata: unknown | null;
   createdAt: Date;
   updatedAt: Date;
@@ -106,15 +116,39 @@ export interface AutoRenewRepository {
   updateSubscription(input: {
     id: string;
     userId?: string;
+    providerAgreementId?: string;
+    productCode?: AutoRenewProductCode;
     status?: AutoRenewStatus;
     latestTransactionId?: string | null;
     currentPeriodStart?: Date | null;
     currentPeriodEnd?: Date | null;
     nextBillingAt?: Date | null;
     cancelledAt?: Date | null;
+    pendingProductCode?: AutoRenewProductCode | null;
+    pendingChangeStatus?: AutoRenewPlanChangeStatus | null;
+    pendingChangeEffectiveAt?: Date | null;
+    pendingChangeRequestedAt?: Date | null;
     metadata?: unknown;
     allowReactivation?: boolean;
   }): Promise<AutoRenewSubscriptionEntity>;
+  reservePlanChange(input: {
+    id: string;
+    userId: string;
+    pendingProductCode: AutoRenewProductCode;
+    pendingChangeEffectiveAt: Date | null;
+    pendingChangeRequestedAt: Date;
+    metadata: unknown;
+  }): Promise<AutoRenewSubscriptionEntity | null>;
+  releasePlanChangeReservation(input: {
+    id: string;
+    pendingChangeRequestedAt: Date;
+    metadata?: unknown;
+  }): Promise<boolean>;
+  clearScheduledPlanChange(input: {
+    id: string;
+    pendingProductCode: AutoRenewProductCode;
+    metadata?: unknown;
+  }): Promise<boolean>;
   cancelSubscription(input: {
     id: string;
     cancelledAt: Date;

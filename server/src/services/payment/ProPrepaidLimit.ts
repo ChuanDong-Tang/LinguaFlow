@@ -18,7 +18,7 @@ export async function assertCanGrantSingleProMonthly(input: {
   const now = input.now ?? new Date();
   const current = await input.subscriptionService.getCurrentSubscription(input.userId, now);
   const paid = current.billingSubscription;
-  if (!paid || paid.plan !== "pro_monthly") return;
+  if (!paid || !paid.plan.startsWith("pro_")) return;
 
   // 现在的策略是不允许 active Pro 期间再新开一次月卡/订阅，避免用户重复扣款或囤权益。
   throw new ProRenewalTooEarlyError({

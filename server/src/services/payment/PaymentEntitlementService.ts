@@ -112,6 +112,7 @@ function grantProviderForChannel(channel: PaymentChannel): "wechat" | "alipay" |
 }
 
 function resolveMonthsByProductCode(productCode: PaymentProductCode): number {
+  if (productCode === "plus_yearly" || productCode === "pro_yearly") return 12;
   if (productCode === "plus_monthly" || productCode === "pro_monthly") return 1;
   return 1;
 }

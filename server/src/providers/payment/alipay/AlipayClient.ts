@@ -94,6 +94,36 @@ export class AlipayAutoRenewClient {
     await this.call("alipay.trade.subscription.modify", { subscription_id: subscriptionId, modify_type: "CANCEL", cancel_at_period_end: true });
   }
 
+  async modifyPlan(input: {
+    subscriptionId: string;
+    itemId: string;
+    targetPriceId: string;
+    mode: "upgrade" | "period_end";
+  }): Promise<{ subscriptionId: string; jumpSchema: string; shortSchema: string | null }> {
+    const result = await this.call("alipay.trade.subscription.modify", {
+      subscription_id: input.subscriptionId,
+      modify_type: input.mode === "upgrade" ? "UPGRADE" : "DOWNGRADE",
+      ...(input.mode === "upgrade"
+        ? { preserve_billing_cycle: true }
+        : { cancel_at_period_end: true }),
+      items: [{ item_id: input.itemId, price_id: input.targetPriceId }],
+    });
+    const subscriptionId = stringValue(result.subscription_id);
+    const jumpSchema = stringValue(result.alipay_jump_schema);
+    if (subscriptionId !== input.subscriptionId || !jumpSchema) {
+      throw new AlipayApiError(
+        "ALIPAY_SUBSCRIPTION_MODIFY_RESPONSE_INVALID",
+        "Alipay subscription modify response is missing id or confirmation schema",
+        result,
+      );
+    }
+    return {
+      subscriptionId,
+      jumpSchema,
+      shortSchema: stringValue(result.alipay_schema),
+    };
+  }
+
   async revertCancellation(subscriptionId: string): Promise<{ jumpSchema: string }> {
     const result = await this.call("alipay.trade.subscription.modify", {
       subscription_id: subscriptionId,

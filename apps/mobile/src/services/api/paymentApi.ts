@@ -17,7 +17,13 @@ export class MobileApiError extends Error {
 }
 
 export type MobilePaymentOrderStatus = "pending" | "paid" | "closed" | "failed" | "refunded";
-export type MobilePaymentProductCode = "plus_monthly" | "pro_monthly";
+export type MobilePaymentProductCode =
+  | "plus_monthly"
+  | "plus_yearly"
+  | "pro_monthly"
+  | "pro_yearly";
+export type MobilePaymentTier = "plus" | "pro";
+export type MobilePaymentBillingPeriod = "month" | "year";
 
 export type MobilePaymentProductQuote = {
   productCode: MobilePaymentProductCode;
@@ -50,6 +56,36 @@ export type MobileAutoRenewSubscription = {
   nextBillingAt: string | null;
   cancelledAt: string | null;
   cancelAtPeriodEnd: boolean;
+  pendingProductCode: MobilePaymentProductCode | null;
+  pendingChangeStatus: "pending_confirmation" | "scheduled" | null;
+  pendingChangeEffectiveAt: string | null;
+  pendingChangeRequestedAt: string | null;
+};
+
+export type MobilePaymentCatalogProduct = {
+  productCode: MobilePaymentProductCode;
+  tier: MobilePaymentTier;
+  billingPeriod: MobilePaymentBillingPeriod;
+  alipay: {
+    configured: boolean;
+    amount: number | null;
+    currency: "CNY";
+    displayPrice: string | null;
+  };
+  apple: { productId: string | null };
+  googlePlay: { productId: string | null; basePlanId: string | null };
+};
+
+export type MobilePlanChangeResult = {
+  provider: MobileAutoRenewSubscription["provider"];
+  targetProductCode: MobilePaymentProductCode;
+  timing: "immediate" | "period_end";
+  effectiveAt: string | null;
+  jumpSchema?: string | null;
+  appleProductId?: string | null;
+  googlePlayProductId?: string | null;
+  googlePlayBasePlanId?: string | null;
+  googlePlayReplacementMode?: "CHARGE_PRORATED_PRICE" | "DEFERRED" | null;
 };
 
 export type MobileAlipayAutoRenewCreateResult = {
@@ -101,6 +137,42 @@ export async function getPlusMonthlyProductQuote(): Promise<MobilePaymentProduct
     throw new MobileApiError(json.error.code, json.error.message);
   }
   return json.data;
+}
+
+export async function getPaymentProducts(): Promise<MobilePaymentCatalogProduct[]> {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/products`, {
+    headers: await getAuthHeaders(),
+  });
+  const json = (await res.json()) as ApiResult<{ products: MobilePaymentCatalogProduct[] }>;
+  if (!json.ok) throw new MobileApiError(json.error.code, json.error.message);
+  return json.data.products;
+}
+
+export async function changeAutoRenewPlan(input: {
+  autoRenewSubscriptionId: string;
+  targetProductCode: MobilePaymentProductCode;
+}): Promise<MobilePlanChangeResult> {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/change-plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+    body: JSON.stringify(input),
+  });
+  const json = (await res.json()) as ApiResult<MobilePlanChangeResult>;
+  if (!json.ok) throw new MobileApiError(json.error.code, json.error.message);
+  return json.data;
+}
+
+export async function abandonAutoRenewPlanChange(input: {
+  autoRenewSubscriptionId: string;
+  targetProductCode: MobilePaymentProductCode;
+}): Promise<void> {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/autorenew/change-plan/abandon`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+    body: JSON.stringify(input),
+  });
+  const json = (await res.json()) as ApiResult<{ status: string }>;
+  if (!json.ok) throw new MobileApiError(json.error.code, json.error.message);
 }
 
 export async function getCurrentAutoRenewSubscription(timeoutMs = 15_000): Promise<MobileAutoRenewSubscription | null> {

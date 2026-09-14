@@ -974,18 +974,18 @@ model ImageStorageTransaction {
 }
 
 model Subscription {
-  id             String                       @id @default(cuid())
+  id             String                      @id @default(cuid())
   userId         String
   plan           SubscriptionPlan
   status         SubscriptionStatus
   startedAt      DateTime
   expiresAt      DateTime
-  sourceOrderId  String?                      @unique
-  sourceType     SubscriptionGrantSourceType  @default(legacy)
+  sourceOrderId  String?                     @unique
+  sourceType     SubscriptionGrantSourceType @default(legacy)
   sourceProvider AutoRenewProvider?
   revokedAt      DateTime?
-  createdAt      DateTime                     @default(now())
-  updatedAt      DateTime                     @updatedAt
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -995,26 +995,31 @@ model Subscription {
 }
 
 model AutoRenewSubscription {
-  id                  String            @id @default(cuid())
-  userId              String
-  provider            AutoRenewProvider
-  productCode         String
-  status              AutoRenewStatus
-  providerAgreementId String
-  latestTransactionId String?
-  currentPeriodStart  DateTime?
-  currentPeriodEnd    DateTime?
-  nextBillingAt       DateTime?
-  cancelledAt         DateTime?
-  metadata            Json?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  id                       String                     @id @default(cuid())
+  userId                   String
+  provider                 AutoRenewProvider
+  productCode              String
+  status                   AutoRenewStatus
+  providerAgreementId      String
+  latestTransactionId      String?
+  currentPeriodStart       DateTime?
+  currentPeriodEnd         DateTime?
+  nextBillingAt            DateTime?
+  cancelledAt              DateTime?
+  pendingProductCode       String?
+  pendingChangeStatus      AutoRenewPlanChangeStatus?
+  pendingChangeEffectiveAt DateTime?
+  pendingChangeRequestedAt DateTime?
+  metadata                 Json?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
 
   user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   charges AutoRenewCharge[]
 
   @@unique([provider, providerAgreementId])
   @@index([userId, status])
+  @@index([userId, pendingChangeStatus])
   @@index([status, nextBillingAt])
   @@map("auto_renew_subscriptions")
 }
@@ -1296,7 +1301,14 @@ enum BenefitGrantStatus {
 
 enum SubscriptionPlan {
   plus_monthly
+  plus_yearly
   pro_monthly
+  pro_yearly
+}
+
+enum AutoRenewPlanChangeStatus {
+  pending_confirmation
+  scheduled
 }
 
 enum SubscriptionStatus {

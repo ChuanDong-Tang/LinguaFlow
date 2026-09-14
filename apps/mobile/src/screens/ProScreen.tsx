@@ -14,8 +14,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   cancelAutoRenewSubscription,
+  abandonAutoRenewPlanChange,
+  changeAutoRenewPlan,
   createAlipayAutoRenewSubscription,
   getCurrentAutoRenewSubscription,
+  getPaymentProducts,
   getPlusMonthlyProductQuote,
   getProMonthlyProductQuote,
   MobileApiError,
@@ -25,6 +28,9 @@ import {
   verifyGooglePlaySubscriptionPurchase,
   verifyAppleProMonthlyTransaction,
   type MobileAutoRenewSubscription,
+  type MobilePaymentBillingPeriod,
+  type MobilePaymentCatalogProduct,
+  type MobilePlanChangeResult,
   type MobilePaymentProductCode,
   type MobilePaymentProductQuote,
 } from "../services/api/paymentApi";
@@ -35,7 +41,9 @@ import { getSession, setSession } from "../services/auth/authStorage";
 import {
   APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID,
   APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+  APPLE_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID,
   APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+  APPLE_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID,
   type ApplePurchaseSource,
   assertAppleIapAvailable,
   createAppleAppAccountToken,
@@ -44,7 +52,9 @@ import {
 } from "../services/payment/appleIap";
 import {
   GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+  GOOGLE_PLAY_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID,
   GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+  GOOGLE_PLAY_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID,
   assertGooglePlayBillingAvailable,
   createGooglePlayObfuscatedAccountId,
   getGooglePlayBasePlanOfferToken,
@@ -54,6 +64,11 @@ import {
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import { environmentStorageKey } from "../services/storage/environmentStorageKey";
 import { t, tf } from "../i18n";
+import {
+  subscriptionBillingPeriod,
+  subscriptionProductCode,
+  subscriptionTier,
+} from "../domain/subscription/subscriptionPlans";
 
 type ProScreenProps = {
   onBack?: () => void;
@@ -83,6 +98,18 @@ const AUTO_RENEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const APPLE_PURCHASE_TIMEOUT_MS = 120 * 1000;
 const ALIPAY_ANDROID_MARKET_URL = "market://details?id=com.eg.android.AlipayGphone";
 const ALIPAY_DOWNLOAD_FALLBACK_URL = "https://www.alipay.cn/";
+const IOS_DEVELOPMENT_PRICES: Record<MobilePaymentProductCode, number> = {
+  plus_monthly: 39,
+  plus_yearly: 368,
+  pro_monthly: 59,
+  pro_yearly: 468,
+};
+const IOS_DEVELOPMENT_PRICE_LABELS: Record<MobilePaymentProductCode, string> = {
+  plus_monthly: "¥39",
+  plus_yearly: "¥368",
+  pro_monthly: "¥59",
+  pro_yearly: "¥468",
+};
 
 export function ProScreen({
   onBack = () => {},
@@ -104,6 +131,8 @@ export function ProScreen({
   const [appleIap, setAppleIap] = useState<AppleIapBridgeState | null>(null);
   const [storeError, setStoreError] = useState<string | null>(null);
   const [productQuotes, setProductQuotes] = useState<Partial<Record<MobilePaymentProductCode, MobilePaymentProductQuote>>>({});
+  const [catalogProducts, setCatalogProducts] = useState<MobilePaymentCatalogProduct[]>([]);
+  const [billingPeriod, setBillingPeriod] = useState<MobilePaymentBillingPeriod>("year");
   const [currentEntitlement, setCurrentEntitlement] = useState<CurrentEntitlement | null>(initialEntitlement);
   const applePurchaseIntentRef = useRef(false);
   const applePurchaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,12 +140,16 @@ export function ProScreen({
   const appleAppAccountTokenPromiseRef = useRef<Promise<string | null> | null>(null);
   const googlePlayPurchaseIntentRef = useRef(false);
   const googlePlayPurchaseFinishingRef = useRef(false);
+  const pendingPlanChangeRef = useRef<{
+    autoRenewSubscriptionId: string;
+    targetProductCode: MobilePaymentProductCode;
+  } | null>(null);
   const handledGooglePlayPurchaseTokensRef = useRef(new Set<string>());
   const appStateRef = useRef(AppState.currentState);
   const pendingAlipayReturnRef = useRef<{
     autoRenewSubscriptionId: string;
     productCode: MobilePaymentProductCode;
-    operation: "create" | "resume";
+    operation: "create" | "resume" | "change";
   } | null>(null);
   const pendingStoreManagementReturnRef = useRef<"cancel" | "resume" | null>(null);
   const isSyncingAlipayReturnRef = useRef(false);
@@ -346,6 +379,16 @@ export function ProScreen({
   }, [isScreenAlive]);
 
   useEffect(() => {
+    let cancelled = false;
+    void getPaymentProducts()
+      .then((products) => {
+        if (!cancelled && isScreenAlive()) setCatalogProducts(products);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [isScreenAlive]);
+
+  useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
       const previousState = appStateRef.current;
       appStateRef.current = nextState;
@@ -413,11 +456,101 @@ export function ProScreen({
     safeAlert(t("pro.alert.unsupported_title"), t("pro.alert.unsupported_purchase"));
   }
 
+  async function handleSelectPlan(productCode: MobilePaymentProductCode): Promise<void> {
+    if (isAutoRenewLoading || isPaying || !hasLoadedAutoRenew) return;
+    if (autoRenew?.pendingProductCode) {
+      safeAlert(t("subscription.manager.pending_title"), formatPendingPlanLabel(autoRenew));
+      return;
+    }
+    if (autoRenew?.status === "pending") {
+      safeAlert(t("subscription.manager.confirming_title"), t("subscription.manager.confirming_message"));
+      return;
+    }
+    if (hasActiveAutoRenew(autoRenew)) {
+      if (autoRenew.productCode === productCode) {
+        safeAlert(t("subscription.manager.current_title"), t("subscription.manager.current_message"));
+        return;
+      }
+      if (autoRenew.cancelAtPeriodEnd) {
+        safeAlert(t("subscription.manager.resume_first_title"), t("subscription.manager.resume_first_message"));
+        return;
+      }
+      if (!canManageAutoRenewOnCurrentPlatform(autoRenew.provider)) {
+        safeAlert(
+          t("subscription.manager.original_platform_title"),
+          tf("subscription.manager.original_platform_message", { provider: formatProviderName(autoRenew.provider) }),
+        );
+        return;
+      }
+      await handleChangePlan(autoRenew, productCode);
+      return;
+    }
+    await handleStartAutoRenew(productCode);
+  }
+
+  async function handleChangePlan(
+    subscription: MobileAutoRenewSubscription,
+    targetProductCode: MobilePaymentProductCode,
+  ): Promise<void> {
+    setIsAutoRenewLoading(true);
+    try {
+      const prepared = await changeAutoRenewPlan({
+        autoRenewSubscriptionId: subscription.id,
+        targetProductCode,
+      });
+      pendingPlanChangeRef.current = {
+        autoRenewSubscriptionId: subscription.id,
+        targetProductCode,
+      };
+      if (subscription.provider === "alipay") {
+        if (!prepared.jumpSchema) throw new Error("支付宝未返回方案切换链接");
+        pendingAlipayReturnRef.current = {
+          autoRenewSubscriptionId: subscription.id,
+          productCode: targetProductCode,
+          operation: "change",
+        };
+        if (!await openAlipayOrPromptInstall(prepared.jumpSchema)) {
+          pendingAlipayReturnRef.current = null;
+          pendingPlanChangeRef.current = null;
+        }
+        return;
+      }
+      if (subscription.provider === "apple") {
+        await startAppleIapPurchase("auto_renew", targetProductCode, { allowExistingMembership: true });
+        return;
+      }
+      await startGooglePlaySubscriptionPurchase(targetProductCode, prepared);
+    } catch (error) {
+      pendingPlanChangeRef.current = null;
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("subscription.manager.switch_failed"), message);
+    } finally {
+      if (isScreenAlive()) setIsAutoRenewLoading(false);
+    }
+  }
+
+  async function abandonPendingPlanChange(): Promise<void> {
+    const pending = pendingPlanChangeRef.current;
+    if (!pending) return;
+    pendingPlanChangeRef.current = null;
+    try {
+      await abandonAutoRenewPlanChange(pending);
+      const current = await getCurrentAutoRenewSubscription(8_000);
+      if (isScreenAlive()) applyAutoRenewToState(current);
+    } catch {
+      // The server reconciler is the fallback when the store result is ambiguous.
+    }
+  }
+
   async function handleStartAutoRenew(productCode: MobilePaymentProductCode): Promise<void> {
     if (isAutoRenewLoading) return;
     if (isRenew) {
-      safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_subscribe_later"));
-      return;
+      const sourceType = currentEntitlement?.membershipSource?.type;
+      if (sourceType !== "manual" && sourceType !== "legacy") {
+        safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_subscribe_later"));
+        return;
+      }
     }
 
     if (hasActiveAutoRenew(autoRenew)) {
@@ -480,7 +613,7 @@ export function ProScreen({
   async function syncAlipayAutoRenewAfterReturn(input: {
     autoRenewSubscriptionId: string;
     productCode: MobilePaymentProductCode;
-    operation: "create" | "resume";
+    operation: "create" | "resume" | "change";
   }): Promise<void> {
     try {
       const current = await getCurrentAutoRenewSubscription(8_000);
@@ -491,6 +624,12 @@ export function ProScreen({
       if (input.operation === "resume") {
         if (current?.id === input.autoRenewSubscriptionId && hasActiveAutoRenew(current) && !current.cancelAtPeriodEnd) {
           safeAlert(t("pro.alert.resume_success_title"), t("pro.alert.resume_success_message"));
+        }
+        return;
+      }
+      if (input.operation === "change") {
+        if (current?.pendingProductCode === input.productCode) {
+          safeAlert(t("subscription.manager.switch_submitted"), formatPlanChangeEffectiveText(current.pendingChangeEffectiveAt));
         }
         return;
       }
@@ -509,7 +648,10 @@ export function ProScreen({
     }
   }
 
-  async function startGooglePlaySubscriptionPurchase(productCode: MobilePaymentProductCode): Promise<void> {
+  async function startGooglePlaySubscriptionPurchase(
+    productCode: MobilePaymentProductCode,
+    planChange?: MobilePlanChangeResult,
+  ): Promise<void> {
     assertGooglePlayBillingAvailable(productCode);
     if (!(await ensureStoreConnected()) || !appleIap) return;
     const productId = getGooglePlayProductId(productCode);
@@ -524,7 +666,11 @@ export function ProScreen({
     try {
       const latestEntitlement = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
-      if (latestEntitlement?.entitlement.isMember ?? latestEntitlement?.entitlement.isPro) {
+      if (
+        !planChange &&
+        (latestEntitlement?.entitlement.isMember ?? latestEntitlement?.entitlement.isPro) &&
+        !isManualOrLegacyEntitlement(latestEntitlement?.entitlement)
+      ) {
         setIsRenew(true);
         safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_subscribe_later"));
         setIsPaying(false);
@@ -541,6 +687,12 @@ export function ProScreen({
         throw new Error("Google Play base plan is unavailable or does not match the configured plan.");
       }
       googlePlayPurchaseIntentRef.current = true;
+      const oldProductId = autoRenew ? getGooglePlayProductId(autoRenew.productCode) : null;
+      const replacementMode = planChange?.googlePlayReplacementMode === "CHARGE_PRORATED_PRICE"
+        ? "charge-prorated-price" as const
+        : planChange?.googlePlayReplacementMode === "DEFERRED"
+          ? "deferred" as const
+          : null;
       const purchaseResult = await appleIap.requestPurchase({
         type: "subs",
         request: {
@@ -548,17 +700,25 @@ export function ProScreen({
             skus: [productId],
             obfuscatedAccountId,
             subscriptionOffers: [{ sku: productId, offerToken }],
+            ...(oldProductId && replacementMode ? {
+              subscriptionProductReplacementParams: {
+                oldProductId,
+                replacementMode,
+              },
+            } : {}),
           },
         },
       });
       if (isEmptyApplePurchaseResult(purchaseResult)) {
         googlePlayPurchaseIntentRef.current = false;
+        await abandonPendingPlanChange();
         if (!isScreenAlive()) return;
         setIsPaying(false);
         setIsAutoRenewLoading(false);
       }
     } catch (error) {
       googlePlayPurchaseIntentRef.current = false;
+      await abandonPendingPlanChange();
       if (!isScreenAlive()) return;
       if (isAppleUserCancelledPurchase(error)) {
         setIsPaying(false);
@@ -700,7 +860,8 @@ export function ProScreen({
 
   async function startAppleIapPurchase(
     source: ApplePurchaseSource,
-    productCode: MobilePaymentProductCode = "pro_monthly"
+    productCode: MobilePaymentProductCode = "pro_monthly",
+    options?: { allowExistingMembership?: boolean },
   ): Promise<void> {
     assertAppleIapAvailable(source, productCode);
     if (!appleIap?.connected) {
@@ -717,7 +878,11 @@ export function ProScreen({
     try {
       const latestEntitlement = await refreshProEntitlementState();
       if (!isScreenAlive()) return;
-      if (latestEntitlement?.entitlement.isMember ?? latestEntitlement?.entitlement.isPro) {
+      if (
+        !options?.allowExistingMembership &&
+        (latestEntitlement?.entitlement.isMember ?? latestEntitlement?.entitlement.isPro) &&
+        !isManualOrLegacyEntitlement(latestEntitlement?.entitlement)
+      ) {
         setIsRenew(true);
         safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_buy_later"));
         setIsPaying(false);
@@ -749,6 +914,7 @@ export function ProScreen({
       if (isEmptyApplePurchaseResult(purchaseResult)) {
         clearApplePurchaseTimeout();
         applePurchaseIntentRef.current = false;
+        await abandonPendingPlanChange();
         if (!isScreenAlive()) return;
         setIsPaying(false);
         setIsAutoRenewLoading(false);
@@ -756,6 +922,7 @@ export function ProScreen({
     } catch (error) {
       clearApplePurchaseTimeout();
       applePurchaseIntentRef.current = false;
+      await abandonPendingPlanChange();
       if (!isScreenAlive()) return;
       if (isAppleUserCancelledPurchase(error)) {
         setIsPaying(false);
@@ -785,6 +952,7 @@ export function ProScreen({
     try {
       const transactionId = getAppleTransactionId(existingSubscription);
       const verified = await verifyAppleProMonthlyTransaction(transactionId);
+      pendingPlanChangeRef.current = null;
       const entitlementResult = await refreshProEntitlementState();
       if (!isScreenAlive()) return true;
       setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
@@ -816,6 +984,7 @@ export function ProScreen({
       const transactionId = getAppleTransactionId(purchase);
       // 先让服务端用 App Store Server API 验单并发权益，再 finish transaction。
       const verified = await verifyAppleProMonthlyTransaction(transactionId);
+      pendingPlanChangeRef.current = null;
       if (!appleIap) throw new Error(t("pro.alert.apple_not_initialized"));
       const isOneTimePurchase = verified.purchaseKind === "single_purchase";
       await appleIap.finishTransaction({
@@ -838,7 +1007,9 @@ export function ProScreen({
       if (isAppleTransactionOwnedByDifferentAccount(error)) {
         if (
           purchase.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
-          purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+          purchase.productId === APPLE_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID ||
+          purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+          purchase.productId === APPLE_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID
         ) {
           await appleIap?.finishTransaction({
             purchase,
@@ -879,6 +1050,7 @@ export function ProScreen({
         purchaseToken,
         obfuscatedAccountId,
       });
+      pendingPlanChangeRef.current = null;
       if (!appleIap) throw new Error(t("pro.alert.google_not_initialized"));
       await appleIap.finishTransaction({ purchase, isConsumable: false });
       const entitlementResult = await refreshProEntitlementState();
@@ -1072,6 +1244,7 @@ export function ProScreen({
         if (Platform.OS === "android") {
           const isUserInitiatedPurchase = googlePlayPurchaseIntentRef.current;
           googlePlayPurchaseIntentRef.current = false;
+          void abandonPendingPlanChange();
           if (isUserInitiatedPurchase && !isAppleUserCancelledPurchase(error)) {
             safeAlert(t("pro.alert.payment_start_failed"), formatGooglePlayPaymentErrorMessage(error));
           }
@@ -1082,6 +1255,7 @@ export function ProScreen({
         clearApplePurchaseTimeout();
         const isUserInitiatedPurchase = applePurchaseIntentRef.current;
         applePurchaseIntentRef.current = false;
+        void abandonPendingPlanChange();
         if (isAppleUserCancelledPurchase(error)) {
           setIsPaying(false);
           setIsAutoRenewLoading(false);
@@ -1264,167 +1438,144 @@ export function ProScreen({
     );
   }
 
+  const selectedProducts = (["plus", "pro"] as const).map((tier) => {
+    const productCode = subscriptionProductCode(tier, billingPeriod);
+    return {
+      tier,
+      productCode,
+      price: resolveSubscriptionPrice(appleIap, catalogProducts, productCode),
+      discount: resolveAnnualDiscount(appleIap, catalogProducts, tier),
+    };
+  });
+  const currentTier = currentEntitlement?.tier ?? "free";
+  const canChoosePlan = hasLoadedAutoRenew && !isAutoRenewLoading && !isPaying;
+
   return (
     <SafeAreaView style={styles.container}>
       {iapBridge}
+      <PointsUsageSheet visible={pointsUsageVisible} onClose={() => setPointsUsageVisible(false)} />
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
+        <Pressable accessibilityLabel={t("subscription.manager.back")} style={styles.backButton} onPress={onBack} hitSlop={10}>
           <Ionicons name="arrow-back" size={24} color="#111111" />
         </Pressable>
-        <Text style={styles.headerTitle}>{t("me.pro.title")}</Text>
+        <Text style={styles.headerTitle}>{t("subscription.manager.title")}</Text>
         <View style={styles.backButton} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} alwaysBounceVertical={false}>
-        <View style={styles.benefitCard}>
-          <BenefitItem icon="text-outline" title={t("pro.plus.title")} subtitle={t("pro.plus.subtitle")} />
-          <BenefitItem icon="flash-outline" title={t("pro.pro.title")} subtitle={t("pro.pro.subtitle")} />
-          <BenefitItem icon="leaf-outline" title={t("pro.shared.title")} subtitle={t("pro.shared.subtitle")} isLast />
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.managerContent} alwaysBounceVertical={false}>
+        <View style={styles.currentAccessCard}>
+          <Text style={styles.managerEyebrow}>{t("pro.current.title")}</Text>
+          <View style={styles.managerCurrentRow}>
+            <Text style={styles.managerCurrentTier}>{currentTier === "free" ? "Free" : currentTier === "plus" ? "Plus" : "Pro"}</Text>
+            {currentEntitlement?.membershipSource?.type === "manual" ? <Text style={styles.manualBadge}>{t("subscription.manager.manual")}</Text> : null}
+          </View>
+          <Text style={styles.managerMeta}>{quotaBenefit.subtitle}</Text>
+          {membershipStatusLabel ? <Text style={styles.managerMeta}>{membershipStatusLabel}</Text> : null}
         </View>
 
-        <View style={styles.priceCard}>
-          <View style={styles.priceHead}>
-            <Text style={styles.priceTitle}>{t("pro.current.title")}</Text>
+        <View style={styles.currentSubscriptionCard}>
+          <View style={styles.managerSectionHead}>
+            <Text style={styles.managerSectionTitle}>{t("subscription.manager.current_subscription")}</Text>
+            {manageableAutoRenew || restorableAutoRenew ? (
+              <Pressable onPress={() => void (restorableAutoRenew ? handleResumeAutoRenew() : handleManageAutoRenew())}>
+                <Text style={styles.managerLink}>{t(restorableAutoRenew ? "subscription.manager.resume_renewal" : "subscription.manager.manage_renewal")}</Text>
+              </Pressable>
+            ) : null}
           </View>
-          <Text style={styles.membershipStatus}>{quotaBenefit.title}</Text>
-          <Text style={styles.autoRenewText}>{quotaBenefit.subtitle}</Text>
-          <View style={styles.planPriceRow}>
-            <View style={styles.planPriceItem}>
-              <Text style={styles.planPriceName}>Plus</Text>
-              <View style={styles.planPriceValueRow}>
-                <Text style={styles.planPriceValue}>{productPrices.plus ?? "--"}</Text>
-                <Text style={styles.planPriceUnit}>{productPrices.plus ? productPrices.monthSuffix : ""}</Text>
-              </View>
-            </View>
-            <View style={styles.planPriceItem}>
-              <Text style={styles.planPriceName}>Pro</Text>
-              <View style={styles.planPriceValueRow}>
-                <Text style={styles.planPriceValue}>{productPrices.pro ?? "--"}</Text>
-                <Text style={styles.planPriceUnit}>{productPrices.pro ? productPrices.monthSuffix : ""}</Text>
-              </View>
-            </View>
-          </View>
-          <View style={styles.autoRenewBox}>
-            <View style={styles.autoRenewCopy}>
-              {membershipStatusLabel ? <Text style={styles.membershipStatus}>{membershipStatusLabel}</Text> : null}
-              <Text style={styles.autoRenewTitle}>{t("pro.auto_renew")}</Text>
-              <Text style={styles.autoRenewText}>{autoRenewDescription}</Text>
-            </View>
-          </View>
-
-          {shouldReservePurchaseActionSpace ? (
-            <View style={[styles.actionSlot, !shouldShowPurchaseActions && styles.actionSlotReserved]}>
-              {shouldShowPurchaseActions ? (
-                <View style={styles.actionRow}>
-                  {!manageableAutoRenew && !restorableAutoRenew ? (
-                    <Pressable
-                      style={[
-                        styles.secondaryButton,
-                        styles.actionButton,
-                        (!canStartAutoRenew || isAutoRenewLoading || !hasLoadedAutoRenew) &&
-                          styles.subscribeButtonDisabled,
-                      ]}
-                      onPress={() => void handleStartAutoRenew("plus_monthly")}
-                      disabled={!canStartAutoRenew || isAutoRenewLoading || !hasLoadedAutoRenew}
-                    >
-                      {isAutoRenewLoading || !hasLoadedAutoRenew ? (
-                        <ActivityIndicator color="#111111" />
-                      ) : (
-                        <Text style={styles.secondaryButtonText}>
-                          {canStartAutoRenew ? t("pro.plus.subscribe") : t("pro.not_open")}
-                        </Text>
-                      )}
-                    </Pressable>
-                  ) : null}
-                  <Pressable
-                    style={[
-                      styles.subscribeButton,
-                      styles.actionButton,
-                      ((!canStartAutoRenew && !manageableAutoRenew && !restorableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew) &&
-                        styles.subscribeButtonDisabled,
-                    ]}
-                    onPress={restorableAutoRenew
-                      ? () => void handleResumeAutoRenew()
-                      : manageableAutoRenew
-                        ? () => void handleManageAutoRenew()
-                        : () => void handleStartAutoRenew("pro_monthly")}
-                    disabled={(!canStartAutoRenew && !manageableAutoRenew && !restorableAutoRenew) || isAutoRenewLoading || !hasLoadedAutoRenew}
-                  >
-                    {isAutoRenewLoading || !hasLoadedAutoRenew ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.subscribeText}>
-                        {restorableAutoRenew
-                          ? t("pro.auto.resume")
-                          : manageableAutoRenew
-                            ? t("pro.auto.cancel")
-                          : canStartAutoRenew
-                            ? t("pro.pro.subscribe")
-                            : t("pro.not_open")}
-                      </Text>
-                    )}
-                  </Pressable>
+          {autoRenew ? (
+            <>
+              <Text style={styles.subscriptionName}>{formatProductCode(autoRenew.productCode)} · {formatProviderName(autoRenew.provider)}</Text>
+              <Text style={styles.managerMeta}>{autoRenewDescription}</Text>
+              {autoRenew.pendingProductCode ? (
+                <View style={styles.pendingPlanBox}>
+                <Text style={styles.pendingPlanTitle}>{tf("subscription.manager.pending", { plan: formatProductCode(autoRenew.pendingProductCode) })}</Text>
+                  <Text style={styles.pendingPlanText}>{formatPlanChangeEffectiveText(autoRenew.pendingChangeEffectiveAt)}</Text>
                 </View>
               ) : null}
-              {Platform.OS === "ios" && shouldShowPurchaseActions && !manageableAutoRenew && !restorableAutoRenew ? (
+            </>
+          ) : (
+            <Text style={styles.managerMeta}>{t(hasLoadedAutoRenew ? "subscription.manager.no_subscription" : "subscription.manager.syncing")}</Text>
+          )}
+        </View>
+
+        <View style={styles.planChooserHead}>
+          <Text style={styles.managerSectionTitle}>{t("subscription.manager.choose_plan")}</Text>
+          <View style={styles.periodToggle}>
+            {(["month", "year"] as const).map((period) => (
+              <Pressable
+                key={period}
+                style={[styles.periodOption, billingPeriod === period && styles.periodOptionActive]}
+                onPress={() => setBillingPeriod(period)}
+              >
+                <Text style={[styles.periodOptionText, billingPeriod === period && styles.periodOptionTextActive]}>
+                  {t(period === "month" ? "subscription.manager.monthly" : "subscription.manager.yearly")}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.managerPlanGrid}>
+          {selectedProducts.map(({ tier, productCode, price, discount }) => {
+            const isCurrent = autoRenew?.productCode === productCode && !autoRenew.pendingProductCode;
+            const isPending = autoRenew?.pendingProductCode === productCode;
+            const benefits = tier === "plus"
+              ? [resolveTokenBenefit("plus", productQuotes.plus_monthly?.monthlyTokenLimit), resolveImageBenefit("plus", productQuotes.plus_monthly?.monthlyImageUploadBytes), t("pro.compact.assistant")]
+              : [resolveTokenBenefit("pro", productQuotes.pro_monthly?.monthlyTokenLimit), resolveImageBenefit("pro", productQuotes.pro_monthly?.monthlyImageUploadBytes), t("pro.compact.assistant"), t("pro.compact.dictation")];
+            return (
+              <View key={productCode} style={[styles.managerPlanCard, tier === "pro" && styles.managerPlanCardFeatured]}>
+                <View style={styles.managerPlanTitleRow}>
+                  <Text style={styles.managerPlanTitle}>{tier === "plus" ? "Plus" : "Pro"}</Text>
+                  {billingPeriod === "year" && discount ? <Text style={styles.savingBadge}>{tf("subscription.manager.saving", { percent: discount })}</Text> : null}
+                </View>
+                <View style={styles.managerPriceRow}>
+                  <Text style={styles.managerPrice}>{price ?? "--"}</Text>
+                  <Text style={styles.managerPricePeriod}>{t(billingPeriod === "year" ? "subscription.manager.year_unit" : "subscription.manager.month_unit")}</Text>
+                </View>
+                <View style={styles.managerBenefits}>
+                  {benefits.map((benefit) => (
+                    <View key={benefit} style={styles.managerBenefitRow}>
+                      <Ionicons name="checkmark" size={15} color="#333333" />
+                      <Text style={styles.managerBenefitText}>{benefit}</Text>
+                    </View>
+                  ))}
+                </View>
                 <Pressable
-                  style={[
-                    styles.redeemButton,
-                    (isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading) &&
-                      styles.subscribeButtonDisabled,
-                  ]}
-                  onPress={() => void handleRedeemAppleOfferCode()}
-                  disabled={isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading}
+                  accessibilityRole="button"
+                  disabled={!canChoosePlan || isCurrent || isPending}
+                  style={[styles.managerPlanButton, tier === "plus" && styles.managerPlanButtonSecondary, (!canChoosePlan || isCurrent || isPending) && styles.subscribeButtonDisabled]}
+                  onPress={() => void handleSelectPlan(productCode)}
                 >
-                  {isRedeemingAppleOffer ? (
-                    <ActivityIndicator color="#111111" />
-                  ) : (
-                    <Text style={styles.redeemButtonText}>{t("pro.redeem.button")}</Text>
+                  {isAutoRenewLoading || isPaying ? <ActivityIndicator color={tier === "pro" ? "#FFFFFF" : "#111111"} /> : (
+                    <Text style={[styles.managerPlanButtonText, tier === "plus" && styles.managerPlanButtonTextSecondary]}>
+                      {isPending
+                        ? t("subscription.manager.waiting")
+                        : isCurrent
+                          ? t("subscription.manager.current")
+                          : tf(autoRenew ? "subscription.manager.switch_to" : "subscription.manager.select", { plan: tier === "plus" ? "Plus" : "Pro" })}
+                    </Text>
                   )}
                 </Pressable>
-              ) : null}
-            </View>
-          ) : null}
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={styles.managerFooterActions}>
+          {Platform.OS === "ios" ? <Pressable disabled={isRedeemingAppleOffer} onPress={() => void handleRedeemAppleOfferCode()}><Text style={styles.managerFooterLink}>{t("subscription.manager.redeem")}</Text></Pressable> : null}
           {Platform.OS === "ios" || (Platform.OS === "android" && !IS_CHINA_ANDROID) ? (
-            <Pressable
-              style={[
-                styles.restoreButton,
-                (isRestoringApplePurchases || isRestoringGooglePlayPurchases || isRedeemingAppleOffer) &&
-                  styles.subscribeButtonDisabled,
-              ]}
-              onPress={() =>
-                void (Platform.OS === "android"
-                  ? handleRestoreGooglePlayPurchases()
-                  : handleRestoreApplePurchases())
-              }
-              disabled={isRestoringApplePurchases || isRestoringGooglePlayPurchases || isRedeemingAppleOffer}
-            >
-              {isRestoringApplePurchases || isRestoringGooglePlayPurchases ? (
-                <ActivityIndicator color="#111111" />
-              ) : (
-                <>
-                  <Text style={styles.restoreHintText}>{t("pro.restore.hint")}</Text>
-                  <Text style={styles.restoreButtonText}>{t("pro.restore.button")}</Text>
-                </>
-              )}
+            <Pressable disabled={isRestoringApplePurchases || isRestoringGooglePlayPurchases} onPress={() => void (Platform.OS === "android" ? handleRestoreGooglePlayPurchases() : handleRestoreApplePurchases())}>
+              <Text style={styles.managerFooterLink}>{t("subscription.manager.restore")}</Text>
             </Pressable>
           ) : null}
         </View>
-
-        <View style={styles.ruleCard}>
-          <Text style={styles.ruleTitle}>{t("pro.rules.title")}</Text>
-          {PAYMENT_RULE_KEYS.map((ruleKey) => (
-            <View key={ruleKey} style={styles.ruleItem}>
-              <View style={styles.ruleDot} />
-              <Text style={styles.ruleText}>{t(ruleKey)}</Text>
-            </View>
-          ))}
-        </View>
-
+        <Text style={styles.managerFootnote}>{tf("subscription.manager.footnote", { provider: formatAutoRenewProviderLabel() })}</Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
+
+export const SubscriptionManagementScreen = ProScreen;
 
 function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError, onStoreError }: AppleIapBridgeProps) {
   const iap = useIAP({
@@ -1460,7 +1611,9 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError, onStoreEr
       void iap.fetchProducts({
         skus: [
           GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+          GOOGLE_PLAY_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID,
           GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+          GOOGLE_PLAY_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID,
         ].filter(Boolean),
         type: "subs",
       });
@@ -1468,7 +1621,12 @@ function AppleIapBridge({ onReady, onPurchaseSuccess, onPurchaseError, onStoreEr
     }
     if (Platform.OS === "ios") {
       void iap.fetchProducts({
-        skus: [APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID, APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID].filter(Boolean),
+        skus: [
+          APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+          APPLE_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID,
+          APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+          APPLE_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID,
+        ].filter(Boolean),
         type: "subs",
       });
       void iap.fetchProducts({ skus: [getAppleProductIdForSource("single_purchase")], type: "in-app" });
@@ -1483,6 +1641,73 @@ function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): 
   if (provider === "google_play") return "Google Play";
   if (provider === "alipay") return "支付宝";
   return provider;
+}
+
+function formatProductCode(productCode: MobilePaymentProductCode): string {
+  const tier = subscriptionTier(productCode) === "plus" ? "Plus" : "Pro";
+  return `${tier} ${t(subscriptionBillingPeriod(productCode) === "year" ? "subscription.manager.yearly" : "subscription.manager.monthly")}`;
+}
+
+function formatPlanChangeEffectiveText(value: string | null | undefined): string {
+  return value
+    ? tf("subscription.manager.effective_at", { date: formatDate(value) })
+    : t("subscription.manager.pending_confirmation");
+}
+
+function formatPendingPlanLabel(subscription: MobileAutoRenewSubscription): string {
+  if (!subscription.pendingProductCode) return "已有方案正在处理中。";
+  return `${formatProductCode(subscription.pendingProductCode)} · ${formatPlanChangeEffectiveText(subscription.pendingChangeEffectiveAt)}`;
+}
+
+function isManualOrLegacyEntitlement(entitlement: CurrentEntitlement | null | undefined): boolean {
+  return entitlement?.membershipSource?.type === "manual" || entitlement?.membershipSource?.type === "legacy";
+}
+
+function resolveSubscriptionPrice(
+  iap: AppleIapBridgeState | null,
+  catalog: MobilePaymentCatalogProduct[],
+  productCode: MobilePaymentProductCode,
+): string | null {
+  if (Platform.OS === "ios") {
+    return iap?.subscriptions.find((product) => product.id === getAppleProductIdForSource("auto_renew", productCode))?.displayPrice
+      ?? (__DEV__ ? IOS_DEVELOPMENT_PRICE_LABELS[productCode] : null);
+  }
+  if (IS_CHINA_ANDROID) {
+    return catalog.find((product) => product.productCode === productCode)?.alipay.displayPrice ?? null;
+  }
+  if (Platform.OS === "android") {
+    return iap?.subscriptions.find((product) => product.id === getGooglePlayProductId(productCode))?.displayPrice ?? null;
+  }
+  return null;
+}
+
+function resolveSubscriptionNumericPrice(
+  iap: AppleIapBridgeState | null,
+  catalog: MobilePaymentCatalogProduct[],
+  productCode: MobilePaymentProductCode,
+): number | null {
+  if (Platform.OS === "ios") {
+    return iap?.subscriptions.find((product) => product.id === getAppleProductIdForSource("auto_renew", productCode))?.price
+      ?? (__DEV__ ? IOS_DEVELOPMENT_PRICES[productCode] : null);
+  }
+  if (IS_CHINA_ANDROID) {
+    return catalog.find((product) => product.productCode === productCode)?.alipay.amount ?? null;
+  }
+  if (Platform.OS === "android") {
+    return iap?.subscriptions.find((product) => product.id === getGooglePlayProductId(productCode))?.price ?? null;
+  }
+  return null;
+}
+
+function resolveAnnualDiscount(
+  iap: AppleIapBridgeState | null,
+  catalog: MobilePaymentCatalogProduct[],
+  tier: "plus" | "pro",
+): number | null {
+  const monthly = resolveSubscriptionNumericPrice(iap, catalog, subscriptionProductCode(tier, "month"));
+  const yearly = resolveSubscriptionNumericPrice(iap, catalog, subscriptionProductCode(tier, "year"));
+  if (!monthly || !yearly || monthly <= 0 || yearly <= 0) return null;
+  return Math.max(0, Math.round((1 - yearly / (monthly * 12)) * 100));
 }
 
 function canManageAutoRenewOnCurrentPlatform(
@@ -1686,7 +1911,7 @@ function isValidCachedAutoRenewSubscription(value: unknown): value is MobileAuto
   return (
     typeof candidate.id === "string" &&
     (candidate.provider === "apple" || candidate.provider === "alipay" || candidate.provider === "google_play") &&
-    (candidate.productCode === "plus_monthly" || candidate.productCode === "pro_monthly") &&
+    (["plus_monthly", "plus_yearly", "pro_monthly", "pro_yearly"] as string[]).includes(String(candidate.productCode)) &&
     typeof candidate.status === "string"
   );
 }
@@ -1756,14 +1981,18 @@ function isAppleProPurchase(purchase: Purchase): boolean {
   return (
     purchase.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID ||
     purchase.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
-    purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+    purchase.productId === APPLE_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID ||
+    purchase.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+    purchase.productId === APPLE_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID
   );
 }
 
 function isGooglePlayProPurchase(purchase: Purchase): boolean {
   return (
     purchase.productId === GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
-    purchase.productId === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+    purchase.productId === GOOGLE_PLAY_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID ||
+    purchase.productId === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+    purchase.productId === GOOGLE_PLAY_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID
   );
 }
 
@@ -1837,8 +2066,8 @@ function isAppleUserCancelledPurchase(error: unknown): boolean {
 }
 
 function formatAutoRenewProviderLabel(): string {
-  if (Platform.OS === "ios") return "Apple ";
-  if (Platform.OS === "android") return "Google Play";
+  if (Platform.OS === "ios") return "Apple";
+  if (Platform.OS === "android") return IS_CHINA_ANDROID ? "支付宝" : "Google Play";
   return "";
 }
 
@@ -1886,6 +2115,95 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FCFCFD",
   },
+  managerContent: {
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 36,
+  },
+  currentAccessCard: {
+    padding: 18,
+    borderRadius: 16,
+    backgroundColor: "#F2F0EA",
+  },
+  managerEyebrow: { color: "#7B7870", fontSize: 11, letterSpacing: 0.5 },
+  managerCurrentRow: { marginTop: 5, flexDirection: "row", alignItems: "center", gap: 8 },
+  managerCurrentTier: { color: "#171717", fontSize: 28, fontWeight: "600" },
+  manualBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    overflow: "hidden",
+    color: "#74571E",
+    backgroundColor: "#E9D8AD",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  managerMeta: { marginTop: 5, color: "#6A6863", fontSize: 12, lineHeight: 18 },
+  currentSubscriptionCard: {
+    marginTop: 12,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#DDDBD6",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+  },
+  managerSectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  managerSectionTitle: { color: "#171717", fontSize: 15, fontWeight: "600" },
+  managerLink: { color: "#5B574F", fontSize: 12, textDecorationLine: "underline" },
+  subscriptionName: { marginTop: 11, color: "#171717", fontSize: 17, fontWeight: "600" },
+  pendingPlanBox: { marginTop: 12, padding: 11, borderRadius: 10, backgroundColor: "#F6F3EA" },
+  pendingPlanTitle: { color: "#3F392C", fontSize: 12, fontWeight: "600" },
+  pendingPlanText: { marginTop: 3, color: "#777064", fontSize: 11 },
+  planChooserHead: { marginTop: 26, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  periodToggle: { flexDirection: "row", padding: 3, borderRadius: 10, backgroundColor: "#EEEEEC" },
+  periodOption: { minWidth: 54, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, alignItems: "center" },
+  periodOptionActive: { backgroundColor: "#FFFFFF" },
+  periodOptionText: { color: "#777777", fontSize: 12, fontWeight: "500" },
+  periodOptionTextActive: { color: "#171717", fontWeight: "600" },
+  managerPlanGrid: { marginTop: 12, flexDirection: "row", alignItems: "stretch", gap: 10 },
+  managerPlanCard: {
+    flex: 1,
+    minWidth: 0,
+    padding: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#D8D8D5",
+    borderRadius: 15,
+    backgroundColor: "#FFFFFF",
+  },
+  managerPlanCardFeatured: { borderColor: "#AFA99C", backgroundColor: "#FAF8F3" },
+  managerPlanTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 5 },
+  managerPlanTitle: { color: "#171717", fontSize: 18, fontWeight: "600" },
+  savingBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    overflow: "hidden",
+    color: "#77591F",
+    backgroundColor: "#EEE1BF",
+    fontSize: 9,
+    fontWeight: "600",
+  },
+  managerPriceRow: { marginTop: 11, flexDirection: "row", alignItems: "baseline" },
+  managerPrice: { color: "#171717", fontSize: 22, fontWeight: "600" },
+  managerPricePeriod: { marginLeft: 2, color: "#777777", fontSize: 11 },
+  managerBenefits: { minHeight: 112, marginTop: 14, gap: 7 },
+  managerBenefitRow: { flexDirection: "row", alignItems: "flex-start", gap: 5 },
+  managerBenefitText: { flex: 1, color: "#555555", fontSize: 11, lineHeight: 16 },
+  managerPlanButton: {
+    minHeight: 40,
+    marginTop: 15,
+    paddingHorizontal: 8,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#171717",
+  },
+  managerPlanButtonSecondary: { borderWidth: 1, borderColor: "#BEBEBB", backgroundColor: "#FFFFFF" },
+  managerPlanButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600", textAlign: "center" },
+  managerPlanButtonTextSecondary: { color: "#171717" },
+  managerFooterActions: { marginTop: 24, flexDirection: "row", justifyContent: "center", gap: 28 },
+  managerFooterLink: { color: "#555555", fontSize: 13, textDecorationLine: "underline" },
+  managerFootnote: { marginTop: 14, color: "#929292", fontSize: 10.5, lineHeight: 16, textAlign: "center" },
   compactContainer: {
     paddingVertical: 16,
   },

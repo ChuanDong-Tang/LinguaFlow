@@ -34,8 +34,9 @@ import { getLogs, type AppLog } from "../services/logger";
 import { theme } from "../theme";
 import { prepareAndUploadAvatar } from "../services/profile/avatarUpload";
 import { TARGET_LANGUAGE_CODES } from "@lf/core/language/targetLanguages";
-import { ProScreen } from "./ProScreen";
+import { SubscriptionManagementScreen } from "./ProScreen";
 import { stabilizeProfileAvatar } from "../services/image/signedImageCache";
+import { MembershipSummaryCard } from "./membership/MembershipSummaryCard";
 
 type MeScreenProps = {
   isActive: boolean;
@@ -71,6 +72,7 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
   const [aiDebugVisible, setAiDebugVisible] = useState(false);
   const [isLoadingEntitlement, setIsLoadingEntitlement] = useState(true);
   const [updatesDebugVisible, setUpdatesDebugVisible] = useState(false);
+  const [subscriptionManagerVisible, setSubscriptionManagerVisible] = useState(false);
   const [updatesAction, setUpdatesAction] = useState<string | null>(null);
   const [updatesResult, setUpdatesResult] = useState(() => t("me.debug.not_run"));
 
@@ -286,14 +288,13 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
           )}
         </View>
 
-        <View style={styles.proCard}>
-          <Text style={styles.proTitle}>{t("me.pro.title")}</Text>
-          {isActive ? (
-            isLoadingEntitlement
-              ? <ActivityIndicator size="small" color={theme.colors.accentStrong} style={styles.membershipLoading} />
-              : <ProScreen compact initialEntitlement={entitlement} onEntitlementChanged={handleEntitlementChanged} />
-          ) : null}
-        </View>
+        <MembershipSummaryCard
+          tierLabel={planLabel}
+          expiresLabel={entitlement?.expiresAt ? tf("pro.valid_until", { date: formatDateTime(entitlement.expiresAt) }) : null}
+          sourceLabel={entitlement?.membershipSource?.type === "manual" ? t("subscription.manager.manual") : null}
+          loading={isLoadingEntitlement}
+          onPress={() => setSubscriptionManagerVisible(true)}
+        />
 
         <Text style={styles.sectionTitle}>{t("me.section.more")}</Text>
         <View style={styles.settingsCard}>
@@ -318,6 +319,18 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
           <SettingsRow icon="person-remove-outline" label={t("me.delete_account")} onPress={onDeleteAccount} tone="danger" isLast />
         </View>
       </ScrollView>
+      <Modal
+        visible={subscriptionManagerVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setSubscriptionManagerVisible(false)}
+      >
+        <SubscriptionManagementScreen
+          onBack={() => setSubscriptionManagerVisible(false)}
+          initialEntitlement={entitlement}
+          onEntitlementChanged={handleEntitlementChanged}
+        />
+      </Modal>
       <ProfileEditModal
         visible={profileVisible}
         profile={profile}

@@ -8,7 +8,9 @@ export interface AppleIapRuntimeConfig {
   privateKeyPem: string;
   rootCaPem: string;
   plusProductId: string | null;
+  plusYearlyProductId: string | null;
   proProductId: string;
+  proYearlyProductId: string | null;
   proMonthlyOneTimeProductId: string | null;
 }
 
@@ -37,10 +39,12 @@ export function loadAppleIapConfig(): AppleIapRuntimeConfig {
       config.payment.appleIap.plusMonthlyProductId,
       "APPLE_IAP_PLUS_MONTHLY_PRODUCT_ID"
     ),
+    plusYearlyProductId: config.payment.appleIap.plusYearlyProductId,
     proProductId: requireConfig(
       config.payment.appleIap.proMonthlyProductId,
       "APPLE_IAP_PRO_MONTHLY_PRODUCT_ID"
     ),
+    proYearlyProductId: config.payment.appleIap.proYearlyProductId,
     proMonthlyOneTimeProductId: config.payment.appleIap.proMonthlyOneTimeProductId,
   };
 }

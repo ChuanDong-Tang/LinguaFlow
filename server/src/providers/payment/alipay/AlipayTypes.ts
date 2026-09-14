@@ -7,6 +7,15 @@ export interface AlipaySubscriptionSnapshot {
   cancel_at_period_end?: boolean;
   canceled_date?: string;
   items?: Array<{
+    item_id?: string;
+    price?: {
+      id?: string;
+      product_id?: string;
+      unit_amount?: string | number;
+    };
+  }>;
+  pending_items?: Array<{
+    item_id?: string;
     price?: {
       id?: string;
       product_id?: string;

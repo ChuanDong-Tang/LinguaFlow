@@ -43,6 +43,9 @@ export interface GoogleSubscriptionPurchaseV2 {
       offerId?: string;
       offerTags?: string[];
     };
+    deferredItemReplacement?: {
+      productId?: string;
+    };
   }>;
 }
 

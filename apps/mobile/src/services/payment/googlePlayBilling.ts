@@ -10,15 +10,29 @@ export const GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID =
 export const GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_PLAY_PRO_MONTHLY_PRODUCT_ID || "pro_monthly";
 
+export const GOOGLE_PLAY_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_PLAY_PLUS_YEARLY_PRODUCT_ID || "plus_yearly";
+
+export const GOOGLE_PLAY_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_PLAY_PRO_YEARLY_PRODUCT_ID || "pro_yearly";
+
 const GOOGLE_PLAY_PLUS_MONTHLY_BASE_PLAN_ID =
   process.env.EXPO_PUBLIC_GOOGLE_PLAY_PLUS_MONTHLY_BASE_PLAN_ID || "";
 const GOOGLE_PLAY_PRO_MONTHLY_BASE_PLAN_ID =
   process.env.EXPO_PUBLIC_GOOGLE_PLAY_PRO_MONTHLY_BASE_PLAN_ID || "";
+const GOOGLE_PLAY_PLUS_YEARLY_BASE_PLAN_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_PLAY_PLUS_YEARLY_BASE_PLAN_ID || "";
+const GOOGLE_PLAY_PRO_YEARLY_BASE_PLAN_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_PLAY_PRO_YEARLY_BASE_PLAN_ID || "";
 
 export function getGooglePlayProductId(productCode: MobilePaymentProductCode = "pro_monthly"): string {
-  return productCode === "plus_monthly"
-    ? GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
-    : GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
+  const productIds: Record<MobilePaymentProductCode, string> = {
+    plus_monthly: GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+    plus_yearly: GOOGLE_PLAY_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID,
+    pro_monthly: GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+    pro_yearly: GOOGLE_PLAY_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID,
+  };
+  return productIds[productCode];
 }
 
 export function assertGooglePlayBillingAvailable(productCode: MobilePaymentProductCode = "pro_monthly"): void {
@@ -53,7 +67,12 @@ export function getGooglePlayBasePlanOfferToken(
   const productWithAndroidOffers = product as { subscriptionOfferDetailsAndroid?: unknown } | undefined;
   const offers = readArray<Record<string, unknown>>(productWithAndroidOffers?.subscriptionOfferDetailsAndroid);
   const expectedBasePlanId =
-    productCode === "plus_monthly" ? GOOGLE_PLAY_PLUS_MONTHLY_BASE_PLAN_ID : GOOGLE_PLAY_PRO_MONTHLY_BASE_PLAN_ID;
+    ({
+      plus_monthly: GOOGLE_PLAY_PLUS_MONTHLY_BASE_PLAN_ID,
+      plus_yearly: GOOGLE_PLAY_PLUS_YEARLY_BASE_PLAN_ID,
+      pro_monthly: GOOGLE_PLAY_PRO_MONTHLY_BASE_PLAN_ID,
+      pro_yearly: GOOGLE_PLAY_PRO_YEARLY_BASE_PLAN_ID,
+    } satisfies Record<MobilePaymentProductCode, string>)[productCode];
   if (!expectedBasePlanId) return null;
 
   // Promo codes are redeemed by Google Play inside its checkout UI. Start the

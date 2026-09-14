@@ -1,5 +1,7 @@
 import type {
   AutoRenewChargeEntity,
+  AutoRenewPlanChangeStatus,
+  AutoRenewProductCode,
   AutoRenewRepository,
   AutoRenewSubscriptionEntity,
   CreateAutoRenewSubscriptionInput,
@@ -13,6 +15,7 @@ type PrismaAutoRenewClient = {
     findMany: (args: any) => Promise<any[]>;
     create: (args: any) => Promise<any>;
     update: (args: any) => Promise<any>;
+    updateMany: (args: any) => Promise<{ count: number }>;
   };
   autoRenewCharge: {
     findUnique: (args: any) => Promise<any>;
@@ -142,6 +145,10 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
         currentPeriodStart: input.currentPeriodStart ?? null,
         currentPeriodEnd: input.currentPeriodEnd ?? null,
         nextBillingAt: input.nextBillingAt ?? null,
+        pendingProductCode: null,
+        pendingChangeStatus: null,
+        pendingChangeEffectiveAt: null,
+        pendingChangeRequestedAt: null,
         metadata: input.metadata ?? null,
       },
     });
@@ -152,12 +159,18 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
   async updateSubscription(input: {
     id: string;
     userId?: string;
+    providerAgreementId?: string;
+    productCode?: AutoRenewProductCode;
     status?: "pending" | "active" | "cancelled" | "expired" | "billing_retry" | "paused";
     latestTransactionId?: string | null;
     currentPeriodStart?: Date | null;
     currentPeriodEnd?: Date | null;
     nextBillingAt?: Date | null;
     cancelledAt?: Date | null;
+    pendingProductCode?: AutoRenewProductCode | null;
+    pendingChangeStatus?: AutoRenewPlanChangeStatus | null;
+    pendingChangeEffectiveAt?: Date | null;
+    pendingChangeRequestedAt?: Date | null;
     metadata?: unknown;
     allowReactivation?: boolean;
   }): Promise<AutoRenewSubscriptionEntity> {
@@ -181,6 +194,10 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
       where: { id: input.id },
       data: {
         ...(input.userId === undefined ? {} : { userId: input.userId }),
+        ...(input.providerAgreementId === undefined
+          ? {}
+          : { providerAgreementId: input.providerAgreementId }),
+        ...(input.productCode === undefined ? {} : { productCode: input.productCode }),
         ...(input.status === undefined ? {} : { status: input.status }),
         ...(input.latestTransactionId === undefined
           ? {}
@@ -191,6 +208,10 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
         ...(input.currentPeriodEnd === undefined ? {} : { currentPeriodEnd: input.currentPeriodEnd }),
         ...(input.nextBillingAt === undefined ? {} : { nextBillingAt: input.nextBillingAt }),
         ...(input.cancelledAt === undefined ? {} : { cancelledAt: input.cancelledAt }),
+        ...(input.pendingProductCode === undefined ? {} : { pendingProductCode: input.pendingProductCode }),
+        ...(input.pendingChangeStatus === undefined ? {} : { pendingChangeStatus: input.pendingChangeStatus }),
+        ...(input.pendingChangeEffectiveAt === undefined ? {} : { pendingChangeEffectiveAt: input.pendingChangeEffectiveAt }),
+        ...(input.pendingChangeRequestedAt === undefined ? {} : { pendingChangeRequestedAt: input.pendingChangeRequestedAt }),
         ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       },
     });
@@ -209,11 +230,85 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
         status: "cancelled",
         cancelledAt: input.cancelledAt,
         nextBillingAt: null,
+        pendingProductCode: null,
+        pendingChangeStatus: null,
+        pendingChangeEffectiveAt: null,
+        pendingChangeRequestedAt: null,
         ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       },
     });
 
     return this.toSubscriptionEntity(row);
+  }
+
+  async reservePlanChange(input: {
+    id: string;
+    userId: string;
+    pendingProductCode: AutoRenewProductCode;
+    pendingChangeEffectiveAt: Date | null;
+    pendingChangeRequestedAt: Date;
+    metadata: unknown;
+  }): Promise<AutoRenewSubscriptionEntity | null> {
+    const result = await this.prisma.autoRenewSubscription.updateMany({
+      where: {
+        id: input.id,
+        userId: input.userId,
+        status: { in: ["active", "billing_retry"] },
+        pendingProductCode: null,
+      },
+      data: {
+        pendingProductCode: input.pendingProductCode,
+        pendingChangeStatus: "pending_confirmation",
+        pendingChangeEffectiveAt: input.pendingChangeEffectiveAt,
+        pendingChangeRequestedAt: input.pendingChangeRequestedAt,
+        metadata: input.metadata,
+      },
+    });
+    return result.count === 1 ? this.findById(input.id) : null;
+  }
+
+  async releasePlanChangeReservation(input: {
+    id: string;
+    pendingChangeRequestedAt: Date;
+    metadata?: unknown;
+  }): Promise<boolean> {
+    const result = await this.prisma.autoRenewSubscription.updateMany({
+      where: {
+        id: input.id,
+        pendingChangeStatus: "pending_confirmation",
+        pendingChangeRequestedAt: input.pendingChangeRequestedAt,
+      },
+      data: {
+        pendingProductCode: null,
+        pendingChangeStatus: null,
+        pendingChangeEffectiveAt: null,
+        pendingChangeRequestedAt: null,
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+      },
+    });
+    return result.count === 1;
+  }
+
+  async clearScheduledPlanChange(input: {
+    id: string;
+    pendingProductCode: AutoRenewProductCode;
+    metadata?: unknown;
+  }): Promise<boolean> {
+    const result = await this.prisma.autoRenewSubscription.updateMany({
+      where: {
+        id: input.id,
+        pendingProductCode: input.pendingProductCode,
+        pendingChangeStatus: "scheduled",
+      },
+      data: {
+        pendingProductCode: null,
+        pendingChangeStatus: null,
+        pendingChangeEffectiveAt: null,
+        pendingChangeRequestedAt: null,
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+      },
+    });
+    return result.count === 1;
   }
 
   async findChargeByProviderCharge(input: {
@@ -322,7 +417,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     id: string;
     userId: string;
     provider: "wechat" | "alipay" | "apple" | "google_play";
-    productCode: "plus_monthly" | "pro_monthly";
+    productCode: import("@lf/core/ports/repository/AutoRenewRepository.js").AutoRenewProductCode;
     status: "pending" | "active" | "cancelled" | "expired" | "billing_retry" | "paused";
     providerAgreementId: string;
     latestTransactionId: string | null;
@@ -330,6 +425,10 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     currentPeriodEnd: Date | null;
     nextBillingAt: Date | null;
     cancelledAt: Date | null;
+    pendingProductCode: import("@lf/core/ports/repository/AutoRenewRepository.js").AutoRenewProductCode | null;
+    pendingChangeStatus: import("@lf/core/ports/repository/AutoRenewRepository.js").AutoRenewPlanChangeStatus | null;
+    pendingChangeEffectiveAt: Date | null;
+    pendingChangeRequestedAt: Date | null;
     metadata: unknown | null;
     createdAt: Date;
     updatedAt: Date;
@@ -346,6 +445,10 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
       currentPeriodEnd: row.currentPeriodEnd,
       nextBillingAt: row.nextBillingAt,
       cancelledAt: row.cancelledAt,
+      pendingProductCode: row.pendingProductCode,
+      pendingChangeStatus: row.pendingChangeStatus,
+      pendingChangeEffectiveAt: row.pendingChangeEffectiveAt,
+      pendingChangeRequestedAt: row.pendingChangeRequestedAt,
       metadata: row.metadata,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -357,7 +460,7 @@ export class PrismaAutoRenewRepository implements AutoRenewRepository {
     autoRenewSubscriptionId: string;
     userId: string;
     provider: "wechat" | "alipay" | "apple" | "google_play";
-    productCode: "plus_monthly" | "pro_monthly";
+    productCode: import("@lf/core/ports/repository/AutoRenewRepository.js").AutoRenewProductCode;
     providerChargeId: string;
     periodKey: string | null;
     status: "scheduled" | "pending" | "paid" | "failed" | "refunded";

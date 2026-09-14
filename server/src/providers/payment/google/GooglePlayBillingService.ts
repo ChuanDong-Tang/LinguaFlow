@@ -4,7 +4,10 @@ import type { SubscriptionRepository } from "@lf/core/ports/repository/Subscript
 import type { GooglePlayAccountLinkRepository } from "@lf/core/ports/repository/GooglePlayAccountLinkRepository.js";
 import type { PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
-import type { AutoRenewService } from "../../../services/payment/AutoRenewService.js";
+import {
+  AutoRenewAccessDeniedError,
+  type AutoRenewService,
+} from "../../../services/payment/AutoRenewService.js";
 import type { BenefitGrantService } from "../../../services/payment/BenefitGrantService.js";
 import { getRuntimeConfig } from "../../../config/runtimeConfig.js";
 import { createHash } from "node:crypto";
@@ -77,10 +80,15 @@ export class GooglePlayBillingService {
     obfuscatedAccountId?: string | null;
   }): Promise<VerifyGooglePlayPurchaseResult> {
     const config = loadGooglePlayBillingConfig();
-    const productCode = resolveGoogleProductCode(input.productId, config);
-    if (!productCode) {
+    const configuredProductIds = [
+      config.plusProductId,
+      config.plusYearlyProductId,
+      config.proProductId,
+      config.proYearlyProductId,
+    ].filter((value): value is string => Boolean(value));
+    if (!configuredProductIds.includes(input.productId)) {
       throw new GooglePlayBillingVerifyError("Google Play product id mismatch", "GOOGLE_PLAY_PRODUCT_ID_MISMATCH", {
-        expectedProductIds: [config.plusProductId, config.proProductId],
+        expectedProductIds: configuredProductIds,
         actualProductId: input.productId,
       });
     }
@@ -103,6 +111,17 @@ export class GooglePlayBillingService {
         subscriptionState: subscription.subscriptionState ?? null,
       });
     }
+    const productCode = resolveGoogleProductCode(
+      input.productId,
+      lineItem.offerDetails?.basePlanId ?? null,
+      config,
+    );
+    if (!productCode) {
+      throw new GooglePlayBillingVerifyError("Google Play base plan is not configured", "GOOGLE_PLAY_BASE_PLAN_MISMATCH", {
+        productId: input.productId,
+        actualBasePlanId: lineItem.offerDetails?.basePlanId ?? null,
+      });
+    }
     assertGoogleLineItemMatchesConfiguredBasePlan(lineItem, productCode, config);
 
     assertGoogleSubscriptionGrantsEntitlement(subscription);
@@ -119,6 +138,20 @@ export class GooglePlayBillingService {
     if (googleAccountId && googleAccountId !== expectedAccountId) {
       throw new GooglePlayBillingVerifyError("Google Play obfuscated account id mismatch", "GOOGLE_PLAY_ACCOUNT_ID_MISMATCH");
     }
+    if (subscription.linkedPurchaseToken) {
+      try {
+        await this.autoRenewService?.replaceGooglePlayPurchaseToken({
+          userId: input.userId,
+          linkedPurchaseToken: subscription.linkedPurchaseToken,
+          purchaseToken: input.purchaseToken,
+        });
+      } catch (error) {
+        if (!(error instanceof AutoRenewAccessDeniedError)) throw error;
+        throw new GooglePlaySubscriptionAlreadyBoundError({
+          purchaseToken: input.purchaseToken,
+        });
+      }
+    }
     await this.claimGooglePlayAccountLink({
       userId: input.userId,
       obfuscatedAccountId: expectedAccountId,
@@ -134,6 +167,35 @@ export class GooglePlayBillingService {
       (await this.autoRenewService?.getGooglePlaySubscriptionByPurchaseToken(input.purchaseToken)) ?? null;
     if (existingAutoRenew && existingAutoRenew.userId !== input.userId) {
       throw new GooglePlaySubscriptionAlreadyBoundError({ purchaseToken: input.purchaseToken });
+    }
+    const hasDeferredReplacement = (subscription.lineItems ?? []).some(
+      (item) => Boolean(item.deferredItemReplacement?.productId)
+    );
+    if (hasDeferredReplacement && existingAutoRenew?.pendingProductCode) {
+      await this.autoRenewService?.confirmScheduledPlanChange({
+        provider: "google_play",
+        providerAgreementId: input.purchaseToken,
+        targetProductCode: existingAutoRenew.pendingProductCode,
+        effectiveAt: existingAutoRenew.currentPeriodEnd,
+        rawPayload: { source: "google_play_verify_deferred_replacement", subscription },
+      });
+      if (subscription.acknowledgementState !== "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED") {
+        await acknowledgeGoogleSubscription({
+          packageName: config.packageName,
+          subscriptionId: input.productId,
+          purchaseToken: input.purchaseToken,
+          accessToken,
+        });
+      }
+      return {
+        purchaseToken: input.purchaseToken,
+        productId: input.productId,
+        productCode: existingAutoRenew.pendingProductCode,
+        purchaseKind: "auto_renew",
+        autoRenewSubscriptionId: existingAutoRenew.id,
+        alreadyApplied: true,
+        acknowledgementPending: false,
+      };
     }
     if (!existingOrder && !existingAutoRenew) {
       await this.paymentEntitlementService.assertCanStartNewProPurchase(input.userId);
@@ -275,6 +337,25 @@ export class GooglePlayBillingService {
     const providerChargeId = subscription.latestOrderId ?? local.latestTransactionId ?? purchaseToken;
     let paidPeriodRecorded = false;
     const hadCancelAtPeriodEnd = asRecord(local.metadata).cancelAtPeriodEnd === true;
+    const hasDeferredReplacement = (subscription.lineItems ?? []).some(
+      (item) => Boolean(item.deferredItemReplacement?.productId)
+    );
+    if (hasDeferredReplacement && local.pendingProductCode) {
+      await this.autoRenewService.confirmScheduledPlanChange({
+        provider: "google_play",
+        providerAgreementId: purchaseToken,
+        targetProductCode: local.pendingProductCode,
+        effectiveAt: local.currentPeriodEnd,
+        rawPayload: { source: "google_play_deferred_replacement_reconcile", subscription },
+      });
+    } else if (!hasDeferredReplacement && resolvedProduct) {
+      await this.autoRenewService.reconcileRevertedScheduledPlanChange({
+        provider: "google_play",
+        providerAgreementId: purchaseToken,
+        observedCurrentProductCode: resolvedProduct.productCode,
+        rawPayload: { source: "google_play_replacement_revert_reconcile", subscription },
+      });
+    }
 
     if (resolvedProduct && periodEnd) {
       assertGoogleLineItemMatchesConfiguredBasePlan(
@@ -330,6 +411,11 @@ export class GooglePlayBillingService {
         rawPayload: { source: "google_play_active_reconcile", subscription },
       });
     }
+
+    await this.autoRenewService.recoverStaleUnconfirmedPlanChange({
+      provider: "google_play",
+      providerAgreementId: purchaseToken,
+    });
 
     return {
       status: "checked",
@@ -475,6 +561,22 @@ export class GooglePlayBillingService {
     const periodStart = parseGoogleDate(subscription.startTime);
     const periodEnd = parseGoogleDate(lineItem.expiryTime);
     const providerChargeId = subscription.latestOrderId ?? decoded.orderId ?? decoded.purchaseToken;
+    if (subscription.linkedPurchaseToken && this.autoRenewService) {
+      const previous = await this.autoRenewService.getGooglePlaySubscriptionByPurchaseToken(
+        subscription.linkedPurchaseToken
+      );
+      const remoteAccountId = subscription.externalAccountIdentifiers?.obfuscatedExternalAccountId;
+      if (
+        previous &&
+        (!remoteAccountId || remoteAccountId === createGoogleObfuscatedAccountId(previous.userId))
+      ) {
+        await this.autoRenewService.replaceGooglePlayPurchaseToken({
+          userId: previous.userId,
+          linkedPurchaseToken: subscription.linkedPurchaseToken,
+          purchaseToken: decoded.purchaseToken,
+        });
+      }
+    }
     const notificationAction = resolveGooglePlayNotificationAction({
       notificationType: decoded.notificationType,
       subscriptionState: subscription.subscriptionState,
@@ -518,6 +620,29 @@ export class GooglePlayBillingService {
     if (notificationAction === "sync") {
       if (!periodEnd || periodEnd <= new Date()) {
         return { status: "ignored", reason: "subscription_period_expired" };
+      }
+      const localForDeferredChange = await this.autoRenewService
+        ?.getGooglePlaySubscriptionByPurchaseToken(decoded.purchaseToken);
+      const isDeferredChange = (subscription.lineItems ?? []).some(
+        (item) => Boolean(item.deferredItemReplacement?.productId)
+      );
+      if (isDeferredChange && localForDeferredChange?.pendingProductCode) {
+        await this.autoRenewService?.confirmScheduledPlanChange({
+          provider: "google_play",
+          providerAgreementId: decoded.purchaseToken,
+          targetProductCode: localForDeferredChange.pendingProductCode,
+          effectiveAt: localForDeferredChange.currentPeriodEnd,
+          rawPayload: { notification: decoded.rawNotification, subscription },
+        });
+        if (subscription.acknowledgementState !== "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED") {
+          await acknowledgeGoogleSubscription({
+            packageName: config.packageName,
+            subscriptionId: productId,
+            purchaseToken: decoded.purchaseToken,
+            accessToken,
+          });
+        }
+        return { status: "processed", action: "plan_change_scheduled" };
       }
       await this.autoRenewService?.updateProviderRenewalPreference({
         provider: "google_play",
@@ -850,10 +975,34 @@ function isRetryableGooglePlayAcknowledgeError(error: unknown): boolean {
 
 function resolveGoogleProductCode(
   productId: string,
-  config: { plusProductId: string; proProductId: string }
+  basePlanId: string | null,
+  config: {
+    plusProductId: string;
+    plusYearlyProductId: string | null;
+    proProductId: string;
+    proYearlyProductId: string | null;
+    plusBasePlanId: string | null;
+    plusYearlyBasePlanId: string | null;
+    proBasePlanId: string | null;
+    proYearlyBasePlanId: string | null;
+  }
 ): PaymentProductCode | null {
-  if (productId === config.plusProductId) return "plus_monthly";
-  if (productId === config.proProductId) return "pro_monthly";
+  if (config.plusYearlyProductId && productId === config.plusYearlyProductId) {
+    if (!config.plusYearlyBasePlanId || basePlanId === config.plusYearlyBasePlanId) return "plus_yearly";
+  }
+  if (config.proYearlyProductId && productId === config.proYearlyProductId) {
+    if (!config.proYearlyBasePlanId || basePlanId === config.proYearlyBasePlanId) return "pro_yearly";
+  }
+  if (productId === config.plusProductId) {
+    if (config.plusYearlyProductId === config.plusProductId && config.plusYearlyBasePlanId && basePlanId === config.plusYearlyBasePlanId) return "plus_yearly";
+    if (config.plusYearlyBasePlanId && basePlanId === config.plusYearlyBasePlanId) return "plus_yearly";
+    if (!config.plusBasePlanId || basePlanId === config.plusBasePlanId) return "plus_monthly";
+  }
+  if (productId === config.proProductId) {
+    if (config.proYearlyProductId === config.proProductId && config.proYearlyBasePlanId && basePlanId === config.proYearlyBasePlanId) return "pro_yearly";
+    if (config.proYearlyBasePlanId && basePlanId === config.proYearlyBasePlanId) return "pro_yearly";
+    if (!config.proBasePlanId || basePlanId === config.proBasePlanId) return "pro_monthly";
+  }
   return null;
 }
 
@@ -866,7 +1015,7 @@ function resolveCurrentLineItem(subscription: GoogleSubscriptionPurchaseV2, prod
 
 function resolveCurrentConfiguredLineItem(
   subscription: GoogleSubscriptionPurchaseV2,
-  config: { plusProductId: string; proProductId: string }
+  config: Parameters<typeof resolveGoogleProductCode>[2]
 ): {
   productId: string;
   productCode: PaymentProductCode;
@@ -876,7 +1025,11 @@ function resolveCurrentConfiguredLineItem(
   const candidates = rows
     .map((lineItem) => {
       const productId = lineItem.productId?.trim() ?? "";
-      const productCode = resolveGoogleProductCode(productId, config);
+      const productCode = resolveGoogleProductCode(
+        productId,
+        lineItem.offerDetails?.basePlanId ?? null,
+        config,
+      );
       return productCode ? { productId, productCode, lineItem } : null;
     })
     .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -893,10 +1046,18 @@ function assertGoogleLineItemMatchesConfiguredBasePlan(
   productCode: PaymentProductCode,
   config: {
     plusBasePlanId: string | null;
+    plusYearlyBasePlanId: string | null;
     proBasePlanId: string | null;
+    proYearlyBasePlanId: string | null;
   }
 ): void {
-  const expectedBasePlanId = productCode === "plus_monthly" ? config.plusBasePlanId : config.proBasePlanId;
+  const expectedBasePlanId = productCode === "plus_monthly"
+    ? config.plusBasePlanId
+    : productCode === "plus_yearly"
+      ? config.plusYearlyBasePlanId
+      : productCode === "pro_yearly"
+        ? config.proYearlyBasePlanId
+        : config.proBasePlanId;
   const actualBasePlanId = lineItem.offerDetails?.basePlanId ?? null;
   if (expectedBasePlanId && actualBasePlanId !== expectedBasePlanId) {
     throw new GooglePlayBillingVerifyError("Google Play base plan mismatch", "GOOGLE_PLAY_BASE_PLAN_MISMATCH", {

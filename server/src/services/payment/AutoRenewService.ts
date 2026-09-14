@@ -88,6 +88,28 @@ export class AutoRenewSwitchBlockedError extends Error {
   }
 }
 
+export class AutoRenewPlanAlreadyCurrentError extends Error {
+  readonly code = "AUTO_RENEW_PLAN_ALREADY_CURRENT";
+
+  constructor() {
+    super("Requested plan is already current");
+  }
+}
+
+export class AutoRenewPlanChangePendingError extends Error {
+  readonly code = "AUTO_RENEW_PLAN_CHANGE_ALREADY_PENDING";
+
+  constructor() {
+    super("Another subscription plan change is already pending");
+  }
+}
+
+const PLAN_CHANGE_CONFIRMATION_TIMEOUT_MS = 60 * 60 * 1000;
+
+export type AutoRenewPlanChangeRecoveryResult =
+  | { status: "not_pending" | "scheduled" | "waiting" }
+  | { status: "released"; subscriptionId: string };
+
 export class AutoRenewService {
   constructor(
     private readonly autoRenewRepository: AutoRenewRepository,
@@ -134,6 +156,7 @@ export class AutoRenewService {
     return this.autoRenewRepository.updateSubscription({
       id: input.subscriptionId,
       userId: input.userId,
+      ...(input.productCode ? appliedProductFields(null, input.productCode) : {}),
       status: "active",
       metadata: input.metadata,
       latestTransactionId: input.latestTransactionId,
@@ -169,14 +192,11 @@ export class AutoRenewService {
     });
 
     if (existing) {
-      if (
-        input.provider === "apple" &&
-        input.status === "active" &&
-        (input.latestTransactionId || input.currentPeriodEnd)
-      ) {
+      if (input.status === "active" && (input.latestTransactionId || input.currentPeriodEnd)) {
         return this.autoRenewRepository.updateSubscription({
           id: existing.id,
           userId: input.userId,
+          ...(input.productCode ? appliedProductFields(existing, input.productCode) : {}),
           status: "active",
           latestTransactionId: input.latestTransactionId ?? existing.latestTransactionId,
           currentPeriodStart: input.currentPeriodStart ?? existing.currentPeriodStart,
@@ -214,6 +234,280 @@ export class AutoRenewService {
       // 并发创建时数据库唯一索引是最后防线；如果查不到具体 provider，也按已开通处理。
       throw new AutoRenewConcurrentCreateError();
     }
+  }
+
+  async requestPlanChange(input: {
+    userId: string;
+    autoRenewSubscriptionId: string;
+    targetProductCode: AutoRenewProductCode;
+    requestedAt?: Date;
+    metadata?: Record<string, unknown>;
+  }): Promise<{
+    subscription: AutoRenewSubscriptionEntity;
+    timing: "immediate" | "period_end";
+    effectiveAt: Date | null;
+  }> {
+    const current = await this.autoRenewRepository.findById(input.autoRenewSubscriptionId);
+    if (!current || current.userId !== input.userId) throw new AutoRenewAccessDeniedError();
+    if (!["active", "billing_retry"].includes(current.status)) throw new AutoRenewNotFoundError();
+    if (current.productCode === input.targetProductCode) {
+      throw new AutoRenewPlanAlreadyCurrentError();
+    }
+    if (readBooleanMetadata(current.metadata, "cancelAtPeriodEnd")) {
+      throw new Error("AUTO_RENEW_PLAN_CHANGE_WHILE_CANCEL_SCHEDULED");
+    }
+
+    if (current.pendingProductCode) {
+      if (current.pendingProductCode !== input.targetProductCode) {
+        throw new AutoRenewPlanChangePendingError();
+      }
+      return {
+        subscription: current,
+        timing: current.pendingChangeEffectiveAt ? "period_end" : "immediate",
+        effectiveAt: current.pendingChangeEffectiveAt,
+      };
+    }
+
+    const timing = isTierUpgrade(current.productCode, input.targetProductCode)
+      ? "immediate" as const
+      : "period_end" as const;
+    const effectiveAt = timing === "period_end" ? current.currentPeriodEnd : null;
+    if (timing === "period_end" && !effectiveAt) {
+      throw new Error("AUTO_RENEW_CURRENT_PERIOD_END_MISSING");
+    }
+    const requestedAt = input.requestedAt ?? new Date();
+    const metadata = mergeMetadata(current.metadata, {
+      planChange: {
+        fromProductCode: current.productCode,
+        toProductCode: input.targetProductCode,
+        timing,
+        requestedAt: requestedAt.toISOString(),
+        ...input.metadata,
+      },
+    });
+    const subscription = await this.autoRenewRepository.reservePlanChange({
+      id: current.id,
+      userId: input.userId,
+      pendingProductCode: input.targetProductCode,
+      pendingChangeEffectiveAt: effectiveAt,
+      pendingChangeRequestedAt: requestedAt,
+      metadata,
+    });
+    if (!subscription) throw new AutoRenewPlanChangePendingError();
+    return { subscription, timing, effectiveAt };
+  }
+
+  /**
+   * Release a StoreKit/Play purchase reservation only when the client has
+   * explicitly reported that the purchase sheet was abandoned. Scheduled
+   * provider changes are never cleared by this path.
+   */
+  async abandonUnconfirmedPlanChange(input: {
+    userId: string;
+    autoRenewSubscriptionId: string;
+    targetProductCode: AutoRenewProductCode;
+    abandonedAt?: Date;
+  }): Promise<AutoRenewPlanChangeRecoveryResult> {
+    const current = await this.autoRenewRepository.findById(input.autoRenewSubscriptionId);
+    if (!current || current.userId !== input.userId) throw new AutoRenewAccessDeniedError();
+    if (!current.pendingProductCode) return { status: "not_pending" };
+    if (current.pendingChangeStatus === "scheduled") return { status: "scheduled" };
+    if (
+      current.pendingChangeStatus !== "pending_confirmation" ||
+      current.pendingProductCode !== input.targetProductCode ||
+      !current.pendingChangeRequestedAt
+    ) {
+      throw new AutoRenewPlanChangePendingError();
+    }
+    const abandonedAt = input.abandonedAt ?? new Date();
+    const released = await this.autoRenewRepository.releasePlanChangeReservation({
+      id: current.id,
+      pendingChangeRequestedAt: current.pendingChangeRequestedAt,
+      metadata: mergeMetadata(current.metadata, {
+        planChangeRecovery: {
+          reason: "client_purchase_abandoned",
+          targetProductCode: current.pendingProductCode,
+          recoveredAt: abandonedAt.toISOString(),
+        },
+      }),
+    });
+    return released
+      ? { status: "released", subscriptionId: current.id }
+      : { status: "not_pending" };
+  }
+
+  /**
+   * Called only after an authoritative provider query found no matching
+   * current or scheduled change. The grace window protects slow notifications
+   * and eventual consistency; the conditional repository update protects a
+   * notification racing with this cleanup.
+   */
+  async recoverStaleUnconfirmedPlanChange(input: {
+    provider: AutoRenewProvider;
+    providerAgreementId: string;
+    checkedAt?: Date;
+  }): Promise<AutoRenewPlanChangeRecoveryResult> {
+    const current = await this.autoRenewRepository.findByProviderAgreement({
+      provider: input.provider,
+      providerAgreementId: input.providerAgreementId,
+    });
+    if (!current?.pendingProductCode || !current.pendingChangeRequestedAt) {
+      return { status: "not_pending" };
+    }
+    if (current.pendingChangeStatus === "scheduled") return { status: "scheduled" };
+    if (current.pendingChangeStatus !== "pending_confirmation") return { status: "not_pending" };
+    const checkedAt = input.checkedAt ?? new Date();
+    if (
+      checkedAt.getTime() - current.pendingChangeRequestedAt.getTime() <
+      PLAN_CHANGE_CONFIRMATION_TIMEOUT_MS
+    ) {
+      return { status: "waiting" };
+    }
+    const released = await this.autoRenewRepository.releasePlanChangeReservation({
+      id: current.id,
+      pendingChangeRequestedAt: current.pendingChangeRequestedAt,
+      metadata: mergeMetadata(current.metadata, {
+        planChangeRecovery: {
+          reason: "provider_not_confirmed_after_reconcile",
+          targetProductCode: current.pendingProductCode,
+          provider: current.provider,
+          recoveredAt: checkedAt.toISOString(),
+        },
+      }),
+    });
+    if (released && this.systemEventLogRepository) {
+      await this.systemEventLogRepository.create({
+        userId: current.userId,
+        module: "payment",
+        event: "payment.autorenew.plan_change_recovered",
+        level: "warn",
+        status: "success",
+        errorCode: "AUTO_RENEW_PLAN_CHANGE_CONFIRMATION_EXPIRED",
+        metadata: {
+          provider: current.provider,
+          autoRenewSubscriptionId: current.id,
+          targetProductCode: current.pendingProductCode,
+          requestedAt: current.pendingChangeRequestedAt.toISOString(),
+          recoveredAt: checkedAt.toISOString(),
+        },
+      }).catch(() => undefined);
+    }
+    return released
+      ? { status: "released", subscriptionId: current.id }
+      : { status: "not_pending" };
+  }
+
+  async reconcileRevertedScheduledPlanChange(input: {
+    provider: AutoRenewProvider;
+    providerAgreementId: string;
+    observedCurrentProductCode: AutoRenewProductCode;
+    rawPayload?: unknown;
+    reconciledAt?: Date;
+  }): Promise<{ status: "not_scheduled" | "retained" | "cleared" }> {
+    const current = await this.autoRenewRepository.findByProviderAgreement({
+      provider: input.provider,
+      providerAgreementId: input.providerAgreementId,
+    });
+    if (
+      !current?.pendingProductCode ||
+      current.pendingChangeStatus !== "scheduled"
+    ) {
+      return { status: "not_scheduled" };
+    }
+    // Only clear when the provider explicitly reports renewal staying on the
+    // currently active product. A different product is handled as provider
+    // truth by the normal paid/scheduled notification paths.
+    if (input.observedCurrentProductCode !== current.productCode) {
+      return { status: "retained" };
+    }
+    const reconciledAt = input.reconciledAt ?? new Date();
+    const targetProductCode = current.pendingProductCode;
+    const cleared = await this.autoRenewRepository.clearScheduledPlanChange({
+      id: current.id,
+      pendingProductCode: targetProductCode,
+      metadata: mergeMetadata(current.metadata, {
+        planChangeRecovery: {
+          reason: "provider_reverted_to_current_plan",
+          provider: current.provider,
+          targetProductCode,
+          recoveredAt: reconciledAt.toISOString(),
+          providerPayload: input.rawPayload ?? null,
+        },
+      }),
+    });
+    if (cleared && this.systemEventLogRepository) {
+      await this.systemEventLogRepository.create({
+        userId: current.userId,
+        module: "payment",
+        event: "payment.autorenew.scheduled_plan_change_reverted",
+        level: "info",
+        status: "success",
+        metadata: {
+          provider: current.provider,
+          autoRenewSubscriptionId: current.id,
+          currentProductCode: current.productCode,
+          revertedTargetProductCode: targetProductCode,
+          recoveredAt: reconciledAt.toISOString(),
+        },
+      }).catch(() => undefined);
+    }
+    return { status: cleared ? "cleared" : "not_scheduled" };
+  }
+
+  async confirmScheduledPlanChange(input: {
+    provider: AutoRenewProvider;
+    providerAgreementId: string;
+    targetProductCode: AutoRenewProductCode;
+    effectiveAt?: Date | null;
+    rawPayload?: unknown;
+  }): Promise<{ status: "processed" | "ignored" }> {
+    const subscription = await this.autoRenewRepository.findByProviderAgreement({
+      provider: input.provider,
+      providerAgreementId: input.providerAgreementId,
+    });
+    if (!subscription) return { status: "ignored" };
+    if (subscription.productCode === input.targetProductCode) return { status: "ignored" };
+    if (
+      !["active", "billing_retry"].includes(subscription.status) ||
+      readBooleanMetadata(subscription.metadata, "cancelAtPeriodEnd")
+    ) {
+      return { status: "ignored" };
+    }
+    await this.autoRenewRepository.updateSubscription({
+      id: subscription.id,
+      pendingProductCode: input.targetProductCode,
+      pendingChangeStatus: "scheduled",
+      pendingChangeEffectiveAt: input.effectiveAt ?? subscription.currentPeriodEnd,
+      pendingChangeRequestedAt: subscription.pendingChangeRequestedAt ?? new Date(),
+      metadata: mergeMetadata(subscription.metadata, {
+        planChangeProviderConfirmation: input.rawPayload ?? null,
+      }),
+    });
+    return { status: "processed" };
+  }
+
+  async replaceGooglePlayPurchaseToken(input: {
+    userId: string;
+    linkedPurchaseToken: string;
+    purchaseToken: string;
+  }): Promise<AutoRenewSubscriptionEntity | null> {
+    if (input.linkedPurchaseToken === input.purchaseToken) return null;
+    const replacement = await this.getGooglePlaySubscriptionByPurchaseToken(input.purchaseToken);
+    if (replacement) {
+      if (replacement.userId !== input.userId) throw new AutoRenewAccessDeniedError();
+      return replacement;
+    }
+    const previous = await this.getGooglePlaySubscriptionByPurchaseToken(input.linkedPurchaseToken);
+    if (!previous) return null;
+    if (previous.userId !== input.userId) throw new AutoRenewAccessDeniedError();
+    return this.autoRenewRepository.updateSubscription({
+      id: previous.id,
+      providerAgreementId: input.purchaseToken,
+      metadata: mergeMetadata(previous.metadata, {
+        googlePlayReplacedPurchaseToken: input.linkedPurchaseToken,
+        googlePlayReplacementAppliedAt: new Date().toISOString(),
+      }),
+    });
   }
 
   async cancel(input: {
@@ -265,6 +559,14 @@ export class AutoRenewService {
       ...(periodIsCurrent
         ? { status: "active" as const, cancelledAt: null, allowReactivation: true }
         : {}),
+      ...(input.cancelAtPeriodEnd
+        ? {
+            pendingProductCode: null,
+            pendingChangeStatus: null,
+            pendingChangeEffectiveAt: null,
+            pendingChangeRequestedAt: null,
+          }
+        : {}),
       metadata: mergeMetadata(subscription.metadata, {
         cancelAtPeriodEnd: input.cancelAtPeriodEnd,
         renewalPreferenceUpdatedAt: new Date().toISOString(),
@@ -288,15 +590,6 @@ export class AutoRenewService {
       providerAgreementId: input.originalTransactionId,
     });
     if (!subscription) return { status: "ignored", userId: null };
-    const existingCharge = await this.autoRenewRepository.findChargeByProviderCharge({
-      provider: "apple",
-      providerChargeId: input.transactionId,
-    });
-    if (existingCharge?.status === "paid") {
-      // Apple server notification 也可能重复投递，同一 transactionId 只发一次权益。
-      return { status: "ignored", userId: subscription.userId };
-    }
-
     await this.recordPaidCharge({
       userId: subscription.userId,
       provider: "apple",
@@ -309,8 +602,16 @@ export class AutoRenewService {
       paidAt: input.periodStart ?? new Date(),
       rawPayload: input.rawPayload ?? null,
     });
+    if (isStalePaidPeriod(subscription, {
+      productCode: input.productCode ?? subscription.productCode,
+      periodStart: input.periodStart ?? null,
+      periodEnd: input.periodEnd ?? null,
+    })) {
+      return { status: "processed", userId: subscription.userId };
+    }
     await this.autoRenewRepository.updateSubscription({
       id: subscription.id,
+      ...appliedProductFields(subscription, input.productCode ?? subscription.productCode),
       status: "active",
       latestTransactionId: input.transactionId,
       currentPeriodStart: input.periodStart ?? subscription.currentPeriodStart,
@@ -370,8 +671,16 @@ export class AutoRenewService {
       paidAt: input.periodStart ?? new Date(),
       rawPayload: input.rawPayload ?? null,
     });
+    if (isStalePaidPeriod(subscription, {
+      productCode: input.productCode ?? subscription.productCode,
+      periodStart: input.periodStart ?? null,
+      periodEnd: input.periodEnd ?? null,
+    })) {
+      return { status: "processed", userId: subscription.userId };
+    }
     await this.autoRenewRepository.updateSubscription({
       id: subscription.id,
+      ...appliedProductFields(subscription, input.productCode ?? subscription.productCode),
       status: "active",
       latestTransactionId: input.providerChargeId,
       currentPeriodStart: input.periodStart ?? subscription.currentPeriodStart,
@@ -422,6 +731,11 @@ export class AutoRenewService {
 
     const paidAt = input.paidAt ?? new Date();
     const productCode = input.productCode ?? subscription.productCode;
+    const replacedSourceOrderId = productCode !== subscription.productCode
+      && subscription.latestTransactionId
+      && subscription.latestTransactionId !== input.providerChargeId
+      ? createAutoRenewEntitlementSourceOrderId(input.provider, subscription.latestTransactionId)
+      : null;
     const charge = await this.autoRenewRepository.upsertCharge({
       autoRenewSubscriptionId: subscription.id,
       userId: input.userId,
@@ -448,6 +762,18 @@ export class AutoRenewService {
       periodEnd: input.periodEnd ?? null,
       prepaidLimit: "skip",
     });
+
+    // A provider-confirmed plan replacement terminates the previous paid
+    // period. Grant first, then revoke the replaced provider grant: if the
+    // process stops between the two operations, replay remains idempotent and
+    // completes the cleanup without risking a paid-user entitlement gap.
+    if (replacedSourceOrderId && this.subscriptionService) {
+      await this.subscriptionService.supersedePaymentGrant({
+        sourceOrderId: replacedSourceOrderId,
+        provider: input.provider,
+        supersededAt: input.periodStart ?? paidAt,
+      });
+    }
 
     return {
       charge,
@@ -498,6 +824,54 @@ function mergeMetadata(existing: unknown, patch: Record<string, unknown>): Recor
     ? existing as Record<string, unknown>
     : {};
   return { ...base, ...patch };
+}
+
+function readBooleanMetadata(metadata: unknown, key: string): boolean {
+  return Boolean(
+    metadata &&
+    typeof metadata === "object" &&
+    !Array.isArray(metadata) &&
+    (metadata as Record<string, unknown>)[key] === true
+  );
+}
+
+function appliedProductFields(
+  subscription: AutoRenewSubscriptionEntity | null,
+  productCode: AutoRenewProductCode
+) {
+  if (subscription?.pendingProductCode && subscription.pendingProductCode !== productCode) {
+    // A renewal/verification for the still-current plan may arrive while a
+    // downgrade or duration change is waiting for the next period.
+    return { productCode } as const;
+  }
+  return {
+    productCode,
+    pendingProductCode: null,
+    pendingChangeStatus: null,
+    pendingChangeEffectiveAt: null,
+    pendingChangeRequestedAt: null,
+  } as const;
+}
+
+function isTierUpgrade(current: AutoRenewProductCode, target: AutoRenewProductCode): boolean {
+  return current.startsWith("plus_") && target.startsWith("pro_");
+}
+
+function isStalePaidPeriod(
+  subscription: AutoRenewSubscriptionEntity,
+  incoming: {
+    productCode: AutoRenewProductCode;
+    periodStart: Date | null;
+    periodEnd: Date | null;
+  }
+): boolean {
+  if (!incoming.periodEnd || !subscription.currentPeriodEnd) return false;
+  if (incoming.periodEnd < subscription.currentPeriodEnd) return true;
+  if (incoming.periodEnd > subscription.currentPeriodEnd) return false;
+  if (incoming.productCode === subscription.productCode) return false;
+  if (subscription.pendingProductCode === incoming.productCode) return false;
+  if (!incoming.periodStart || !subscription.currentPeriodStart) return true;
+  return incoming.periodStart <= subscription.currentPeriodStart;
 }
 
 export function createAutoRenewEntitlementSourceOrderId(

@@ -7,7 +7,9 @@ export interface AlipayAutoRenewConfig {
   gatewayUrl: string;
   notifyUrl: string;
   plusMonthlyPriceId: string | null;
+  plusYearlyPriceId: string | null;
   proMonthlyPriceId: string | null;
+  proYearlyPriceId: string | null;
   requestTimeoutMs: number;
 }
 
@@ -34,7 +36,9 @@ export function loadAlipayAutoRenewConfig(): AlipayAutoRenewConfig {
     gatewayUrl: config.gatewayUrl,
     notifyUrl: config.notifyUrl!,
     plusMonthlyPriceId: config.plusMonthlyPriceId,
+    plusYearlyPriceId: config.plusYearlyPriceId,
     proMonthlyPriceId: config.proMonthlyPriceId,
+    proYearlyPriceId: config.proYearlyPriceId,
     requestTimeoutMs: config.requestTimeoutMs,
   };
 }

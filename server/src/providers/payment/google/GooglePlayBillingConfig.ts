@@ -13,9 +13,13 @@ export interface GooglePlayBillingRuntimeConfig {
   packageName: string;
   credentials: GoogleServiceAccountCredentials;
   plusProductId: string;
+  plusYearlyProductId: string | null;
   proProductId: string;
+  proYearlyProductId: string | null;
   plusBasePlanId: string | null;
+  plusYearlyBasePlanId: string | null;
   proBasePlanId: string | null;
+  proYearlyBasePlanId: string | null;
 }
 
 export function isGooglePlayBillingConfigured(): boolean {
@@ -40,12 +44,16 @@ export function loadGooglePlayBillingConfig(): GooglePlayBillingRuntimeConfig {
       config.payment.googlePlayBilling.plusMonthlyProductId,
       "GOOGLE_PLAY_PLUS_MONTHLY_PRODUCT_ID"
     ),
+    plusYearlyProductId: config.payment.googlePlayBilling.plusYearlyProductId,
     proProductId: requireConfig(
       config.payment.googlePlayBilling.proMonthlyProductId,
       "GOOGLE_PLAY_PRO_MONTHLY_PRODUCT_ID"
     ),
+    proYearlyProductId: config.payment.googlePlayBilling.proYearlyProductId,
     plusBasePlanId: config.payment.googlePlayBilling.plusMonthlyBasePlanId,
+    plusYearlyBasePlanId: config.payment.googlePlayBilling.plusYearlyBasePlanId,
     proBasePlanId: config.payment.googlePlayBilling.proMonthlyBasePlanId,
+    proYearlyBasePlanId: config.payment.googlePlayBilling.proYearlyBasePlanId,
   };
 }
 

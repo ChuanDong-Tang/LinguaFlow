@@ -10,6 +10,12 @@ export const APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID =
 export const APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID =
   process.env.EXPO_PUBLIC_APPLE_PRO_MONTHLY_PRODUCT_ID || "pro_monthly";
 
+export const APPLE_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID =
+  process.env.EXPO_PUBLIC_APPLE_PLUS_YEARLY_PRODUCT_ID || "plus_yearly";
+
+export const APPLE_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID =
+  process.env.EXPO_PUBLIC_APPLE_PRO_YEARLY_PRODUCT_ID || "pro_yearly";
+
 export const APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID =
   process.env.EXPO_PUBLIC_APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID ||
   "pro_monthly_one_time";
@@ -20,12 +26,16 @@ export function getAppleProductIdForSource(
   source: ApplePurchaseSource,
   productCode: MobilePaymentProductCode = "pro_monthly",
 ): string {
-  if (source === "auto_renew" && productCode === "plus_monthly") {
-    return APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
+  if (source === "auto_renew") {
+    const subscriptionIds: Record<MobilePaymentProductCode, string> = {
+      plus_monthly: APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+      plus_yearly: APPLE_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID,
+      pro_monthly: APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID,
+      pro_yearly: APPLE_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID,
+    };
+    return subscriptionIds[productCode];
   }
-  return source === "single_purchase"
-    ? APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID
-    : APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID;
+  return APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID;
 }
 
 export function assertAppleIapAvailable(

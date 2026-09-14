@@ -84,6 +84,21 @@ export class SubscriptionService {
     return (await this.subscriptionRepository.findBySourceOrderId(sourceOrderId)) !== null;
   }
 
+  /** End only the replaced provider grant; manual and legacy overlays stay untouched. */
+  async supersedePaymentGrant(input: {
+    sourceOrderId: string;
+    provider: SubscriptionGrantProvider;
+    supersededAt: Date;
+  }): Promise<SubscriptionEntity | null> {
+    return this.subscriptionRepository.cancelActiveBySourceOrderId({
+      sourceOrderId: input.sourceOrderId,
+      cancelledAt: input.supersededAt,
+      expiresAt: input.supersededAt,
+      sourceType: "payment",
+      sourceProvider: input.provider,
+    });
+  }
+
   /** 支付成功后发放独立会员权益；sourceOrderId 保证同一订单不会重复发放。 */
   async openOrRenewMembership(input: OpenOrRenewMembershipInput): Promise<OpenOrRenewMembershipResult> {
     const months = input.months ?? 1;
@@ -162,7 +177,7 @@ export class SubscriptionService {
 }
 
 function tierForPlan(plan: SubscriptionPlan): MembershipTier {
-  return plan === "plus_monthly" ? "plus" : "pro";
+  return plan.startsWith("plus_") ? "plus" : "pro";
 }
 
 function selectHighestEntitlement(active: SubscriptionEntity[]): SubscriptionEntity | null {

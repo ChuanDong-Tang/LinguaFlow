@@ -10,7 +10,7 @@ type ApiResult<T> = ApiOk<T> | ApiFail;
 
 export type CurrentEntitlement = {
   userId: string;
-  plan: "free" | "plus_monthly" | "pro_monthly";
+  plan: "free" | "plus_monthly" | "plus_yearly" | "pro_monthly" | "pro_yearly";
   tier: "free" | "plus" | "pro";
   isPro: boolean;
   isPlus: boolean;
