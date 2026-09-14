@@ -7,6 +7,8 @@ import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import Constants from "expo-constants";
 import { t } from "../i18n";
 
+const CHANGELOG_URL = "https://yueyantech.com/wiki/changelog.html";
+
 export function getAppVersionText() {
   const version =
     Constants.nativeAppVersion ??
@@ -56,6 +58,7 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
               .catch(() => Alert.alert(t("card_detail.error.try_again"))).finally(() => setRestoring(false));
           }} />
           <InfoRow icon="information-circle-outline" label={t("about.version")} value={getAppVersionText()} />
+          <InfoRow icon="reader-outline" label={t("about.changelog")} value="" onPress={() => openUrl(CHANGELOG_URL)} />
           <InfoRow icon="shield-outline" label={t("about.privacy")} value="" onPress={() => openUrl(PRIVACY_URL)} />
           <InfoRow icon="document-text-outline" label={t("about.terms")} value="" onPress={() => openUrl(TERMS_URL)} isLast />
         </SectionCard>
