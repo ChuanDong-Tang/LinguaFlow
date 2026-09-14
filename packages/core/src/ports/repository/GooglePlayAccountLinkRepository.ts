@@ -22,4 +22,20 @@ export interface GooglePlayAccountLinkRepository {
     purchaseToken: string;
     latestOrderId?: string | null;
   }): Promise<GooglePlayAccountLinkEntity>;
+  transferActiveSubscriptionOwnership(input: {
+    toUserId: string;
+    obfuscatedAccountId: string;
+    purchaseToken: string;
+    latestOrderId: string | null;
+    productCode: string;
+    periodStart: Date | null;
+    periodEnd: Date;
+    transferredAt: Date;
+  }): Promise<{
+    fromUserId: string;
+    toUserId: string;
+    autoRenewSubscriptionId: string;
+    movedEntitlementCount: number;
+    alreadyTransferred: boolean;
+  }>;
 }

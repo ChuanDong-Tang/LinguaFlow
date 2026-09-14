@@ -1740,6 +1740,7 @@
                       style="width:72px" />
                     <button id="btnGrantMembership" class="btn secondary">手动开通会员</button>
                     <button id="btnCancelPro" class="btn danger">撤销手动 Pro</button>
+                    <button id="btnTransferAlipay" class="btn danger" disabled>转移支付宝订阅</button>
                   </div>
                 </div>
                 <div id="userFacts" class="mini-grid"></div>
@@ -3823,6 +3824,15 @@
       const user = data.user || {};
       const sub = data.currentSubscription;
       const autoRenew = data.currentAutoRenew;
+      const canTransferAlipay = Boolean(
+        autoRenew &&
+        autoRenew.provider === "alipay" &&
+        ["active", "billing_retry"].includes(autoRenew.status)
+      );
+      $("btnTransferAlipay").disabled = !canTransferAlipay;
+      $("btnTransferAlipay").title = canTransferAlipay
+        ? "把当前支付宝订阅和剩余付费权益转移到另一个 OIO 用户"
+        : "当前用户没有可转移的支付宝订阅";
       $("diagnosticsMeta").textContent = user.id ? `当前用户：${user.id}` : "未加载";
       $("userFacts").innerHTML = [
         ["用户 ID", user.id],
@@ -3944,6 +3954,44 @@
       $("diagEvents").innerHTML = tableHtml(["时间", "模块", "事件", "状态", "错误"], (data.systemEventLogs || []).map((row) => [
         fmtDate(row.createdAt), row.module, mono(row.event), statusPill(row.status), row.errorMessage,
       ]));
+    }
+
+    async function transferCurrentAlipaySubscription() {
+      const autoRenew = state.diagnostics?.currentAutoRenew;
+      if (!autoRenew || autoRenew.provider !== "alipay") throw new Error("当前没有可转移的支付宝订阅");
+      const targetUserId = prompt("请输入目标 OIO 用户 ID。转移后，原账号会立即失去这笔支付宝订阅对应的剩余权益。", "")?.trim();
+      if (!targetUserId) return;
+      if (targetUserId === autoRenew.userId || targetUserId === state.activeUserId) {
+        throw new Error("目标用户不能是当前用户");
+      }
+      const reason = prompt("请输入转移原因（至少 4 个字符，会写入审计日志）", "用户确认订阅账号换绑")?.trim();
+      if (!reason) return;
+      const confirmed = confirm(
+        `确认转移支付宝订阅？\n\n` +
+        `订阅：${autoRenew.id}\n` +
+        `协议：${autoRenew.providerAgreementId}\n` +
+        `原用户：${state.activeUserId}\n` +
+        `目标用户：${targetUserId}\n\n` +
+        `本操作会原子移动自动续费、扣款记录和当前剩余权益，并写入审计。`,
+      );
+      if (!confirmed) return;
+
+      const button = $("btnTransferAlipay");
+      button.disabled = true;
+      try {
+        const res = await request(`/admin/autorenew/${encodeURIComponent(autoRenew.id)}/transfer-alipay`, {
+          method: "POST",
+          body: JSON.stringify({
+            targetUserId,
+            providerAgreementId: autoRenew.providerAgreementId,
+            reason,
+          }),
+        });
+        setStatus(`支付宝订阅已转移到 ${targetUserId}，移动权益 ${res.data?.movedEntitlementCount ?? 0} 条`);
+        await loadDiagnostics(targetUserId);
+      } finally {
+        button.disabled = false;
+      }
     }
 
     function mono(value) {
@@ -4621,6 +4669,7 @@
         await setContactUserEmail(userId, target.dataset.userEmail || "");
       }));
       $("btnLoadDiagnostics").addEventListener("click", guard(() => loadDiagnostics()));
+      $("btnTransferAlipay").addEventListener("click", guard(() => transferCurrentAlipaySubscription()));
       $("btnGrantMembership").addEventListener("click", guard(grantMembership));
       $("btnCancelPro").addEventListener("click", guard(cancelProNextDay));
       $("btnLoadOrders").addEventListener("click", guard(loadOrders));

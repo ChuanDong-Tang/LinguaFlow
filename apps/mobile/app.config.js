@@ -100,6 +100,8 @@ module.exports = {
     runtimeVersion: "1.1.3",
     updates: {
       url: updatesUrl,
+      checkAutomatically: "ON_LOAD",
+      fallbackToCacheTimeout: 2500,
       requestHeaders: {
         "expo-channel-name": updateChannel,
       },

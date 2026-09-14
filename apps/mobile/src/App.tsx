@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Alert, Animated, AppState, Image, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as AuthSession from "expo-auth-session";
+import * as Updates from "expo-updates";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -81,6 +82,7 @@ type Screen =
 const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
 
 export default function App() {
+  const otaUpdate = Updates.useUpdates();
   const [screen, setScreen] = useState<Screen>("booting");
   const [selectedTab, setSelectedTab] = useState<"main" | "practice" | "me">("main");
   const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
@@ -126,6 +128,8 @@ export default function App() {
   const bindEmailRunIdRef = useRef(0);
   const updateCheckRunningRef = useRef(false);
   const promptedUpdateVersionRef = useRef<string | null>(null);
+  const otaCheckRunningRef = useRef(false);
+  const promptedOtaUpdateRef = useRef<string | null>(null);
   const appBooting = screen === "booting";
   const authingConfigured = isAuthingConfigured();
 
@@ -235,6 +239,48 @@ export default function App() {
     });
     return () => subscription.remove();
   }, [appBooting]);
+
+  useEffect(() => {
+    if (appBooting || !Updates.isEnabled || otaUpdate.isStartupProcedureRunning) return;
+
+    const checkAndDownload = async () => {
+      if (otaCheckRunningRef.current || otaUpdate.isUpdatePending) return;
+      otaCheckRunningRef.current = true;
+      try {
+        const result = await Updates.checkForUpdateAsync();
+        if (result.isAvailable) await Updates.fetchUpdateAsync();
+      } catch {
+        // OTA failures must never block startup or normal use. The next launch
+        // and foreground transition will try again.
+      } finally {
+        otaCheckRunningRef.current = false;
+      }
+    };
+
+    void checkAndDownload();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void checkAndDownload();
+    });
+    return () => subscription.remove();
+  }, [appBooting, otaUpdate.isStartupProcedureRunning, otaUpdate.isUpdatePending]);
+
+  useEffect(() => {
+    if (!otaUpdate.isUpdatePending) return;
+    const updateId = otaUpdate.downloadedUpdate?.updateId ?? "downloaded";
+    if (promptedOtaUpdateRef.current === updateId) return;
+    promptedOtaUpdateRef.current = updateId;
+    Alert.alert(
+      t("ota_update.ready_title"),
+      t("ota_update.ready_message"),
+      [
+        {
+          text: t("ota_update.restart"),
+          onPress: () => void Updates.reloadAsync().catch(() => undefined),
+        },
+      ],
+      { cancelable: false },
+    );
+  }, [otaUpdate.downloadedUpdate?.updateId, otaUpdate.isUpdatePending]);
 
   // 监听登录失效
   useEffect(() => {

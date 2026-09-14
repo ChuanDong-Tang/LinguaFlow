@@ -60,6 +60,7 @@ export type MobileAutoRenewSubscription = {
   pendingChangeStatus: "pending_confirmation" | "scheduled" | null;
   pendingChangeEffectiveAt: string | null;
   pendingChangeRequestedAt: string | null;
+  managementUrl: string | null;
 };
 
 export type MobilePaymentCatalogProduct = {
@@ -118,6 +119,7 @@ export type MobileGooglePlayVerifyPurchaseResult = {
   autoRenewSubscriptionId?: string | null;
   alreadyApplied?: boolean;
   acknowledgementPending?: boolean;
+  ownershipTransferred?: boolean;
 };
 
 export async function getProMonthlyProductQuote(): Promise<MobilePaymentProductQuote> {
@@ -265,6 +267,7 @@ export async function verifyGooglePlaySubscriptionPurchase(input: {
   productId: string;
   purchaseToken: string;
   obfuscatedAccountId?: string | null;
+  allowAccountTransfer?: boolean;
 }): Promise<MobileGooglePlayVerifyPurchaseResult> {
   const res = await fetchWithTimeout(`${BASE_URL}/payment/google-play/verify-purchase`, {
     method: "POST",

@@ -65,6 +65,7 @@ export interface PaymentRuntimeConfig {
     alipayPublicKey: string | null;
     gatewayUrl: string;
     notifyUrl: string | null;
+    managementPortalUrl: string | null;
     plusMonthlyPriceId: string | null;
     plusYearlyPriceId: string | null;
     proMonthlyPriceId: string | null;
@@ -592,6 +593,7 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       alipayPublicKey: trimToNull(env.ALIPAY_PUBLIC_KEY),
       gatewayUrl: env.ALIPAY_GATEWAY_URL?.trim() || "https://openapi.alipay.com/gateway.do",
       notifyUrl: trimToNull(env.ALIPAY_NOTIFY_URL),
+      managementPortalUrl: readAlipayManagementPortalUrl(env.ALIPAY_SUBSCRIPTION_MANAGEMENT_URL),
       plusMonthlyPriceId: trimToNull(env.ALIPAY_PLUS_MONTHLY_PRICE_ID),
       plusYearlyPriceId: trimToNull(env.ALIPAY_PLUS_YEARLY_PRICE_ID),
       proMonthlyPriceId: trimToNull(env.ALIPAY_PRO_MONTHLY_PRICE_ID),
@@ -610,6 +612,17 @@ function readBoolean(value: string | undefined, fallback: boolean): boolean {
   if (normalized === "true") return true;
   if (normalized === "false") return false;
   return fallback;
+}
+
+function readAlipayManagementPortalUrl(value: string | undefined): string | null {
+  const normalized = trimToNull(value);
+  if (!normalized) return null;
+  try {
+    const protocol = new URL(normalized).protocol;
+    return protocol === "https:" || protocol === "alipays:" ? normalized : null;
+  } catch {
+    return null;
+  }
 }
 
 function readPositiveInt(value: string | undefined, fallback: number): number {

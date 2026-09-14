@@ -2,7 +2,7 @@ import type { SubscriptionService } from "../subscription/SubscriptionService.js
 import type { AutoRenewRepository } from "@lf/core/ports/repository/AutoRenewRepository.js";
 import type { SubscriptionPlan } from "@lf/core/ports/repository/SubscriptionRepository.js";
 import type { PaymentProductCode } from "@lf/core/ports/payment/PaymentTypes.js";
-import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import { computeEarlyBillingAt } from "./AutoRenewBillingSchedule.js";
 import { assertCanGrantSingleProMonthly } from "./ProPrepaidLimit.js";
 
 export type PaymentChannel = "wechat" | "alipay" | "ios_iap" | "android_iap";
@@ -146,10 +146,6 @@ function resolveGrantPeriod(input: {
     periodStart: input.periodStart?.toISOString() ?? null,
   });
   return { periodStart: null, periodEnd: null };
-}
-
-function computeEarlyBillingAt(periodEnd: Date): Date {
-  return new Date(periodEnd.getTime() - 172_800_000);
 }
 
 function mergeMetadata(existing: unknown, patch: Record<string, unknown>): Record<string, unknown> {

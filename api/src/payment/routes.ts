@@ -63,6 +63,7 @@ const CLIENT_ERROR_MESSAGES = {
   APPLE_SUBSCRIPTION_ALREADY_BOUND: "This Apple subscription is already bound to another OIO account.",
   APPLE_SUBSCRIPTION_TRANSFER_FAILED: "Unable to transfer this Apple subscription to the current OIO account.",
   GOOGLE_PLAY_SUBSCRIPTION_ALREADY_BOUND: "This Google Play subscription is already bound to another OIO account.",
+  GOOGLE_PLAY_SUBSCRIPTION_TRANSFER_FAILED: "Unable to transfer this Google Play subscription to the current OIO account.",
   IAP_NOTIFY_FAILED: "Notification processing failed.",
   AUTH_UNAUTHORIZED: "Authentication required.",
   ACCOUNT_DISABLED: "Account is unavailable.",
@@ -73,6 +74,11 @@ const CLIENT_ERROR_MESSAGES = {
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function maskProviderIdentifier(value: string): string {
+  if (value.length <= 8) return "***";
+  return `${value.slice(0, 4)}…${value.slice(-4)}`;
 }
 
 function formatCnyPrice(amountCents: number): string {
@@ -94,7 +100,7 @@ function isAppleVerifyTransactionRequest(
 
 function isGooglePlayVerifyPurchaseRequest(
   value: unknown
-): value is { productId: string; purchaseToken: string; obfuscatedAccountId?: string | null } {
+): value is { productId: string; purchaseToken: string; obfuscatedAccountId?: string | null; allowAccountTransfer?: boolean } {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return (
@@ -104,7 +110,8 @@ function isGooglePlayVerifyPurchaseRequest(
     v.purchaseToken.trim().length > 0 &&
     (v.obfuscatedAccountId === undefined ||
       v.obfuscatedAccountId === null ||
-      typeof v.obfuscatedAccountId === "string")
+      typeof v.obfuscatedAccountId === "string") &&
+    (v.allowAccountTransfer === undefined || typeof v.allowAccountTransfer === "boolean")
   );
 }
 
@@ -408,6 +415,9 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
                 data.subscription.pendingChangeEffectiveAt?.toISOString() ?? null,
               pendingChangeRequestedAt:
                 data.subscription.pendingChangeRequestedAt?.toISOString() ?? null,
+              managementUrl: data.subscription.provider === "alipay"
+                ? config.payment.alipayAutoRenew.managementPortalUrl
+                : null,
             }
           : null,
       },
@@ -1129,7 +1139,24 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         productId: body.productId.trim(),
         purchaseToken: body.purchaseToken.trim(),
         obfuscatedAccountId: body.obfuscatedAccountId?.trim() || null,
+        allowAccountTransfer: body.allowAccountTransfer === true,
       });
+
+      if (data.ownershipTransferred) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.google_play.subscription_ownership_transferred",
+          level: "info",
+          status: "success",
+          metadata: {
+            purchaseTokenHint: maskProviderIdentifier(data.purchaseToken),
+            productId: data.productId,
+            productCode: data.productCode,
+          },
+        });
+      }
 
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -1158,13 +1185,45 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         });
       }
       if (error instanceof GooglePlaySubscriptionAlreadyBoundError) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.google_play.subscription_ownership_conflict",
+          level: "warn",
+          status: "failed",
+          errorCode: error.code,
+          metadata: { purchaseTokenHint: maskProviderIdentifier(error.purchaseToken) },
+        });
         return reply.status(409).send({
           ok: false,
           request_id: requestId,
           error: {
             code: error.code,
             message: CLIENT_ERROR_MESSAGES.GOOGLE_PLAY_SUBSCRIPTION_ALREADY_BOUND,
-            purchaseToken: error.purchaseToken,
+          },
+        });
+      }
+      if (
+        error instanceof GooglePlayBillingVerifyError &&
+        error.code.startsWith("GOOGLE_PLAY_SUBSCRIPTION_TRANSFER_")
+      ) {
+        await writeSystemEventLog(deps.systemEventLogRepository, {
+          requestId,
+          userId: userContext.userId,
+          module: "payment",
+          event: "payment.google_play.subscription_ownership_transfer_failed",
+          level: "warn",
+          status: "failed",
+          errorCode: error.code,
+          errorMessage: message,
+        });
+        return reply.status(409).send({
+          ok: false,
+          request_id: requestId,
+          error: {
+            code: error.code,
+            message: CLIENT_ERROR_MESSAGES.GOOGLE_PLAY_SUBSCRIPTION_TRANSFER_FAILED,
           },
         });
       }

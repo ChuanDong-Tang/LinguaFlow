@@ -8,6 +8,7 @@ import {
   getAvailablePurchases,
   presentCodeRedemptionSheetIOS,
   restorePurchases as restoreIapPurchases,
+  showManageSubscriptionsIOS,
   useIAP,
   type Purchase,
 } from "expo-iap";
@@ -156,7 +157,7 @@ export function ProScreen({
     productCode: MobilePaymentProductCode;
     operation: "create" | "resume" | "change";
   } | null>(null);
-  const pendingStoreManagementReturnRef = useRef<"cancel" | "resume" | null>(null);
+  const pendingStoreManagementReturnRef = useRef<"cancel" | "resume" | "plan_change" | null>(null);
   const isSyncingAlipayReturnRef = useRef(false);
   const isSyncingStoreManagementRef = useRef(false);
   const activeAutoRenew = hasActiveAutoRenew(autoRenew);
@@ -814,17 +815,59 @@ export function ProScreen({
     }
   }
 
+  function handlePendingPlanChange(action: "modify" | "cancel"): void {
+    if (
+      !autoRenew?.pendingProductCode ||
+      !canManageAutoRenewOnCurrentPlatform(autoRenew.provider) ||
+      (autoRenew.provider === "alipay" && !autoRenew.managementUrl)
+    ) return;
+
+    if (action === "modify") {
+      void openStoreSubscriptionManagement(autoRenew, "plan_change");
+      return;
+    }
+
+    Alert.alert(
+      t("subscription.manager.cancel_change_title"),
+      tf("subscription.manager.cancel_change_message", { plan: formatProductCode(autoRenew.productCode) }),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("common.continue"),
+          onPress: () => void openStoreSubscriptionManagement(autoRenew, "plan_change"),
+        },
+      ],
+    );
+  }
+
   async function openStoreSubscriptionManagement(
     subscription: MobileAutoRenewSubscription,
-    operation: "cancel" | "resume",
+    operation: "cancel" | "resume" | "plan_change",
   ): Promise<void> {
-    const url = subscription.provider === "apple"
-      ? "https://apps.apple.com/account/subscriptions"
-      : "https://play.google.com/store/account/subscriptions" +
-        `?sku=${encodeURIComponent(getGooglePlayProductId(subscription.productCode))}` +
-        "&package=com.yueyantech.oio";
     pendingStoreManagementReturnRef.current = operation;
     try {
+      if (subscription.provider === "apple") {
+        await showManageSubscriptionsIOS();
+        const pendingOperation = pendingStoreManagementReturnRef.current;
+        pendingStoreManagementReturnRef.current = null;
+        if (pendingOperation && !isSyncingStoreManagementRef.current) {
+          isSyncingStoreManagementRef.current = true;
+          setIsAutoRenewLoading(true);
+          try {
+            await syncAutoRenewAfterStoreManagement(pendingOperation);
+          } finally {
+            isSyncingStoreManagementRef.current = false;
+            if (isScreenAlive()) setIsAutoRenewLoading(false);
+          }
+        }
+        return;
+      }
+      const url = subscription.provider === "alipay"
+        ? subscription.managementUrl
+        : "https://play.google.com/store/account/subscriptions" +
+          `?sku=${encodeURIComponent(getGooglePlayProductId(subscription.productCode))}` +
+          "&package=com.yueyantech.oio";
+      if (!url) throw new Error(t("pro.alert.subscription_management_unavailable"));
       await Linking.openURL(url);
     } catch (error) {
       pendingStoreManagementReturnRef.current = null;
@@ -868,7 +911,7 @@ export function ProScreen({
     }
   }
 
-  async function syncAutoRenewAfterStoreManagement(operation: "cancel" | "resume"): Promise<void> {
+  async function syncAutoRenewAfterStoreManagement(operation: "cancel" | "resume" | "plan_change"): Promise<void> {
     try {
       const current = await getCurrentAutoRenewSubscription(8_000);
       if (!isScreenAlive()) return;
@@ -1138,11 +1181,67 @@ export function ProScreen({
         handledGooglePlayPurchaseTokensRef.current.delete(purchaseToken);
       }
       if (!isScreenAlive()) return;
+      if (isGooglePlaySubscriptionOwnedByDifferentAccount(error) && purchaseToken && isUserInitiatedPurchase) {
+        promptGooglePlaySubscriptionTransfer(purchase, purchaseToken);
+        return;
+      }
       if (isUserInitiatedPurchase) {
         safeAlert(t("pro.alert.google_verify_failed"), formatGooglePlayPaymentErrorMessage(error));
       }
     } finally {
       googlePlayPurchaseFinishingRef.current = false;
+      if (isScreenAlive()) {
+        setIsPaying(false);
+        setIsAutoRenewLoading(false);
+      }
+    }
+  }
+
+  function promptGooglePlaySubscriptionTransfer(purchase: Purchase, purchaseToken: string): void {
+    if (!isScreenAlive()) return;
+    Alert.alert(
+      t("pro.alert.google_transfer_title"),
+      t("pro.alert.google_transfer_message"),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("pro.alert.google_transfer_action"),
+          onPress: () => void transferGooglePlaySubscriptionToCurrentAccount(purchase, purchaseToken),
+        },
+      ],
+    );
+  }
+
+  async function transferGooglePlaySubscriptionToCurrentAccount(
+    purchase: Purchase,
+    purchaseToken: string,
+  ): Promise<void> {
+    if (isAutoRenewLoading || isPaying) return;
+    setIsAutoRenewLoading(true);
+    setIsPaying(true);
+    try {
+      const session = await getSession();
+      const obfuscatedAccountId = session?.user.id
+        ? await createGooglePlayObfuscatedAccountId(session.user.id)
+        : null;
+      await verifyGooglePlaySubscriptionPurchase({
+        productId: purchase.productId,
+        purchaseToken,
+        obfuscatedAccountId,
+        allowAccountTransfer: true,
+      });
+      await appleIap?.finishTransaction({ purchase, isConsumable: false }).catch(() => {});
+      const entitlementResult = await refreshProEntitlementState();
+      const currentAutoRenew = await getCurrentAutoRenewSubscription();
+      if (!isScreenAlive()) return;
+      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
+      applyAutoRenewToState(currentAutoRenew);
+      handledGooglePlayPurchaseTokensRef.current.add(purchaseToken);
+      safeAlert(t("pro.alert.google_transfer_success_title"), t("pro.alert.google_transfer_success_message"));
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      safeAlert(t("pro.alert.google_transfer_failed_title"), formatGooglePlayPaymentErrorMessage(error));
+    } finally {
       if (isScreenAlive()) {
         setIsPaying(false);
         setIsAutoRenewLoading(false);
@@ -1248,6 +1347,7 @@ export function ProScreen({
         ? await createGooglePlayObfuscatedAccountId(session.user.id)
         : null;
       let lastError: unknown = null;
+      let boundPurchase: Purchase | null = null;
       for (const purchase of purchases) {
         try {
           await verifyGooglePlaySubscriptionPurchase({
@@ -1265,9 +1365,14 @@ export function ProScreen({
           return;
         } catch (error) {
           lastError = error;
+          if (isGooglePlaySubscriptionOwnedByDifferentAccount(error)) boundPurchase = purchase;
         }
       }
       if (isScreenAlive()) {
+        if (boundPurchase) {
+          promptGooglePlaySubscriptionTransfer(boundPurchase, getGooglePlayPurchaseToken(boundPurchase));
+          return;
+        }
         safeAlert(t("pro.alert.restore_failed_title"), formatGooglePlayPaymentErrorMessage(lastError));
       }
     } catch (error) {
@@ -1565,8 +1670,19 @@ export function ProScreen({
               <Text style={styles.managerMeta}>{autoRenewDescription}</Text>
               {autoRenew.pendingProductCode ? (
                 <View style={styles.pendingPlanBox}>
-                <Text style={styles.pendingPlanTitle}>{tf("subscription.manager.pending", { plan: formatProductCode(autoRenew.pendingProductCode) })}</Text>
+                  <Text style={styles.pendingPlanTitle}>{tf("subscription.manager.pending", { plan: formatProductCode(autoRenew.pendingProductCode) })}</Text>
                   <Text style={styles.pendingPlanText}>{formatPlanChangeEffectiveText(autoRenew.pendingChangeEffectiveAt)}</Text>
+                  {canManageAutoRenewOnCurrentPlatform(autoRenew.provider) &&
+                  (autoRenew.provider !== "alipay" || autoRenew.managementUrl) ? (
+                    <View style={styles.pendingPlanActions}>
+                      <Pressable onPress={() => handlePendingPlanChange("modify")}>
+                        <Text style={styles.pendingPlanAction}>{t("subscription.manager.modify_change")}</Text>
+                      </Pressable>
+                      <Pressable onPress={() => handlePendingPlanChange("cancel")}>
+                        <Text style={styles.pendingPlanAction}>{t("subscription.manager.cancel_change")}</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
             </>
@@ -1576,7 +1692,21 @@ export function ProScreen({
         </View>
 
         <View style={styles.planChooserHead}>
-          <Text style={styles.managerSectionTitle}>{t("subscription.manager.choose_plan")}</Text>
+          <View style={styles.planChooserTitleRow}>
+            <Text style={styles.managerSectionTitle}>{t("subscription.manager.choose_plan")}</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("subscription.manager.switch_rules_title")}
+              hitSlop={10}
+              onPress={() => Alert.alert(
+                t("subscription.manager.switch_rules_title"),
+                t("subscription.manager.switch_rules_message"),
+                [{ text: t("common.got_it") }],
+              )}
+            >
+              <Ionicons name="information-circle-outline" size={18} color="#777064" />
+            </Pressable>
+          </View>
           <View style={styles.periodToggle}>
             {(["month", "year"] as const).map((period) => (
               <Pressable
@@ -2080,6 +2210,13 @@ function isAppleTransactionOwnedByDifferentAccount(error: unknown): boolean {
   );
 }
 
+function isGooglePlaySubscriptionOwnedByDifferentAccount(error: unknown): boolean {
+  return error instanceof MobileApiError && (
+    error.code === "GOOGLE_PLAY_ACCOUNT_ID_MISMATCH" ||
+    error.code === "GOOGLE_PLAY_SUBSCRIPTION_ALREADY_BOUND"
+  );
+}
+
 function formatApplePaymentErrorMessage(error: unknown, fallback = t("app.delete.retry_later")): string {
   if (isAppleInactiveSubscriptionTransactionError(error)) {
     return t("pro.alert.apple_retry_subscription");
@@ -2227,7 +2364,10 @@ const styles = StyleSheet.create({
   pendingPlanBox: { marginTop: 12, padding: 11, borderRadius: 10, backgroundColor: "#F6F3EA" },
   pendingPlanTitle: { color: "#3F392C", fontSize: 12, fontWeight: "600" },
   pendingPlanText: { marginTop: 3, color: "#777064", fontSize: 11 },
+  pendingPlanActions: { marginTop: 10, flexDirection: "row", gap: 18 },
+  pendingPlanAction: { color: "#514B40", fontSize: 12, fontWeight: "600", textDecorationLine: "underline" },
   planChooserHead: { marginTop: 26, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  planChooserTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   periodToggle: { flexDirection: "row", padding: 3, borderRadius: 10, backgroundColor: "#EEEEEC" },
   periodOption: { minWidth: 54, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, alignItems: "center" },
   periodOptionActive: { backgroundColor: "#FFFFFF" },

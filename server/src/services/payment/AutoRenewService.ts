@@ -8,6 +8,7 @@ import type {
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { PaymentEntitlementService } from "./PaymentEntitlementService.js";
 import type { SubscriptionService } from "../subscription/SubscriptionService.js";
+import { computeEarlyBillingAt } from "./AutoRenewBillingSchedule.js";
 
 export interface CurrentAutoRenewView {
   subscription: AutoRenewSubscriptionEntity | null;
@@ -812,10 +813,6 @@ export class AutoRenewService {
       currentPeriodEnd: currentMembership.expiresAt,
     });
   }
-}
-
-function computeEarlyBillingAt(periodEnd: Date): Date {
-  return new Date(periodEnd.getTime() - 172_800_000);
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

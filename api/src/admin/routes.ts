@@ -7,7 +7,7 @@ import { dateKeyRangeInBusinessTimeZone, formatDateKeyInTimeZone } from "@lf/ser
 import { addCalendarMonthsClamped } from "@lf/server/services/time/calendarMath.js";
 import { requireAdmin } from "../auth/adminAuth.js";
 import { resolveRequestId } from "../lib/httpResult.js";
-import type { SystemEventLogWriter } from "../lib/systemEventLog.js";
+import { writeSystemEventLog, type SystemEventLogWriter } from "../lib/systemEventLog.js";
 import type { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 import type { ApiRequestMetrics } from "@lf/server/services/observability/ApiRequestMetrics.js";
 import type { DatabaseQueryMetrics } from "@lf/server/services/observability/DatabaseQueryMetrics.js";
@@ -734,6 +734,247 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     };
 
     return reply.status(200).send({ ok: true, request_id: requestId, data });
+  });
+
+  app.post("/admin/autorenew/:id/transfer-alipay", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const id = String((req.params as Record<string, unknown>)?.id ?? "").trim();
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const targetUserId = typeof body.targetUserId === "string" ? body.targetUserId.trim() : "";
+    const providerAgreementId = typeof body.providerAgreementId === "string"
+      ? body.providerAgreementId.trim()
+      : "";
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (!id || !targetUserId || !providerAgreementId || reason.length < 4) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: {
+          code: "REQUEST_INVALID",
+          message: "auto renew id, target user id, exact agreement id and a reason are required",
+        },
+      });
+    }
+
+    try {
+      const result = await deps.prisma.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
+          `admin-alipay-transfer-target:${targetUserId}`,
+        );
+        await tx.$queryRawUnsafe(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
+          `admin-alipay-transfer:${id}`,
+        );
+
+        const source = await tx.autoRenewSubscription.findUnique({ where: { id } });
+        if (!source || source.provider !== "alipay") {
+          throw new AdminBusinessError(404, "ALIPAY_SUBSCRIPTION_NOT_FOUND", "Alipay subscription not found");
+        }
+        if (source.providerAgreementId !== providerAgreementId) {
+          throw new AdminBusinessError(409, "AGREEMENT_CONFIRMATION_MISMATCH", "Agreement confirmation does not match");
+        }
+        if (!["active", "billing_retry"].includes(source.status)) {
+          throw new AdminBusinessError(409, "ALIPAY_SUBSCRIPTION_NOT_ACTIVE", "Only an active Alipay subscription can be transferred");
+        }
+        const now = new Date();
+        if (!source.currentPeriodEnd || source.currentPeriodEnd <= now) {
+          throw new AdminBusinessError(409, "ALIPAY_SUBSCRIPTION_PERIOD_EXPIRED", "The paid subscription period has expired");
+        }
+        if (source.userId === targetUserId) {
+          return { source, fromUserId: source.userId, movedEntitlementCount: 0, alreadyApplied: true };
+        }
+
+        const metadata = asObject(source.metadata);
+        const previousTransfer = asObject(metadata.ownershipTransfer);
+        if (
+          source.latestTransactionId &&
+          previousTransfer.latestTransactionId === source.latestTransactionId
+        ) {
+          throw new AdminBusinessError(
+            409,
+            "ALIPAY_SUBSCRIPTION_ALREADY_TRANSFERRED_THIS_PERIOD",
+            "This Alipay subscription was already transferred during the current paid period",
+          );
+        }
+
+        const targetUser = await tx.user.findUnique({ where: { id: targetUserId } });
+        if (!targetUser || targetUser.status !== "active") {
+          throw new AdminBusinessError(409, "TARGET_USER_UNAVAILABLE", "Target user is missing or inactive");
+        }
+        const targetAutoRenew = await tx.autoRenewSubscription.findFirst({
+          where: {
+            id: { not: source.id },
+            userId: targetUserId,
+            status: { in: ["pending", "active", "billing_retry"] },
+          },
+        });
+        if (targetAutoRenew) {
+          throw new AdminBusinessError(409, "TARGET_HAS_AUTORENEW", "Target user already has an auto-renewing subscription");
+        }
+
+        const charges = await tx.autoRenewCharge.findMany({
+          where: { autoRenewSubscriptionId: source.id },
+          select: { providerChargeId: true },
+        });
+        const entitlementSourceOrderIds = Array.from(new Set(
+          charges.map((charge: { providerChargeId: string }) => `alipay_autorenew:${charge.providerChargeId}`),
+        ));
+        if (!entitlementSourceOrderIds.length) {
+          throw new AdminBusinessError(409, "ALIPAY_ENTITLEMENT_SOURCE_MISSING", "No paid Alipay entitlement source was found");
+        }
+        const conflictingMembership = await tx.subscription.findFirst({
+          where: {
+            userId: targetUserId,
+            status: "active",
+            expiresAt: { gt: now },
+            sourceType: "payment",
+            OR: [
+              { sourceProvider: { not: "alipay" } },
+              { sourceProvider: null },
+              { sourceOrderId: { notIn: entitlementSourceOrderIds } },
+              { sourceOrderId: null },
+            ],
+          },
+          select: { id: true },
+        });
+        if (conflictingMembership) {
+          throw new AdminBusinessError(409, "TARGET_HAS_PAID_MEMBERSHIP", "Target user already has another paid membership");
+        }
+
+        if (entitlementSourceOrderIds.length > 0) {
+          const processingGrant = await tx.benefitGrant.findFirst({
+            where: {
+              userId: source.userId,
+              sourceOrderId: { in: entitlementSourceOrderIds },
+              status: "processing",
+            },
+            select: { id: true },
+          });
+          if (processingGrant) {
+            throw new AdminBusinessError(409, "BENEFIT_GRANT_IN_PROGRESS", "A related benefit grant is still processing");
+          }
+          await tx.benefitGrant.updateMany({
+            where: {
+              userId: source.userId,
+              sourceOrderId: { in: entitlementSourceOrderIds },
+              status: { in: ["pending", "failed"] },
+            },
+            data: { userId: targetUserId },
+          });
+        }
+
+        const movedEntitlements = entitlementSourceOrderIds.length > 0
+          ? await tx.subscription.updateMany({
+              where: {
+                userId: source.userId,
+                sourceOrderId: { in: entitlementSourceOrderIds },
+                sourceType: "payment",
+                sourceProvider: "alipay",
+                status: "active",
+                expiresAt: { gt: now },
+              },
+              data: { userId: targetUserId },
+            })
+          : { count: 0 };
+        if (movedEntitlements.count === 0) {
+          throw new AdminBusinessError(409, "ALIPAY_ACTIVE_ENTITLEMENT_MISSING", "No active Alipay entitlement was found to transfer");
+        }
+        await tx.autoRenewCharge.updateMany({
+          where: { autoRenewSubscriptionId: source.id },
+          data: { userId: targetUserId },
+        });
+        const updated = await tx.autoRenewSubscription.update({
+          where: { id: source.id },
+          data: {
+            userId: targetUserId,
+            metadata: {
+              ...metadata,
+              ownershipTransfer: {
+                source: "admin_confirmed_alipay_transfer",
+                fromUserId: source.userId,
+                toUserId: targetUserId,
+                latestTransactionId: source.latestTransactionId,
+                transferredAt: now.toISOString(),
+                adminId: admin.adminId,
+                requestId,
+              },
+            },
+          },
+        });
+        await tx.adminAuditLog.create({
+          data: {
+            id: randomUUID(),
+            adminId: admin.adminId,
+            action: "admin.alipay.subscription_transfer",
+            targetType: "auto_renew_subscription",
+            targetId: source.id,
+            requestId,
+            ip: req.ip,
+            reason,
+            beforeData: {
+              userId: source.userId,
+              provider: source.provider,
+              productCode: source.productCode,
+              status: source.status,
+              providerAgreementId: source.providerAgreementId,
+              currentPeriodEnd: source.currentPeriodEnd,
+            },
+            afterData: {
+              userId: targetUserId,
+              movedEntitlementCount: movedEntitlements.count,
+              customerIdPreserved: true,
+            },
+          },
+        });
+
+        return {
+          source: updated,
+          fromUserId: source.userId,
+          movedEntitlementCount: movedEntitlements.count,
+          alreadyApplied: false,
+        };
+      });
+
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: targetUserId,
+        module: "payment",
+        event: "payment.alipay.subscription_ownership_transferred",
+        level: "info",
+        status: "success",
+        metadata: {
+          autoRenewSubscriptionId: id,
+          fromUserId: result.fromUserId,
+          toUserId: targetUserId,
+          movedEntitlementCount: result.movedEntitlementCount,
+          alreadyApplied: result.alreadyApplied,
+        },
+      });
+      return reply.status(200).send({
+        ok: true,
+        request_id: requestId,
+        data: {
+          autoRenewSubscriptionId: id,
+          fromUserId: result.fromUserId,
+          toUserId: targetUserId,
+          movedEntitlementCount: result.movedEntitlementCount,
+          alreadyApplied: result.alreadyApplied,
+        },
+      });
+    } catch (error) {
+      if (error instanceof AdminBusinessError) {
+        return reply.status(error.status).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: error.code, message: error.message },
+        });
+      }
+      throw error;
+    }
   });
 
   app.get("/admin/subscriptions", async (req, reply) => {
@@ -2583,6 +2824,12 @@ function membershipPlanRank(plan: unknown): number {
   if (plan === "pro_monthly" || plan === "pro_yearly") return 2;
   if (plan === "plus_monthly" || plan === "plus_yearly") return 1;
   return 0;
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 async function writeAuditLog(

@@ -44,6 +44,7 @@ export interface VerifyGooglePlayPurchaseResult {
   autoRenewSubscriptionId: string | null;
   alreadyApplied: boolean;
   acknowledgementPending: boolean;
+  ownershipTransferred: boolean;
 }
 
 export type GooglePlayAcknowledgeReconcileStatus = "acknowledged" | "pending" | "skipped";
@@ -78,6 +79,7 @@ export class GooglePlayBillingService {
     productId: string;
     purchaseToken: string;
     obfuscatedAccountId?: string | null;
+    allowAccountTransfer?: boolean;
   }): Promise<VerifyGooglePlayPurchaseResult> {
     const config = loadGooglePlayBillingConfig();
     const configuredProductIds = [
@@ -135,8 +137,40 @@ export class GooglePlayBillingService {
     }
 
     const googleAccountId = subscription.externalAccountIdentifiers?.obfuscatedExternalAccountId ?? null;
-    if (googleAccountId && googleAccountId !== expectedAccountId) {
-      throw new GooglePlayBillingVerifyError("Google Play obfuscated account id mismatch", "GOOGLE_PLAY_ACCOUNT_ID_MISMATCH");
+    let existingAutoRenew =
+      (await this.autoRenewService?.getGooglePlaySubscriptionByPurchaseToken(input.purchaseToken)) ?? null;
+    const existingLink = await this.googlePlayAccountLinkRepository?.findByPurchaseToken(input.purchaseToken) ?? null;
+    const boundUserId = existingAutoRenew?.userId ?? existingLink?.userId ?? null;
+    const localOwnershipMatches = boundUserId === input.userId;
+    let ownershipTransferred = false;
+    if (
+      (googleAccountId && googleAccountId !== expectedAccountId && !localOwnershipMatches) ||
+      (boundUserId && !localOwnershipMatches)
+    ) {
+      if (!input.allowAccountTransfer || !existingAutoRenew || !this.googlePlayAccountLinkRepository) {
+        throw new GooglePlaySubscriptionAlreadyBoundError({ purchaseToken: input.purchaseToken });
+      }
+      try {
+        const transfer = await this.googlePlayAccountLinkRepository.transferActiveSubscriptionOwnership({
+          toUserId: input.userId,
+          obfuscatedAccountId: expectedAccountId,
+          purchaseToken: input.purchaseToken,
+          latestOrderId: subscription.latestOrderId ?? null,
+          productCode,
+          periodStart,
+          periodEnd,
+          transferredAt: new Date(),
+        });
+        ownershipTransferred = !transfer.alreadyTransferred;
+        existingAutoRenew =
+          (await this.autoRenewService?.getGooglePlaySubscriptionByPurchaseToken(input.purchaseToken)) ?? null;
+      } catch (error) {
+        const rawCode = error instanceof Error ? error.message : "FAILED";
+        const code = rawCode.startsWith("GOOGLE_PLAY_SUBSCRIPTION_TRANSFER_")
+          ? rawCode
+          : `GOOGLE_PLAY_SUBSCRIPTION_TRANSFER_${rawCode}`;
+        throw new GooglePlayBillingVerifyError(code, code);
+      }
     }
     if (subscription.linkedPurchaseToken) {
       try {
@@ -163,8 +197,6 @@ export class GooglePlayBillingService {
     if (existingOrder && existingOrder.userId !== input.userId) {
       throw new GooglePlaySubscriptionAlreadyBoundError({ purchaseToken: input.purchaseToken });
     }
-    const existingAutoRenew =
-      (await this.autoRenewService?.getGooglePlaySubscriptionByPurchaseToken(input.purchaseToken)) ?? null;
     if (existingAutoRenew && existingAutoRenew.userId !== input.userId) {
       throw new GooglePlaySubscriptionAlreadyBoundError({ purchaseToken: input.purchaseToken });
     }
@@ -195,6 +227,7 @@ export class GooglePlayBillingService {
         autoRenewSubscriptionId: existingAutoRenew.id,
         alreadyApplied: true,
         acknowledgementPending: false,
+        ownershipTransferred,
       };
     }
     if (!existingOrder && !existingAutoRenew) {
@@ -232,6 +265,7 @@ export class GooglePlayBillingService {
       autoRenewSubscriptionId: result.autoRenewSubscriptionId,
       alreadyApplied: result.alreadyApplied,
       acknowledgementPending,
+      ownershipTransferred,
     };
   }
 
