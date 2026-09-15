@@ -501,8 +501,16 @@ export class GooglePlayBillingService {
       state === "SUBSCRIPTION_STATE_PAUSED" ||
       state === "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED";
     const periodExpired = Boolean(periodEnd && periodEnd <= new Date());
+    // At a DEFERRED replacement boundary Google can briefly return ACTIVE with
+    // two line items: the old item has just expired, while the replacement item
+    // exists but does not have expiryTime/autoRenewEnabled yet. The configured
+    // line-item resolver necessarily picks the dated old item during that
+    // window. Treat Google's subscription-level ACTIVE state as authoritative
+    // and wait for the replacement item to settle instead of cancelling the
+    // local subscription and revoking paid access.
+    const expiredPeriodCanSuspend = periodExpired && state !== "SUBSCRIPTION_STATE_ACTIVE";
     const mustSuspendEntitlement =
-      periodExpired ||
+      expiredPeriodCanSuspend ||
       state === "SUBSCRIPTION_STATE_EXPIRED" ||
       state === "SUBSCRIPTION_STATE_ON_HOLD" ||
       state === "SUBSCRIPTION_STATE_PAUSED" ||

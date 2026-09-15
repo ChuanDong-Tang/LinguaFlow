@@ -4,6 +4,8 @@ import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import { getRedisClient } from "../../infrastructure/redis/redisClient.js";
 import type { GooglePlayBillingService } from "../../providers/payment/google/GooglePlayBillingService.js";
 
+const RECENT_GOOGLE_PLAY_CANCELLATION_RECHECK_MS = 60 * 60 * 1000;
+
 export class GooglePlaySubscriptionReconcileWorker {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
@@ -50,7 +52,19 @@ export class GooglePlaySubscriptionReconcileWorker {
       const rows = await this.prisma.autoRenewSubscription.findMany({
         where: {
           provider: "google_play",
-          status: { in: ["pending", "active", "billing_retry", "paused"] },
+          OR: [
+            { status: { in: ["pending", "active", "billing_retry", "paused"] } },
+            // Google can expose an expired old line item for a few seconds
+            // while a DEFERRED replacement line item is still being finalized.
+            // Recheck recent cancellations so a transient false cancellation
+            // heals automatically once the provider response settles.
+            {
+              status: "cancelled",
+              updatedAt: {
+                gte: new Date(Date.now() - RECENT_GOOGLE_PLAY_CANCELLATION_RECHECK_MS),
+              },
+            },
+          ],
           ...(this.cursorId ? { id: { gt: this.cursorId } } : {}),
         },
         select: { id: true, userId: true, providerAgreementId: true },
