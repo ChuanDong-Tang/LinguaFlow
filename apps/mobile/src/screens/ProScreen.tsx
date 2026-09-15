@@ -816,11 +816,10 @@ export function ProScreen({
             obfuscatedAccountId,
             subscriptionOffers: [{ sku: productId, offerToken }],
             ...(oldPurchaseToken && replacementMode ? {
-              // OIO has one active subscription item at a time. The legacy
-              // single-item replacement API remains supported by Billing 8.x
-              // and is compatible with Play Store versions that do not yet
-              // understand the newer item-level replacement parameter list.
               purchaseToken: oldPurchaseToken,
+              // expo-iap 4.3.1 only supports this purchase-level replacement
+              // path reliably. Billing 8 item-level params require a native
+              // bridge update because the installed bridge sets both APIs.
               replacementMode: replacementMode === "charge-prorated-price" ? 2 : 6,
             } : {}),
           },
@@ -1546,6 +1545,10 @@ export function ProScreen({
       onPurchaseError={(error) => {
         if (!isScreenAlive()) return;
         if (Platform.OS === "android") {
+          console.warn(
+            "[GooglePlayBilling] purchase_error",
+            JSON.stringify(readGooglePlayPurchaseErrorDiagnostics(error)),
+          );
           const isUserInitiatedPurchase = googlePlayPurchaseIntentRef.current;
           googlePlayPurchaseIntentRef.current = false;
           void abandonPendingPlanChange();
@@ -2378,6 +2381,28 @@ function formatGooglePlayPaymentErrorMessage(error: unknown, fallback = t("app.d
     return error.message || fallback;
   }
   return error instanceof Error ? error.message : fallback;
+}
+
+function readGooglePlayPurchaseErrorDiagnostics(error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== "object") {
+    return { message: String(error) };
+  }
+  const candidate = error as {
+    code?: unknown;
+    debugMessage?: unknown;
+    message?: unknown;
+    productId?: unknown;
+    productIds?: unknown;
+    responseCode?: unknown;
+  };
+  return {
+    code: candidate.code ?? null,
+    responseCode: candidate.responseCode ?? null,
+    debugMessage: candidate.debugMessage ?? null,
+    message: candidate.message ?? null,
+    productId: candidate.productId ?? null,
+    productIds: Array.isArray(candidate.productIds) ? candidate.productIds : null,
+  };
 }
 
 function formatStoreErrorMessage(error: unknown): string {
