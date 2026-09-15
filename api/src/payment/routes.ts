@@ -498,17 +498,25 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         targetProductCode: req.body.targetProductCode,
         metadata: { source: "app_store_flow_prepared", requestId },
       });
+      const isScheduledRevert =
+        current.provider === "google_play" &&
+        current.productCode === req.body.targetProductCode &&
+        current.pendingChangeStatus === "scheduled" &&
+        Boolean(current.pendingProductCode);
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
         userId: userContext.userId,
         module: "payment",
-        event: "payment.autorenew.plan_change_requested",
+        event: isScheduledRevert
+          ? "payment.autorenew.plan_change_revert_requested"
+          : "payment.autorenew.plan_change_requested",
         level: "info",
         status: "success",
         metadata: {
           provider: current.provider,
           fromProductCode: current.productCode,
           toProductCode: req.body.targetProductCode,
+          replacedPendingProductCode: isScheduledRevert ? current.pendingProductCode : null,
           timing: result.timing,
           effectiveAt: result.effectiveAt?.toISOString() ?? null,
         },

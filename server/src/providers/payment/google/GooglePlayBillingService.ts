@@ -209,6 +209,36 @@ export class GooglePlayBillingService {
     }
     const deferredTargetProductCode = resolveDeferredReplacementTarget(subscription, config);
     if (deferredTargetProductCode && existingAutoRenew) {
+      const revertsScheduledChange =
+        existingAutoRenew.pendingChangeStatus === "scheduled" &&
+        Boolean(existingAutoRenew.pendingProductCode) &&
+        deferredTargetProductCode === existingAutoRenew.productCode;
+      if (revertsScheduledChange) {
+        await this.autoRenewService?.reconcileRevertedScheduledPlanChange({
+          provider: "google_play",
+          providerAgreementId: input.purchaseToken,
+          observedCurrentProductCode: existingAutoRenew.productCode,
+          rawPayload: { source: "google_play_verify_deferred_replacement_reverted", subscription },
+        });
+        if (subscription.acknowledgementState !== "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED") {
+          await acknowledgeGoogleSubscription({
+            packageName: config.packageName,
+            subscriptionId: input.productId,
+            purchaseToken: input.purchaseToken,
+            accessToken,
+          });
+        }
+        return {
+          purchaseToken: input.purchaseToken,
+          productId: input.productId,
+          productCode: existingAutoRenew.productCode,
+          purchaseKind: "auto_renew",
+          autoRenewSubscriptionId: existingAutoRenew.id,
+          alreadyApplied: true,
+          acknowledgementPending: false,
+          ownershipTransferred,
+        };
+      }
       if (
         existingAutoRenew.pendingProductCode &&
         existingAutoRenew.pendingProductCode !== deferredTargetProductCode
@@ -403,22 +433,35 @@ export class GooglePlayBillingService {
     // transient omission.
     const autoRenewEnabled = providerAutoRenewEnabled || Boolean(deferredTargetProductCode);
     if (deferredTargetProductCode) {
-      if (
-        local.pendingProductCode &&
-        local.pendingProductCode !== deferredTargetProductCode
-      ) {
-        throw new GooglePlayBillingVerifyError(
-          "Google Play deferred replacement does not match the reserved plan change",
-          "GOOGLE_PLAY_DEFERRED_REPLACEMENT_TARGET_MISMATCH"
-        );
+      const revertsScheduledChange =
+        local.pendingChangeStatus === "scheduled" &&
+        Boolean(local.pendingProductCode) &&
+        deferredTargetProductCode === local.productCode;
+      if (revertsScheduledChange) {
+        await this.autoRenewService.reconcileRevertedScheduledPlanChange({
+          provider: "google_play",
+          providerAgreementId: purchaseToken,
+          observedCurrentProductCode: local.productCode,
+          rawPayload: { source: "google_play_deferred_replacement_reverted_reconcile", subscription },
+        });
+      } else {
+        if (
+          local.pendingProductCode &&
+          local.pendingProductCode !== deferredTargetProductCode
+        ) {
+          throw new GooglePlayBillingVerifyError(
+            "Google Play deferred replacement does not match the reserved plan change",
+            "GOOGLE_PLAY_DEFERRED_REPLACEMENT_TARGET_MISMATCH"
+          );
+        }
+        await this.autoRenewService.confirmScheduledPlanChange({
+          provider: "google_play",
+          providerAgreementId: purchaseToken,
+          targetProductCode: local.pendingProductCode ?? deferredTargetProductCode,
+          effectiveAt: local.currentPeriodEnd,
+          rawPayload: { source: "google_play_deferred_replacement_reconcile", subscription },
+        });
       }
-      await this.autoRenewService.confirmScheduledPlanChange({
-        provider: "google_play",
-        providerAgreementId: purchaseToken,
-        targetProductCode: local.pendingProductCode ?? deferredTargetProductCode,
-        effectiveAt: local.currentPeriodEnd,
-        rawPayload: { source: "google_play_deferred_replacement_reconcile", subscription },
-      });
     } else if (resolvedProduct) {
       await this.autoRenewService.reconcileRevertedScheduledPlanChange({
         provider: "google_play",
@@ -652,6 +695,27 @@ export class GooglePlayBillingService {
       ?.getGooglePlaySubscriptionByPurchaseToken(decoded.purchaseToken);
     const deferredTargetProductCode = resolveDeferredReplacementTarget(subscription, config);
     if (deferredTargetProductCode && localForDeferredChange) {
+      const revertsScheduledChange =
+        localForDeferredChange.pendingChangeStatus === "scheduled" &&
+        Boolean(localForDeferredChange.pendingProductCode) &&
+        deferredTargetProductCode === localForDeferredChange.productCode;
+      if (revertsScheduledChange) {
+        await this.autoRenewService?.reconcileRevertedScheduledPlanChange({
+          provider: "google_play",
+          providerAgreementId: decoded.purchaseToken,
+          observedCurrentProductCode: localForDeferredChange.productCode,
+          rawPayload: { notification: decoded.rawNotification, subscription },
+        });
+        if (subscription.acknowledgementState !== "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED") {
+          await acknowledgeGoogleSubscription({
+            packageName: config.packageName,
+            subscriptionId: productId,
+            purchaseToken: decoded.purchaseToken,
+            accessToken,
+          });
+        }
+        return { status: "processed", action: "plan_change_reverted" };
+      }
       if (
         localForDeferredChange.pendingProductCode &&
         localForDeferredChange.pendingProductCode !== deferredTargetProductCode

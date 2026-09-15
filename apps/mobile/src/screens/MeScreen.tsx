@@ -168,7 +168,7 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
   const userName = profile?.nickname || "OIO";
   const isAdmin = session?.user.role === "admin";
   const isMember = entitlement ? (entitlement.isMember ?? entitlement.isPro) : session?.sessionFlags?.isPro === true;
-  const planLabel = resolvePlanLabel(entitlement, session);
+  const planLabel = resolvePlanLabel(entitlement, isLoadingEntitlement);
   const quotaTitle = t("me.quota.v2_title");
   const quotaResetText = usageV2
     ? tf("me.quota.v2_refresh", { time: formatDateTime(usageV2.token.periodEnd) })
@@ -1210,12 +1210,15 @@ function UsageMeter({ label, value, ratio, loading = false }: {
   );
 }
 
-function resolvePlanLabel(entitlement: CurrentEntitlement | null, session: AuthSession | null): string {
-  if (entitlement?.tier === "plus") return t("me.plan.plus");
-  if (entitlement?.tier === "pro") return t("me.plan.pro");
-  if (entitlement?.isMember ?? entitlement?.isPro) return t("me.plan.member");
-  if (session?.sessionFlags?.isPro === true) return t("me.plan.member");
-  return t("me.plan.free");
+function resolvePlanLabel(entitlement: CurrentEntitlement | null, loading: boolean): string {
+  if (entitlement?.tier === "plus" || entitlement?.plan === "plus_monthly" || entitlement?.plan === "plus_yearly") {
+    return t("me.plan.plus");
+  }
+  if (entitlement?.tier === "pro" || entitlement?.plan === "pro_monthly" || entitlement?.plan === "pro_yearly") {
+    return t("me.plan.pro");
+  }
+  if (entitlement?.tier === "free" || entitlement?.plan === "free") return t("me.plan.free");
+  return loading ? t("me.plan.loading") : t("me.plan.unavailable");
 }
 
 function formatNumber(value: number): string {

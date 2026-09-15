@@ -99,6 +99,7 @@ const IS_CHINA_ANDROID = Platform.OS === "android" && DISTRIBUTION_CHANNEL === "
 const AUTO_RENEW_CACHE_KEY = environmentStorageKey("lf_current_auto_renew_v1");
 const AUTO_RENEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const APPLE_PURCHASE_TIMEOUT_MS = 120 * 1000;
+const APPLE_DEFERRED_PLAN_CHANGE_TIMEOUT_MS = 10 * 1000;
 const ALIPAY_ANDROID_MARKET_URL = "market://details?id=com.eg.android.AlipayGphone";
 const ALIPAY_DOWNLOAD_FALLBACK_URL = "https://www.alipay.cn/";
 const IOS_DEVELOPMENT_PRICES: Record<MobilePaymentProductCode, number> = {
@@ -149,6 +150,7 @@ export function ProScreen({
   const pendingPlanChangeRef = useRef<{
     autoRenewSubscriptionId: string;
     targetProductCode: MobilePaymentProductCode;
+    operation: "change" | "revert";
   } | null>(null);
   const handledGooglePlayPurchaseTokensRef = useRef(new Set<string>());
   const appStateRef = useRef(AppState.currentState);
@@ -314,16 +316,47 @@ export function ProScreen({
     applePurchaseTimeoutRef.current = null;
   }
 
-  function startApplePurchaseTimeout(): void {
+  function startApplePurchaseTimeout(planChange?: MobilePlanChangeResult): void {
     clearApplePurchaseTimeout();
     applePurchaseTimeoutRef.current = setTimeout(() => {
       applePurchaseTimeoutRef.current = null;
-      if (!isScreenAlive()) return;
-      applePurchaseIntentRef.current = false;
-      setIsPaying(false);
-      setIsAutoRenewLoading(false);
-      safeAlert(t("pro.alert.apple_unfinished_title"), t("pro.alert.apple_unfinished_message"));
-    }, APPLE_PURCHASE_TIMEOUT_MS);
+      void handleApplePurchaseTimeout(planChange);
+    }, planChange?.timing === "period_end" ? APPLE_DEFERRED_PLAN_CHANGE_TIMEOUT_MS : APPLE_PURCHASE_TIMEOUT_MS);
+  }
+
+  async function handleApplePurchaseTimeout(planChange?: MobilePlanChangeResult): Promise<void> {
+    if (!isScreenAlive()) return;
+    applePurchaseIntentRef.current = false;
+    setIsPaying(false);
+    setIsAutoRenewLoading(false);
+
+    if (planChange?.timing === "period_end") {
+      try {
+        const current = await getCurrentAutoRenewSubscription(8_000);
+        if (!isScreenAlive()) return;
+        applyAutoRenewToState(current);
+        if (
+          current?.productCode === planChange.targetProductCode ||
+          current?.pendingProductCode === planChange.targetProductCode
+        ) {
+          if (current.productCode === planChange.targetProductCode) {
+            pendingPlanChangeRef.current = null;
+          }
+          safeAlert(
+            t("subscription.manager.switch_submitted"),
+            formatPlanChangeEffectiveText(current.pendingChangeEffectiveAt ?? planChange.effectiveAt),
+          );
+          return;
+        }
+      } catch {
+        // The provider notification and payment worker continue syncing the
+        // reserved change even when this best-effort status refresh fails.
+      }
+      safeAlert(t("subscription.manager.confirming_title"), t("subscription.manager.confirming_message"));
+      return;
+    }
+
+    safeAlert(t("pro.alert.apple_unfinished_title"), t("pro.alert.apple_unfinished_message"));
   }
 
   async function ensureStoreConnected(): Promise<boolean> {
@@ -517,6 +550,7 @@ export function ProScreen({
   async function handleChangePlan(
     subscription: MobileAutoRenewSubscription,
     targetProductCode: MobilePaymentProductCode,
+    options?: { revertScheduledChange?: boolean },
   ): Promise<void> {
     setIsAutoRenewLoading(true);
     try {
@@ -527,6 +561,7 @@ export function ProScreen({
       pendingPlanChangeRef.current = {
         autoRenewSubscriptionId: subscription.id,
         targetProductCode,
+        operation: options?.revertScheduledChange ? "revert" : "change",
       };
       if (subscription.provider === "alipay") {
         if (!prepared.jumpSchema) throw new Error("支付宝未返回方案切换链接");
@@ -542,13 +577,41 @@ export function ProScreen({
         return;
       }
       if (subscription.provider === "apple") {
-        await startAppleIapPurchase("auto_renew", targetProductCode, { allowExistingMembership: true });
+        applyAutoRenewToState({
+          ...subscription,
+          pendingProductCode: targetProductCode,
+          pendingChangeStatus: "pending_confirmation",
+          pendingChangeEffectiveAt: prepared.effectiveAt,
+          pendingChangeRequestedAt: new Date().toISOString(),
+        });
+        await startAppleIapPurchase("auto_renew", targetProductCode, {
+          allowExistingMembership: true,
+          planChange: prepared,
+        });
         return;
       }
       await startGooglePlaySubscriptionPurchase(targetProductCode, prepared);
     } catch (error) {
-      pendingPlanChangeRef.current = null;
+      await abandonPendingPlanChange();
       if (!isScreenAlive()) return;
+      if (error instanceof MobileApiError && error.code === "AUTO_RENEW_NOT_FOUND") {
+        const current = await getCurrentAutoRenewSubscription(8_000).catch(() => null);
+        if (!isScreenAlive()) return;
+        applyAutoRenewToState(current);
+        const entitlement = await refreshProEntitlementState();
+        if (!isScreenAlive()) return;
+        if (
+          !current &&
+          entitlement &&
+          !(entitlement?.entitlement.isMember ?? entitlement?.entitlement.isPro)
+        ) {
+          // The cached subscription expired between rendering the manager and
+          // tapping a plan. Preserve the user's selection, but start a normal
+          // store purchase instead of attempting to change a missing plan.
+          await startAutoRenewPurchaseForCurrentPlatform(targetProductCode);
+          return;
+        }
+      }
       const message = error instanceof Error ? error.message : t("app.delete.retry_later");
       safeAlert(t("subscription.manager.switch_failed"), message);
     } finally {
@@ -584,6 +647,12 @@ export function ProScreen({
       return;
     }
 
+    await startAutoRenewPurchaseForCurrentPlatform(productCode);
+  }
+
+  async function startAutoRenewPurchaseForCurrentPlatform(
+    productCode: MobilePaymentProductCode,
+  ): Promise<void> {
     if (Platform.OS === "ios") {
       if (!ENABLE_APPLE_AUTO_RENEW) {
         safeAlert(t("pro.not_open"), t("pro.alert.apple_auto_not_open"));
@@ -719,6 +788,26 @@ export function ProScreen({
         : planChange?.googlePlayReplacementMode === "DEFERRED"
           ? "deferred" as const
           : null;
+      const existingPurchase = oldProductId && replacementMode
+        ? (await getAvailablePurchases())
+          .filter((purchase) => purchase.productId === oldProductId)
+          .sort((left, right) => Number(right.transactionDate ?? 0) - Number(left.transactionDate ?? 0))[0]
+        : null;
+      const oldPurchaseToken = existingPurchase ? getGooglePlayPurchaseToken(existingPurchase) : null;
+      if (oldProductId && replacementMode && !oldPurchaseToken) {
+        throw new Error("Google Play current subscription purchase token is unavailable. Restore purchases and try again.");
+      }
+      const isRevertingScheduledChange = Boolean(
+        planChange &&
+        autoRenew?.pendingProductCode &&
+        productCode === autoRenew.productCode
+      );
+      // Play normally issues a new token for another replacement. If a Play
+      // Store version reports the current token again while reverting, allow
+      // the purchase listener to verify it instead of treating it as a replay.
+      if (isRevertingScheduledChange && oldPurchaseToken) {
+        handledGooglePlayPurchaseTokensRef.current.delete(oldPurchaseToken);
+      }
       const purchaseResult = await appleIap.requestPurchase({
         type: "subs",
         request: {
@@ -726,11 +815,13 @@ export function ProScreen({
             skus: [productId],
             obfuscatedAccountId,
             subscriptionOffers: [{ sku: productId, offerToken }],
-            ...(oldProductId && replacementMode ? {
-              subscriptionProductReplacementParams: {
-                oldProductId,
-                replacementMode,
-              },
+            ...(oldPurchaseToken && replacementMode ? {
+              // OIO has one active subscription item at a time. The legacy
+              // single-item replacement API remains supported by Billing 8.x
+              // and is compatible with Play Store versions that do not yet
+              // understand the newer item-level replacement parameter list.
+              purchaseToken: oldPurchaseToken,
+              replacementMode: replacementMode === "charge-prorated-price" ? 2 : 6,
             } : {}),
           },
         },
@@ -829,12 +920,21 @@ export function ProScreen({
 
     Alert.alert(
       t("subscription.manager.cancel_change_title"),
-      tf("subscription.manager.cancel_change_message", { plan: formatProductCode(autoRenew.productCode) }),
+      tf(
+        autoRenew.provider === "google_play"
+          ? "subscription.manager.cancel_change_google_message"
+          : "subscription.manager.cancel_change_message",
+        { plan: formatProductCode(autoRenew.productCode) },
+      ),
       [
         { text: t("common.cancel"), style: "cancel" },
         {
           text: t("common.continue"),
-          onPress: () => void openStoreSubscriptionManagement(autoRenew, "plan_change"),
+          onPress: () => void (
+            autoRenew.provider === "google_play"
+              ? handleChangePlan(autoRenew, autoRenew.productCode, { revertScheduledChange: true })
+              : openStoreSubscriptionManagement(autoRenew, "plan_change")
+          ),
         },
       ],
     );
@@ -929,15 +1029,17 @@ export function ProScreen({
   async function startAppleIapPurchase(
     source: ApplePurchaseSource,
     productCode: MobilePaymentProductCode = "pro_monthly",
-    options?: { allowExistingMembership?: boolean },
+    options?: { allowExistingMembership?: boolean; planChange?: MobilePlanChangeResult },
   ): Promise<void> {
     assertAppleIapAvailable(source, productCode);
     if (!appleIap?.connected) {
+      if (options?.planChange) await abandonPendingPlanChange();
       safeAlert(t("pro.alert.apple_init_title"), t("app.delete.retry_later"));
       return;
     }
     const productId = getAppleProductIdForSource(source, productCode);
     if (!hasLoadedAppleProduct(appleIap, source, productId)) {
+      if (options?.planChange) await abandonPendingPlanChange();
       safeAlert(t("pro.alert.apple_product_loading_title"), t("pro.alert.apple_product_loading_message"));
       return;
     }
@@ -968,7 +1070,7 @@ export function ProScreen({
         }
       }
       applePurchaseIntentRef.current = true;
-      startApplePurchaseTimeout();
+      startApplePurchaseTimeout(options?.planChange);
       const purchaseResult = await appleIap.requestPurchase({
         type: source === "single_purchase" ? "in-app" : "subs",
         request: {
@@ -1160,7 +1262,8 @@ export function ProScreen({
       handledGooglePlayPurchaseTokensRef.current.add(purchaseToken);
       const session = await getSession();
       const obfuscatedAccountId = session?.user.id ? await createGooglePlayObfuscatedAccountId(session.user.id) : null;
-      await verifyGooglePlaySubscriptionPurchase({
+      const planChangeIntent = pendingPlanChangeRef.current;
+      const verified = await verifyGooglePlaySubscriptionPurchase({
         productId: purchase.productId,
         purchaseToken,
         obfuscatedAccountId,
@@ -1174,7 +1277,26 @@ export function ProScreen({
       setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
       applyAutoRenewToState(currentAutoRenew);
       if (isUserInitiatedPurchase) {
-        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
+        if (planChangeIntent?.operation === "revert") {
+          safeAlert(
+            t(currentAutoRenew?.pendingProductCode
+              ? "subscription.manager.cancel_change_confirming_title"
+              : "subscription.manager.cancel_change_success_title"),
+            t(currentAutoRenew?.pendingProductCode
+              ? "subscription.manager.cancel_change_confirming_message"
+              : "subscription.manager.cancel_change_success_message"),
+          );
+        } else if (currentAutoRenew?.pendingProductCode) {
+          safeAlert(
+            t("subscription.manager.switch_submitted"),
+            formatPendingPlanLabel(currentAutoRenew),
+          );
+        } else {
+          alertOpenSuccess({
+            entitlement: entitlementResult?.entitlement,
+            productCode: currentAutoRenew?.productCode ?? verified.productCode,
+          });
+        }
       }
     } catch (error) {
       if (purchaseToken) {
@@ -1936,14 +2058,20 @@ type MembershipTierInput = {
 function resolveMembershipTier(input?: MembershipTierInput): "plus" | "pro" {
   if (
     input?.productCode === "plus_monthly" ||
+    input?.productCode === "plus_yearly" ||
     input?.productId === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
-    input?.productId === GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+    input?.productId === APPLE_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID ||
+    input?.productId === GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+    input?.productId === GOOGLE_PLAY_PLUS_YEARLY_SUBSCRIPTION_PRODUCT_ID
   ) return "plus";
   if (
     input?.productCode === "pro_monthly" ||
+    input?.productCode === "pro_yearly" ||
     input?.productId === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+    input?.productId === APPLE_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID ||
     input?.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID ||
-    input?.productId === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
+    input?.productId === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
+    input?.productId === GOOGLE_PLAY_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID
   ) return "pro";
   if (input?.entitlement?.tier === "plus") return "plus";
   return "pro";

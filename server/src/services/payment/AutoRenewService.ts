@@ -251,11 +251,32 @@ export class AutoRenewService {
     const current = await this.autoRenewRepository.findById(input.autoRenewSubscriptionId);
     if (!current || current.userId !== input.userId) throw new AutoRenewAccessDeniedError();
     if (!["active", "billing_retry"].includes(current.status)) throw new AutoRenewNotFoundError();
-    if (current.productCode === input.targetProductCode) {
-      throw new AutoRenewPlanAlreadyCurrentError();
-    }
+    const requestedAt = input.requestedAt ?? new Date();
     if (readBooleanMetadata(current.metadata, "cancelAtPeriodEnd")) {
       throw new Error("AUTO_RENEW_PLAN_CHANGE_WHILE_CANCEL_SCHEDULED");
+    }
+
+    if (current.productCode === input.targetProductCode) {
+      // Google Play cancels a deferred replacement by launching another
+      // replacement purchase for the currently active plan. Keep the existing
+      // scheduled target until Play confirms the reversal; provider
+      // reconciliation will then clear it atomically.
+      if (
+        current.provider === "google_play" &&
+        current.pendingProductCode &&
+        current.pendingChangeStatus === "scheduled"
+      ) {
+        const effectiveAt = current.pendingChangeEffectiveAt ?? current.currentPeriodEnd;
+        if (!effectiveAt || effectiveAt <= requestedAt) {
+          throw new Error("AUTO_RENEW_PLAN_CHANGE_REVERSAL_WINDOW_CLOSED");
+        }
+        return {
+          subscription: current,
+          timing: "period_end",
+          effectiveAt,
+        };
+      }
+      throw new AutoRenewPlanAlreadyCurrentError();
     }
 
     if (current.pendingProductCode) {
@@ -276,7 +297,6 @@ export class AutoRenewService {
     if (timing === "period_end" && !effectiveAt) {
       throw new Error("AUTO_RENEW_CURRENT_PERIOD_END_MISSING");
     }
-    const requestedAt = input.requestedAt ?? new Date();
     const metadata = mergeMetadata(current.metadata, {
       planChange: {
         fromProductCode: current.productCode,

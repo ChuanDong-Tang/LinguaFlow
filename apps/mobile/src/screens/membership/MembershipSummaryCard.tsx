@@ -26,9 +26,6 @@ export function MembershipSummaryCard({
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={onPress}
     >
-      <View style={styles.iconWrap}>
-        <Ionicons name="sparkles-outline" size={20} color={theme.colors.text} />
-      </View>
       <View style={styles.body}>
         <Text style={styles.eyebrow}>{t("pro.current.title")}</Text>
         <View style={styles.titleRow}>
@@ -56,15 +53,7 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.border,
   },
   cardPressed: { opacity: 0.65 },
-  iconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.surfaceMuted,
-  },
-  body: { flex: 1, marginLeft: 13 },
+  body: { flex: 1 },
   eyebrow: { color: theme.colors.textMuted, fontSize: 11 },
   titleRow: { marginTop: 2, flexDirection: "row", alignItems: "center", gap: 8 },
   title: { color: theme.colors.text, fontSize: 20, fontWeight: "600" },
