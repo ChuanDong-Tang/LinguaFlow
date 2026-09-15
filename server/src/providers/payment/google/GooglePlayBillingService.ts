@@ -386,7 +386,7 @@ export class GooglePlayBillingService {
       accessToken,
     });
     const state = String(subscription.subscriptionState ?? "").toUpperCase();
-    const autoRenewEnabled = (subscription.lineItems ?? []).some(
+    const providerAutoRenewEnabled = (subscription.lineItems ?? []).some(
       (lineItem) => lineItem.autoRenewingPlan?.autoRenewEnabled === true
     );
     const resolvedProduct = resolveCurrentConfiguredLineItem(subscription, config);
@@ -397,6 +397,11 @@ export class GooglePlayBillingService {
     let paidPeriodRecorded = false;
     const hadCancelAtPeriodEnd = asRecord(local.metadata).cancelAtPeriodEnd === true;
     const deferredTargetProductCode = resolveDeferredReplacementTarget(subscription, config);
+    // During ReplacementMode.DEFERRED Google may omit autoRenewingPlan from
+    // both the current and future line item. The verified deferred target is
+    // the authoritative renewal intent and must take precedence over that
+    // transient omission.
+    const autoRenewEnabled = providerAutoRenewEnabled || Boolean(deferredTargetProductCode);
     if (deferredTargetProductCode) {
       if (
         local.pendingProductCode &&
@@ -643,6 +648,36 @@ export class GooglePlayBillingService {
         });
       }
     }
+    const localForDeferredChange = await this.autoRenewService
+      ?.getGooglePlaySubscriptionByPurchaseToken(decoded.purchaseToken);
+    const deferredTargetProductCode = resolveDeferredReplacementTarget(subscription, config);
+    if (deferredTargetProductCode && localForDeferredChange) {
+      if (
+        localForDeferredChange.pendingProductCode &&
+        localForDeferredChange.pendingProductCode !== deferredTargetProductCode
+      ) {
+        throw new GooglePlayBillingVerifyError(
+          "Google Play deferred replacement does not match the reserved plan change",
+          "GOOGLE_PLAY_DEFERRED_REPLACEMENT_TARGET_MISMATCH"
+        );
+      }
+      await this.autoRenewService?.confirmScheduledPlanChange({
+        provider: "google_play",
+        providerAgreementId: decoded.purchaseToken,
+        targetProductCode: localForDeferredChange.pendingProductCode ?? deferredTargetProductCode,
+        effectiveAt: localForDeferredChange.currentPeriodEnd,
+        rawPayload: { notification: decoded.rawNotification, subscription },
+      });
+      if (subscription.acknowledgementState !== "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED") {
+        await acknowledgeGoogleSubscription({
+          packageName: config.packageName,
+          subscriptionId: productId,
+          purchaseToken: decoded.purchaseToken,
+          accessToken,
+        });
+      }
+      return { status: "processed", action: "plan_change_scheduled" };
+    }
     const notificationAction = resolveGooglePlayNotificationAction({
       notificationType: decoded.notificationType,
       subscriptionState: subscription.subscriptionState,
@@ -686,36 +721,6 @@ export class GooglePlayBillingService {
     if (notificationAction === "sync") {
       if (!periodEnd || periodEnd <= new Date()) {
         return { status: "ignored", reason: "subscription_period_expired" };
-      }
-      const localForDeferredChange = await this.autoRenewService
-        ?.getGooglePlaySubscriptionByPurchaseToken(decoded.purchaseToken);
-      const deferredTargetProductCode = resolveDeferredReplacementTarget(subscription, config);
-      if (deferredTargetProductCode && localForDeferredChange) {
-        if (
-          localForDeferredChange.pendingProductCode &&
-          localForDeferredChange.pendingProductCode !== deferredTargetProductCode
-        ) {
-          throw new GooglePlayBillingVerifyError(
-            "Google Play deferred replacement does not match the reserved plan change",
-            "GOOGLE_PLAY_DEFERRED_REPLACEMENT_TARGET_MISMATCH"
-          );
-        }
-        await this.autoRenewService?.confirmScheduledPlanChange({
-          provider: "google_play",
-          providerAgreementId: decoded.purchaseToken,
-          targetProductCode: localForDeferredChange.pendingProductCode ?? deferredTargetProductCode,
-          effectiveAt: localForDeferredChange.currentPeriodEnd,
-          rawPayload: { notification: decoded.rawNotification, subscription },
-        });
-        if (subscription.acknowledgementState !== "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED") {
-          await acknowledgeGoogleSubscription({
-            packageName: config.packageName,
-            subscriptionId: productId,
-            purchaseToken: decoded.purchaseToken,
-            accessToken,
-          });
-        }
-        return { status: "processed", action: "plan_change_scheduled" };
       }
       await this.autoRenewService?.updateProviderRenewalPreference({
         provider: "google_play",
