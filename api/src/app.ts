@@ -510,6 +510,8 @@ export function createApp() {
       appleIapService,
       googlePlayBillingService,
       alipayAutoRenewService,
+      entitlementService,
+      usageV2Service,
       userRepository,
       systemEventLogRepository,
     });

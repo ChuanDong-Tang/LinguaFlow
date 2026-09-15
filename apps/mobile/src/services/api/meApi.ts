@@ -36,7 +36,7 @@ export type CurrentEntitlement = {
     conversationHistorySync: boolean;
     highQualityTts: boolean;
   };
-  source?: "authing" | "mock";
+  source?: "auth" | "authing" | "mock";
 };
 
 export type RefreshEntitlementResult = {

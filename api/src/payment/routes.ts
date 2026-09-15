@@ -28,6 +28,8 @@ import {
 import { fetchGoogleApi } from "@lf/server/providers/payment/google/GoogleApiHttpClient.js";
 import type { AlipayAutoRenewService } from "@lf/server/providers/payment/alipay/AlipayAutoRenewService.js";
 import { AlipayApiError } from "@lf/server/providers/payment/alipay/AlipayClient.js";
+import type { EntitlementService } from "@lf/server/services/entitlement/EntitlementService.js";
+import type { UsageV2Service } from "@lf/server/services/usage/UsageV2Service.js";
 import {
   AccountDisabledError,
   resolveActiveUserContext,
@@ -43,6 +45,8 @@ export interface PaymentRouteDeps {
   appleIapService: AppleIapService;
   googlePlayBillingService: GooglePlayBillingService;
   alipayAutoRenewService: AlipayAutoRenewService;
+  entitlementService: EntitlementService;
+  usageV2Service: UsageV2Service;
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
@@ -960,7 +964,13 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         });
       }
 
-      return reply.status(200).send({ ok: true, request_id: requestId, data });
+      const state = await buildVerifiedPaymentStateSafe(
+        deps,
+        userContext.userId,
+        userContext.source,
+        requestId,
+      );
+      return reply.status(200).send({ ok: true, request_id: requestId, data: { ...data, state } });
     } catch (error) {
       const message = error instanceof Error ? error.message : "iOS IAP verify failed";
       if (error instanceof AutoRenewSwitchBlockedError) {
@@ -1166,7 +1176,13 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         });
       }
 
-      return reply.status(200).send({ ok: true, request_id: requestId, data });
+      const state = await buildVerifiedPaymentStateSafe(
+        deps,
+        userContext.userId,
+        userContext.source,
+        requestId,
+      );
+      return reply.status(200).send({ ok: true, request_id: requestId, data: { ...data, state } });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Google Play IAP verify failed";
       if (error instanceof AutoRenewSwitchBlockedError) {
@@ -1628,6 +1644,74 @@ function isGooglePlayNotifyTokenValid(req: FastifyRequest, expectedToken: string
 
 function readCancelAtPeriodEnd(metadata: unknown): boolean {
   return Boolean(metadata && typeof metadata === "object" && !Array.isArray(metadata) && (metadata as Record<string, unknown>).cancelAtPeriodEnd === true);
+}
+
+async function buildVerifiedPaymentState(
+  deps: PaymentRouteDeps,
+  userId: string,
+  source: "auth",
+) {
+  // Verification has already committed the payment and entitlement. Read the
+  // resulting local state in parallel and return it with the verify response;
+  // do not make the client perform another provider reconciliation first.
+  const [entitlement, usage, current] = await Promise.all([
+    deps.entitlementService.getCurrentEntitlement(userId),
+    deps.usageV2Service.getCurrentUsage(userId),
+    deps.autoRenewService.getCurrent(userId),
+  ]);
+  const subscription = current.subscription;
+  const config = getRuntimeConfig();
+  return {
+    entitlement: { ...entitlement, source },
+    usage,
+    autoRenewSubscription: subscription
+      ? {
+          id: subscription.id,
+          provider: subscription.provider,
+          productCode: subscription.productCode,
+          status: subscription.status,
+          currentPeriodStart: subscription.currentPeriodStart?.toISOString() ?? null,
+          currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
+          nextBillingAt: subscription.nextBillingAt?.toISOString() ?? null,
+          cancelledAt: subscription.cancelledAt?.toISOString() ?? null,
+          cancelAtPeriodEnd: readCancelAtPeriodEnd(subscription.metadata),
+          pendingProductCode: subscription.pendingProductCode,
+          pendingChangeStatus: subscription.pendingChangeStatus,
+          pendingChangeEffectiveAt: subscription.pendingChangeEffectiveAt?.toISOString() ?? null,
+          pendingChangeRequestedAt: subscription.pendingChangeRequestedAt?.toISOString() ?? null,
+          managementUrl: subscription.provider === "alipay"
+            ? config.payment.alipayAutoRenew.managementPortalUrl
+            : null,
+        }
+      : null,
+  };
+}
+
+async function buildVerifiedPaymentStateSafe(
+  deps: PaymentRouteDeps,
+  userId: string,
+  source: "auth",
+  requestId: string,
+) {
+  try {
+    return await buildVerifiedPaymentState(deps, userId, source);
+  } catch (error) {
+    // Payment verification and entitlement persistence already succeeded.
+    // Snapshot failure must never turn that successful transaction into a
+    // client-visible verification failure; older refresh behavior is the
+    // compatible fallback.
+    await writeSystemEventLog(deps.systemEventLogRepository, {
+      requestId,
+      userId,
+      module: "payment",
+      event: "payment.verify.state_snapshot_failed",
+      level: "warn",
+      status: "failed",
+      errorCode: "PAYMENT_STATE_SNAPSHOT_FAILED",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    }).catch(() => undefined);
+    return null;
+  }
 }
 
 function tokensEqual(actual: string | null | undefined, expected: string): boolean {

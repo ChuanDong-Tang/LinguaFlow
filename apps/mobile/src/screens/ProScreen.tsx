@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   ErrorCode,
+  endConnection,
   getAvailablePurchases,
   presentCodeRedemptionSheetIOS,
   restorePurchases as restoreIapPurchases,
@@ -34,6 +35,7 @@ import {
   type MobilePlanChangeResult,
   type MobilePaymentProductCode,
   type MobilePaymentProductQuote,
+  type MobileVerifiedPaymentState,
 } from "../services/api/paymentApi";
 import { refreshEntitlementAndSession } from "../services/entitlement/entitlementSync";
 import { getCachedEntitlementForUser, isSameEntitlement, setCachedEntitlement } from "../services/entitlement/entitlementCache";
@@ -147,6 +149,8 @@ export function ProScreen({
   const appleAppAccountTokenPromiseRef = useRef<Promise<string | null> | null>(null);
   const googlePlayPurchaseIntentRef = useRef(false);
   const googlePlayPurchaseFinishingRef = useRef(false);
+  const googlePlayStalePurchaseSessionRef = useRef(false);
+  const googlePlayPurchaseSessionRecoveryRef = useRef(false);
   const pendingPlanChangeRef = useRef<{
     autoRenewSubscriptionId: string;
     targetProductCode: MobilePaymentProductCode;
@@ -209,6 +213,44 @@ export function ProScreen({
   function applyUsageToState(usage: UsageV2): void {
     setUsageV2(usage);
     onUsageChanged?.(usage);
+  }
+
+  function applyVerifiedPaymentState(state: MobileVerifiedPaymentState): void {
+    // The verify endpoint returns state read after the payment commit. Apply it
+    // immediately; local persistence is a background concern and must not keep
+    // the success UI spinning.
+    applyEntitlementToState(state.entitlement);
+    applyUsageToState(state.usage);
+    applyAutoRenewToState(state.autoRenewSubscription);
+    void Promise.all([
+      setCachedEntitlement(state.entitlement),
+      syncSessionProFlag(state.entitlement),
+    ]).catch(() => undefined);
+  }
+
+  async function resolveVerifiedPaymentState(
+    state: MobileVerifiedPaymentState | null | undefined,
+    includeAutoRenew: boolean,
+  ): Promise<{ entitlement: CurrentEntitlement | null; autoRenewSubscription: MobileAutoRenewSubscription | null }> {
+    if (state) {
+      applyVerifiedPaymentState(state);
+      return {
+        entitlement: state.entitlement,
+        autoRenewSubscription: state.autoRenewSubscription,
+      };
+    }
+
+    // Rolling-deploy fallback for an older API that does not return a state
+    // snapshot yet. This path can be removed after all servers are upgraded.
+    const entitlementResult = await refreshProEntitlementState();
+    const currentAutoRenew = includeAutoRenew
+      ? await getCurrentAutoRenewSubscription()
+      : autoRenew;
+    if (isScreenAlive() && includeAutoRenew) applyAutoRenewToState(currentAutoRenew);
+    return {
+      entitlement: entitlementResult?.entitlement ?? null,
+      autoRenewSubscription: currentAutoRenew,
+    };
   }
 
   useEffect(() => {
@@ -759,12 +801,10 @@ export function ProScreen({
     setIsPaying(true);
     setIsAutoRenewLoading(true);
     try {
-      const latestEntitlement = await refreshProEntitlementState();
-      if (!isScreenAlive()) return;
       if (
         !planChange &&
-        (latestEntitlement?.entitlement.isMember ?? latestEntitlement?.entitlement.isPro) &&
-        !isManualOrLegacyEntitlement(latestEntitlement?.entitlement)
+        (currentEntitlement?.isMember ?? currentEntitlement?.isPro) &&
+        !isManualOrLegacyEntitlement(currentEntitlement)
       ) {
         setIsRenew(true);
         safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_subscribe_later"));
@@ -788,11 +828,18 @@ export function ProScreen({
         : planChange?.googlePlayReplacementMode === "DEFERRED"
           ? "deferred" as const
           : null;
-      const existingPurchase = oldProductId && replacementMode
+      const availableGooglePlayPurchases = oldProductId && replacementMode
         ? (await getAvailablePurchases())
-          .filter((purchase) => purchase.productId === oldProductId)
-          .sort((left, right) => Number(right.transactionDate ?? 0) - Number(left.transactionDate ?? 0))[0]
-        : null;
+          .filter(isGooglePlayProPurchase)
+          .sort((left, right) => Number(right.transactionDate ?? 0) - Number(left.transactionDate ?? 0))
+        : [];
+      // During a deferred replacement Google can temporarily report the old
+      // product id for the new stable token even after the backend has moved
+      // to the next plan. Prefer the exact product, then safely fall back to
+      // the newest purchase from OIO's one subscription group.
+      const existingPurchase = availableGooglePlayPurchases.find(
+        (purchase) => purchase.productId === oldProductId
+      ) ?? availableGooglePlayPurchases[0] ?? null;
       const oldPurchaseToken = existingPurchase ? getGooglePlayPurchaseToken(existingPurchase) : null;
       if (oldProductId && replacementMode && !oldPurchaseToken) {
         throw new Error("Google Play current subscription purchase token is unavailable. Restore purchases and try again.");
@@ -802,32 +849,67 @@ export function ProScreen({
         autoRenew?.pendingProductCode &&
         productCode === autoRenew.productCode
       );
-      const replacedProductId = isRevertingScheduledChange && autoRenew?.pendingProductCode
-        ? getGooglePlayProductId(autoRenew.pendingProductCode)
-        : oldProductId;
+      const subscriptionReplacementParams = isRevertingScheduledChange && oldProductId
+        ? {
+            oldProductId,
+            replacementMode: "without-proration" as const,
+          }
+        : oldProductId && replacementMode
+          ? {
+              oldProductId,
+              replacementMode,
+            }
+          : null;
       // Play normally issues a new token for another replacement. If a Play
       // Store version reports the current token again while reverting, allow
       // the purchase listener to verify it instead of treating it as a replay.
       if (isRevertingScheduledChange && oldPurchaseToken) {
         handledGooglePlayPurchaseTokensRef.current.delete(oldPurchaseToken);
       }
-      const purchaseResult = await appleIap.requestPurchase({
+      const purchaseRequest: Parameters<AppleIapBridgeState["requestPurchase"]>[0] = {
         type: "subs",
         request: {
           google: {
             skus: [productId],
             obfuscatedAccountId,
             subscriptionOffers: [{ sku: productId, offerToken }],
-            ...(oldPurchaseToken && replacementMode && replacedProductId ? {
+            ...(oldPurchaseToken && replacementMode ? {
               purchaseToken: oldPurchaseToken,
-              subscriptionProductReplacementParams: {
-                oldProductId: replacedProductId,
-                replacementMode,
-              },
+              // Reverting a deferred change reselects the current product with
+              // WITHOUT_PRORATION: access and billing date stay unchanged,
+              // while the omitted future item is removed from the subscription.
+              ...(subscriptionReplacementParams
+                ? { subscriptionProductReplacementParams: subscriptionReplacementParams }
+                : {}),
             } : {}),
           },
         },
-      });
+      };
+      let purchaseResult;
+      try {
+        purchaseResult = await appleIap.requestPurchase(purchaseRequest);
+      } catch (error) {
+        const stalePurchaseSession =
+          googlePlayStalePurchaseSessionRef.current ||
+          isGooglePlayPurchaseAlreadyInProgress(error);
+        if (!stalePurchaseSession) throw error;
+
+        // OpenIAP can retain its one-shot Android purchase callback after a
+        // completed/cancelled sheet. No new Play flow was launched in this
+        // error path, so reset the connection and retry this exact request
+        // once. Never retry other billing failures automatically.
+        googlePlayStalePurchaseSessionRef.current = false;
+        googlePlayPurchaseSessionRecoveryRef.current = true;
+        try {
+          await endConnection();
+          const reconnected = await appleIap.reconnect();
+          if (!reconnected) throw new Error(t("pro.alert.google_not_initialized"));
+          purchaseResult = await appleIap.requestPurchase(purchaseRequest);
+        } finally {
+          googlePlayStalePurchaseSessionRef.current = false;
+          googlePlayPurchaseSessionRecoveryRef.current = false;
+        }
+      }
       if (isEmptyApplePurchaseResult(purchaseResult)) {
         googlePlayPurchaseIntentRef.current = false;
         await abandonPendingPlanChange();
@@ -844,8 +926,12 @@ export function ProScreen({
         setIsAutoRenewLoading(false);
         return;
       }
-      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
-      safeAlert(t("pro.alert.payment_start_failed"), message);
+      safeAlert(
+        t(isGooglePlayPurchaseAlreadyInProgress(error)
+          ? "pro.alert.google_purchase_in_progress_title"
+          : "pro.alert.payment_start_failed"),
+        formatGooglePlayPaymentErrorMessage(error),
+      );
       setIsPaying(false);
       setIsAutoRenewLoading(false);
     }
@@ -1048,12 +1134,10 @@ export function ProScreen({
     setIsPaying(true);
     setIsAutoRenewLoading(true);
     try {
-      const latestEntitlement = await refreshProEntitlementState();
-      if (!isScreenAlive()) return;
       if (
         !options?.allowExistingMembership &&
-        (latestEntitlement?.entitlement.isMember ?? latestEntitlement?.entitlement.isPro) &&
-        !isManualOrLegacyEntitlement(latestEntitlement?.entitlement)
+        (currentEntitlement?.isMember ?? currentEntitlement?.isPro) &&
+        !isManualOrLegacyEntitlement(currentEntitlement)
       ) {
         setIsRenew(true);
         safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.pro_active_buy_later"));
@@ -1125,15 +1209,13 @@ export function ProScreen({
       const transactionId = getAppleTransactionId(existingSubscription);
       const verified = await verifyAppleProMonthlyTransaction(transactionId);
       pendingPlanChangeRef.current = null;
-      const entitlementResult = await refreshProEntitlementState();
+      const verifiedState = await resolveVerifiedPaymentState(
+        verified.state,
+        verified.purchaseKind === "auto_renew",
+      );
       if (!isScreenAlive()) return true;
-      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
-      if (verified.purchaseKind === "auto_renew") {
-        const currentAutoRenew = await getCurrentAutoRenewSubscription();
-        if (!isScreenAlive()) return true;
-        applyAutoRenewToState(currentAutoRenew);
-      }
-      alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId });
+      setIsRenew(verifiedState.entitlement?.isMember ?? verifiedState.entitlement?.isPro ?? true);
+      alertOpenSuccess({ entitlement: verifiedState.entitlement, productId });
       return true;
     } catch (error) {
       if (!isScreenAlive()) return true;
@@ -1166,15 +1248,12 @@ export function ProScreen({
     setIsAutoRenewLoading(true);
     setIsPaying(true);
     try {
-      await verifyAppleProMonthlyTransaction(transactionId, {
+      const verified = await verifyAppleProMonthlyTransaction(transactionId, {
         allowAccountTransfer: true,
       });
-      const entitlementResult = await refreshProEntitlementState();
+      const verifiedState = await resolveVerifiedPaymentState(verified.state, true);
       if (!isScreenAlive()) return;
-      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
-      const currentAutoRenew = await getCurrentAutoRenewSubscription();
-      if (!isScreenAlive()) return;
-      applyAutoRenewToState(currentAutoRenew);
+      setIsRenew(verifiedState.entitlement?.isMember ?? verifiedState.entitlement?.isPro ?? true);
       safeAlert(
         t("pro.alert.apple_transfer_success_title"),
         t("pro.alert.apple_transfer_success_message"),
@@ -1206,20 +1285,17 @@ export function ProScreen({
       pendingPlanChangeRef.current = null;
       if (!appleIap) throw new Error(t("pro.alert.apple_not_initialized"));
       const isOneTimePurchase = verified.purchaseKind === "single_purchase";
-      await appleIap.finishTransaction({
+      const verifiedState = await resolveVerifiedPaymentState(verified.state, !isOneTimePurchase);
+      if (!isScreenAlive()) return;
+      // The backend has already verified and persisted the purchase. Store
+      // finishing is idempotent cleanup and must not delay visible access.
+      void appleIap.finishTransaction({
         purchase,
         isConsumable: purchase.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID,
-      });
-      const entitlementResult = await refreshProEntitlementState();
-      if (!isScreenAlive()) return;
-      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
-      if (!isOneTimePurchase) {
-        const currentAutoRenew = await getCurrentAutoRenewSubscription();
-        if (!isScreenAlive()) return;
-        applyAutoRenewToState(currentAutoRenew);
-      }
+      }).catch((error) => console.warn("[AppleIap] finish_transaction_failed", error));
+      setIsRenew(verifiedState.entitlement?.isMember ?? verifiedState.entitlement?.isPro ?? true);
       if (isUserInitiatedPurchase) {
-        alertOpenSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
+        alertOpenSuccess({ entitlement: verifiedState.entitlement, productId: purchase.productId });
       }
     } catch (error) {
       if (!isScreenAlive()) return;
@@ -1272,12 +1348,12 @@ export function ProScreen({
       });
       pendingPlanChangeRef.current = null;
       if (!appleIap) throw new Error(t("pro.alert.google_not_initialized"));
-      await appleIap.finishTransaction({ purchase, isConsumable: false });
-      const entitlementResult = await refreshProEntitlementState();
-      const currentAutoRenew = await getCurrentAutoRenewSubscription();
+      const verifiedState = await resolveVerifiedPaymentState(verified.state, true);
       if (!isScreenAlive()) return;
-      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
-      applyAutoRenewToState(currentAutoRenew);
+      void appleIap.finishTransaction({ purchase, isConsumable: false })
+        .catch((error) => console.warn("[GooglePlayBilling] finish_transaction_failed", error));
+      setIsRenew(verifiedState.entitlement?.isMember ?? verifiedState.entitlement?.isPro ?? true);
+      const currentAutoRenew = verifiedState.autoRenewSubscription;
       if (isUserInitiatedPurchase) {
         if (planChangeIntent?.operation === "revert") {
           safeAlert(
@@ -1295,7 +1371,7 @@ export function ProScreen({
           );
         } else {
           alertOpenSuccess({
-            entitlement: entitlementResult?.entitlement,
+            entitlement: verifiedState.entitlement,
             productCode: currentAutoRenew?.productCode ?? verified.productCode,
           });
         }
@@ -1348,18 +1424,16 @@ export function ProScreen({
       const obfuscatedAccountId = session?.user.id
         ? await createGooglePlayObfuscatedAccountId(session.user.id)
         : null;
-      await verifyGooglePlaySubscriptionPurchase({
+      const verified = await verifyGooglePlaySubscriptionPurchase({
         productId: purchase.productId,
         purchaseToken,
         obfuscatedAccountId,
         allowAccountTransfer: true,
       });
-      await appleIap?.finishTransaction({ purchase, isConsumable: false }).catch(() => {});
-      const entitlementResult = await refreshProEntitlementState();
-      const currentAutoRenew = await getCurrentAutoRenewSubscription();
+      const verifiedState = await resolveVerifiedPaymentState(verified.state, true);
       if (!isScreenAlive()) return;
-      setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
-      applyAutoRenewToState(currentAutoRenew);
+      void appleIap?.finishTransaction({ purchase, isConsumable: false }).catch(() => {});
+      setIsRenew(verifiedState.entitlement?.isMember ?? verifiedState.entitlement?.isPro ?? true);
       handledGooglePlayPurchaseTokensRef.current.add(purchaseToken);
       safeAlert(t("pro.alert.google_transfer_success_title"), t("pro.alert.google_transfer_success_message"));
     } catch (error) {
@@ -1407,20 +1481,18 @@ export function ProScreen({
         try {
           const transactionId = getAppleTransactionId(purchase);
           const verified = await verifyAppleProMonthlyTransaction(transactionId);
-          await appleIap.finishTransaction({
+          const verifiedState = await resolveVerifiedPaymentState(
+            verified.state,
+            verified.purchaseKind === "auto_renew",
+          );
+          if (!isScreenAlive()) return;
+          void appleIap.finishTransaction({
             purchase,
             isConsumable: purchase.productId === APPLE_PRO_MONTHLY_ONE_TIME_PRODUCT_ID,
           }).catch(() => { });
-          const entitlementResult = await refreshProEntitlementState();
-          if (!isScreenAlive()) return;
-          setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
-          if (verified.purchaseKind === "auto_renew") {
-            const currentAutoRenew = await getCurrentAutoRenewSubscription();
-            if (!isScreenAlive()) return;
-            applyAutoRenewToState(currentAutoRenew);
-          }
+          setIsRenew(verifiedState.entitlement?.isMember ?? verifiedState.entitlement?.isPro ?? true);
           if (!silentFailure) {
-            alertRestoreSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
+            alertRestoreSuccess({ entitlement: verifiedState.entitlement, productId: purchase.productId });
           }
           return;
         } catch (error) {
@@ -1474,18 +1546,16 @@ export function ProScreen({
       let boundPurchase: Purchase | null = null;
       for (const purchase of purchases) {
         try {
-          await verifyGooglePlaySubscriptionPurchase({
+          const verified = await verifyGooglePlaySubscriptionPurchase({
             productId: purchase.productId,
             purchaseToken: getGooglePlayPurchaseToken(purchase),
             obfuscatedAccountId,
           });
-          await appleIap.finishTransaction({ purchase, isConsumable: false }).catch(() => {});
-          const entitlementResult = await refreshProEntitlementState();
-          const currentAutoRenew = await getCurrentAutoRenewSubscription();
+          const verifiedState = await resolveVerifiedPaymentState(verified.state, true);
           if (!isScreenAlive()) return;
-          setIsRenew(entitlementResult?.entitlement.isMember ?? entitlementResult?.entitlement.isPro ?? true);
-          applyAutoRenewToState(currentAutoRenew);
-          alertRestoreSuccess({ entitlement: entitlementResult?.entitlement, productId: purchase.productId });
+          void appleIap.finishTransaction({ purchase, isConsumable: false }).catch(() => {});
+          setIsRenew(verifiedState.entitlement?.isMember ?? verifiedState.entitlement?.isPro ?? true);
+          alertRestoreSuccess({ entitlement: verifiedState.entitlement, productId: purchase.productId });
           return;
         } catch (error) {
           lastError = error;
@@ -1553,10 +1623,22 @@ export function ProScreen({
             JSON.stringify(readGooglePlayPurchaseErrorDiagnostics(error)),
           );
           const isUserInitiatedPurchase = googlePlayPurchaseIntentRef.current;
+          if (googlePlayPurchaseSessionRecoveryRef.current) return;
+          if (isGooglePlayPurchaseAlreadyInProgress(error)) {
+            // requestPurchase owns the safe one-time connection recovery. Do
+            // not release the prepared plan change or show a duplicate alert.
+            googlePlayStalePurchaseSessionRef.current = true;
+            return;
+          }
           googlePlayPurchaseIntentRef.current = false;
           void abandonPendingPlanChange();
           if (isUserInitiatedPurchase && !isAppleUserCancelledPurchase(error)) {
-            safeAlert(t("pro.alert.payment_start_failed"), formatGooglePlayPaymentErrorMessage(error));
+            safeAlert(
+              t(isGooglePlayPurchaseAlreadyInProgress(error)
+                ? "pro.alert.google_purchase_in_progress_title"
+                : "pro.alert.payment_start_failed"),
+              formatGooglePlayPaymentErrorMessage(error),
+            );
           }
           setIsPaying(false);
           setIsAutoRenewLoading(false);
@@ -2371,6 +2453,9 @@ function formatApplePaymentErrorMessage(error: unknown, fallback = t("app.delete
 }
 
 function formatGooglePlayPaymentErrorMessage(error: unknown, fallback = t("app.delete.retry_later")): string {
+  if (isGooglePlayPurchaseAlreadyInProgress(error)) {
+    return t("pro.alert.google_purchase_in_progress_message");
+  }
   if (error instanceof MobileApiError) {
     if (error.code === "GOOGLE_PLAY_SUBSCRIPTION_INACTIVE" || error.code === "GOOGLE_PLAY_SUBSCRIPTION_EXPIRED") {
       return t("pro.alert.google_subscription_expired");
@@ -2384,6 +2469,20 @@ function formatGooglePlayPaymentErrorMessage(error: unknown, fallback = t("app.d
     return error.message || fallback;
   }
   return error instanceof Error ? error.message : fallback;
+}
+
+function isGooglePlayPurchaseAlreadyInProgress(error: unknown): boolean {
+  if (!error) return false;
+  const messages: string[] = [];
+  if (typeof error === "string") messages.push(error);
+  if (error instanceof Error) messages.push(error.message);
+  if (typeof error === "object") {
+    const candidate = error as { code?: unknown; debugMessage?: unknown; message?: unknown };
+    for (const value of [candidate.code, candidate.debugMessage, candidate.message]) {
+      if (typeof value === "string") messages.push(value);
+    }
+  }
+  return messages.some((message) => /another purchase is already in progress/i.test(message));
 }
 
 function readGooglePlayPurchaseErrorDiagnostics(error: unknown): Record<string, unknown> {

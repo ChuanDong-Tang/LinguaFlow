@@ -64,8 +64,12 @@ export function getGooglePlayBasePlanOfferToken(
   product: ProductSubscription | undefined,
   productCode: MobilePaymentProductCode = "pro_monthly"
 ): string | null {
-  const productWithAndroidOffers = product as { subscriptionOfferDetailsAndroid?: unknown } | undefined;
-  const offers = readArray<Record<string, unknown>>(productWithAndroidOffers?.subscriptionOfferDetailsAndroid);
+  const productWithAndroidOffers = product as {
+    subscriptionOffers?: unknown;
+    subscriptionOfferDetailsAndroid?: unknown;
+  } | undefined;
+  const standardizedOffers = readArray<Record<string, unknown>>(productWithAndroidOffers?.subscriptionOffers);
+  const legacyOffers = readArray<Record<string, unknown>>(productWithAndroidOffers?.subscriptionOfferDetailsAndroid);
   const expectedBasePlanId =
     ({
       plus_monthly: GOOGLE_PLAY_PLUS_MONTHLY_BASE_PLAN_ID,
@@ -77,12 +81,23 @@ export function getGooglePlayBasePlanOfferToken(
 
   // Promo codes are redeemed by Google Play inside its checkout UI. Start the
   // plain base plan here instead of binding the app to a developer-defined offer.
-  const matchedOffer = offers.find((offer) => {
+  const matchedStandardizedOffer = standardizedOffers.find((offer) => {
+    if (typeof offer.offerTokenAndroid !== "string" || !offer.offerTokenAndroid.trim()) return false;
+    if (offer.basePlanIdAndroid !== expectedBasePlanId) return false;
+    // OpenIAP represents the plain base plan with id=basePlanId, while
+    // developer-defined discounts use their distinct offer id.
+    return typeof offer.id !== "string" || !offer.id.trim() || offer.id === expectedBasePlanId;
+  });
+  if (typeof matchedStandardizedOffer?.offerTokenAndroid === "string") {
+    return matchedStandardizedOffer.offerTokenAndroid.trim();
+  }
+
+  const matchedLegacyOffer = legacyOffers.find((offer) => {
     if (typeof offer.offerToken !== "string" || !offer.offerToken.trim()) return false;
     if (offer.basePlanId !== expectedBasePlanId) return false;
     return offer.offerId == null || (typeof offer.offerId === "string" && !offer.offerId.trim());
   });
-  return typeof matchedOffer?.offerToken === "string" ? matchedOffer.offerToken.trim() : null;
+  return typeof matchedLegacyOffer?.offerToken === "string" ? matchedLegacyOffer.offerToken.trim() : null;
 }
 
 function readArray<T>(value: unknown): T[] {

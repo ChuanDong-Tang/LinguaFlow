@@ -1,5 +1,6 @@
 import { getAuthHeaders } from "../auth/authHeaders";
 import { fetchWithTimeout } from "./fetchWithTimeout";
+import type { CurrentEntitlement, UsageV2 } from "./meApi";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -109,6 +110,7 @@ export type MobileAppleVerifyTransactionResult = {
   autoRenewSubscriptionId?: string | null;
   alreadyApplied?: boolean;
   ownershipTransferred?: boolean;
+  state?: MobileVerifiedPaymentState | null;
 };
 
 export type MobileGooglePlayVerifyPurchaseResult = {
@@ -120,6 +122,13 @@ export type MobileGooglePlayVerifyPurchaseResult = {
   alreadyApplied?: boolean;
   acknowledgementPending?: boolean;
   ownershipTransferred?: boolean;
+  state?: MobileVerifiedPaymentState | null;
+};
+
+export type MobileVerifiedPaymentState = {
+  entitlement: CurrentEntitlement;
+  usage: UsageV2;
+  autoRenewSubscription: MobileAutoRenewSubscription | null;
 };
 
 export async function getProMonthlyProductQuote(): Promise<MobilePaymentProductQuote> {
