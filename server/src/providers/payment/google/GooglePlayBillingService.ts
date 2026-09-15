@@ -174,11 +174,18 @@ export class GooglePlayBillingService {
     }
     if (subscription.linkedPurchaseToken) {
       try {
-        await this.autoRenewService?.replaceGooglePlayPurchaseToken({
+        const migratedAutoRenew = await this.autoRenewService?.replaceGooglePlayPurchaseToken({
           userId: input.userId,
           linkedPurchaseToken: subscription.linkedPurchaseToken,
           purchaseToken: input.purchaseToken,
         });
+        // A Play plan replacement gets a new purchase token. The lookup above
+        // happened before that token was attached to the existing local
+        // subscription, so keep using the migrated row rather than treating
+        // the replacement as a brand-new purchase.
+        existingAutoRenew = migratedAutoRenew ??
+          (await this.autoRenewService?.getGooglePlaySubscriptionByPurchaseToken(input.purchaseToken)) ??
+          existingAutoRenew;
       } catch (error) {
         if (!(error instanceof AutoRenewAccessDeniedError)) throw error;
         throw new GooglePlaySubscriptionAlreadyBoundError({
@@ -203,11 +210,31 @@ export class GooglePlayBillingService {
     const hasDeferredReplacement = (subscription.lineItems ?? []).some(
       (item) => Boolean(item.deferredItemReplacement?.productId)
     );
-    if (hasDeferredReplacement && existingAutoRenew?.pendingProductCode) {
+    if (hasDeferredReplacement && existingAutoRenew) {
+      if (
+        existingAutoRenew.pendingProductCode &&
+        existingAutoRenew.pendingProductCode !== productCode
+      ) {
+        throw new GooglePlayBillingVerifyError(
+          "Google Play deferred replacement does not match the reserved plan change",
+          "GOOGLE_PLAY_DEFERRED_REPLACEMENT_TARGET_MISMATCH",
+          {
+            currentProductCode: existingAutoRenew.productCode,
+            pendingProductCode: existingAutoRenew.pendingProductCode,
+            providerProductCode: productCode,
+          }
+        );
+      }
+      // Google is authoritative here: after a client crash or a delayed RTDN,
+      // the local reservation may be missing even though Play has accepted the
+      // deferred replacement. Ownership was proven through linkedPurchaseToken,
+      // so it is safe to reconstruct the scheduled target from the verified
+      // line item without granting the target entitlement early.
+      const targetProductCode = existingAutoRenew.pendingProductCode ?? productCode;
       await this.autoRenewService?.confirmScheduledPlanChange({
         provider: "google_play",
         providerAgreementId: input.purchaseToken,
-        targetProductCode: existingAutoRenew.pendingProductCode,
+        targetProductCode,
         effectiveAt: existingAutoRenew.currentPeriodEnd,
         rawPayload: { source: "google_play_verify_deferred_replacement", subscription },
       });
@@ -222,7 +249,7 @@ export class GooglePlayBillingService {
       return {
         purchaseToken: input.purchaseToken,
         productId: input.productId,
-        productCode: existingAutoRenew.pendingProductCode,
+        productCode: targetProductCode,
         purchaseKind: "auto_renew",
         autoRenewSubscriptionId: existingAutoRenew.id,
         alreadyApplied: true,
