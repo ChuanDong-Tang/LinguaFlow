@@ -802,6 +802,9 @@ export function ProScreen({
         autoRenew?.pendingProductCode &&
         productCode === autoRenew.productCode
       );
+      const replacedProductId = isRevertingScheduledChange && autoRenew?.pendingProductCode
+        ? getGooglePlayProductId(autoRenew.pendingProductCode)
+        : oldProductId;
       // Play normally issues a new token for another replacement. If a Play
       // Store version reports the current token again while reverting, allow
       // the purchase listener to verify it instead of treating it as a replay.
@@ -815,12 +818,12 @@ export function ProScreen({
             skus: [productId],
             obfuscatedAccountId,
             subscriptionOffers: [{ sku: productId, offerToken }],
-            ...(oldPurchaseToken && replacementMode ? {
+            ...(oldPurchaseToken && replacementMode && replacedProductId ? {
               purchaseToken: oldPurchaseToken,
-              // expo-iap 4.3.1 only supports this purchase-level replacement
-              // path reliably. Billing 8 item-level params require a native
-              // bridge update because the installed bridge sets both APIs.
-              replacementMode: replacementMode === "charge-prorated-price" ? 2 : 6,
+              subscriptionProductReplacementParams: {
+                oldProductId: replacedProductId,
+                replacementMode,
+              },
             } : {}),
           },
         },
