@@ -207,13 +207,11 @@ export class GooglePlayBillingService {
     if (existingAutoRenew && existingAutoRenew.userId !== input.userId) {
       throw new GooglePlaySubscriptionAlreadyBoundError({ purchaseToken: input.purchaseToken });
     }
-    const hasDeferredReplacement = (subscription.lineItems ?? []).some(
-      (item) => Boolean(item.deferredItemReplacement?.productId)
-    );
-    if (hasDeferredReplacement && existingAutoRenew) {
+    const deferredTargetProductCode = resolveDeferredReplacementTarget(subscription, config);
+    if (deferredTargetProductCode && existingAutoRenew) {
       if (
         existingAutoRenew.pendingProductCode &&
-        existingAutoRenew.pendingProductCode !== productCode
+        existingAutoRenew.pendingProductCode !== deferredTargetProductCode
       ) {
         throw new GooglePlayBillingVerifyError(
           "Google Play deferred replacement does not match the reserved plan change",
@@ -221,7 +219,7 @@ export class GooglePlayBillingService {
           {
             currentProductCode: existingAutoRenew.productCode,
             pendingProductCode: existingAutoRenew.pendingProductCode,
-            providerProductCode: productCode,
+            providerProductCode: deferredTargetProductCode,
           }
         );
       }
@@ -230,7 +228,7 @@ export class GooglePlayBillingService {
       // deferred replacement. Ownership was proven through linkedPurchaseToken,
       // so it is safe to reconstruct the scheduled target from the verified
       // line item without granting the target entitlement early.
-      const targetProductCode = existingAutoRenew.pendingProductCode ?? productCode;
+      const targetProductCode = existingAutoRenew.pendingProductCode ?? deferredTargetProductCode;
       await this.autoRenewService?.confirmScheduledPlanChange({
         provider: "google_play",
         providerAgreementId: input.purchaseToken,
@@ -398,18 +396,25 @@ export class GooglePlayBillingService {
     const providerChargeId = subscription.latestOrderId ?? local.latestTransactionId ?? purchaseToken;
     let paidPeriodRecorded = false;
     const hadCancelAtPeriodEnd = asRecord(local.metadata).cancelAtPeriodEnd === true;
-    const hasDeferredReplacement = (subscription.lineItems ?? []).some(
-      (item) => Boolean(item.deferredItemReplacement?.productId)
-    );
-    if (hasDeferredReplacement && local.pendingProductCode) {
+    const deferredTargetProductCode = resolveDeferredReplacementTarget(subscription, config);
+    if (deferredTargetProductCode) {
+      if (
+        local.pendingProductCode &&
+        local.pendingProductCode !== deferredTargetProductCode
+      ) {
+        throw new GooglePlayBillingVerifyError(
+          "Google Play deferred replacement does not match the reserved plan change",
+          "GOOGLE_PLAY_DEFERRED_REPLACEMENT_TARGET_MISMATCH"
+        );
+      }
       await this.autoRenewService.confirmScheduledPlanChange({
         provider: "google_play",
         providerAgreementId: purchaseToken,
-        targetProductCode: local.pendingProductCode,
+        targetProductCode: local.pendingProductCode ?? deferredTargetProductCode,
         effectiveAt: local.currentPeriodEnd,
         rawPayload: { source: "google_play_deferred_replacement_reconcile", subscription },
       });
-    } else if (!hasDeferredReplacement && resolvedProduct) {
+    } else if (resolvedProduct) {
       await this.autoRenewService.reconcileRevertedScheduledPlanChange({
         provider: "google_play",
         providerAgreementId: purchaseToken,
@@ -684,14 +689,21 @@ export class GooglePlayBillingService {
       }
       const localForDeferredChange = await this.autoRenewService
         ?.getGooglePlaySubscriptionByPurchaseToken(decoded.purchaseToken);
-      const isDeferredChange = (subscription.lineItems ?? []).some(
-        (item) => Boolean(item.deferredItemReplacement?.productId)
-      );
-      if (isDeferredChange && localForDeferredChange?.pendingProductCode) {
+      const deferredTargetProductCode = resolveDeferredReplacementTarget(subscription, config);
+      if (deferredTargetProductCode && localForDeferredChange) {
+        if (
+          localForDeferredChange.pendingProductCode &&
+          localForDeferredChange.pendingProductCode !== deferredTargetProductCode
+        ) {
+          throw new GooglePlayBillingVerifyError(
+            "Google Play deferred replacement does not match the reserved plan change",
+            "GOOGLE_PLAY_DEFERRED_REPLACEMENT_TARGET_MISMATCH"
+          );
+        }
         await this.autoRenewService?.confirmScheduledPlanChange({
           provider: "google_play",
           providerAgreementId: decoded.purchaseToken,
-          targetProductCode: localForDeferredChange.pendingProductCode,
+          targetProductCode: localForDeferredChange.pendingProductCode ?? deferredTargetProductCode,
           effectiveAt: localForDeferredChange.currentPeriodEnd,
           rawPayload: { notification: decoded.rawNotification, subscription },
         });
@@ -1100,6 +1112,30 @@ function resolveCurrentConfiguredLineItem(
         (Date.parse(left.lineItem.expiryTime ?? "") || 0)
     );
   return candidates[0] ?? null;
+}
+
+function resolveDeferredReplacementTarget(
+  subscription: GoogleSubscriptionPurchaseV2,
+  config: Parameters<typeof resolveGoogleProductCode>[2]
+): PaymentProductCode | null {
+  const rows = Array.isArray(subscription.lineItems) ? subscription.lineItems : [];
+  for (const currentLineItem of rows) {
+    const targetProductId = currentLineItem.deferredItemReplacement?.productId?.trim();
+    if (!targetProductId) continue;
+    const targetLineItem = rows.find((item) => item.productId === targetProductId);
+    const targetProductCode = resolveGoogleProductCode(
+      targetProductId,
+      targetLineItem?.offerDetails?.basePlanId ?? null,
+      config,
+    );
+    if (targetProductCode) return targetProductCode;
+    throw new GooglePlayBillingVerifyError(
+      "Google Play deferred replacement target is not configured",
+      "GOOGLE_PLAY_DEFERRED_REPLACEMENT_TARGET_UNMAPPED",
+      { targetProductId }
+    );
+  }
+  return null;
 }
 
 function assertGoogleLineItemMatchesConfiguredBasePlan(
