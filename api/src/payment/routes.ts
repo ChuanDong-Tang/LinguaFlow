@@ -545,6 +545,16 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
           googlePlayReplacementMode: current.provider === "google_play"
             ? result.timing === "immediate" ? "CHARGE_PRORATED_PRICE" : "DEFERRED"
             : null,
+          // queryPurchasesAsync does not consistently expose the pending
+          // purchase token for an already scheduled DEFERRED replacement.
+          // Return it only to the authenticated owner while preparing a
+          // reversal; the device originally created this same token.
+          googlePlayPurchaseToken: isScheduledRevert
+            ? current.providerAgreementId
+            : null,
+          googlePlayOldProductId: isScheduledRevert && current.pendingProductCode
+            ? googleProductIdFor(current.pendingProductCode, config)
+            : null,
         },
       });
     } catch (error) {

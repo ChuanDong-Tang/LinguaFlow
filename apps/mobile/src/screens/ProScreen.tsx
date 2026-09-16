@@ -822,13 +822,22 @@ export function ProScreen({
         throw new Error("Google Play base plan is unavailable or does not match the configured plan.");
       }
       googlePlayPurchaseIntentRef.current = true;
-      const oldProductId = autoRenew ? getGooglePlayProductId(autoRenew.productCode) : null;
+      const currentProductId = autoRenew ? getGooglePlayProductId(autoRenew.productCode) : null;
       const replacementMode = planChange?.googlePlayReplacementMode === "CHARGE_PRORATED_PRICE"
         ? "charge-prorated-price" as const
         : planChange?.googlePlayReplacementMode === "DEFERRED"
           ? "deferred" as const
           : null;
-      const availableGooglePlayPurchases = oldProductId && replacementMode
+      const isRevertingScheduledChange = Boolean(
+        planChange &&
+        autoRenew?.pendingProductCode &&
+        autoRenew.pendingChangeStatus === "scheduled" &&
+        productCode === autoRenew.productCode
+      );
+      const pendingProductId = isRevertingScheduledChange && autoRenew?.pendingProductCode
+        ? planChange?.googlePlayOldProductId?.trim() || getGooglePlayProductId(autoRenew.pendingProductCode)
+        : null;
+      const availableGooglePlayPurchases = currentProductId && replacementMode
         ? (await getAvailablePurchases())
           .filter(isGooglePlayProPurchase)
           .sort((left, right) => Number(right.transactionDate ?? 0) - Number(left.transactionDate ?? 0))
@@ -838,25 +847,30 @@ export function ProScreen({
       // to the next plan. Prefer the exact product, then safely fall back to
       // the newest purchase from OIO's one subscription group.
       const existingPurchase = availableGooglePlayPurchases.find(
-        (purchase) => purchase.productId === oldProductId
+        (purchase) => purchase.productId === currentProductId
       ) ?? availableGooglePlayPurchases[0] ?? null;
-      const oldPurchaseToken = existingPurchase ? getGooglePlayPurchaseToken(existingPurchase) : null;
-      if (oldProductId && replacementMode && !oldPurchaseToken) {
+      const pendingPurchaseUpdate = isRevertingScheduledChange && pendingProductId
+        ? availableGooglePlayPurchases
+          .map(getGooglePlayPendingPurchaseUpdate)
+          .find((update) => update?.products.includes(pendingProductId)) ?? null
+        : null;
+      const oldPurchaseToken = isRevertingScheduledChange
+        ? planChange?.googlePlayPurchaseToken?.trim() || pendingPurchaseUpdate?.purchaseToken || null
+        : existingPurchase ? getGooglePlayPurchaseToken(existingPurchase) : null;
+      if (currentProductId && replacementMode && !oldPurchaseToken) {
         throw new Error("Google Play current subscription purchase token is unavailable. Restore purchases and try again.");
       }
-      const isRevertingScheduledChange = Boolean(
-        planChange &&
-        autoRenew?.pendingProductCode &&
-        productCode === autoRenew.productCode
-      );
-      const subscriptionReplacementParams = isRevertingScheduledChange && oldProductId
+      const subscriptionReplacementParams = isRevertingScheduledChange && pendingProductId
         ? {
-            oldProductId,
-            replacementMode: "without-proration" as const,
+            // A deferred change creates a pending purchase update with its own
+            // token. Replace that queued item with the currently active plan;
+            // using the active token/product here makes Play reject the flow.
+            oldProductId: pendingProductId,
+            replacementMode: "deferred" as const,
           }
-        : oldProductId && replacementMode
+        : currentProductId && replacementMode
           ? {
-              oldProductId,
+              oldProductId: currentProductId,
               replacementMode,
             }
           : null;
@@ -875,9 +889,8 @@ export function ProScreen({
             subscriptionOffers: [{ sku: productId, offerToken }],
             ...(oldPurchaseToken && replacementMode ? {
               purchaseToken: oldPurchaseToken,
-              // Reverting a deferred change reselects the current product with
-              // WITHOUT_PRORATION: access and billing date stay unchanged,
-              // while the omitted future item is removed from the subscription.
+              // Reverting a deferred change keeps the currently owned item and
+              // removes the queued future item without changing renewal.
               ...(subscriptionReplacementParams
                 ? { subscriptionProductReplacementParams: subscriptionReplacementParams }
                 : {}),
@@ -994,22 +1007,19 @@ export function ProScreen({
     }
   }
 
-  function handlePendingPlanChange(action: "modify" | "cancel"): void {
+  function handlePendingPlanChange(): void {
     if (
       !autoRenew?.pendingProductCode ||
       !canManageAutoRenewOnCurrentPlatform(autoRenew.provider) ||
       (autoRenew.provider === "alipay" && !autoRenew.managementUrl)
     ) return;
 
-    if (action === "modify") {
-      void openStoreSubscriptionManagement(autoRenew, "plan_change");
-      return;
-    }
-
     Alert.alert(
       t("subscription.manager.cancel_change_title"),
       tf(
-        autoRenew.provider === "google_play"
+        autoRenew.provider === "google_play" && autoRenew.pendingChangeStatus === "pending_confirmation"
+          ? "subscription.manager.cancel_unconfirmed_google_message"
+          : autoRenew.provider === "google_play"
           ? "subscription.manager.cancel_change_google_message"
           : "subscription.manager.cancel_change_message",
         { plan: formatProductCode(autoRenew.productCode) },
@@ -1019,13 +1029,50 @@ export function ProScreen({
         {
           text: t("common.continue"),
           onPress: () => void (
-            autoRenew.provider === "google_play"
+            autoRenew.provider === "google_play" && autoRenew.pendingChangeStatus === "pending_confirmation"
+              ? handleCancelUnconfirmedGooglePlayPlanChange(autoRenew)
+              : autoRenew.provider === "google_play"
               ? handleChangePlan(autoRenew, autoRenew.productCode, { revertScheduledChange: true })
               : openStoreSubscriptionManagement(autoRenew, "plan_change")
           ),
         },
       ],
     );
+  }
+
+  async function handleCancelUnconfirmedGooglePlayPlanChange(
+    subscription: MobileAutoRenewSubscription,
+  ): Promise<void> {
+    if (!subscription.pendingProductCode || isAutoRenewLoading) return;
+    setIsAutoRenewLoading(true);
+    try {
+      await abandonAutoRenewPlanChange({
+        autoRenewSubscriptionId: subscription.id,
+        targetProductCode: subscription.pendingProductCode,
+      });
+      const current = await getCurrentAutoRenewSubscription(8_000);
+      if (!isScreenAlive()) return;
+      applyAutoRenewToState(current);
+      if (current?.pendingProductCode) {
+        safeAlert(
+          t("subscription.manager.cancel_change_confirming_title"),
+          t("subscription.manager.cancel_change_confirming_message"),
+        );
+      } else {
+        safeAlert(
+          t("subscription.manager.cancel_change_success_title"),
+          t("subscription.manager.cancel_change_success_message"),
+        );
+      }
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      safeAlert(
+        t("subscription.manager.switch_failed"),
+        error instanceof Error ? error.message : t("app.delete.retry_later"),
+      );
+    } finally {
+      if (isScreenAlive()) setIsAutoRenewLoading(false);
+    }
   }
 
   async function openStoreSubscriptionManagement(
@@ -1882,13 +1929,11 @@ export function ProScreen({
                 <View style={styles.pendingPlanBox}>
                   <Text style={styles.pendingPlanTitle}>{tf("subscription.manager.pending", { plan: formatProductCode(autoRenew.pendingProductCode) })}</Text>
                   <Text style={styles.pendingPlanText}>{formatPlanChangeEffectiveText(autoRenew.pendingChangeEffectiveAt)}</Text>
-                  {canManageAutoRenewOnCurrentPlatform(autoRenew.provider) &&
+                  {autoRenew.provider !== "apple" &&
+                  canManageAutoRenewOnCurrentPlatform(autoRenew.provider) &&
                   (autoRenew.provider !== "alipay" || autoRenew.managementUrl) ? (
                     <View style={styles.pendingPlanActions}>
-                      <Pressable onPress={() => handlePendingPlanChange("modify")}>
-                        <Text style={styles.pendingPlanAction}>{t("subscription.manager.modify_change")}</Text>
-                      </Pressable>
-                      <Pressable onPress={() => handlePendingPlanChange("cancel")}>
+                      <Pressable onPress={handlePendingPlanChange}>
                         <Text style={styles.pendingPlanAction}>{t("subscription.manager.cancel_change")}</Text>
                       </Pressable>
                     </View>
@@ -2413,6 +2458,26 @@ function isGooglePlayProPurchase(purchase: Purchase): boolean {
     purchase.productId === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID ||
     purchase.productId === GOOGLE_PLAY_PRO_YEARLY_SUBSCRIPTION_PRODUCT_ID
   );
+}
+
+function getGooglePlayPendingPurchaseUpdate(
+  purchase: Purchase,
+): { products: string[]; purchaseToken: string } | null {
+  const update = (purchase as {
+    pendingPurchaseUpdateAndroid?: {
+      products?: unknown;
+      purchaseToken?: unknown;
+    } | null;
+  }).pendingPurchaseUpdateAndroid;
+  const products = Array.isArray(update?.products)
+    ? update.products.filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+    : [];
+  const purchaseToken = typeof update?.purchaseToken === "string"
+    ? update.purchaseToken.trim()
+    : "";
+  return products.length > 0 && purchaseToken
+    ? { products, purchaseToken }
+    : null;
 }
 
 function isEmptyApplePurchaseResult(result: unknown): boolean {

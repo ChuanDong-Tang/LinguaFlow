@@ -88,6 +88,8 @@ export type MobilePlanChangeResult = {
   googlePlayProductId?: string | null;
   googlePlayBasePlanId?: string | null;
   googlePlayReplacementMode?: "CHARGE_PRORATED_PRICE" | "DEFERRED" | null;
+  googlePlayPurchaseToken?: string | null;
+  googlePlayOldProductId?: string | null;
 };
 
 export type MobileAlipayAutoRenewCreateResult = {
