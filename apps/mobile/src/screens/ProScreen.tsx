@@ -860,13 +860,13 @@ export function ProScreen({
       if (currentProductId && replacementMode && !oldPurchaseToken) {
         throw new Error("Google Play current subscription purchase token is unavailable. Restore purchases and try again.");
       }
-      const subscriptionReplacementParams = isRevertingScheduledChange && pendingProductId
+      const subscriptionReplacementParams = isRevertingScheduledChange && currentProductId
         ? {
-            // A deferred change creates a pending purchase update with its own
-            // token. Replace that queued item with the currently active plan;
-            // using the active token/product here makes Play reject the flow.
-            oldProductId: pendingProductId,
-            replacementMode: "deferred" as const,
+            // A deferred change is represented by two line items: the active
+            // item and the queued future item. Re-select the active item
+            // without proration; omitting the future item removes the queue.
+            oldProductId: currentProductId,
+            replacementMode: "without-proration" as const,
           }
         : currentProductId && replacementMode
           ? {

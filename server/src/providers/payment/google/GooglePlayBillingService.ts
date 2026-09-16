@@ -285,6 +285,22 @@ export class GooglePlayBillingService {
         ownershipTransferred,
       };
     }
+    if (
+      existingAutoRenew?.pendingChangeStatus === "scheduled" &&
+      existingAutoRenew.pendingProductCode &&
+      productCode === existingAutoRenew.productCode
+    ) {
+      // Re-selecting the currently active base plan is how the client removes
+      // a deferred replacement. Play then returns only that active line item,
+      // so clear the local scheduled snapshot during the purchase verification
+      // itself instead of waiting for a later reconciliation worker pass.
+      await this.autoRenewService?.reconcileRevertedScheduledPlanChange({
+        provider: "google_play",
+        providerAgreementId: input.purchaseToken,
+        observedCurrentProductCode: productCode,
+        rawPayload: { source: "google_play_verify_replacement_reverted", subscription },
+      });
+    }
     if (!existingOrder && !existingAutoRenew) {
       await this.paymentEntitlementService.assertCanStartNewProPurchase(input.userId);
     }
