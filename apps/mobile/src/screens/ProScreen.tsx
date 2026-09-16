@@ -1,7 +1,6 @@
 import { PointsUsageSheet } from "./shared/PointsUsageSheet";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   ErrorCode,
@@ -65,7 +64,11 @@ import {
   getGooglePlayPurchaseToken,
 } from "../services/payment/googlePlayBilling";
 import { useMountedGuard } from "../hooks/useMountedGuard";
-import { environmentStorageKey } from "../services/storage/environmentStorageKey";
+import {
+  loadCachedAutoRenewSubscription,
+  reconcileMembershipSilently,
+  saveCachedAutoRenewSubscriptionForCurrentUser,
+} from "../services/subscription/autoRenewSync";
 import { t, tf } from "../i18n";
 import {
   subscriptionBillingPeriod,
@@ -98,8 +101,6 @@ const ENABLE_GOOGLE_PLAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_GOOGLE_PLAY
 const ENABLE_ALIPAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW === "true";
 const DISTRIBUTION_CHANNEL = process.env.EXPO_PUBLIC_DISTRIBUTION_CHANNEL?.trim().toLowerCase();
 const IS_CHINA_ANDROID = Platform.OS === "android" && DISTRIBUTION_CHANNEL === "china";
-const AUTO_RENEW_CACHE_KEY = environmentStorageKey("lf_current_auto_renew_v1");
-const AUTO_RENEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const APPLE_PURCHASE_TIMEOUT_MS = 120 * 1000;
 const APPLE_DEFERRED_PLAN_CHANGE_TIMEOUT_MS = 10 * 1000;
 const ALIPAY_ANDROID_MARKET_URL = "market://details?id=com.eg.android.AlipayGphone";
@@ -443,7 +444,7 @@ export function ProScreen({
       }
 
       try {
-        const currentAutoRenew = await getCurrentAutoRenewSubscription();
+        const currentAutoRenew = await reconcileMembershipSilently(15_000);
         if (!cancelled && isScreenAlive()) {
           applyAutoRenewToState(currentAutoRenew);
         }
@@ -2322,68 +2323,6 @@ type ProductPriceLabels = {
   pro: string | null;
   monthSuffix: string;
 };
-
-type CachedAutoRenewSubscription = {
-  userId: string;
-  platform: typeof Platform.OS;
-  subscription: MobileAutoRenewSubscription | null;
-  cachedAt: number;
-};
-
-async function loadCachedAutoRenewSubscription(userId: string): Promise<MobileAutoRenewSubscription | null> {
-  const raw = await AsyncStorage.getItem(AUTO_RENEW_CACHE_KEY);
-  if (!raw) return null;
-
-  try {
-    const cached = JSON.parse(raw) as Partial<CachedAutoRenewSubscription>;
-    const isFresh = typeof cached.cachedAt === "number" && Date.now() - cached.cachedAt <= AUTO_RENEW_CACHE_TTL_MS;
-    if (
-      !isFresh ||
-      cached.userId !== userId ||
-      cached.platform !== Platform.OS ||
-      !isValidCachedAutoRenewSubscription(cached.subscription)
-    ) {
-      return null;
-    }
-    return cached.subscription;
-  } catch {
-    await AsyncStorage.removeItem(AUTO_RENEW_CACHE_KEY);
-    return null;
-  }
-}
-
-async function saveCachedAutoRenewSubscriptionForCurrentUser(
-  subscription: MobileAutoRenewSubscription | null
-): Promise<void> {
-  const session = await getSession();
-  if (!session?.user.id) return;
-  await saveCachedAutoRenewSubscription(session.user.id, subscription);
-}
-
-async function saveCachedAutoRenewSubscription(
-  userId: string,
-  subscription: MobileAutoRenewSubscription | null
-): Promise<void> {
-  const cached: CachedAutoRenewSubscription = {
-    userId,
-    platform: Platform.OS,
-    subscription,
-    cachedAt: Date.now(),
-  };
-  await AsyncStorage.setItem(AUTO_RENEW_CACHE_KEY, JSON.stringify(cached));
-}
-
-function isValidCachedAutoRenewSubscription(value: unknown): value is MobileAutoRenewSubscription | null {
-  if (value === null) return true;
-  if (typeof value !== "object" || !value) return false;
-  const candidate = value as Partial<MobileAutoRenewSubscription>;
-  return (
-    typeof candidate.id === "string" &&
-    (candidate.provider === "apple" || candidate.provider === "alipay" || candidate.provider === "google_play") &&
-    (["plus_monthly", "plus_yearly", "pro_monthly", "pro_yearly"] as string[]).includes(String(candidate.productCode)) &&
-    typeof candidate.status === "string"
-  );
-}
 
 function resolveMembershipPriceLabels(
   appleIap: AppleIapBridgeState | null,

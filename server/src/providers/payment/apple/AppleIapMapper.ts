@@ -21,6 +21,7 @@ export type AppleServerNotificationPayload = {
   data?: {
     environment?: string;
     signedTransactionInfo?: string;
+    signedRenewalInfo?: string;
   };
 };
 
@@ -29,6 +30,7 @@ export type AppleRenewalInfoPayload = {
   productId: string | null;
   autoRenewProductId: string | null;
   originalTransactionId: string | null;
+  renewalDate: number | null;
   signedEnvironment: string | null;
 };
 
@@ -70,6 +72,7 @@ export function decodeRenewalInfoPayload(payload: Record<string, unknown>): Appl
     productId: readNullableString(payload.productId),
     autoRenewProductId: readNullableString(payload.autoRenewProductId),
     originalTransactionId: readNullableString(payload.originalTransactionId),
+    renewalDate: readNullableNumber(payload.renewalDate),
     signedEnvironment: readNullableString(payload.environment),
   };
 }

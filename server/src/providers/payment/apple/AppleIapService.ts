@@ -23,6 +23,7 @@ import {
 import { fetchSubscriptionStatuses, fetchTransactionInfo, setAppAccountToken } from "./AppleIapClient.js";
 import {
   type AppleServerNotificationPayload,
+  decodeRenewalInfoPayload,
   decodeTransactionPayload,
 } from "./AppleIapMapper.js";
 import {
@@ -267,7 +268,7 @@ export class AppleIapService {
         provider: "apple",
         providerAgreementId: subscription.providerAgreementId,
         targetProductCode: renewalTarget.productCode,
-        effectiveAt: subscription.currentPeriodEnd,
+        effectiveAt: transactionPeriodEnd ?? subscription.currentPeriodEnd,
         rawPayload,
       });
     } else if (
@@ -916,6 +917,16 @@ export class AppleIapService {
 
     try {
       let tx: ReturnType<typeof decodeTransactionPayload> | null = null;
+      let renewalInfo: ReturnType<typeof decodeRenewalInfoPayload> | null = null;
+      const signedRenewalInfo = notification.data?.signedRenewalInfo?.trim();
+      if (signedRenewalInfo) {
+        const renewalDecoded = verifyAndDecodeAppleJws(signedRenewalInfo, config.rootCaPem);
+        renewalInfo = decodeRenewalInfoPayload(renewalDecoded.payload);
+        assertAppleNotificationEnvironmentMatchesTransaction({
+          notificationEnvironment: notification.data?.environment,
+          transactionEnvironment: renewalInfo.signedEnvironment,
+        });
+      }
       const signedTransactionInfo = notification.data?.signedTransactionInfo?.trim();
       if (signedTransactionInfo) {
         const txDecoded = verifyAndDecodeAppleJws(signedTransactionInfo, config.rootCaPem);
@@ -935,6 +946,7 @@ export class AppleIapService {
             notification: sanitizeAppleNotificationForStorage(notification),
             header: decoded.header,
             transaction: sanitizeAppleTransactionForStorage(tx),
+            renewalInfo: sanitizeAppleRenewalInfoForStorage(renewalInfo),
           },
         });
 
@@ -942,7 +954,10 @@ export class AppleIapService {
         if (this.autoRenewService && purchase?.purchaseKind === "auto_renew" && tx.originalTransactionId) {
           const periodStart = tx.purchaseDate ? new Date(tx.purchaseDate) : null;
           const periodEnd = tx.expiresDate ? new Date(tx.expiresDate) : null;
-          if (isApplePaidRenewal(notification.notificationType)) {
+          if (
+            isApplePaidRenewal(notification.notificationType) ||
+            isAppleImmediatePlanChangeNotice(notification.notificationType, notification.subtype)
+          ) {
             // Apple 自动续订由 Apple 扣款；服务端收到 DID_RENEW 等通知后再补发本期权益。
             const result = await this.autoRenewService.handleApplePaidTransaction({
               originalTransactionId: tx.originalTransactionId,
@@ -988,6 +1003,40 @@ export class AppleIapService {
               originalTransactionId: tx.originalTransactionId,
               rawPayload: { notification: sanitizeAppleNotificationForStorage(notification), transaction: tx },
             });
+          }
+
+          if (isApplePlanPreferenceNotice(notification.notificationType) && renewalInfo?.autoRenewProductId) {
+            const renewalTarget = resolveApplePurchase(renewalInfo.autoRenewProductId, config);
+            const rawPayload = {
+              notification: sanitizeAppleNotificationForStorage(notification),
+              transaction: sanitizeAppleTransactionForStorage(tx),
+              renewalInfo: sanitizeAppleRenewalInfoForStorage(renewalInfo),
+            };
+            if (
+              renewalTarget?.purchaseKind === "auto_renew" &&
+              renewalTarget.productCode !== purchase.productCode
+            ) {
+              await this.autoRenewService.confirmScheduledPlanChange({
+                provider: "apple",
+                providerAgreementId: tx.originalTransactionId,
+                targetProductCode: renewalTarget.productCode,
+                effectiveAt: dateFromAppleMilliseconds(renewalInfo.renewalDate) ?? periodEnd,
+                rawPayload,
+              });
+            } else if (
+              renewalTarget?.purchaseKind === "auto_renew" &&
+              renewalTarget.productCode === purchase.productCode
+            ) {
+              // Apple sends DID_CHANGE_RENEWAL_PREF with an empty subtype when
+              // the customer reselects the active plan, effectively removing a
+              // previously scheduled downgrade or duration cross-grade.
+              await this.autoRenewService.reconcileRevertedScheduledPlanChange({
+                provider: "apple",
+                providerAgreementId: tx.originalTransactionId,
+                observedCurrentProductCode: purchase.productCode,
+                rawPayload,
+              });
+            }
           }
         }
 
@@ -1185,6 +1234,20 @@ function isApplePaidRenewal(notificationType: string | undefined): boolean {
   return ["SUBSCRIBED", "DID_RENEW", "DID_RECOVER", "ONE_TIME_CHARGE"].includes(type);
 }
 
+function isApplePlanPreferenceNotice(notificationType: string | undefined): boolean {
+  return String(notificationType ?? "").toUpperCase() === "DID_CHANGE_RENEWAL_PREF";
+}
+
+function isAppleImmediatePlanChangeNotice(
+  notificationType: string | undefined,
+  subtype: string | undefined,
+): boolean {
+  return (
+    isApplePlanPreferenceNotice(notificationType) &&
+    String(subtype ?? "").toUpperCase() === "UPGRADE"
+  );
+}
+
 function findAppleSubscriptionStatus(
   statuses: Awaited<ReturnType<typeof fetchSubscriptionStatuses>>["statuses"],
   input: { originalTransactionId: string; productId: string }
@@ -1312,6 +1375,20 @@ function sanitizeAppleTransactionForStorage(transaction: ReturnType<typeof decod
     expiresDate: transaction.expiresDate ?? null,
     revocationDate: transaction.revocationDate ?? null,
     appAccountToken: transaction.appAccountToken ?? null,
+  };
+}
+
+function sanitizeAppleRenewalInfoForStorage(
+  renewalInfo: ReturnType<typeof decodeRenewalInfoPayload> | null,
+): unknown {
+  if (!renewalInfo) return null;
+  return {
+    autoRenewStatus: renewalInfo.autoRenewStatus,
+    productId: renewalInfo.productId,
+    autoRenewProductId: renewalInfo.autoRenewProductId,
+    originalTransactionId: renewalInfo.originalTransactionId,
+    renewalDate: renewalInfo.renewalDate,
+    signedEnvironment: renewalInfo.signedEnvironment,
   };
 }
 

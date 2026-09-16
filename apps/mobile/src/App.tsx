@@ -69,6 +69,7 @@ import { fetchChatContacts, loadCachedChatContacts } from "./services/api/chatCo
 import { theme } from "./theme";
 import type { CardDraft } from "./services/card/cardDraftStorage";
 import { getAvailableAppUpdate } from "./services/api/appVersionApi";
+import { reconcileMembershipSilently } from "./services/subscription/autoRenewSync";
 
 type Screen =
   | "booting"
@@ -130,7 +131,9 @@ export default function App() {
   const promptedUpdateVersionRef = useRef<string | null>(null);
   const otaCheckRunningRef = useRef(false);
   const promptedOtaUpdateRef = useRef<string | null>(null);
+  const lastMembershipReconcileAtRef = useRef(0);
   const appBooting = screen === "booting";
+  const appAuthenticated = !appBooting && screen !== "login";
   const authingConfigured = isAuthingConfigured();
 
   useEffect(() => {
@@ -207,6 +210,21 @@ export default function App() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!appAuthenticated) return;
+    const reconcile = () => {
+      const now = Date.now();
+      if (now - lastMembershipReconcileAtRef.current < 60_000) return;
+      lastMembershipReconcileAtRef.current = now;
+      void reconcileMembershipSilently().catch(() => undefined);
+    };
+    reconcile();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") reconcile();
+    });
+    return () => subscription.remove();
+  }, [appAuthenticated, sessionRevision]);
 
   useEffect(() => {
     if (appBooting) return;
@@ -303,6 +321,7 @@ export default function App() {
   }, [screen]);
 
   async function handleLogout(): Promise<void> {
+    lastMembershipReconcileAtRef.current = 0;
     cancelDeleteAccountFlow();
     cancelBindEmailFlow();
     setAccountSheetVisible(false);
@@ -352,6 +371,7 @@ export default function App() {
 
   async function handleLoginSuccess(): Promise<void> {
     cancelDeleteAccountFlow();
+    lastMembershipReconcileAtRef.current = 0;
     setSessionRevision((value) => value + 1);
     setScreen("main");
     void loadChatContacts();
