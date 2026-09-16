@@ -1963,6 +1963,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   onActionBarTargetReady?: (target: ClozeOnboardingTarget) => void;
 }) {
   const { width: reviewWindowWidth, height: reviewWindowHeight } = useWindowDimensions();
+  const reviewInsets = useSafeAreaInsets();
   const learningTargetRef = useRef<View>(null);
   const learningTargetContentYRef = useRef(0);
   const flipCardScrollRef = useRef<React.ComponentRef<typeof KeyboardAwareScrollView>>(null);
@@ -3192,6 +3193,17 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     });
   }
 
+  function blankActionMenuTop(anchor: CardBlankActionAnchor): number {
+    const preferredAbove = anchor.pageY - 52;
+    if (Platform.OS !== "android") return Math.max(54, preferredAbove);
+    const safeTop = Math.max(12, reviewInsets.top + 8);
+    const maximumTop = Math.max(safeTop, reviewWindowHeight - reviewInsets.bottom - 44 - 12);
+    const preferredBelow = anchor.pageY + anchor.height + 8;
+    return preferredAbove >= safeTop
+      ? Math.min(preferredAbove, maximumTop)
+      : Math.max(safeTop, Math.min(preferredBelow, maximumTop));
+  }
+
   function lookupBlankAction(): void {
     if (!blankAction) return;
     const { blank, segmentText, anchor } = blankAction;
@@ -3642,7 +3654,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           styles.blankActionMenu,
           {
             left: Math.max(12, Math.min(reviewWindowWidth - 196, blankAction.anchor.pageX + blankAction.anchor.width / 2 - 92)),
-            top: Math.max(54, blankAction.anchor.pageY - 52),
+            top: blankActionMenuTop(blankAction.anchor),
           },
         ]}>
           <Pressable style={styles.blankActionMenuButton} onPress={lookupBlankAction}>
@@ -4617,6 +4629,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   const flowRef = useRef<View>(null);
   const keyboardInputRef = useRef<TextInput>(null);
   const keyboardFocusRequestRef = useRef(0);
+  const focusedKeyboardRequestRef = useRef<number | null>(null);
   const [keyboardFrame, setKeyboardFrame] = useState<{
     blankId: string;
     focusRequest: number;
@@ -4638,13 +4651,16 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
     const runs = wordRuns.length ? wordRuns : [{ start, end: blank.endUtf16 - row.textStart }];
     return runs.map((range, wordIndex) => ({ ...range, blank, blankIndex, wordIndex, wordCount: runs.length }));
   }).map((target, groupIndex) => ({ ...target, groupIndex }));
-  const ranges = rangeTargets.map(({ start, end, groupIndex }) => ({ start, end, groupIndex }));
   const phraseRanges = row.blanks.map(({ blank, blankIndex }) => ({
     start: blank.startUtf16 - row.textStart,
     end: blank.endUtf16 - row.textStart,
     groupIndex: rangeTargets.find((target) => target.blankIndex === blankIndex)?.groupIndex ?? blankIndex,
   }));
-  const highlightRanges = [...ranges, ...phraseRanges];
+  // Use the full blank as the native tap target so the input frame comes from
+  // the same text layout that draws the blank. Mixing native coordinates with
+  // measurements from a hidden React Native <Text> drifts on Android because
+  // the two renderers apply different font padding and line metrics.
+  const highlightRanges = phraseRanges;
   const blankIsCorrect = ({ blank }: typeof row.blanks[number]) => checkedAnswers[blank.id] === "correct";
   const hiddenRanges = revealed
     ? []
@@ -4690,7 +4706,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
     rangeLayoutRef.current.set(key, { signature, lines });
     setRangeLayoutRevision((current) => current + 1);
   };
-  const measuredFrameFor = (target: typeof rangeTargets[number] | null, minimumWidth = 28) => {
+  const measuredFrameFor = (target: typeof rangeTargets[number] | null) => {
     if (!target) return null;
     const prefixLines = rangeLayoutRef.current.get(`${target.groupIndex}:prefix`)?.lines ?? [];
     const throughLines = rangeLayoutRef.current.get(`${target.groupIndex}:through`)?.lines ?? [];
@@ -4702,16 +4718,15 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
     return {
       left,
       top: throughLine.y,
-      width: Math.max(minimumWidth, throughLine.x + throughLine.width - left),
+      width: Math.max(28, throughLine.x + throughLine.width - left),
       height: Math.max(24, throughLine.height),
     };
   };
-  const underlineFrames = rangeTargets
-    .map((target) => ({ target, frame: measuredFrameFor(target, 0) }))
-    .filter((item): item is { target: typeof rangeTargets[number]; frame: NonNullable<typeof item.frame> } => Boolean(item.frame));
   const measuredWordFrames = keyboardWordTargets
     .map(measuredFrameFor)
     .filter((frame): frame is NonNullable<typeof frame> => Boolean(frame));
+  const hasMeasuredEveryKeyboardWord = keyboardWordTargets.length > 0
+    && measuredWordFrames.length === keyboardWordTargets.length;
   const firstMeasuredWordFrame = measuredWordFrames[0] ?? null;
   const lastMeasuredWordFrame = measuredWordFrames[measuredWordFrames.length - 1] ?? null;
   const measuredPhraseFrame = firstMeasuredWordFrame && lastMeasuredWordFrame
@@ -4723,14 +4738,18 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
       height: Math.max(firstMeasuredWordFrame.height, lastMeasuredWordFrame.height),
     }
     : null;
-  const measuredCheckFrame = measuredFrameFor(keyboardWordTargets[keyboardWordTargets.length - 1] ?? null);
-  const displayInputFrame = measuredPhraseFrame && activeKeyboardFrame
-    ? {
-      ...measuredPhraseFrame,
-      top: activeKeyboardFrame.top,
-      height: activeKeyboardFrame.height,
-    }
-    : activeKeyboardFrame;
+  // Keep every edge in the RN container's coordinate space. The native event
+  // is only an activation signal; Android's screen coordinates have a
+  // different vertical origin and previously shifted the input down a line.
+  // Wait for every word frame before mounting the auto-focused input. Mounting
+  // at the native fallback first and moving it after RN measurement made the
+  // keyboard-aware scroll view chase two layouts and visibly jump.
+  const displayInputFrame = hasMeasuredEveryKeyboardWord
+    ? measuredPhraseFrame ?? firstMeasuredWordFrame
+    : null;
+  const displayCheckFrame = hasMeasuredEveryKeyboardWord
+    ? lastMeasuredWordFrame ?? displayInputFrame
+    : null;
   const submitActiveKeyboardAnswer = () => {
     if (!keyboardItem || !keyboardAnswer.trim() || saving) return;
     if (normalizeAnswer(keyboardAnswer) !== normalizeAnswer(keyboardItem.blank.answer)) {
@@ -4738,6 +4757,15 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
       onChangeKeyboardAnswer(keyboardItem.blankIndex, "");
     }
     onCheckKeyboardAnswer(keyboardItem.blankIndex);
+  };
+
+  const focusKeyboardInputAfterLayout = () => {
+    if (!activeKeyboardFrame || focusedKeyboardRequestRef.current === activeKeyboardFrame.focusRequest) return;
+    focusedKeyboardRequestRef.current = activeKeyboardFrame.focusRequest;
+    requestAnimationFrame(() => {
+      if (keyboardFrame?.focusRequest !== activeKeyboardFrame.focusRequest) return;
+      keyboardInputRef.current?.focus();
+    });
   };
 
   const activateBlank = (rangeIndex: number, selectionRect?: CardBlankActionAnchor) => {
@@ -4806,7 +4834,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
       }}
       onClozeRangePress={activateBlank}
     />
-    {rangeTargets.flatMap((target) => [
+    {keyboardItem ? keyboardWordTargets.flatMap((target) => [
       <Text
         key={`${target.groupIndex}:prefix`}
         pointerEvents="none"
@@ -4821,24 +4849,11 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
         style={[styles.clozeSentence, styles.clozeRangeMeasure]}
         onTextLayout={(event) => recordRangeLayout(target.groupIndex, "through", event.nativeEvent.lines)}
       >{sentenceText.slice(0, target.end)}</Text>,
-    ])}
-    {underlineFrames.map(({ target, frame }) => <View
-      key={`${target.groupIndex}:underline`}
-      pointerEvents="none"
-      style={[
-        styles.clozeUnderlineSegment,
-        {
-          left: frame.left,
-          top: frame.top + frame.height - 2,
-          width: frame.width,
-        },
-      ]}
-    />)}
-    {keyboardItem && activeKeyboardFrame && displayInputFrame ? <>
+    ]) : null}
+    {keyboardItem && activeKeyboardFrame && displayInputFrame && displayCheckFrame ? <>
       <TextInput
         key={`${keyboardItem.blank.id}:${activeKeyboardFrame.focusRequest}`}
         ref={keyboardInputRef}
-        autoFocus
         value={keyboardAnswer}
         editable={!saving}
         accessibilityLabel={t("card_detail.tab.cloze")}
@@ -4852,12 +4867,13 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
           styles.clozeInlineInput,
           {
             left: displayInputFrame.left,
-            top: displayInputFrame.top + 1,
+            top: displayInputFrame.top + (Platform.OS === "android" ? -3 : 1),
             width: displayInputFrame.width,
             height: displayInputFrame.height,
           },
         ]}
         onChangeText={(value) => onChangeKeyboardAnswer(keyboardItem.blankIndex, value)}
+        onLayout={focusKeyboardInputAfterLayout}
         onSubmitEditing={submitActiveKeyboardAnswer}
       />
       <Pressable
@@ -4866,8 +4882,8 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
         style={[
           styles.clozeInlineCheck,
           {
-            left: (measuredCheckFrame ?? displayInputFrame).left + (measuredCheckFrame ?? displayInputFrame).width + 3,
-            top: (measuredCheckFrame ?? displayInputFrame).top + ((measuredCheckFrame ?? displayInputFrame).height - 20) / 2,
+            left: displayCheckFrame.left + displayCheckFrame.width + 3,
+            top: displayCheckFrame.top + (displayCheckFrame.height - 20) / 2,
           },
           (!answers[keyboardItem.blank.id]?.trim() || saving) && styles.clozeInlineCheckDisabled,
         ]}
@@ -5213,8 +5229,7 @@ const styles = StyleSheet.create({
   clozeRevealButton: { alignSelf: "flex-end", minHeight: 34, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 5 },
   clozeFlow: { position: "relative", zIndex: 10, alignSelf: "stretch", overflow: "visible" },
   clozeRangeMeasure: { position: "absolute", left: 0, right: 0, top: 0, opacity: 0 },
-  clozeUnderlineSegment: { position: "absolute", zIndex: 20, height: 2, backgroundColor: "#D05F78" },
-  clozeInlineInput: { position: "absolute", zIndex: 60, paddingHorizontal: 0, paddingVertical: 0, borderWidth: 0, backgroundColor: "transparent", color: theme.colors.text, fontSize: 17, fontWeight: "400", letterSpacing: 0, textAlign: "left", includeFontPadding: false },
+  clozeInlineInput: { position: "absolute", zIndex: 60, paddingHorizontal: 0, paddingTop: 4, paddingBottom: 4, borderWidth: 0, backgroundColor: "transparent", color: theme.colors.text, fontSize: 17, lineHeight: 20, fontWeight: "400", letterSpacing: 0, textAlign: "left", textAlignVertical: "center", includeFontPadding: false },
   clozeInlineCheck: { position: "absolute", zIndex: 80, width: 20, height: 20, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   clozeInlineCheckDisabled: { opacity: 1 },
   clozeSelectableGap: { alignSelf: "stretch" },
