@@ -27,6 +27,10 @@ export function loadAlipayAutoRenewConfig(): AlipayAutoRenewConfig {
     ["ALIPAY_NOTIFY_URL", config.notifyUrl],
     ["ALIPAY_PLUS_MONTHLY_PRICE_ID", config.plusMonthlyPriceId],
     ["ALIPAY_PRO_MONTHLY_PRICE_ID", config.proMonthlyPriceId],
+    ...(config.testPriceUserIds.length > 0 ? [
+      ["ALIPAY_PLUS_MONTHLY_TEST_PRICE_ID", config.plusMonthlyTestPriceId],
+      ["ALIPAY_PRO_MONTHLY_TEST_PRICE_ID", config.proMonthlyTestPriceId],
+    ] : []),
   ].filter(([, value]) => !value).map(([name]) => name);
   if (missing.length > 0) throw new AlipayConfigError(`Missing ${missing.join(", ")}`);
   return {

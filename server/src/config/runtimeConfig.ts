@@ -72,6 +72,9 @@ export interface PaymentRuntimeConfig {
     proYearlyPriceId: string | null;
     proSpecialPriceId: string | null;
     proSpecialPriceIdentifiers: string[];
+    testPriceUserIds: string[];
+    plusMonthlyTestPriceId: string | null;
+    proMonthlyTestPriceId: string | null;
     requestTimeoutMs: number;
     reconcileIntervalMs: number;
     reconcileBatchSize: number;
@@ -86,8 +89,11 @@ export interface PaymentRuntimeConfig {
     sellerId: string | null;
     plusProductId: string | null;
     plusPriceId: string | null;
+    plusTestPriceId: string | null;
     proProductId: string | null;
     proPriceId: string | null;
+    proTestPriceId: string | null;
+    testPriceUserIds: string[];
     requestTimeoutMs: number;
   };
 }
@@ -614,6 +620,9 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       proYearlyPriceId: trimToNull(env.ALIPAY_PRO_YEARLY_PRICE_ID),
       proSpecialPriceId: trimToNull(env.ALIPAY_PRO_SPECIAL_PRICE_ID),
       proSpecialPriceIdentifiers: readCsv(env.ALIPAY_PRO_SPECIAL_PRICE_IDENTIFIERS, []),
+      testPriceUserIds: readCsv(env.ALIPAY_TEST_PRICE_USER_IDS, []),
+      plusMonthlyTestPriceId: trimToNull(env.ALIPAY_PLUS_MONTHLY_TEST_PRICE_ID),
+      proMonthlyTestPriceId: trimToNull(env.ALIPAY_PRO_MONTHLY_TEST_PRICE_ID),
       requestTimeoutMs: readPositiveInt(env.ALIPAY_REQUEST_TIMEOUT_MS, 15_000),
       reconcileIntervalMs: readPositiveInt(env.ALIPAY_RECONCILE_INTERVAL_MS, 300_000),
       reconcileBatchSize: readPositiveInt(env.ALIPAY_RECONCILE_BATCH_SIZE, 50),
@@ -628,8 +637,11 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       sellerId: trimToNull(env.ALIPAY_SELLER_ID),
       plusProductId: trimToNull(env.ALIPAY_PLUS_ANNUAL_PASS_PRODUCT_ID),
       plusPriceId: trimToNull(env.ALIPAY_PLUS_ANNUAL_PASS_PRICE_ID),
+      plusTestPriceId: trimToNull(env.ALIPAY_PLUS_ANNUAL_PASS_TEST_PRICE_ID),
       proProductId: trimToNull(env.ALIPAY_PRO_ANNUAL_PASS_PRODUCT_ID),
       proPriceId: trimToNull(env.ALIPAY_PRO_ANNUAL_PASS_PRICE_ID),
+      proTestPriceId: trimToNull(env.ALIPAY_PRO_ANNUAL_PASS_TEST_PRICE_ID),
+      testPriceUserIds: readCsv(env.ALIPAY_TEST_PRICE_USER_IDS, []),
       requestTimeoutMs: readPositiveInt(env.ALIPAY_REQUEST_TIMEOUT_MS, 15_000),
     },
   };

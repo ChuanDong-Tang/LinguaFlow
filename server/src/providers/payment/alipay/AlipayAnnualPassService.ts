@@ -50,14 +50,14 @@ export class AlipayAnnualPassService {
     return Boolean(this.client);
   }
 
-  getQuote(productCode: AlipayAnnualPassProductCode): {
+  getQuote(productCode: AlipayAnnualPassProductCode, userId?: string | null): {
     productCode: AlipayAnnualPassProductCode;
     amount: number;
     currency: "CNY";
     displayPrice: string;
   } | null {
     if (!this.client) return null;
-    const product = this.client.config.products[productCode];
+    const product = this.resolveProduct(productCode, userId);
     return {
       productCode,
       amount: product.amount,
@@ -71,6 +71,7 @@ export class AlipayAnnualPassService {
     productCode: AlipayAnnualPassProductCode;
   }): Promise<{ order: PaymentOrderEntity; orderString: string; reused: boolean }> {
     const client = this.requireClient();
+    const product = this.resolveProduct(input.productCode, input.userId);
     await this.assertCanPurchase(input.userId);
 
     const pending = await this.paymentOrderRepository.findPendingByUserProvider({
@@ -80,22 +81,24 @@ export class AlipayAnnualPassService {
     if (pending) {
       const resolved = await this.resolvePendingBeforeCreate(pending);
       if (resolved?.status === "pending") {
-        if (resolved.productCode !== input.productCode) {
-          throw new AlipayAnnualPassPendingError("Another Alipay annual pass order is pending");
+        const pendingPriceId = stringMetadataValue(resolved.metadata, "priceId");
+        if (pendingPriceId && pendingPriceId !== product.priceId) {
+          await this.cancelPending({ userId: input.userId, orderId: resolved.id });
+          await this.assertCanPurchase(input.userId);
+        } else {
+          if (resolved.productCode !== input.productCode || resolved.amount !== product.amount) {
+            throw new AlipayAnnualPassPendingError("Another Alipay annual pass order is pending");
+          }
+          return {
+            order: resolved,
+            orderString: client.createOrderString({ outTradeNo: resolved.providerOrderId, product }),
+            reused: true,
+          };
         }
-        return {
-          order: resolved,
-          orderString: client.createOrderString({
-            outTradeNo: resolved.providerOrderId,
-            product: client.config.products[input.productCode],
-          }),
-          reused: true,
-        };
       }
       await this.assertCanPurchase(input.userId);
     }
 
-    const product = client.config.products[input.productCode];
     await client.verifyProduct(product);
     const providerOrderId = createOutTradeNo();
     let order: PaymentOrderEntity;
@@ -112,6 +115,7 @@ export class AlipayAnnualPassService {
           purchaseKind: "annual_pass",
           productId: product.productId,
           priceId: product.priceId,
+          testPricing: this.usesTestPrice(input.userId),
         },
       });
     } catch (error) {
@@ -120,7 +124,13 @@ export class AlipayAnnualPassService {
         userId: input.userId,
         provider: "alipay",
       });
-      if (!raced || raced.productCode !== input.productCode) {
+      const racedPriceId = raced ? stringMetadataValue(raced.metadata, "priceId") : null;
+      if (
+        !raced
+        || raced.productCode !== input.productCode
+        || raced.amount !== product.amount
+        || (racedPriceId && racedPriceId !== product.priceId)
+      ) {
         throw new AlipayAnnualPassPendingError("Another Alipay annual pass order is pending");
       }
       order = raced;
@@ -328,6 +338,21 @@ export class AlipayAnnualPassService {
     }
     return this.client;
   }
+
+  private resolveProduct(
+    productCode: AlipayAnnualPassProductCode,
+    userId?: string | null,
+  ) {
+    const config = this.requireClient().config;
+    return this.usesTestPrice(userId)
+      ? config.testProducts![productCode]
+      : config.products[productCode];
+  }
+
+  private usesTestPrice(userId?: string | null): boolean {
+    const config = this.requireClient().config;
+    return Boolean(userId && config.testProducts && config.testPriceUserIds.includes(userId));
+  }
 }
 
 function createOutTradeNo(): string {
@@ -346,6 +371,12 @@ function mergeMetadata(existing: unknown, patch: Record<string, unknown>): Recor
       : {}),
     ...patch,
   };
+}
+
+function stringMetadataValue(metadata: unknown, key: string): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

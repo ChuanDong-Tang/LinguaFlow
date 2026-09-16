@@ -286,7 +286,22 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     });
   });
 
-  app.get("/payment/products", async (_req, reply) => {
+  app.get("/payment/products", async (req, reply) => {
+    let identity: { userId: string; email: string | null; phone: string | null } | undefined;
+    if (req.headers.authorization) {
+      const requestId = resolveRequestId(req.headers["x-request-id"]);
+      const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+      if (!userContext) return;
+      const user = await deps.userRepository.findById(userContext.userId);
+      if (!user) {
+        return reply.status(404).send({
+          ok: false,
+          request_id: requestId,
+          error: { code: "USER_NOT_FOUND", message: "User not found" },
+        });
+      }
+      identity = { userId: user.id, email: user.email, phone: user.phone };
+    }
     const productCodes: AutoRenewProductCode[] = [
       "plus_monthly",
       "plus_yearly",
@@ -295,8 +310,8 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     ];
     const quotes = await Promise.all(productCodes.map(async (productCode) => {
       const quote = isAlipayAnnualPassProductCode(productCode)
-        ? deps.alipayAnnualPassService.getQuote(productCode)
-        : await getAlipayProductQuoteOrNull(app, deps, productCode);
+        ? deps.alipayAnnualPassService.getQuote(productCode, identity?.userId)
+        : await getAlipayProductQuoteOrNull(app, deps, productCode, identity);
       const tier = productCode.startsWith("plus_") ? "plus" : "pro";
       const billingPeriod = productCode.endsWith("_yearly") ? "year" : "month";
       return {
@@ -1794,7 +1809,7 @@ async function getAlipayProductQuoteOrNull(
   app: FastifyInstance,
   deps: PaymentRouteDeps,
   productCode: AutoRenewProductCode,
-  identity?: { email?: string | null; phone?: string | null },
+  identity?: { userId?: string | null; email?: string | null; phone?: string | null },
 ) {
   try {
     return await deps.alipayAutoRenewService.getProductQuote(productCode, identity);

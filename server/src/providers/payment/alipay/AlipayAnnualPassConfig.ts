@@ -23,6 +23,8 @@ export interface AlipayAnnualPassConfig {
   sellerId: string;
   requestTimeoutMs: number;
   products: Record<AlipayAnnualPassProductCode, AlipayAnnualPassProduct>;
+  testPriceUserIds: string[];
+  testProducts: Record<AlipayAnnualPassProductCode, AlipayAnnualPassProduct> | null;
 }
 
 export class AlipayAnnualPassConfigError extends Error {
@@ -48,6 +50,15 @@ export function loadAlipayAnnualPassConfig(): AlipayAnnualPassConfig {
   if (missing.length > 0) {
     throw new AlipayAnnualPassConfigError(`Missing ${missing.join(", ")}`);
   }
+  const testMissing = config.testPriceUserIds.length > 0
+    ? [
+        ["ALIPAY_PLUS_ANNUAL_PASS_TEST_PRICE_ID", config.plusTestPriceId],
+        ["ALIPAY_PRO_ANNUAL_PASS_TEST_PRICE_ID", config.proTestPriceId],
+      ].filter(([, value]) => !value).map(([name]) => name)
+    : [];
+  if (testMissing.length > 0) {
+    throw new AlipayAnnualPassConfigError(`Missing ${testMissing.join(", ")}`);
+  }
 
   return {
     appId: config.appId!,
@@ -57,6 +68,7 @@ export function loadAlipayAnnualPassConfig(): AlipayAnnualPassConfig {
     notifyUrl: config.notifyUrl!,
     sellerId: config.sellerId!,
     requestTimeoutMs: config.requestTimeoutMs,
+    testPriceUserIds: config.testPriceUserIds,
     products: {
       plus_yearly: {
         productCode: "plus_yearly",
@@ -73,6 +85,22 @@ export function loadAlipayAnnualPassConfig(): AlipayAnnualPassConfig {
         subject: "OIO Pro 年卡",
       },
     },
+    testProducts: config.testPriceUserIds.length > 0 ? {
+      plus_yearly: {
+        productCode: "plus_yearly",
+        productId: config.plusProductId!,
+        priceId: config.plusTestPriceId!,
+        amount: 100,
+        subject: "OIO Plus 年卡（测试）",
+      },
+      pro_yearly: {
+        productCode: "pro_yearly",
+        productId: config.proProductId!,
+        priceId: config.proTestPriceId!,
+        amount: 100,
+        subject: "OIO Pro 年卡（测试）",
+      },
+    } : null,
   };
 }
 

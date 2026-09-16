@@ -46,7 +46,11 @@ export type AlipayPlanChangeResult = {
   jumpSchema: string;
 };
 
-type AlipayPriceIdentity = { email?: string | null; phone?: string | null };
+type AlipayPriceIdentity = {
+  userId?: string | null;
+  email?: string | null;
+  phone?: string | null;
+};
 
 const ALIPAY_PRICE_CACHE_TTL_MS = 300_000;
 const ALIPAY_PRICE_FAILURE_CACHE_TTL_MS = 10_000;
@@ -193,6 +197,7 @@ export class AlipayAutoRenewService {
         alipayPriceId: quote.priceId,
         alipayUnitAmount: quote.amount,
         alipayCurrency: quote.currency,
+        testPricing: usesAlipayTestPricing(input.userId),
         createRaw: created.raw,
       },
     });
@@ -245,7 +250,7 @@ export class AlipayAutoRenewService {
     });
     const itemId = snapshot.items?.[0]?.item_id?.trim();
     if (!itemId) throw new Error("ALIPAY_SUBSCRIPTION_ITEM_ID_MISSING");
-    const targetQuote = await this.getProductQuote(input.targetProductCode);
+    const targetQuote = await this.getProductQuote(input.targetProductCode, { userId: input.userId });
     const timing = isTierUpgrade(current.productCode, input.targetProductCode)
       ? "immediate" as const
       : "period_end" as const;
@@ -261,6 +266,8 @@ export class AlipayAutoRenewService {
       requestedAt: requestedAt.toISOString(),
       requestId: input.requestId,
       targetPriceId: targetQuote.priceId,
+      targetUnitAmount: targetQuote.amount,
+      testPricing: usesAlipayTestPricing(input.userId),
     };
     const reserved = await this.repository.reservePlanChange({
       id: current.id,
@@ -382,7 +389,9 @@ export class AlipayAutoRenewService {
       if (!periodEnd) throw new Error("ALIPAY_PAID_EVENT_MISSING_PERIOD_END");
       const eventProductCode = resolveProductCodeFromSubscriptionSnapshot(event.subscription)
         ?? subscription.productCode;
-      const eventPrice = resolveExpectedPriceForProduct(eventProductCode);
+      const eventPrice = eventProductCode === subscription.productCode
+        ? resolveExpectedPrice(subscription)
+        : resolveExpectedPendingPrice(subscription, eventProductCode);
       const amount = assertSubscriptionMatchesProduct(
         event.subscription,
         eventPrice,
@@ -439,7 +448,7 @@ export class AlipayAutoRenewService {
       const targetProductCode = subscription.pendingProductCode
         ?? resolveProductCodeFromSubscriptionSnapshot(event.subscription);
       if (!targetProductCode) throw new Error("ALIPAY_PLAN_CHANGE_TARGET_MISSING");
-      const targetPrice = resolveExpectedPriceForProduct(targetProductCode);
+      const targetPrice = resolveExpectedPendingPrice(subscription, targetProductCode);
       const expectedAmount = assertSubscriptionMatchesProduct(
         event.subscription,
         targetPrice,
@@ -494,7 +503,7 @@ export class AlipayAutoRenewService {
       if (!targetProductCode) throw new Error("ALIPAY_PLAN_CHANGE_TARGET_MISSING");
       assertSubscriptionMatchesProduct(
         event.subscription,
-        resolveExpectedPriceForProduct(targetProductCode),
+        resolveExpectedPendingPrice(subscription, targetProductCode),
         undefined,
         true,
       );
@@ -617,7 +626,7 @@ export class AlipayAutoRenewService {
         ?? current.productCode;
       const reconciledPrice = reconciledProductCode === current.productCode
         ? resolveExpectedPrice(current)
-        : resolveExpectedPriceForProduct(reconciledProductCode);
+        : resolveExpectedPendingPrice(confirmedLocal ?? current, reconciledProductCode);
       const amount = assertSubscriptionMatchesProduct(snapshot, reconciledPrice);
       const periodIsCurrent = periodEnd > now;
       const periodChanged = current.currentPeriodEnd?.getTime() !== periodEnd.getTime();
@@ -904,21 +913,31 @@ function assertAlipayMonthlyProduct(productCode: AutoRenewProductCode): void {
 
 function resolvePriceId(productCode: AutoRenewProductCode, identity?: AlipayPriceIdentity): string {
   const config = getRuntimeConfig().payment.alipayAutoRenew;
+  const isTestPrice = usesAlipayTestPricing(identity?.userId);
   const isSpecialPro = productCode === "pro_monthly" && matchesSpecialProPriceIdentity(
     identity,
     config.proSpecialPriceIdentifiers,
   );
-  const value = productCode === "plus_monthly"
-    ? config.plusMonthlyPriceId
-    : productCode === "plus_yearly"
-      ? config.plusYearlyPriceId
-      : productCode === "pro_yearly"
-        ? config.proYearlyPriceId
-        : isSpecialPro
-          ? config.proSpecialPriceId
-          : config.proMonthlyPriceId;
+  const value = isTestPrice && productCode === "plus_monthly"
+    ? config.plusMonthlyTestPriceId
+    : isTestPrice && productCode === "pro_monthly"
+      ? config.proMonthlyTestPriceId
+      : productCode === "plus_monthly"
+        ? config.plusMonthlyPriceId
+        : productCode === "plus_yearly"
+          ? config.plusYearlyPriceId
+          : productCode === "pro_yearly"
+            ? config.proYearlyPriceId
+            : isSpecialPro
+              ? config.proSpecialPriceId
+              : config.proMonthlyPriceId;
   if (!value) throw new Error(`ALIPAY_${productCode.toUpperCase()}_PRICE_ID_MISSING`);
   return value;
+}
+
+function usesAlipayTestPricing(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  return getRuntimeConfig().payment.alipayAutoRenew.testPriceUserIds.includes(userId);
 }
 
 function isTierUpgrade(current: AutoRenewProductCode, target: AutoRenewProductCode): boolean {
@@ -962,6 +981,17 @@ function resolveExpectedPrice(subscription: AutoRenewSubscriptionEntity): { pric
 function resolveExpectedPriceForProduct(productCode: AutoRenewProductCode): { priceId: string; unitAmount: number | null } {
   return { priceId: resolvePriceId(productCode), unitAmount: null };
 }
+function resolveExpectedPendingPrice(
+  subscription: AutoRenewSubscriptionEntity,
+  productCode: AutoRenewProductCode,
+): { priceId: string; unitAmount: number | null } {
+  const planChange = objectValue(objectValue(subscription.metadata).planChange);
+  const targetPriceId = stringValue(planChange.targetPriceId);
+  const targetUnitAmount = positiveIntegerValue(planChange.targetUnitAmount);
+  return targetPriceId
+    ? { priceId: targetPriceId, unitAmount: targetUnitAmount }
+    : resolveExpectedPriceForProduct(productCode);
+}
 function resolveProductCodeFromSubscriptionSnapshot(
   snapshot: AlipaySubscriptionSnapshot,
   includePending = false,
@@ -976,9 +1006,19 @@ function resolveProductCodeFromPriceItems(
 ): AutoRenewProductCode | null {
   const priceIds = new Set((items ?? []).map((item) => item.price?.id).filter(Boolean));
   const candidates: AutoRenewProductCode[] = ["plus_monthly", "plus_yearly", "pro_monthly", "pro_yearly"];
-  return candidates.find((productCode) => {
-    try { return priceIds.has(resolvePriceId(productCode)); } catch { return false; }
-  }) ?? null;
+  return candidates.find((productCode) => configuredPriceIds(productCode)
+    .some((priceId) => priceIds.has(priceId))) ?? null;
+}
+function configuredPriceIds(productCode: AutoRenewProductCode): string[] {
+  const config = getRuntimeConfig().payment.alipayAutoRenew;
+  const values = productCode === "plus_monthly"
+    ? [config.plusMonthlyPriceId, config.plusMonthlyTestPriceId]
+    : productCode === "pro_monthly"
+      ? [config.proMonthlyPriceId, config.proMonthlyTestPriceId, config.proSpecialPriceId]
+      : productCode === "plus_yearly"
+        ? [config.plusYearlyPriceId]
+        : [config.proYearlyPriceId];
+  return values.filter((value): value is string => Boolean(value));
 }
 function assertSubscriptionMatchesProduct(
   snapshot: AlipaySubscriptionSnapshot,

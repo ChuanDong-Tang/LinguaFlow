@@ -758,6 +758,13 @@ export function ProScreen({
     } catch (error) {
       pendingAlipayReturnRef.current = null;
       if (!isScreenAlive()) return;
+      if (error instanceof MobileApiError && error.code === "ALIPAY_CUSTOMER_CONTACT_REQUIRED") {
+        safeAlert(
+          t("pro.alert.alipay_contact_required_title"),
+          t("pro.alert.alipay_contact_required_message"),
+        );
+        return;
+      }
       const message = error instanceof Error ? error.message : t("app.delete.retry_later");
       safeAlert(t("pro.alert.payment_start_failed"), message);
     } finally {
@@ -2027,36 +2034,38 @@ export function ProScreen({
         </View>
 
         <View style={styles.planChooserHead}>
-          <View style={styles.planChooserTitleRow}>
-            <Text style={styles.managerSectionTitle}>{t("subscription.manager.choose_plan")}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("subscription.manager.switch_rules_title")}
-              hitSlop={10}
-              onPress={() => Alert.alert(
-                t("subscription.manager.switch_rules_title"),
-                t("subscription.manager.switch_rules_message"),
-                [{ text: t("common.got_it") }],
-              )}
-            >
-              <Ionicons name="information-circle-outline" size={18} color="#777064" />
-            </Pressable>
-          </View>
-          <View style={styles.periodToggle}>
-            {(["month", "year"] as const).map((period) => (
+          <View style={styles.planChooserControls}>
+            <View style={styles.planChooserTitleRow}>
+              <Text style={styles.managerSectionTitle}>{t("subscription.manager.choose_plan")}</Text>
               <Pressable
-                key={period}
-                style={[styles.periodOption, billingPeriod === period && styles.periodOptionActive]}
-                onPress={() => setBillingPeriod(period)}
+                accessibilityRole="button"
+                accessibilityLabel={t("subscription.manager.switch_rules_title")}
+                hitSlop={10}
+                onPress={() => Alert.alert(
+                  t("subscription.manager.switch_rules_title"),
+                  t("subscription.manager.switch_rules_message"),
+                  [{ text: t("common.got_it") }],
+                )}
               >
-                <Text style={[styles.periodOptionText, billingPeriod === period && styles.periodOptionTextActive]}>
-                  {t(period === "month" ? "subscription.manager.monthly" : "subscription.manager.yearly")}
-                </Text>
+                <Ionicons name="information-circle-outline" size={18} color="#777064" />
               </Pressable>
-            ))}
+            </View>
+            <View style={styles.periodToggle}>
+              {(["month", "year"] as const).map((period) => (
+                <Pressable
+                  key={period}
+                  style={[styles.periodOption, billingPeriod === period && styles.periodOptionActive]}
+                  onPress={() => setBillingPeriod(period)}
+                >
+                  <Text style={[styles.periodOptionText, billingPeriod === period && styles.periodOptionTextActive]}>
+                    {t(period === "month" ? "subscription.manager.monthly" : "subscription.manager.yearly")}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
           {IS_CHINA_ANDROID && billingPeriod === "year" ? (
-            <Text style={styles.managerMeta}>{t("subscription.manager.alipay_annual_pass_note")}</Text>
+            <Text style={styles.annualPassNote}>{t("subscription.manager.alipay_annual_pass_note")}</Text>
           ) : null}
         </View>
 
@@ -2726,8 +2735,10 @@ const styles = StyleSheet.create({
   pendingPlanText: { marginTop: 3, color: "#777064", fontSize: 11 },
   pendingPlanActions: { marginTop: 10, flexDirection: "row", gap: 18 },
   pendingPlanAction: { color: "#514B40", fontSize: 12, fontWeight: "600", textDecorationLine: "underline" },
-  planChooserHead: { marginTop: 26, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  planChooserHead: { marginTop: 26 },
+  planChooserControls: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   planChooserTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  annualPassNote: { marginTop: 8, color: "#6A6863", fontSize: 12, lineHeight: 18 },
   periodToggle: { flexDirection: "row", padding: 3, borderRadius: 10, backgroundColor: "#EEEEEC" },
   periodOption: { minWidth: 54, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, alignItems: "center" },
   periodOptionActive: { backgroundColor: "#FFFFFF" },
