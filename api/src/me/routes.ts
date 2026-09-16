@@ -50,6 +50,9 @@ export interface MeRouteDeps {
   profileRateLimiter: {
     consume: (key: string, limit: number, windowMs: number) => Promise<boolean>;
   };
+  userFeedbackRepository: {
+    create: (args: any) => Promise<{ id: string; createdAt: Date }>;
+  };
   userRepository: {
     findById: (userId: string) => Promise<{
       id: string;
@@ -73,12 +76,64 @@ type UpdatePreferencesBody = {
 
 const GUIDE_STATE_MAX_KEYS = 80;
 const GUIDE_STATE_COMPLETED_AT_MAX_LENGTH = 64;
+const FEEDBACK_CATEGORIES = new Set(["suggestion", "problem", "other"]);
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
 export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void {
+  app.post("/me/feedback", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userContext = await resolveMeUserContext(req, reply, deps, requestId, "/me/feedback");
+    if (!userContext) return;
+
+    const allowed = await deps.profileRateLimiter.consume(
+      `feedback:create:${userContext.userId}`,
+      5,
+      86_400_000,
+    );
+    if (!allowed) {
+      return reply.status(429).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "RATE_LIMITED", message: "今天提交得有点多，请明天再试" },
+      });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const category = typeof body.category === "string" ? body.category.trim() : "";
+    const content = typeof body.content === "string" ? body.content.trim() : "";
+    if (!FEEDBACK_CATEGORIES.has(category) || content.length < 2 || content.length > 2_000) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "请填写 2 至 2000 个字符的反馈内容" },
+      });
+    }
+
+    const feedback = await deps.userFeedbackRepository.create({
+      data: {
+        userId: userContext.userId,
+        category,
+        content,
+        platform: optionalMetadata(body.platform, 32) ?? "unknown",
+        appVersion: optionalMetadata(body.appVersion, 64),
+        buildNumber: optionalMetadata(body.buildNumber, 64),
+        osVersion: optionalMetadata(body.osVersion, 64),
+        appLocale: optionalMetadata(body.appLocale, 32),
+      },
+      select: { id: true, createdAt: true },
+    });
+
+    return reply.status(201).send({
+      ok: true,
+      request_id: requestId,
+      data: { id: feedback.id, createdAt: feedback.createdAt.toISOString() },
+    });
+  });
+
   app.get("/me/usage/v2", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
@@ -515,6 +570,13 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       });
     }
   });
+}
+
+function optionalMetadata(value: unknown, maxLength: number): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+  return normalized.slice(0, maxLength);
 }
 
 function handleAvatarError(error: unknown, reply: FastifyReply, requestId: string) {

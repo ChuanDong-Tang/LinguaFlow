@@ -42,12 +42,7 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
         </View>
 
         <SectionCard title={t("about.contact")}>
-          <InfoRow icon="globe-outline" label={t("about.website")} value="www.yueyantech.com" onPress={() => openUrl("https://yueyantech.com")} />
-          <InfoRow
-            icon="create-outline"
-            label={t("about.feedback")}
-            value="contact@yueyantech.com"
-          />
+          <InfoRow icon="globe-outline" label={t("about.website")} value="www.yueyantech.com" onPress={() => openUrl("https://yueyantech.com")} isLast />
         </SectionCard>
 
         <SectionCard title={t("about.more")}>

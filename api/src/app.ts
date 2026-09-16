@@ -516,6 +516,7 @@ export function createApp() {
       userProfileService,
       userAvatarService,
       profileRateLimiter: chatGenerationRateLimiter,
+      userFeedbackRepository: prisma.userFeedback,
       userRepository,
       systemEventLogRepository,
     });

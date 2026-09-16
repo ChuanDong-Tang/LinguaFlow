@@ -52,10 +52,34 @@ model User {
   aiUsageEvents               AiUsageEvent[]
   imageStorageAccount         ImageStorageAccount?
   imageStorageTransactions    ImageStorageTransaction[]
+  feedback                    UserFeedback[]
 
   @@index([email])
   @@index([phone])
   @@map("users")
+}
+
+model UserFeedback {
+  id          String    @id @default(cuid())
+  userId      String
+  category    String
+  content     String
+  platform    String
+  appVersion  String?
+  buildNumber String?
+  osVersion   String?
+  appLocale   String?
+  status      String    @default("pending")
+  handledBy   String?
+  handledAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@map("user_feedback")
 }
 
 model DictionaryLookupCache {

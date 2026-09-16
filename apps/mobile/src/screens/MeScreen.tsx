@@ -37,6 +37,7 @@ import { TARGET_LANGUAGE_CODES } from "@lf/core/language/targetLanguages";
 import { SubscriptionManagementScreen } from "./ProScreen";
 import { stabilizeProfileAvatar } from "../services/image/signedImageCache";
 import { MembershipSummaryCard } from "./membership/MembershipSummaryCard";
+import { FeedbackScreen } from "./FeedbackScreen";
 
 type MeScreenProps = {
   isActive: boolean;
@@ -73,6 +74,7 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
   const [isLoadingEntitlement, setIsLoadingEntitlement] = useState(true);
   const [updatesDebugVisible, setUpdatesDebugVisible] = useState(false);
   const [subscriptionManagerVisible, setSubscriptionManagerVisible] = useState(false);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [updatesAction, setUpdatesAction] = useState<string | null>(null);
   const [updatesResult, setUpdatesResult] = useState(() => t("me.debug.not_run"));
 
@@ -271,6 +273,7 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
             ].join(" · ") : undefined}
             onPress={() => setLanguageSettingsVisible(true)}
           />
+          <SettingsRow icon="chatbox-ellipses-outline" label={t("feedback.title")} onPress={() => setFeedbackVisible(true)} />
           <SettingsRow icon="information-circle-outline" label={t("me.about")} onPress={onOpenAbout} />
           <SettingsRow icon="log-out-outline" label={t("me.logout")} onPress={onLogout} />
           <SettingsRow icon="person-remove-outline" label={t("me.delete_account")} onPress={onDeleteAccount} tone="danger" isLast />
@@ -289,6 +292,14 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
           onEntitlementChanged={handleEntitlementChanged}
           onUsageChanged={setUsageV2}
         />
+      </Modal>
+      <Modal
+        visible={feedbackVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setFeedbackVisible(false)}
+      >
+        <FeedbackScreen onBack={() => setFeedbackVisible(false)} />
       </Modal>
       <ProfileEditModal
         visible={profileVisible}

@@ -497,6 +497,7 @@
     .status-active,
     .status-paid,
     .status-success,
+    .status-handled,
     .status-processed {
       color: var(--success);
       background: #ecfdf3;
@@ -1095,6 +1096,7 @@
           <div class="nav-label">运营</div>
           <button class="tab active" data-tab="overview">运营概览</button>
           <button class="tab" data-tab="contacts">用户触达</button>
+          <button class="tab" data-tab="feedback">用户反馈</button>
         </div>
         <div class="nav-group">
           <div class="nav-label">运行</div>
@@ -1913,6 +1915,56 @@
           </div>
         </section>
 
+        <section id="panel-feedback" class="panel">
+          <div class="card">
+            <div class="section">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">用户反馈</h2>
+                  <p class="section-subtitle">查看 App 内提交的建议与问题，并标记处理状态。</p>
+                </div>
+                <button id="btnLoadFeedback" class="btn secondary">刷新</button>
+              </div>
+              <div class="form-row" style="grid-template-columns:repeat(2,minmax(180px,240px))">
+                <div class="field">
+                  <label>处理状态</label>
+                  <select id="feedbackStatus">
+                    <option value="pending">待处理</option>
+                    <option value="all">全部</option>
+                    <option value="handled">已处理</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>类型</label>
+                  <select id="feedbackCategory">
+                    <option value="all">全部</option>
+                    <option value="suggestion">建议</option>
+                    <option value="problem">遇到问题</option>
+                    <option value="other">其他</option>
+                  </select>
+                </div>
+              </div>
+              <div id="feedbackMetrics" class="metrics mt"></div>
+              <div class="table-wrap mt">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>类型</th>
+                      <th>内容</th>
+                      <th>用户</th>
+                      <th>版本与设备</th>
+                      <th>状态</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="feedbackTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="panel-payments" class="panel">
           <div class="card">
             <div class="section">
@@ -2518,6 +2570,7 @@
       imageperf: ["图片性能", "查看上传、排队、模型生成与 Worker 的实际耗时。"],
       user: ["用户排障", "定位单个用户的账号、会员、额度与支付状态。"],
       contacts: ["用户触达", "筛选可触达用户并导出账号名单。"],
+      feedback: ["用户反馈", "查看用户提交的建议和问题，并跟踪处理状态。"],
       payments: ["支付订阅", "查询订单、订阅与自动续费状态。"],
       website: ["官网访问", "查看官网与 Wiki 的访问、来源和下载点击。"],
       security: ["安全审计", "查看内容安全规则的拦截结果，不展示用户原文。"],
@@ -4552,6 +4605,55 @@
       setStatus(`管理员操作：${rows.length} 条`);
     }
 
+    function feedbackCategoryLabel(value) {
+      return value === "suggestion" ? "建议" : value === "problem" ? "遇到问题" : "其他";
+    }
+
+    async function loadFeedback() {
+      const qs = new URLSearchParams();
+      const status = $("feedbackStatus").value;
+      const category = $("feedbackCategory").value;
+      if (status !== "all") qs.set("status", status);
+      if (category !== "all") qs.set("category", category);
+      setStatus("正在加载用户反馈...");
+      const res = await request(`/admin/feedback?${qs.toString()}`);
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const counts = res.data?.counts || {};
+      $("feedbackMetrics").innerHTML = [
+        ["待处理", counts.pending || 0, "需要查看"],
+        ["已处理", counts.handled || 0, "已完成"],
+      ].map(([label, value, note]) => `
+        <div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(note)}</small></div>
+      `).join("");
+      $("feedbackTbody").innerHTML = items.map((item) => {
+        const user = item.user || {};
+        const account = user.nickname || user.email || user.phone || item.userId;
+        const version = [item.platform, item.appVersion ? `v${item.appVersion}` : "", item.buildNumber ? `(${item.buildNumber})` : "", item.osVersion].filter(Boolean).join(" ");
+        const nextStatus = item.status === "handled" ? "pending" : "handled";
+        const actionLabel = item.status === "handled" ? "重新打开" : "标记已处理";
+        return `
+          <tr>
+            <td>${escapeHtml(fmtDate(item.createdAt))}</td>
+            <td>${escapeHtml(feedbackCategoryLabel(item.category))}</td>
+            <td><div style="white-space:pre-wrap;min-width:260px;max-width:520px">${escapeHtml(item.content)}</div></td>
+            <td>${escapeHtml(account)}<div class="mono muted">${escapeHtml(item.userId)}</div></td>
+            <td>${escapeHtml(version)}<div class="muted">${escapeHtml(item.appLocale || "")}</div></td>
+            <td>${statusPill(item.status)}</td>
+            <td><button class="btn secondary" data-feedback-id="${escapeHtml(item.id)}" data-feedback-status="${nextStatus}">${actionLabel}</button></td>
+          </tr>
+        `;
+      }).join("") || rowEmpty(7);
+      setStatus(`用户反馈：${items.length} 条`);
+    }
+
+    async function updateFeedbackStatus(id, status) {
+      await request(`/admin/feedback/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      await loadFeedback();
+    }
+
     function setEventSubtab(name) {
       document.querySelectorAll(".tab[data-event-subtab]").forEach((item) => {
         item.classList.toggle("active", item.dataset.eventSubtab === name);
@@ -4587,6 +4689,7 @@
           }
           if (tab.dataset.tab === "resources" && !state.resources) await loadResources();
           if (tab.dataset.tab === "website" && !state.websiteAnalytics) await loadWebsiteAnalytics();
+          if (tab.dataset.tab === "feedback") await loadFeedback();
           if (tab.dataset.tab === "imageperf") await loadAuditView("imageperf");
           if (tab.dataset.tab === "security") await loadAuditView("security");
           if (tab.dataset.tab === "adminaudit") await loadAuditView("adminaudit");
@@ -4650,6 +4753,17 @@
       $("btnRefreshPaymentSummary").addEventListener("click", guard(loadOverview));
       $("btnSearchUsers").addEventListener("click", guard(searchUsers));
       $("btnLoadContactUsers").addEventListener("click", guard(() => loadContactUsers({ resetPage: true })));
+      $("btnLoadFeedback").addEventListener("click", guard(loadFeedback));
+      $("feedbackStatus").addEventListener("change", guard(loadFeedback));
+      $("feedbackCategory").addEventListener("change", guard(loadFeedback));
+      $("feedbackTbody").addEventListener("click", guard(async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+        const id = target.dataset.feedbackId || "";
+        const status = target.dataset.feedbackStatus || "";
+        if (!id || !status) return;
+        await updateFeedbackStatus(id, status);
+      }));
       $("btnExportContactUsers").addEventListener("click", guard(exportContactUsers));
       $("btnPrevContactUsers").addEventListener("click", guard(async () => {
         if (state.contactUsersPage <= 1) return;

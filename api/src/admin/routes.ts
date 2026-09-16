@@ -56,6 +56,12 @@ export interface AdminRouteDeps {
     adminAuditLog: {
       create: (args: any) => Promise<any>;
     };
+    userFeedback: {
+      findMany: (args: any) => Promise<any[]>;
+      count: (args: any) => Promise<number>;
+      findUnique: (args: any) => Promise<any | null>;
+      update: (args: any) => Promise<any>;
+    };
     $transaction: <T>(fn: (tx: any) => Promise<T>) => Promise<T>;
     $executeRawUnsafe: (query: string, ...values: unknown[]) => Promise<number>;
     $queryRawUnsafe: (query: string, ...values: unknown[]) => Promise<any[]>;
@@ -2048,6 +2054,87 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     );
 
     return reply.status(200).send({ ok: true, request_id: requestId, data: rows });
+  });
+
+  app.get("/admin/feedback", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const query = req.query as Record<string, unknown>;
+    const status = query.status === "pending" || query.status === "handled" ? query.status : null;
+    const category = query.category === "suggestion" || query.category === "problem" || query.category === "other"
+      ? query.category
+      : null;
+    const where = {
+      ...(status ? { status } : {}),
+      ...(category ? { category } : {}),
+    };
+    const [items, pending, handled] = await Promise.all([
+      deps.prisma.userFeedback.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        include: {
+          user: { select: { id: true, nickname: true, email: true, phone: true } },
+        },
+      }),
+      deps.prisma.userFeedback.count({ where: { status: "pending" } }),
+      deps.prisma.userFeedback.count({ where: { status: "handled" } }),
+    ]);
+
+    return reply.status(200).send({
+      ok: true,
+      request_id: requestId,
+      data: { items, counts: { pending, handled } },
+    });
+  });
+
+  app.patch("/admin/feedback/:id", async (req, reply) => {
+    const admin = await requireAdmin(req, reply, deps.prisma.user, deps.systemEventLogRepository);
+    if (!admin) return;
+
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const status = body.status;
+    if (status !== "pending" && status !== "handled") {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Invalid feedback status" },
+      });
+    }
+
+    const before = await deps.prisma.userFeedback.findUnique({ where: { id } });
+    if (!before) {
+      return reply.status(404).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "FEEDBACK_NOT_FOUND", message: "Feedback not found" },
+      });
+    }
+
+    const updated = await deps.prisma.userFeedback.update({
+      where: { id },
+      data: {
+        status,
+        handledBy: status === "handled" ? admin.adminId : null,
+        handledAt: status === "handled" ? new Date() : null,
+      },
+    });
+    await writeAuditLog(deps, {
+      adminId: admin.adminId,
+      action: "feedback.status_changed",
+      targetType: "user_feedback",
+      targetId: id,
+      requestId,
+      ip: req.ip,
+      beforeData: { status: before.status },
+      afterData: { status: updated.status },
+    });
+
+    return reply.status(200).send({ ok: true, request_id: requestId, data: updated });
   });
 
   app.get("/admin/card/operations", async (req, reply) => {

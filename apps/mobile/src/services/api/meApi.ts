@@ -136,6 +136,18 @@ export type UserBindings = {
   email: { bound: boolean; maskedValue: string | null; action: "none" | "bind" | "unsupported" };
 };
 
+export type FeedbackCategory = "suggestion" | "problem" | "other";
+
+export type SubmitFeedbackInput = {
+  category: FeedbackCategory;
+  content: string;
+  platform: string;
+  appVersion: string | null;
+  buildNumber: string | null;
+  osVersion: string;
+  appLocale: AppLocale;
+};
+
 export async function getCurrentEntitlement(): Promise<CurrentEntitlement> {
   const res = await fetchWithTimeout(`${BASE_URL}/me/entitlement`, {
     headers: await getAuthHeaders(),
@@ -216,6 +228,13 @@ export async function updateProfileNickname(nickname: string): Promise<UserProfi
 
 export async function getUserBindings(): Promise<UserBindings> {
   return meRequest<UserBindings>("/me/bindings");
+}
+
+export async function submitFeedback(input: SubmitFeedbackInput): Promise<{ id: string; createdAt: string }> {
+  return meRequest("/me/feedback", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function createAvatarUpload(input: {
