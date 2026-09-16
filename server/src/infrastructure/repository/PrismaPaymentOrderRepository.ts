@@ -63,10 +63,12 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
   async listPendingCreatedBefore(input: {
     before: Date;
     limit: number;
+    provider?: PaymentProviderName;
   }): Promise<PaymentOrderEntity[]> {
     const rows = await this.prisma.paymentOrder.findMany({
       where: {
         status: "pending",
+        ...(input.provider ? { provider: input.provider } : {}),
         createdAt: {
           lt: input.before,
         },
@@ -107,6 +109,24 @@ export class PrismaPaymentOrderRepository implements PaymentOrderRepository {
       where: {
         userId: input.userId,
         productCode: input.productCode,
+        provider: input.provider,
+        status: "pending",
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return row ? this.toEntity(row) : null;
+  }
+
+  async findPendingByUserProvider(input: {
+    userId: string;
+    provider: PaymentProviderName;
+  }): Promise<PaymentOrderEntity | null> {
+    const row = await this.prisma.paymentOrder.findFirst({
+      where: {
+        userId: input.userId,
         provider: input.provider,
         status: "pending",
       },

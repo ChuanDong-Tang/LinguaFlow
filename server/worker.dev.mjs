@@ -26,6 +26,10 @@ import { PaymentCertSyncWorker } from "./src/workers/payment/PaymentCertSyncWork
 import { GooglePlayAcknowledgeWorker } from "./src/workers/payment/GooglePlayAcknowledgeWorker.ts";
 import { GooglePlaySubscriptionReconcileWorker } from "./src/workers/payment/GooglePlaySubscriptionReconcileWorker.ts";
 import { AlipaySubscriptionReconcileWorker } from "./src/workers/payment/AlipaySubscriptionReconcileWorker.ts";
+import { AlipayAnnualPassReconcileWorker } from "./src/workers/payment/AlipayAnnualPassReconcileWorker.ts";
+import { AlipayAnnualPassClient } from "./src/providers/payment/alipay/AlipayAnnualPassClient.ts";
+import { isAlipayAnnualPassConfigured } from "./src/providers/payment/alipay/AlipayAnnualPassConfig.ts";
+import { AlipayAnnualPassService } from "./src/providers/payment/alipay/AlipayAnnualPassService.ts";
 import { getRuntimeConfig } from "./src/config/runtimeConfig.ts";
 import { getRedisClient } from "./src/infrastructure/redis/redisClient.ts";
 import { AutoRenewService } from "./src/services/payment/AutoRenewService.ts";
@@ -132,6 +136,17 @@ const alipayAutoRenewService = new AlipayAutoRenewService(
   paymentEntitlementService,
   isAlipayAutoRenewConfigured() ? new AlipayAutoRenewClient() : undefined,
   paymentEventRepository,
+  paymentOrderRepository,
+  subscriptionService,
+);
+const alipayAnnualPassService = new AlipayAnnualPassService(
+  paymentOrderRepository,
+  paymentEventRepository,
+  benefitGrantService,
+  paymentEntitlementService,
+  subscriptionService,
+  autoRenewRepository,
+  isAlipayAnnualPassConfigured() ? new AlipayAnnualPassClient() : undefined,
 );
 const benefitGrantWorker = new BenefitGrantWorker(
   benefitGrantRepository,
@@ -150,6 +165,7 @@ const accountDeletionCleanupWorker = new AccountDeletionCleanupWorker(
   {
     googlePlayBillingService,
     alipayAutoRenewService,
+    alipayAnnualPassService,
     appleIapService,
     imageStorageProvider: cardImageStorageProvider,
   }
@@ -175,6 +191,11 @@ const googlePlaySubscriptionReconcileWorker = new GooglePlaySubscriptionReconcil
 const alipaySubscriptionReconcileWorker = new AlipaySubscriptionReconcileWorker(
   prisma,
   alipayAutoRenewService,
+  systemEventLogRepository,
+);
+const alipayAnnualPassReconcileWorker = new AlipayAnnualPassReconcileWorker(
+  paymentOrderRepository,
+  alipayAnnualPassService,
   systemEventLogRepository,
 );
 const cardRepository = new PrismaCardRepository(prisma);
@@ -472,6 +493,7 @@ const workerGroups = {
     googlePlayAcknowledgeWorker,
     googlePlaySubscriptionReconcileWorker,
     alipaySubscriptionReconcileWorker,
+    alipayAnnualPassReconcileWorker,
   ],
   card: [
     cardRewriteWorker,

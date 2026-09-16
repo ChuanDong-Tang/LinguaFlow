@@ -15,9 +15,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   cancelAutoRenewSubscription,
+  cancelAlipayAnnualPassOrder,
   abandonAutoRenewPlanChange,
   changeAutoRenewPlan,
   createAlipayAutoRenewSubscription,
+  createAlipayAnnualPass,
+  getAlipayAnnualPassOrder,
   getCurrentAutoRenewSubscription,
   getPaymentProducts,
   getPlusMonthlyProductQuote,
@@ -75,6 +78,7 @@ import {
   subscriptionProductCode,
   subscriptionTier,
 } from "../domain/subscription/subscriptionPlans";
+import { payWithAlipay } from "../../modules/oio-alipay-pay";
 
 type ProScreenProps = {
   onBack?: () => void;
@@ -99,6 +103,7 @@ const ENABLE_APPLE_ONE_TIME_PURCHASE = process.env.EXPO_PUBLIC_ENABLE_APPLE_ONE_
 const ENABLE_APPLE_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW === "true";
 const ENABLE_GOOGLE_PLAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW === "true";
 const ENABLE_ALIPAY_AUTO_RENEW = process.env.EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW === "true";
+const ENABLE_ALIPAY_ANNUAL_PASS = process.env.EXPO_PUBLIC_ENABLE_ALIPAY_ANNUAL_PASS === "true";
 const DISTRIBUTION_CHANNEL = process.env.EXPO_PUBLIC_DISTRIBUTION_CHANNEL?.trim().toLowerCase();
 const IS_CHINA_ANDROID = Platform.OS === "android" && DISTRIBUTION_CHANNEL === "china";
 const APPLE_PURCHASE_TIMEOUT_MS = 120 * 1000;
@@ -560,6 +565,18 @@ export function ProScreen({
 
   async function handleSelectPlan(productCode: MobilePaymentProductCode): Promise<void> {
     if (isAutoRenewLoading || isPaying || !hasLoadedAutoRenew) return;
+    if (IS_CHINA_ANDROID && productCode.endsWith("_yearly")) {
+      if (!ENABLE_ALIPAY_ANNUAL_PASS) {
+        safeAlert(t("pro.not_open"), t("pro.alert.alipay_annual_not_open"));
+        return;
+      }
+      if ((isRenew && !isManualEntitlement(currentEntitlement)) || hasActiveAutoRenew(autoRenew)) {
+        safeAlert(t("pro.alert.pro_active_title"), t("pro.alert.alipay_annual_buy_after_expiry"));
+        return;
+      }
+      await startAlipayAnnualPass(productCode as "plus_yearly" | "pro_yearly");
+      return;
+    }
     if (autoRenew?.pendingProductCode) {
       safeAlert(t("subscription.manager.pending_title"), formatPendingPlanLabel(autoRenew));
       return;
@@ -746,6 +763,68 @@ export function ProScreen({
     } finally {
       if (isScreenAlive()) { setIsAutoRenewLoading(false); setIsPaying(false); }
     }
+  }
+
+  async function startAlipayAnnualPass(
+    productCode: "plus_yearly" | "pro_yearly",
+  ): Promise<void> {
+    setIsAutoRenewLoading(true);
+    setIsPaying(true);
+    try {
+      const created = await createAlipayAnnualPass(productCode);
+      const paymentResult = await payWithAlipay(created.orderString);
+      if (paymentResult.resultStatus === "6001") {
+        const closed = await cancelAlipayAnnualPassOrder(created.orderId);
+        if (closed.status === "paid") {
+          await finishAlipayAnnualPass(productCode);
+        }
+        return;
+      }
+
+      const order = await waitForAlipayAnnualPass(created.orderId);
+      if (order.status === "paid") {
+        await finishAlipayAnnualPass(productCode);
+        return;
+      }
+      if (order.status === "pending") {
+        safeAlert(t("pro.alert.payment_processing_title"), t("pro.alert.payment_processing_message"));
+        return;
+      }
+      safeAlert(t("pro.alert.payment_unfinished_title"), t("pro.alert.alipay_annual_unfinished_message"));
+    } catch (error) {
+      if (!isScreenAlive()) return;
+      const message = error instanceof Error ? error.message : t("app.delete.retry_later");
+      safeAlert(t("pro.alert.payment_start_failed"), message);
+    } finally {
+      if (isScreenAlive()) {
+        setIsAutoRenewLoading(false);
+        setIsPaying(false);
+      }
+    }
+  }
+
+  async function finishAlipayAnnualPass(
+    productCode: "plus_yearly" | "pro_yearly",
+  ): Promise<void> {
+    const refreshed = await refreshProEntitlementState();
+    if (!isScreenAlive()) return;
+    if (refreshed?.entitlement.isMember ?? refreshed?.entitlement.isPro) {
+      setIsRenew(true);
+      alertOpenSuccess({ entitlement: refreshed?.entitlement, productCode });
+      return;
+    }
+    safeAlert(t("pro.alert.payment_processing_title"), t("pro.alert.payment_processing_message"));
+  }
+
+  async function waitForAlipayAnnualPass(orderId: string) {
+    const delays = [0, 600, 1_200, 2_000, 3_000];
+    let latest = await getAlipayAnnualPassOrder(orderId);
+    for (const delayMs of delays.slice(1)) {
+      if (latest.status !== "pending") break;
+      await wait(delayMs);
+      latest = await getAlipayAnnualPassOrder(orderId);
+    }
+    return latest;
   }
 
   async function syncAlipayAutoRenewAfterReturn(input: {
@@ -1976,12 +2055,22 @@ export function ProScreen({
               </Pressable>
             ))}
           </View>
+          {IS_CHINA_ANDROID && billingPeriod === "year" ? (
+            <Text style={styles.managerMeta}>{t("subscription.manager.alipay_annual_pass_note")}</Text>
+          ) : null}
         </View>
 
         <View style={styles.managerPlanGrid}>
           {selectedProducts.map(({ tier, productCode, price, discount }) => {
-            const isCurrent = autoRenew?.productCode === productCode && !autoRenew.pendingProductCode;
+            const isAlipayAnnualPass = IS_CHINA_ANDROID && productCode.endsWith("_yearly");
+            const isCurrent = (autoRenew?.productCode === productCode && !autoRenew.pendingProductCode)
+              || (isAlipayAnnualPass
+                && currentEntitlement?.plan === productCode
+                && !isManualEntitlement(currentEntitlement));
             const isPending = autoRenew?.pendingProductCode === productCode;
+            const isAnnualPurchaseBlocked = isAlipayAnnualPass
+              && ((isRenew && !isManualEntitlement(currentEntitlement)) || hasActiveAutoRenew(autoRenew));
+            const isPlanUnavailable = isAlipayAnnualPass && !price;
             const benefits = tier === "plus"
               ? [resolveTokenBenefit("plus", productQuotes.plus_monthly?.monthlyTokenLimit), resolveImageBenefit("plus", productQuotes.plus_monthly?.monthlyImageUploadBytes), t("pro.compact.assistant")]
               : [resolveTokenBenefit("pro", productQuotes.pro_monthly?.monthlyTokenLimit), resolveImageBenefit("pro", productQuotes.pro_monthly?.monthlyImageUploadBytes), t("pro.compact.assistant"), t("pro.compact.dictation")];
@@ -2005,8 +2094,8 @@ export function ProScreen({
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  disabled={!canChoosePlan || isCurrent || isPending}
-                  style={[styles.managerPlanButton, tier === "plus" && styles.managerPlanButtonSecondary, (!canChoosePlan || isCurrent || isPending) && styles.subscribeButtonDisabled]}
+                  disabled={!canChoosePlan || isCurrent || isPending || isAnnualPurchaseBlocked || isPlanUnavailable}
+                  style={[styles.managerPlanButton, tier === "plus" && styles.managerPlanButtonSecondary, (!canChoosePlan || isCurrent || isPending || isAnnualPurchaseBlocked || isPlanUnavailable) && styles.subscribeButtonDisabled]}
                   onPress={() => void handleSelectPlan(productCode)}
                 >
                   {isAutoRenewLoading || isPaying ? <ActivityIndicator color={tier === "pro" ? "#FFFFFF" : "#111111"} /> : (
@@ -2015,6 +2104,10 @@ export function ProScreen({
                         ? t("subscription.manager.waiting")
                         : isCurrent
                           ? t("subscription.manager.current")
+                          : isAnnualPurchaseBlocked
+                            ? t("subscription.manager.buy_after_expiry")
+                            : isPlanUnavailable
+                              ? t("pro.not_open")
                           : tf(autoRenew ? "subscription.manager.switch_to" : "subscription.manager.select", { plan: tier === "plus" ? "Plus" : "Pro" })}
                     </Text>
                   )}
@@ -2106,6 +2199,10 @@ function formatProviderName(provider: MobileAutoRenewSubscription["provider"]): 
   return provider;
 }
 
+function wait(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 function formatProductCode(productCode: MobilePaymentProductCode): string {
   const tier = subscriptionTier(productCode) === "plus" ? "Plus" : "Pro";
   return `${tier} ${t(subscriptionBillingPeriod(productCode) === "year" ? "subscription.manager.yearly" : "subscription.manager.monthly")}`;
@@ -2124,6 +2221,10 @@ function formatPendingPlanLabel(subscription: MobileAutoRenewSubscription): stri
 
 function isManualOrLegacyEntitlement(entitlement: CurrentEntitlement | null | undefined): boolean {
   return entitlement?.membershipSource?.type === "manual" || entitlement?.membershipSource?.type === "legacy";
+}
+
+function isManualEntitlement(entitlement: CurrentEntitlement | null | undefined): boolean {
+  return entitlement?.membershipSource?.type === "manual";
 }
 
 function resolveSubscriptionPrice(

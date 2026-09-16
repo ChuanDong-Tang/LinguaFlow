@@ -59,6 +59,9 @@ import { BenefitGrantService } from "@lf/server/services/payment/BenefitGrantSer
 import { AlipayAutoRenewClient } from "@lf/server/providers/payment/alipay/AlipayClient.js";
 import { AlipayAutoRenewService } from "@lf/server/providers/payment/alipay/AlipayAutoRenewService.js";
 import { isAlipayAutoRenewConfigured } from "@lf/server/providers/payment/alipay/AlipayConfig.js";
+import { AlipayAnnualPassClient } from "@lf/server/providers/payment/alipay/AlipayAnnualPassClient.js";
+import { isAlipayAnnualPassConfigured } from "@lf/server/providers/payment/alipay/AlipayAnnualPassConfig.js";
+import { AlipayAnnualPassService } from "@lf/server/providers/payment/alipay/AlipayAnnualPassService.js";
 import { PrismaAiRequestLogRepository } from "@lf/server/infrastructure/repository/PrismaAiRequestLogRepository.js";
 import { PrismaSystemEventLogRepository } from "@lf/server/infrastructure/repository/PrismaSystemEventLogRepository.js";
 import { PrismaAiUsageEventRepository } from "@lf/server/infrastructure/repository/PrismaAiUsageEventRepository.js";
@@ -347,6 +350,17 @@ export function createApp() {
     paymentEntitlementService,
     isAlipayAutoRenewConfigured() ? new AlipayAutoRenewClient() : undefined,
     paymentEventRepository,
+    paymentOrderRepository,
+    subscriptionService,
+  );
+  const alipayAnnualPassService = new AlipayAnnualPassService(
+    paymentOrderRepository,
+    paymentEventRepository,
+    benefitGrantService,
+    paymentEntitlementService,
+    subscriptionService,
+    autoRenewRepository,
+    isAlipayAnnualPassConfigured() ? new AlipayAnnualPassClient() : undefined,
   );
   const paymentEntitlementRefreshService = new PaymentEntitlementRefreshService(entitlementService);
   const appleIapService = new AppleIapService(
@@ -510,6 +524,7 @@ export function createApp() {
       appleIapService,
       googlePlayBillingService,
       alipayAutoRenewService,
+      alipayAnnualPassService,
       entitlementService,
       usageV2Service,
       userRepository,

@@ -18,6 +18,8 @@ export interface GrantEntitlementInput {
   periodStart?: Date | null;
   periodEnd?: Date | null;
   prepaidLimit?: PrepaidLimitMode;
+  /** 一次性年卡与自动续费隔离，不得改写已有订阅的下次扣款日。 */
+  syncAutoRenewBilling?: boolean;
 }
 
 export interface GrantEntitlementResult {
@@ -70,7 +72,7 @@ export class PaymentEntitlementService {
       sourceType: "payment",
       sourceProvider: grantProviderForChannel(input.channel),
     });
-    if (!result.alreadyApplied) {
+    if (!result.alreadyApplied && input.syncAutoRenewBilling !== false) {
       await this.syncAutoRenewBillingAfterGrant(input.userId, result.subscription.expiresAt);
     }
 

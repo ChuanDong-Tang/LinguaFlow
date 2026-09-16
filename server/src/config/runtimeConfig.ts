@@ -76,6 +76,20 @@ export interface PaymentRuntimeConfig {
     reconcileIntervalMs: number;
     reconcileBatchSize: number;
   };
+  alipayAnnualPass: {
+    enabled: boolean;
+    appId: string | null;
+    privateKey: string | null;
+    alipayPublicKey: string | null;
+    gatewayUrl: string;
+    notifyUrl: string | null;
+    sellerId: string | null;
+    plusProductId: string | null;
+    plusPriceId: string | null;
+    proProductId: string | null;
+    proPriceId: string | null;
+    requestTimeoutMs: number;
+  };
 }
 
 export interface RuntimeConfig {
@@ -603,6 +617,20 @@ function readPaymentRuntimeConfig(env: NodeJS.ProcessEnv, mode: RuntimeMode): Pa
       requestTimeoutMs: readPositiveInt(env.ALIPAY_REQUEST_TIMEOUT_MS, 15_000),
       reconcileIntervalMs: readPositiveInt(env.ALIPAY_RECONCILE_INTERVAL_MS, 300_000),
       reconcileBatchSize: readPositiveInt(env.ALIPAY_RECONCILE_BATCH_SIZE, 50),
+    },
+    alipayAnnualPass: {
+      enabled: readBoolean(env.ALIPAY_ANNUAL_PASS_ENABLED, false),
+      appId: trimToNull(env.ALIPAY_APP_ID),
+      privateKey: trimToNull(env.ALIPAY_APP_PRIVATE_KEY),
+      alipayPublicKey: trimToNull(env.ALIPAY_PUBLIC_KEY),
+      gatewayUrl: env.ALIPAY_GATEWAY_URL?.trim() || "https://openapi.alipay.com/gateway.do",
+      notifyUrl: trimToNull(env.ALIPAY_ANNUAL_PASS_NOTIFY_URL),
+      sellerId: trimToNull(env.ALIPAY_SELLER_ID),
+      plusProductId: trimToNull(env.ALIPAY_PLUS_ANNUAL_PASS_PRODUCT_ID),
+      plusPriceId: trimToNull(env.ALIPAY_PLUS_ANNUAL_PASS_PRICE_ID),
+      proProductId: trimToNull(env.ALIPAY_PRO_ANNUAL_PASS_PRODUCT_ID),
+      proPriceId: trimToNull(env.ALIPAY_PRO_ANNUAL_PASS_PRICE_ID),
+      requestTimeoutMs: readPositiveInt(env.ALIPAY_REQUEST_TIMEOUT_MS, 15_000),
     },
   };
 }

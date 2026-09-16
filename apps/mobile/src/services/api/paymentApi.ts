@@ -104,6 +104,20 @@ export type MobileAlipayAutoRenewResumeResult = Pick<
   "id" | "provider" | "status" | "cancelAtPeriodEnd"
 > & { jumpSchema: string };
 
+export type MobileAlipayAnnualPassCreateResult = {
+  orderId: string;
+  productCode: "plus_yearly" | "pro_yearly";
+  provider: "alipay";
+  orderString: string;
+  status: MobilePaymentOrderStatus;
+  reused: boolean;
+};
+
+export type MobileAlipayAnnualPassOrderResult = Pick<
+  MobileAlipayAnnualPassCreateResult,
+  "orderId" | "productCode" | "status"
+>;
+
 export type MobileAppleVerifyTransactionResult = {
   transactionId: string;
   productId: string;
@@ -210,6 +224,47 @@ export async function createAlipayAutoRenewSubscription(
   });
   const json = (await res.json()) as ApiResult<MobileAlipayAutoRenewCreateResult>;
   if (!json.ok && "error" in json) throw new MobileApiError(json.error.code, json.error.message);
+  return json.data;
+}
+
+export async function createAlipayAnnualPass(
+  productCode: "plus_yearly" | "pro_yearly",
+): Promise<MobileAlipayAnnualPassCreateResult> {
+  const res = await fetchWithTimeout(`${BASE_URL}/payment/alipay/annual-pass/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+    body: JSON.stringify({ productCode }),
+  });
+  const json = (await res.json()) as ApiResult<MobileAlipayAnnualPassCreateResult>;
+  if (!json.ok) throw new MobileApiError(json.error.code, json.error.message);
+  return json.data;
+}
+
+export async function getAlipayAnnualPassOrder(
+  orderId: string,
+): Promise<MobileAlipayAnnualPassOrderResult> {
+  const res = await fetchWithTimeout(
+    `${BASE_URL}/payment/alipay/annual-pass/orders/${encodeURIComponent(orderId)}`,
+    { headers: await getAuthHeaders() },
+  );
+  const json = (await res.json()) as ApiResult<MobileAlipayAnnualPassOrderResult>;
+  if (!json.ok) throw new MobileApiError(json.error.code, json.error.message);
+  return json.data;
+}
+
+export async function cancelAlipayAnnualPassOrder(
+  orderId: string,
+): Promise<MobileAlipayAnnualPassOrderResult> {
+  const res = await fetchWithTimeout(
+    `${BASE_URL}/payment/alipay/annual-pass/orders/${encodeURIComponent(orderId)}/cancel`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+      body: "{}",
+    },
+  );
+  const json = (await res.json()) as ApiResult<MobileAlipayAnnualPassOrderResult>;
+  if (!json.ok) throw new MobileApiError(json.error.code, json.error.message);
   return json.data;
 }
 

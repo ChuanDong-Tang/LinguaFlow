@@ -1,6 +1,8 @@
 import type { AutoRenewProductCode, AutoRenewRepository, AutoRenewSubscriptionEntity } from "@lf/core/ports/repository/AutoRenewRepository.js";
 import type { PaymentEventRepository } from "@lf/core/ports/repository/PaymentEventRepository.js";
+import type { PaymentOrderRepository } from "@lf/core/ports/repository/PaymentOrderRepository.js";
 import type { PaymentEntitlementService } from "../../../services/payment/PaymentEntitlementService.js";
+import type { SubscriptionService } from "../../../services/subscription/SubscriptionService.js";
 import { AutoRenewAccessDeniedError, AutoRenewAlreadyActiveError, AutoRenewNotFoundError, AutoRenewPlanAlreadyCurrentError, type AutoRenewService } from "../../../services/payment/AutoRenewService.js";
 import { getRuntimeConfig } from "../../../config/runtimeConfig.js";
 import { AlipayApiError, AlipayAutoRenewClient } from "./AlipayClient.js";
@@ -61,6 +63,8 @@ export class AlipayAutoRenewService {
     private readonly entitlementService: PaymentEntitlementService,
     private readonly client?: AlipayAutoRenewClient,
     private readonly paymentEventRepository?: PaymentEventRepository,
+    private readonly paymentOrderRepository?: PaymentOrderRepository,
+    private readonly subscriptionService?: SubscriptionService,
   ) {}
 
   isConfigured(): boolean { return Boolean(this.client); }
@@ -127,6 +131,24 @@ export class AlipayAutoRenewService {
 
   async create(input: { userId: string; nickname?: string | null; email?: string | null; phone?: string | null; productCode: AutoRenewProductCode }) {
     if (!this.client) throw new Error("ALIPAY_AUTORENEW_NOT_CONFIGURED");
+    assertAlipayMonthlyProduct(input.productCode);
+    const [pendingAnnualOrder, currentMembership] = await Promise.all([
+      this.paymentOrderRepository?.findPendingByUserProvider({
+        userId: input.userId,
+        provider: "alipay",
+      }) ?? null,
+      this.subscriptionService?.getCurrentSubscription(input.userId) ?? null,
+    ]);
+    if (pendingAnnualOrder) {
+      throw new AutoRenewAlreadyActiveError("alipay");
+    }
+    const paidGrant = currentMembership?.billingSubscription;
+    if (
+      paidGrant?.sourceProvider === "alipay"
+      && paidGrant.plan.endsWith("_yearly")
+    ) {
+      throw new AutoRenewAlreadyActiveError("alipay");
+    }
     await this.entitlementService.assertCanStartNewProPurchase(input.userId);
     const active = await this.repository.findActiveByUserId(input.userId);
     if (active) throw new AutoRenewAlreadyActiveError(active.provider);
@@ -184,6 +206,7 @@ export class AlipayAutoRenewService {
     requestId: string;
   }): Promise<AlipayPlanChangeResult> {
     if (!this.client) throw new Error("ALIPAY_AUTORENEW_NOT_CONFIGURED");
+    assertAlipayMonthlyProduct(input.targetProductCode);
     const current = await this.repository.findById(input.subscriptionId);
     if (!current || current.userId !== input.userId || current.provider !== "alipay") {
       throw new AutoRenewAccessDeniedError();
@@ -867,6 +890,15 @@ export class AlipayAutoRenewService {
     const customerId = await this.client!.createCustomer({ name: input.nickname?.trim() || `OIO-${input.userId.slice(0, 8)}`, email: input.email, phone: input.phone });
     await this.store.alipayAccountLink.upsert({ where: { userId: input.userId }, create: { userId: input.userId, customerId }, update: { customerId } });
     return customerId;
+  }
+}
+
+function assertAlipayMonthlyProduct(productCode: AutoRenewProductCode): void {
+  if (productCode !== "plus_monthly" && productCode !== "pro_monthly") {
+    throw new AlipayApiError(
+      "ALIPAY_AUTORENEW_MONTHLY_ONLY",
+      "Alipay annual passes are one-time purchases and cannot use subscription plan changes",
+    );
   }
 }
 

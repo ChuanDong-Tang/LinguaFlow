@@ -9,7 +9,7 @@ import type { SubscriptionGrantProvider } from "@lf/core/ports/repository/Subscr
 
 export type EntitlementGrantSnapshot = Pick<
   GrantEntitlementInput,
-  "grantMode" | "periodStart" | "periodEnd" | "prepaidLimit"
+  "grantMode" | "periodStart" | "periodEnd" | "prepaidLimit" | "syncAutoRenewBilling"
 >;
 
 export interface ReplacedEntitlementSnapshot {
@@ -32,6 +32,7 @@ export function createEntitlementGrantPayload(input: {
       periodStart: input.grant.periodStart?.toISOString() ?? null,
       periodEnd: input.grant.periodEnd?.toISOString() ?? null,
       prepaidLimit: input.grant.prepaidLimit ?? null,
+      syncAutoRenewBilling: input.grant.syncAutoRenewBilling ?? null,
     },
     ...(input.replacedEntitlement
       ? {
@@ -81,10 +82,16 @@ export function resolveGrantInputFromBenefitPayload(input: {
     periodStart: grant.periodStart,
     periodEnd: grant.periodEnd,
     prepaidLimit: grant.prepaidLimit,
+    syncAutoRenewBilling: grant.syncAutoRenewBilling,
   };
 }
 
-function readGrantSnapshot(payload: unknown): Required<EntitlementGrantSnapshot> {
+function readGrantSnapshot(payload: unknown): EntitlementGrantSnapshot & {
+  grantMode: EntitlementGrantMode;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  prepaidLimit: PrepaidLimitMode;
+} {
   const rawGrant =
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? (payload as Record<string, unknown>).grant
@@ -99,7 +106,12 @@ function readGrantSnapshot(payload: unknown): Required<EntitlementGrantSnapshot>
     periodStart: readOptionalDate(grant.periodStart),
     periodEnd: readOptionalDate(grant.periodEnd),
     prepaidLimit: readPrepaidLimit(grant.prepaidLimit, grantMode),
+    syncAutoRenewBilling: readOptionalBoolean(grant.syncAutoRenewBilling),
   };
+}
+
+function readOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function readGrantMode(value: unknown): EntitlementGrantMode {

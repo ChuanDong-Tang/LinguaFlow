@@ -5,6 +5,7 @@ import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemE
 import type { TtsStorageProvider } from "../../services/tts/TtsStorageProvider.js";
 import type { GooglePlayBillingService } from "../../providers/payment/google/GooglePlayBillingService.js";
 import type { AlipayAutoRenewService } from "../../providers/payment/alipay/AlipayAutoRenewService.js";
+import type { AlipayAnnualPassService } from "../../providers/payment/alipay/AlipayAnnualPassService.js";
 import type { AppleIapService } from "../../providers/payment/apple/AppleIapService.js";
 import type { AccountDeletionRenewalResult } from "../../providers/payment/AccountDeletionRenewal.js";
 import type { CardImageStorageProvider } from "../../providers/storage/CardImageStorageProvider.js";
@@ -14,6 +15,7 @@ export interface AccountDeletionCleanupWorkerOptions {
   batchSize?: number;
   googlePlayBillingService?: GooglePlayBillingService;
   alipayAutoRenewService?: AlipayAutoRenewService;
+  alipayAnnualPassService?: AlipayAnnualPassService;
   appleIapService?: AppleIapService;
   imageStorageProvider?: CardImageStorageProvider;
 }
@@ -196,6 +198,28 @@ export class AccountDeletionCleanupWorker {
           currentPeriodEnd: deferredRenewal.result.currentPeriodEnd,
         },
       };
+    }
+
+    // A pending cashier order can still be paid after account deletion. Query
+    // it first, then either grant the paid pass (which defers deletion below)
+    // or close the unpaid trade before removing the local order.
+    const pendingAnnualPasses = await this.prisma.paymentOrder.findMany({
+      where: {
+        userId,
+        provider: "alipay",
+        status: "pending",
+        productCode: { in: ["plus_yearly", "pro_yearly"] },
+      },
+      select: { id: true },
+    });
+    if (pendingAnnualPasses.length > 0 && !this.options.alipayAnnualPassService?.isConfigured()) {
+      return {
+        status: "deferred",
+        reason: { reason: "alipay_annual_pass_reconcile_unavailable", provider: "alipay" },
+      };
+    }
+    for (const order of pendingAnnualPasses) {
+      await this.options.alipayAnnualPassService!.cancelPending({ userId, orderId: order.id });
     }
 
     const currentMembership = await this.prisma.subscription.findFirst({

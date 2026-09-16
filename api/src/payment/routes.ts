@@ -28,6 +28,13 @@ import {
 import { fetchGoogleApi } from "@lf/server/providers/payment/google/GoogleApiHttpClient.js";
 import type { AlipayAutoRenewService } from "@lf/server/providers/payment/alipay/AlipayAutoRenewService.js";
 import { AlipayApiError } from "@lf/server/providers/payment/alipay/AlipayClient.js";
+import type { AlipayAnnualPassService } from "@lf/server/providers/payment/alipay/AlipayAnnualPassService.js";
+import {
+  AlipayAnnualPassOrderError,
+  AlipayAnnualPassPendingError,
+  AlipayAnnualPassPurchaseBlockedError,
+} from "@lf/server/providers/payment/alipay/AlipayAnnualPassService.js";
+import { isAlipayAnnualPassProductCode } from "@lf/server/providers/payment/alipay/AlipayAnnualPassConfig.js";
 import type { EntitlementService } from "@lf/server/services/entitlement/EntitlementService.js";
 import type { UsageV2Service } from "@lf/server/services/usage/UsageV2Service.js";
 import {
@@ -45,6 +52,7 @@ export interface PaymentRouteDeps {
   appleIapService: AppleIapService;
   googlePlayBillingService: GooglePlayBillingService;
   alipayAutoRenewService: AlipayAutoRenewService;
+  alipayAnnualPassService: AlipayAnnualPassService;
   entitlementService: EntitlementService;
   usageV2Service: UsageV2Service;
   userRepository: {
@@ -167,7 +175,8 @@ const isResumeAutoRenewRequest = isCancelAutoRenewRequest;
 
 const isCreateAlipayAutoRenewRequest = (value: unknown): value is { productCode: AutoRenewProductCode } => {
   if (!value || typeof value !== "object") return false;
-  return isPaymentProductCode((value as Record<string, unknown>).productCode);
+  const productCode = (value as Record<string, unknown>).productCode;
+  return productCode === "plus_monthly" || productCode === "pro_monthly";
 };
 
 function isPaymentProductCode(value: unknown): value is AutoRenewProductCode {
@@ -217,9 +226,15 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         detail: config.payment.googlePlayBilling.enabled ? googlePlay : { disabled: true },
       },
       alipay: {
-        ok: !config.payment.alipayAutoRenew.enabled || deps.alipayAutoRenewService.isConfigured(),
-        enabled: config.payment.alipayAutoRenew.enabled,
-        detail: deps.alipayAutoRenewService.isConfigured() ? { configured: true } : { configured: false },
+        ok:
+          (!config.payment.alipayAutoRenew.enabled || deps.alipayAutoRenewService.isConfigured())
+          && (!config.payment.alipayAnnualPass.enabled || deps.alipayAnnualPassService.isConfigured()),
+        enabled: config.payment.alipayAutoRenew.enabled || config.payment.alipayAnnualPass.enabled,
+        detail: {
+          autoRenewConfigured: deps.alipayAutoRenewService.isConfigured(),
+          annualPassEnabled: config.payment.alipayAnnualPass.enabled,
+          annualPassConfigured: deps.alipayAnnualPassService.isConfigured(),
+        },
       },
     };
     const ok = providers.ios.ok && providers.googlePlay.ok && providers.alipay.ok;
@@ -279,7 +294,9 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       "pro_yearly",
     ];
     const quotes = await Promise.all(productCodes.map(async (productCode) => {
-      const quote = await getAlipayProductQuoteOrNull(app, deps, productCode);
+      const quote = isAlipayAnnualPassProductCode(productCode)
+        ? deps.alipayAnnualPassService.getQuote(productCode)
+        : await getAlipayProductQuoteOrNull(app, deps, productCode);
       const tier = productCode.startsWith("plus_") ? "plus" : "pro";
       const billingPeriod = productCode.endsWith("_yearly") ? "year" : "month";
       return {
@@ -719,6 +736,214 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
         metadata: error instanceof AlipayApiError ? sanitizeAlipayErrorDetails(error.details) : undefined,
       });
       return reply.status(conflict ? 409 : 502).send({ ok: false, request_id: requestId, error: { code: errorCode, message: error instanceof ProRenewalTooEarlyError ? CLIENT_ERROR_MESSAGES.AUTO_RENEW_SWITCH_BLOCKED : conflict ? "Unable to start another subscription right now." : "Alipay subscription request failed" } });
+    }
+  });
+
+  app.post("/payment/alipay/annual-pass/create", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      requestId,
+      rule: {
+        routeKey: "alipay_annual_pass_create",
+        path: "/payment/alipay/annual-pass/create",
+        limit: config.payment.rateLimitOrdersCreateLimit,
+        windowSec: config.payment.rateLimitOrdersCreateWindowSec,
+        responseType: "api",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+    const productCode = req.body && typeof req.body === "object"
+      ? (req.body as Record<string, unknown>).productCode
+      : null;
+    if (!isAlipayAnnualPassProductCode(productCode)) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Only Alipay annual passes can use this endpoint" },
+      });
+    }
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+    try {
+      const result = await deps.alipayAnnualPassService.create({
+        userId: userContext.userId,
+        productCode,
+      });
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.alipay.annual_pass.created",
+        level: "info",
+        status: "success",
+        metadata: {
+          orderId: result.order.id,
+          productCode,
+          reused: result.reused,
+        },
+      });
+      return reply.status(200).send({
+        ok: true,
+        request_id: requestId,
+        data: {
+          orderId: result.order.id,
+          productCode,
+          provider: "alipay",
+          orderString: result.orderString,
+          status: result.order.status,
+          reused: result.reused,
+        },
+      });
+    } catch (error) {
+      const conflict = error instanceof AlipayAnnualPassPurchaseBlockedError
+        || error instanceof AlipayAnnualPassPendingError;
+      const code = error instanceof AlipayAnnualPassPurchaseBlockedError
+        || error instanceof AlipayAnnualPassPendingError
+        || error instanceof AlipayAnnualPassOrderError
+        ? error.code
+        : "ALIPAY_ANNUAL_PASS_CREATE_FAILED";
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId,
+        userId: userContext.userId,
+        module: "payment",
+        event: "payment.alipay.annual_pass.create_failed",
+        level: conflict ? "warn" : "error",
+        status: "failed",
+        errorCode: code,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      return reply.status(conflict ? 409 : 502).send({
+        ok: false,
+        request_id: requestId,
+        error: {
+          code,
+          message: conflict
+            ? "Current membership or another annual pass order must finish first."
+            : "Unable to start Alipay annual pass payment",
+        },
+      });
+    }
+  });
+
+  app.get("/payment/alipay/annual-pass/orders/:orderId", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+    const orderId = String((req.params as { orderId?: unknown }).orderId ?? "").trim();
+    if (!orderId) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Order id is required" },
+      });
+    }
+    try {
+      const order = await deps.alipayAnnualPassService.queryAndApply({
+        userId: userContext.userId,
+        orderId,
+      });
+      return reply.status(200).send({
+        ok: true,
+        request_id: requestId,
+        data: {
+          orderId: order.id,
+          productCode: order.productCode,
+          status: order.status,
+        },
+      });
+    } catch (error) {
+      const notFound = error instanceof AlipayAnnualPassOrderError
+        && error.code === "ALIPAY_ANNUAL_PASS_ORDER_NOT_FOUND";
+      return reply.status(notFound ? 404 : 502).send({
+        ok: false,
+        request_id: requestId,
+        error: {
+          code: error instanceof AlipayAnnualPassOrderError
+            ? error.code
+            : "ALIPAY_ANNUAL_PASS_QUERY_FAILED",
+          message: notFound ? "Payment order not found" : "Unable to verify Alipay payment",
+        },
+      });
+    }
+  });
+
+  app.post("/payment/alipay/annual-pass/orders/:orderId/cancel", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    const userContext = await resolvePaymentUserContext(req, reply, requestId, deps);
+    if (!userContext) return;
+    const orderId = String((req.params as { orderId?: unknown }).orderId ?? "").trim();
+    if (!orderId) {
+      return reply.status(400).send({
+        ok: false,
+        request_id: requestId,
+        error: { code: "VALIDATION_FAILED", message: "Order id is required" },
+      });
+    }
+    try {
+      const order = await deps.alipayAnnualPassService.cancelPending({
+        userId: userContext.userId,
+        orderId,
+      });
+      return reply.status(200).send({
+        ok: true,
+        request_id: requestId,
+        data: { orderId: order.id, productCode: order.productCode, status: order.status },
+      });
+    } catch (error) {
+      const notFound = error instanceof AlipayAnnualPassOrderError
+        && error.code === "ALIPAY_ANNUAL_PASS_ORDER_NOT_FOUND";
+      return reply.status(notFound ? 404 : 502).send({
+        ok: false,
+        request_id: requestId,
+        error: {
+          code: error instanceof AlipayAnnualPassOrderError
+            ? error.code
+            : "ALIPAY_ANNUAL_PASS_CANCEL_FAILED",
+          message: notFound ? "Payment order not found" : "Unable to close Alipay payment",
+        },
+      });
+    }
+  });
+
+  app.post("/payment/alipay/annual-pass/notify", async (req, reply) => {
+    const allowed = await checkPaymentRateLimit({
+      req,
+      reply,
+      rule: {
+        routeKey: "alipay_annual_pass_notify",
+        path: "/payment/alipay/annual-pass/notify",
+        limit: config.payment.rateLimitWebhookLimit,
+        windowSec: config.payment.rateLimitWebhookWindowSec,
+        responseType: "webhook",
+      },
+      systemEventLogRepository: deps.systemEventLogRepository,
+    });
+    if (!allowed) return;
+    const fields = req.body && typeof req.body === "object"
+      ? req.body as Record<string, string>
+      : null;
+    if (!fields) return reply.type("text/plain").status(400).send("fail");
+    try {
+      await deps.alipayAnnualPassService.handleNotification(fields);
+      return reply.type("text/plain").status(200).send("success");
+    } catch (error) {
+      await writeSystemEventLog(deps.systemEventLogRepository, {
+        requestId: resolveRequestId(req.headers["x-request-id"]),
+        module: "payment",
+        event: "payment.alipay.annual_pass.notify_failed",
+        level: "error",
+        status: "failed",
+        errorCode: error instanceof Error ? error.message.split(":")[0] : "ALIPAY_NOTIFY_FAILED",
+        errorMessage: error instanceof Error ? error.message : String(error),
+        metadata: { notifyId: fields.notify_id ?? null },
+      });
+      return reply.type("text/plain").status(500).send("fail");
     }
   });
 
@@ -1843,8 +2068,8 @@ async function resolvePaymentUserContext(
 }
 
 type PaymentRateLimitRule = {
-  routeKey: "ios_notify" | "google_play_notify" | "alipay_notify" | "alipay_create" | "autorenew_plan_change" | "autorenew_plan_change_abandon";
-  path: "/payment/ios/notify" | "/payment/google-play/notify" | "/payment/autorenew/alipay/notify" | "/payment/autorenew/alipay/create" | "/payment/autorenew/change-plan" | "/payment/autorenew/change-plan/abandon";
+  routeKey: "ios_notify" | "google_play_notify" | "alipay_notify" | "alipay_create" | "alipay_annual_pass_notify" | "alipay_annual_pass_create" | "autorenew_plan_change" | "autorenew_plan_change_abandon";
+  path: "/payment/ios/notify" | "/payment/google-play/notify" | "/payment/autorenew/alipay/notify" | "/payment/autorenew/alipay/create" | "/payment/alipay/annual-pass/notify" | "/payment/alipay/annual-pass/create" | "/payment/autorenew/change-plan" | "/payment/autorenew/change-plan/abandon";
   limit: number;
   windowSec: number;
   responseType: "webhook" | "api";

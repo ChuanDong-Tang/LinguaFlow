@@ -53,6 +53,7 @@ export interface PaymentOrderRepository {
   listPendingCreatedBefore(input: {
     before: Date;
     limit: number;
+    provider?: PaymentProviderName;
   }): Promise<PaymentOrderEntity[]>;
   /** 用户手动刷新权益时，只查当前用户自己的 pending 普通支付订单。 */
   listUserPending(input: {
@@ -63,6 +64,11 @@ export interface PaymentOrderRepository {
   findPendingByUserProductProvider(input: {
     userId: string;
     productCode: PaymentProductCode;
+    provider: PaymentProviderName;
+  }): Promise<PaymentOrderEntity | null>;
+  /** 单次支付渠道同一用户当前尚未完成的订单，用于阻止跨商品重复拉起收银台。 */
+  findPendingByUserProvider(input: {
+    userId: string;
     provider: PaymentProviderName;
   }): Promise<PaymentOrderEntity | null>;
   create(input: CreatePaymentOrderRecordInput): Promise<PaymentOrderEntity>;
