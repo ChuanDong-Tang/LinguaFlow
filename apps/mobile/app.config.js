@@ -71,6 +71,15 @@ module.exports = {
       },
     },
     plugins: [
+      [
+        "expo-build-properties",
+        {
+          ios: {
+            deploymentTarget: "15.1",
+          },
+        },
+      ],
+      "./plugins/with-ios-pod-deployment-target",
       "expo-asset",
       "expo-font",
       "expo-web-browser",
