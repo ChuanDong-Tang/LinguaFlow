@@ -2039,11 +2039,17 @@ export function ProScreen({
               <Text style={styles.managerSectionTitle}>{t("subscription.manager.choose_plan")}</Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={t("subscription.manager.switch_rules_title")}
+                accessibilityLabel={t(IS_CHINA_ANDROID
+                  ? "subscription.manager.alipay_switch_rules_title"
+                  : "subscription.manager.switch_rules_title")}
                 hitSlop={10}
                 onPress={() => Alert.alert(
-                  t("subscription.manager.switch_rules_title"),
-                  t("subscription.manager.switch_rules_message"),
+                  t(IS_CHINA_ANDROID
+                    ? "subscription.manager.alipay_switch_rules_title"
+                    : "subscription.manager.switch_rules_title"),
+                  t(IS_CHINA_ANDROID
+                    ? "subscription.manager.alipay_switch_rules_message"
+                    : "subscription.manager.switch_rules_message"),
                   [{ text: t("common.got_it") }],
                 )}
               >
