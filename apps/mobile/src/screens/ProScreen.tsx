@@ -1888,6 +1888,7 @@ export function ProScreen({
   });
   const currentTier = currentEntitlement?.tier ?? "free";
   const canChoosePlan = hasLoadedAutoRenew && !isAutoRenewLoading && !isPaying;
+  const showInAppPlanChooser = Platform.OS !== "ios" || !autoRenew;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1946,6 +1947,8 @@ export function ProScreen({
           )}
         </View>
 
+        {showInAppPlanChooser ? (
+          <>
         <View style={styles.planChooserHead}>
           <View style={styles.planChooserTitleRow}>
             <Text style={styles.managerSectionTitle}>{t("subscription.manager.choose_plan")}</Text>
@@ -2022,6 +2025,8 @@ export function ProScreen({
             );
           })}
         </View>
+          </>
+        ) : null}
 
         <View style={styles.managerFooterActions}>
           {Platform.OS === "ios" ? <Pressable disabled={isRedeemingAppleOffer} onPress={() => void handleRedeemAppleOfferCode()}><Text style={styles.managerFooterLink}>{t("subscription.manager.redeem")}</Text></Pressable> : null}
