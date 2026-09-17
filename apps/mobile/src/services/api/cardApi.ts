@@ -104,7 +104,7 @@ export type CardRecordDetail = CardRecordSummary & {
     auxiliarySegments?: Array<{ ordinal: number; text: string }>;
     auxiliaryLanguageCode?: string | null;
     /** Original-language meaning units aligned to rewrite segment ordinals. */
-    alignedOriginalSegments?: Array<{ ordinal: number; text: string }>;
+    alignedOriginalSegments?: Array<{ ordinal: number; text: string; startUtf16?: number; endUtf16?: number }>;
     alignedOriginalLanguageCode?: string | null;
     /** Missing on servers from before unified learning-content access. */
     learningAccess?: "enabled" | "pro_required" | "language_mismatch";
@@ -516,6 +516,9 @@ export async function getCardProgressRelations(recordId: string, limit = 30): Pr
     phrase: string;
     previousExpression: string;
     currentExpression: string;
+    currentStartUtf16?: number;
+    currentEndUtf16?: number;
+    previousSentence?: string;
     isFirstUserProduced: boolean;
   };
 }>> {
@@ -538,6 +541,9 @@ export type CardRelationReason =
       phrase: string;
       previousExpression: string;
       currentExpression: string;
+      currentStartUtf16?: number;
+      currentEndUtf16?: number;
+      previousSentence?: string;
       isFirstUserProduced: boolean;
     };
 

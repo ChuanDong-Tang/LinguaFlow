@@ -21,7 +21,9 @@ import { getTtsPlaybackState, playTtsAudio, preloadTtsAudio, stopTtsAudio, subsc
 import { getSession } from "../services/auth/authStorage";
 import { theme } from "../theme";
 import { splitCardClozeAnswerUnits } from "../domain/cloze/clozeUtils";
-import { memorySentenceTokens, sameMemoryLanguageFamily } from "./memoryRoundRules";
+import { buildClozeAnswerPuzzle, isClozeAnswerPuzzleCorrect } from "../domain/cloze/clozeAnswerPuzzle";
+import { ClozeAnswerPuzzleTray } from "../components/ClozeAnswerPuzzleTray";
+import { memorySentenceTokens } from "./memoryRoundRules";
 import { buildMemoryCardQuestions, isMemoryCandidateDue, type MemoryTask } from "./memoryRoundEngine";
 import { useMemoryPronunciation } from "../hooks/useMemoryPronunciation";
 import { playSuccessFeedbackSound } from "../services/audio/gameFeedbackAudio";
@@ -226,7 +228,7 @@ export function MemoryRoundScreen({
       }
       const firstCandidate = availableCandidates[Math.floor(Math.random() * availableCandidates.length)];
       const firstCardCandidates = firstCandidate ? availableCandidates.filter((candidate) => candidate.recordId === firstCandidate.recordId) : [];
-      const questions = buildQuestions(firstCardCandidates, new Map(), new Map(), availableCandidates);
+      const questions = buildQuestions(firstCardCandidates, new Map(), new Map());
       if (!questions.length) {
         await clearStoredRound(resolvedOwnerId);
         onResumeStateChange(false);
@@ -495,7 +497,9 @@ export function MemoryRoundScreen({
     if (!question || question.completed || answerActionLocked.current || selectedTokens.length !== question.tokens.length) return;
     answerActionLocked.current = true;
     setChecking(true);
-    const correct = selectedTokens.map((token) => token.text).join("") === question.sentence;
+    const correct = question.task === "cloze_choice"
+      ? isClozeAnswerPuzzleCorrect(buildClozeAnswerPuzzle(question.answer, question.id), question.selectedTokenIds)
+      : selectedTokens.map((token) => token.text).join("") === question.sentence;
     recordFirstAttempt(correct);
     if (correct) completeQuestion(question.firstAttemptCorrect ?? true);
     else {
@@ -566,7 +570,7 @@ export function MemoryRoundScreen({
       if (item.recordId === selected.recordId && item.task !== "legacy") previousTasksBySegment.set(item.segmentId, item.task);
     }
     const selectedCardCandidates = candidates.filter((candidate) => candidate.recordId === selected.recordId);
-    const generated = buildQuestions(selectedCardCandidates, relationTopics, previousTasksBySegment, candidatePoolRef.current).map((item, index) => ({
+    const generated = buildQuestions(selectedCardCandidates, relationTopics, previousTasksBySegment).map((item, index) => ({
       ...item,
       id: `${item.id}:chain:${currentRound.questions.length}:${index}`,
     }));
@@ -678,7 +682,7 @@ export function MemoryRoundScreen({
       const swapSequence = nextCardSwapSequenceRef.current + 1;
       nextCardSwapSequenceRef.current = swapSequence;
       const selectedCardCandidates = candidatePoolRef.current.filter((candidate) => candidate.recordId === selected.recordId);
-      const replacement = buildQuestions(selectedCardCandidates, relationTopics, new Map(), candidatePoolRef.current).map((item, index) => ({
+      const replacement = buildQuestions(selectedCardCandidates, relationTopics, new Map()).map((item, index) => ({
         ...item,
         id: `${item.id}:swap:${swapSequence}:${index}`,
       }));
@@ -1004,6 +1008,21 @@ export function MemoryRoundScreen({
             </Pressable>
             <Pressable style={({ pressed }) => [styles.speechSkip, pressed && styles.gameButtonPressed]} onPress={() => skipCurrentQuestion()}><Text style={styles.speechSkipText}>{t("memory_round.speech_skip")}</Text></Pressable>
           </View>
+        </> : question.kind === "choice" && question.task === "cloze_choice" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.before}<Text style={styles.blank}>{question.answer}</Text>{question.after}</Text></View> : <>
+          <View style={styles.sentenceSurface}><Text accessibilityLabel={`${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={styles.inputBlank}>{memoryAnswerBlank(question.answer)}</Text>{question.after}</Text></View>
+          <ClozeAnswerPuzzleTray
+            puzzle={buildClozeAnswerPuzzle(question.answer, question.id)}
+            selectedIds={question.selectedTokenIds}
+            incorrect={sentenceIncorrect}
+            disabled={checking}
+            onChange={(selectedIds) => {
+              void Haptics.selectionAsync().catch(() => undefined);
+              setSentenceIncorrect(false);
+              setFeedbackState("idle");
+              updateQuestion((current) => ({ ...current, selectedTokenIds: selectedIds }));
+            }}
+          />
+          <Pressable disabled={selectedTokens.length !== question.tokens.length || checking} style={({ pressed }) => [styles.checkButton, selectedTokens.length !== question.tokens.length && styles.buttonDisabled, sentenceIncorrect && styles.checkButtonWrong, pressed && styles.gameButtonPressed]} onPress={() => void checkSentence()}><Text style={styles.checkButtonText}>{sentenceIncorrect ? t("memory_round.try_again") : t("memory_round.check")}</Text></Pressable>
         </> : question.kind === "choice" ? <>
           <View style={styles.sentenceSurface}><Text accessibilityLabel={question.completed ? question.sentence : `${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={question.completed ? styles.blank : styles.inputBlank}>{question.completed ? question.answer : memoryAnswerBlank(question.answer)}</Text>{question.after}</Text></View>
           <View style={styles.options}>{question.options.map((option) => {
@@ -1176,9 +1195,7 @@ function buildQuestions(
   candidates: CardMemoryRoundCandidate[],
   relationTopics = new Map<string, string>(),
   previousTasksBySegment: ReadonlyMap<string, MemoryTask> = new Map(),
-  distractorCandidates: CardMemoryRoundCandidate[] = candidates,
 ): MemoryQuestion[] {
-  const answerPool = distractorCandidates.flatMap((candidate) => candidate.clozeState.blanks.map((blank) => ({ candidate, answer: blank.answer })));
   return candidates.flatMap((candidate) => buildMemoryCardQuestions(candidate, Math.random, previousTasksBySegment).map((generated) => {
     let task = generated.task;
     let kind: MemoryQuestion["kind"] = generated.kind;
@@ -1187,21 +1204,7 @@ function buildQuestions(
     let options: string[] = [];
     if (task === "cloze_input") kind = "input";
     if (task === "cloze_choice") {
-      const pooledDistractors = answerPool
-        .filter((item) => sameMemoryLanguageFamily(item.candidate.languageCode, candidate.languageCode))
-        .map((item) => item.answer)
-        .filter((answer, index, all) => isCompatibleDistractor(generated.blankAnswer, answer) && all.findIndex((item) => normalizeAnswer(item) === normalizeAnswer(answer)) === index);
-      const sentenceDistractors = memorySentenceDistractors(generated.sentence, generated.blankAnswer);
-      const distractors = shuffle([...pooledDistractors, ...sentenceDistractors]
-        .filter((answer, index, all) => normalizeAnswer(answer) !== normalizeAnswer(generated.blankAnswer) && all.findIndex((item) => normalizeAnswer(item) === normalizeAnswer(answer)) === index))
-        .slice(0, 3);
-      if (distractors.length) {
-        kind = "choice";
-        options = shuffle([generated.blankAnswer, ...distractors]);
-      } else {
-        task = "cloze_input";
-        kind = "input";
-      }
+      kind = "choice";
     }
     return baseQuestion(candidate, generated.segmentId, generated.sentence, {
       id: `${candidate.recordId}:${generated.segmentId}:${candidate.clozeVersion}:${task}`,
@@ -1212,26 +1215,13 @@ function buildQuestions(
       answer: task === "cloze_input" || task === "cloze_choice" ? generated.blankAnswer : generated.sentence,
       options,
       blankIds: generated.blankIds,
-      tokens: kind === "sentence" ? shuffle(memorySentenceTokens(generated.sentence)) : [],
+      tokens: task === "cloze_choice"
+        ? buildClozeAnswerPuzzle(generated.blankAnswer, `${candidate.recordId}:${generated.segmentId}`).shuffled
+        : kind === "sentence" ? shuffle(memorySentenceTokens(generated.sentence)) : [],
       retryOnly: !generated.affectsMastery,
       relationHint: relationTopics.get(candidate.recordId) ?? null,
     });
   }));
-}
-
-function memorySentenceDistractors(sentence: string, answer: string): string[] {
-  const answerUnits = splitCardClozeAnswerUnits(answer).filter((unit) => unit.trim());
-  const wordUnits = sentence.match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) ?? [];
-  const cjkUnits = sentence.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu) ?? [];
-  const units = cjkUnits.length ? cjkUnits : wordUnits;
-  if (!units.length) return [];
-  const windowSize = Math.max(1, Math.min(units.length, answerUnits.length || 1));
-  const windows = units
-    .slice(0, Math.max(0, units.length - windowSize + 1))
-    .map((_, index) => units.slice(index, index + windowSize).join(cjkUnits.length ? "" : " "))
-    .filter((value) => normalizeAnswer(value) !== normalizeAnswer(answer));
-  if (windows.length) return windows;
-  return units.filter((value) => normalizeAnswer(value) !== normalizeAnswer(answer));
 }
 
 function baseQuestion(candidate: CardMemoryRoundCandidate, segmentId: string, sentence: string, value: Partial<MemoryQuestion>): MemoryQuestion {
@@ -1268,17 +1258,6 @@ function baseQuestion(candidate: CardMemoryRoundCandidate, segmentId: string, se
 
 function memoryCandidateKey(recordId: string, contentType: CardLearningContentType | null, contentVersion: string | null): string {
   return `${recordId}\u0000${contentType ?? "legacy"}\u0000${contentVersion ?? "legacy"}`;
-}
-
-function isCompatibleDistractor(answer: string, candidate: string): boolean {
-  const left = normalizeAnswer(answer);
-  const right = normalizeAnswer(candidate);
-  if (!left || !right || left === right) return false;
-  const leftPhrase = /\s/u.test(left.trim());
-  const rightPhrase = /\s/u.test(right.trim());
-  if (leftPhrase !== rightPhrase) return false;
-  const ratio = right.length / Math.max(1, left.length);
-  return ratio >= 0.45 && ratio <= 2.2;
 }
 
 function normalizeAnswer(value: string): string {

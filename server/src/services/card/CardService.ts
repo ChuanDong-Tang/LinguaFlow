@@ -2512,7 +2512,7 @@ function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningCo
   return entry.images.find((image) => image.id === imageId)?.descriptionLanguageCode ?? entry.languageCode;
 }
 
-function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal: number; text: string }> {
+function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> {
   const sourceSegments = entry.contentSegments
     .filter((segment) => segment.contentType === "original")
     .sort((left, right) => left.ordinal - right.ordinal);
@@ -2521,7 +2521,8 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
     .sort((left, right) => left.ordinal - right.ordinal);
   const originalText = entry.originalText?.trim();
   if (!originalText || !targetSegments.length) return [];
-  const fallback = [{ ordinal: targetSegments[targetSegments.length - 1]!.ordinal, text: originalText }];
+  const fallbackStart = entry.originalText!.indexOf(originalText);
+  const fallback = [{ ordinal: targetSegments[targetSegments.length - 1]!.ordinal, text: originalText, startUtf16: Math.max(0, fallbackStart), endUtf16: Math.max(0, fallbackStart) + originalText.length }];
   const value = entry.rewriteAlignment;
   if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
   const alignment = value as {
@@ -2551,7 +2552,7 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
   const sourceByOrdinal = new Map(sourceUnits.map((unit) => [unit.ordinal, unit]));
   const targetOrdinals = new Set(targetSegments.map((segment) => segment.ordinal));
   const seenTarget = new Set<number>();
-  const rows: Array<{ ordinal: number; text: string }> = [];
+  const rows: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> = [];
   for (const rawGroup of alignment.groups) {
     if (!rawGroup || typeof rawGroup !== "object" || Array.isArray(rawGroup)) return fallback;
     const sourceOrdinals = (rawGroup as { sourceOrdinals?: unknown }).sourceOrdinals;
@@ -2565,9 +2566,15 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
     typedTargetOrdinals.forEach((ordinal) => seenTarget.add(ordinal));
     const first = sourceByOrdinal.get(typedSourceOrdinals[0]!)!;
     const last = sourceByOrdinal.get(typedSourceOrdinals[typedSourceOrdinals.length - 1]!)!;
+    const rawText = entry.originalText!.slice(first.startUtf16, last.endUtf16);
+    const text = rawText.trim();
+    const leadingWhitespace = rawText.indexOf(text);
+    const startUtf16 = first.startUtf16 + Math.max(0, leadingWhitespace);
     rows.push({
       ordinal: typedTargetOrdinals[typedTargetOrdinals.length - 1]!,
-      text: entry.originalText!.slice(first.startUtf16, last.endUtf16).trim(),
+      text,
+      startUtf16,
+      endUtf16: startUtf16 + text.length,
     });
   }
   if (seenTarget.size !== targetSegments.length || rows.some((row) => !row.text)) return fallback;

@@ -24,7 +24,10 @@ export interface ProgressRelationRow {
   phraseId: string;
   phrase: string;
   currentSurfaceText: string;
+  currentStartUtf16: number;
+  currentEndUtf16: number;
   historicalSurfaceText: string;
+  historicalSentence: string;
   isFirstUserProduced: boolean;
   sourceKind: string;
   sourceId: string;
@@ -248,7 +251,8 @@ export class PrismaCardRelationRepository {
   }): Promise<ProgressRelationRow[]> {
     return this.prisma.$queryRawUnsafe<ProgressRelationRow[]>(
       `WITH anchors AS (
-         SELECT occurrence."phraseId", occurrence."cardCreatedAt", occurrence."surfaceText"
+         SELECT occurrence."phraseId", occurrence."cardCreatedAt", occurrence."surfaceText",
+                occurrence."startUtf16", occurrence."endUtf16"
            FROM "phrase_occurrences" AS occurrence
           WHERE occurrence."userId" = $1
             AND occurrence."cardId" = $2
@@ -258,7 +262,10 @@ export class PrismaCardRelationRepository {
                 historical."phraseId",
                 phrase."canonicalText" AS "phrase",
                 anchors."surfaceText" AS "currentSurfaceText",
+                anchors."startUtf16" AS "currentStartUtf16",
+                anchors."endUtf16" AS "currentEndUtf16",
                 historical."surfaceText" AS "historicalSurfaceText",
+                COALESCE(segment."text", historical."surfaceText") AS "historicalSentence",
                 NOT EXISTS (
                   SELECT 1 FROM "phrase_occurrences" AS previous_user
                    WHERE previous_user."userId" = $1
@@ -282,7 +289,9 @@ export class PrismaCardRelationRepository {
              ON historical_card."id" = historical."cardId"
             AND historical_card."userId" = historical."userId"
             AND historical_card."status" = 'completed'
-            AND historical_card."deletedAt" IS NULL
+             AND historical_card."deletedAt" IS NULL
+           LEFT JOIN "card_rewrite_segments" AS segment
+             ON segment."id" = historical."segmentId"
           WHERE historical."cardId" <> $2
           ORDER BY historical."cardId", historical."phraseId",
                    historical."cardCreatedAt" DESC

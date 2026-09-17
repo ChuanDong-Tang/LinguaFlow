@@ -44,7 +44,7 @@ export interface CardContentBlockView {
   practice: CardPracticeView | null;
   auxiliarySegments: Array<{ ordinal: number; text: string }>;
   auxiliaryLanguageCode: string | null;
-  alignedOriginalSegments: Array<{ ordinal: number; text: string }>;
+  alignedOriginalSegments: Array<{ ordinal: number; text: string; startUtf16?: number; endUtf16?: number }>;
   alignedOriginalLanguageCode: string | null;
   learningAccess: "enabled" | "pro_required" | "language_mismatch";
 }
