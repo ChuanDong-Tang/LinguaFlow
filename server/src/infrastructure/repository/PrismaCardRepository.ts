@@ -22,6 +22,7 @@ import { countGraphemes } from "@lf/core/text/grapheme.js";
 import { countCardCharacters } from "@lf/core/text/cardText.js";
 import { isTargetLanguageCode, type TargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 import { CARD_TOPIC_PROMPT_VERSION } from "@lf/core/Prompts/cardTopicPrompt.js";
+import { CARD_REWRITE_ALIGNMENT_PROMPT_VERSION } from "@lf/core/Prompts/cardRewriteAlignmentPrompt.js";
 import {
   CARD_IMAGE_DESCRIPTION_JOB_TYPE,
   CARD_IMAGE_DESCRIPTION_PAYLOAD_SCHEMA_VERSION,
@@ -448,6 +449,14 @@ export class PrismaCardRepository implements CardRepository {
           inputHash: embeddingHash,
         });
       }
+      if (input.originalText && input.rewrittenText) {
+        await enqueueRewriteAlignmentGeneration(tx, {
+          userId: input.userId,
+          cardId: row.id,
+          originalText: input.originalText,
+          rewrittenText: input.rewrittenText,
+        });
+      }
       for (const [ordinal, imageUploadId] of input.imageUploadIds.entries()) {
         const claimed = await tx.cardImageAsset.updateMany({
           where: {
@@ -607,6 +616,14 @@ export class PrismaCardRepository implements CardRepository {
           userId: input.userId,
           cardId: input.entryId,
           inputHash,
+        });
+      }
+      if (embeddingContentChanged && input.originalText && input.rewrittenText) {
+        await enqueueRewriteAlignmentGeneration(tx, {
+          userId: input.userId,
+          cardId: input.entryId,
+          originalText: input.originalText,
+          rewrittenText: input.rewrittenText,
         });
       }
       if (input.clearPractice) {
@@ -1282,7 +1299,7 @@ export class PrismaCardRepository implements CardRepository {
       await syncContentSegments(tx, input.entryId, input.contentSegments);
       const completedEntry = await tx.card.findFirst({
         where: { id: input.entryId },
-        select: { userId: true, isSample: true },
+        select: { userId: true, isSample: true, originalText: true, rewrittenText: true },
       });
       if (!completedEntry) throw new Error("CARD_NOT_FOUND_AFTER_COMPLETE");
       await tx.cardEnrichmentJob.upsert({
@@ -1323,6 +1340,14 @@ export class PrismaCardRepository implements CardRepository {
         cardId: input.entryId,
         inputHash: input.embeddingInputHash,
       });
+      if (completedEntry.originalText && completedEntry.rewrittenText) {
+        await enqueueRewriteAlignmentGeneration(tx, {
+          userId: completedEntry.userId,
+          cardId: input.entryId,
+          originalText: completedEntry.originalText,
+          rewrittenText: completedEntry.rewrittenText,
+        });
+      }
       if (!completedEntry.isSample) await hideCompletedSamples(tx, completedEntry.userId, input.publishedAt);
       const row = await tx.card.findFirst({
         where: { id: input.entryId },
@@ -2242,6 +2267,50 @@ async function enqueueEmbeddingGeneration(
       availableAt: new Date(),
       inputHash: input.inputHash,
       payload: { schemaVersion: 1 },
+      attempts: 0,
+      processingAt: null,
+      leaseExpiresAt: null,
+      workerId: null,
+      lastError: null,
+      completedAt: null,
+      failedAt: null,
+    },
+  });
+}
+
+async function enqueueRewriteAlignmentGeneration(
+  tx: any,
+  input: { userId: string; cardId: string; originalText: string; rewrittenText: string },
+): Promise<void> {
+  const normalized = `${input.originalText}\u0000${input.rewrittenText}`
+    .normalize("NFKC")
+    .replace(/\r\n?/gu, "\n")
+    .trim();
+  const inputHash = `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
+  await tx.cardEnrichmentJob.upsert({
+    where: {
+      userId_sourceKind_sourceId_jobType_inputVersion: {
+        userId: input.userId,
+        sourceKind: "card",
+        sourceId: input.cardId,
+        jobType: "align_rewrite_original",
+        inputVersion: CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
+      },
+    },
+    create: {
+      userId: input.userId,
+      sourceKind: "card",
+      sourceId: input.cardId,
+      jobType: "align_rewrite_original",
+      inputHash,
+      inputVersion: CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
+      payload: { schemaVersion: 1, source: "card_write" },
+    },
+    update: {
+      status: "queued",
+      availableAt: new Date(),
+      inputHash,
+      payload: { schemaVersion: 1, source: "card_write" },
       attempts: 0,
       processingAt: null,
       leaseExpiresAt: null,
