@@ -178,7 +178,11 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       if (!lock[0]?.acquired) return 0;
       const boundedLimit = Math.max(1, limit);
       const outstanding = await tx.cardEnrichmentJob.count({
-        where: { jobType: "align_rewrite_original", status: { in: ["queued", "processing"] } },
+        where: {
+          jobType: "align_rewrite_original",
+          inputVersion: CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
+          status: { in: ["queued", "processing"] },
+        },
       });
       const availableSlots = Math.max(0, boundedLimit - outstanding);
       if (availableSlots === 0) return 0;
@@ -251,7 +255,12 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
   }
 
   async claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
-    return this.claimNextJob("align_rewrite_original", workerId, leaseExpiresAt);
+    return this.claimNextJob(
+      "align_rewrite_original",
+      workerId,
+      leaseExpiresAt,
+      CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
+    );
   }
 
   async loadRewriteAlignmentSource(job: CardEnrichmentJobEntity) {
@@ -410,12 +419,19 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     return this.claimNextJob("index_phrase_history", workerId, leaseExpiresAt);
   }
 
-  private async claimNextJob(jobType: string, workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
+  private async claimNextJob(
+    jobType: string,
+    workerId: string,
+    leaseExpiresAt: Date,
+    inputVersion?: string,
+  ): Promise<CardEnrichmentJobEntity | null> {
     return this.prisma.$transaction(async (tx) => {
+      const inputVersionClause = inputVersion ? `AND "inputVersion" = $2` : "";
       const rows = await tx.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT "id"
            FROM "card_enrichment_jobs"
           WHERE "jobType" = $1
+            ${inputVersionClause}
             AND (
               ("status" = 'queued' AND "availableAt" <= CURRENT_TIMESTAMP)
               OR ("status" = 'processing' AND "leaseExpiresAt" < CURRENT_TIMESTAMP)
@@ -424,6 +440,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           FOR UPDATE SKIP LOCKED
           LIMIT 1`,
         jobType,
+        ...(inputVersion ? [inputVersion] : []),
       );
       const id = rows[0]?.id;
       if (!id) return null;
