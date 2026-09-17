@@ -449,7 +449,7 @@ export class PrismaCardRepository implements CardRepository {
           inputHash: embeddingHash,
         });
       }
-      if (input.originalText && input.rewrittenText) {
+      if ((input.mode ?? "rewrite") === "rewrite" && input.originalText && input.rewrittenText) {
         await enqueueRewriteAlignmentGeneration(tx, {
           userId: input.userId,
           cardId: row.id,
@@ -518,7 +518,7 @@ export class PrismaCardRepository implements CardRepository {
           deletedAt: null,
           originalContentHash: input.expectedOriginalContentHash,
         },
-        select: { originalText: true, rewrittenText: true, topic: true },
+        select: { mode: true, originalText: true, rewrittenText: true, topic: true },
       });
       if (!current) return null;
       const embeddingContentChanged = current.originalText !== input.originalText
@@ -618,7 +618,7 @@ export class PrismaCardRepository implements CardRepository {
           inputHash,
         });
       }
-      if (embeddingContentChanged && input.originalText && input.rewrittenText) {
+      if (current.mode === "rewrite" && embeddingContentChanged && input.originalText && input.rewrittenText) {
         await enqueueRewriteAlignmentGeneration(tx, {
           userId: input.userId,
           cardId: input.entryId,
@@ -1299,7 +1299,7 @@ export class PrismaCardRepository implements CardRepository {
       await syncContentSegments(tx, input.entryId, input.contentSegments);
       const completedEntry = await tx.card.findFirst({
         where: { id: input.entryId },
-        select: { userId: true, isSample: true, originalText: true, rewrittenText: true },
+        select: { userId: true, isSample: true, mode: true, originalText: true, rewrittenText: true },
       });
       if (!completedEntry) throw new Error("CARD_NOT_FOUND_AFTER_COMPLETE");
       await tx.cardEnrichmentJob.upsert({
@@ -1340,7 +1340,7 @@ export class PrismaCardRepository implements CardRepository {
         cardId: input.entryId,
         inputHash: input.embeddingInputHash,
       });
-      if (completedEntry.originalText && completedEntry.rewrittenText) {
+      if (completedEntry.mode === "rewrite" && completedEntry.originalText && completedEntry.rewrittenText) {
         await enqueueRewriteAlignmentGeneration(tx, {
           userId: completedEntry.userId,
           cardId: input.entryId,

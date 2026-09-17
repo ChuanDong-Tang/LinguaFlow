@@ -196,6 +196,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           FROM "cards" c
          WHERE c."status" = 'completed'
            AND c."deletedAt" IS NULL
+           AND c."mode" = 'rewrite'
            AND c."originalText" IS NOT NULL
            AND c."rewrittenText" IS NOT NULL
            AND c."rewriteAlignment" IS NULL
