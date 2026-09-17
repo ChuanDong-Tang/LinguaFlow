@@ -58,6 +58,21 @@ test("accepts safe scalar, named-field, and range variants from the model", () =
   ]);
 });
 
+test("normalizes common start/end and sparse range shorthand before validation", () => {
+  const groups = parseCardRewriteAlignmentOutput({
+    output: JSON.stringify({ groups: [
+      { sourceStart: 0, sourceEnd: 2, target: [0, 2] },
+      { source_ids: "S3,S4", targetStart: 3, targetEnd: 3 },
+    ] }),
+    sourceOrdinals: [0, 1, 2, 3, 4],
+    targetOrdinals: [0, 1, 2, 3],
+  });
+  assert.deepEqual(groups, [
+    { sourceOrdinals: [0, 1, 2], targetOrdinals: [0, 1, 2] },
+    { sourceOrdinals: [3, 4], targetOrdinals: [3] },
+  ]);
+});
+
 test("rejects missing, duplicated, or crossed mappings", () => {
   assert.throws(() => parseCardRewriteAlignmentOutput({
     output: JSON.stringify({ groups: [

@@ -1,4 +1,4 @@
-export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v2";
+export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v3";
 
 export interface CardRewriteAlignmentGroup {
   sourceOrdinals: number[];
@@ -69,9 +69,17 @@ export function parseCardRewriteAlignmentOutput(input: {
 
   const groups = rows.map((row) => {
     if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error("CARD_REWRITE_ALIGNMENT_INVALID_GROUP");
-    const typedRow = row as { source?: unknown; target?: unknown; sourceOrdinals?: unknown; targetOrdinals?: unknown };
-    const sourceOrdinals = parseOrdinals(typedRow.source ?? typedRow.sourceOrdinals, "S");
-    const targetOrdinals = parseOrdinals(typedRow.target ?? typedRow.targetOrdinals, "T");
+    const typedRow = row as Record<string, unknown>;
+    const sourceOrdinals = parseOrdinals(
+      typedRow.source ?? typedRow.sourceOrdinals ?? typedRow.source_ids
+        ?? ordinalRange(typedRow.sourceStart, typedRow.sourceEnd),
+      "S",
+    );
+    const targetOrdinals = parseOrdinals(
+      typedRow.target ?? typedRow.targetOrdinals ?? typedRow.target_ids
+        ?? ordinalRange(typedRow.targetStart, typedRow.targetEnd),
+      "T",
+    );
     return { sourceOrdinals, targetOrdinals };
   });
 
@@ -106,6 +114,7 @@ function parseOrdinals(value: unknown, prefix: "S" | "T"): number[] {
   const ordinals = values.flatMap((item) => {
     if (Number.isInteger(item) && (item as number) >= 0) return item as number;
     if (typeof item === "string") {
+      if (item.includes(",")) return item.split(",").flatMap((part) => parseOrdinals(part.trim(), prefix));
       const match = new RegExp(`^${prefix}?(\\d+)$`, "u").exec(item.trim());
       if (match) return Number(match[1]);
       const range = new RegExp(`^${prefix}?(\\d+)\\s*[-–—]\\s*${prefix}?(\\d+)$`, "u").exec(item.trim());
@@ -120,7 +129,14 @@ function parseOrdinals(value: unknown, prefix: "S" | "T"): number[] {
   if (ordinals.some((ordinal, index) => index > 0 && ordinal <= ordinals[index - 1]!)) {
     throw new Error("CARD_REWRITE_ALIGNMENT_NON_MONOTONIC");
   }
+  if (ordinals.length > 1 && ordinals.some((ordinal, index) => index > 0 && ordinal !== ordinals[index - 1]! + 1)) {
+    return Array.from({ length: ordinals[ordinals.length - 1]! - ordinals[0]! + 1 }, (_, index) => ordinals[0]! + index);
+  }
   return ordinals;
+}
+
+function ordinalRange(start: unknown, end: unknown): unknown {
+  return start === undefined || end === undefined ? undefined : `${String(start)}-${String(end)}`;
 }
 
 function validateCoverage(actual: number[], expected: readonly number[], label: "SOURCE" | "TARGET"): void {
