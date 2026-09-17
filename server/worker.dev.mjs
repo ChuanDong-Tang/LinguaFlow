@@ -47,8 +47,8 @@ import { SerialCardJobWorker } from "./src/workers/card/SerialCardJobWorker.ts";
 import { RedisCardWorkerConcurrencyGuard } from "./src/workers/card/CardWorkerConcurrencyGuard.ts";
 import { CardEnrichmentWorkerService } from "./src/services/card/CardEnrichmentWorkerService.ts";
 import { CardTopicWorkerService } from "./src/services/card/CardTopicWorkerService.ts";
-import { CardAuxiliaryWorkerService } from "./src/services/card/CardAuxiliaryWorkerService.ts";
-import { CardAuxiliaryBackfillScanner } from "./src/workers/card/CardAuxiliaryBackfillScanner.ts";
+import { CardRewriteAlignmentWorkerService } from "./src/services/card/CardRewriteAlignmentWorkerService.ts";
+import { CardRewriteAlignmentScanner } from "./src/workers/card/CardRewriteAlignmentScanner.ts";
 import { CardImageDescriptionWorkerService } from "./src/services/card/CardImageDescriptionWorkerService.ts";
 import { CardImageDescriptionBackfillScanner } from "./src/workers/card/CardImageDescriptionBackfillScanner.ts";
 import { CardImageService } from "./src/services/card/CardImageService.ts";
@@ -322,20 +322,20 @@ const cardTopicWorker = new SerialCardJobWorker(
     concurrencyLimit: runtime.cardTopicGlobalConcurrency,
   },
 );
-const cardAuxiliaryBackfillScanner = runtime.cardAuxiliaryBackfillEnabled
-  ? new CardAuxiliaryBackfillScanner(
+const cardRewriteAlignmentScanner = runtime.cardRewriteAlignmentEnabled
+  ? new CardRewriteAlignmentScanner(
       cardEnrichmentRepository,
       systemEventLogRepository,
       {
-        intervalMs: runtime.cardAuxiliaryBackfillScanIntervalMs,
-        batchSize: runtime.cardAuxiliaryBackfillBatchSize,
-        minimumAgeMs: runtime.cardAuxiliaryBackfillMinimumAgeMs,
+        intervalMs: runtime.cardRewriteAlignmentScanIntervalMs,
+        batchSize: runtime.cardRewriteAlignmentBatchSize,
+        minimumAgeMs: runtime.cardRewriteAlignmentMinimumAgeMs,
       },
     )
   : null;
-const cardAuxiliaryBackfillWorker = runtime.cardAuxiliaryBackfillEnabled
+const cardRewriteAlignmentWorker = runtime.cardRewriteAlignmentEnabled
   ? new SerialCardJobWorker(
-      new CardAuxiliaryWorkerService(
+      new CardRewriteAlignmentWorkerService(
         cardEnrichmentRepository,
         cardAiProvider,
         systemEventLogRepository,
@@ -344,12 +344,12 @@ const cardAuxiliaryBackfillWorker = runtime.cardAuxiliaryBackfillEnabled
         cardContentSafetyService,
       ),
       {
-        workerIdPrefix: "card-auxiliary-backfill",
-        errorLabel: "card-auxiliary-backfill-worker",
-        intervalMs: runtime.cardAuxiliaryBackfillJobIntervalMs,
+        workerIdPrefix: "card-rewrite-alignment",
+        errorLabel: "card-rewrite-alignment-worker",
+        intervalMs: runtime.cardRewriteAlignmentJobIntervalMs,
         maxJobsPerRun: 1,
         concurrencyGuard: cardWorkerConcurrencyGuard,
-        concurrencyScope: "auxiliary-backfill",
+        concurrencyScope: "rewrite-alignment",
         concurrencyLimit: 1,
       },
     )
@@ -498,8 +498,8 @@ const workerGroups = {
   card: [
     cardRewriteWorker,
     cardTopicWorker,
-    cardAuxiliaryBackfillScanner,
-    cardAuxiliaryBackfillWorker,
+    cardRewriteAlignmentScanner,
+    cardRewriteAlignmentWorker,
     cardImageDescriptionBackfillScanner,
     cardImageDescriptionBackfillWorker,
     cardEnrichmentWorker,

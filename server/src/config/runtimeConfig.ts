@@ -149,11 +149,11 @@ export interface RuntimeConfig {
   cardPhraseNormalizationGlobalConcurrency: number;
   cardPhraseHistoryGlobalConcurrency: number;
   cardPhraseIndexGlobalConcurrency: number;
-  cardAuxiliaryBackfillEnabled: boolean;
-  cardAuxiliaryBackfillBatchSize: number;
-  cardAuxiliaryBackfillScanIntervalMs: number;
-  cardAuxiliaryBackfillJobIntervalMs: number;
-  cardAuxiliaryBackfillMinimumAgeMs: number;
+  cardRewriteAlignmentEnabled: boolean;
+  cardRewriteAlignmentBatchSize: number;
+  cardRewriteAlignmentScanIntervalMs: number;
+  cardRewriteAlignmentJobIntervalMs: number;
+  cardRewriteAlignmentMinimumAgeMs: number;
   cardImageDescriptionWorkerEnabled: boolean;
   cardImageDescriptionBackfillEnabled: boolean;
   cardImageDescriptionBackfillBatchSize: number;
@@ -356,11 +356,11 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardPhraseNormalizationGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_NORMALIZATION_GLOBAL_CONCURRENCY, 4),
     cardPhraseHistoryGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_HISTORY_GLOBAL_CONCURRENCY, 2),
     cardPhraseIndexGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_INDEX_GLOBAL_CONCURRENCY, 2),
-    cardAuxiliaryBackfillEnabled: readBoolean(env.CARD_AUXILIARY_BACKFILL_ENABLED, true),
-    cardAuxiliaryBackfillBatchSize: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_BATCH_SIZE, 20),
-    cardAuxiliaryBackfillScanIntervalMs: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_SCAN_INTERVAL_MS, 300_000),
-    cardAuxiliaryBackfillJobIntervalMs: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_JOB_INTERVAL_MS, 15_000),
-    cardAuxiliaryBackfillMinimumAgeMs: readPositiveInt(env.CARD_AUXILIARY_BACKFILL_MINIMUM_AGE_MS, 86_400_000),
+    cardRewriteAlignmentEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_ENABLED ?? env.CARD_AUXILIARY_BACKFILL_ENABLED, true),
+    cardRewriteAlignmentBatchSize: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_BATCH_SIZE ?? env.CARD_AUXILIARY_BACKFILL_BATCH_SIZE, 20),
+    cardRewriteAlignmentScanIntervalMs: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_SCAN_INTERVAL_MS ?? env.CARD_AUXILIARY_BACKFILL_SCAN_INTERVAL_MS, 30_000),
+    cardRewriteAlignmentJobIntervalMs: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_JOB_INTERVAL_MS ?? env.CARD_AUXILIARY_BACKFILL_JOB_INTERVAL_MS, 1_000),
+    cardRewriteAlignmentMinimumAgeMs: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_MINIMUM_AGE_MS, 5_000),
     cardImageDescriptionWorkerEnabled: readBoolean(env.CARD_IMAGE_DESCRIPTION_WORKER_ENABLED, true),
     cardImageDescriptionBackfillEnabled: readBoolean(env.CARD_IMAGE_DESCRIPTION_BACKFILL_ENABLED, true),
     cardImageDescriptionBackfillBatchSize: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_BACKFILL_BATCH_SIZE, 20),

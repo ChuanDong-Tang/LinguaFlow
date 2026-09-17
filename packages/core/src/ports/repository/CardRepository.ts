@@ -45,6 +45,7 @@ export interface CardEntryEntity {
   auxiliarySegments: unknown | null;
   auxiliaryLanguageCode: string | null;
   auxiliarySourceHash: string | null;
+  rewriteAlignment: unknown | null;
   phraseRecommendations: unknown | null;
   phraseRecommendationSeenAt: Date | null;
   phraseRecommendationExhaustedAt: Date | null;

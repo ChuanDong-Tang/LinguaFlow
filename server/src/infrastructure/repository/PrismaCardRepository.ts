@@ -546,6 +546,9 @@ export class PrismaCardRepository implements CardRepository {
             auxiliarySourceHash: null,
           } : {}),
           ...(current.originalText !== input.originalText || current.rewrittenText !== input.rewrittenText ? {
+            rewriteAlignment: Prisma.DbNull,
+          } : {}),
+          ...(current.originalText !== input.originalText || current.rewrittenText !== input.rewrittenText ? {
             phraseRecommendations: Prisma.DbNull,
             phraseRecommendationSeenAt: null,
             phraseRecommendationExhaustedAt: null,
@@ -1259,6 +1262,7 @@ export class PrismaCardRepository implements CardRepository {
           rewrittenText: input.rewrittenText,
           rewrittenLanguageCode: input.rewrittenLanguageCode,
           rewrittenSourceHash: input.rewrittenSourceHash,
+          rewriteAlignment: Prisma.DbNull,
           topic: input.topic,
           topicEditedAt: null,
           outputChars: input.outputChars,
@@ -2425,6 +2429,7 @@ function toEntry(row: any): CardEntryEntity {
     auxiliarySegments: row.auxiliarySegments ?? null,
     auxiliaryLanguageCode: row.auxiliaryLanguageCode ?? null,
     auxiliarySourceHash: row.auxiliarySourceHash ?? null,
+    rewriteAlignment: row.rewriteAlignment ?? null,
     phraseRecommendations: row.phraseRecommendations ?? null,
     phraseRecommendationSeenAt: row.phraseRecommendationSeenAt ?? null,
     phraseRecommendationExhaustedAt: row.phraseRecommendationExhaustedAt ?? null,

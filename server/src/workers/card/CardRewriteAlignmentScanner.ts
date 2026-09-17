@@ -1,7 +1,7 @@
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 
-export class CardAuxiliaryBackfillScanner {
+export class CardRewriteAlignmentScanner {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
@@ -26,23 +26,23 @@ export class CardAuxiliaryBackfillScanner {
     if (this.running) return;
     this.running = true;
     try {
-      const minimumAgeMs = this.options.minimumAgeMs ?? 86_400_000;
-      const enqueued = await this.repository.enqueueMissingAuxiliaryJobs(
+      const minimumAgeMs = this.options.minimumAgeMs ?? 5_000;
+      const enqueued = await this.repository.enqueueMissingRewriteAlignmentJobs(
         this.options.batchSize ?? 20,
         new Date(Date.now() - minimumAgeMs),
       );
       if (enqueued > 0) await this.systemEventLogRepository?.create({
         module: "card",
-        event: "card.auxiliary_backfill.enqueued",
+        event: "card.rewrite_alignment.enqueued",
         level: "info",
         status: "success",
         metadata: { enqueued, batchSize: this.options.batchSize ?? 20, minimumAgeMs },
       });
     } catch (error) {
-      console.error("[card-auxiliary-backfill-scanner] round failed", error);
+      console.error("[card-rewrite-alignment-scanner] round failed", error);
       await this.systemEventLogRepository?.create({
         module: "card",
-        event: "card.auxiliary_backfill.scan_failed",
+        event: "card.rewrite_alignment.scan_failed",
         level: "error",
         status: "failed",
         errorCode: error instanceof Error ? error.name.toUpperCase() : "UNKNOWN",

@@ -192,6 +192,7 @@ model Card {
   auxiliarySegments                 Json?
   auxiliaryLanguageCode             String?
   auxiliarySourceHash               String?
+  rewriteAlignment                  Json?
   phraseRecommendations             Json?
   phraseRecommendationSeenAt        DateTime?
   phraseRecommendationExhaustedAt   DateTime?

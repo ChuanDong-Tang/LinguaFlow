@@ -30,14 +30,16 @@ export interface CardTopicSource {
   billingExemptReason?: "chat_history_migration";
 }
 
-export interface CardAuxiliarySource {
+export interface CardRewriteAlignmentSource {
   userId: string;
   sourceId: string;
+  originalText: string;
   rewrittenText: string;
   languageCode: string;
-  appLocale: string;
-  difficulty: string;
-  segments: Array<{ ordinal: number; text: string }>;
+  sourceContentVersion: string;
+  targetContentVersion: string;
+  sourceSegments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
+  targetSegments: Array<{ ordinal: number; text: string }>;
 }
 
 export interface PhraseIndexSource {
@@ -109,12 +111,12 @@ export interface CardEnrichmentRepository {
   cancelObsoleteImageDescriptionJobs(currentInputVersionPrefix: string, reason: string): Promise<number>;
   claimNextImageDescriptionJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadImageDescriptionSource(job: CardEnrichmentJobEntity): Promise<{ cardId: string; imageId: string; forceRegenerate: boolean } | null>;
-  enqueueMissingAuxiliaryJobs(limit: number, createdBefore: Date): Promise<number>;
-  claimNextAuxiliaryJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
-  loadAuxiliarySource(job: CardEnrichmentJobEntity): Promise<CardAuxiliarySource | null>;
-  completeAuxiliaryJob(
+  enqueueMissingRewriteAlignmentJobs(limit: number, createdBefore: Date): Promise<number>;
+  claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  loadRewriteAlignmentSource(job: CardEnrichmentJobEntity): Promise<CardRewriteAlignmentSource | null>;
+  completeRewriteAlignmentJob(
     job: CardEnrichmentJobEntity,
-    auxiliarySegments: Array<{ ordinal: number; text: string }>,
+    alignment: unknown,
   ): Promise<boolean>;
   claimNextTopicJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadTopicSource(job: CardEnrichmentJobEntity): Promise<CardTopicSource | null>;

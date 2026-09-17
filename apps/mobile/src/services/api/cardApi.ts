@@ -103,6 +103,9 @@ export type CardRecordDetail = CardRecordSummary & {
     practice: CardRecordDetail["practice"];
     auxiliarySegments?: Array<{ ordinal: number; text: string }>;
     auxiliaryLanguageCode?: string | null;
+    /** Original-language meaning units aligned to rewrite segment ordinals. */
+    alignedOriginalSegments?: Array<{ ordinal: number; text: string }>;
+    alignedOriginalLanguageCode?: string | null;
     /** Missing on servers from before unified learning-content access. */
     learningAccess?: "enabled" | "pro_required" | "language_mismatch";
   }>;

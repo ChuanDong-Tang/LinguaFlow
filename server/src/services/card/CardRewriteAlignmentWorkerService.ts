@@ -1,12 +1,18 @@
 import type { AIProvider, ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
-import { buildCardContentGenerationPrompt, cardContentMaxOutputTokens, parseCardAuxiliaryOutput } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
+import {
+  buildCardRewriteAlignmentPrompt,
+  buildCardRewriteAlignmentSourceUnits,
+  CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
+  parseCardRewriteAlignmentOutput,
+  type CardRewriteAlignmentResult,
+} from "@lf/core/Prompts/cardRewriteAlignmentPrompt.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
 
-export class CardAuxiliaryWorkerService {
+export class CardRewriteAlignmentWorkerService {
   constructor(
     private readonly repository: CardEnrichmentRepository,
     private readonly aiProvider: AIProvider,
@@ -17,7 +23,7 @@ export class CardAuxiliaryWorkerService {
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
-    const job = await this.repository.claimNextAuxiliaryJob(
+    const job = await this.repository.claimNextRewriteAlignmentJob(
       workerId,
       new Date(Date.now() + (this.options.leaseMs ?? 120_000)),
     );
@@ -28,61 +34,69 @@ export class CardAuxiliaryWorkerService {
 
   private async process(job: CardEnrichmentJobEntity): Promise<void> {
     const startedAt = Date.now();
-    const requestId = `card_auxiliary_backfill_${job.id}:attempt:${job.attempts}`;
+    const requestId = `card_rewrite_alignment_${job.id}:attempt:${job.attempts}`;
     let output = "";
     let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     try {
-      const source = await this.repository.loadAuxiliarySource(job);
+      const source = await this.repository.loadRewriteAlignmentSource(job);
       if (!source) {
-        await this.repository.completeWithoutResult(job, "CARD_AUXILIARY_SOURCE_MISSING_OR_STALE");
+        await this.repository.completeWithoutResult(job, "CARD_REWRITE_ALIGNMENT_SOURCE_MISSING_OR_STALE");
         return;
       }
-      const sourceText = JSON.stringify(source.segments);
-      const prompt = buildCardContentGenerationPrompt({
-        target: "auxiliary",
-        sourceText,
-        languageCode: source.languageCode,
-        appLocale: source.appLocale,
-        difficulty: source.difficulty,
+      const sourceUnits = buildCardRewriteAlignmentSourceUnits({ sourceText: source.originalText, segments: source.sourceSegments });
+      const prompt = buildCardRewriteAlignmentPrompt({
+        sourceSegments: sourceUnits,
+        targetSegments: source.targetSegments,
       });
       await this.assertBackgroundCapacity();
       const generate = () => this.aiProvider.generateChatTextStream({
         userId: source.userId,
         text: prompt.userPrompt,
         languageCode: source.languageCode,
-        appLocale: source.appLocale,
-        promptDifficulty: source.difficulty,
+        appLocale: "en-US",
+        promptDifficulty: "standard",
         companionMode: "rewrite_only",
         systemPrompt: prompt.systemPrompt,
         rawUserPrompt: true,
-        maxOutputTokens: cardContentMaxOutputTokens("auxiliary", sourceText),
+        maxOutputTokens: Math.min(2_000, Math.max(300, (source.sourceSegments.length + source.targetSegments.length) * 40)),
       }, (event) => {
         if (event.type === "delta") output += event.text;
         if (event.type === "done") usage = event.usage;
       });
       if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, generate);
       else await generate();
-      const auxiliarySegments = parseCardAuxiliaryOutput(output, source.segments.map((segment) => segment.ordinal));
-      const auxiliaryText = auxiliarySegments.map((segment) => segment.text).join("\n");
-      this.contentSafetyService?.assertAllowed(auxiliaryText, "output");
+      const groups = parseCardRewriteAlignmentOutput({
+        output,
+        sourceOrdinals: sourceUnits.map((segment) => segment.ordinal),
+        targetOrdinals: source.targetSegments.map((segment) => segment.ordinal),
+      });
+      this.contentSafetyService?.assertAllowed(output, "output");
       await this.contentSafetyService?.assertAllowedRemote({
-        text: auxiliaryText,
+        text: output,
         stage: "output",
         requestId,
         userId: source.userId,
       });
-      if (!await this.repository.completeAuxiliaryJob(job, auxiliarySegments)) return;
+      const alignment: CardRewriteAlignmentResult = {
+        schemaVersion: 1,
+        promptVersion: CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
+        sourceContentVersion: source.sourceContentVersion,
+        targetContentVersion: source.targetContentVersion,
+        sourceUnits: sourceUnits.map(({ ordinal, startUtf16, endUtf16 }) => ({ ordinal, startUtf16, endUtf16 })),
+        groups,
+      };
+      if (!await this.repository.completeRewriteAlignmentJob(job, alignment)) return;
       await this.log(job, "success", null, {
         durationMs: Date.now() - startedAt,
-        segmentCount: source.segments.length,
-        inputChars: sourceText.length,
+        sourceSegmentCount: sourceUnits.length,
+        targetSegmentCount: source.targetSegments.length,
+        groupCount: groups.length,
         outputChars: output.length,
         inputTokens: usage?.inputTokens ?? null,
         outputTokens: usage?.outputTokens ?? null,
-        meteringSource: usage ? "provider" : "unavailable",
       });
     } catch (error) {
-      const retry = error instanceof AuxiliaryBackgroundCapacityError
+      const retry = error instanceof AlignmentBackgroundCapacityError
         ? { retryAt: new Date(Date.now() + 60_000), preserveAttempt: true }
         : resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, {
@@ -91,8 +105,6 @@ export class CardAuxiliaryWorkerService {
       await this.log(job, retry.retryAt ? "retry" : "failed", error, {
         durationMs: Date.now() - startedAt,
         outputChars: output.length,
-        inputTokens: usage?.inputTokens ?? null,
-        outputTokens: usage?.outputTokens ?? null,
         nextAttemptAt: retry.retryAt?.toISOString() ?? null,
       });
     }
@@ -107,7 +119,7 @@ export class CardAuxiliaryWorkerService {
       || policy.globalRequestsPerMinute <= 1
       || snapshot.currentConcurrency >= policy.globalConcurrency - 1
       || snapshot.requestsLastMinute >= policy.globalRequestsPerMinute - 1) {
-      throw new AuxiliaryBackgroundCapacityError();
+      throw new AlignmentBackgroundCapacityError();
     }
   }
 
@@ -119,10 +131,10 @@ export class CardAuxiliaryWorkerService {
   ): Promise<void> {
     try {
       await this.systemEventLogRepository?.create({
-        requestId: `card_auxiliary_backfill_${job.id}`,
+        requestId: `card_rewrite_alignment_${job.id}`,
         userId: job.userId,
         module: "card",
-        event: status === "success" ? "card.auxiliary_backfill.generated" : status === "retry" ? "card.auxiliary_backfill.retry" : "card.auxiliary_backfill.failed",
+        event: status === "success" ? "card.rewrite_alignment.generated" : status === "retry" ? "card.rewrite_alignment.retry" : "card.rewrite_alignment.failed",
         level: status === "success" ? "info" : status === "retry" ? "warn" : "error",
         status: status === "retry" ? "ignored" : status,
         errorCode: error ? resolveErrorCode(error) : null,
@@ -141,8 +153,8 @@ export class CardAuxiliaryWorkerService {
   }
 }
 
-class AuxiliaryBackgroundCapacityError extends Error {
-  readonly code = "CARD_AUXILIARY_BACKGROUND_CAPACITY_UNAVAILABLE";
+class AlignmentBackgroundCapacityError extends Error {
+  readonly code = "CARD_REWRITE_ALIGNMENT_BACKGROUND_CAPACITY_UNAVAILABLE";
   constructor() {
     super("Background LLM capacity is unavailable");
   }

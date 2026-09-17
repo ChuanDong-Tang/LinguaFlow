@@ -2075,7 +2075,9 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const [answersVisible, setAnswersVisible] = useState(false);
   const [displayMode, setDisplayMode] = useState<ContentDisplayMode>(detail.isSample ? "bilingual" : "target");
   const [auxiliaryLoading, setAuxiliaryLoading] = useState(false);
-  const auxiliaryDisplayLanguage = playbackPrimaryBlock?.auxiliaryLanguageCode ?? getLanguage();
+  const auxiliaryDisplayLanguage = playbackPrimaryBlock?.contentType === "rewrite"
+    ? playbackPrimaryBlock.alignedOriginalLanguageCode ?? getLanguage()
+    : playbackPrimaryBlock?.auxiliaryLanguageCode ?? getLanguage();
   const displayModeLabel = cardDisplayModeLabel(displayMode, detail.languageCode, auxiliaryDisplayLanguage);
   const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "translation", boolean>>({ imageDescription: false, learning: false, reply: false, translation: false });
   const [articleAudioLoading, setArticleAudioLoading] = useState(false);
@@ -2227,7 +2229,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     ...detail, languageCode: block.languageCode, rewriteSegments: block.segments,
   }, asCardClozeState(block.practice?.clozeState), true).map((row) => ({
     ...row, playbackBlock: block,
-    auxiliary: (block.auxiliarySegments ?? []).find((item) => item.ordinal === block.segments.find((segment) => segment.id === row.segmentId)?.ordinal)?.text,
+    auxiliary: cardSecondarySegments(block).find((item) => item.ordinal === block.segments.find((segment) => segment.id === row.segmentId)?.ordinal)?.text,
   }))), [detail, playbackBlocks]);
   const replyAuxiliary = new Map((replyBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
   const rewriteAuxiliary = new Map((rewriteBlock?.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text]));
@@ -2247,15 +2249,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const recordedAt = detail.recordedAt ?? detail.createdAt;
   const selectedCollection = collections.find((collection) => collection.id === detail.collectionId);
   const collectionLabel = selectedCollection ? collectionPathName(selectedCollection, collections) : detail.collectionId ? "…" : t("sidebar.unclassified");
-  const learningText = detail.contentBlocks.find((candidate) =>
-    candidate.contentType === contentBinding.contentType
-    && candidate.contentVersion === contentBinding.contentVersion,
-  )?.text ?? (contentBinding.contentType === "original" ? detail.originalText : detail.rewrittenText || detail.originalText);
   const primaryText = primaryTextBlock?.text ?? (detail.mode === "corpus" ? detail.originalText : detail.rewrittenText || detail.originalText);
-  const auxiliaryMissing = contentBinding.contentType === "rewrite"
-    && Boolean(learningText.trim())
-    && detail.auxiliarySegments !== undefined
-    && !detail.auxiliarySegments?.length;
   const rewriteIsPrimary = contentBinding.contentType === "rewrite" || expressionPending || expressionFailed;
   const rewriteIsReady = contentBinding.contentType === "rewrite";
   const frontLearningReady = rewriteIsReady || !rewriteIsPrimary;
@@ -2581,7 +2575,8 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     setDisplayMode(next);
     if (next === "target" || auxiliaryLoading || !onActivateLearningContent) return;
     const activeBlock = detail.contentBlocks.find((block) => block.contentType === contentBinding.contentType && block.contentVersion === contentBinding.contentVersion);
-    if (!activeBlock || activeBlock.learningAccess !== "enabled" || activeBlock.auxiliarySegments?.length) return;
+    if (!activeBlock || activeBlock.learningAccess !== "enabled" || cardSecondarySegments(activeBlock).length) return;
+    if (activeBlock.contentType === "rewrite") return;
     setAuxiliaryLoading(true);
     void onActivateLearningContent(activeBlock.contentType)
       .catch((error) => showNotice({ message: error instanceof Error ? error.message : t("card_detail.error.try_again"), type: "error", position: "top-center" }))
@@ -3288,6 +3283,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           {articleRows.map((row, index) => {
             const active = activePlaybackLyricIndex === index;
             const auxiliary = row.auxiliary;
+            if (displayMode === "auxiliary" && !auxiliary) return null;
             const sentenceMark = articlePlaybackActive ? articleSentenceMarks[index - articleMarkOffset] : undefined;
             const rowProgress = active && sentenceMark && sentenceMark.durationMs > 0
               ? Math.max(0, Math.min(1, (playback.positionMs - sentenceMark.startMs) / sentenceMark.durationMs))
@@ -3344,8 +3340,12 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       ...detail,
       languageCode: block.languageCode,
       rewriteSegments: block.segments,
-      auxiliarySegments: block.auxiliarySegments ?? image?.descriptionAuxiliarySegments ?? [],
-      auxiliaryLanguageCode: block.auxiliaryLanguageCode ?? image?.descriptionAuxiliaryLanguageCode ?? null,
+      auxiliarySegments: cardSecondarySegments(block).length
+        ? cardSecondarySegments(block)
+        : image?.descriptionAuxiliarySegments ?? [],
+      auxiliaryLanguageCode: block.contentType === "rewrite"
+        ? block.alignedOriginalLanguageCode ?? null
+        : block.auxiliaryLanguageCode ?? image?.descriptionAuxiliaryLanguageCode ?? null,
       practice: block.practice,
     };
   };
@@ -3530,7 +3530,6 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           {rewriteBlock || originalBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
             {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={t(detail.mode === "corpus" ? "card_detail.input_corpus" : "card_detail.module.expression_description")} tone={detail.mode === "corpus" ? "default" : "rewrite"} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
                 {primaryTextBlock ? renderLearningBlock(primaryTextBlock) : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
-                {auxiliaryMissing ? <FailedGenerationSection target="auxiliary" retrying={retryingGenerationTarget === "auxiliary"} onRetry={onRetryGeneration} /> : null}
                 {primaryText.trim() ? <View style={styles.rewriteModuleActions}>
                   {!detail.replyText && !detail.isSample && detail.originalText.trim() ? <Pressable
                     accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")}
@@ -3858,6 +3857,14 @@ function cardDisplayModeLabel(mode: ContentDisplayMode, target: string, auxiliar
     ? `${compactLanguageLabel(auxiliary)}${compactLanguageLabel(target)}`
     : `${name(auxiliary)} / ${name(target)}`;
   return tf("card_detail.display.both_languages", { languages });
+}
+
+function cardSecondarySegments(
+  block: CardRecordDetail["contentBlocks"][number],
+): Array<{ ordinal: number; text: string }> {
+  return block.contentType === "rewrite"
+    ? block.alignedOriginalSegments ?? []
+    : block.auxiliarySegments ?? [];
 }
 
 function compactLanguageLabel(languageCode: string): string {
@@ -4433,6 +4440,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, choiceAnswerP
           <View style={[styles.clozeSentenceList, embedded && styles.inlineClozeSentenceList]}>{sentenceRows.map((row) => {
             const segment = detail.rewriteSegments.find((candidate) => candidate.id === row.segmentId);
             const auxiliaryText = segment ? auxiliaryByOrdinal.get(segment.ordinal) : undefined;
+            if (displayMode === "auxiliary" && !auxiliaryText) return null;
             const keyboardEditing = fillMode && inputMode === "keyboard"
               && effectiveActiveKeyboardBlankIndex !== null
               && row.blanks.some((item) => item.blankIndex === effectiveActiveKeyboardBlankIndex);

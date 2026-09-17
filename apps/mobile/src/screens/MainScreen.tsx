@@ -667,7 +667,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           detail = generation.detail;
           let auxiliaryFailed = false;
           const auxiliaryBlock = detail.contentBlocks.find((block) => block.contentType === (detail.rewrittenText?.trim() ? "rewrite" : "original"));
-          if (auxiliaryBlock && !auxiliaryBlock.auxiliarySegments?.length) {
+          if (auxiliaryBlock && auxiliaryBlock.contentType !== "rewrite" && !auxiliaryBlock.auxiliarySegments?.length) {
             try {
               detail = await generateCardContent(created.id, "auxiliary", auxiliaryBlock.contentType);
             } catch (error) {
@@ -940,7 +940,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       detail = generation.detail;
       let auxiliaryFailed = false;
       const auxiliaryBlock = detail.contentBlocks.find((block) => block.contentType === (detail.rewrittenText?.trim() ? "rewrite" : "original"));
-      if (auxiliaryBlock && !auxiliaryBlock.auxiliarySegments?.length) {
+      if (auxiliaryBlock && auxiliaryBlock.contentType !== "rewrite" && !auxiliaryBlock.auxiliarySegments?.length) {
         try {
           detail = await generateCardContent(detail.id, "auxiliary", auxiliaryBlock.contentType);
         } catch (error) {

@@ -19,6 +19,7 @@ import {
   CARD_IMAGE_DESCRIPTION_PAYLOAD_SCHEMA_VERSION,
   cardImageDescriptionInputVersion,
 } from "@lf/core/Prompts/cardImageDescriptionPrompt.js";
+import { CARD_REWRITE_ALIGNMENT_PROMPT_VERSION } from "@lf/core/Prompts/cardRewriteAlignmentPrompt.js";
 
 export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository {
   constructor(private readonly prisma: PrismaClient) {}
@@ -169,69 +170,71 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     };
   }
 
-  async enqueueMissingAuxiliaryJobs(limit: number, createdBefore: Date): Promise<number> {
+  async enqueueMissingRewriteAlignmentJobs(limit: number, createdBefore: Date): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
       const lock = await tx.$queryRaw<Array<{ acquired: boolean }>>`
-        SELECT pg_try_advisory_xact_lock(hashtext('card_auxiliary_backfill_scan')) AS "acquired"
+        SELECT pg_try_advisory_xact_lock(hashtext('card_rewrite_alignment_scan')) AS "acquired"
       `;
       if (!lock[0]?.acquired) return 0;
       const boundedLimit = Math.max(1, limit);
       const outstanding = await tx.cardEnrichmentJob.count({
-        where: { jobType: "generate_auxiliary", status: { in: ["queued", "processing"] } },
+        where: { jobType: "align_rewrite_original", status: { in: ["queued", "processing"] } },
       });
       const availableSlots = Math.max(0, boundedLimit - outstanding);
       if (availableSlots === 0) return 0;
       const cards = await tx.$queryRaw<Array<{
         id: string;
         userId: string;
+        originalText: string;
         rewrittenText: string;
-        appLocaleSnapshot: string;
       }>>`
-        SELECT c."id", c."userId", c."rewrittenText", c."appLocaleSnapshot"
+        SELECT c."id", c."userId", c."originalText", c."rewrittenText"
           FROM "cards" c
          WHERE c."status" = 'completed'
            AND c."deletedAt" IS NULL
+           AND c."originalText" IS NOT NULL
            AND c."rewrittenText" IS NOT NULL
-           AND c."auxiliarySegments" IS NULL
+           AND c."rewriteAlignment" IS NULL
            AND c."createdAt" <= ${createdBefore}
-           AND EXISTS (SELECT 1 FROM "card_rewrite_segments" s WHERE s."entryId" = c."id")
+           AND EXISTS (SELECT 1 FROM "card_content_segments" s WHERE s."entryId" = c."id" AND s."contentType" = 'original')
+           AND EXISTS (SELECT 1 FROM "card_content_segments" s WHERE s."entryId" = c."id" AND s."contentType" = 'rewrite')
            AND NOT EXISTS (
              SELECT 1 FROM "card_enrichment_jobs" j
               WHERE j."userId" = c."userId"
                 AND j."sourceKind" = 'card'
                 AND j."sourceId" = c."id"
-                AND j."jobType" = 'generate_auxiliary'
+                AND j."jobType" = 'align_rewrite_original'
                 AND j."status" IN ('queued', 'processing', 'failed')
            )
          ORDER BY c."createdAt" ASC, c."id" ASC
          LIMIT ${availableSlots}
       `;
       for (const card of cards) {
-        const inputHash = cardContentHash(card.rewrittenText);
+        const inputHash = rewriteAlignmentInputHash(card.originalText, card.rewrittenText);
         await tx.cardEnrichmentJob.upsert({
           where: {
             userId_sourceKind_sourceId_jobType_inputVersion: {
               userId: card.userId,
               sourceKind: "card",
               sourceId: card.id,
-              jobType: "generate_auxiliary",
-              inputVersion: "card_auxiliary_v1",
+              jobType: "align_rewrite_original",
+              inputVersion: CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
             },
           },
           create: {
             userId: card.userId,
             sourceKind: "card",
             sourceId: card.id,
-            jobType: "generate_auxiliary",
+            jobType: "align_rewrite_original",
             inputHash,
-            inputVersion: "card_auxiliary_v1",
-            payload: { schemaVersion: 1, appLocale: card.appLocaleSnapshot },
+            inputVersion: CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
+            payload: { schemaVersion: 1 },
           },
           update: {
             status: "queued",
             availableAt: new Date(),
             inputHash,
-            payload: { schemaVersion: 1, appLocale: card.appLocaleSnapshot },
+            payload: { schemaVersion: 1 },
             attempts: 0,
             processingAt: null,
             leaseExpiresAt: null,
@@ -246,11 +249,11 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     });
   }
 
-  async claimNextAuxiliaryJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
-    return this.claimNextJob("generate_auxiliary", workerId, leaseExpiresAt);
+  async claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob("align_rewrite_original", workerId, leaseExpiresAt);
   }
 
-  async loadAuxiliarySource(job: CardEnrichmentJobEntity) {
+  async loadRewriteAlignmentSource(job: CardEnrichmentJobEntity) {
     if (job.sourceKind !== "card") return null;
     const card = await this.prisma.card.findFirst({
       where: {
@@ -258,40 +261,50 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         userId: job.userId,
         status: "completed",
         deletedAt: null,
-        auxiliarySegments: { equals: Prisma.DbNull },
+        rewriteAlignment: { equals: Prisma.DbNull },
       },
       select: {
+        originalText: true,
         rewrittenText: true,
         languageCode: true,
-        appLocaleSnapshot: true,
-        promptDifficultySnapshot: true,
-        segments: { orderBy: { ordinal: "asc" }, select: { ordinal: true, text: true } },
+        contentSegments: {
+          where: { contentType: { in: ["original", "rewrite"] } },
+          orderBy: [{ contentType: "asc" }, { ordinal: "asc" }],
+          select: { contentType: true, contentVersion: true, ordinal: true, text: true, startUtf16: true, endUtf16: true },
+        },
       },
     });
-    if (!card?.rewrittenText || !card.segments.length || cardContentHash(card.rewrittenText) !== job.inputHash) return null;
+    if (!card?.originalText || !card.rewrittenText
+      || rewriteAlignmentInputHash(card.originalText, card.rewrittenText) !== job.inputHash) return null;
+    const sourceSegments = card.contentSegments.filter((segment) => segment.contentType === "original");
+    const targetSegments = card.contentSegments.filter((segment) => segment.contentType === "rewrite");
+    if (!sourceSegments.length || !targetSegments.length) return null;
     return {
       userId: job.userId,
       sourceId: job.sourceId,
+      originalText: card.originalText,
       rewrittenText: card.rewrittenText,
       languageCode: card.languageCode,
-      appLocale: card.appLocaleSnapshot,
-      difficulty: card.promptDifficultySnapshot,
-      segments: card.segments,
+      sourceContentVersion: sourceSegments[0]!.contentVersion,
+      targetContentVersion: targetSegments[0]!.contentVersion,
+      sourceSegments: sourceSegments.map(({ ordinal, text, startUtf16, endUtf16 }) => ({ ordinal, text, startUtf16, endUtf16 })),
+      targetSegments: targetSegments.map(({ ordinal, text }) => ({ ordinal, text })),
     };
   }
 
-  async completeAuxiliaryJob(
+  async completeRewriteAlignmentJob(
     job: CardEnrichmentJobEntity,
-    auxiliarySegments: Array<{ ordinal: number; text: string }>,
+    alignment: unknown,
   ): Promise<boolean> {
     try {
       await this.prisma.$transaction(async (tx) => {
         const current = await tx.card.findFirst({
           where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-          select: { rewrittenText: true },
+          select: { originalText: true, rewrittenText: true },
         });
-        if (!current?.rewrittenText || cardContentHash(current.rewrittenText) !== job.inputHash) {
-          throw new Error("CARD_AUXILIARY_SOURCE_STALE");
+        if (!current?.originalText || !current.rewrittenText
+          || rewriteAlignmentInputHash(current.originalText, current.rewrittenText) !== job.inputHash) {
+          throw new Error("CARD_REWRITE_ALIGNMENT_SOURCE_STALE");
         }
         const card = await tx.card.updateMany({
           where: {
@@ -300,24 +313,22 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
             status: "completed",
             deletedAt: null,
             rewrittenText: { not: null },
-            auxiliarySegments: { equals: Prisma.DbNull },
+            rewriteAlignment: { equals: Prisma.DbNull },
           },
           data: {
-            auxiliarySegments,
-            auxiliaryLanguageCode: auxiliaryLocaleFromPayload(job.payload),
-            auxiliarySourceHash: job.inputHash,
+            rewriteAlignment: alignment as Prisma.InputJsonValue,
           },
         });
-        if (card.count !== 1) throw new Error("CARD_AUXILIARY_SOURCE_STALE");
+        if (card.count !== 1) throw new Error("CARD_REWRITE_ALIGNMENT_SOURCE_STALE");
         const claimed = await tx.cardEnrichmentJob.updateMany({
           where: { id: job.id, status: "processing", workerId: job.workerId, inputHash: job.inputHash },
           data: { status: "completed", completedAt: new Date(), leaseExpiresAt: null, workerId: null, lastError: null },
         });
-        if (claimed.count !== 1) throw new Error("CARD_AUXILIARY_JOB_LEASE_LOST");
+        if (claimed.count !== 1) throw new Error("CARD_REWRITE_ALIGNMENT_JOB_LEASE_LOST");
       });
       return true;
     } catch (error) {
-      if (error instanceof Error && (error.message === "CARD_AUXILIARY_SOURCE_STALE" || error.message === "CARD_AUXILIARY_JOB_LEASE_LOST")) return false;
+      if (error instanceof Error && (error.message === "CARD_REWRITE_ALIGNMENT_SOURCE_STALE" || error.message === "CARD_REWRITE_ALIGNMENT_JOB_LEASE_LOST")) return false;
       throw error;
     }
   }
@@ -1182,14 +1193,6 @@ function payloadAllowsObservedCard(payload: unknown): boolean {
     && (payload as { allowObservedCard?: unknown }).allowObservedCard === true);
 }
 
-function auxiliaryLocaleFromPayload(payload: unknown): string {
-  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-    const appLocale = (payload as { appLocale?: unknown }).appLocale;
-    if (typeof appLocale === "string" && appLocale.trim()) return appLocale;
-  }
-  throw new Error("CARD_AUXILIARY_LOCALE_MISSING");
-}
-
 function imageDescriptionPayload(payload: unknown): { promptVersion: string; resultVersion: string } | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const value = payload as { schemaVersion?: unknown; promptVersion?: unknown; resultVersion?: unknown };
@@ -1204,6 +1207,10 @@ function imageDescriptionPayload(payload: unknown): { promptVersion: string; res
 function cardContentHash(text: string): string {
   const normalized = text.normalize("NFKC").replace(/\r\n?/gu, "\n").trim();
   return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
+}
+
+function rewriteAlignmentInputHash(originalText: string, rewrittenText: string): string {
+  return cardContentHash(`${originalText}\u0000${rewrittenText}`);
 }
 
 function migrationBillingExemptionFromPayload(payload: unknown): string | null {

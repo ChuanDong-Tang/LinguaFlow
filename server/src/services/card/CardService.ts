@@ -67,6 +67,7 @@ import {
 } from "@lf/core/Prompts/cardAutoClozePrompt.js";
 import { findTargetLanguageRanges, isEntireTargetLanguageText } from "@lf/core/text/targetLanguageRanges.js";
 import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText.js";
+import { inferLearningTextLanguage } from "@lf/core/text/learningText.js";
 import {
   buildCardImageDescriptionPrompt,
   CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
@@ -978,7 +979,7 @@ export class CardService {
       languageCode: generationLanguageCode,
       sourceHash,
     });
-    if ((input.target !== "expression" || !updated.rewrittenText) && (input.target !== "reply" || !updated.replyText)) return updated;
+    if (input.target === "expression" || !updated.replyText) return updated;
     try {
       return await this.generateContent({
         ...input,
@@ -1709,7 +1710,9 @@ export class CardService {
         {
           contentType: "original",
           text: entry.originalText,
-          languageCode: entry.languageCode,
+          languageCode: entry.originalText
+            ? inferLearningTextLanguage(entry.originalText, entry.appLocaleSnapshot)
+            : entry.appLocaleSnapshot,
           sourceHash: entry.originalContentHash,
         },
         {
@@ -1749,6 +1752,10 @@ export class CardService {
       "reply",
       ...entry.images.filter((image) => image.descriptionText).map((image) => imageDescriptionContentType(image.id)),
     ];
+    const alignedOriginalSegments = rewriteAlignedOriginalSegments(entry);
+    const alignedOriginalLanguageCode = entry.originalText
+      ? inferLearningTextLanguage(entry.originalText, entry.appLocaleSnapshot)
+      : null;
     const contentBlocks = await Promise.all(contentTypes.flatMap((typedContentType) => {
       const segments = entry.contentSegments.filter((segment) => segment.contentType === typedContentType);
       if (!segments.length) return [];
@@ -1791,6 +1798,8 @@ export class CardService {
         practice: entry.clientId === TUTORIAL_CLIENT_ID ? tutorialPractice(segments, entry.languageCode) : state?.contentVersion === contentVersion ? toPracticeView(state) : null,
         auxiliarySegments,
         auxiliaryLanguageCode,
+        alignedOriginalSegments: typedContentType === "rewrite" ? alignedOriginalSegments : [],
+        alignedOriginalLanguageCode: typedContentType === "rewrite" ? alignedOriginalLanguageCode : null,
         learningAccess,
       }))];
     }));
@@ -2501,6 +2510,70 @@ function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningCo
   if (contentType === "reply") return entry.replyLanguageCode ?? entry.languageCode;
   const imageId = imageIdFromContentType(contentType);
   return entry.images.find((image) => image.id === imageId)?.descriptionLanguageCode ?? entry.languageCode;
+}
+
+function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal: number; text: string }> {
+  const sourceSegments = entry.contentSegments
+    .filter((segment) => segment.contentType === "original")
+    .sort((left, right) => left.ordinal - right.ordinal);
+  const targetSegments = entry.contentSegments
+    .filter((segment) => segment.contentType === "rewrite")
+    .sort((left, right) => left.ordinal - right.ordinal);
+  const originalText = entry.originalText?.trim();
+  if (!originalText || !targetSegments.length) return [];
+  const fallback = [{ ordinal: targetSegments[targetSegments.length - 1]!.ordinal, text: originalText }];
+  const value = entry.rewriteAlignment;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  const alignment = value as {
+    schemaVersion?: unknown;
+    sourceContentVersion?: unknown;
+    targetContentVersion?: unknown;
+    sourceUnits?: unknown;
+    groups?: unknown;
+  };
+  if (alignment.schemaVersion !== 1
+    || alignment.sourceContentVersion !== sourceSegments[0]?.contentVersion
+    || alignment.targetContentVersion !== targetSegments[0]?.contentVersion
+    || !Array.isArray(alignment.sourceUnits)
+    || !Array.isArray(alignment.groups)) return fallback;
+  const sourceUnits = alignment.sourceUnits.flatMap((rawUnit) => {
+    if (!rawUnit || typeof rawUnit !== "object" || Array.isArray(rawUnit)) return [];
+    const unit = rawUnit as { ordinal?: unknown; startUtf16?: unknown; endUtf16?: unknown };
+    return Number.isInteger(unit.ordinal) && Number.isInteger(unit.startUtf16) && Number.isInteger(unit.endUtf16)
+      && (unit.ordinal as number) >= 0 && (unit.startUtf16 as number) >= 0
+      && (unit.endUtf16 as number) > (unit.startUtf16 as number) && (unit.endUtf16 as number) <= entry.originalText!.length
+      ? [{ ordinal: unit.ordinal as number, startUtf16: unit.startUtf16 as number, endUtf16: unit.endUtf16 as number }]
+      : [];
+  });
+  if (sourceUnits.length !== alignment.sourceUnits.length
+    || sourceUnits.some((unit, index) => unit.ordinal !== index
+      || index > 0 && unit.startUtf16 < sourceUnits[index - 1]!.endUtf16)) return fallback;
+  const sourceByOrdinal = new Map(sourceUnits.map((unit) => [unit.ordinal, unit]));
+  const targetOrdinals = new Set(targetSegments.map((segment) => segment.ordinal));
+  const seenSource = new Set<number>();
+  const seenTarget = new Set<number>();
+  const rows: Array<{ ordinal: number; text: string }> = [];
+  for (const rawGroup of alignment.groups) {
+    if (!rawGroup || typeof rawGroup !== "object" || Array.isArray(rawGroup)) return fallback;
+    const sourceOrdinals = (rawGroup as { sourceOrdinals?: unknown }).sourceOrdinals;
+    const groupTargetOrdinals = (rawGroup as { targetOrdinals?: unknown }).targetOrdinals;
+    if (!Array.isArray(sourceOrdinals) || !sourceOrdinals.length
+      || !Array.isArray(groupTargetOrdinals) || !groupTargetOrdinals.length
+      || sourceOrdinals.some((ordinal) => !Number.isInteger(ordinal) || !sourceByOrdinal.has(ordinal as number) || seenSource.has(ordinal as number))
+      || groupTargetOrdinals.some((ordinal) => !Number.isInteger(ordinal) || !targetOrdinals.has(ordinal as number) || seenTarget.has(ordinal as number))) return fallback;
+    const typedSourceOrdinals = sourceOrdinals as number[];
+    const typedTargetOrdinals = groupTargetOrdinals as number[];
+    typedSourceOrdinals.forEach((ordinal) => seenSource.add(ordinal));
+    typedTargetOrdinals.forEach((ordinal) => seenTarget.add(ordinal));
+    const first = sourceByOrdinal.get(typedSourceOrdinals[0]!)!;
+    const last = sourceByOrdinal.get(typedSourceOrdinals[typedSourceOrdinals.length - 1]!)!;
+    rows.push({
+      ordinal: typedTargetOrdinals[typedTargetOrdinals.length - 1]!,
+      text: entry.originalText!.slice(first.startUtf16, last.endUtf16).trim(),
+    });
+  }
+  if (seenSource.size !== sourceUnits.length || seenTarget.size !== targetSegments.length || rows.some((row) => !row.text)) return fallback;
+  return rows;
 }
 
 function defaultLearningContentType(entry: CardEntryEntity): CardLearningContentType | null {

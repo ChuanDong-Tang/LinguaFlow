@@ -314,7 +314,7 @@ export function CardDetailNavigator({
     if (!detail) throw new Error(t("card_detail.error.try_again"));
     const block = detail.contentBlocks.find((candidate) => candidate.contentType === contentType);
     if (!block || block.learningAccess !== "enabled") throw new Error(t("card_detail.error.try_again"));
-    const generated = block.auxiliarySegments?.length
+    const generated = block.contentType === "rewrite" || block.auxiliarySegments?.length
       ? detail
       : await generateCardContent(detail.id, "auxiliary", contentType);
     const withAutomaticCloze = await generateCardAutomaticCloze(detail.id, [contentType]).catch(() => generated);
