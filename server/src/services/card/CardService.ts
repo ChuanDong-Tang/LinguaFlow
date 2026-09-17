@@ -2550,7 +2550,6 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
       || index > 0 && unit.startUtf16 < sourceUnits[index - 1]!.endUtf16)) return fallback;
   const sourceByOrdinal = new Map(sourceUnits.map((unit) => [unit.ordinal, unit]));
   const targetOrdinals = new Set(targetSegments.map((segment) => segment.ordinal));
-  const seenSource = new Set<number>();
   const seenTarget = new Set<number>();
   const rows: Array<{ ordinal: number; text: string }> = [];
   for (const rawGroup of alignment.groups) {
@@ -2559,11 +2558,10 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
     const groupTargetOrdinals = (rawGroup as { targetOrdinals?: unknown }).targetOrdinals;
     if (!Array.isArray(sourceOrdinals) || !sourceOrdinals.length
       || !Array.isArray(groupTargetOrdinals) || !groupTargetOrdinals.length
-      || sourceOrdinals.some((ordinal) => !Number.isInteger(ordinal) || !sourceByOrdinal.has(ordinal as number) || seenSource.has(ordinal as number))
+      || sourceOrdinals.some((ordinal) => !Number.isInteger(ordinal) || !sourceByOrdinal.has(ordinal as number))
       || groupTargetOrdinals.some((ordinal) => !Number.isInteger(ordinal) || !targetOrdinals.has(ordinal as number) || seenTarget.has(ordinal as number))) return fallback;
     const typedSourceOrdinals = sourceOrdinals as number[];
     const typedTargetOrdinals = groupTargetOrdinals as number[];
-    typedSourceOrdinals.forEach((ordinal) => seenSource.add(ordinal));
     typedTargetOrdinals.forEach((ordinal) => seenTarget.add(ordinal));
     const first = sourceByOrdinal.get(typedSourceOrdinals[0]!)!;
     const last = sourceByOrdinal.get(typedSourceOrdinals[typedSourceOrdinals.length - 1]!)!;
@@ -2572,7 +2570,7 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
       text: entry.originalText!.slice(first.startUtf16, last.endUtf16).trim(),
     });
   }
-  if (seenSource.size !== sourceUnits.length || seenTarget.size !== targetSegments.length || rows.some((row) => !row.text)) return fallback;
+  if (seenTarget.size !== targetSegments.length || rows.some((row) => !row.text)) return fallback;
   return rows;
 }
 

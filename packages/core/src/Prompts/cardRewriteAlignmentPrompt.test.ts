@@ -73,7 +73,18 @@ test("normalizes common start/end and sparse range shorthand before validation",
   ]);
 });
 
-test("rejects missing, duplicated, or crossed mappings", () => {
+test("uses the whole source as a safe fallback for an unmatched target", () => {
+  assert.deepEqual(parseCardRewriteAlignmentOutput({
+    output: JSON.stringify({ matches: [{ source: [0], target: 0 }] }),
+    sourceOrdinals: [0, 1],
+    targetOrdinals: [0, 1],
+  }), [
+    { sourceOrdinals: [0], targetOrdinals: [0] },
+    { sourceOrdinals: [0, 1], targetOrdinals: [1] },
+  ]);
+});
+
+test("rejects duplicated or crossed target mappings", () => {
   assert.throws(() => parseCardRewriteAlignmentOutput({
     output: JSON.stringify({ groups: [
       { source: [0], target: [1] },
@@ -83,7 +94,7 @@ test("rejects missing, duplicated, or crossed mappings", () => {
     targetOrdinals: [0, 1],
   }));
   assert.throws(() => parseCardRewriteAlignmentOutput({
-    output: JSON.stringify({ groups: [{ source: [0], target: [0] }] }),
+    output: JSON.stringify({ matches: [{ source: [0], target: 0 }, { source: [1], target: 0 }] }),
     sourceOrdinals: [0, 1],
     targetOrdinals: [0],
   }));

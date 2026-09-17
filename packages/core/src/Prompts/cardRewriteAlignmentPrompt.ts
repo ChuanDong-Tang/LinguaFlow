@@ -1,4 +1,4 @@
-export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v3";
+export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v4";
 
 export interface CardRewriteAlignmentGroup {
   sourceOrdinals: number[];
@@ -42,13 +42,11 @@ export function buildCardRewriteAlignmentPrompt(input: {
 Treat each T unit in the rewrite as the display anchor. For each T unit, find the consecutive S unit or units in the source that express the meaning rewritten there. Do not force the rewrite to follow the source's sentence boundaries or sentence count.
 The source may use any language or mix languages. An S unit is only a lookup fragment and may naturally end with a comma, semicolon, discourse pause, or other incomplete-sentence punctuation.
 The rewrite is already final: never rewrite, translate, correct, split, merge, omit, or add text.
-Return only an index mapping. Every T index and every S index must appear exactly once. Groups must preserve order and may map one-to-one, one-to-many, or many-to-one.
-Use meaning rather than shared words or punctuation. Source fragments that only provide discourse context should be attached to the closest T unit whose meaning includes that context.
-
-Before returning, flatten every source array and verify it exactly equals all supplied S indexes in order. Then flatten every target array and verify it exactly equals all supplied T indexes in order. Never omit filler, hesitation, or context-only S units; attach them to the closest relevant T group.
+Return one match for every T index, in T order. Each match must contain the consecutive S index or indexes that express that T unit's meaning. The same S indexes may be used by adjacent T matches when one source passage becomes multiple rewrite sentences. Source filler or hesitation that is not expressed in the rewrite may remain unused.
+Use meaning rather than shared words or punctuation. Never leave a T index unmatched.
 
 Return JSON only, with no markdown or explanation, in exactly this shape:
-{"groups":[{"source":[0,1],"target":[0]},{"source":[2],"target":[1,2]}]}`,
+{"matches":[{"target":0,"source":[0,1]},{"target":1,"source":[2]}]}`,
     userPrompt: JSON.stringify({
       source: input.sourceSegments.map((segment) => ({ id: `S${segment.ordinal}`, text: segment.text })),
       target: input.targetSegments.map((segment) => ({ id: `T${segment.ordinal}`, text: segment.text })),
@@ -62,8 +60,11 @@ export function parseCardRewriteAlignmentOutput(input: {
   targetOrdinals: readonly number[];
 }): CardRewriteAlignmentGroup[] {
   const value = parseJsonObject(input.output);
-  const rows = value && typeof value === "object" && Array.isArray((value as { groups?: unknown }).groups)
-    ? (value as { groups: unknown[] }).groups
+  const candidateRows = value && typeof value === "object"
+    ? (value as { matches?: unknown; groups?: unknown }).matches ?? (value as { groups?: unknown }).groups
+    : null;
+  const rows = Array.isArray(candidateRows)
+    ? candidateRows
     : null;
   if (!rows?.length) throw new Error("CARD_REWRITE_ALIGNMENT_INVALID_FORMAT");
 
@@ -83,17 +84,41 @@ export function parseCardRewriteAlignmentOutput(input: {
     return { sourceOrdinals, targetOrdinals };
   });
 
-  validateCoverage(groups.flatMap((group) => group.sourceOrdinals), input.sourceOrdinals, "SOURCE");
-  validateCoverage(groups.flatMap((group) => group.targetOrdinals), input.targetOrdinals, "TARGET");
+  const sourceSet = new Set(input.sourceOrdinals);
+  const targetSet = new Set(input.targetOrdinals);
+  if (groups.some((group) => group.sourceOrdinals.some((ordinal) => !sourceSet.has(ordinal))
+    || group.targetOrdinals.some((ordinal) => !targetSet.has(ordinal)))) {
+    throw new Error("CARD_REWRITE_ALIGNMENT_ORDINAL_OUT_OF_RANGE");
+  }
   for (let index = 1; index < groups.length; index += 1) {
     const previous = groups[index - 1]!;
     const current = groups[index]!;
-    if (Math.max(...previous.sourceOrdinals) >= Math.min(...current.sourceOrdinals)
+    if (Math.min(...previous.sourceOrdinals) > Math.min(...current.sourceOrdinals)
       || Math.max(...previous.targetOrdinals) >= Math.min(...current.targetOrdinals)) {
       throw new Error("CARD_REWRITE_ALIGNMENT_NON_MONOTONIC");
     }
   }
-  return groups;
+  const sourceForTarget = new Map<number, number[]>();
+  for (const group of groups) {
+    for (const targetOrdinal of group.targetOrdinals) {
+      if (sourceForTarget.has(targetOrdinal)) throw new Error("CARD_REWRITE_ALIGNMENT_DUPLICATE_TARGET");
+      sourceForTarget.set(targetOrdinal, group.sourceOrdinals);
+    }
+  }
+  const fallbackSource = [...input.sourceOrdinals];
+  const completed = input.targetOrdinals.map((targetOrdinal) => ({
+    sourceOrdinals: sourceForTarget.get(targetOrdinal) ?? fallbackSource,
+    targetOrdinals: [targetOrdinal],
+  }));
+  return completed.reduce<CardRewriteAlignmentGroup[]>((result, group) => {
+    const previous = result[result.length - 1];
+    if (previous && sameOrdinals(previous.sourceOrdinals, group.sourceOrdinals)) {
+      previous.targetOrdinals.push(...group.targetOrdinals);
+    } else {
+      result.push({ sourceOrdinals: [...group.sourceOrdinals], targetOrdinals: [...group.targetOrdinals] });
+    }
+    return result;
+  }, []);
 }
 
 function parseJsonObject(output: string): unknown {
@@ -139,10 +164,8 @@ function ordinalRange(start: unknown, end: unknown): unknown {
   return start === undefined || end === undefined ? undefined : `${String(start)}-${String(end)}`;
 }
 
-function validateCoverage(actual: number[], expected: readonly number[], label: "SOURCE" | "TARGET"): void {
-  if (actual.length !== expected.length || actual.some((ordinal, index) => ordinal !== expected[index])) {
-    throw new Error(`CARD_REWRITE_ALIGNMENT_${label}_COVERAGE_MISMATCH`);
-  }
+function sameOrdinals(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((ordinal, index) => ordinal === right[index]);
 }
 
 function trimStart(text: string, start: number, end: number): number {
