@@ -204,6 +204,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
                 AND j."sourceKind" = 'card'
                 AND j."sourceId" = c."id"
                 AND j."jobType" = 'align_rewrite_original'
+                AND j."inputVersion" = ${CARD_REWRITE_ALIGNMENT_PROMPT_VERSION}
                 AND j."status" IN ('queued', 'processing', 'failed')
            )
          ORDER BY c."createdAt" ASC, c."id" ASC

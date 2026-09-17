@@ -43,6 +43,21 @@ test("accepts ordered one-to-many and many-to-one mappings", () => {
   ]);
 });
 
+test("accepts safe scalar, named-field, and range variants from the model", () => {
+  const groups = parseCardRewriteAlignmentOutput({
+    output: JSON.stringify({ groups: [
+      { sourceOrdinals: "S0-S1", targetOrdinals: "T0" },
+      { source: 2, target: ["T1", "T2"] },
+    ] }),
+    sourceOrdinals: [0, 1, 2],
+    targetOrdinals: [0, 1, 2],
+  });
+  assert.deepEqual(groups, [
+    { sourceOrdinals: [0, 1], targetOrdinals: [0] },
+    { sourceOrdinals: [2], targetOrdinals: [1, 2] },
+  ]);
+});
+
 test("rejects missing, duplicated, or crossed mappings", () => {
   assert.throws(() => parseCardRewriteAlignmentOutput({
     output: JSON.stringify({ groups: [

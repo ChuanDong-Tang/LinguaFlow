@@ -1,4 +1,4 @@
-export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v1";
+export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v2";
 
 export interface CardRewriteAlignmentGroup {
   sourceOrdinals: number[];
@@ -45,8 +45,10 @@ The rewrite is already final: never rewrite, translate, correct, split, merge, o
 Return only an index mapping. Every T index and every S index must appear exactly once. Groups must preserve order and may map one-to-one, one-to-many, or many-to-one.
 Use meaning rather than shared words or punctuation. Source fragments that only provide discourse context should be attached to the closest T unit whose meaning includes that context.
 
+Before returning, flatten every source array and verify it exactly equals all supplied S indexes in order. Then flatten every target array and verify it exactly equals all supplied T indexes in order. Never omit filler, hesitation, or context-only S units; attach them to the closest relevant T group.
+
 Return JSON only, with no markdown or explanation, in exactly this shape:
-{"groups":[{"source":[0],"target":[0]}]}`,
+{"groups":[{"source":[0,1],"target":[0]},{"source":[2],"target":[1,2]}]}`,
     userPrompt: JSON.stringify({
       source: input.sourceSegments.map((segment) => ({ id: `S${segment.ordinal}`, text: segment.text })),
       target: input.targetSegments.map((segment) => ({ id: `T${segment.ordinal}`, text: segment.text })),
@@ -67,8 +69,9 @@ export function parseCardRewriteAlignmentOutput(input: {
 
   const groups = rows.map((row) => {
     if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error("CARD_REWRITE_ALIGNMENT_INVALID_GROUP");
-    const sourceOrdinals = parseOrdinals((row as { source?: unknown }).source, "S");
-    const targetOrdinals = parseOrdinals((row as { target?: unknown }).target, "T");
+    const typedRow = row as { source?: unknown; target?: unknown; sourceOrdinals?: unknown; targetOrdinals?: unknown };
+    const sourceOrdinals = parseOrdinals(typedRow.source ?? typedRow.sourceOrdinals, "S");
+    const targetOrdinals = parseOrdinals(typedRow.target ?? typedRow.targetOrdinals, "T");
     return { sourceOrdinals, targetOrdinals };
   });
 
@@ -98,12 +101,19 @@ function parseJsonObject(output: string): unknown {
 }
 
 function parseOrdinals(value: unknown, prefix: "S" | "T"): number[] {
-  if (!Array.isArray(value) || !value.length) throw new Error("CARD_REWRITE_ALIGNMENT_INVALID_GROUP");
-  const ordinals = value.map((item) => {
+  const values = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+  if (!values.length) throw new Error("CARD_REWRITE_ALIGNMENT_INVALID_GROUP");
+  const ordinals = values.flatMap((item) => {
     if (Number.isInteger(item) && (item as number) >= 0) return item as number;
     if (typeof item === "string") {
       const match = new RegExp(`^${prefix}?(\\d+)$`, "u").exec(item.trim());
       if (match) return Number(match[1]);
+      const range = new RegExp(`^${prefix}?(\\d+)\\s*[-–—]\\s*${prefix}?(\\d+)$`, "u").exec(item.trim());
+      if (range) {
+        const start = Number(range[1]);
+        const end = Number(range[2]);
+        if (end >= start) return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+      }
     }
     throw new Error("CARD_REWRITE_ALIGNMENT_INVALID_GROUP");
   });
