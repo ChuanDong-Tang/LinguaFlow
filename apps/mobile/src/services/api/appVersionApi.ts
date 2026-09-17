@@ -4,7 +4,6 @@ import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const DISTRIBUTION_CHANNEL = process.env.EXPO_PUBLIC_DISTRIBUTION_CHANNEL?.trim().toLowerCase();
-const CHINA_ANDROID_UPDATE_URL = "https://yueyantech.com";
 
 type AppVersionPolicy = {
   platform: "ios" | "android";
@@ -31,17 +30,18 @@ export async function getAvailableAppUpdate(): Promise<AvailableAppUpdate | null
   if (mockVersion && compareVersions(currentVersion, mockVersion) < 0) {
     return {
       latestVersion: mockVersion,
-      storeUrl: resolveUpdateUrl(
-        Platform.OS === "ios"
-          ? "https://apps.apple.com/app/id6776898160"
-          : "https://play.google.com/store/apps/details?id=com.yueyantech.oio",
-      ),
+      storeUrl: Platform.OS === "ios"
+        ? "https://apps.apple.com/app/id6776898160"
+        : "https://play.google.com/store/apps/details?id=com.yueyantech.oio",
     };
   }
 
   if (!BASE_URL) return null;
 
-  const response = await fetchWithTimeout(`${BASE_URL}/app/version?platform=${Platform.OS}`, {}, 8_000);
+  const distribution = Platform.OS === "android" && (DISTRIBUTION_CHANNEL === "china" || DISTRIBUTION_CHANNEL === "google")
+    ? `&distribution=${encodeURIComponent(DISTRIBUTION_CHANNEL)}`
+    : "";
+  const response = await fetchWithTimeout(`${BASE_URL}/app/version?platform=${Platform.OS}${distribution}`, {}, 8_000);
   if (!response.ok) throw new Error(`APP_VERSION_HTTP_${response.status}`);
   const result = await response.json() as ApiResult;
   if (!result.ok || !result.data.enabled || !result.data.latestVersion) return null;
@@ -49,15 +49,8 @@ export async function getAvailableAppUpdate(): Promise<AvailableAppUpdate | null
 
   return {
     latestVersion: result.data.latestVersion,
-    storeUrl: resolveUpdateUrl(result.data.storeUrl),
+    storeUrl: result.data.storeUrl,
   };
-}
-
-function resolveUpdateUrl(storeUrl: string): string {
-  if (Platform.OS === "android" && DISTRIBUTION_CHANNEL === "china") {
-    return CHINA_ANDROID_UPDATE_URL;
-  }
-  return storeUrl;
 }
 
 export function compareVersions(left: string, right: string): number {
