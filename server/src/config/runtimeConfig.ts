@@ -150,6 +150,7 @@ export interface RuntimeConfig {
   cardPhraseHistoryGlobalConcurrency: number;
   cardPhraseIndexGlobalConcurrency: number;
   cardRewriteAlignmentEnabled: boolean;
+  cardRewriteAlignmentBackfillEnabled: boolean;
   cardRewriteAlignmentBatchSize: number;
   cardRewriteAlignmentScanIntervalMs: number;
   cardRewriteAlignmentJobIntervalMs: number;
@@ -357,6 +358,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardPhraseHistoryGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_HISTORY_GLOBAL_CONCURRENCY, 2),
     cardPhraseIndexGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_INDEX_GLOBAL_CONCURRENCY, 2),
     cardRewriteAlignmentEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_ENABLED ?? env.CARD_AUXILIARY_BACKFILL_ENABLED, true),
+    cardRewriteAlignmentBackfillEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_BACKFILL_ENABLED, false),
     cardRewriteAlignmentBatchSize: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_BATCH_SIZE ?? env.CARD_AUXILIARY_BACKFILL_BATCH_SIZE, 20),
     cardRewriteAlignmentScanIntervalMs: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_SCAN_INTERVAL_MS ?? env.CARD_AUXILIARY_BACKFILL_SCAN_INTERVAL_MS, 30_000),
     cardRewriteAlignmentJobIntervalMs: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_JOB_INTERVAL_MS ?? env.CARD_AUXILIARY_BACKFILL_JOB_INTERVAL_MS, 1_000),

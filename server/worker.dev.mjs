@@ -322,7 +322,7 @@ const cardTopicWorker = new SerialCardJobWorker(
     concurrencyLimit: runtime.cardTopicGlobalConcurrency,
   },
 );
-const cardRewriteAlignmentScanner = runtime.cardRewriteAlignmentEnabled
+const cardRewriteAlignmentScanner = runtime.cardRewriteAlignmentEnabled && runtime.cardRewriteAlignmentBackfillEnabled
   ? new CardRewriteAlignmentScanner(
       cardEnrichmentRepository,
       systemEventLogRepository,
