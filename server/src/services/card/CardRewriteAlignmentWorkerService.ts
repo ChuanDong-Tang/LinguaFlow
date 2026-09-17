@@ -10,7 +10,10 @@ import {
 } from "@lf/core/Prompts/cardRewriteAlignmentPrompt.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
+import { inferLearningTextLanguage } from "@lf/core/text/learningText.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import { cardContentBlockVersion } from "./cardContentSegments.js";
+import { segmentLearningSentences } from "../text/learningSentenceSegmenter.js";
 
 export class CardRewriteAlignmentWorkerService {
   constructor(
@@ -43,10 +46,33 @@ export class CardRewriteAlignmentWorkerService {
         await this.repository.completeWithoutResult(job, "CARD_REWRITE_ALIGNMENT_SOURCE_MISSING_OR_STALE");
         return;
       }
-      const sourceUnits = buildCardRewriteAlignmentSourceUnits({ sourceText: source.originalText, segments: source.sourceSegments });
+      const sourceLanguageCode = inferLearningTextLanguage(source.originalText, source.appLocaleSnapshot);
+      const targetLanguageCode = source.rewrittenLanguageCode ?? source.languageCode;
+      const sourceSegments = segmentLearningSentences({
+        text: source.originalText,
+        languageCode: sourceLanguageCode,
+        minSegmentChars: 1,
+        maxSegmentChars: 800,
+      }).map((segment, ordinal) => ({
+        ordinal,
+        text: segment.text,
+        startUtf16: segment.textStart,
+        endUtf16: segment.textEnd,
+      }));
+      const targetSegments = segmentLearningSentences({
+        text: source.rewrittenText,
+        languageCode: targetLanguageCode,
+        minSegmentChars: 1,
+        maxSegmentChars: 800,
+      }).map((segment, ordinal) => ({ ordinal, text: segment.text }));
+      if (!sourceSegments.length || !targetSegments.length) {
+        await this.repository.completeWithoutResult(job, "CARD_REWRITE_ALIGNMENT_SEGMENTS_MISSING");
+        return;
+      }
+      const sourceUnits = buildCardRewriteAlignmentSourceUnits({ sourceText: source.originalText, segments: sourceSegments });
       const prompt = buildCardRewriteAlignmentPrompt({
         sourceSegments: sourceUnits,
-        targetSegments: source.targetSegments,
+        targetSegments,
       });
       await this.assertBackgroundCapacity();
       const generate = () => this.aiProvider.generateChatTextStream({
@@ -58,7 +84,7 @@ export class CardRewriteAlignmentWorkerService {
         companionMode: "rewrite_only",
         systemPrompt: prompt.systemPrompt,
         rawUserPrompt: true,
-        maxOutputTokens: Math.min(2_000, Math.max(300, (source.sourceSegments.length + source.targetSegments.length) * 40)),
+        maxOutputTokens: Math.min(2_000, Math.max(300, (sourceSegments.length + targetSegments.length) * 40)),
       }, (event) => {
         if (event.type === "delta") output += event.text;
         if (event.type === "done") usage = event.usage;
@@ -68,7 +94,7 @@ export class CardRewriteAlignmentWorkerService {
       const groups = parseCardRewriteAlignmentOutput({
         output,
         sourceOrdinals: sourceUnits.map((segment) => segment.ordinal),
-        targetOrdinals: source.targetSegments.map((segment) => segment.ordinal),
+        targetOrdinals: targetSegments.map((segment) => segment.ordinal),
       });
       this.contentSafetyService?.assertAllowed(output, "output");
       await this.contentSafetyService?.assertAllowedRemote({
@@ -80,8 +106,16 @@ export class CardRewriteAlignmentWorkerService {
       const alignment: CardRewriteAlignmentResult = {
         schemaVersion: 1,
         promptVersion: CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
-        sourceContentVersion: source.sourceContentVersion,
-        targetContentVersion: source.targetContentVersion,
+        sourceContentVersion: cardContentBlockVersion({
+          contentType: "original",
+          text: source.originalText,
+          sourceHash: source.originalContentHash,
+        }),
+        targetContentVersion: cardContentBlockVersion({
+          contentType: "rewrite",
+          text: source.rewrittenText,
+          sourceHash: source.rewrittenSourceHash,
+        }),
         sourceUnits: sourceUnits.map(({ ordinal, startUtf16, endUtf16 }) => ({ ordinal, startUtf16, endUtf16 })),
         groups,
       };
@@ -89,7 +123,7 @@ export class CardRewriteAlignmentWorkerService {
       await this.log(job, "success", null, {
         durationMs: Date.now() - startedAt,
         sourceSegmentCount: sourceUnits.length,
-        targetSegmentCount: source.targetSegments.length,
+        targetSegmentCount: targetSegments.length,
         groupCount: groups.length,
         outputChars: output.length,
         inputTokens: usage?.inputTokens ?? null,

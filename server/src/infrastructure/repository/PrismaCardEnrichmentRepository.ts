@@ -277,28 +277,24 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         originalText: true,
         rewrittenText: true,
         languageCode: true,
-        contentSegments: {
-          where: { contentType: { in: ["original", "rewrite"] } },
-          orderBy: [{ contentType: "asc" }, { ordinal: "asc" }],
-          select: { contentType: true, contentVersion: true, ordinal: true, text: true, startUtf16: true, endUtf16: true },
-        },
+        rewrittenLanguageCode: true,
+        appLocaleSnapshot: true,
+        originalContentHash: true,
+        rewrittenSourceHash: true,
       },
     });
     if (!card?.originalText || !card.rewrittenText
       || rewriteAlignmentInputHash(card.originalText, card.rewrittenText) !== job.inputHash) return null;
-    const sourceSegments = card.contentSegments.filter((segment) => segment.contentType === "original");
-    const targetSegments = card.contentSegments.filter((segment) => segment.contentType === "rewrite");
-    if (!sourceSegments.length || !targetSegments.length) return null;
     return {
       userId: job.userId,
       sourceId: job.sourceId,
       originalText: card.originalText,
       rewrittenText: card.rewrittenText,
       languageCode: card.languageCode,
-      sourceContentVersion: sourceSegments[0]!.contentVersion,
-      targetContentVersion: targetSegments[0]!.contentVersion,
-      sourceSegments: sourceSegments.map(({ ordinal, text, startUtf16, endUtf16 }) => ({ ordinal, text, startUtf16, endUtf16 })),
-      targetSegments: targetSegments.map(({ ordinal, text }) => ({ ordinal, text })),
+      rewrittenLanguageCode: card.rewrittenLanguageCode,
+      appLocaleSnapshot: card.appLocaleSnapshot,
+      originalContentHash: card.originalContentHash,
+      rewrittenSourceHash: card.rewrittenSourceHash,
     };
   }
 

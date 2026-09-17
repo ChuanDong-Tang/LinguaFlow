@@ -36,10 +36,10 @@ export interface CardRewriteAlignmentSource {
   originalText: string;
   rewrittenText: string;
   languageCode: string;
-  sourceContentVersion: string;
-  targetContentVersion: string;
-  sourceSegments: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }>;
-  targetSegments: Array<{ ordinal: number; text: string }>;
+  rewrittenLanguageCode: string | null;
+  appLocaleSnapshot: string;
+  originalContentHash: string | null;
+  rewrittenSourceHash: string | null;
 }
 
 export interface PhraseIndexSource {

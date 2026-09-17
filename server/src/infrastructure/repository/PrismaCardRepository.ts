@@ -2074,9 +2074,19 @@ async function syncContentSegments(
         return next && segment.ordinal === next.ordinal && segment.text === next.text &&
           segment.startUtf16 === next.startUtf16 && segment.endUtf16 === next.endUtf16;
       });
-      // Migrated rows intentionally retain their legacy version so existing
-      // practice JSON keeps referring to the same segment ids.
-      if (sameContent) continue;
+      // When only the segmenter version changed, upgrade both versions in
+      // place so the existing segment ids and learning progress remain valid.
+      if (sameContent) {
+        await tx.cardContentSegment.updateMany({
+          where: { entryId, contentType: write.contentType },
+          data: { contentVersion: write.contentVersion },
+        });
+        await tx.cardContentPracticeState.updateMany({
+          where: { cardId: entryId, contentType: write.contentType },
+          data: { contentVersion: write.contentVersion },
+        });
+        continue;
+      }
     }
     await tx.cardContentSegment.deleteMany({ where: { entryId, contentType: write.contentType } });
     if (write.segments.length) {
