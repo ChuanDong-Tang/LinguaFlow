@@ -43,6 +43,23 @@ test("accepts ordered one-to-many and many-to-one mappings", () => {
   ]);
 });
 
+test("accepts target-ordered matches when a natural rewrite reorders source ideas", () => {
+  const groups = parseCardRewriteAlignmentOutput({
+    output: JSON.stringify({ matches: [
+      { target: 0, source: [2, 3] },
+      { target: 1, source: [0, 1] },
+      { target: 2, source: [4] },
+    ] }),
+    sourceOrdinals: [0, 1, 2, 3, 4],
+    targetOrdinals: [0, 1, 2],
+  });
+  assert.deepEqual(groups, [
+    { sourceOrdinals: [2, 3], targetOrdinals: [0] },
+    { sourceOrdinals: [0, 1], targetOrdinals: [1] },
+    { sourceOrdinals: [4], targetOrdinals: [2] },
+  ]);
+});
+
 test("accepts safe scalar, named-field, and range variants from the model", () => {
   const groups = parseCardRewriteAlignmentOutput({
     output: JSON.stringify({ groups: [
