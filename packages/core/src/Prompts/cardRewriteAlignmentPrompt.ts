@@ -1,4 +1,4 @@
-export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v5";
+export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v6";
 
 export interface CardRewriteAlignmentGroup {
   sourceOrdinals: number[];
@@ -43,7 +43,7 @@ Treat each T unit in the rewrite as the display anchor. For each T unit, find th
 The rewrite may reorder ideas for natural expression. Keep matches in T order, but do not force the S indexes of later T matches to be greater than earlier ones.
 The source may use any language or mix languages. An S unit is only a lookup fragment and may naturally end with a comma, semicolon, discourse pause, or other incomplete-sentence punctuation.
 The rewrite is already final: never rewrite, translate, correct, split, merge, omit, or add text.
-Return one match for every T index, in T order. Each match must contain the consecutive S index or indexes that express that T unit's meaning. The same S indexes may be used by adjacent T matches when one source passage becomes multiple rewrite sentences. Source filler or hesitation that is not expressed in the rewrite may remain unused.
+Return one match for every T index, in T order. Each match must contain the exact S index or indexes that express that T unit's meaning. The S indexes within a match must be in ascending order, but they do not need to be consecutive when a rewrite combines separated source ideas. Never include an intervening S index unless its meaning is actually expressed by that T unit. The same S indexes may be used by adjacent T matches when one source passage becomes multiple rewrite sentences. Source filler or hesitation that is not expressed in the rewrite may remain unused.
 Use meaning rather than shared words or punctuation. Never leave a T index unmatched.
 
 Return JSON only, with no markdown or explanation, in exactly this shape:
@@ -154,7 +154,7 @@ function parseOrdinals(value: unknown, prefix: "S" | "T"): number[] {
   if (ordinals.some((ordinal, index) => index > 0 && ordinal <= ordinals[index - 1]!)) {
     throw new Error("CARD_REWRITE_ALIGNMENT_NON_MONOTONIC");
   }
-  if (ordinals.length > 1 && ordinals.some((ordinal, index) => index > 0 && ordinal !== ordinals[index - 1]! + 1)) {
+  if (prefix === "T" && ordinals.length > 1 && ordinals.some((ordinal, index) => index > 0 && ordinal !== ordinals[index - 1]! + 1)) {
     return Array.from({ length: ordinals[ordinals.length - 1]! - ordinals[0]! + 1 }, (_, index) => ordinals[0]! + index);
   }
   return ordinals;

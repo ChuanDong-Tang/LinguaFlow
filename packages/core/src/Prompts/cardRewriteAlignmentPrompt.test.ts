@@ -60,6 +60,21 @@ test("accepts target-ordered matches when a natural rewrite reorders source idea
   ]);
 });
 
+test("preserves exact non-consecutive source indexes when one rewrite sentence combines separated ideas", () => {
+  const groups = parseCardRewriteAlignmentOutput({
+    output: JSON.stringify({ matches: [
+      { target: 0, source: [0, 3, 4] },
+      { target: 1, source: [1, 2] },
+    ] }),
+    sourceOrdinals: [0, 1, 2, 3, 4],
+    targetOrdinals: [0, 1],
+  });
+  assert.deepEqual(groups, [
+    { sourceOrdinals: [0, 3, 4], targetOrdinals: [0] },
+    { sourceOrdinals: [1, 2], targetOrdinals: [1] },
+  ]);
+});
+
 test("accepts safe scalar, named-field, and range variants from the model", () => {
   const groups = parseCardRewriteAlignmentOutput({
     output: JSON.stringify({ groups: [
