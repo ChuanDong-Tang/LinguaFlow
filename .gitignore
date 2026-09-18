@@ -31,8 +31,13 @@ agent.md
 /ecosystem.production.config.cjs
 /build_mobile_aab.bat
 
-# Local agent skills and release outputs.
-/skills/
+# Project-owned LinguaFlow agent skills are versioned. Third-party/local skills
+# and machine credentials remain local.
+/skills/*
+!/skills/linguaflow-*/
+!/skills/linguaflow-*/**
+/skills/linguaflow-*/config/*.env
+!/skills/linguaflow-*/config/*.env.example
 /ci/cd/
 /apps/mobile/*.apk
 /apps/mobile/*.aab
