@@ -2,7 +2,7 @@ import type { AIProvider, ChatTextGenerationStreamEvent } from "@lf/core/ports/a
 import type { CardEntryEntity, CardRepository } from "@lf/core/ports/repository/CardRepository.js";
 import type { AiRequestLogRepository } from "@lf/core/ports/repository/AiRequestLogRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
-import { buildCardExpressionPrompt, CARD_TOPIC_MAX_CHARS, parseCardExpressionOutput } from "@lf/core/Prompts/cardExpressionPrompt.js";
+import { buildCardExpressionPrompt, CARD_EXPRESSION_PROMPT_VERSION, CARD_TOPIC_MAX_CHARS, parseCardExpressionOutput } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import { inferLearningTextLanguage } from "@lf/core/text/learningText.js";
 import { countGraphemes } from "@lf/core/text/grapheme.js";
 import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
@@ -68,7 +68,7 @@ export class CardRewriteWorkerService {
       return;
     }
 
-    const requestId = `card_${entry.id}`;
+    const requestId = `card_${entry.id}:${CARD_EXPRESSION_PROMPT_VERSION}`;
     const startedAt = Date.now();
     let rawOutput = "";
     let meteredPrompt = "";
