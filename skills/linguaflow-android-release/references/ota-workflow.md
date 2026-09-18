@@ -134,6 +134,12 @@ assets, stores an immutable release manifest, and changes the channel's latest
 pointer last. If publishing fails before the pointer write, do not report the
 update as live.
 
+Production publication refuses an uncommitted `apps/mobile` working tree. Make
+the fix in tracked source, add its regression test, and commit it before removing
+`--dry-run`. The immutable manifest records the source commit for audit and for
+the next native release reconciliation. Do not patch exported JavaScript or a
+remote manifest as a shortcut.
+
 ## Validation and reporting
 
 Before publishing, confirm that the exported Expo config contains:
@@ -145,6 +151,6 @@ Before publishing, confirm that the exported Expo config contains:
 - the intended production API URL for a production update.
 
 After publishing, report the exact channel, runtime version, platform, and
-manifest update ID printed by the script. Validate on a preview installation
-before production when practical. A dry-run validates export and manifest
-construction but does not upload anything.
+manifest update ID and source commit printed by the script. Validate on a
+preview installation before production when practical. A dry-run validates
+export and manifest construction but does not upload anything.

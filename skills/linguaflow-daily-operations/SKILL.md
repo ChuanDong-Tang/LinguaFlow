@@ -16,6 +16,7 @@ relevant repository Skill instead of duplicating its procedure:
 - subscriptions, entitlements, or provider reconciliation: `../linguaflow-subscription-operations/SKILL.md`
 - Card generation, prompts, jobs, or backfill: `../linguaflow-card-ai-pipeline/SKILL.md`
 - Mobile/API/database/Worker performance and tracing: `../linguaflow-performance-engineering/SKILL.md`
+- currently released App version repair: `../linguaflow-live-version-repair/SKILL.md`
 
 ## Maintain one truthful state
 

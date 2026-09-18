@@ -41,3 +41,7 @@ records.
 After an authorized fix, verify the real user-visible or persisted outcome,
 not only HTTP 200, process `online`, or job `completed`. Report other affected
 records discovered during diagnosis without silently repairing them.
+
+If the request expands from diagnosis into repairing a currently released App
+version, use `../linguaflow-live-version-repair/SKILL.md` to preserve the exact
+release baseline and coordinate the backend, OTA, data, or native release lane.

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectDirectory = path.resolve(scriptDirectory, "..");
+const repositoryDirectory = path.resolve(projectDirectory, "../..");
 const options = parseArguments(process.argv.slice(2));
 const secretId = process.env.LF_EXPO_UPDATES_COS_SECRET_ID ?? process.env.TENCENT_COS_SECRET_ID ?? process.env.COS_SECRET_ID ?? "";
 const secretKey = process.env.LF_EXPO_UPDATES_COS_SECRET_KEY ?? process.env.TENCENT_COS_SECRET_KEY ?? process.env.COS_SECRET_KEY ?? "";
@@ -31,6 +32,7 @@ assertConfigured("LF_EXPO_UPDATES_PUBLIC_BASE_URL (or COS public base URL)", pub
 const exportDirectory = await mkdtemp(path.join(os.tmpdir(), "oio-updates-"));
 try {
   const releaseTarget = resolveReleaseTarget(options);
+  const sourceCommit = resolveSourceCommit(options);
   const commandEnvironment = { ...process.env, ...releaseTarget.environment };
   // EXPO_PUBLIC_* values are inlined into the bundle. Clear Metro's transform
   // cache so publishing a different distribution cannot reuse another target's
@@ -67,7 +69,7 @@ try {
       runtimeVersion,
       launchAsset: publicAsset(launchAsset),
       assets: assets.map(publicAsset),
-      metadata: {},
+      metadata: { sourceCommit },
       extra: { expoClient: expoConfig },
     };
     const signature = await signManifestIfConfigured(manifest);
@@ -103,7 +105,7 @@ try {
       "no-store",
     );
     const action = options.dryRun ? "Prepared" : "Published";
-    process.stdout.write(`${action} ${options.channel}/${runtimeVersion}/${platform}: ${manifest.id}\n`);
+    process.stdout.write(`${action} ${options.channel}/${runtimeVersion}/${platform}: ${manifest.id} source=${sourceCommit}\n`);
   }
 
   async function createAsset(relativePath, extension, isLaunchAsset) {
@@ -214,6 +216,37 @@ function runExpo(args, env, captureOutput = false) {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`expo ${args[0]} failed with exit code ${result.status}`);
+  return result.stdout ?? "";
+}
+
+function resolveSourceCommit(options) {
+  const revision = runGit(["rev-parse", "HEAD"]).trim();
+  if (!revision) throw new Error("Unable to resolve the OTA source commit");
+  if (options.dryRun || options.channel === "preview") return revision;
+
+  const status = runGit([
+    "status",
+    "--porcelain=v1",
+    "--untracked-files=all",
+    "--",
+    "apps/mobile",
+  ]).trim();
+  if (status) {
+    throw new Error(
+      "Production OTA requires a committed apps/mobile tree. Commit the durable source fix before publishing.",
+    );
+  }
+  return revision;
+}
+
+function runGit(args) {
+  const result = spawnSync("git", args, {
+    cwd: repositoryDirectory,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`git ${args[0]} failed with exit code ${result.status}`);
   return result.stdout ?? "";
 }
 

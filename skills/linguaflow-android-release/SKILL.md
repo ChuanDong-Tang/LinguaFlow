@@ -33,6 +33,20 @@ Google Android uses `production-google`, and China Android uses
 `production-china`. Never publish a production update with `--platform all`;
 each target has different compiled payment flags.
 
+## OTA source permanence
+
+OTA is a delivery mechanism, not a temporary patch layer. Production OTA
+publication requires all `apps/mobile` source changes to be committed and the
+manifest records that Git commit. Never edit an exported bundle, generated
+artifact, manifest, or COS object as the implementation of a fix.
+
+When an OTA fix is made from an older release branch, forward-port the fix and
+its regression test to the active development branch before calling the repair
+complete. Before building the next native version, confirm that every
+still-required production OTA fix since the previous package is present in the
+build source; the new package must behave correctly even before downloading an
+OTA.
+
 ## Release routes
 
 | User intent | Command | Retained artifact | Upload behavior |

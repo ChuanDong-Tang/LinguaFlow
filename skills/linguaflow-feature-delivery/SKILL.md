@@ -35,6 +35,10 @@ work. Use `../linguaflow-backend-deploy/SKILL.md` only when the user asks to
 push, deploy, pull remotely, or restart services. Use the app release Skill for
 OTA, packages, uploads, or store submission.
 
+When the bug already affects a released App version, use
+`../linguaflow-live-version-repair/SKILL.md` to preserve the exact released
+baseline, choose the repair lane, and coordinate real-environment verification.
+
 ## Handoff
 
 State separately what was changed, what passed locally, whether anything was
