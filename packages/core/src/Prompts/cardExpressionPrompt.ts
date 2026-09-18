@@ -3,7 +3,7 @@ import { truncateGraphemes } from "../text/grapheme.js";
 
 export type CardExpressionLanguage = TargetLanguageCode;
 export type CardTopicLocale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
-export const CARD_EXPRESSION_PROMPT_VERSION = "card_expression_v3" as const;
+export const CARD_EXPRESSION_PROMPT_VERSION = "card_expression_v4" as const;
 export const CARD_TOPIC_MAX_CHARS = 20;
 
 export interface CardExpressionPrompt {
@@ -62,10 +62,11 @@ Your only tasks are:
 2. Create one short display title in ${topicLanguage} for this specific life moment.
 
 Expression rules:
-- First understand the whole situation, timeline, relationships, and emotional intent. Then express that situation naturally; do not translate sentence by sentence or mirror the source sentence order and syntax.
+- First understand the whole situation, timeline, relationships, and emotional intent. Then express that situation naturally; do not translate sentence by sentence or mirror the source syntax.
 - Preserve the user's actual meaning, facts, emotion, tone, and point of view, but preserve intent rather than literal wording.
+- Preserve the source's narrative and logical order. Do not move a fact, event, location, reason, or reaction across an intervening idea. Naturalize the language without retelling the story in a different order.
 - Sound like a real native speaker casually recounting this experience, not a translation, language exercise, transcript, or essay.
-- Freely restructure, combine, split, shorten, clarify, or reorder ideas when that is how a native speaker would naturally tell the same story.
+- You may restructure, combine, split, shorten, or clarify adjacent ideas when that sounds natural. Only combine source ideas that are adjacent; never merge separated ideas around content that belongs elsewhere.
 - Prefer an established everyday word, idiom, phrasal verb, or concise native construction when it naturally captures an idea that the source explains word by word. Do not mechanically expand the source wording.
 - Check every action, location, direction, cause, and pronoun against the full context. The rewrite must not accidentally reverse or distort what happened.
 - Match the pragmatic force of the source. Do not turn casual frustration, teasing, exaggeration, or mild criticism into threatening, violent, vulgar, clinical, or unnaturally intense language.

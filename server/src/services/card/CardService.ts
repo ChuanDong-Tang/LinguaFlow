@@ -2512,7 +2512,7 @@ function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningCo
   return entry.images.find((image) => image.id === imageId)?.descriptionLanguageCode ?? entry.languageCode;
 }
 
-function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal: number; text: string; startUtf16?: number; endUtf16?: number }> {
+function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> {
   const sourceSegments = entry.contentSegments
     .filter((segment) => segment.contentType === "original")
     .sort((left, right) => left.ordinal - right.ordinal);
@@ -2552,7 +2552,7 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
   const sourceByOrdinal = new Map(sourceUnits.map((unit) => [unit.ordinal, unit]));
   const targetOrdinals = new Set(targetSegments.map((segment) => segment.ordinal));
   const seenTarget = new Set<number>();
-  const rows: Array<{ ordinal: number; text: string; startUtf16?: number; endUtf16?: number }> = [];
+  const rows: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> = [];
   for (const rawGroup of alignment.groups) {
     if (!rawGroup || typeof rawGroup !== "object" || Array.isArray(rawGroup)) return fallback;
     const sourceOrdinals = (rawGroup as { sourceOrdinals?: unknown }).sourceOrdinals;
@@ -2563,23 +2563,10 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
       || groupTargetOrdinals.some((ordinal) => !Number.isInteger(ordinal) || !targetOrdinals.has(ordinal as number) || seenTarget.has(ordinal as number))) return fallback;
     const typedSourceOrdinals = sourceOrdinals as number[];
     const typedTargetOrdinals = groupTargetOrdinals as number[];
-    if (typedSourceOrdinals.some((ordinal, index) => index > 0 && ordinal <= typedSourceOrdinals[index - 1]!)) return fallback;
+    if (typedSourceOrdinals.some((ordinal, index) => index > 0 && ordinal !== typedSourceOrdinals[index - 1]! + 1)) return fallback;
     typedTargetOrdinals.forEach((ordinal) => seenTarget.add(ordinal));
     const first = sourceByOrdinal.get(typedSourceOrdinals[0]!)!;
     const last = sourceByOrdinal.get(typedSourceOrdinals[typedSourceOrdinals.length - 1]!)!;
-    const sourceIsContiguous = typedSourceOrdinals.every((ordinal, index) => index === 0 || ordinal === typedSourceOrdinals[index - 1]! + 1);
-    if (!sourceIsContiguous) {
-      const text = typedSourceOrdinals.map((ordinal, index) => {
-        const unit = sourceByOrdinal.get(ordinal)!;
-        const previous = index > 0 ? sourceByOrdinal.get(typedSourceOrdinals[index - 1]!)! : null;
-        const separator = previous && ordinal === typedSourceOrdinals[index - 1]! + 1
-          ? entry.originalText!.slice(previous.endUtf16, unit.startUtf16)
-          : index > 0 ? " … " : "";
-        return `${separator}${entry.originalText!.slice(unit.startUtf16, unit.endUtf16)}`;
-      }).join("").trim();
-      rows.push({ ordinal: typedTargetOrdinals[typedTargetOrdinals.length - 1]!, text });
-      continue;
-    }
     const rawText = entry.originalText!.slice(first.startUtf16, last.endUtf16);
     const text = rawText.trim();
     const leadingWhitespace = rawText.indexOf(text);

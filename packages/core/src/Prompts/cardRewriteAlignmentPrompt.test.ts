@@ -43,8 +43,8 @@ test("accepts ordered one-to-many and many-to-one mappings", () => {
   ]);
 });
 
-test("accepts target-ordered matches when a natural rewrite reorders source ideas", () => {
-  const groups = parseCardRewriteAlignmentOutput({
+test("rejects mappings that reorder source ideas", () => {
+  assert.throws(() => parseCardRewriteAlignmentOutput({
     output: JSON.stringify({ matches: [
       { target: 0, source: [2, 3] },
       { target: 1, source: [0, 1] },
@@ -52,27 +52,18 @@ test("accepts target-ordered matches when a natural rewrite reorders source idea
     ] }),
     sourceOrdinals: [0, 1, 2, 3, 4],
     targetOrdinals: [0, 1, 2],
-  });
-  assert.deepEqual(groups, [
-    { sourceOrdinals: [2, 3], targetOrdinals: [0] },
-    { sourceOrdinals: [0, 1], targetOrdinals: [1] },
-    { sourceOrdinals: [4], targetOrdinals: [2] },
-  ]);
+  }));
 });
 
-test("preserves exact non-consecutive source indexes when one rewrite sentence combines separated ideas", () => {
-  const groups = parseCardRewriteAlignmentOutput({
+test("rejects a rewrite sentence that combines non-consecutive source ideas", () => {
+  assert.throws(() => parseCardRewriteAlignmentOutput({
     output: JSON.stringify({ matches: [
       { target: 0, source: [0, 3, 4] },
       { target: 1, source: [1, 2] },
     ] }),
     sourceOrdinals: [0, 1, 2, 3, 4],
     targetOrdinals: [0, 1],
-  });
-  assert.deepEqual(groups, [
-    { sourceOrdinals: [0, 3, 4], targetOrdinals: [0] },
-    { sourceOrdinals: [1, 2], targetOrdinals: [1] },
-  ]);
+  }));
 });
 
 test("accepts safe scalar, named-field, and range variants from the model", () => {
@@ -90,10 +81,10 @@ test("accepts safe scalar, named-field, and range variants from the model", () =
   ]);
 });
 
-test("normalizes common start/end and sparse range shorthand before validation", () => {
+test("accepts explicit start/end range variants before validation", () => {
   const groups = parseCardRewriteAlignmentOutput({
     output: JSON.stringify({ groups: [
-      { sourceStart: 0, sourceEnd: 2, target: [0, 2] },
+      { sourceStart: 0, sourceEnd: 2, targetStart: 0, targetEnd: 2 },
       { source_ids: "S3,S4", targetStart: 3, targetEnd: 3 },
     ] }),
     sourceOrdinals: [0, 1, 2, 3, 4],

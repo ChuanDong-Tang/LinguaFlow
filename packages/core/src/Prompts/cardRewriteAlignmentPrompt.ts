@@ -1,4 +1,4 @@
-export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v6";
+export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v7";
 
 export interface CardRewriteAlignmentGroup {
   sourceOrdinals: number[];
@@ -40,10 +40,10 @@ export function buildCardRewriteAlignmentPrompt(input: {
   return {
     systemPrompt: `Align a finalized rewrite back to the user's source record by complete meaning units.
 Treat each T unit in the rewrite as the display anchor. For each T unit, find the consecutive S unit or units in the source that express the meaning rewritten there. Do not force the rewrite to follow the source's sentence boundaries or sentence count.
-The rewrite may reorder ideas for natural expression. Keep matches in T order, but do not force the S indexes of later T matches to be greater than earlier ones.
+The finalized rewrite is expected to preserve the source's narrative order. Keep matches in both T order and S order.
 The source may use any language or mix languages. An S unit is only a lookup fragment and may naturally end with a comma, semicolon, discourse pause, or other incomplete-sentence punctuation.
 The rewrite is already final: never rewrite, translate, correct, split, merge, omit, or add text.
-Return one match for every T index, in T order. Each match must contain the exact S index or indexes that express that T unit's meaning. The S indexes within a match must be in ascending order, but they do not need to be consecutive when a rewrite combines separated source ideas. Never include an intervening S index unless its meaning is actually expressed by that T unit. The same S indexes may be used by adjacent T matches when one source passage becomes multiple rewrite sentences. Source filler or hesitation that is not expressed in the rewrite may remain unused.
+Return one match for every T index, in T order. Each match must contain the exact consecutive S index or indexes that express that T unit's meaning. Never combine separated source ideas around an intervening S unit. The same S indexes may be used by adjacent T matches when one source passage becomes multiple rewrite sentences. Source filler or hesitation that is not expressed in the rewrite may remain unused.
 Use meaning rather than shared words or punctuation. Never leave a T index unmatched.
 
 Return JSON only, with no markdown or explanation, in exactly this shape:
@@ -94,7 +94,8 @@ export function parseCardRewriteAlignmentOutput(input: {
   for (let index = 1; index < groups.length; index += 1) {
     const previous = groups[index - 1]!;
     const current = groups[index]!;
-    if (Math.max(...previous.targetOrdinals) >= Math.min(...current.targetOrdinals)) {
+    if (Math.min(...previous.sourceOrdinals) > Math.min(...current.sourceOrdinals)
+      || Math.max(...previous.targetOrdinals) >= Math.min(...current.targetOrdinals)) {
       throw new Error("CARD_REWRITE_ALIGNMENT_NON_MONOTONIC");
     }
   }
@@ -154,8 +155,8 @@ function parseOrdinals(value: unknown, prefix: "S" | "T"): number[] {
   if (ordinals.some((ordinal, index) => index > 0 && ordinal <= ordinals[index - 1]!)) {
     throw new Error("CARD_REWRITE_ALIGNMENT_NON_MONOTONIC");
   }
-  if (prefix === "T" && ordinals.length > 1 && ordinals.some((ordinal, index) => index > 0 && ordinal !== ordinals[index - 1]! + 1)) {
-    return Array.from({ length: ordinals[ordinals.length - 1]! - ordinals[0]! + 1 }, (_, index) => ordinals[0]! + index);
+  if (ordinals.length > 1 && ordinals.some((ordinal, index) => index > 0 && ordinal !== ordinals[index - 1]! + 1)) {
+    throw new Error(`CARD_REWRITE_ALIGNMENT_NON_CONTIGUOUS_${prefix === "S" ? "SOURCE" : "TARGET"}`);
   }
   return ordinals;
 }
