@@ -94,6 +94,8 @@ preflight() {
   require_command codesign
   require_command security
 
+  bash "$SCRIPT_DIR/simulator-smoke.sh" --check
+
   xcode-select -p >/dev/null
   load_dotenv "$MOBILE_DIR/.env"
   export NODE_ENV=production
@@ -259,6 +261,7 @@ if [[ -n "$SUBMIT_ONLY_IPA" ]]; then
   [[ -f "$SUBMIT_ONLY_IPA" ]] || fail "IPA not found: $SUBMIT_ONLY_IPA"
   SUBMIT_ONLY_IPA="$(cd "$(dirname "$SUBMIT_ONLY_IPA")" && pwd)/$(basename "$SUBMIT_ONLY_IPA")"
   validate_ipa "$SUBMIT_ONLY_IPA"
+  bash "$SCRIPT_DIR/simulator-smoke.sh" --require
   shasum -a 256 "$SUBMIT_ONLY_IPA"
   submit_to_testflight "$SUBMIT_ONLY_IPA"
   log "TestFlight upload completed"
@@ -277,6 +280,9 @@ if ! $ASSUME_YES; then
     *) fail "Cancelled." ;;
   esac
 fi
+
+log "Running required iOS 26, iOS 27, and Android simulator smoke gate"
+bash "$SCRIPT_DIR/simulator-smoke.sh" --run
 
 mkdir -p "$ARTIFACT_DIR"
 timestamp="$(date '+%Y%m%d-%H%M%S')"

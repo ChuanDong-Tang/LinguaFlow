@@ -32,3 +32,8 @@ audit requests, read and follow
 For Card rewrite, alignment, auxiliary content, image description, prompt/job
 version, retry, scanner, or backfill requests, read and follow
 `skills/linguaflow-card-ai-pipeline/SKILL.md` before acting.
+
+For Mobile, API, database, Worker, provider, or end-to-end performance work,
+including P90/P95/P99, startup, slow queries, connection pools, queue delay,
+tracing, or regressions, read and follow
+`skills/linguaflow-performance-engineering/SKILL.md` before acting.

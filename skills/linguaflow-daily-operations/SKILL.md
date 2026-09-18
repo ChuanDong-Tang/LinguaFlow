@@ -15,6 +15,7 @@ relevant repository Skill instead of duplicating its procedure:
 - production schema or persistence work: `../linguaflow-production-database/SKILL.md`
 - subscriptions, entitlements, or provider reconciliation: `../linguaflow-subscription-operations/SKILL.md`
 - Card generation, prompts, jobs, or backfill: `../linguaflow-card-ai-pipeline/SKILL.md`
+- Mobile/API/database/Worker performance and tracing: `../linguaflow-performance-engineering/SKILL.md`
 
 ## Maintain one truthful state
 

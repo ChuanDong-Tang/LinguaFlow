@@ -23,10 +23,12 @@ bash skills/linguaflow-android-release/scripts/ios-testflight.sh
 The workflow performs these steps:
 
 1. Checks macOS, Xcode, signing identity, `.env`, and the EAS production profile.
-2. Runs a complete local EAS production build and allocates the next build number.
-3. Opens the generated IPA and verifies its bundle ID, production update channel,
+2. Builds and cold-launches the same source twice on iOS 26, iOS 27, and the
+   configured Android emulator.
+3. Runs a complete local EAS production build and allocates the next build number.
+4. Opens the generated IPA and verifies its bundle ID, production update channel,
    production API URL, signing team, version, and build number.
-4. Uploads only a validated IPA directly to App Store Connect with Apple's
+5. Uploads only a validated IPA directly to App Store Connect with Apple's
    Transporter and waits for Apple to accept it.
 
 ## Useful modes
@@ -75,7 +77,18 @@ bash skills/linguaflow-android-release/scripts/android-play.sh --yes
 
 The Android workflow validates the package ID, version name/code, release
 signature, production Expo Updates channel, and embedded production API URL
-before upload.
+before upload. The same three-platform startup receipt is mandatory; it is
+reused only while the Mobile source fingerprint remains unchanged.
+
+Run the startup gate directly when troubleshooting it:
+
+```bash
+# Verify required runtimes and AVD only.
+bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --check
+
+# Build and cold-launch all three targets. Leave them open for visual review.
+bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run --keep-running
+```
 
 Payment selection is enforced by the workflow and does not depend on leftover
 values in `apps/mobile/.env`:

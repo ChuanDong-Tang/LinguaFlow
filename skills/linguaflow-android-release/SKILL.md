@@ -57,6 +57,27 @@ If the user requests all three, run them sequentially, not concurrently. For a
 configuration-only request, use the selected script's `--check`. Respect an
 explicit no-upload request for iOS by adding `--build-only`.
 
+## Three-platform startup gate
+
+Every native release candidate must pass the same-source startup gate before
+it may be uploaded:
+
+```bash
+bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run
+```
+
+The gate builds the current source, installs it on an iOS 26 simulator, an iOS
+27 simulator, and the configured Android AVD, then cold-launches each target
+twice. It writes a short-lived receipt under `.tmp/release-smoke/`. The receipt
+is bound to a content fingerprint, so any relevant Mobile source or native
+configuration change invalidates it. Release scripts run this gate by default;
+submit-only retries require an existing valid receipt.
+
+Use `--check` to inspect prerequisites without building or launching. Use
+`--keep-running` only when a person needs to inspect the three targets. Never
+replace a missing target with a different OS major and still report the gate as
+passed.
+
 ## Payment isolation — release blocker
 
 Payment routing is a hard release invariant. Never build, upload, or report
@@ -94,6 +115,7 @@ private keys or other server credentials in the mobile package.
 Before reporting success, use the script and artifact validation output to
 confirm all of the following:
 
+- iOS 26, iOS 27, and Android startup smoke passed for the current source;
 - destination and payment provider match the matrix above;
 - production API URL, package/bundle ID, distribution/update channel, version,
   and build/version code are correct;

@@ -121,6 +121,7 @@ preflight() {
   require_command strings
   require_command jarsigner
   resolve_android_tools
+  bash "$SCRIPT_DIR/simulator-smoke.sh" --check
   load_dotenv "$MOBILE_DIR/.env"
   export NODE_ENV=production
   # Android packages must never expose either Apple purchase path.
@@ -287,6 +288,7 @@ if [[ -n "$SUBMIT_ONLY_PACKAGE" ]]; then
   [[ "$ANDROID_TARGET" == "google" ]] || fail "--submit-only is only supported by the Google workflow."
   [[ -s "$SUBMIT_ONLY_PACKAGE" ]] || fail "AAB not found: $SUBMIT_ONLY_PACKAGE"
   validate_aab "$SUBMIT_ONLY_PACKAGE"
+  bash "$SCRIPT_DIR/simulator-smoke.sh" --require
   shasum -a 256 "$SUBMIT_ONLY_PACKAGE"
   log "Submitting validated AAB to Google Play internal testing"
   (
@@ -309,6 +311,7 @@ if [[ -n "$DIRECT_SUBMIT_ONLY_PACKAGE" ]]; then
   [[ -f "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" ]] || fail "Google Play service account key not found: $GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"
   [[ -s "$DIRECT_SUBMIT_ONLY_PACKAGE" ]] || fail "AAB not found: $DIRECT_SUBMIT_ONLY_PACKAGE"
   validate_aab "$DIRECT_SUBMIT_ONLY_PACKAGE"
+  bash "$SCRIPT_DIR/simulator-smoke.sh" --require
   shasum -a 256 "$DIRECT_SUBMIT_ONLY_PACKAGE"
   log "Submitting validated AAB directly to Google Play internal testing"
   node "$SCRIPT_DIR/google-play-direct-submit.mjs" \
@@ -337,6 +340,9 @@ if ! $ASSUME_YES; then
     *) fail "Cancelled." ;;
   esac
 fi
+
+log "Running required iOS 26, iOS 27, and Android simulator smoke gate"
+bash "$SCRIPT_DIR/simulator-smoke.sh" --run
 
 mkdir -p "$ARTIFACT_DIR"
 timestamp="$(date '+%Y%m%d-%H%M%S')"
