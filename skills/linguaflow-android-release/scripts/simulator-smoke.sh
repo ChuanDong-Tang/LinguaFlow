@@ -339,6 +339,10 @@ smoke_ios "iOS 26" "$IOS_26"
 smoke_ios "iOS 27" "$IOS_27"
 smoke_android
 
+# Expo prebuild may normalize tracked Mobile inputs such as package-lock.json.
+# Bind the receipt to the source that actually produced and launched the apps,
+# not to the pre-prebuild snapshot from the start of this script.
+fingerprint="$(source_fingerprint)"
 commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 completed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 node - "$RECEIPT_FILE" "$fingerprint" "$commit" "$completed_at" "$IOS_26" "$IOS_27" "$ANDROID_AVD" <<'NODE'
