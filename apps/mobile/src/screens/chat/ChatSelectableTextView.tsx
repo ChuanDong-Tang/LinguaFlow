@@ -1,5 +1,6 @@
 import {
   findNodeHandle,
+  Platform,
   requireNativeComponent,
   UIManager,
   type HostComponent,
@@ -54,10 +55,25 @@ type NativeProps = ViewProps & {
   onClozeRangeLongPress?: (event: NativeSyntheticEvent<ChatSelectableTextRangeEvent>) => void;
 };
 
-export const ChatSelectableTextView: HostComponent<NativeProps> =
-  requireNativeComponent<NativeProps>("ChatSelectableTextView");
+const COMPONENT_NAME = "ChatSelectableTextView";
 
-export function clearChatSelectableTextSelection(ref: React.RefObject<React.ElementRef<typeof ChatSelectableTextView> | null>): void {
+/**
+ * `requireNativeComponent` resolves lazily, so a binary that forgot to
+ * register this manager only fails when the first Card is opened. Detect the
+ * missing manager before render so released binaries can use the JS fallback.
+ */
+export const isChatSelectableTextViewAvailable =
+  Platform.OS !== "android" || UIManager.getViewManagerConfig(COMPONENT_NAME) != null;
+
+export const ChatSelectableTextView: HostComponent<NativeProps> | null =
+  isChatSelectableTextViewAvailable
+    ? requireNativeComponent<NativeProps>(COMPONENT_NAME)
+    : null;
+
+export type ChatSelectableTextViewInstance = React.ElementRef<HostComponent<NativeProps>>;
+
+export function clearChatSelectableTextSelection(ref: React.RefObject<ChatSelectableTextViewInstance | null>): void {
+  if (!isChatSelectableTextViewAvailable) return;
   const nodeHandle = findNodeHandle(ref.current);
   if (!nodeHandle) return;
   UIManager.dispatchViewManagerCommand(nodeHandle, "clearSelection", []);

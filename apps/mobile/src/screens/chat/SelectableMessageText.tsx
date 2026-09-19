@@ -11,9 +11,11 @@ import {
   type ViewStyle,
 } from "react-native";
 import { t } from "../../i18n";
+import { buildSelectableTextFallbackSegments } from "../../domain/cloze/selectableTextFallback";
 import {
   ChatSelectableTextView,
   clearChatSelectableTextSelection,
+  type ChatSelectableTextViewInstance,
   type ChatSelectableTextRangeEvent,
   type ChatSelectableTextSelectionEvent,
 } from "./ChatSelectableTextView";
@@ -251,7 +253,18 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
     const nativeAnswerRangesJson = React.useMemo(() => JSON.stringify(answerRanges ?? []), [answerRanges]);
     const nativeActiveRangeJson = React.useMemo(() => JSON.stringify(activeRange ? [activeRange] : []), [activeRange]);
     const flattenedTextStyle = React.useMemo(() => StyleSheet.flatten(style) ?? {}, [style]);
-    const nativeTextRef = React.useRef<React.ElementRef<typeof ChatSelectableTextView> | null>(null);
+    const fallbackSegments = React.useMemo(
+      () => buildSelectableTextFallbackSegments({
+        text,
+        highlights,
+        blanks,
+        correct,
+        answers: answerRanges ?? [],
+        answersVisible,
+      }),
+      [answerRanges, answersVisible, blanks, correct, highlights, text],
+    );
+    const nativeTextRef = React.useRef<ChatSelectableTextViewInstance | null>(null);
     const [nativeContentHeight, setNativeContentHeight] = React.useState(0);
 
     const clearSelection = React.useCallback(() => {
@@ -367,6 +380,44 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       },
     });
 
+    if (!ChatSelectableTextView) {
+      return (
+        <View style={[styles.nativeTextContainer, containerStyle]}>
+          <Text
+            selectable={!interactionsDisabled}
+            style={[style, visualsHidden ? styles.fallbackVisualsHidden : null]}
+            onPress={interactionsDisabled ? () => Keyboard.dismiss() : onInteractionStart}
+          >
+            {fallbackSegments.map((segment) => (
+              <Text
+                key={segment.key}
+                onPress={
+                  interactionsDisabled || segment.groupIndex == null
+                    ? undefined
+                    : () => onClozeRangePress?.(segment.groupIndex!)
+                }
+                onLongPress={
+                  interactionsDisabled || segment.groupIndex == null
+                    ? undefined
+                    : () => onClozeRangeLongPress?.(segment.groupIndex!)
+                }
+                style={[
+                  segment.highlighted
+                    ? { backgroundColor: segment.correct ? "#DDEFE2" : "#FFF0B8", color: "#3D3420" }
+                    : null,
+                  segment.blank ? styles.fallbackBlank : null,
+                  segment.hidden ? styles.fallbackBlankHidden : null,
+                ]}
+              >
+                {segment.text}
+              </Text>
+            ))}
+            {trailingElement}
+          </Text>
+        </View>
+      );
+    }
+
     return (
       <View style={[styles.nativeTextContainer, containerStyle, nativeContentHeight > 0 ? { minHeight: nativeContentHeight } : null]}>
         <Text pointerEvents="none" style={layoutBaseTextStyle}>
@@ -432,5 +483,16 @@ const styles = StyleSheet.create({
   layoutText: {
     color: "transparent",
     opacity: 0,
+  },
+  fallbackBlank: {
+    textDecorationColor: "#D05F78",
+    textDecorationLine: "underline",
+    textDecorationStyle: "solid",
+  },
+  fallbackBlankHidden: {
+    color: "transparent",
+  },
+  fallbackVisualsHidden: {
+    color: "transparent",
   },
 });

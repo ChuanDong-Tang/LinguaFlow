@@ -84,15 +84,18 @@ function patchMainApplication(filePath, androidPackage) {
   const packageImport = `import ${androidPackage}.chatselectabletext.ChatSelectableTextPackage`;
   if (!text.includes(packageImport)) {
     text = text.replace(
-      "import expo.modules.ReactNativeHostWrapper\n",
-      `import expo.modules.ReactNativeHostWrapper\n${packageImport}\n`
+      /^(package\s+[^\n]+\n)/m,
+      `$1\n${packageImport}\n`
     );
   }
   if (!text.includes("add(ChatSelectableTextPackage())")) {
     text = text.replace(
-      "              // Packages that cannot be autolinked yet can be added manually here, for example:\n              // add(MyReactNativePackage())",
-      "              // Packages that cannot be autolinked yet can be added manually here, for example:\n              // add(MyReactNativePackage())\n              add(ChatSelectableTextPackage())"
+      /(PackageList\(this\)\.packages\.apply\s*\{\s*\n)/,
+      "$1          add(ChatSelectableTextPackage())\n"
     );
+  }
+  if (!text.includes(packageImport) || !text.includes("add(ChatSelectableTextPackage())")) {
+    throw new Error(`Unable to register ChatSelectableTextPackage in ${filePath}`);
   }
   fs.writeFileSync(filePath, text);
 }
