@@ -1,5 +1,5 @@
-const { IOSConfig, withDangerousMod, withXcodeProject } = require("@expo/config-plugins");
-const { addBuildSourceFileToGroup } = require("@expo/config-plugins/build/ios/utils/Xcodeproj");
+const { IOSConfig, withDangerousMod, withXcodeProject } = require("expo/config-plugins");
+const { addBuildSourceFileToGroup } = IOSConfig.XcodeUtils;
 const fs = require("node:fs");
 const path = require("node:path");
 

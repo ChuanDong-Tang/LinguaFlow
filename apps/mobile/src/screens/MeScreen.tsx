@@ -866,7 +866,7 @@ function SelectField({
       </Pressable>
       <Modal visible={open && !disabled && Boolean(anchor)} transparent animationType="none" onRequestClose={onClose}>
         <View style={styles.selectMenuOverlay}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
           {anchor ? <View style={[styles.selectMenu, { left: anchor.x, top: menuTop, width: anchor.width, maxHeight: windowHeight - 16 }]}>
             <ScrollView nestedScrollEnabled bounces={false} showsVerticalScrollIndicator={options.length > 6}>
               {menuOptions}
@@ -1875,7 +1875,7 @@ const styles = StyleSheet.create({
     borderRadius: 38,
   },
   profileAvatarBusy: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 38,
     alignItems: "center",
     justifyContent: "center",

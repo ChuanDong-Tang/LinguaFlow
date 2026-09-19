@@ -23,7 +23,7 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Haptics from "expo-haptics";
-import * as MediaLibrary from "expo-media-library";
+import * as MediaLibrary from "expo-media-library/legacy";
 import { File, Paths } from "expo-file-system";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView, KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -685,8 +685,8 @@ function ClozeOnboardingOverlay({ step, target, windowWidth, windowHeight, onAdv
   const arrowRightY = targetY - arrowSize * Math.sin(angle + Math.PI / 5);
 
   return <Animated.View style={[styles.clozeGuideOverlay, { opacity: fade }]}>
-    <Pressable accessibilityLabel={step === 1 ? t("card_detail.cloze.onboarding") : t("card_detail.cloze.onboarding_actions_title")} style={StyleSheet.absoluteFillObject} onPress={onAdvance} />
-    <Svg pointerEvents="none" width={windowWidth} height={windowHeight} style={StyleSheet.absoluteFillObject}>
+    <Pressable accessibilityLabel={step === 1 ? t("card_detail.cloze.onboarding") : t("card_detail.cloze.onboarding_actions_title")} style={StyleSheet.absoluteFill} onPress={onAdvance} />
+    <Svg pointerEvents="none" width={windowWidth} height={windowHeight} style={StyleSheet.absoluteFill}>
       <Defs>
         <Mask id="cloze-guide-mask" x="0" y="0" width={windowWidth} height={windowHeight} maskUnits="userSpaceOnUse">
           <Rect x="0" y="0" width={windowWidth} height={windowHeight} fill="#fff" />
@@ -5054,7 +5054,7 @@ const styles = StyleSheet.create({
   failedGenerationCopy: { gap: 5 },
   failedGenerationText: { color: theme.colors.textMuted, fontSize: 14 },
   failedGenerationRetry: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
-  fullscreen: { ...StyleSheet.absoluteFillObject, zIndex: 50, backgroundColor: theme.colors.canvas },
+  fullscreen: { ...StyleSheet.absoluteFill, zIndex: 50, backgroundColor: theme.colors.canvas },
   page: { flex: 1, backgroundColor: theme.colors.canvas },
   header: { height: 60, paddingHorizontal: 8, flexDirection: "row", alignItems: "center" },
   headerButton: { width: 64, minHeight: 44, justifyContent: "center" }, close: { color: theme.colors.textSecondary, fontSize: 15 }, title: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 16, fontWeight: "500" },
@@ -5072,12 +5072,12 @@ const styles = StyleSheet.create({
   historyButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
   headerEnd: { width: 82, flexDirection: "row", justifyContent: "flex-end" },
   iconHeaderButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
-  detailActionLayer: { ...StyleSheet.absoluteFillObject, zIndex: 80, elevation: 80 },
+  detailActionLayer: { ...StyleSheet.absoluteFill, zIndex: 80, elevation: 80 },
   detailActionMenu: { position: "absolute", top: 49, right: 14, width: 132, paddingVertical: 4, borderRadius: 11, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 12 },
   detailActionItem: { minHeight: 43, paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 9 },
   detailActionText: { color: theme.colors.text, fontSize: 15, lineHeight: 20 },
   detailActionDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 10, backgroundColor: theme.colors.border },
-  clozeGuideOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 90, elevation: 90 },
+  clozeGuideOverlay: { ...StyleSheet.absoluteFill, zIndex: 90, elevation: 90 },
   clozeGuideCopy: { position: "absolute", left: 32, right: 32, alignItems: "center" },
   clozeGuideProgress: { marginBottom: 10, color: "rgba(255,255,255,0.7)", fontSize: 12, lineHeight: 17, fontWeight: "600", letterSpacing: 1.1 },
   clozeGuideText: { maxWidth: 310, color: "#FFFFFF", fontSize: 19, lineHeight: 29, fontWeight: "500", letterSpacing: 0.2, textAlign: "center", textShadowColor: "rgba(0,0,0,0.24)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 },
@@ -5108,7 +5108,7 @@ const styles = StyleSheet.create({
   collectionMetaText: { flexShrink: 1, color: theme.colors.textMuted, fontSize: 12 },
   metadataPressed: { opacity: 0.58 },
   articlePlayButton: { width: 36, height: 32, marginTop: -1, alignItems: "flex-end", justifyContent: "center" },
-  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.surface }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#D2D2D2" }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
+  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.surface }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#D2D2D2" }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
   recallFinishButton: { height: 42, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 18, borderRadius: 21, backgroundColor: theme.colors.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, recallFinishButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
   imagePreviewPage: { flex: 1, backgroundColor: "transparent" },
   imagePreviewBackdrop: { backgroundColor: theme.colors.canvas },
@@ -5123,10 +5123,10 @@ const styles = StyleSheet.create({
   previewCropOverlay: { zIndex: 20, elevation: 20 },
   previewCropFrame: { position: "absolute", zIndex: 20, elevation: 20, borderWidth: 2, borderColor: "#FFFFFF", shadowColor: "#000000", shadowOpacity: 0.28, shadowRadius: 5, shadowOffset: { width: 0, height: 1 } },
   imagePreviewTransitionImage: { position: "absolute", overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
-  imagePreviewTransitionFill: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  imagePreviewTransitionFill: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" },
   imagePreviewFooter: { minHeight: 76, paddingHorizontal: 24, paddingTop: 18, alignItems: "center" },
   imagePreviewDate: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20, textAlign: "center" },
-  imageAddingPlaceholder: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 9, backgroundColor: theme.colors.surfaceMuted },
+  imageAddingPlaceholder: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", gap: 9, backgroundColor: theme.colors.surfaceMuted },
   imageAddingText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18 },
   detailActionBar: { minHeight: 54, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 2 },
   cardPlaybackPage: { flex: 1, backgroundColor: theme.colors.canvas },
@@ -5221,7 +5221,7 @@ const styles = StyleSheet.create({
   dictationSentenceNumber: { marginBottom: 1, color: theme.colors.textMuted, fontSize: 14, lineHeight: 20 },
   dictationSentenceInputStack: { position: "relative" },
   dictationSentenceInput: { minHeight: 52, paddingHorizontal: 2, paddingTop: 7, paddingBottom: 7, borderBottomWidth: 1, borderBottomColor: theme.colors.textSecondary, backgroundColor: "transparent", color: "transparent", fontSize: 16, lineHeight: 24, fontWeight: "400", letterSpacing: 0, includeFontPadding: false },
-  dictationSentenceTextOverlay: { ...StyleSheet.absoluteFillObject, paddingHorizontal: 2, paddingTop: 7, paddingBottom: 7 },
+  dictationSentenceTextOverlay: { ...StyleSheet.absoluteFill, paddingHorizontal: 2, paddingTop: 7, paddingBottom: 7 },
   dictationSentenceDisplayText: { color: theme.colors.text, fontSize: 16, lineHeight: 24, fontWeight: "400", letterSpacing: 0, includeFontPadding: false },
   dictationSentenceActions: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 18 },
   dictationSentenceAction: { width: 36, minHeight: 36, alignItems: "center", justifyContent: "center" },
@@ -5388,9 +5388,9 @@ const styles = StyleSheet.create({
   draftAiOptionLabelStacked: { flexShrink: 0 },
   draftAiOptionLabelSelected: { color: theme.colors.text, fontWeight: "600" },
   draftImage: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted },
-  draftImageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(30,35,38,0.34)", alignItems: "center", justifyContent: "center" },
-  photoLayer: { ...StyleSheet.absoluteFillObject, zIndex: 30, elevation: 30, justifyContent: "flex-end" },
-  photoLayerDismiss: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.28)" },
+  draftImageOverlay: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(30,35,38,0.34)", alignItems: "center", justifyContent: "center" },
+  photoLayer: { ...StyleSheet.absoluteFill, zIndex: 30, elevation: 30, justifyContent: "flex-end" },
+  photoLayerDismiss: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.28)" },
   photoLayerPanel: { height: "58%", minHeight: 330, backgroundColor: theme.colors.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: -6 }, elevation: 31 },
   photoLayerHeader: { height: 54, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
   photoLayerTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "600" },

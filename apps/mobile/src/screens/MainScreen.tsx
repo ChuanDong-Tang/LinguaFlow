@@ -1839,8 +1839,8 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   const [orderedCollections, setOrderedCollections] = useState(collections);
   const [draggingCollectionId, setDraggingCollectionId] = useState<string | null>(null);
   const [collectionActionMenu, setCollectionActionMenu] = useState<{ collection: CardCollection; anchor: RecordActionAnchor } | null>(null);
-  const collectionScrollRef = useAnimatedRef<React.ElementRef<typeof Reanimated.ScrollView>>();
-  const collectionManagerScrollRef = useAnimatedRef<React.ElementRef<typeof Reanimated.ScrollView>>();
+  const collectionScrollRef = useAnimatedRef<ScrollView>();
+  const collectionManagerScrollRef = useAnimatedRef<ScrollView>();
   const focusedCollectionInputHandleRef = useRef<object | null>(null);
   const collectionKeyExtractor = useCallback((collection: CardCollection) => collection.id, []);
   const favoriteCollections = useMemo(
@@ -3161,7 +3161,7 @@ const styles = StyleSheet.create({
   loader: { marginVertical: 32 },
   loadMoreIndicator: { marginVertical: 20 },
   searchSummary: { marginBottom: 10, color: theme.colors.textMuted, fontSize: 12 },
-  searchOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 50, backgroundColor: theme.colors.canvas },
+  searchOverlay: { ...StyleSheet.absoluteFill, zIndex: 50, backgroundColor: theme.colors.canvas },
   searchPage: { flex: 1, backgroundColor: theme.colors.canvas },
   searchPageHeader: { minHeight: 62, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   searchBackButton: { width: 34, height: 42, alignItems: "flex-start", justifyContent: "center" },
@@ -3201,7 +3201,7 @@ const styles = StyleSheet.create({
   cardTime: { flex: 1, color: "#8A8A8A", fontSize: 11, lineHeight: 16, fontWeight: "400", letterSpacing: 0.1 },
   cardCollection: { maxWidth: 100, marginRight: 6, color: "#8A8A8A", fontSize: 11, lineHeight: 16 },
   cardMoreButton: { width: 32, height: 24, alignItems: "flex-end", justifyContent: "center" },
-  recordActionLayer: { ...StyleSheet.absoluteFillObject, zIndex: 80 },
+  recordActionLayer: { ...StyleSheet.absoluteFill, zIndex: 80 },
   recordActionMenu: { position: "absolute", width: 128, paddingVertical: 2, borderRadius: 8, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 8 },
   recordActionItem: { height: 40, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   recordActionText: { color: theme.colors.text, fontSize: 13, fontWeight: "500" },
@@ -3271,7 +3271,7 @@ const styles = StyleSheet.create({
   imageDescriptionChoiceTextActive: { color: "#52796C" },
   quickNoteAttachment: { width: 66, height: 66, borderRadius: 13, overflow: "visible", backgroundColor: theme.colors.surfaceMuted },
   quickNoteAttachmentImage: { width: 66, height: 66, borderRadius: 13 },
-  quickNoteAttachmentOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.34)" },
+  quickNoteAttachmentOverlay: { ...StyleSheet.absoluteFill, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.34)" },
   quickNoteAttachmentPreparing: { alignItems: "center", justifyContent: "center", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border },
   quickNoteAttachmentRemove: { position: "absolute", top: -5, right: -5, width: 21, height: 21, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(27,31,30,0.82)", borderWidth: 2, borderColor: theme.colors.surface },
   modalPage: { flex: 1, backgroundColor: theme.colors.canvas },
@@ -3303,9 +3303,9 @@ const styles = StyleSheet.create({
   collectionManagerMoveSaving: { marginTop: 18 },
   collectionManagerRowSelected: { backgroundColor: "#F5F5F5" },
   collectionRowName: { flex: 1, color: theme.colors.text, fontSize: 15 },
-  sidebarOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 100, elevation: 20 },
+  sidebarOverlay: { ...StyleSheet.absoluteFill, zIndex: 100, elevation: 20 },
   sidebarAnimatedContent: { position: "absolute", top: 0, bottom: 0, left: 0, width: "84%", maxWidth: 360, zIndex: 2 },
-  sidebarAnimatedScrim: { ...StyleSheet.absoluteFillObject, zIndex: 1, backgroundColor: "rgba(0, 0, 0, 0.24)" },
+  sidebarAnimatedScrim: { ...StyleSheet.absoluteFill, zIndex: 1, backgroundColor: "rgba(0, 0, 0, 0.24)" },
   sidebar: { flex: 1, width: "100%", backgroundColor: "#FFFFFF", borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "#DADADA", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 6, height: 0 }, elevation: 10 },
   sidebarHeader: { minHeight: 66, paddingLeft: 20, paddingRight: 12, flexDirection: "row", alignItems: "center" },
   sidebarAccount: { flex: 1, minWidth: 0, minHeight: 52, flexDirection: "row", alignItems: "center" },
@@ -3334,7 +3334,7 @@ const styles = StyleSheet.create({
   sidebarRowCount: { minWidth: 24, color: "#8A8A8A", fontSize: 12, textAlign: "right" },
   sidebarRowFavorite: { width: 28, height: 34, marginHorizontal: -4, zIndex: 2, elevation: 2, alignItems: "center", justifyContent: "center" },
   sidebarRowAction: { width: 28, height: 34, marginHorizontal: -5, zIndex: 2, elevation: 2, alignItems: "center", justifyContent: "center" },
-  collectionActionBackdrop: { ...StyleSheet.absoluteFillObject, zIndex: 20, elevation: 20 },
+  collectionActionBackdrop: { ...StyleSheet.absoluteFill, zIndex: 20, elevation: 20 },
   collectionActionMenu: { position: "absolute", width: 132, paddingVertical: 2, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 8, backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 8 },
   collectionActionRow: { minHeight: 42, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 },
   collectionActionText: { flex: 1, color: theme.colors.text, fontSize: 14, lineHeight: 20 },

@@ -18,7 +18,7 @@ module.exports = {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.1.3",
+    version: "1.1.5",
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
@@ -31,7 +31,7 @@ module.exports = {
     },
     ios: {
       bundleIdentifier: "com.yueyantech.oio",
-      buildNumber: "125",
+      buildNumber: "156",
       supportsTablet: true,
       icon: "./assets/app/logo_main_apple.png",
       infoPlist: {
@@ -59,7 +59,6 @@ module.exports = {
         foregroundImage: "./assets/app/logo_main.png",
         backgroundColor: "#ffffff",
       },
-      edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
     },
     web: {
@@ -75,7 +74,8 @@ module.exports = {
         "expo-build-properties",
         {
           ios: {
-            deploymentTarget: "15.1",
+            deploymentTarget: "16.4",
+            enableSceneSupport: true,
           },
         },
       ],
@@ -106,7 +106,7 @@ module.exports = {
       "./plugins/with-android-release-signing",
     ],
     owner: "reedtang",
-    runtimeVersion: "1.1.3",
+    runtimeVersion: "1.1.5",
     updates: {
       url: updatesUrl,
       checkAutomatically: "ON_LOAD",

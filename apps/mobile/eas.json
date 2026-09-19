@@ -25,7 +25,8 @@
         "buildType": "app-bundle"
       },
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "image": "macos-tahoe-26.5-xcode-26.6"
       }
     },
     "production": {
@@ -37,7 +38,8 @@
         "buildType": "app-bundle"
       },
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "image": "macos-tahoe-26.5-xcode-26.6"
       }
     },
     "google": {

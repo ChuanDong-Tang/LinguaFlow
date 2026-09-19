@@ -1567,7 +1567,7 @@ const styles = StyleSheet.create({
   coachHintButtonText: { color: "#596F65", fontSize: 12, fontWeight: "600" },
   audioWaveform: { flex: 1, height: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   audioWaveBarTrack: { width: 2, borderRadius: 2, overflow: "hidden", backgroundColor: "#BDD0C9" },
-  audioWaveBarFill: { ...StyleSheet.absoluteFillObject, backgroundColor: "#4F8573" },
+  audioWaveBarFill: { ...StyleSheet.absoluteFill, backgroundColor: "#4F8573" },
   coachHintError: { marginTop: 5, color: theme.colors.textMuted, fontSize: 11 },
   coachMeaningScroll: { maxHeight: 92, marginTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(80,100,92,0.13)" },
   coachMeaningScrollContent: { paddingTop: 8, paddingRight: 5, paddingBottom: 2 },

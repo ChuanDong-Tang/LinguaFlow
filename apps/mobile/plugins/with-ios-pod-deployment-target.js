@@ -1,6 +1,6 @@
-const { withPodfile } = require("@expo/config-plugins");
+const { withPodfile } = require("expo/config-plugins");
 
-const MINIMUM_IOS_VERSION = "15.1";
+const MINIMUM_IOS_VERSION = "16.4";
 const MARKER = "# OIO: normalize CocoaPods deployment targets";
 
 const POD_TARGET_OVERRIDE = `

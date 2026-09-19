@@ -111,7 +111,7 @@ export async function runWithDeferredBlockingLoading<T>(
 
 const styles = StyleSheet.create({
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 999,
     elevation: 999,
     flex: 1,

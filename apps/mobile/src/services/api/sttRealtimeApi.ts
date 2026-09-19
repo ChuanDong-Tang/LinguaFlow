@@ -196,7 +196,7 @@ export async function openRealtimeSttSession(input: {
     sessionId,
     sendFrame(frame) {
       if (stopRequested || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(frame.pcm.buffer.slice(frame.pcm.byteOffset, frame.pcm.byteOffset + frame.pcm.byteLength));
+      ws.send(frame.pcm);
     },
     stop() {
       requestStop(false);

@@ -1053,7 +1053,7 @@ function QuotaExhaustionDialog({
   return (
     <Modal visible={Boolean(value)} transparent animationType="none" presentationStyle="overFullScreen" onRequestClose={onClose}>
       <View style={styles.quotaDialogBackdrop}>
-        <Pressable accessibilityLabel={t("common.cancel")} style={StyleSheet.absoluteFillObject} onPress={onClose} />
+        <Pressable accessibilityLabel={t("common.cancel")} style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={styles.quotaDialogPanel}>
           <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={10} style={styles.quotaDialogClose} onPress={onClose}>
             <Ionicons name="close" size={21} color={theme.colors.textSecondary} />
@@ -1368,7 +1368,7 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   appStack: { flex: 1 },
   overlayScreen: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "#FCFCFD",
     zIndex: 1,
     elevation: 1,
@@ -1376,7 +1376,7 @@ const styles = StyleSheet.create({
   memoryRoundOverlay: { zIndex: 2, elevation: 2 },
   fadingScreen: { flex: 1, backgroundColor: "#FCFCFD" },
   tabHost: { flex: 1 },
-  tabPage: { ...StyleSheet.absoluteFillObject },
+  tabPage: { ...StyleSheet.absoluteFill },
   tabPageHidden: { display: "none" },
   tabBarOverlay: {
     position: "absolute",

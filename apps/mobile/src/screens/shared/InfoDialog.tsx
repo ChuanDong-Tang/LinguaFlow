@@ -40,7 +40,7 @@ export function InfoDialog({ config, onClose }: { config: InfoDialogConfig | nul
 
 const styles = StyleSheet.create({
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 1000,
     elevation: 1000,
     flex: 1,

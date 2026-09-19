@@ -397,7 +397,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
         />
         {Platform.OS !== "ios" && interactionsDisabled ? (
           <Pressable
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             onPress={() => Keyboard.dismiss()}
           />
         ) : null}
@@ -427,7 +427,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   nativeTextView: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   layoutText: {
     color: "transparent",

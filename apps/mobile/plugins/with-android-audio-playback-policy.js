@@ -1,4 +1,4 @@
-const { withAndroidManifest } = require("@expo/config-plugins");
+const { withAndroidManifest } = require("expo/config-plugins");
 
 const MEDIA_PLAYBACK_PERMISSION =
   "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK";
