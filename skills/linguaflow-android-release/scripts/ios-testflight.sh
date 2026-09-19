@@ -77,6 +77,19 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
 }
 
+resolve_hermesc() {
+  local candidate
+  for candidate in \
+    "$MOBILE_DIR/node_modules/hermes-compiler/hermesc/osx-bin/hermesc" \
+    "$MOBILE_DIR/node_modules/react-native/sdks/hermesc/osx-bin/hermesc"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  fail "Hermes bytecode inspector not found in Expo 57 or legacy React Native locations."
+}
+
 plist_value() {
   /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null
 }
@@ -238,8 +251,7 @@ validate_ipa() {
   codesign -dv --verbose=4 "$app_dir" 2>&1 | grep -F "TeamIdentifier=$EXPECTED_TEAM_ID" >/dev/null || \
     fail "IPA is not signed by team $EXPECTED_TEAM_ID."
 
-  hermesc="$MOBILE_DIR/node_modules/react-native/sdks/hermesc/osx-bin/hermesc"
-  [[ -x "$hermesc" ]] || fail "Hermes bytecode inspector not found: $hermesc"
+  hermesc="$(resolve_hermesc)"
   [[ -f "$app_dir/main.jsbundle" ]] || fail "main.jsbundle not found in IPA."
   dump_file="$verify_dir/hermes-bytecode.txt"
   "$hermesc" -b -dump-bytecode "$app_dir/main.jsbundle" > "$dump_file"

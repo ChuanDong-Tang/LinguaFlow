@@ -45,6 +45,19 @@ fail() {
   exit 1
 }
 
+resolve_hermesc() {
+  local candidate
+  for candidate in \
+    "$MOBILE_DIR/node_modules/hermes-compiler/hermesc/osx-bin/hermesc" \
+    "$MOBILE_DIR/node_modules/react-native/sdks/hermesc/osx-bin/hermesc"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  fail "Hermes bytecode inspector not found in Expo 57 or legacy React Native locations."
+}
+
 while (($#)); do
   case "$1" in
     --yes) ASSUME_YES=true ;;
@@ -208,7 +221,7 @@ validate_aab() {
   bundle_file="$(find "$verify_dir/unpacked" -type f -name 'index.android.bundle' -print -quit)"
   [[ -n "$bundle_file" ]] || fail "index.android.bundle not found in AAB."
   dump_file="$verify_dir/hermes-bytecode.txt"
-  "$MOBILE_DIR/node_modules/react-native/sdks/hermesc/osx-bin/hermesc" -b -dump-bytecode "$bundle_file" > "$dump_file"
+  "$(resolve_hermesc)" -b -dump-bytecode "$bundle_file" > "$dump_file"
   grep -F "$EXPECTED_API_URL" "$dump_file" >/dev/null || \
     fail "Production API URL is not embedded in the JS bundle. Upload stopped."
 
@@ -257,7 +270,7 @@ validate_apk() {
   unzip -p "$apk" assets/index.android.bundle > "$bundle_file" || fail "index.android.bundle not found in APK."
   [[ -s "$bundle_file" ]] || fail "index.android.bundle is empty in APK."
   dump_file="$verify_dir/hermes-bytecode.txt"
-  "$MOBILE_DIR/node_modules/react-native/sdks/hermesc/osx-bin/hermesc" -b -dump-bytecode "$bundle_file" > "$dump_file"
+  "$(resolve_hermesc)" -b -dump-bytecode "$bundle_file" > "$dump_file"
   grep -F "$EXPECTED_API_URL" "$dump_file" >/dev/null || fail "Production API URL is not embedded in the JS bundle."
   grep -F 'https://yueyantech.com' "$dump_file" >/dev/null || fail "China update URL is not embedded in the JS bundle."
 
