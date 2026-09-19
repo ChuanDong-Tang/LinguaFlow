@@ -167,6 +167,28 @@ release as incomplete rather than published.
 
 ## Verification and reporting
 
+For a release candidate, create a distribution-specific acceptance record and
+fill it with observed evidence rather than expected outcomes:
+
+```bash
+node skills/linguaflow-android-release/scripts/release-acceptance.mjs init \
+  --output .tmp/release-acceptance/<distribution>-<version>-<build>.json \
+  --distribution ios|google-android|china-android \
+  --version <version> --build <build> --runtime <runtime> \
+  --commit <source-commit> --artifact <path-or-store-id> --sha256 <sha256>
+
+node skills/linguaflow-android-release/scripts/release-acceptance.mjs check \
+  --file <record> --stage prepublish
+
+node skills/linguaflow-android-release/scripts/release-acceptance.mjs check \
+  --file <record> --stage live
+```
+
+Every core flow must be `passed` with evidence or explicitly
+`not-applicable` with a reason. A prepublish pass does not authorize upload or
+submission. A release is not live-verified until the same record passes the
+`live` stage against an installation obtained from its real delivery path.
+
 Before reporting success, use the script and artifact validation output to
 confirm all of the following:
 

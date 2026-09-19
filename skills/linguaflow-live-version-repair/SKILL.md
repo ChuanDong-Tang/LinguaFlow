@@ -13,6 +13,29 @@ Read [references/repair-lanes.md](references/repair-lanes.md) when selecting a
 repair path or when more than one released version, platform, runtime, or OTA
 channel may be affected.
 
+Use the repair record harness for every production repair that proceeds beyond
+diagnosis. It converts user feedback into a durable incident record and blocks
+rollout or closure while required evidence is missing:
+
+```bash
+node skills/linguaflow-live-version-repair/scripts/repair-record.mjs init \
+  --output .tmp/live-repairs/<id>.json \
+  --scope ios|google-android|china-android|backend|cross-platform \
+  --symptom "<user-visible symptom>" \
+  --expected "<expected behavior>"
+
+node skills/linguaflow-live-version-repair/scripts/repair-record.mjs check \
+  --file .tmp/live-repairs/<id>.json --stage rollout
+
+node skills/linguaflow-live-version-repair/scripts/repair-record.mjs check \
+  --file .tmp/live-repairs/<id>.json --stage close
+```
+
+The record lives under ignored `.tmp/`; it may contain operational identifiers
+but must not contain passwords, tokens, private keys, or unnecessary user
+content. `rollout` is a readiness check, not authorization: obtain explicit
+user approval before the external mutation and record it truthfully.
+
 ## Establish the affected release
 
 Start with the read-only production incident snapshot:
@@ -141,3 +164,5 @@ Report these states separately:
 - backend/database rollout state;
 - OTA channel/update ID or native artifact/store state;
 - real-environment verification and anything still exposed.
+
+Do not call the repair complete unless the record passes `--stage close`.

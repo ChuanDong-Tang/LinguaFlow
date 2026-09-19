@@ -21,6 +21,9 @@ while IFS= read -r script; do
   node --check "$script"
 done < <(find skills/linguaflow-* -type f -name '*.mjs' | sort)
 
+node skills/linguaflow-live-version-repair/scripts/repair-record.mjs self-test
+node skills/linguaflow-android-release/scripts/release-acceptance.mjs self-test
+
 while IFS= read -r skill; do
   first_line="$(sed -n '1p' "$skill")"
   name_line="$(sed -n '2p' "$skill")"
