@@ -35,6 +35,11 @@ Do not diagnose from the marketing version alone. Two users on the same app
 version may have different native builds, OTA manifests, cached state, account
 data, or provider state.
 
+Keep iOS, Google Android, and China Android version/build/runtime facts in
+separate rows. They commonly advance at different times. Never substitute the
+iOS version for an unknown Android version, or the Google Android state for the
+China APK state.
+
 ## Protect the released baseline
 
 Before editing, identify the exact code and configuration represented by the
@@ -86,6 +91,11 @@ Choose the least invasive lane that fixes the actual failing layer:
 4. **Native release:** native dependency, Expo plugin, permission, entitlement,
    signing, update bootstrap, startup crash, or incompatible runtime change.
    Increment the native build/version as required and use the app release Skill.
+
+For a China APK repair, distinguish local artifact creation from publication.
+The repair is not live until the production China App-version endpoint and all
+public download entry points resolve to the newly validated APK, and a fresh
+download matches its versionName, versionCode, and SHA-256.
 
 Do not combine lanes merely for convenience. If a safe server-side mitigation
 can stop harm while a native fix is reviewed, describe the mitigation and the

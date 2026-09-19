@@ -51,6 +51,10 @@ TestFlight installations always use Apple's Sandbox environment for in-app
 purchases. This is independent of the app's production API and Expo Updates
 channel, both of which are validated by this workflow.
 
+The iOS marketing version and Apple build number describe iOS only. Do not use
+them as the expected Android versionName or versionCode, and do not update an
+Android latest-version setting merely because iOS advanced.
+
 ## Android Google Play and China APK
 
 Before the first run, copy
@@ -116,3 +120,21 @@ bash skills/linguaflow-android-release/scripts/android-china.sh --check
 Do not invoke the underlying Expo/EAS Android production build directly for a
 release. Use one of these target-specific scripts so the payment provider and
 distribution channel cannot drift apart.
+
+### Publishing the China APK
+
+The China script stops after producing and validating a local artifact. If the
+user asks to publish it, keep the versioned artifact immutable, then update the
+production App-version policy and all public download entry points to that
+exact object. The authoritative production settings are:
+
+```text
+LF_APP_CHINA_ANDROID_LATEST_VERSION=<APK versionName>
+LF_APP_CHINA_ANDROID_DOWNLOAD_URL=<exact public versioned APK URL>
+```
+
+Do not reuse the iOS or Google Android version for either value. After the API
+configuration and website are deployed, query the China Android App-version
+endpoint, download its returned URL, and validate the downloaded APK against
+the local artifact. Publication is incomplete while the endpoint or any public
+website link still points to an older APK.

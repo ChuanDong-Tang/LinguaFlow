@@ -12,6 +12,15 @@ state are known.
 | Payment entitlement differs from Apple, Google, or Alipay | Provider reconciliation or targeted repair | Provider truth, local transaction history, ownership/transfer audit, idempotent repair | Stop before mutation on identity ambiguity; never fabricate provider state |
 | Only one platform or distribution is affected | Matching platform lane only | Other production channels were not exported, published, or reconfigured | Roll back or pause only the affected channel |
 
+Do not put iOS, Google Android, and China Android under one ambiguous "current
+version" field. Record their live user version, native build, runtime, OTA
+channel, and rollout/download state independently.
+
+For China Android, a local APK is only an artifact. Publication requires the
+immutable APK upload, the China-specific backend version and URL, any static
+website download links, and a public re-download check to agree on that exact
+artifact.
+
 ## OTA baseline rule
 
 An OTA is not “whatever JavaScript is currently local.” It is a new bundle for

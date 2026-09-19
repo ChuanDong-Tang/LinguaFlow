@@ -71,6 +71,27 @@ If the user requests all three, run them sequentially, not concurrently. For a
 configuration-only request, use the selected script's `--check`. Respect an
 explicit no-upload request for iOS by adding `--build-only`.
 
+## Platform versions are independent
+
+Treat the live iOS, Google Android, and China Android versions as three separate
+facts. Never infer one platform's marketing version, build number, versionName,
+versionCode, runtimeVersion, review state, or rollout state from another
+platform. A shared source checkout or matching display version does not make
+their live releases equal.
+
+Before release or live-version repair, record the matrix explicitly:
+
+| Distribution | User version | Native build | Runtime | Delivery state |
+| --- | --- | --- | --- | --- |
+| iOS | App Store version | Apple build number | iOS runtimeVersion | review/TestFlight/App Store |
+| Google Android | versionName | versionCode | Google runtimeVersion | testing/production track |
+| China Android | versionName | versionCode | China runtimeVersion | uploaded APK and active download URL |
+
+Use the platform-specific backend settings
+`LF_APP_IOS_LATEST_VERSION`, `LF_APP_GOOGLE_ANDROID_LATEST_VERSION`, and
+`LF_APP_CHINA_ANDROID_LATEST_VERSION`. Do not change the shared
+`LF_APP_LATEST_VERSION` as a shortcut when only one distribution advances.
+
 ## Three-platform startup gate
 
 Every native release candidate must pass the same-source startup gate before
@@ -124,12 +145,34 @@ flow. A missing provider price must remain unavailable (`--`), not borrow a
 price from Apple, Google, a hard-coded constant, or Alipay. Never put Alipay
 private keys or other server credentials in the mobile package.
 
+## China APK publication invariant
+
+`android-china.sh` builds and validates a local APK; that alone is not a
+publication. When the user explicitly asks to publish the China APK:
+
+1. upload the validated artifact under its immutable versioned filename;
+2. set `LF_APP_CHINA_ANDROID_LATEST_VERSION` to that APK's `versionName` and
+   `LF_APP_CHINA_ANDROID_DOWNLOAD_URL` to that exact uploaded object;
+3. update and deploy every public website download link that is not already
+   driven by the same canonical URL;
+4. query `/app/version?platform=android&distribution=china` and verify it
+   returns the new independent China version and exact URL;
+5. download from the returned public URL, verify it is reachable, and confirm
+   the downloaded APK's versionName, versionCode, and SHA-256 match the local
+   validated artifact.
+
+Change the visible pointer only after the immutable APK upload succeeds. If
+any public entry point still resolves to the previous APK, report the China
+release as incomplete rather than published.
+
 ## Verification and reporting
 
 Before reporting success, use the script and artifact validation output to
 confirm all of the following:
 
 - iOS 26, iOS 27, and Android startup smoke passed for the current source;
+- the iOS, Google Android, and China Android live version/build matrix was
+  checked independently;
 - destination and payment provider match the matrix above;
 - production API URL, package/bundle ID, distribution/update channel, version,
   and build/version code are correct;
@@ -138,6 +181,9 @@ confirm all of the following:
 - TestFlight upload actually completed for the default iOS flow;
 - Google Play upload is claimed only when the user requested it and the submit
   command completed.
+
+For a China APK publication, additionally report the public download URL and
+the matching downloaded SHA-256; never report a local China APK build as live.
 
 For OTA, instead confirm the exact channel, runtime version, platform, manifest
 update ID, and that the COS upload completed before the latest pointer changed.
