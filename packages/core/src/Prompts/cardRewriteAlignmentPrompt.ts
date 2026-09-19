@@ -1,4 +1,4 @@
-export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v7";
+export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v8";
 
 export interface CardRewriteAlignmentGroup {
   sourceOrdinals: number[];
@@ -43,7 +43,7 @@ Treat each T unit in the rewrite as the display anchor. For each T unit, find th
 The finalized rewrite is expected to preserve the source's narrative order. Keep matches in both T order and S order.
 The source may use any language or mix languages. An S unit is only a lookup fragment and may naturally end with a comma, semicolon, discourse pause, or other incomplete-sentence punctuation.
 The rewrite is already final: never rewrite, translate, correct, split, merge, omit, or add text.
-Return one match for every T index, in T order. Each match must contain the exact consecutive S index or indexes that express that T unit's meaning. Never combine separated source ideas around an intervening S unit. The same S indexes may be used by adjacent T matches when one source passage becomes multiple rewrite sentences. Source filler or hesitation that is not expressed in the rewrite may remain unused.
+Return one match for every T index, in T order. Each match must contain the exact consecutive S index or indexes that express that T unit's meaning. Never combine separated source ideas around an intervening S unit. When one source passage becomes multiple adjacent rewrite sentences, reuse exactly the same complete S range for those T matches. Never partially overlap S ranges between matches (for example, S1-S2 followed by S2-S3 is invalid). Source filler or hesitation that is not expressed in the rewrite may remain unused.
 Use meaning rather than shared words or punctuation. Never leave a T index unmatched.
 
 Return JSON only, with no markdown or explanation, in exactly this shape:
@@ -98,6 +98,10 @@ export function parseCardRewriteAlignmentOutput(input: {
       || Math.max(...previous.targetOrdinals) >= Math.min(...current.targetOrdinals)) {
       throw new Error("CARD_REWRITE_ALIGNMENT_NON_MONOTONIC");
     }
+    const sourceRangesOverlap = Math.min(...current.sourceOrdinals) <= Math.max(...previous.sourceOrdinals);
+    if (sourceRangesOverlap && !sameOrdinals(previous.sourceOrdinals, current.sourceOrdinals)) {
+      throw new Error("CARD_REWRITE_ALIGNMENT_PARTIAL_SOURCE_OVERLAP");
+    }
   }
   const sourceForTarget = new Map<number, number[]>();
   for (const group of groups) {
@@ -106,9 +110,11 @@ export function parseCardRewriteAlignmentOutput(input: {
       sourceForTarget.set(targetOrdinal, group.sourceOrdinals);
     }
   }
-  const fallbackSource = [...input.sourceOrdinals];
+  if (input.targetOrdinals.some((targetOrdinal) => !sourceForTarget.has(targetOrdinal))) {
+    throw new Error("CARD_REWRITE_ALIGNMENT_MISSING_TARGET");
+  }
   const completed = input.targetOrdinals.map((targetOrdinal) => ({
-    sourceOrdinals: sourceForTarget.get(targetOrdinal) ?? fallbackSource,
+    sourceOrdinals: sourceForTarget.get(targetOrdinal)!,
     targetOrdinals: [targetOrdinal],
   }));
   return completed.reduce<CardRewriteAlignmentGroup[]>((result, group) => {

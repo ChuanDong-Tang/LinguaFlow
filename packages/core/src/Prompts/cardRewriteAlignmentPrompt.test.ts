@@ -96,15 +96,35 @@ test("accepts explicit start/end range variants before validation", () => {
   ]);
 });
 
-test("uses the whole source as a safe fallback for an unmatched target", () => {
-  assert.deepEqual(parseCardRewriteAlignmentOutput({
+test("rejects an unmatched target instead of repeating the whole source", () => {
+  assert.throws(() => parseCardRewriteAlignmentOutput({
     output: JSON.stringify({ matches: [{ source: [0], target: 0 }] }),
     sourceOrdinals: [0, 1],
     targetOrdinals: [0, 1],
+  }));
+});
+
+test("coalesces exact source reuse but rejects partial source overlap", () => {
+  assert.deepEqual(parseCardRewriteAlignmentOutput({
+    output: JSON.stringify({ matches: [
+      { source: [0, 1], target: 0 },
+      { source: [0, 1], target: 1 },
+      { source: [2], target: 2 },
+    ] }),
+    sourceOrdinals: [0, 1, 2],
+    targetOrdinals: [0, 1, 2],
   }), [
-    { sourceOrdinals: [0], targetOrdinals: [0] },
-    { sourceOrdinals: [0, 1], targetOrdinals: [1] },
+    { sourceOrdinals: [0, 1], targetOrdinals: [0, 1] },
+    { sourceOrdinals: [2], targetOrdinals: [2] },
   ]);
+  assert.throws(() => parseCardRewriteAlignmentOutput({
+    output: JSON.stringify({ matches: [
+      { source: [0, 1], target: 0 },
+      { source: [1, 2], target: 1 },
+    ] }),
+    sourceOrdinals: [0, 1, 2],
+    targetOrdinals: [0, 1],
+  }), /CARD_REWRITE_ALIGNMENT_PARTIAL_SOURCE_OVERLAP/u);
 });
 
 test("rejects duplicated or crossed target mappings", () => {

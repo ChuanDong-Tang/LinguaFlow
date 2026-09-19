@@ -2512,7 +2512,7 @@ function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningCo
   return entry.images.find((image) => image.id === imageId)?.descriptionLanguageCode ?? entry.languageCode;
 }
 
-function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> {
+export function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> {
   const sourceSegments = entry.contentSegments
     .filter((segment) => segment.contentType === "original")
     .sort((left, right) => left.ordinal - right.ordinal);
@@ -2552,6 +2552,8 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
   const sourceByOrdinal = new Map(sourceUnits.map((unit) => [unit.ordinal, unit]));
   const targetOrdinals = new Set(targetSegments.map((segment) => segment.ordinal));
   const seenTarget = new Set<number>();
+  let previousSourceOrdinals: number[] | null = null;
+  let previousTargetOrdinal = -1;
   const rows: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> = [];
   for (const rawGroup of alignment.groups) {
     if (!rawGroup || typeof rawGroup !== "object" || Array.isArray(rawGroup)) return fallback;
@@ -2563,8 +2565,22 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
       || groupTargetOrdinals.some((ordinal) => !Number.isInteger(ordinal) || !targetOrdinals.has(ordinal as number) || seenTarget.has(ordinal as number))) return fallback;
     const typedSourceOrdinals = sourceOrdinals as number[];
     const typedTargetOrdinals = groupTargetOrdinals as number[];
-    if (typedSourceOrdinals.some((ordinal, index) => index > 0 && ordinal !== typedSourceOrdinals[index - 1]! + 1)) return fallback;
+    if (typedSourceOrdinals.some((ordinal, index) => index > 0 && ordinal !== typedSourceOrdinals[index - 1]! + 1)
+      || typedTargetOrdinals.some((ordinal, index) => index > 0 && ordinal !== typedTargetOrdinals[index - 1]! + 1)
+      || typedTargetOrdinals[0]! <= previousTargetOrdinal) return fallback;
+    let repeatsPreviousSourceRange = false;
+    if (previousSourceOrdinals) {
+      repeatsPreviousSourceRange = previousSourceOrdinals.length === typedSourceOrdinals.length
+        && previousSourceOrdinals.every((ordinal, index) => ordinal === typedSourceOrdinals[index]);
+      const sourceRangesOverlap = typedSourceOrdinals[0]! <= previousSourceOrdinals[previousSourceOrdinals.length - 1]!;
+      if (sourceRangesOverlap && !repeatsPreviousSourceRange) return fallback;
+    }
     typedTargetOrdinals.forEach((ordinal) => seenTarget.add(ordinal));
+    if (repeatsPreviousSourceRange) {
+      rows[rows.length - 1]!.ordinal = typedTargetOrdinals[typedTargetOrdinals.length - 1]!;
+      previousTargetOrdinal = typedTargetOrdinals[typedTargetOrdinals.length - 1]!;
+      continue;
+    }
     const first = sourceByOrdinal.get(typedSourceOrdinals[0]!)!;
     const last = sourceByOrdinal.get(typedSourceOrdinals[typedSourceOrdinals.length - 1]!)!;
     const rawText = entry.originalText!.slice(first.startUtf16, last.endUtf16);
@@ -2577,6 +2593,8 @@ function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal
       startUtf16,
       endUtf16: startUtf16 + text.length,
     });
+    previousSourceOrdinals = typedSourceOrdinals;
+    previousTargetOrdinal = typedTargetOrdinals[typedTargetOrdinals.length - 1]!;
   }
   if (seenTarget.size !== targetSegments.length || rows.some((row) => !row.text)) return fallback;
   return rows;
