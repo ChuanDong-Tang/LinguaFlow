@@ -76,6 +76,9 @@ const path = require('path');
 const root = process.argv[2];
 const excludedDirectories = new Set([
   '.expo', '.gradle', 'Pods', 'build', 'DerivedData', 'node_modules',
+  // Expo prebuild owns these ignored native projects. Their contents vary by
+  // build profile and are outputs of app.config.js plus the tracked plugins.
+  'ios', 'android',
 ]);
 const excludedFiles = new Set(['.DS_Store']);
 const environmentKeys = [
