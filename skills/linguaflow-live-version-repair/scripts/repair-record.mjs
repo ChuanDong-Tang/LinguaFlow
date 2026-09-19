@@ -6,7 +6,7 @@ import process from 'node:process';
 
 const SCOPES = new Set(['unknown', 'ios', 'google-android', 'china-android', 'backend', 'cross-platform']);
 const LANES = new Set(['unknown', 'backend', 'targeted-data', 'ota', 'native-release', 'provider-reconciliation']);
-const STAGES = new Set(['intake', 'rollout', 'close']);
+const STAGES = new Set(['intake', 'diagnosed', 'rollout', 'close']);
 
 function fail(message) {
   console.error(`ERROR: ${message}`);
@@ -75,6 +75,9 @@ function validate(record, stage) {
   if (!LANES.has(record?.diagnosis?.lane) || record?.diagnosis?.lane === 'unknown') {
     errors.push(`diagnosis.lane must be resolved to one of: ${[...LANES].filter((lane) => lane !== 'unknown').join(', ')}`);
   }
+
+  if (stage === 'diagnosed') return errors;
+
   requireText(errors, record?.repair?.sourceCommit, 'repair.sourceCommit');
   requireEvidence(errors, record?.repair?.validationEvidence, 'repair.validationEvidence');
   if (record?.rollout?.authorizedByUser !== true) errors.push('rollout.authorizedByUser must be true');
@@ -198,6 +201,7 @@ function selfTest() {
     affectedPopulation: 'iOS build 123 on production runtime 1.2.3',
     lane: 'ota',
   };
+  if (validate(record, 'diagnosed').length !== 0) throw new Error('diagnosed self-test rejected a complete diagnosis');
   record.repair = {
     sourceCommit: '1111111111111111111111111111111111111111',
     activeBranchCommit: '1111111111111111111111111111111111111111',
@@ -254,4 +258,4 @@ if (command === 'check') {
   process.exit(0);
 }
 
-fail('Usage: repair-record.mjs init --output <file> --scope <scope> --symptom <text> --expected <text> | check --file <file> --stage intake|rollout|close | self-test');
+fail('Usage: repair-record.mjs init --output <file> --scope <scope> --symptom <text> --expected <text> | check --file <file> --stage intake|diagnosed|rollout|close | self-test');

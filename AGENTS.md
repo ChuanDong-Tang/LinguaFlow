@@ -4,6 +4,10 @@ For broad LinguaFlow maintenance, project status, handoff, or work spanning
 multiple domains, read and follow
 `skills/linguaflow-daily-operations/SKILL.md` before acting.
 
+For a non-trivial iteration spanning planning, design, implementation,
+validation, delivery, and real-environment verification, read and follow
+`skills/linguaflow-task-orchestration/SKILL.md` before acting.
+
 For feature development or bug fixing, read and follow
 `skills/linguaflow-feature-delivery/SKILL.md` before acting.
 

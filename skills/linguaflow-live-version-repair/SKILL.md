@@ -25,6 +25,9 @@ node skills/linguaflow-live-version-repair/scripts/repair-record.mjs init \
   --expected "<expected behavior>"
 
 node skills/linguaflow-live-version-repair/scripts/repair-record.mjs check \
+  --file .tmp/live-repairs/<id>.json --stage diagnosed
+
+node skills/linguaflow-live-version-repair/scripts/repair-record.mjs check \
   --file .tmp/live-repairs/<id>.json --stage rollout
 
 node skills/linguaflow-live-version-repair/scripts/repair-record.mjs check \

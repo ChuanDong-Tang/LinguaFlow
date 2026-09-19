@@ -8,6 +8,8 @@ description: Coordinate broad LinguaFlow maintenance, status, handoff, or multi-
 Act as the single owner of the requested outcome. Route focused work to the
 relevant repository Skill instead of duplicating its procedure:
 
+- multi-stage iteration from planning through verified delivery:
+  `../linguaflow-task-orchestration/SKILL.md`
 - feature implementation or bug fixing: `../linguaflow-feature-delivery/SKILL.md`
 - production symptom investigation: `../linguaflow-production-incident/SKILL.md`
 - backend push, pull, rollout, or restart: `../linguaflow-backend-deploy/SKILL.md`
