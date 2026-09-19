@@ -63,6 +63,7 @@ import { DictionaryPopover } from "./chat/DictionaryPopover";
 import { dictionaryLookupErrorKey, lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { getLanguage, t, tf } from "../i18n";
 import { expandSelectionToCardBlankRange } from "../domain/cloze/clozeUtils";
+import { isCardClozeBlankCorrect } from "../domain/cloze/cardClozeCorrectness";
 import {
   buildClozeAnswerPuzzle,
   clozeAnswerPuzzleText,
@@ -4723,7 +4724,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   // measurements from a hidden React Native <Text> drifts on Android because
   // the two renderers apply different font padding and line metrics.
   const highlightRanges = phraseRanges;
-  const blankIsCorrect = ({ blank }: typeof row.blanks[number]) => checkedAnswers[blank.id] === "correct";
+  const blankIsCorrect = ({ blank }: typeof row.blanks[number]) => isCardClozeBlankCorrect(blank, checkedAnswers);
   const hiddenRanges = revealed
     ? []
     : row.blanks
