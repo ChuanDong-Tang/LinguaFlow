@@ -7,6 +7,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { LoginScreen } from "./screens/LoginScreen";
+import { PreLoginOnboardingScreen } from "./screens/PreLoginOnboardingScreen";
 import { getLanguage, getSavedLanguage, initI18n, setLanguage, t, tf } from "./i18n";
 import {
   clearAuthingAccessToken,
@@ -26,8 +27,6 @@ import {
   getUserPreference,
   updateUserPreference,
   type AppLocale,
-  type LearningLanguage,
-  type PromptDifficulty,
   type UserPreference,
 } from "./services/api/meApi";
 import { setQuotaExhaustionHandler, type QuotaExhaustionKind } from "./services/usage/quotaExhaustion";
@@ -42,17 +41,22 @@ import {
 } from "./screens/CardDetailNavigator";
 import { AboutScreen } from "./screens/AboutScreen";
 import { FloatingNoticeProvider } from "./screens/shared/FloatingNotice";
-import { LearningPreferenceModal, UiLocaleSetupModal } from "./screens/shared/OnboardingModals";
 import {
   completeGuide,
   GUIDE_FIRST_LEARNING_SETUP,
-  GUIDE_INITIAL_UI_LOCALE,
   isGuideCompleted,
-  loadLocalGuideState,
-  markLocalGuideCompleted,
   saveLocalGuideState,
-  type GuideState,
 } from "./services/preferences/guideState";
+import {
+  beginPreLoginOnboarding,
+  completePreLoginOnboarding,
+  isCompletePreLoginOnboardingDraft,
+  loadPreLoginOnboardingState,
+  markPreLoginOnboardingSynced,
+  resolvePreLoginOnboardingLaunch,
+  savePreLoginOnboardingProgress,
+  type PreLoginOnboardingState,
+} from "./services/preferences/preLoginOnboarding";
 import {
   getAuthingClientId,
   getAuthingDiscovery,
@@ -73,6 +77,7 @@ import { reconcileMembershipSilently } from "./services/subscription/autoRenewSy
 
 type Screen =
   | "booting"
+  | "onboarding"
   | "login"
   | "main"
   | "chat"
@@ -89,14 +94,7 @@ export default function App() {
   const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
   const [chatContacts, setChatContacts] = useState<ChatContact[]>([]);
   const [, bumpLanguageRevision] = useState(0);
-  const [uiLocaleSetupVisible, setUiLocaleSetupVisible] = useState(false);
-  const [uiLocaleDraft, setUiLocaleDraft] = useState<AppLocale>("zh-CN");
-  const [learningPreferenceVisible, setLearningPreferenceVisible] = useState(false);
-  const [learningPreferenceSaving, setLearningPreferenceSaving] = useState(false);
-  const [learningLanguageDraft, setLearningLanguageDraft] = useState<LearningLanguage>("en-US");
-  const [promptDifficultyDraft, setPromptDifficultyDraft] = useState<PromptDifficulty>("native");
-  const [guideState, setGuideState] = useState<GuideState>({});
-  const [guideStateUserId, setGuideStateUserId] = useState<string | null>(null);
+  const [preLoginOnboarding, setPreLoginOnboarding] = useState<PreLoginOnboardingState | null>(null);
   const [sessionRevision, setSessionRevision] = useState(0);
   const [cardDataRevision, setCardDataRevision] = useState(0);
   const [cardDetailRequest, setCardDetailRequest] = useState<CardDetailRequest | null>(null);
@@ -133,7 +131,7 @@ export default function App() {
   const promptedOtaUpdateRef = useRef<string | null>(null);
   const lastMembershipReconcileAtRef = useRef(0);
   const appBooting = screen === "booting";
-  const appAuthenticated = !appBooting && screen !== "login";
+  const appAuthenticated = !appBooting && screen !== "login" && screen !== "onboarding";
   const authingConfigured = isAuthingConfigured();
 
   useEffect(() => {
@@ -174,16 +172,31 @@ export default function App() {
         await Promise.all([initI18n(), preloadImages(PRELOAD_IMAGES)]);
         const installState = await reconcileLocalInstallState();
         const savedLanguage = await getSavedLanguage();
-        if (savedLanguage) {
-          setUiLocaleDraft(savedLanguage);
-          await markLocalGuideCompleted(GUIDE_INITIAL_UI_LOCALE);
-        }
+        let onboardingState = await loadPreLoginOnboardingState();
         let session = await getSession();
         if (installState.isFreshInstall && session) {
           await clearSession();
           await clearAuthingAccessToken();
           await clearAccountScopedStorage();
           session = null;
+        }
+        const onboardingLaunch = resolvePreLoginOnboardingLaunch({
+          isFreshInstall: installState.isFreshInstall,
+          state: onboardingState,
+        });
+        if (onboardingLaunch === "begin") {
+          onboardingState = await beginPreLoginOnboarding();
+        }
+        if (onboardingState?.draft.appLocale) {
+          await setLanguage(onboardingState.draft.appLocale);
+        } else if (savedLanguage) {
+          await setLanguage(savedLanguage);
+        }
+        if ((onboardingLaunch === "begin" || onboardingLaunch === "resume") && onboardingState?.status === "in_progress") {
+          if (!mounted) return;
+          setPreLoginOnboarding(onboardingState);
+          setScreen("onboarding");
+          return;
         }
         let preference: UserPreference | null = null;
         if (session) {
@@ -192,17 +205,13 @@ export default function App() {
         }
         if (!mounted) return;
         setScreen(session ? "main" : "login");
-        if (!session && !savedLanguage) {
-          setUiLocaleSetupVisible(true);
-        }
         if (session) {
-          void runPostLoginGuideFlow(preference);
+          void synchronizePostLoginPreferences(preference);
           void loadChatContacts();
         }
       } catch {
         if (!mounted) return;
         setScreen("login");
-        setUiLocaleSetupVisible(true);
       }
     }
     void bootstrap();
@@ -375,7 +384,7 @@ export default function App() {
     setSessionRevision((value) => value + 1);
     setScreen("main");
     void loadChatContacts();
-    void runPostLoginGuideFlow();
+    void synchronizePostLoginPreferences();
   }
 
   async function loadChatContacts(): Promise<void> {
@@ -394,68 +403,71 @@ export default function App() {
     } catch {}
   }
 
-  async function runPostLoginGuideFlow(preloadedPreference?: UserPreference | null): Promise<void> {
-    const preference = preloadedPreference ?? await getUserPreference().catch(() => null);
+  async function synchronizePostLoginPreferences(preloadedPreference?: UserPreference | null): Promise<void> {
+    let preference = preloadedPreference ?? await getUserPreference().catch(() => null);
+    const onboardingState = await loadPreLoginOnboardingState();
     const session = await getSession();
     const userId = preference?.userId ?? session?.user.id ?? null;
-    setGuideStateUserId(userId);
-    const localGuideState = await loadLocalGuideState(userId);
-    const mergedGuideState = preference ? preference.guideState : localGuideState;
-    setGuideState(mergedGuideState);
-    await saveLocalGuideState(mergedGuideState, userId);
-    const appLocale = getLanguage() as AppLocale;
-    await updateUserPreference({ appLocale }).catch(() => null);
-
-    if (preference) {
-      setLearningLanguageDraft(preference.learningLanguage);
-      setPromptDifficultyDraft(preference.promptDifficulty);
+    try {
+      if (
+        onboardingState?.status === "completed" &&
+        onboardingState.pendingSync &&
+        isCompletePreLoginOnboardingDraft(onboardingState.draft)
+      ) {
+        preference = await updateUserPreference({
+          appLocale: onboardingState.draft.appLocale,
+          learningLanguage: onboardingState.draft.learningLanguage,
+          promptDifficulty: onboardingState.draft.promptDifficulty,
+          acquisitionSource: onboardingState.draft.acquisitionSource,
+          guideState: completeGuide(preference?.guideState ?? {}, GUIDE_FIRST_LEARNING_SETUP),
+        });
+        await markPreLoginOnboardingSynced();
+      } else if (preference && !isGuideCompleted(preference.guideState, GUIDE_FIRST_LEARNING_SETUP)) {
+        preference = await updateUserPreference({
+          guideState: completeGuide(preference.guideState, GUIDE_FIRST_LEARNING_SETUP),
+        });
+      }
+    } catch {
+      // Keep the completed onboarding marked pending. A later authenticated boot retries it.
     }
-
-    if (!isGuideCompleted(mergedGuideState, GUIDE_FIRST_LEARNING_SETUP)) {
-      setLearningPreferenceVisible(true);
-      return;
+    if (preference && userId) {
+      await saveLocalGuideState(preference.guideState, userId);
     }
   }
 
-  async function completeUiLocaleSetup(): Promise<void> {
-    await setLanguage(uiLocaleDraft);
-    await markLocalGuideCompleted(GUIDE_INITIAL_UI_LOCALE);
-    setUiLocaleSetupVisible(false);
+  function handlePreLoginOnboardingDraft(nextDraft: PreLoginOnboardingState["draft"]): void {
+    if (!preLoginOnboarding) return;
+    const next = { ...preLoginOnboarding, draft: nextDraft };
+    setPreLoginOnboarding(next);
+    void savePreLoginOnboardingProgress(next, { draft: nextDraft });
+    if (nextDraft.appLocale && nextDraft.appLocale !== getLanguage()) {
+      void setLanguage(nextDraft.appLocale).then(() => bumpLanguageRevision((revision) => revision + 1));
+    }
+  }
+
+  async function continuePreLoginOnboarding(): Promise<void> {
+    if (!preLoginOnboarding) return;
+    if (preLoginOnboarding.step < 3) {
+      const nextStep = (preLoginOnboarding.step + 1) as 1 | 2 | 3;
+      const next = await savePreLoginOnboardingProgress(preLoginOnboarding, { step: nextStep });
+      setPreLoginOnboarding(next);
+      return;
+    }
+    const completed = await completePreLoginOnboarding(preLoginOnboarding);
+    setPreLoginOnboarding(completed);
+    setScreen("login");
+  }
+
+  async function backPreLoginOnboarding(): Promise<void> {
+    if (!preLoginOnboarding || preLoginOnboarding.step === 0) return;
+    const previousStep = (preLoginOnboarding.step - 1) as 0 | 1 | 2;
+    const next = await savePreLoginOnboardingProgress(preLoginOnboarding, { step: previousStep });
+    setPreLoginOnboarding(next);
   }
 
   function applyAppLocale(value: AppLocale): void {
-    setUiLocaleDraft(value);
     void setLanguage(value);
     bumpLanguageRevision((revision) => revision + 1);
-  }
-
-  async function completeLearningPreferenceSetup(): Promise<void> {
-    if (learningPreferenceSaving) return;
-    setLearningPreferenceSaving(true);
-    try {
-      const nextGuideState = completeGuide(guideState, GUIDE_FIRST_LEARNING_SETUP);
-      const saved = await updateUserPreference({
-        appLocale: getLanguage() as AppLocale,
-        learningLanguage: learningLanguageDraft,
-        promptDifficulty: promptDifficultyDraft,
-        guideState: nextGuideState,
-      });
-      setLearningLanguageDraft(saved.learningLanguage);
-      setPromptDifficultyDraft(saved.promptDifficulty);
-      setGuideState(saved.guideState);
-      await saveLocalGuideState(saved.guideState, await resolveCurrentGuideUserId());
-      setLearningPreferenceVisible(false);
-    } catch {
-      Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
-    } finally {
-      setLearningPreferenceSaving(false);
-    }
-  }
-
-  async function resolveCurrentGuideUserId(): Promise<string | null> {
-    if (guideStateUserId) return guideStateUserId;
-    const session = await getSession();
-    return session?.user.id ?? null;
   }
 
   async function handleDeleteAccount(): Promise<void> {
@@ -821,6 +833,17 @@ export default function App() {
   if (screen === "booting") {
     content = <View style={styles.bootingScreen} />;
   }
+  else if (screen === "onboarding" && preLoginOnboarding) {
+    content = (
+      <PreLoginOnboardingScreen
+        step={preLoginOnboarding.step}
+        draft={preLoginOnboarding.draft}
+        onChangeDraft={handlePreLoginOnboardingDraft}
+        onBack={() => void backPreLoginOnboarding()}
+        onContinue={() => void continuePreLoginOnboarding()}
+      />
+    );
+  }
   else if (screen === "login") {
     content = (
       <FadingScreen>
@@ -1014,24 +1037,6 @@ export default function App() {
                 setQuotaDialog(null);
                 setAccountSheetVisible(true);
               }}
-            />
-            <UiLocaleSetupModal
-              visible={uiLocaleSetupVisible}
-              value={uiLocaleDraft}
-              onChange={(value) => {
-                setUiLocaleDraft(value);
-                void setLanguage(value);
-              }}
-              onContinue={() => void completeUiLocaleSetup()}
-            />
-            <LearningPreferenceModal
-              visible={learningPreferenceVisible}
-              learningLanguage={learningLanguageDraft}
-              promptDifficulty={promptDifficultyDraft}
-              saving={learningPreferenceSaving}
-              onChangeLearningLanguage={setLearningLanguageDraft}
-              onChangePromptDifficulty={setPromptDifficultyDraft}
-              onContinue={() => void completeLearningPreferenceSetup()}
             />
           </View>
         </FloatingNoticeProvider>

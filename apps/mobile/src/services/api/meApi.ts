@@ -1,5 +1,6 @@
 import { getAuthHeaders } from "../auth/authHeaders";
 import type { TargetLanguageCode } from "@lf/core/language/targetLanguages";
+import type { AcquisitionSource } from "@lf/core/ports/repository/UserPreferenceRepository";
 import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -99,6 +100,7 @@ export type UserPreference = {
   appLocale: AppLocale;
   learningLanguage: LearningLanguage;
   promptDifficulty: PromptDifficulty;
+  acquisitionSource: AcquisitionSource | null;
   guideState: GuideState;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
@@ -113,6 +115,7 @@ export type UpdateUserPreferenceInput = Partial<{
   appLocale: AppLocale;
   learningLanguage: LearningLanguage;
   promptDifficulty: PromptDifficulty;
+  acquisitionSource: AcquisitionSource;
   guideState: GuideState;
   ttsProvider: TtsProviderCode;
   ttsVoiceCode: string | null;
