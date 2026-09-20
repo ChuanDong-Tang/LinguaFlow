@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { isCardClozeBlankCorrect } from "./cardClozeCorrectness.js";
 
-test("keeps a persisted mastered blank correct after reopening a card", () => {
+test("keeps a persisted mastered blank visually correct after reopening a card", () => {
   assert.equal(isCardClozeBlankCorrect({ id: "persisted", mastered: true }, {}), true);
 });
 

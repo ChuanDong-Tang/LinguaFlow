@@ -37,3 +37,17 @@ test("shows answers and mastered-green state in the fallback", () => {
   assert.equal(segment.correct, true);
   assert.equal(segment.highlighted, true);
 });
+
+test("keeps a mastered range green but masks it again in a new session", () => {
+  const [segment] = buildSelectableTextFallbackSegments({
+    text: "awning",
+    highlights: [{ start: 0, end: 6, groupIndex: 0 }],
+    blanks: [{ start: 0, end: 6 }],
+    correct: [{ start: 0, end: 6 }],
+    answers: [],
+    answersVisible: false,
+  });
+  assert.equal(segment.text, "awning");
+  assert.equal(segment.hidden, true);
+  assert.equal(segment.correct, true);
+});

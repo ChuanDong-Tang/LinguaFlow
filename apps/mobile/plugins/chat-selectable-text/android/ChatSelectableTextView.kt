@@ -9,15 +9,13 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.os.Build
-import android.text.TextPaint
 import android.text.SpannableString
 import android.text.Selection
 import android.text.Spannable
 import android.text.Spanned
 import android.widget.TextView
 import android.text.style.ForegroundColorSpan
-import android.text.style.CharacterStyle
-import android.text.style.UpdateAppearance
+import android.text.style.ReplacementSpan
 import android.util.TypedValue
 import android.util.Log
 import android.view.ActionMode
@@ -36,6 +34,7 @@ import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.events.Event
 import org.json.JSONArray
 import java.lang.ref.WeakReference
+import kotlin.math.ceil
 
 class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   companion object {
@@ -44,10 +43,26 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     private var activeSelectionView: WeakReference<ChatSelectableTextView>? = null
   }
 
-  private class BlankMaskSpan : CharacterStyle(), UpdateAppearance {
-    override fun updateDrawState(textPaint: TextPaint) {
-      textPaint.color = Color.TRANSPARENT
-    }
+  private class BlankMaskSpan : ReplacementSpan() {
+    override fun getSize(
+      paint: Paint,
+      text: CharSequence,
+      start: Int,
+      end: Int,
+      fm: Paint.FontMetricsInt?,
+    ): Int = ceil(paint.measureText(text, start, end).toDouble()).toInt()
+
+    override fun draw(
+      canvas: Canvas,
+      text: CharSequence,
+      start: Int,
+      end: Int,
+      x: Float,
+      top: Int,
+      y: Int,
+      bottom: Int,
+      paint: Paint,
+    ) = Unit
   }
 
   private class ChatSelectableTextEvent(

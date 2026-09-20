@@ -4724,11 +4724,14 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   // measurements from a hidden React Native <Text> drifts on Android because
   // the two renderers apply different font padding and line metrics.
   const highlightRanges = phraseRanges;
+  const blankAnsweredThisSession = ({ blank }: typeof row.blanks[number]) => checkedAnswers[blank.id] === "correct";
   const blankIsCorrect = ({ blank }: typeof row.blanks[number]) => isCardClozeBlankCorrect(blank, checkedAnswers);
   const hiddenRanges = revealed
     ? []
     : row.blanks
-      .filter((item) => !blankIsCorrect(item))
+      // Persisted mastery keeps the green background, but reopening a card
+      // starts a fresh exercise and masks the answer again.
+      .filter((item) => !blankAnsweredThisSession(item))
       .map(({ blank }) => ({
         start: blank.startUtf16 - row.textStart,
         end: blank.endUtf16 - row.textStart,
@@ -4967,7 +4970,13 @@ function buildCardClozeAnswerRanges(
 ): NativeClozeAnswerRange[] {
   if (revealed) return [];
   return row.blanks.flatMap(({ blank }) => {
-    const answer = checkedAnswers[blank.id] === "correct" ? "" : answers[blank.id] ?? "";
+    // Always paint the canonical answer for a blank completed in this session. Android can
+    // briefly receive the mastered/correct range before its old blank mask is
+    // removed, so relying on the underlying sentence glyphs leaves a green
+    // but visually empty blank. Durable `mastered` progress intentionally does
+    // not count here: reopening a card starts a fresh practice session.
+    const correct = checkedAnswers[blank.id] === "correct";
+    const answer = correct ? blank.answer : answers[blank.id] ?? "";
     if (!answer) return [];
     const start = blank.startUtf16 - row.textStart;
     const selectedText = sentenceText.slice(start, blank.endUtf16 - row.textStart);
@@ -4977,7 +4986,7 @@ function buildCardClozeAnswerRanges(
       start: start + (run.index ?? 0),
       end: start + (run.index ?? 0) + run[0].length,
       text: index === originalRuns.length - 1 ? answerRuns.slice(index).join(" ") : answerRuns[index] ?? "",
-      incorrect: checkedAnswers[blank.id] === "incorrect",
+      incorrect: !correct && checkedAnswers[blank.id] === "incorrect",
     })).filter((range) => range.text);
   });
 }
