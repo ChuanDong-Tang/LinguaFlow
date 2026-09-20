@@ -17,6 +17,7 @@ const PORTRAIT_THUMBNAIL_SIZE = { width: 1_152, height: 1_440 } as const;
 const DEFAULT_BLOCK_SCORE = 80;
 const POLITY_BLOCK_SCORE = 90;
 const SOFT_BLOCK_LABELS = new Set(["ad", "ads", "advertising", "teenager"]);
+const SOFT_BLOCK_CLASSIFICATIONS = new Set(["polity:nationalinstitution"]);
 
 type ModerationDecision = {
   status: "approved" | "approved_with_review" | "rejected";
@@ -28,6 +29,7 @@ type ModerationDecision = {
 export function decideCardImageModeration(input: {
   suggestion: string;
   label: string;
+  subLabel?: string;
   score: number | null;
 }): ModerationDecision {
   const suggestion = input.suggestion.trim().toLowerCase();
@@ -41,7 +43,8 @@ export function decideCardImageModeration(input: {
   }
 
   const label = input.label.trim().toLowerCase();
-  if (SOFT_BLOCK_LABELS.has(label)) {
+  const subLabel = input.subLabel?.trim().toLowerCase() ?? "";
+  if (SOFT_BLOCK_LABELS.has(label) || SOFT_BLOCK_CLASSIFICATIONS.has(`${label}:${subLabel}`)) {
     return { status: "approved_with_review", accepted: true, reason: "soft_label_override", blockScore: null };
   }
 
