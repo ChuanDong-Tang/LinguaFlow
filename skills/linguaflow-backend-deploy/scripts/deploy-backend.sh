@@ -55,6 +55,8 @@ git fetch origin main
 git merge-base --is-ancestor HEAD origin/main
 git pull --ff-only origin main
 test \"\$(git rev-parse HEAD)\" = '$commit'
+test -x ./node_modules/.bin/prisma
+./node_modules/.bin/prisma generate --schema prisma/schema.prisma
 case '$restart' in
   api) pm2 restart oio-api-production --update-env ;;
   worker) pm2 restart oio-worker-production --update-env ;;
