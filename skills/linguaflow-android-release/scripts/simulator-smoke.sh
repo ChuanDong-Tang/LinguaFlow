@@ -76,10 +76,8 @@ const path = require('path');
 const root = process.argv[2];
 const excludedDirectories = new Set([
   '.expo', '.gradle', 'Pods', 'build', 'DerivedData', 'node_modules',
-  // Expo prebuild owns these ignored native projects. Their contents vary by
-  // build profile and are outputs of app.config.js plus the tracked plugins.
-  'ios', 'android',
 ]);
+const generatedNativeDirectories = new Set(['ios', 'android']);
 const excludedFiles = new Set(['.DS_Store']);
 const environmentKeys = [
   'EXPO_PUBLIC_API_BASE_URL',
@@ -99,6 +97,10 @@ function visit(directory) {
     const relativePath = path.relative(root, fullPath);
     if (entry.isDirectory()) {
       if (excludedDirectories.has(entry.name)) continue;
+      // Only the root native projects are generated outputs. Plugin source
+      // folders named ios/android are tracked inputs and must invalidate the
+      // smoke receipt when they change.
+      if (generatedNativeDirectories.has(relativePath)) continue;
       visit(fullPath);
     } else if (entry.isFile()) {
       files.push(relativePath);

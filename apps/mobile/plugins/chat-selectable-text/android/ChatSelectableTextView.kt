@@ -30,8 +30,10 @@ import androidx.appcompat.widget.AppCompatTextView
 import androidx.appcompat.view.WindowCallbackWrapper
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
-import com.facebook.react.uimanager.events.RCTEventEmitter
+import com.facebook.react.bridge.WritableMap
 import com.facebook.react.uimanager.PixelUtil
+import com.facebook.react.uimanager.UIManagerHelper
+import com.facebook.react.uimanager.events.Event
 import org.json.JSONArray
 import java.lang.ref.WeakReference
 
@@ -46,6 +48,19 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     override fun updateDrawState(textPaint: TextPaint) {
       textPaint.color = Color.TRANSPARENT
     }
+  }
+
+  private class ChatSelectableTextEvent(
+    surfaceId: Int,
+    viewId: Int,
+    private val reactEventName: String,
+    private val eventData: WritableMap,
+  ) : Event<ChatSelectableTextEvent>(surfaceId, viewId) {
+    override fun getEventName(): String = reactEventName
+
+    override fun getEventData(): WritableMap = eventData
+
+    override fun canCoalesce(): Boolean = false
   }
 
   /**
@@ -678,27 +693,15 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   }
 
   private fun emitSelectionStart() {
-    val reactContext = context as? ReactContext ?: return
-    val event = Arguments.createMap()
-    reactContext
-      .getJSModule(RCTEventEmitter::class.java)
-      .receiveEvent(id, "topSelectionStart", event)
+    emitReactEvent("topSelectionStart", Arguments.createMap())
   }
 
   private fun emitSelectionEnd() {
-    val reactContext = context as? ReactContext ?: return
-    val event = Arguments.createMap()
-    reactContext
-      .getJSModule(RCTEventEmitter::class.java)
-      .receiveEvent(id, "topSelectionEnd", event)
+    emitReactEvent("topSelectionEnd", Arguments.createMap())
   }
 
   private fun emitTextInteractionStart() {
-    val reactContext = context as? ReactContext ?: return
-    val event = Arguments.createMap()
-    reactContext
-      .getJSModule(RCTEventEmitter::class.java)
-      .receiveEvent(id, "topTextInteractionStart", event)
+    emitReactEvent("topTextInteractionStart", Arguments.createMap())
   }
 
   private fun findRangeAt(x: Float, y: Float): Range? {
@@ -714,7 +717,6 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   }
 
   private fun emitSelection(chosenOption: String, selectedText: String, selectedStart: Int, selectedEnd: Int) {
-    val reactContext = context as? ReactContext ?: return
     val rect = selectionRectForRange(selectedStart, selectedEnd)
     val event = Arguments.createMap().apply {
       putString("chosenOption", chosenOption)
@@ -728,7 +730,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         putDouble("height", PixelUtil.toDIPFromPixel(rect.height()).toDouble())
       })
     }
-    reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(id, "topSelection", event)
+    emitReactEvent("topSelection", event)
   }
 
   private fun selectionRectForRange(start: Int, end: Int): RectF {
@@ -770,7 +772,6 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
   }
 
   private fun emitClozeRange(eventName: String, range: Range) {
-    val reactContext = context as? ReactContext ?: return
     val rect = selectionRectForRange(range.start, range.end)
     val event = Arguments.createMap().apply {
       putInt("groupIndex", range.groupIndex)
@@ -781,7 +782,20 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         putDouble("height", PixelUtil.toDIPFromPixel(rect.height()).toDouble())
       })
     }
-    reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(id, eventName, event)
+    emitReactEvent(eventName, event)
+  }
+
+  private fun emitReactEvent(eventName: String, eventData: WritableMap) {
+    val reactContext = context as? ReactContext ?: return
+    val dispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, id) ?: return
+    dispatcher.dispatchEvent(
+      ChatSelectableTextEvent(
+        UIManagerHelper.getSurfaceId(this),
+        id,
+        eventName,
+        eventData,
+      ),
+    )
   }
 
   private fun buildVisibleText(text: String, blankRanges: List<Range>, answersVisible: Boolean): String {
