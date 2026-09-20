@@ -5,12 +5,13 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$repo_root"
 
 usage() {
-  echo "Usage: $0 --scope backend|mobile|all [--profile focused|affected-flow|release-core]" >&2
+  echo "Usage: $0 --scope backend|mobile|all [--profile focused|affected-flow|release-core] [--with-device-gate]" >&2
   exit 2
 }
 
 scope=""
 profile=""
+with_device_gate="false"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope)
@@ -20,6 +21,10 @@ while [[ $# -gt 0 ]]; do
     --profile)
       profile="${2:-}"
       shift 2
+      ;;
+    --with-device-gate)
+      with_device_gate="true"
+      shift
       ;;
     *) usage ;;
   esac
@@ -74,9 +79,11 @@ if [[ "$scope" == "mobile" || "$scope" == "all" ]]; then
   echo "[verify] mobile types"
   "$mobile_tsc" --noEmit -p apps/mobile/tsconfig.json
 
-  if [[ "$profile" == "release-core" ]]; then
+  if [[ "$profile" == "release-core" && "$with_device_gate" == "true" ]]; then
     echo "[verify] sequential iOS 26 / iOS 27 / Android startup gate"
     bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run
+  elif [[ "$profile" == "release-core" ]]; then
+    echo "[verify] release-core device gate deferred; rerun with --with-device-gate only when explicitly requested or during native release"
   else
     echo "[verify] simulator matrix deferred by profile=$profile; record the affected interaction evidence in the change record"
   fi

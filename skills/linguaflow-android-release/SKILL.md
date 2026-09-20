@@ -11,6 +11,11 @@ local configuration, and detailed instructions live under this Skill;
 `ci/cd/` is output-only and must contain only `artifacts/`. If a required script
 or ignored local configuration is missing, stop and report the missing file.
 
+Treat App publication as a standalone workflow. Finishing a feature, fixing a
+bug, preparing release notes, or concluding that OTA is technically eligible
+does not authorize an OTA publish, native build, upload, submission, or public
+promotion. Report readiness and wait for a separate explicit release request.
+
 Read [references/release-workflows.md](references/release-workflows.md) when
 setting up a machine, troubleshooting a release, or choosing non-default modes.
 Read [references/candidate-acceptance.md](references/candidate-acceptance.md)

@@ -7,13 +7,15 @@ When uncertain, use the higher tier.
 | Tier | Use when | Required coverage |
 | --- | --- | --- |
 | `focused` | Copy, styling, or isolated logic with no shared state, API, native, or core-flow impact | Relevant automated tests plus the changed interaction on one appropriate target |
-| `affected-flow` | A user-visible feature, shared component, API integration, released-client behavior, or a fix spanning more than one boundary | Focused tests, the complete affected journey, adjacent failure/retry states, and every affected platform family |
-| `release-core` | App shell/navigation, Expo or native dependencies/configuration, broad refactors, shared Card/chat state, more than one core flow, or an explicitly core/large release | Full automated Mobile suite, sequential iOS 26/iOS 27/Android startup gate, and the core-flow checklist below |
+| `affected-flow` | A user-visible feature, shared component, API integration, released-client behavior, or a fix spanning more than one boundary | Focused automated tests plus a written checklist for the complete affected journey and adjacent failure/retry states; execute the device checklist only when requested or before the applicable release gate |
+| `release-core` | App shell/navigation, Expo or native dependencies/configuration, broad refactors, shared Card/chat state, more than one core flow, or an explicitly core/large release | Full automated Mobile suite plus a written core-flow checklist; the sequential iOS 26/iOS 27/Android gate is required for a native release candidate, but is not run proactively during ordinary implementation |
 
 A production native package always runs the sequential three-target startup
 gate, even when the source change is focused. The breadth of functional
-regression remains risk-based. OTA does not waive validation; an OTA touching a
-core flow uses `affected-flow` or `release-core` as appropriate.
+regression remains risk-based. OTA does not waive validation, but manual OTA
+experience checks default to user execution: Codex supplies the steps and waits
+for the user's result instead of opening simulators and inspecting screenshots
+unless explicitly asked.
 
 At native upload time, the harness recomputes the minimum tier from the Git diff
 between the previous known-good commit and candidate commit. Expo/React Native,
@@ -33,9 +35,10 @@ For `release-core`, record observed evidence for all of these flows:
 5. create or use cloze blanks, answer/reveal them, close, and reopen to verify state;
 6. enter the memory game, complete at least one question, and observe the result.
 
-Run device work sequentially: iOS 26, shut down; iOS 27, shut down; Android,
-shut down. Never keep multiple managed targets alive to save time. If a person
-needs to inspect a result, re-open only that one target with
+When device validation is requested or a native release gate is active, run it
+sequentially: iOS 26, shut down; iOS 27, shut down; Android, shut down. Never
+keep multiple managed targets alive to save time. If a person needs to inspect
+a result, re-open only that one target with
 `simulator-smoke.sh --keep-target ios26|ios27|android` after the gate.
 
 If simulator cleanup removed authentication, follow the app-release Skill's

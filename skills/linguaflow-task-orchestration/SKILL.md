@@ -45,8 +45,17 @@ Use `status --file <record>` for a compact state and routing summary, or
   work. Never edit `state` by hand to bypass it.
 - `READY_TO_RELEASE` is a readiness state, not permission. Record explicit user
   authorization immediately before external mutation.
+- Feature implementation, backend deployment, and App publication are separate
+  workflows. Never continue from completed feature code into OTA publication,
+  native packaging, upload, or store submission automatically. Hand off the
+  release readiness and wait for a new explicit release request, even when an
+  earlier plan described publication as the eventual final step.
 - A build, upload, deployment, migration, or store submission is not
   real-environment verification.
+- Ordinary implementation stops after fast automated checks and a concrete
+  user test checklist unless the user explicitly asks Codex to perform device
+  validation. Record the user's reported result as acceptance evidence before
+  release; do not spend time on proactive screenshots or visual walkthroughs.
 - Select Mobile validation depth using
   `../linguaflow-feature-delivery/references/validation-strategy.md`. Focused
   and affected-flow work do not require the full simulator matrix merely

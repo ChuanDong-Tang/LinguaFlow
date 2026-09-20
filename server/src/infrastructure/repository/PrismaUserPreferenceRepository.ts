@@ -1,4 +1,5 @@
 import type {
+  AcquisitionSource,
   AppLocale,
   GuideState,
   LearningLanguage,
@@ -15,6 +16,7 @@ const DEFAULT_PREFERENCE: Pick<
   | "appLocale"
   | "learningLanguage"
   | "promptDifficulty"
+  | "acquisitionSource"
   | "guideState"
   | "ttsProvider"
   | "ttsVoiceCode"
@@ -25,6 +27,7 @@ const DEFAULT_PREFERENCE: Pick<
   appLocale: "zh-CN",
   learningLanguage: "en-US",
   promptDifficulty: "native",
+  acquisitionSource: null,
   guideState: {},
   ttsProvider: "azure_global",
   ttsVoiceCode: null,
@@ -37,6 +40,7 @@ type PrismaUserPreferenceClient = {
   userPreference: {
     findUnique: (args: any) => Promise<any>;
     upsert: (args: any) => Promise<any>;
+    updateMany: (args: any) => Promise<any>;
   };
 };
 
@@ -66,6 +70,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
         appLocale: input.appLocale ?? DEFAULT_PREFERENCE.appLocale,
         learningLanguage: input.learningLanguage ?? DEFAULT_PREFERENCE.learningLanguage,
         promptDifficulty: input.promptDifficulty ?? DEFAULT_PREFERENCE.promptDifficulty,
+        acquisitionSource: input.acquisitionSource ?? DEFAULT_PREFERENCE.acquisitionSource,
         guideState: input.guideState ?? DEFAULT_PREFERENCE.guideState,
         ttsProvider: input.ttsProvider ?? DEFAULT_PREFERENCE.ttsProvider,
         ttsVoiceCode: input.ttsVoiceCode ?? DEFAULT_PREFERENCE.ttsVoiceCode,
@@ -89,6 +94,15 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
       },
     });
 
+    if (input.acquisitionSource !== undefined && row.acquisitionSource == null) {
+      await this.prisma.userPreference.updateMany({
+        where: { userId: input.userId, acquisitionSource: null },
+        data: { acquisitionSource: input.acquisitionSource },
+      });
+      const updated = await this.prisma.userPreference.findUnique({ where: { userId: input.userId } });
+      if (updated) return this.toEntity(updated);
+    }
+
     return this.toEntity(row);
   }
 
@@ -97,6 +111,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
     appLocale: string;
     learningLanguage: string;
     promptDifficulty?: string | null;
+    acquisitionSource?: string | null;
     guideState?: unknown;
     ttsProvider: string;
     ttsVoiceCode: string | null;
@@ -111,6 +126,7 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
       appLocale: normalizeAppLocale(row.appLocale),
       learningLanguage: normalizeLearningLanguage(row.learningLanguage),
       promptDifficulty: normalizePromptDifficulty(row.promptDifficulty),
+      acquisitionSource: normalizeAcquisitionSource(row.acquisitionSource),
       guideState: normalizeGuideState(row.guideState),
       ttsProvider: normalizeTtsProvider(row.ttsProvider),
       ttsVoiceCode: row.ttsVoiceCode ?? null,
@@ -121,6 +137,12 @@ export class PrismaUserPreferenceRepository implements UserPreferenceRepository 
       updatedAt: row.updatedAt,
     };
   }
+}
+
+function normalizeAcquisitionSource(value: string | null | undefined): AcquisitionSource | null {
+  return value === "youtube" || value === "xiaohongshu" || value === "douyin" || value === "app_store" || value === "google_play"
+    ? value
+    : null;
 }
 
 function normalizeAppLocale(value: string): AppLocale {

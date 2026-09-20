@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
+  AcquisitionSource,
   AppLocale,
   GuideState,
   LearningLanguage,
@@ -8,6 +9,7 @@ import type {
   UserPreferenceEntity,
   UserPreferenceRepository,
 } from "@lf/core/ports/repository/UserPreferenceRepository.js";
+import { isAcquisitionSource } from "@lf/core/ports/repository/UserPreferenceRepository.js";
 import { isTargetLanguageCode } from "@lf/core/language/targetLanguages.js";
 import type { EntitlementService } from "@lf/server/services/entitlement/EntitlementService.js";
 import type { SubscriptionService } from "@lf/server/services/subscription/SubscriptionService.js";
@@ -66,6 +68,7 @@ type UpdatePreferencesBody = {
   appLocale?: AppLocale;
   learningLanguage?: LearningLanguage;
   promptDifficulty?: PromptDifficulty;
+  acquisitionSource?: AcquisitionSource;
   guideState?: GuideState;
   ttsProvider?: TtsProviderCode;
   ttsVoiceCode?: string | null;
@@ -346,6 +349,7 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       appLocale: body.appLocale,
       learningLanguage: body.learningLanguage,
       promptDifficulty: body.promptDifficulty,
+      acquisitionSource: currentPreference.acquisitionSource == null ? body.acquisitionSource : undefined,
       guideState: body.guideState ? mergeGuideState(currentPreference.guideState, body.guideState) : undefined,
       ttsProvider: body.ttsProvider,
       ttsVoiceCode: body.ttsVoiceCode !== undefined || nextTtsVoiceCode !== currentPreference.ttsVoiceCode
@@ -662,6 +666,7 @@ function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody
     "appLocale",
     "learningLanguage",
     "promptDifficulty",
+    "acquisitionSource",
     "guideState",
     "ttsProvider",
     "ttsVoiceCode",
@@ -675,6 +680,7 @@ function isUpdatePreferencesBody(value: unknown): value is UpdatePreferencesBody
     (body.appLocale === undefined || isAppLocale(body.appLocale)) &&
     (body.learningLanguage === undefined || isLearningLanguage(body.learningLanguage)) &&
     (body.promptDifficulty === undefined || isPromptDifficulty(body.promptDifficulty)) &&
+    (body.acquisitionSource === undefined || isAcquisitionSource(body.acquisitionSource)) &&
     (body.guideState === undefined || isGuideState(body.guideState)) &&
     (body.ttsProvider === undefined || body.ttsProvider === "azure_global") &&
     (body.sttMultilingualRecognitionEnabled === undefined ||
@@ -746,6 +752,7 @@ function toPreferenceResponse(preference: UserPreferenceEntity) {
     appLocale: preference.appLocale,
     learningLanguage: preference.learningLanguage,
     promptDifficulty: preference.promptDifficulty,
+    acquisitionSource: preference.acquisitionSource,
     guideState: preference.guideState,
     ttsProvider: preference.ttsProvider,
     ttsVoiceCode: preference.ttsVoiceCode,

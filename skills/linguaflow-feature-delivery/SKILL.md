@@ -57,16 +57,20 @@ well-scoped; it does not authorize production changes.
 7. Add a regression test for a demonstrated logic failure when the boundary is
    deterministic. Version prompts and generated-content contracts when their
    semantics change.
-8. Record the validation tier and impacted flows. Run
-   `scripts/verify-change.sh --scope mobile --profile <tier>` (or the relevant
-   backend/all scope) plus the device and
-   functional checks required by that tier. A broad/core change must not pass
-   on typecheck and startup alone.
+8. Record the validation tier and impacted flows. Run the fast automated checks
+   that are proportional to the change, then hand the user a concise manual
+   experience checklist. Do not proactively launch simulators, capture
+   screenshots, or conduct slow visual walkthroughs during ordinary feature or
+   bug-fix implementation. Run device/functional checks only when the user asks
+   Codex to validate them, or when a later native release gate explicitly
+   requires them. User-observed results may be recorded as manual evidence.
 9. Review the final diff for old-client compatibility, retries, idempotency,
    stale async results, failure states, user data preservation, and accidental
    inclusion of unrelated files.
-10. Record observed acceptance evidence and pass `complete`. This means the
-    requested code outcome is locally complete, not deployed or published.
+10. Record automated evidence and any user-observed acceptance evidence. If
+    manual experience checks are still waiting on the user, report the code as
+    implemented and provide the exact checklist; do not describe it as fully
+    validated, deployed, or published.
 
 Use `../linguaflow-production-database/SKILL.md` for schema or production data
 work. Use `../linguaflow-backend-deploy/SKILL.md` only when the user asks to

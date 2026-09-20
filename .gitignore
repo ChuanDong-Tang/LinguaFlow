@@ -11,8 +11,11 @@ pnpm-debug.log*
 .env
 .env.*
 
-# Local documentation.
-/docs/
+# Local documentation remains ignored except product proposals and their index.
+/docs/*
+!/docs/README.md
+!/docs/product/
+!/docs/product/**
 
 .vercel
 AGENTS.md
