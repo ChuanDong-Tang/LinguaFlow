@@ -280,6 +280,9 @@ async function buildSearchIndex() {
   const unique = new Map();
   [...searchIndex, ...documents.flat()].forEach((entry) => unique.set(`${entry.href}|${entry.title}`, entry));
   searchIndex = [...unique.values()];
+  searchSources.forEach(({ input }) => {
+    if (input.value.trim()) input.dispatchEvent(new Event("input"));
+  });
 }
 void buildSearchIndex();
 
