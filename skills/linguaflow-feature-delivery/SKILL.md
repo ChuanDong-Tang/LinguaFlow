@@ -16,6 +16,8 @@ change record harness. A typo, formatting-only change, or mechanical metadata
 edit does not need a record. Read
 [references/design-decisions.md](references/design-decisions.md) when choosing
 architecture placement or comparing solutions.
+Read [references/validation-strategy.md](references/validation-strategy.md)
+before selecting `focused`, `affected-flow`, or `release-core` validation.
 
 ```bash
 node skills/linguaflow-feature-delivery/scripts/change-record.mjs init \
@@ -55,8 +57,11 @@ well-scoped; it does not authorize production changes.
 7. Add a regression test for a demonstrated logic failure when the boundary is
    deterministic. Version prompts and generated-content contracts when their
    semantics change.
-8. Run `scripts/verify-change.sh` with the relevant scope, plus any focused
-   provider, native, or UI validation required by the risk.
+8. Record the validation tier and impacted flows. Run
+   `scripts/verify-change.sh --scope mobile --profile <tier>` (or the relevant
+   backend/all scope) plus the device and
+   functional checks required by that tier. A broad/core change must not pass
+   on typecheck and startup alone.
 9. Review the final diff for old-client compatibility, retries, idempotency,
    stale async results, failure states, user data preservation, and accidental
    inclusion of unrelated files.

@@ -9,11 +9,12 @@ MOBILE_DIR="$REPO_ROOT/apps/mobile"
 CONFIG_FILE="$SKILL_DIR/config/android-play.env"
 
 ASSUME_YES=false
-BUILD_ONLY=false
+BUILD_ONLY=true
 CHECK_ONLY=false
 VALIDATE_ONLY_PACKAGE=""
 SUBMIT_ONLY_PACKAGE=""
 DIRECT_SUBMIT_ONLY_PACKAGE=""
+ACCEPTANCE_FILE=""
 ANDROID_TARGET="${OIO_ANDROID_TARGET:-google}"
 if [[ "$ANDROID_TARGET" == "china" ]]; then
   ARTIFACT_DIR="$REPO_ROOT/ci/cd/artifacts/android-china"
@@ -27,11 +28,12 @@ Usage: bash skills/linguaflow-android-release/scripts/android-play.sh [options]
 
 Options:
   --yes         Skip the confirmation prompt.
-  --build-only  Build and validate the release package, but do not upload it.
+  --build-only  Build and validate the release package (the default behavior).
   --check       Run local preflight checks without building.
   --validate FILE  Validate an existing China APK without rebuilding it.
-  --submit-only FILE  Validate and upload an existing Google AAB without rebuilding it.
-  --submit-direct FILE  Validate and upload an existing Google AAB directly with the configured service account.
+  --submit-only FILE  Upload an accepted Google AAB to internal testing.
+  --submit-direct FILE  Upload an accepted Google AAB directly to internal testing.
+  --acceptance FILE  Required artifact-bound candidate acceptance record for any upload.
   -h, --help    Show this help.
 USAGE
 }
@@ -71,11 +73,18 @@ while (($#)); do
     --submit-only)
       (($# >= 2)) || fail "--submit-only requires an AAB path"
       SUBMIT_ONLY_PACKAGE="$2"
+      BUILD_ONLY=false
       shift
       ;;
     --submit-direct)
       (($# >= 2)) || fail "--submit-direct requires an AAB path"
       DIRECT_SUBMIT_ONLY_PACKAGE="$2"
+      BUILD_ONLY=false
+      shift
+      ;;
+    --acceptance)
+      (($# >= 2)) || fail "--acceptance requires a record path"
+      ACCEPTANCE_FILE="$2"
       shift
       ;;
     -h|--help) usage; exit 0 ;;
@@ -147,6 +156,8 @@ preflight() {
       export EXPO_PUBLIC_DISTRIBUTION_CHANNEL=google
       export EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW=true
       export EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW=false
+      [[ "$EXPECTED_PLAY_TRACK" == "internal" ]] || \
+        fail "Candidate upload track must be internal; production promotion is a separate canary-verified action."
       ;;
     china)
       export EXPO_PUBLIC_DISTRIBUTION_CHANNEL=china
@@ -305,7 +316,10 @@ if [[ -n "$SUBMIT_ONLY_PACKAGE" ]]; then
   [[ "$ANDROID_TARGET" == "google" ]] || fail "--submit-only is only supported by the Google workflow."
   [[ -s "$SUBMIT_ONLY_PACKAGE" ]] || fail "AAB not found: $SUBMIT_ONLY_PACKAGE"
   validate_aab "$SUBMIT_ONLY_PACKAGE"
-  bash "$SCRIPT_DIR/simulator-smoke.sh" --require
+  [[ -n "$ACCEPTANCE_FILE" ]] || fail "--acceptance is required before upload."
+  node "$SCRIPT_DIR/release-prepublish-gate.mjs" check \
+    --acceptance "$ACCEPTANCE_FILE" --artifact "$SUBMIT_ONLY_PACKAGE" --distribution google-android \
+    --version "$AAB_VERSION_NAME" --build "$AAB_VERSION_CODE"
   shasum -a 256 "$SUBMIT_ONLY_PACKAGE"
   log "Submitting validated AAB to Google Play internal testing"
   (
@@ -328,7 +342,10 @@ if [[ -n "$DIRECT_SUBMIT_ONLY_PACKAGE" ]]; then
   [[ -f "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" ]] || fail "Google Play service account key not found: $GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"
   [[ -s "$DIRECT_SUBMIT_ONLY_PACKAGE" ]] || fail "AAB not found: $DIRECT_SUBMIT_ONLY_PACKAGE"
   validate_aab "$DIRECT_SUBMIT_ONLY_PACKAGE"
-  bash "$SCRIPT_DIR/simulator-smoke.sh" --require
+  [[ -n "$ACCEPTANCE_FILE" ]] || fail "--acceptance is required before upload."
+  node "$SCRIPT_DIR/release-prepublish-gate.mjs" check \
+    --acceptance "$ACCEPTANCE_FILE" --artifact "$DIRECT_SUBMIT_ONLY_PACKAGE" --distribution google-android \
+    --version "$AAB_VERSION_NAME" --build "$AAB_VERSION_CODE"
   shasum -a 256 "$DIRECT_SUBMIT_ONLY_PACKAGE"
   log "Submitting validated AAB directly to Google Play internal testing"
   node "$SCRIPT_DIR/google-play-direct-submit.mjs" \
@@ -344,13 +361,11 @@ fi
 
 log "Current source status"
 git -C "$REPO_ROOT" status --short || true
+[[ -z "$(git -C "$REPO_ROOT" status --porcelain -- apps/mobile)" ]] || \
+  fail "Mobile source must be committed before a release build so the artifact can be bound to one source commit."
 
 if ! $ASSUME_YES; then
-  if $BUILD_ONLY; then
-    printf '\nThis will allocate a new Android version code, build locally, and validate the %s without uploading it.\n' "$PACKAGE_KIND"
-  else
-    printf '\nThis will allocate a new Android version code, build locally, validate, and upload to the Google Play internal track.\n'
-  fi
+  printf '\nThis will allocate a new Android version code, build locally, and validate the %s without uploading it.\n' "$PACKAGE_KIND"
   read -r -p 'Continue? [y/N] ' answer
   case "$answer" in
     y|Y|yes|YES) ;;
@@ -405,23 +420,6 @@ fi
 mv "$raw_package" "$final_package"
 shasum -a 256 "$final_package"
 
-if $BUILD_ONLY; then
-  log "Build-only workflow completed"
-  printf '%s: %s\n' "$PACKAGE_KIND" "$final_package"
-  exit 0
-fi
-
-log "Submitting validated AAB to Google Play internal testing"
-(
-  cd "$MOBILE_DIR"
-  npx --yes eas-cli submit \
-    --platform android \
-    --profile "$SUBMIT_PROFILE" \
-    --path "$final_package" \
-    --non-interactive \
-    --verbose \
-    --wait
-)
-
-log "Google Play upload completed"
-printf 'AAB: %s\nGoogle Play Console: https://play.google.com/console/\n' "$final_package"
+log "Candidate build completed; upload is intentionally blocked until artifact-bound acceptance passes"
+printf '%s: %s\nNext: create and complete a release acceptance record, then use --submit-only/--submit-direct with --acceptance.\n' \
+  "$PACKAGE_KIND" "$final_package"

@@ -7,6 +7,8 @@ import process from 'node:process';
 const CHANGE_TYPES = new Set(['feature', 'behavior-change', 'bug-fix', 'refactor']);
 const LAYERS = new Set(['Mobile', 'API', 'Server', 'Core', 'Database', 'Worker', 'Native', 'Provider', 'Website', 'Admin']);
 const RISK_KEYS = ['database', 'authentication', 'payment', 'asyncJobs', 'native', 'releasedClients', 'performance'];
+const VALIDATION_TIERS = new Set(['focused', 'affected-flow', 'release-core']);
+const RELEASE_CORE_FLOWS = ['imageAttachment', 'messageSend', 'rewriteGeneration', 'rewriteRendering', 'clozePractice', 'memoryGame'];
 
 function fail(message) {
   console.error(`ERROR: ${message}`);
@@ -40,6 +42,11 @@ function requireList(errors, value, field) {
   if (!Array.isArray(value) || value.filter(hasText).length === 0) {
     errors.push(`${field} needs at least one entry`);
   }
+}
+
+function validateFlowResult(errors, result, field) {
+  if (result?.result !== 'passed') errors.push(`${field}.result must be passed`);
+  requireText(errors, result?.evidence, `${field}.evidence`);
 }
 
 function validateReady(record) {
@@ -105,6 +112,13 @@ function validateReady(record) {
 
   const automated = record?.validationPlan?.automated || [];
   const manual = record?.validationPlan?.manual || [];
+  if (!VALIDATION_TIERS.has(record?.validationPlan?.tier)) {
+    errors.push(`validationPlan.tier must be one of: ${[...VALIDATION_TIERS].join(', ')}`);
+  }
+  requireText(errors, record?.validationPlan?.tierReason, 'validationPlan.tierReason');
+  if (record?.validationPlan?.tier !== 'release-core') {
+    requireList(errors, record?.validationPlan?.impactedFlows, 'validationPlan.impactedFlows');
+  }
   if (automated.filter(hasText).length === 0 && !hasText(record?.validationPlan?.automatedNotApplicableReason)) {
     errors.push('validationPlan needs an automated check or automatedNotApplicableReason');
   }
@@ -144,6 +158,16 @@ function validateComplete(record) {
   if (record?.risks?.asyncJobs === true) requireText(errors, record?.completionEvidence?.asyncSafety, 'completionEvidence.asyncSafety');
   if (record?.risks?.performance === true) requireText(errors, record?.completionEvidence?.performanceResult, 'completionEvidence.performanceResult');
   if (record?.risks?.releasedClients === true) requireText(errors, record?.completionEvidence?.releasedClientCompatibility, 'completionEvidence.releasedClientCompatibility');
+
+  const requiredFlows = record?.validationPlan?.tier === 'release-core'
+    ? RELEASE_CORE_FLOWS
+    : record?.validationPlan?.impactedFlows || [];
+  for (const flow of requiredFlows) {
+    validateFlowResult(errors, record?.validationResults?.flows?.[flow], `validationResults.flows.${flow}`);
+  }
+  if (record?.validationPlan?.tier === 'release-core') {
+    requireText(errors, record?.completionEvidence?.nativeStartupGate, 'completionEvidence.nativeStartupGate');
+  }
 
   return errors;
 }
@@ -193,10 +217,16 @@ function newRecord(options) {
     risks: Object.fromEntries(RISK_KEYS.map((key) => [key, false])),
     riskControls: Object.fromEntries(RISK_KEYS.map((key) => [key, ''])),
     validationPlan: {
+      tier: '',
+      tierReason: '',
+      impactedFlows: [],
       automated: [],
       automatedNotApplicableReason: '',
       manual: [],
       manualNotApplicableReason: '',
+    },
+    validationResults: {
+      flows: {},
     },
     deliveryPlan: {
       migration: '',
@@ -258,6 +288,10 @@ function completedFixture() {
   };
   record.validationPlan.automated = ['route and service tests'];
   record.validationPlan.manual = ['submit and view feedback in admin'];
+  record.validationPlan.tier = 'affected-flow';
+  record.validationPlan.tierReason = 'Adds a user-visible persisted flow across multiple layers';
+  record.validationPlan.impactedFlows = ['feedbackSubmission'];
+  record.validationResults.flows.feedbackSubmission = { result: 'passed', evidence: 'manual submit and API test' };
   record.deliveryPlan = { migration: 'Additive migration', backend: 'Deploy API', app: 'Next native package' };
   record.implementation = {
     sourceState: 'committed',
@@ -280,6 +314,12 @@ function selfTest() {
   complete.risks.payment = true;
   if (!validateComplete(complete).some((error) => error.includes('paymentSafety'))) {
     throw new Error('complete validation accepted payment risk without evidence');
+  }
+  complete.risks.payment = false;
+  complete.validationPlan.tier = 'release-core';
+  complete.validationPlan.impactedFlows = [];
+  if (!validateComplete(complete).some((error) => error.includes('imageAttachment'))) {
+    throw new Error('release-core accepted missing protected flow evidence');
   }
   console.log('change-record self-test passed');
 }

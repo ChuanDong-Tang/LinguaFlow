@@ -14,7 +14,7 @@ Before the first run on a Mac, copy
 `skills/linguaflow-android-release/config/ios-testflight.env` and fill in the
 machine-specific values.
 
-## Normal release
+## Candidate build
 
 ```bash
 bash skills/linguaflow-android-release/scripts/ios-testflight.sh
@@ -28,8 +28,8 @@ The workflow performs these steps:
 3. Runs a complete local EAS production build and allocates the next build number.
 4. Opens the generated IPA and verifies its bundle ID, production update channel,
    production API URL, signing team, version, and build number.
-5. Uploads only a validated IPA directly to App Store Connect with Apple's
-   Transporter and waits for Apple to accept it.
+5. Stops with a retained local candidate. Upload is a separate, acceptance-gated
+   operation.
 
 ## Useful modes
 
@@ -43,8 +43,10 @@ bash skills/linguaflow-android-release/scripts/ios-testflight.sh --build-only
 # Skip the confirmation prompt (useful when Codex runs it).
 bash skills/linguaflow-android-release/scripts/ios-testflight.sh --yes
 
-# Retry an already validated IPA without rebuilding or allocating a build number.
-bash skills/linguaflow-android-release/scripts/ios-testflight.sh --submit-only ci/cd/artifacts/ios/OIO-1.1.3-147.ipa
+# Upload an already accepted IPA without rebuilding or allocating a build number.
+bash skills/linguaflow-android-release/scripts/ios-testflight.sh \
+  --submit-only ci/cd/artifacts/ios/OIO-1.1.3-147.ipa \
+  --acceptance .tmp/release-acceptance/ios-1.1.3-147.json
 ```
 
 TestFlight installations always use Apple's Sandbox environment for in-app
@@ -60,13 +62,13 @@ Android latest-version setting merely because iOS advanced.
 Before the first run, copy
 `skills/linguaflow-android-release/config/android-play.env.example` to
 `skills/linguaflow-android-release/config/android-play.env`. Running the Google
-script without `--build-only` builds a signed Android App Bundle and submits it
-to the Google Play internal testing track, not directly to production.
-Automated submission requires a Google Service Account key configured in EAS
-credentials.
+script builds a signed Android App Bundle and stops locally. Upload is a second
+step and may target only the Google Play internal testing track. Automated
+submission requires a Google Service Account key configured in EAS credentials
+and an artifact-bound acceptance record.
 
 ```bash
-# Build, validate, and submit to Google Play internal testing.
+# Build and validate a local Google candidate.
 bash skills/linguaflow-android-release/scripts/android-play.sh
 
 # Check local configuration only.
@@ -77,6 +79,11 @@ bash skills/linguaflow-android-release/scripts/android-play.sh --build-only
 
 # Skip the confirmation prompt.
 bash skills/linguaflow-android-release/scripts/android-play.sh --yes
+
+# Upload the accepted exact AAB to internal testing.
+bash skills/linguaflow-android-release/scripts/android-play.sh \
+  --submit-direct ci/cd/artifacts/android/OIO-1.1.6-160.aab \
+  --acceptance .tmp/release-acceptance/google-android-1.1.6-160.json
 ```
 
 The Android workflow validates the package ID, version name/code, release
@@ -91,7 +98,7 @@ Run the startup gate directly when troubleshooting it:
 bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --check
 
 # Build and cold-launch all three targets. Leave them open for visual review.
-bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run --keep-running
+bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run --keep-target android
 ```
 
 Payment selection is enforced by the workflow and does not depend on leftover
@@ -124,7 +131,10 @@ distribution channel cannot drift apart.
 ### Publishing the China APK
 
 The China script stops after producing and validating a local artifact. If the
-user asks to publish it, keep the versioned artifact immutable, then update the
+user asks to publish it, first complete candidate acceptance, then upload the
+exact APK as an immutable canary with
+`upload-china-apk.mjs <apk> --acceptance <record>`. Install from that URL and
+make the record pass the `promote` stage. Only then update the
 production App-version policy and all public download entry points to that
 exact object. The authoritative production settings are:
 

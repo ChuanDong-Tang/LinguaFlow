@@ -13,6 +13,8 @@ or ignored local configuration is missing, stop and report the missing file.
 
 Read [references/release-workflows.md](references/release-workflows.md) when
 setting up a machine, troubleshooting a release, or choosing non-default modes.
+Read [references/candidate-acceptance.md](references/candidate-acceptance.md)
+before building or uploading any native candidate.
 Read [references/ota-workflow.md](references/ota-workflow.md) before preparing,
 publishing, validating, or troubleshooting an OTA/hot update.
 
@@ -51,8 +53,8 @@ OTA.
 
 | User intent | Command | Retained artifact | Upload behavior |
 | --- | --- | --- | --- |
-| Apple, iOS, TestFlight | `bash skills/linguaflow-android-release/scripts/ios-testflight.sh` | `ci/cd/artifacts/ios/OIO-<version>-<build>.ipa` | Build, validate, then upload directly with Apple's Transporter |
-| Google, Google Play | `bash skills/linguaflow-android-release/scripts/android-play.sh --build-only` | `ci/cd/artifacts/android/OIO-<version>-<versionCode>.aab` | Keep the AAB locally; upload only when the user explicitly asks, by running the script without `--build-only` |
+| Apple, iOS, TestFlight | `bash skills/linguaflow-android-release/scripts/ios-testflight.sh` | `ci/cd/artifacts/ios/OIO-<version>-<build>.ipa` | Build and validate only; accepted artifact may later upload to TestFlight |
+| Google, Google Play | `bash skills/linguaflow-android-release/scripts/android-play.sh` | `ci/cd/artifacts/android/OIO-<version>-<versionCode>.aab` | Build and validate only; accepted artifact may later upload to internal testing |
 | 国内包, 中国包, China Android | `bash skills/linguaflow-android-release/scripts/android-china.sh` | `ci/cd/artifacts/android-china/OIO-<version>-<versionCode>.apk` | Never upload to Google Play |
 | OTA / 热更新 | Read `references/ota-workflow.md`, then use `npm --prefix apps/mobile run publish:update -- ...` | Content-addressed bundle/assets and an immutable manifest in COS | Dry-run by default; upload only when explicitly requested |
 
@@ -64,8 +66,9 @@ If EAS Submit cannot upload its archive, reuse the validated Google AAB with
 `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` in the local Android release config and uses
 an atomic Google Play edit to upload the bundle, update the configured track,
 and commit it.
-Retry a failed TestFlight transfer with `--submit-only <ipa>` so the validated
-artifact is reused and no additional build number is allocated.
+Every `--submit-only` or `--submit-direct` command also requires
+`--acceptance <record>`. Retry a failed transfer with the identical artifact and
+record so no additional build/version number is allocated.
 
 If the user requests all three, run them sequentially, not concurrently. For a
 configuration-only request, use the selected script's `--check`. Respect an
@@ -103,15 +106,33 @@ bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run
 
 The gate builds the current source, installs it on an iOS 26 simulator, an iOS
 27 simulator, and the configured Android AVD, then cold-launches each target
-twice. It writes a short-lived receipt under `.tmp/release-smoke/`. The receipt
+twice. The targets run strictly one at a time and each is shut down before the
+next starts, so the gate never trades validation coverage for concurrent Mac
+memory pressure. It writes a short-lived receipt under `.tmp/release-smoke/`. The receipt
 is bound to a content fingerprint, so any relevant Mobile source or native
 configuration change invalidates it. Release scripts run this gate by default;
 submit-only retries require an existing valid receipt.
 
 Use `--check` to inspect prerequisites without building or launching. Use
-`--keep-running` only when a person needs to inspect the three targets. Never
+`--keep-target ios26|ios27|android` only when a person needs to inspect one
+target after the gate (`--keep-running` remains an Android compatibility alias). Never
 replace a missing target with a different OS major and still report the gate as
-passed.
+passed. Startup is only the first gate: it never substitutes for candidate
+functional acceptance.
+
+## Simulator test-account fallback
+
+Simulator cleanup may remove the saved login session. When a required manual
+flow reaches the login screen, load the fixed test credentials from the ignored
+local file `config/test-account.env` and log in with that account. If the file
+is absent, copy `config/test-account.env.example` and ask the user to populate
+it; do not invent an account or silently skip authenticated validation.
+
+Never print the password, copy it into a receipt, commit the populated file, or
+include it in screenshots or logs. This is also a real user-owned account: use
+it for the requested validation only, preserve its existing Cards and settings,
+and do not change membership, payment, or account state unless that exact flow
+is in scope.
 
 ## Payment isolation — release blocker
 
@@ -175,19 +196,28 @@ node skills/linguaflow-android-release/scripts/release-acceptance.mjs init \
   --output .tmp/release-acceptance/<distribution>-<version>-<build>.json \
   --distribution ios|google-android|china-android \
   --version <version> --build <build> --runtime <runtime> \
-  --commit <source-commit> --artifact <path-or-store-id> --sha256 <sha256>
+  --baseline <previous-good-commit> --commit <source-commit> \
+  --artifact <absolute-artifact-path> \
+  --profile focused|affected-flow|release-core
 
 node skills/linguaflow-android-release/scripts/release-acceptance.mjs check \
-  --file <record> --stage prepublish
+  --file <record> --stage candidate
 
 node skills/linguaflow-android-release/scripts/release-acceptance.mjs check \
   --file <record> --stage live
 ```
 
-Every core flow must be `passed` with evidence or explicitly
-`not-applicable` with a reason. A prepublish pass does not authorize upload or
-submission. A release is not live-verified until the same record passes the
-`live` stage against an installation obtained from its real delivery path.
+The upload gate recomputes risk from `baselineCommit..sourceCommit`, rejects a
+manually selected lower profile, and verifies the exact artifact path and
+SHA-256. For
+`focused` or `affected-flow`, also pass `--flows` as comma-separated flow names
+and record evidence for those flows. For a `release-core` change, every core flow—including image attachment,
+message sending, rewrite generation and rendering, cloze practice, and the
+memory game—must be `passed` with evidence on iOS 26, iOS 27, and Android.
+After canary upload, reinstall from TestFlight, Google internal testing, or the
+immutable China URL and record `verify-canary`; `--stage promote` must pass
+before any production/public pointer change. A release is not live-verified
+until the same record passes `live` against its real public delivery path.
 
 Before reporting success, use the script and artifact validation output to
 confirm all of the following:
@@ -200,8 +230,9 @@ confirm all of the following:
   and build/version code are correct;
 - artifact extension and final directory match the release table;
 - signature validation passed and a SHA-256 was printed;
-- TestFlight upload actually completed for the default iOS flow;
-- Google Play upload is claimed only when the user requested it and the submit
+- TestFlight upload is claimed only when the accepted `--submit-only` transfer
+  actually completed;
+- Google Play upload is claimed only when the accepted internal-track submit
   command completed.
 
 For a China APK publication, additionally report the public download URL and

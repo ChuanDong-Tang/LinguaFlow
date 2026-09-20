@@ -16,7 +16,7 @@ MAX_RECEIPT_AGE_SECONDS="${LF_SMOKE_RECEIPT_MAX_AGE_SECONDS:-86400}"
 
 MODE=run
 FORCE=false
-KEEP_RUNNING=false
+KEEP_TARGET=""
 
 usage() {
   cat <<'USAGE'
@@ -27,7 +27,8 @@ Options:
   --run           Build and cold-launch the current source on all three targets (default).
   --require       Require a still-valid receipt for the current source; do not build or launch.
   --force         Ignore a reusable receipt and run all smoke checks again.
-  --keep-running  Leave simulators/emulator running after the checks.
+  --keep-running  Compatibility alias for --keep-target android.
+  --keep-target T Re-open only one inspected target after the gate: ios26, ios27, or android.
   -h, --help      Show this help.
 USAGE
 }
@@ -47,12 +48,22 @@ while (($#)); do
     --run) MODE=run ;;
     --require) MODE=require ;;
     --force) FORCE=true ;;
-    --keep-running) KEEP_RUNNING=true ;;
+    --keep-running) KEEP_TARGET=android ;;
+    --keep-target)
+      shift
+      [[ $# -gt 0 ]] || fail "Missing value for --keep-target"
+      KEEP_TARGET="$1"
+      ;;
     -h|--help) usage; exit 0 ;;
     *) fail "Unknown option: $1" ;;
   esac
   shift
 done
+
+case "$KEEP_TARGET" in
+  ""|ios26|ios27|android) ;;
+  *) fail "--keep-target must be ios26, ios27, or android" ;;
+esac
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
@@ -175,13 +186,16 @@ const [file, fingerprint, maxAgeText] = process.argv.slice(2);
 const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
 const ageSeconds = (Date.now() - Date.parse(receipt.completedAt)) / 1000;
 const valid = receipt.status === 'passed'
+  && receipt.schemaVersion === 2
   && receipt.sourceFingerprint === fingerprint
   && Number.isFinite(ageSeconds)
   && ageSeconds >= 0
   && ageSeconds <= Number(maxAgeText)
   && receipt.targets?.ios26?.launches === 2
   && receipt.targets?.ios27?.launches === 2
-  && receipt.targets?.android?.launches === 2;
+  && receipt.targets?.android?.launches === 2
+  && receipt.execution?.strategy === 'sequential'
+  && receipt.execution?.maxConcurrentDevices === 1;
 process.exit(valid ? 0 : 1);
 NODE
 }
@@ -195,9 +209,9 @@ smoke_ios() {
   local runtime="${remainder#*$'\t'}"
 
   log "Booting $label ($name, $runtime)"
+  IOS_ACTIVE_UDID="$udid"
   if ! xcrun simctl list devices | grep -F "$udid" | grep -F '(Booted)' >/dev/null; then
     xcrun simctl boot "$udid"
-    IOS_BOOTED_BY_SCRIPT="$IOS_BOOTED_BY_SCRIPT $udid"
   fi
   xcrun simctl bootstatus "$udid" -b
   xcrun simctl uninstall "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
@@ -211,6 +225,10 @@ smoke_ios() {
     xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || \
       fail "$label launch $attempt did not remain running."
   done
+
+  xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+  IOS_ACTIVE_UDID=""
 }
 
 find_android_serial() {
@@ -244,9 +262,9 @@ smoke_android() {
     log "Starting Android AVD $ANDROID_AVD"
     "$EMULATOR_BIN" -avd "$ANDROID_AVD" -no-snapshot-save -no-audio -no-boot-anim \
       >"$RECEIPT_DIR/android-emulator.log" 2>&1 &
-    ANDROID_STARTED_BY_SCRIPT=true
   fi
   wait_for_android || fail "Android AVD $ANDROID_AVD did not finish booting within 180 seconds."
+  ANDROID_ACTIVE_SERIAL="$ANDROID_SERIAL"
   "$ADB_BIN" -s "$ANDROID_SERIAL" uninstall "$PACKAGE_ID" >/dev/null 2>&1 || true
   "$ADB_BIN" -s "$ANDROID_SERIAL" install "$ANDROID_APK" >/dev/null
 
@@ -258,17 +276,59 @@ smoke_android() {
     [[ -n "$($ADB_BIN -s "$ANDROID_SERIAL" shell pidof "$PACKAGE_ID" | tr -d '\r')" ]] || \
       fail "Android launch $attempt did not remain running."
   done
+
+  "$ADB_BIN" -s "$ANDROID_SERIAL" shell am force-stop "$PACKAGE_ID" >/dev/null 2>&1 || true
+  "$ADB_BIN" -s "$ANDROID_SERIAL" emu kill >/dev/null 2>&1 || true
+  ANDROID_ACTIVE_SERIAL=""
 }
 
 cleanup() {
-  if $KEEP_RUNNING; then return; fi
-  local udid
-  for udid in $IOS_BOOTED_BY_SCRIPT; do
+  if [[ -n "${IOS_ACTIVE_UDID:-}" ]]; then
+    xcrun simctl shutdown "$IOS_ACTIVE_UDID" >/dev/null 2>&1 || true
+  fi
+  local serial="${ANDROID_ACTIVE_SERIAL:-${ANDROID_SERIAL:-}}"
+  if [[ -z "$serial" ]]; then serial="$(find_android_serial || true)"; fi
+  if [[ -n "$serial" ]]; then
+    "$ADB_BIN" -s "$serial" emu kill >/dev/null 2>&1 || true
+  fi
+}
+
+shutdown_configured_targets() {
+  local descriptor udid serial
+  for descriptor in "$IOS_26" "$IOS_27"; do
+    udid="${descriptor%%$'\t'*}"
     xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
   done
-  if $ANDROID_STARTED_BY_SCRIPT && [[ -n "${ANDROID_SERIAL:-}" ]]; then
-    "$ADB_BIN" -s "$ANDROID_SERIAL" emu kill >/dev/null 2>&1 || true
+  serial="$(find_android_serial || true)"
+  if [[ -n "$serial" ]]; then
+    "$ADB_BIN" -s "$serial" emu kill >/dev/null 2>&1 || true
+    local deadline=$((SECONDS + 30))
+    while ((SECONDS < deadline)) && [[ -n "$(find_android_serial || true)" ]]; do sleep 1; done
   fi
+}
+
+reopen_kept_target() {
+  local descriptor udid
+  case "$KEEP_TARGET" in
+    "") return ;;
+    ios26|ios27)
+      if [[ "$KEEP_TARGET" == ios26 ]]; then descriptor="$IOS_26"; else descriptor="$IOS_27"; fi
+      udid="${descriptor%%$'\t'*}"
+      log "Re-opening only $KEEP_TARGET for manual inspection"
+      xcrun simctl boot "$udid"
+      xcrun simctl bootstatus "$udid" -b
+      xcrun simctl install "$udid" "$IOS_APP"
+      xcrun simctl launch --terminate-running-process "$udid" "$BUNDLE_ID" >/dev/null
+      ;;
+    android)
+      log "Re-opening only Android for manual inspection"
+      "$EMULATOR_BIN" -avd "$ANDROID_AVD" -no-snapshot-save -no-audio -no-boot-anim \
+        >"$RECEIPT_DIR/android-emulator.log" 2>&1 &
+      wait_for_android || fail "Android AVD $ANDROID_AVD did not finish booting within 180 seconds."
+      "$ADB_BIN" -s "$ANDROID_SERIAL" install -r "$ANDROID_APK" >/dev/null
+      "$ADB_BIN" -s "$ANDROID_SERIAL" shell monkey -p "$PACKAGE_ID" -c android.intent.category.LAUNCHER 1 >/dev/null
+      ;;
+  esac
 }
 
 resolve_targets
@@ -291,9 +351,12 @@ if ! $FORCE && [[ -f "$RECEIPT_FILE" ]]; then
 fi
 
 mkdir -p "$RECEIPT_DIR"
-IOS_BOOTED_BY_SCRIPT=""
-ANDROID_STARTED_BY_SCRIPT=false
+IOS_ACTIVE_UDID=""
+ANDROID_ACTIVE_SERIAL=""
 trap cleanup EXIT
+
+log "Stopping the three managed test targets so the gate uses at most one device at a time"
+shutdown_configured_targets
 
 log "Synchronizing generated native projects"
 (
@@ -358,11 +421,16 @@ const describeIos = (value) => {
   return { udid, name, runtime, launches: 2 };
 };
 const receipt = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   status: 'passed',
   completedAt,
   commit,
   sourceFingerprint,
+  execution: {
+    strategy: 'sequential',
+    maxConcurrentDevices: 1,
+    shutdownAfterEachTarget: true,
+  },
   targets: {
     ios26: describeIos(ios26),
     ios27: describeIos(ios27),
@@ -374,3 +442,10 @@ NODE
 
 log "Three-platform simulator smoke passed"
 printf 'Receipt: %s\nFingerprint: %s\n' "$RECEIPT_FILE" "$fingerprint"
+
+# The gate itself is complete and every target is shut down. When manual
+# inspection was requested, re-open exactly one target after removing the
+# failure cleanup trap so another simulator is never kept alive beside it.
+trap - EXIT
+cleanup
+reopen_kept_target

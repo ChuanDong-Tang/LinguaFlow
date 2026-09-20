@@ -23,6 +23,8 @@ done < <(find skills/linguaflow-* -type f -name '*.mjs' | sort)
 
 node skills/linguaflow-live-version-repair/scripts/repair-record.mjs self-test
 node skills/linguaflow-android-release/scripts/release-acceptance.mjs self-test
+node skills/linguaflow-android-release/scripts/mobile-release-risk.mjs self-test
+node skills/linguaflow-android-release/scripts/release-prepublish-gate.mjs self-test
 node skills/linguaflow-feature-delivery/scripts/change-record.mjs self-test
 node skills/linguaflow-task-orchestration/scripts/work-item.mjs self-test
 

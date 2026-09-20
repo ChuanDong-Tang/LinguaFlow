@@ -47,10 +47,17 @@ Use `status --file <record>` for a compact state and routing summary, or
   authorization immediately before external mutation.
 - A build, upload, deployment, migration, or store submission is not
   real-environment verification.
+- Select Mobile validation depth using
+  `../linguaflow-feature-delivery/references/validation-strategy.md`. Focused
+  and affected-flow work do not require the full simulator matrix merely
+  because Mobile is in scope; `release-core` and native changes do.
 - Tasks with no delivery requirement may move from `VALIDATED` directly to
   `VERIFIED`; record why delivery is not required.
 - Keep iOS, Google Android, and China Android release acceptance records
   separate.
+- Treat TestFlight, Google internal testing, and an immutable China APK URL as
+  candidate canaries. `READY_TO_RELEASE` for public promotion requires each
+  applicable record to pass its `promote` gate.
 - Preserve truthful terminal state: locally complete, committed, pushed,
   deployed, and published are different outcomes.
 

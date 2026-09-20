@@ -11,6 +11,7 @@ const STATES = ['PLANNED', 'DESIGNED', 'IMPLEMENTED', 'VALIDATED', 'READY_TO_REL
 const TERMINAL_STATES = new Set(['local', 'committed', 'pushed', 'deployed', 'published']);
 const DISTRIBUTIONS = new Set(['ios', 'google-android', 'china-android']);
 const DELIVERY_KINDS = new Set(['none', 'backend', 'database', 'ota', 'native-release', 'china-apk', 'mixed']);
+const MOBILE_VALIDATION_PROFILES = new Set(['focused', 'affected-flow', 'release-core']);
 const SKILL_ORDER = [
   'linguaflow-production-incident',
   'linguaflow-live-version-repair',
@@ -113,6 +114,13 @@ function validateLinked(errors, file, script, stage, field, runExternal) {
   if (message) errors.push(`${field} failed ${stage}: ${message}`);
 }
 
+function readLinkedRecord(file) {
+  if (!hasText(file)) return null;
+  const resolved = path.resolve(repoRoot, file);
+  if (!fs.existsSync(resolved)) return null;
+  return JSON.parse(fs.readFileSync(resolved, 'utf8'));
+}
+
 function validatePlanned(record) {
   const errors = [];
   if (record?.schemaVersion !== 1) errors.push('schemaVersion must be 1');
@@ -165,6 +173,14 @@ function validateImplemented(record, runExternal) {
 
 function validateSimulatorReceipt(errors, record, runExternal) {
   if (!(record?.scope?.mobile || record?.scope?.native)) return;
+  if (!MOBILE_VALIDATION_PROFILES.has(record?.validation?.profile)) {
+    errors.push(`validation.profile must be one of: ${[...MOBILE_VALIDATION_PROFILES].join(', ')}`);
+    return;
+  }
+  if (record?.scope?.native && record.validation.profile !== 'release-core') {
+    errors.push('native changes require validation.profile=release-core');
+  }
+  if (record.validation.profile !== 'release-core') return;
   requireText(errors, record?.validation?.simulatorReceipt, 'validation.simulatorReceipt');
   if (hasText(record?.validation?.simulatorReceipt)
     && record.validation.simulatorReceipt !== '.tmp/release-smoke/latest.json') {
@@ -184,6 +200,12 @@ function validateValidated(record, runExternal) {
   requireList(errors, record?.validation?.evidence, 'validation.evidence');
   if (record?.scope?.codeChange) {
     validateLinked(errors, record?.routing?.records?.change, 'skills/linguaflow-feature-delivery/scripts/change-record.mjs', 'complete', 'routing.records.change', runExternal);
+    if (record?.scope?.mobile || record?.scope?.native) {
+      const change = readLinkedRecord(record?.routing?.records?.change);
+      if (change && change?.validationPlan?.tier !== record?.validation?.profile) {
+        errors.push('validation.profile must match the linked change validationPlan.tier');
+      }
+    }
   }
   validateSimulatorReceipt(errors, record, runExternal);
   return errors;
@@ -203,7 +225,11 @@ function validateReadyToRelease(record, runExternal) {
     const acceptanceRecords = record?.routing?.records?.releaseAcceptances || [];
     if (acceptanceRecords.length === 0) errors.push('routing.records.releaseAcceptances needs at least one record');
     for (const [index, file] of acceptanceRecords.entries()) {
-      validateLinked(errors, file, 'skills/linguaflow-android-release/scripts/release-acceptance.mjs', 'prepublish', `routing.records.releaseAcceptances[${index}]`, runExternal);
+      validateLinked(errors, file, 'skills/linguaflow-android-release/scripts/release-acceptance.mjs', 'promote', `routing.records.releaseAcceptances[${index}]`, runExternal);
+      const acceptance = readLinkedRecord(file);
+      if (acceptance && acceptance?.validationProfile?.tier !== record?.validation?.profile) {
+        errors.push(`routing.records.releaseAcceptances[${index}] validation profile must match validation.profile`);
+      }
     }
   }
   if (record?.taskType === 'live-incident') {
@@ -328,6 +354,7 @@ function newRecord(options) {
       evidence: [],
     },
     validation: {
+      profile: '',
       passed: false,
       evidence: [],
       simulatorReceipt: '.tmp/release-smoke/latest.json',
@@ -383,6 +410,22 @@ function selfTest() {
   if (!validateForState(record, 'READY_TO_RELEASE', false).some((error) => error.includes('authorizedByUser'))) {
     throw new Error('release readiness accepted missing authorization');
   }
+
+  const mobile = newRecord({ type: 'maintenance', title: 'Mobile check', outcome: 'Validate one interaction' });
+  mobile.scope.mobile = true;
+  mobile.validation.profile = 'affected-flow';
+  mobile.validation.simulatorReceipt = '';
+  const affectedErrors = [];
+  validateSimulatorReceipt(affectedErrors, mobile, false);
+  if (affectedErrors.length !== 0) throw new Error(`affected-flow incorrectly required the full simulator gate: ${affectedErrors.join('; ')}`);
+  mobile.scope.native = true;
+  const nativeErrors = [];
+  validateSimulatorReceipt(nativeErrors, mobile, false);
+  if (!nativeErrors.some((error) => error.includes('release-core'))) throw new Error('native work accepted a lower validation profile');
+  mobile.validation.profile = 'release-core';
+  const coreErrors = [];
+  validateSimulatorReceipt(coreErrors, mobile, false);
+  if (!coreErrors.some((error) => error.includes('simulatorReceipt'))) throw new Error('release-core accepted missing simulator receipt');
   console.log('work-item self-test passed');
 }
 

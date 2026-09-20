@@ -5,15 +5,20 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$repo_root"
 
 usage() {
-  echo "Usage: $0 --scope backend|mobile|all" >&2
+  echo "Usage: $0 --scope backend|mobile|all [--profile focused|affected-flow|release-core]" >&2
   exit 2
 }
 
 scope=""
+profile=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope)
       scope="${2:-}"
+      shift 2
+      ;;
+    --profile)
+      profile="${2:-}"
       shift 2
       ;;
     *) usage ;;
@@ -24,6 +29,15 @@ case "$scope" in
   backend|mobile|all) ;;
   *) usage ;;
 esac
+
+if [[ "$scope" == "mobile" || "$scope" == "all" ]]; then
+  case "$profile" in
+    focused|affected-flow|release-core) ;;
+    *) usage ;;
+  esac
+elif [[ -n "$profile" ]]; then
+  usage
+fi
 
 echo "[verify] git diff"
 git diff --check
@@ -59,6 +73,13 @@ if [[ "$scope" == "mobile" || "$scope" == "all" ]]; then
   run_tests "mobile" "${mobile_tests[@]}"
   echo "[verify] mobile types"
   "$mobile_tsc" --noEmit -p apps/mobile/tsconfig.json
+
+  if [[ "$profile" == "release-core" ]]; then
+    echo "[verify] sequential iOS 26 / iOS 27 / Android startup gate"
+    bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run
+  else
+    echo "[verify] simulator matrix deferred by profile=$profile; record the affected interaction evidence in the change record"
+  fi
 fi
 
-echo "[verify] passed scope=$scope"
+echo "[verify] passed scope=$scope${profile:+ profile=$profile}"

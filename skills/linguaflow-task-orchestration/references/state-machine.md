@@ -17,8 +17,8 @@ PLANNED
 | `PLANNED` | Problem, desired outcome, non-goals, acceptance criteria, and requested terminal state are explicit. |
 | `DESIGNED` | Current behavior is evidenced, routes are confirmed, and the linked change or incident record has passed its design/diagnosis gate. |
 | `IMPLEMENTED` | The intended source or configuration change exists and its exact files/reference are recorded. |
-| `VALIDATED` | Local tests and required simulators passed; linked change work passed `complete`. |
-| `READY_TO_RELEASE` | Delivery target, authorization, rollback, and applicable prepublish acceptance records are complete. |
+| `VALIDATED` | Local tests and the risk-selected device/flow checks passed; linked change work passed `complete`. `release-core` and native changes include the sequential three-target gate. |
+| `READY_TO_RELEASE` | Delivery target, authorization, rollback, and applicable canary-verified promotion records are complete. |
 | `RELEASED` | The requested delivery action is live, not merely built, uploaded, or submitted for review. |
 | `VERIFIED` | The original flow passed in the intended real environment; linked live-repair or release records pass their final gate. |
 | `CLOSED` | Outcome, actual terminal state, remaining risks, and any intentionally deferred work are truthful. |
@@ -53,3 +53,8 @@ suggests.
 Store review waiting time is not `RELEASED`. Keep delivery progress as
 `submitted` while the work item remains `READY_TO_RELEASE`; advance only after
 the intended population can actually receive the release.
+
+For native delivery, candidate upload happens after `VALIDATED` through the
+app-release artifact gate. TestFlight, Google internal testing, or an immutable
+China APK URL is a canary, not `RELEASED`. The canary must be installed and
+verified before the work item can pass `READY_TO_RELEASE` for public promotion.

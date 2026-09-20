@@ -1,17 +1,31 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createReadStream, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import COS from "cos-nodejs-sdk-v5";
 
-const apkPath = path.resolve(process.argv[2] ?? "");
+const args = process.argv.slice(2);
+const apkArgument = args[0];
+const acceptanceIndex = args.indexOf("--acceptance");
+const acceptanceFile = acceptanceIndex >= 0 ? args[acceptanceIndex + 1] : "";
+const apkPath = path.resolve(apkArgument ?? "");
 const filename = path.basename(apkPath);
-if (!/^OIO-\d+\.\d+\.\d+-\d+\.apk$/u.test(filename)) {
-  throw new Error("Usage: upload-china-apk.mjs <OIO-version-versionCode.apk>");
+const filenameMatch = /^OIO-(\d+\.\d+\.\d+)-(\d+)\.apk$/u.exec(filename);
+if (!filenameMatch || !acceptanceFile) {
+  throw new Error("Usage: upload-china-apk.mjs <OIO-version-versionCode.apk> --acceptance <record.json>");
 }
+
+const gate = spawnSync(process.execPath, [
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "release-prepublish-gate.mjs"),
+  "check", "--acceptance", path.resolve(acceptanceFile), "--artifact", apkPath,
+  "--distribution", "china-android", "--version", filenameMatch[1], "--build", filenameMatch[2],
+], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+if (gate.status !== 0) throw new Error((gate.stderr || gate.stdout || "Candidate acceptance failed").trim());
+process.stdout.write(gate.stdout);
 
 const localHash = sha256(readFileSync(apkPath));
 const credentials = readProductionCosCredentials();

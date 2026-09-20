@@ -10,9 +10,10 @@ CONFIG_FILE="$SKILL_DIR/config/ios-testflight.env"
 ARTIFACT_DIR="$REPO_ROOT/ci/cd/artifacts/ios"
 
 ASSUME_YES=false
-BUILD_ONLY=false
+BUILD_ONLY=true
 CHECK_ONLY=false
 SUBMIT_ONLY_IPA=""
+ACCEPTANCE_FILE=""
 
 usage() {
   cat <<'USAGE'
@@ -20,9 +21,11 @@ Usage: bash skills/linguaflow-android-release/scripts/ios-testflight.sh [options
 
 Options:
   --yes         Skip the confirmation prompt.
-  --build-only  Build and validate the IPA, but do not upload it.
+  --build-only  Build and validate the IPA (the default behavior).
   --submit-only <ipa>
-                Validate and upload an existing IPA without allocating a new build number.
+                Upload an accepted IPA to TestFlight without allocating a new build number.
+  --acceptance <file>
+                Required artifact-bound candidate acceptance record for upload.
   --check       Run local preflight checks without building.
   -h, --help    Show this help.
 USAGE
@@ -44,6 +47,12 @@ while (($#)); do
     --submit-only)
       [[ $# -ge 2 ]] || fail "--submit-only requires an IPA path."
       SUBMIT_ONLY_IPA="$2"
+      BUILD_ONLY=false
+      shift
+      ;;
+    --acceptance)
+      [[ $# -ge 2 ]] || fail "--acceptance requires a record path."
+      ACCEPTANCE_FILE="$2"
       shift
       ;;
     --check) CHECK_ONLY=true ;;
@@ -273,7 +282,10 @@ if [[ -n "$SUBMIT_ONLY_IPA" ]]; then
   [[ -f "$SUBMIT_ONLY_IPA" ]] || fail "IPA not found: $SUBMIT_ONLY_IPA"
   SUBMIT_ONLY_IPA="$(cd "$(dirname "$SUBMIT_ONLY_IPA")" && pwd)/$(basename "$SUBMIT_ONLY_IPA")"
   validate_ipa "$SUBMIT_ONLY_IPA"
-  bash "$SCRIPT_DIR/simulator-smoke.sh" --require
+  [[ -n "$ACCEPTANCE_FILE" ]] || fail "--acceptance is required before upload."
+  node "$SCRIPT_DIR/release-prepublish-gate.mjs" check \
+    --acceptance "$ACCEPTANCE_FILE" --artifact "$SUBMIT_ONLY_IPA" --distribution ios \
+    --version "$IPA_VERSION" --build "$IPA_BUILD"
   shasum -a 256 "$SUBMIT_ONLY_IPA"
   submit_to_testflight "$SUBMIT_ONLY_IPA"
   log "TestFlight upload completed"
@@ -283,9 +295,11 @@ fi
 
 log "Current source status"
 git -C "$REPO_ROOT" status --short || true
+[[ -z "$(git -C "$REPO_ROOT" status --porcelain -- apps/mobile)" ]] || \
+  fail "Mobile source must be committed before a release build so the artifact can be bound to one source commit."
 
 if ! $ASSUME_YES; then
-  printf '\nThis will allocate a new iOS build number, build locally, validate, and upload to TestFlight.\n'
+  printf '\nThis will allocate a new iOS build number, build locally, and validate it without uploading.\n'
   read -r -p 'Continue? [y/N] ' answer
   case "$answer" in
     y|Y|yes|YES) ;;
@@ -325,13 +339,5 @@ fi
 mv "$raw_ipa" "$final_ipa"
 shasum -a 256 "$final_ipa"
 
-if $BUILD_ONLY; then
-  log "Build-only workflow completed"
-  printf 'IPA: %s\n' "$final_ipa"
-  exit 0
-fi
-
-submit_to_testflight "$final_ipa"
-
-log "TestFlight upload completed"
-printf 'IPA: %s\nTestFlight: https://appstoreconnect.apple.com/apps/6776898160/testflight/ios\n' "$final_ipa"
+log "Candidate build completed; upload is intentionally blocked until artifact-bound acceptance passes"
+printf 'IPA: %s\nNext: create and complete a release acceptance record, then use --submit-only with --acceptance.\n' "$final_ipa"
