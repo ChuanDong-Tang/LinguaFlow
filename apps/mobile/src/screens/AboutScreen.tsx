@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { restoreTutorialCard } from "../services/api/cardApi";
 import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -6,6 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import Constants from "expo-constants";
 import { t } from "../i18n";
+import { getAvailableAppUpdate, type AvailableAppUpdate } from "../services/api/appVersionApi";
 
 const CHANGELOG_URL = "https://yueyantech.com/wiki/changelog.html";
 
@@ -26,6 +27,29 @@ type AboutScreenProps = {
 
 export function AboutScreen({ onBack }: AboutScreenProps) {
   const [restoring, setRestoring] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<AvailableAppUpdate | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getAvailableAppUpdate()
+      .then((update) => {
+        if (active) setAvailableUpdate(update);
+      })
+      .catch(() => {
+        // A version check must never block the About screen.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const openAvailableUpdate = availableUpdate
+    ? () => {
+      void Linking.openURL(availableUpdate.storeUrl)
+        .catch(() => Alert.alert(t("app_update.open_failed")));
+    }
+    : undefined;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -52,7 +76,13 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
             void restoreTutorialCard().then(() => Alert.alert(t("tutorial.restored")))
               .catch(() => Alert.alert(t("card_detail.error.try_again"))).finally(() => setRestoring(false));
           }} />
-          <InfoRow icon="information-circle-outline" label={t("about.version")} value={getAppVersionText()} />
+          <InfoRow
+            icon="information-circle-outline"
+            label={t("about.version")}
+            value={getAppVersionText()}
+            onPress={openAvailableUpdate}
+            showDot={Boolean(availableUpdate)}
+          />
           <InfoRow icon="reader-outline" label={t("about.changelog")} value="" onPress={() => openUrl(CHANGELOG_URL)} />
           <InfoRow icon="shield-outline" label={t("about.privacy")} value="" onPress={() => openUrl(PRIVACY_URL)} />
           <InfoRow icon="document-text-outline" label={t("about.terms")} value="" onPress={() => openUrl(TERMS_URL)} isLast />
@@ -79,18 +109,28 @@ function InfoRow({
   label,
   value,
   onPress,
+  showDot,
   isLast,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
   value: string;
   onPress?: () => void;
+  showDot?: boolean;
   isLast?: boolean;
 }) {
   return (
-    <Pressable style={[styles.row, !isLast && styles.rowBorder]} onPress={onPress} disabled={!onPress}>
+    <Pressable
+      style={[styles.row, !isLast && styles.rowBorder]}
+      onPress={onPress}
+      disabled={!onPress}
+      accessibilityRole={onPress ? "button" : undefined}
+    >
       <Ionicons name={icon} size={19} color="#111111" />
-      <Text style={styles.rowLabel}>{label}</Text>
+      <View style={styles.rowLabelWrap}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        {showDot && <View style={styles.updateDot} />}
+      </View>
       {!!value && <Text style={styles.rowValue}>{value}</Text>}
       <Ionicons name="chevron-forward" size={17} color="#555555" />
     </Pressable>
@@ -135,7 +175,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   rowBorder: { borderBottomWidth: 1, borderBottomColor: "#E8E8E8" },
-  rowLabel: { flex: 1, marginLeft: 12, color: "#111111", fontSize: 14 },
+  rowLabelWrap: { flex: 1, marginLeft: 12, flexDirection: "row", alignItems: "center" },
+  rowLabel: { color: "#111111", fontSize: 14 },
+  updateDot: { width: 7, height: 7, marginLeft: 6, borderRadius: 4, backgroundColor: "#E5484D" },
   rowValue: { marginRight: 8, color: "#666666", fontSize: 13 },
   footer: { marginTop: 12, textAlign: "center", color: "#808080", fontSize: 12 },
 

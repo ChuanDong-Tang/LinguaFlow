@@ -228,6 +228,8 @@ validate_aab() {
   grep -F "{\"expo-channel-name\":\"$EXPECTED_CHANNEL\"}" "$manifest_dump" >/dev/null || \
     fail "Production Expo Updates channel is not embedded in Android resources. Upload stopped."
 
+  node "$SCRIPT_DIR/validate-android-native-modules.mjs" "$aab" "$EXPECTED_PACKAGE_ID"
+
   log "AAB validation passed"
   printf 'App: %s\nVersion: %s\nVersion code: %s\nChannel: %s\nAPI: %s\n' \
     "$AAB_PACKAGE_ID" "$AAB_VERSION_NAME" "$AAB_VERSION_CODE" "$EXPECTED_CHANNEL" "$EXPECTED_API_URL"
@@ -277,6 +279,8 @@ validate_apk() {
   manifest_dump="$verify_dir/manifest.txt"
   "$aapt2" dump xmltree --file AndroidManifest.xml "$apk" > "$manifest_dump"
   grep -F "$EXPECTED_CHANNEL" "$manifest_dump" >/dev/null || fail "Production Expo Updates channel is not embedded in APK manifest."
+
+  node "$SCRIPT_DIR/validate-android-native-modules.mjs" "$apk" "$EXPECTED_PACKAGE_ID"
 
   PACKAGE_VERSION_CODE="$manifest_version_code"
   PACKAGE_VERSION_NAME="$manifest_version_name"

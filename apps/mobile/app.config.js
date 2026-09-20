@@ -18,7 +18,7 @@ module.exports = {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.1.5",
+    version: "1.1.6",
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
@@ -106,7 +106,7 @@ module.exports = {
       "./plugins/with-android-release-signing",
     ],
     owner: "reedtang",
-    runtimeVersion: "1.1.5",
+    runtimeVersion: "1.1.6",
     updates: {
       url: updatesUrl,
       checkAutomatically: "ON_LOAD",
