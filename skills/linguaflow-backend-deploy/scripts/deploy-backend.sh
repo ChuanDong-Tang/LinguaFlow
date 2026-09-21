@@ -58,9 +58,9 @@ test \"\$(git rev-parse HEAD)\" = '$commit'
 test -x ./node_modules/.bin/prisma
 ./node_modules/.bin/prisma generate --schema prisma/schema.prisma
 case '$restart' in
-  api) pm2 restart oio-api-production --update-env ;;
-  worker) pm2 restart oio-worker-production --update-env ;;
-  both) pm2 restart oio-api-production oio-worker-production --update-env ;;
+  api) pm2 restart ecosystem.production.config.cjs --only oio-api-production --update-env ;;
+  worker) pm2 restart ecosystem.production.config.cjs --only oio-worker-production --update-env ;;
+  both) pm2 restart ecosystem.production.config.cjs --update-env ;;
   none) ;;
 esac
 sleep 2
