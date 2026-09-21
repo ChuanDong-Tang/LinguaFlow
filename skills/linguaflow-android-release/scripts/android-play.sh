@@ -143,7 +143,7 @@ preflight() {
   require_command strings
   require_command jarsigner
   resolve_android_tools
-  bash "$SCRIPT_DIR/simulator-smoke.sh" --check
+  bash "$SCRIPT_DIR/simulator-smoke.sh" --check --target android
   load_dotenv "$MOBILE_DIR/.env"
   export NODE_ENV=production
   # Android packages must never expose either Apple purchase path.
@@ -373,8 +373,8 @@ if ! $ASSUME_YES; then
   esac
 fi
 
-log "Running required iOS 26, iOS 27, and Android simulator smoke gate"
-bash "$SCRIPT_DIR/simulator-smoke.sh" --run
+log "Running required Android simulator smoke gate"
+bash "$SCRIPT_DIR/simulator-smoke.sh" --run --target android
 
 mkdir -p "$ARTIFACT_DIR"
 timestamp="$(date '+%Y%m%d-%H%M%S')"

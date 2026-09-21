@@ -14,6 +14,15 @@ export const RELEASE_CORE_FLOWS = Object.freeze([
   'memoryGame',
 ]);
 export const ALL_DEVICE_TARGETS = Object.freeze(['ios26', 'ios27', 'android']);
+export const RELEASE_TARGETS_BY_DISTRIBUTION = Object.freeze({
+  ios: Object.freeze(['ios26', 'ios27']),
+  'google-android': Object.freeze(['android']),
+  'china-android': Object.freeze(['android']),
+});
+
+export function releaseTargetsForDistribution(distribution) {
+  return [...(RELEASE_TARGETS_BY_DISTRIBUTION[distribution] || [])];
+}
 
 const NATIVE_PATTERNS = [
   /^apps\/mobile\/(?:app\.config\.[^/]+|app\.json|eas\.json|package(?:-lock)?\.json|babel\.config\.[^/]+|metro\.config\.[^/]+)$/u,
@@ -117,6 +126,13 @@ function selfTest() {
   }
   const copy = classifyMobileReleaseRisk(['apps/mobile/src/i18n/messages.ts']);
   if (copy.minimumProfile !== 'focused') throw new Error('Copy-only changes should remain focused');
+  if (releaseTargetsForDistribution('ios').join(',') !== 'ios26,ios27') {
+    throw new Error('iOS releases must require only iOS 26 and iOS 27');
+  }
+  if (releaseTargetsForDistribution('google-android').join(',') !== 'android'
+    || releaseTargetsForDistribution('china-android').join(',') !== 'android') {
+    throw new Error('Android releases must require only Android');
+  }
   console.log('mobile-release-risk self-test passed');
 }
 

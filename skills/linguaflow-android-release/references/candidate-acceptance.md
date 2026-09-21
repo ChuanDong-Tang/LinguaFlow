@@ -24,13 +24,14 @@ node skills/linguaflow-android-release/scripts/release-acceptance.mjs init \
   --version <version> --build <build> --runtime <runtime> \
   --baseline <previous-good-commit> --commit <candidate-commit> \
   --artifact <absolute-artifact-path> --profile release-core \
-  --receipt .tmp/release-smoke/latest.json
+  --receipt .tmp/release-smoke/ios.json # use android.json for either Android distribution
 ```
 
 ## 3. Exercise the candidate
 
-Run managed devices one at a time: iOS 26, shut down; iOS 27, shut down;
-Android, shut down. For `release-core`, complete every flow on every target:
+Run only the targets for the distribution, one at a time: iOS 26 then iOS 27
+for TestFlight, or Android for either Android distribution. For `release-core`,
+complete every flow on every required target:
 
 - cold start twice and login;
 - open an existing Card;
@@ -50,7 +51,7 @@ check, which recomputes the artifact SHA:
 
 ```bash
 node skills/linguaflow-android-release/scripts/release-acceptance.mjs pass-flow \
-  --file <record> --flow <flow> --targets ios26,ios27,android \
+  --file <record> --flow <flow> --targets ios26,ios27 \
   --evidence '<what was observed and where>'
 node skills/linguaflow-android-release/scripts/release-acceptance.mjs pass-candidate \
   --file <record> --evidence '<artifact install and complete journey evidence>'

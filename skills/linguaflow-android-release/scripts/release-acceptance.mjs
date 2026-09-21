@@ -4,7 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { createHash } from 'node:crypto';
-import { ALL_DEVICE_TARGETS, RELEASE_CORE_FLOWS } from './mobile-release-risk.mjs';
+import {
+  ALL_DEVICE_TARGETS,
+  RELEASE_CORE_FLOWS,
+  releaseTargetsForDistribution,
+} from './mobile-release-risk.mjs';
 
 const DISTRIBUTIONS = new Set(['ios', 'google-android', 'china-android']);
 const CHECK_RESULTS = new Set(['pending', 'passed', 'not-applicable']);
@@ -72,7 +76,7 @@ function readStartupReceipt(record) {
   return JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
 }
 
-function validateStartupReceipt(errors, record, receipt) {
+function validateStartupReceipt(errors, record, receipt, requiredTargets) {
   if (!receipt) {
     errors.push('startupGate.receipt must point to an existing smoke receipt');
     return;
@@ -83,7 +87,7 @@ function validateStartupReceipt(errors, record, receipt) {
   if (receipt.execution?.strategy !== 'sequential' || receipt.execution?.maxConcurrentDevices !== 1) {
     errors.push('startup smoke receipt must prove sequential execution with one active device');
   }
-  for (const target of ALL_DEVICE_TARGETS) {
+  for (const target of requiredTargets) {
     if ((receipt.targets?.[target]?.launches || 0) < 2) errors.push(`startup smoke receipt requires two launches for ${target}`);
   }
 }
@@ -110,14 +114,15 @@ function validate(record, stage, receiptOverride) {
   }
   if (record?.startupGate?.passed !== true) errors.push('startupGate.passed must be true');
   requireText(errors, record?.startupGate?.receipt, 'startupGate.receipt');
-  validateStartupReceipt(errors, record, receiptOverride || readStartupReceipt(record));
+  const distributionTargets = releaseTargetsForDistribution(record?.distribution);
+  validateStartupReceipt(errors, record, receiptOverride || readStartupReceipt(record), distributionTargets);
 
   if (!VALIDATION_PROFILES.has(record?.validationProfile?.tier)) {
     errors.push(`validationProfile.tier must be one of: ${[...VALIDATION_PROFILES].join(', ')}`);
   }
   requireText(errors, record?.validationProfile?.reason, 'validationProfile.reason');
   const targets = record?.validationProfile?.tier === 'release-core'
-    ? [...ALL_DEVICE_TARGETS]
+    ? distributionTargets
     : record?.validationProfile?.targets || [];
   if (record?.validationProfile?.tier !== 'release-core') {
     if (requiredFlows(record).filter(hasText).length === 0) errors.push('validationProfile.impactedFlows needs at least one entry');
@@ -178,12 +183,12 @@ function fileSha256(file) {
   return createHash('sha256').update(fs.readFileSync(path.resolve(file))).digest('hex');
 }
 
-function receiptPassesForCommit(receiptPath, commit) {
+function receiptPassesForCommit(receiptPath, commit, distribution) {
   if (!hasText(receiptPath) || !fs.existsSync(path.resolve(receiptPath))) return false;
   const receipt = JSON.parse(fs.readFileSync(path.resolve(receiptPath), 'utf8'));
   return receipt.status === 'passed' && receipt.schemaVersion === 2 && receipt.commit === commit
     && receipt.execution?.strategy === 'sequential' && receipt.execution?.maxConcurrentDevices === 1
-    && ALL_DEVICE_TARGETS.every((target) => (receipt.targets?.[target]?.launches || 0) >= 2);
+    && releaseTargetsForDistribution(distribution).every((target) => (receipt.targets?.[target]?.launches || 0) >= 2);
 }
 
 function newRecord(options) {
@@ -193,10 +198,10 @@ function newRecord(options) {
   if (!hasText(options.baseline)) fail('--baseline is required');
   const impactedFlows = splitCsv(options.flows);
   if (tier !== 'release-core' && impactedFlows.length === 0) fail('--flows is required for focused or affected-flow profiles');
-  const targets = tier === 'release-core' ? [...ALL_DEVICE_TARGETS] : splitCsv(options.targets);
+  const targets = tier === 'release-core' ? releaseTargetsForDistribution(options.distribution) : splitCsv(options.targets);
   if (tier !== 'release-core' && targets.length === 0) fail('--targets is required for focused or affected-flow profiles');
   const flows = tier === 'release-core' ? RELEASE_CORE_REQUIRED_FLOWS : impactedFlows;
-  const receipt = options.receipt || '.tmp/release-smoke/latest.json';
+  const receipt = options.receipt || `.tmp/release-smoke/${options.distribution === 'ios' ? 'ios' : 'android'}.json`;
   return {
     schemaVersion: 2,
     createdAt: new Date().toISOString(),
@@ -207,7 +212,7 @@ function newRecord(options) {
     baselineCommit: options.baseline,
     sourceCommit: options.commit || '',
     artifact: { pathOrId: options.artifact || '', sha256: options.sha256 || fileSha256(options.artifact) },
-    startupGate: { passed: receiptPassesForCommit(receipt, options.commit), receipt },
+    startupGate: { passed: receiptPassesForCommit(receipt, options.commit, options.distribution), receipt },
     validationProfile: {
       tier,
       reason: options.reason || (tier === 'release-core' ? 'Core or broad native release validation' : ''),
@@ -246,7 +251,7 @@ function selfTest() {
   for (const check of Object.values(record.coreFlows)) {
     check.result = 'passed';
     check.evidence = 'observed candidate journey';
-    check.targets = [...ALL_DEVICE_TARGETS];
+    check.targets = releaseTargetsForDistribution(record.distribution);
   }
   record.startupGate.passed = true;
   record.candidateVerification = {
@@ -279,6 +284,18 @@ function selfTest() {
   if (validate(record, 'live', receipt).length !== 0) throw new Error('live rejected complete record');
   record.chinaPublication.downloadedSha256 = 'b'.repeat(64);
   if (!validate(record, 'live', receipt).some((error) => error.includes('does not match'))) throw new Error('live accepted mismatched China APK');
+
+  const iosRecord = newRecord({
+    distribution: 'ios', version: '1.2.3', build: '124', runtime: '1.2.3',
+    baseline: 'fedcba9876543210fedcba9876543210fedcba98', commit,
+    artifact: 'OIO-1.2.3-124.ipa', sha256: 'c'.repeat(64), profile: 'release-core',
+  });
+  if (iosRecord.validationProfile.targets.join(',') !== 'ios26,ios27') {
+    throw new Error('iOS acceptance did not scope validation to iOS targets');
+  }
+  if (record.validationProfile.targets.join(',') !== 'android') {
+    throw new Error('Android acceptance did not scope validation to Android');
+  }
   console.log('release-acceptance self-test passed');
 }
 

@@ -116,7 +116,7 @@ preflight() {
   require_command codesign
   require_command security
 
-  bash "$SCRIPT_DIR/simulator-smoke.sh" --check
+  bash "$SCRIPT_DIR/simulator-smoke.sh" --check --target ios
 
   xcode-select -p >/dev/null
   load_dotenv "$MOBILE_DIR/.env"
@@ -307,8 +307,8 @@ if ! $ASSUME_YES; then
   esac
 fi
 
-log "Running required iOS 26, iOS 27, and Android simulator smoke gate"
-bash "$SCRIPT_DIR/simulator-smoke.sh" --run
+log "Running required iOS 26 and iOS 27 simulator smoke gate"
+bash "$SCRIPT_DIR/simulator-smoke.sh" --run --target ios
 
 mkdir -p "$ARTIFACT_DIR"
 timestamp="$(date '+%Y%m%d-%H%M%S')"

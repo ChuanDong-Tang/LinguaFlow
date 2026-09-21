@@ -7,7 +7,6 @@ SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$SKILL_DIR/../.." && pwd)"
 MOBILE_DIR="$REPO_ROOT/apps/mobile"
 RECEIPT_DIR="$REPO_ROOT/.tmp/release-smoke"
-RECEIPT_FILE="$RECEIPT_DIR/latest.json"
 BUNDLE_ID="com.yueyantech.oio"
 PACKAGE_ID="com.yueyantech.oio"
 IOS_SCHEME="OIO"
@@ -17,6 +16,7 @@ MAX_RECEIPT_AGE_SECONDS="${LF_SMOKE_RECEIPT_MAX_AGE_SECONDS:-86400}"
 MODE=run
 FORCE=false
 KEEP_TARGET=""
+TARGET="all"
 
 usage() {
   cat <<'USAGE'
@@ -27,6 +27,7 @@ Options:
   --run           Build and cold-launch the current source on all three targets (default).
   --require       Require a still-valid receipt for the current source; do not build or launch.
   --force         Ignore a reusable receipt and run all smoke checks again.
+  --target T      Validate ios, android, or all targets (default: all).
   --keep-running  Compatibility alias for --keep-target android.
   --keep-target T Re-open only one inspected target after the gate: ios26, ios27, or android.
   -h, --help      Show this help.
@@ -48,6 +49,11 @@ while (($#)); do
     --run) MODE=run ;;
     --require) MODE=require ;;
     --force) FORCE=true ;;
+    --target)
+      shift
+      [[ $# -gt 0 ]] || fail "Missing value for --target"
+      TARGET="$1"
+      ;;
     --keep-running) KEEP_TARGET=android ;;
     --keep-target)
       shift
@@ -64,6 +70,17 @@ case "$KEEP_TARGET" in
   ""|ios26|ios27|android) ;;
   *) fail "--keep-target must be ios26, ios27, or android" ;;
 esac
+case "$TARGET" in
+  ios|android|all) ;;
+  *) fail "--target must be ios, android, or all" ;;
+esac
+if [[ "$TARGET" == "ios" && "$KEEP_TARGET" == "android" ]]; then
+  fail "--keep-target android is incompatible with --target ios"
+fi
+if [[ "$TARGET" == "android" && "$KEEP_TARGET" == ios* ]]; then
+  fail "--keep-target $KEEP_TARGET is incompatible with --target android"
+fi
+RECEIPT_FILE="$RECEIPT_DIR/$TARGET.json"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
@@ -162,38 +179,41 @@ NODE
 
 resolve_targets() {
   require_command node
-  require_command xcrun
-  require_command xcodebuild
   require_command npx
-  require_command pod
-  resolve_android_tools
-
-  IOS_26="$(resolve_ios_device 26)" || fail "No available iPhone simulator with iOS 26.x is installed."
-  IOS_27="$(resolve_ios_device 27)" || fail "No available iPhone simulator with iOS 27.x is installed."
-  "$EMULATOR_BIN" -list-avds | grep -Fx "$ANDROID_AVD" >/dev/null || \
-    fail "Android AVD not found: $ANDROID_AVD"
-
-  printf 'iOS 26: %s\niOS 27: %s\nAndroid: %s\n' \
-    "${IOS_26#*$'\t'}" "${IOS_27#*$'\t'}" "$ANDROID_AVD"
+  IOS_26=""
+  IOS_27=""
+  if [[ "$TARGET" == "ios" || "$TARGET" == "all" ]]; then
+    require_command xcrun
+    require_command xcodebuild
+    require_command pod
+    IOS_26="$(resolve_ios_device 26)" || fail "No available iPhone simulator with iOS 26.x is installed."
+    IOS_27="$(resolve_ios_device 27)" || fail "No available iPhone simulator with iOS 27.x is installed."
+    printf 'iOS 26: %s\niOS 27: %s\n' "${IOS_26#*$'\t'}" "${IOS_27#*$'\t'}"
+  fi
+  if [[ "$TARGET" == "android" || "$TARGET" == "all" ]]; then
+    resolve_android_tools
+    "$EMULATOR_BIN" -list-avds | grep -Fx "$ANDROID_AVD" >/dev/null || \
+      fail "Android AVD not found: $ANDROID_AVD"
+    printf 'Android: %s\n' "$ANDROID_AVD"
+  fi
 }
 
 receipt_is_current() {
   local fingerprint="$1"
   [[ -f "$RECEIPT_FILE" ]] || return 1
-  node - "$RECEIPT_FILE" "$fingerprint" "$MAX_RECEIPT_AGE_SECONDS" <<'NODE'
+  node - "$RECEIPT_FILE" "$fingerprint" "$MAX_RECEIPT_AGE_SECONDS" "$TARGET" <<'NODE'
 const fs = require('fs');
-const [file, fingerprint, maxAgeText] = process.argv.slice(2);
+const [file, fingerprint, maxAgeText, target] = process.argv.slice(2);
 const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
 const ageSeconds = (Date.now() - Date.parse(receipt.completedAt)) / 1000;
+const requiredTargets = target === 'ios' ? ['ios26', 'ios27'] : target === 'android' ? ['android'] : ['ios26', 'ios27', 'android'];
 const valid = receipt.status === 'passed'
   && receipt.schemaVersion === 2
   && receipt.sourceFingerprint === fingerprint
   && Number.isFinite(ageSeconds)
   && ageSeconds >= 0
   && ageSeconds <= Number(maxAgeText)
-  && receipt.targets?.ios26?.launches === 2
-  && receipt.targets?.ios27?.launches === 2
-  && receipt.targets?.android?.launches === 2
+  && requiredTargets.every((name) => receipt.targets?.[name]?.launches === 2)
   && receipt.execution?.strategy === 'sequential'
   && receipt.execution?.maxConcurrentDevices === 1;
 process.exit(valid ? 0 : 1);
@@ -286,24 +306,30 @@ cleanup() {
   if [[ -n "${IOS_ACTIVE_UDID:-}" ]]; then
     xcrun simctl shutdown "$IOS_ACTIVE_UDID" >/dev/null 2>&1 || true
   fi
-  local serial="${ANDROID_ACTIVE_SERIAL:-${ANDROID_SERIAL:-}}"
-  if [[ -z "$serial" ]]; then serial="$(find_android_serial || true)"; fi
-  if [[ -n "$serial" ]]; then
-    "$ADB_BIN" -s "$serial" emu kill >/dev/null 2>&1 || true
+  if [[ "$TARGET" == "android" || "$TARGET" == "all" ]]; then
+    local serial="${ANDROID_ACTIVE_SERIAL:-${ANDROID_SERIAL:-}}"
+    if [[ -z "$serial" ]]; then serial="$(find_android_serial || true)"; fi
+    if [[ -n "$serial" ]]; then
+      "$ADB_BIN" -s "$serial" emu kill >/dev/null 2>&1 || true
+    fi
   fi
 }
 
 shutdown_configured_targets() {
   local descriptor udid serial
-  for descriptor in "$IOS_26" "$IOS_27"; do
-    udid="${descriptor%%$'\t'*}"
-    xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-  done
-  serial="$(find_android_serial || true)"
-  if [[ -n "$serial" ]]; then
-    "$ADB_BIN" -s "$serial" emu kill >/dev/null 2>&1 || true
-    local deadline=$((SECONDS + 30))
-    while ((SECONDS < deadline)) && [[ -n "$(find_android_serial || true)" ]]; do sleep 1; done
+  if [[ "$TARGET" == "ios" || "$TARGET" == "all" ]]; then
+    for descriptor in "$IOS_26" "$IOS_27"; do
+      udid="${descriptor%%$'\t'*}"
+      xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+    done
+  fi
+  if [[ "$TARGET" == "android" || "$TARGET" == "all" ]]; then
+    serial="$(find_android_serial || true)"
+    if [[ -n "$serial" ]]; then
+      "$ADB_BIN" -s "$serial" emu kill >/dev/null 2>&1 || true
+      local deadline=$((SECONDS + 30))
+      while ((SECONDS < deadline)) && [[ -n "$(find_android_serial || true)" ]]; do sleep 1; done
+    fi
   fi
 }
 
@@ -355,35 +381,45 @@ IOS_ACTIVE_UDID=""
 ANDROID_ACTIVE_SERIAL=""
 trap cleanup EXIT
 
-log "Stopping the three managed test targets so the gate uses at most one device at a time"
+log "Stopping the selected managed test targets so the gate uses at most one device at a time"
 shutdown_configured_targets
 
 log "Synchronizing generated native projects"
-(
+if [[ "$TARGET" == "ios" || "$TARGET" == "all" ]]; then
+  (
   cd "$MOBILE_DIR"
   npx expo prebuild --platform ios --no-install
-  npx expo prebuild --platform android --no-install
   (cd ios && pod install)
-)
+  )
+fi
+if [[ "$TARGET" == "android" || "$TARGET" == "all" ]]; then
+  (
+    cd "$MOBILE_DIR"
+    npx expo prebuild --platform android --no-install
+  )
+fi
 
-derived_data="$RECEIPT_DIR/ios-derived-data"
-log "Building Release app for iOS Simulator"
-xcodebuild \
-  -workspace "$MOBILE_DIR/ios/OIO.xcworkspace" \
-  -scheme "$IOS_SCHEME" \
-  -configuration Release \
-  -sdk iphonesimulator \
-  -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath "$derived_data" \
-  ARCHS=arm64 \
-  ONLY_ACTIVE_ARCH=YES \
-  CODE_SIGNING_ALLOWED=NO \
-  build >/dev/null
-IOS_APP="$(find "$derived_data/Build/Products" -type d -path '*Release-iphonesimulator/*.app' -print -quit)"
-[[ -n "$IOS_APP" ]] || fail "iOS Simulator .app was not produced."
+if [[ "$TARGET" == "ios" || "$TARGET" == "all" ]]; then
+  derived_data="$RECEIPT_DIR/ios-derived-data"
+  log "Building Release app for iOS Simulator"
+  xcodebuild \
+    -workspace "$MOBILE_DIR/ios/OIO.xcworkspace" \
+    -scheme "$IOS_SCHEME" \
+    -configuration Release \
+    -sdk iphonesimulator \
+    -destination 'generic/platform=iOS Simulator' \
+    -derivedDataPath "$derived_data" \
+    ARCHS=arm64 \
+    ONLY_ACTIVE_ARCH=YES \
+    CODE_SIGNING_ALLOWED=NO \
+    build >/dev/null
+  IOS_APP="$(find "$derived_data/Build/Products" -type d -path '*Release-iphonesimulator/*.app' -print -quit)"
+  [[ -n "$IOS_APP" ]] || fail "iOS Simulator .app was not produced."
+fi
 
-log "Building Release APK for Android Emulator"
-node - "$MOBILE_DIR/android/app/build.gradle" <<'NODE'
+if [[ "$TARGET" == "android" || "$TARGET" == "all" ]]; then
+  log "Building Release APK for Android Emulator"
+  node - "$MOBILE_DIR/android/app/build.gradle" <<'NODE'
 const fs = require('fs');
 const file = process.argv[2];
 const source = fs.readFileSync(file, 'utf8');
@@ -393,19 +429,24 @@ if (!source.includes(needle)) {
 }
 fs.writeFileSync(file, source.replace(needle, 'signingConfig signingConfigs.debug'));
 NODE
-(
+  (
   cd "$MOBILE_DIR/android"
   export NODE_ENV=production
   export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+$JAVA_TOOL_OPTIONS }-XX:MaxMetaspaceSize=1536m"
   export GRADLE_OPTS="${GRADLE_OPTS:+$GRADLE_OPTS }-Dorg.gradle.jvmargs=-Xmx4096m\ -XX:MaxMetaspaceSize=1536m\ -Dfile.encoding=UTF-8"
   ./gradlew app:assembleRelease -PreactNativeArchitectures=arm64-v8a -x lintVitalAnalyzeRelease
-)
-ANDROID_APK="$(find "$MOBILE_DIR/android/app/build/outputs/apk/release" -type f -name '*.apk' -print -quit)"
-[[ -s "$ANDROID_APK" ]] || fail "Android release APK was not produced."
+  )
+  ANDROID_APK="$(find "$MOBILE_DIR/android/app/build/outputs/apk/release" -type f -name '*.apk' -print -quit)"
+  [[ -s "$ANDROID_APK" ]] || fail "Android release APK was not produced."
+fi
 
-smoke_ios "iOS 26" "$IOS_26"
-smoke_ios "iOS 27" "$IOS_27"
-smoke_android
+if [[ "$TARGET" == "ios" || "$TARGET" == "all" ]]; then
+  smoke_ios "iOS 26" "$IOS_26"
+  smoke_ios "iOS 27" "$IOS_27"
+fi
+if [[ "$TARGET" == "android" || "$TARGET" == "all" ]]; then
+  smoke_android
+fi
 
 # Expo prebuild may normalize tracked Mobile inputs such as package-lock.json.
 # Bind the receipt to the source that actually produced and launched the apps,
@@ -413,13 +454,19 @@ smoke_android
 fingerprint="$(source_fingerprint)"
 commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 completed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-node - "$RECEIPT_FILE" "$fingerprint" "$commit" "$completed_at" "$IOS_26" "$IOS_27" "$ANDROID_AVD" <<'NODE'
+node - "$RECEIPT_FILE" "$fingerprint" "$commit" "$completed_at" "$TARGET" "$IOS_26" "$IOS_27" "$ANDROID_AVD" <<'NODE'
 const fs = require('fs');
-const [file, sourceFingerprint, commit, completedAt, ios26, ios27, android] = process.argv.slice(2);
+const [file, sourceFingerprint, commit, completedAt, target, ios26, ios27, android] = process.argv.slice(2);
 const describeIos = (value) => {
   const [udid, name, runtime] = value.split('\t');
   return { udid, name, runtime, launches: 2 };
 };
+const targets = {};
+if (target === 'ios' || target === 'all') {
+  targets.ios26 = describeIos(ios26);
+  targets.ios27 = describeIos(ios27);
+}
+if (target === 'android' || target === 'all') targets.android = { avd: android, launches: 2 };
 const receipt = {
   schemaVersion: 2,
   status: 'passed',
@@ -431,16 +478,13 @@ const receipt = {
     maxConcurrentDevices: 1,
     shutdownAfterEachTarget: true,
   },
-  targets: {
-    ios26: describeIos(ios26),
-    ios27: describeIos(ios27),
-    android: { avd: android, launches: 2 },
-  },
+  target,
+  targets,
 };
 fs.writeFileSync(file, `${JSON.stringify(receipt, null, 2)}\n`);
 NODE
 
-log "Three-platform simulator smoke passed"
+log "$TARGET simulator smoke passed"
 printf 'Receipt: %s\nFingerprint: %s\n' "$RECEIPT_FILE" "$fingerprint"
 
 # The gate itself is complete and every target is shut down. When manual

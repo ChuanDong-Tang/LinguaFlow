@@ -100,23 +100,24 @@ Use the platform-specific backend settings
 `LF_APP_CHINA_ANDROID_LATEST_VERSION`. Do not change the shared
 `LF_APP_LATEST_VERSION` as a shortcut when only one distribution advances.
 
-## Three-platform startup gate
+## Platform-scoped startup gate
 
-Every native release candidate must pass the same-source startup gate before
-it may be uploaded:
+Every native release candidate must pass the same-source startup gate for the
+distribution being uploaded:
 
 ```bash
-bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run
+bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run --target ios
+bash skills/linguaflow-android-release/scripts/simulator-smoke.sh --run --target android
 ```
 
-The gate builds the current source, installs it on an iOS 26 simulator, an iOS
-27 simulator, and the configured Android AVD, then cold-launches each target
-twice. The targets run strictly one at a time and each is shut down before the
-next starts, so the gate never trades validation coverage for concurrent Mac
-memory pressure. It writes a short-lived receipt under `.tmp/release-smoke/`. The receipt
-is bound to a content fingerprint, so any relevant Mobile source or native
-configuration change invalidates it. Release scripts run this gate by default;
-submit-only retries require an existing valid receipt.
+An iOS/TestFlight candidate requires iOS 26 and iOS 27. A Google or China
+Android candidate requires the configured Android AVD. Do not block one
+distribution on an unrelated platform. When multiple distributions are being
+released, run each platform gate separately. Each selected target cold-launches
+twice, runs sequentially, and shuts down before the next target. Receipts are
+written to `.tmp/release-smoke/ios.json` or `android.json` and bound to the
+Mobile source fingerprint. Release scripts select the correct target by
+default; submit-only retries require the corresponding valid receipt.
 
 Use `--check` to inspect prerequisites without building or launching. Use
 `--keep-target ios26|ios27|android` only when a person needs to inspect one
@@ -218,7 +219,8 @@ SHA-256. For
 `focused` or `affected-flow`, also pass `--flows` as comma-separated flow names
 and record evidence for those flows. For a `release-core` change, every core flow—including image attachment,
 message sending, rewrite generation and rendering, cloze practice, and the
-memory game—must be `passed` with evidence on iOS 26, iOS 27, and Android.
+memory game—must be `passed` on the targets for that distribution: iOS 26 and
+iOS 27 for TestFlight, or Android for either Android distribution.
 After canary upload, reinstall from TestFlight, Google internal testing, or the
 immutable China URL and record `verify-canary`; `--stage promote` must pass
 before any production/public pointer change. A release is not live-verified
@@ -227,7 +229,7 @@ until the same record passes `live` against its real public delivery path.
 Before reporting success, use the script and artifact validation output to
 confirm all of the following:
 
-- iOS 26, iOS 27, and Android startup smoke passed for the current source;
+- the startup smoke required by the selected distribution passed for the current source;
 - the iOS, Google Android, and China Android live version/build matrix was
   checked independently;
 - destination and payment provider match the matrix above;
