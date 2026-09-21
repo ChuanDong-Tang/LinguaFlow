@@ -418,6 +418,7 @@ try {
   console.log(`App: ${config.EXPECTED_BUNDLE_ID} (${app.id})`);
   console.log(`Build: ${options.build} / ${build.attributes.processingState}`);
   console.log(`Version: ${options.version} / ${version ? versionState(version) : "NOT_CREATED"}`);
+  if (version) console.log(`Release type: ${version.attributes?.releaseType ?? "UNKNOWN"}`);
 
   if (version && submittedStates.has(versionState(version))) {
     if (version.includedBuild?.id && version.includedBuild.id !== build.id) {
@@ -429,7 +430,7 @@ try {
       if (version.attributes?.releaseType !== requestedReleaseType) {
         throw new Error(`Could not verify ${requestedReleaseType} release type for submitted version.`);
       }
-      console.log(`Release type: ${version.attributes.releaseType}`);
+      console.log(`Updated release type: ${version.attributes.releaseType}`);
     }
     console.log(`Already submitted: ${versionState(version)}`);
     process.exit(0);
@@ -437,7 +438,6 @@ try {
   if (options.mode === "check") {
     if (version) {
       const metadata = await preflightMetadata(token, version.id);
-      console.log(`Release type: ${version.attributes?.releaseType ?? "UNKNOWN"}`);
       console.log(`Bound build: ${version.includedBuild?.attributes?.version ?? "none"}`);
       console.log(`Export compliance: ${build.attributes?.usesNonExemptEncryption === false ? "no non-exempt encryption" : build.attributes?.usesNonExemptEncryption ?? "unanswered"}`);
       printMetadata(metadata);
