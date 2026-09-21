@@ -215,16 +215,16 @@ node skills/linguaflow-android-release/scripts/release-acceptance.mjs check \
 
 The upload gate recomputes risk from `baselineCommit..sourceCommit`, rejects a
 manually selected lower profile, and verifies the exact artifact path and
-SHA-256. For
-`focused` or `affected-flow`, also pass `--flows` as comma-separated flow names
-and record evidence for those flows. For a `release-core` change, every core flow—including image attachment,
-message sending, rewrite generation and rendering, cloze practice, and the
-memory game—must be `passed` on the targets for that distribution: iOS 26 and
-iOS 27 for TestFlight, or Android for either Android distribution.
-After canary upload, reinstall from TestFlight, Google internal testing, or the
-immutable China URL and record `verify-canary`; `--stage promote` must pass
-before any production/public pointer change. A release is not live-verified
-until the same record passes `live` against its real public delivery path.
+SHA-256. Uploading to TestFlight, Google internal testing, or an immutable China
+URL creates a private canary; it must not require the very real-device evidence
+that the canary exists to collect. Before canary upload, require the selected
+platform's startup receipt, automated checks, and artifact-bound candidate
+verification. After canary upload, reinstall through that delivery path and
+record every risk-required flow on the targets for that distribution: iOS 26
+and iOS 27 for TestFlight, or Android for either Android distribution. The
+`--stage promote` gate must pass before App Store review, Google production, or
+changing the public China APK pointer. A release is not live-verified until the
+same record passes `live` against its real public delivery path.
 
 Before reporting success, use the script and artifact validation output to
 confirm all of the following:

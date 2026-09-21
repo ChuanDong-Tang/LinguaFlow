@@ -27,11 +27,31 @@ node skills/linguaflow-android-release/scripts/release-acceptance.mjs init \
   --receipt .tmp/release-smoke/ios.json # use android.json for either Android distribution
 ```
 
-## 3. Exercise the candidate
+## 3. Verify the local candidate
 
-Run only the targets for the distribution, one at a time: iOS 26 then iOS 27
-for TestFlight, or Android for either Android distribution. For `release-core`,
-complete every flow on every required target:
+Before upload, run automated checks, the platform-scoped startup gate, and the
+artifact validation. Record the final artifact-bound candidate check, which
+recomputes the artifact SHA. Do not require TestFlight/internal-download
+evidence before that private canary exists.
+
+```bash
+node skills/linguaflow-android-release/scripts/release-acceptance.mjs pass-candidate \
+  --file <record> --evidence '<automated checks, startup receipt, and artifact validation>'
+```
+
+## 4. Upload and exercise the canary
+
+Upload scripts require the candidate-stage record and recompute the artifact
+SHA, distribution, source diff, and risk tier:
+
+- iOS: TestFlight;
+- Google Android: internal testing track only;
+- China Android: immutable versioned APK URL only; do not update the public
+  latest-version/API/website pointer yet.
+
+Install from that real canary path. Run only the targets for the distribution,
+one at a time: iOS 26 then iOS 27 for TestFlight, or Android for either Android
+distribution. For `release-core`, complete every flow on every required target:
 
 - cold start twice and login;
 - open an existing Card;
@@ -46,34 +66,21 @@ Use the ignored fixed test-account file if login is missing. Preserve existing
 Cards/settings. Create only clearly identified, bounded test content; never
 change membership or payment state unless that flow is explicitly in scope.
 
-Record each observed flow with `pass-flow`. Then record the final candidate
-check, which recomputes the artifact SHA:
-
-```bash
-node skills/linguaflow-android-release/scripts/release-acceptance.mjs pass-flow \
-  --file <record> --flow <flow> --targets ios26,ios27 \
-  --evidence '<what was observed and where>'
-node skills/linguaflow-android-release/scripts/release-acceptance.mjs pass-candidate \
-  --file <record> --evidence '<artifact install and complete journey evidence>'
-```
-
-## 4. Upload only to a canary path
-
-Upload scripts require `--acceptance <record>` and recompute the artifact SHA,
-distribution, source diff, and risk tier before any network mutation:
-
-- iOS: TestFlight;
-- Google Android: internal testing track only;
-- China Android: immutable versioned APK URL only; do not update the public
-  latest-version/API/website pointer yet.
-
-Install from that real canary delivery path and repeat every risk-required flow
-against that exact package. Record each with `pass-canary-flow`, then record its
-exact installed version/build and delivery evidence with `verify-canary`.
+Record each observed delivered-package flow with `pass-canary-flow`, including
+the exact targets:
 
 ```bash
 node skills/linguaflow-android-release/scripts/release-acceptance.mjs pass-canary-flow \
-  --file <record> --flow <flow> \
+  --file <record> --flow <flow> --targets ios26,ios27 \
+  --evidence '<what was observed and where>'
+```
+
+Then record the exact installed version/build and delivery evidence with
+`verify-canary`.
+
+```bash
+node skills/linguaflow-android-release/scripts/release-acceptance.mjs pass-canary-flow \
+  --file <record> --flow <flow> --targets ios26,ios27 \
   --evidence '<observation from the delivered package>'
 node skills/linguaflow-android-release/scripts/release-acceptance.mjs verify-canary \
   --file <record> --source '<TestFlight/internal/immutable URL>' \

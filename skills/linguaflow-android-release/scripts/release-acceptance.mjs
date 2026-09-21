@@ -128,13 +128,6 @@ function validate(record, stage, receiptOverride) {
     if (requiredFlows(record).filter(hasText).length === 0) errors.push('validationProfile.impactedFlows needs at least one entry');
     if (targets.filter(hasText).length === 0) errors.push('validationProfile.targets needs at least one entry');
   }
-  for (const [name, check] of Object.entries(record?.coreFlows || {})) {
-    validateCheck(errors, check, `coreFlows.${name}`, requiredFlows(record).includes(name) ? targets : []);
-  }
-  for (const name of requiredFlows(record)) {
-    if (!record?.coreFlows?.[name]) errors.push(`coreFlows.${name} is required`);
-  }
-
   if (record?.candidateVerification?.result !== 'passed') errors.push('candidateVerification.result must be passed');
   if (record?.candidateVerification?.artifactSha256 !== record?.artifact?.sha256) {
     errors.push('candidateVerification.artifactSha256 must match artifact.sha256');
@@ -151,7 +144,7 @@ function validate(record, stage, receiptOverride) {
   requireText(errors, record?.canary?.checkedAt, 'canary.checkedAt');
   requireEvidence(errors, record?.canary?.evidence, 'canary.evidence');
   for (const name of requiredFlows(record)) {
-    requireText(errors, record?.canary?.flowEvidence?.[name], `canary.flowEvidence.${name}`);
+    validateCheck(errors, record?.canary?.flowEvidence?.[name], `canary.flowEvidence.${name}`, targets);
   }
   if (stage === 'promote') return errors;
 
@@ -223,7 +216,7 @@ function newRecord(options) {
     candidateVerification: { result: 'pending', artifactSha256: '', checkedAt: '', evidence: [] },
     canary: {
       state: 'not-uploaded', installSource: '', externalIdOrUrl: '', installedVersion: '', installedBuild: '', checkedAt: '', evidence: [],
-      flowEvidence: Object.fromEntries(flows.map((name) => [name, ''])),
+      flowEvidence: Object.fromEntries(flows.map((name) => [name, pendingCheck()])),
     },
     delivery: { state: 'local', installSource: '', externalIdOrUrl: '' },
     postRelease: { installedVersion: '', installedBuild: '', checkedAt: '', evidence: [] },
@@ -247,11 +240,8 @@ function selfTest() {
     execution: { strategy: 'sequential', maxConcurrentDevices: 1, shutdownAfterEachTarget: true },
     targets: { ios26: { launches: 2 }, ios27: { launches: 2 }, android: { launches: 2 } },
   };
-  if (validate(record, 'candidate', receipt).length < 8) throw new Error('candidate validation accepted pending checks');
-  for (const check of Object.values(record.coreFlows)) {
-    check.result = 'passed';
-    check.evidence = 'observed candidate journey';
-    check.targets = releaseTargetsForDistribution(record.distribution);
+  if (!validate(record, 'candidate', receipt).some((error) => error.includes('candidateVerification'))) {
+    throw new Error('candidate validation accepted an unverified artifact');
   }
   record.startupGate.passed = true;
   record.candidateVerification = {
@@ -265,12 +255,15 @@ function selfTest() {
     state: 'verified', installSource: 'private candidate URL', externalIdOrUrl: 'https://example.test/candidate.apk',
     installedVersion: record.version, installedBuild: record.build,
     checkedAt: new Date().toISOString(), evidence: ['fresh candidate install passed'],
-    flowEvidence: Object.fromEntries(Object.keys(record.coreFlows).map((name) => [name, ''])),
+    flowEvidence: Object.fromEntries(Object.keys(record.coreFlows).map((name) => [name, pendingCheck()])),
   };
   if (!validate(record, 'promote', receipt).some((error) => error.includes('canary.flowEvidence'))) {
     throw new Error('promotion accepted canary without exact-package flow evidence');
   }
-  record.canary.flowEvidence = Object.fromEntries(Object.keys(record.coreFlows).map((name) => [name, `canary observed ${name}`]));
+  record.canary.flowEvidence = Object.fromEntries(Object.keys(record.coreFlows).map((name) => [name, ({
+    result: 'passed', evidence: `canary observed ${name}`, reason: '',
+    targets: releaseTargetsForDistribution(record.distribution),
+  })]));
   if (validate(record, 'promote', receipt).length !== 0) throw new Error('promotion rejected verified canary');
   record.delivery = { state: 'live', installSource: 'public URL', externalIdOrUrl: 'https://example.test/app.apk' };
   record.postRelease = {
@@ -337,10 +330,14 @@ else if (command === 'init') {
   writeRecord(options.file, record);
   console.log('Recorded canary verification');
 } else if (command === 'pass-canary-flow') {
-  if (!options.file || !options.flow || !options.evidence) fail('pass-canary-flow requires --file, --flow, and --evidence');
+  if (!options.file || !options.flow || !options.evidence || !options.targets) {
+    fail('pass-canary-flow requires --file, --flow, --targets, and --evidence');
+  }
   const record = JSON.parse(fs.readFileSync(path.resolve(options.file), 'utf8'));
   if (!record.canary?.flowEvidence || !(options.flow in record.canary.flowEvidence)) fail(`Unknown required canary flow: ${options.flow}`);
-  record.canary.flowEvidence[options.flow] = options.evidence;
+  record.canary.flowEvidence[options.flow] = {
+    result: 'passed', evidence: options.evidence, reason: '', targets: splitCsv(options.targets),
+  };
   writeRecord(options.file, record);
   console.log(`Recorded canary flow ${options.flow}`);
 } else if (command === 'check') {
