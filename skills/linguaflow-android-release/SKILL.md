@@ -20,6 +20,8 @@ Read [references/release-workflows.md](references/release-workflows.md) when
 setting up a machine, troubleshooting a release, or choosing non-default modes.
 Read [references/candidate-acceptance.md](references/candidate-acceptance.md)
 before building or uploading any native candidate.
+Read [references/app-store-review.md](references/app-store-review.md) before
+checking, preparing, or submitting an iOS version to App Review through the API.
 Read [references/ota-workflow.md](references/ota-workflow.md) before preparing,
 publishing, validating, or troubleshooting an OTA/hot update.
 
@@ -225,6 +227,14 @@ and iOS 27 for TestFlight, or Android for either Android distribution. The
 `--stage promote` gate must pass before App Store review, Google production, or
 changing the public China APK pointer. A release is not live-verified until the
 same record passes `live` against its real public delivery path.
+
+App Store review submission is a narrowly scoped exception to the normal
+promotion gate only when the user explicitly accepts the remaining candidate
+risk. Default to `releaseType=MANUAL`; then approval cannot publish the build,
+and public release still requires the normal `promote` gate. If the user
+explicitly requests automatic release in the active request, record that choice
+with the script's separate auto-release risk flag; never infer it from an old
+preference or from authorization to submit for review.
 
 Before reporting success, use the script and artifact validation output to
 confirm all of the following:

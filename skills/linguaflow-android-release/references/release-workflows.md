@@ -53,6 +53,11 @@ TestFlight installations always use Apple's Sandbox environment for in-app
 purchases. This is independent of the app's production API and Expo Updates
 channel, both of which are validated by this workflow.
 
+When the user separately asks for App Store review, read
+`references/app-store-review.md` and use `ios-app-store-submit.mjs`. Do not use
+the deprecated `appStoreVersionSubmissions` endpoint and do not treat TestFlight
+upload, App Review submission, approval, and public release as one action.
+
 The iOS marketing version and Apple build number describe iOS only. Do not use
 them as the expected Android versionName or versionCode, and do not update an
 Android latest-version setting merely because iOS advanced.
