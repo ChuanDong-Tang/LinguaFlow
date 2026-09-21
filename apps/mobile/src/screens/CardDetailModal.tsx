@@ -63,7 +63,11 @@ import { DictionaryPopover } from "./chat/DictionaryPopover";
 import { dictionaryLookupErrorKey, lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { getLanguage, t, tf } from "../i18n";
 import { expandSelectionToCardBlankRange } from "../domain/cloze/clozeUtils";
-import { isCardClozeBlankCorrect } from "../domain/cloze/cardClozeCorrectness";
+import {
+  isCardClozeBlankAnsweredThisSession,
+  isCardClozeBlankCorrect,
+  shouldMaskCardClozeBlank,
+} from "../domain/cloze/cardClozeCorrectness";
 import {
   buildClozeAnswerPuzzle,
   clozeAnswerPuzzleText,
@@ -4724,14 +4728,11 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   // measurements from a hidden React Native <Text> drifts on Android because
   // the two renderers apply different font padding and line metrics.
   const highlightRanges = phraseRanges;
-  const blankAnsweredThisSession = ({ blank }: typeof row.blanks[number]) => checkedAnswers[blank.id] === "correct";
   const blankIsCorrect = ({ blank }: typeof row.blanks[number]) => isCardClozeBlankCorrect(blank, checkedAnswers);
-  const hiddenRanges = revealed
-    ? []
-    : row.blanks
+  const hiddenRanges = row.blanks
       // Persisted mastery keeps the green background, but reopening a card
       // starts a fresh exercise and masks the answer again.
-      .filter((item) => !blankAnsweredThisSession(item))
+      .filter(({ blank }) => shouldMaskCardClozeBlank(blank, checkedAnswers, revealed))
       .map(({ blank }) => ({
         start: blank.startUtf16 - row.textStart,
         end: blank.endUtf16 - row.textStart,
@@ -4975,7 +4976,7 @@ function buildCardClozeAnswerRanges(
     // removed, so relying on the underlying sentence glyphs leaves a green
     // but visually empty blank. Durable `mastered` progress intentionally does
     // not count here: reopening a card starts a fresh practice session.
-    const correct = checkedAnswers[blank.id] === "correct";
+    const correct = isCardClozeBlankAnsweredThisSession(blank, checkedAnswers);
     const answer = correct ? blank.answer : answers[blank.id] ?? "";
     if (!answer) return [];
     const start = blank.startUtf16 - row.textStart;

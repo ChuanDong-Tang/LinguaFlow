@@ -18,20 +18,15 @@ module.exports = {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.1.6",
+    version: "1.1.7",
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
     userInterfaceStyle: "light",
     newArchEnabled: true,
-    splash: {
-      image: "./assets/app/Splash_1.png",
-      resizeMode: "contain",
-      backgroundColor: "#ffffff",
-    },
     ios: {
       bundleIdentifier: "com.yueyantech.oio",
-      buildNumber: "156",
+      buildNumber: "157",
       supportsTablet: true,
       icon: "./assets/app/logo_main_apple.png",
       infoPlist: {
@@ -45,7 +40,7 @@ module.exports = {
     },
     android: {
       package: "com.yueyantech.oio",
-      versionCode: 61,
+      versionCode: 62,
       allowBackup: false,
       permissions: ["RECORD_AUDIO"],
       blockedPermissions: [
@@ -70,6 +65,15 @@ module.exports = {
       },
     },
     plugins: [
+      [
+        "expo-splash-screen",
+        {
+          image: "./assets/app/Splash_1.png",
+          imageWidth: 320,
+          resizeMode: "contain",
+          backgroundColor: "#ffffff",
+        },
+      ],
       [
         "expo-build-properties",
         {
@@ -106,7 +110,7 @@ module.exports = {
       "./plugins/with-android-release-signing",
     ],
     owner: "reedtang",
-    runtimeVersion: "1.1.6",
+    runtimeVersion: "1.1.7",
     updates: {
       url: updatesUrl,
       checkAutomatically: "ON_LOAD",

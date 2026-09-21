@@ -13,6 +13,10 @@ import {
 import { t } from "../../i18n";
 import { buildSelectableTextFallbackSegments } from "../../domain/cloze/selectableTextFallback";
 import {
+  nativeClozeAnswerRangesForPlatform,
+  splitClozeRangesIntoWordRuns,
+} from "../../domain/cloze/nativeClozeRanges";
+import {
   ChatSelectableTextView,
   clearChatSelectableTextSelection,
   type ChatSelectableTextViewInstance,
@@ -141,18 +145,6 @@ function normalizeBlankRanges(text: string, ranges?: NativeClozeBlankRange[]): N
     .sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
-function splitBlankRangesIntoWordRuns(text: string, ranges: NativeClozeBlankRange[]): NativeClozeBlankRange[] {
-  return ranges.flatMap((range) => {
-    const runs: NativeClozeBlankRange[] = [];
-    const selectedText = text.slice(range.start, range.end);
-    for (const match of selectedText.matchAll(/\S+/gu)) {
-      const start = range.start + (match.index ?? 0);
-      runs.push({ start, end: start + match[0].length });
-    }
-    return runs.length ? runs : [range];
-  });
-}
-
 function rangeContains(range: NativeClozeBlankRange, start: number, end: number): boolean {
   return range.start <= start && range.end >= end;
 }
@@ -244,14 +236,37 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       return `${text}${trailingText}`;
     }, [text, trailingText]);
     const layoutText = nativeText;
-    const nativeHighlightRangesJson = React.useMemo(() => rangesToJson(highlights), [highlights]);
+    // Android masks hidden words with ReplacementSpan. Give every native visual
+    // layer the exact same word-run boundaries so Layout coordinates cannot
+    // stretch a phrase background across neighbouring visible text at a wrap.
+    const splitNativeVisualRanges = Platform.OS === "android" && splitBlankRangesByWord;
+    const nativeHighlights = React.useMemo(
+      () => splitNativeVisualRanges ? splitClozeRangesIntoWordRuns(text, highlights) : highlights,
+      [highlights, splitNativeVisualRanges, text],
+    );
+    const nativeCorrect = React.useMemo(
+      () => splitNativeVisualRanges ? splitClozeRangesIntoWordRuns(text, correct) : correct,
+      [correct, splitNativeVisualRanges, text],
+    );
+    const nativeActiveRanges = React.useMemo(
+      () => activeRange
+        ? splitNativeVisualRanges
+          ? splitClozeRangesIntoWordRuns(text, [activeRange])
+          : [activeRange]
+        : [],
+      [activeRange, splitNativeVisualRanges, text],
+    );
+    const nativeHighlightRangesJson = React.useMemo(() => rangesToJson(nativeHighlights), [nativeHighlights]);
     const nativeBlankRangesJson = React.useMemo(
-      () => rangesToJson(splitBlankRangesByWord ? splitBlankRangesIntoWordRuns(text, blanks) : blanks),
+      () => rangesToJson(splitBlankRangesByWord ? splitClozeRangesIntoWordRuns(text, blanks) : blanks),
       [blanks, splitBlankRangesByWord, text],
     );
-    const nativeCorrectRangesJson = React.useMemo(() => rangesToJson(correct), [correct]);
-    const nativeAnswerRangesJson = React.useMemo(() => JSON.stringify(answerRanges ?? []), [answerRanges]);
-    const nativeActiveRangeJson = React.useMemo(() => JSON.stringify(activeRange ? [activeRange] : []), [activeRange]);
+    const nativeCorrectRangesJson = React.useMemo(() => rangesToJson(nativeCorrect), [nativeCorrect]);
+    const nativeAnswerRangesJson = React.useMemo(
+      () => JSON.stringify(nativeClozeAnswerRangesForPlatform(Platform.OS, answerRanges ?? [])),
+      [answerRanges],
+    );
+    const nativeActiveRangeJson = React.useMemo(() => JSON.stringify(nativeActiveRanges), [nativeActiveRanges]);
     const flattenedTextStyle = React.useMemo(() => StyleSheet.flatten(style) ?? {}, [style]);
     const fallbackSegments = React.useMemo(
       () => buildSelectableTextFallbackSegments({
