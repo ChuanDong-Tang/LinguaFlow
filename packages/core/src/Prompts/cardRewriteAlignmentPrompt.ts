@@ -1,4 +1,5 @@
-export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v8";
+export const CARD_REWRITE_ALIGNMENT_PROMPT_VERSION = "card_rewrite_alignment_v9";
+export const CARD_REWRITE_ALIGNMENT_MAX_SHARED_TARGETS = 3;
 
 export interface CardRewriteAlignmentGroup {
   sourceOrdinals: number[];
@@ -22,7 +23,7 @@ export function buildCardRewriteAlignmentSourceUnits(input: {
   for (const segment of input.segments) {
     let start = trimStart(input.sourceText, segment.startUtf16, segment.endUtf16);
     for (let index = start; index < segment.endUtf16; index += 1) {
-      if (!/[。！？!?；;：:，,、｡．؟؛،।॥။၊።\n]/u.test(input.sourceText[index] ?? "")) continue;
+      if (!isSourceUnitBoundary(input.sourceText, index)) continue;
       const end = trimEnd(input.sourceText, start, index + 1);
       if (start < end) units.push({ text: input.sourceText.slice(start, end), startUtf16: start, endUtf16: end });
       start = trimStart(input.sourceText, index + 1, segment.endUtf16);
@@ -33,24 +34,47 @@ export function buildCardRewriteAlignmentSourceUnits(input: {
   return units.map((unit, ordinal) => ({ ordinal, ...unit }));
 }
 
+function isSourceUnitBoundary(text: string, index: number): boolean {
+  const character = text[index] ?? "";
+  if (/[。！？!?；;：:，,、｡．؟؛،।॥။၊።\n]/u.test(character)) return true;
+  if (character !== ".") return false;
+  // The mixed-language source segmenter can leave several English sentences
+  // in one segment. Split only a clear sentence-ending period, not decimals,
+  // versions, initials, or common abbreviations.
+  const before = text.slice(Math.max(0, index - 10), index);
+  const after = text.slice(index + 1);
+  return /[A-Za-z]$/u.test(before)
+    && /^\s+["“‘'([{]*(?:[A-Z]|\p{Script=Han})/u.test(after)
+    && !/(?:\b(?:Mr|Mrs|Ms|Dr|Prof|St|vs|etc)|\b[A-Z])$/iu.test(before);
+}
+
 export function buildCardRewriteAlignmentPrompt(input: {
   sourceSegments: Array<{ ordinal: number; text: string }>;
   targetSegments: Array<{ ordinal: number; text: string }>;
 }): { systemPrompt: string; userPrompt: string } {
   return {
-    systemPrompt: `Align a finalized rewrite back to the user's source record by complete meaning units.
-Treat each T unit in the rewrite as the display anchor. For each T unit, find the consecutive S unit or units in the source that express the meaning rewritten there. Do not force the rewrite to follow the source's sentence boundaries or sentence count.
-The finalized rewrite is expected to preserve the source's narrative order. Keep matches in both T order and S order.
-The source may use any language or mix languages. An S unit is only a lookup fragment and may naturally end with a comma, semicolon, discourse pause, or other incomplete-sentence punctuation.
-The rewrite is already final: never rewrite, translate, correct, split, merge, omit, or add text.
-Return one match for every T index, in T order. Each match must contain the exact consecutive S index or indexes that express that T unit's meaning. Never combine separated source ideas around an intervening S unit. When one source passage becomes multiple adjacent rewrite sentences, reuse exactly the same complete S range for those T matches. Never partially overlap S ranges between matches (for example, S1-S2 followed by S2-S3 is invalid). Source filler or hesitation that is not expressed in the rewrite may remain unused.
-Use meaning rather than shared words or punctuation. Never leave a T index unmatched.
-
+    systemPrompt: `Align finalized rewrite sentences T to the user's exact original source fragments S by meaning. Source may mix languages and have messy punctuation. Do not change or resegment T.
+Return groups in increasing T and S order; every T belongs to exactly one group. A group contains one T normally, at most three adjacent T only when they express the same original passage. Specify inclusive integer boundaries sourceStart/sourceEnd and targetStart/targetEnd, not arrays. A group must cover a continuous original S span; do not stretch a range across unrelated source ideas. Separate groups must not overlap source ranges. You may leave unused S filler. Do not invent IDs: source index must be 0..${input.sourceSegments.length - 1} and target index 0..${input.targetSegments.length - 1}.
 Return JSON only, with no markdown or explanation, in exactly this shape:
-{"matches":[{"target":0,"source":[0,1]},{"target":1,"source":[2]}]}`,
+{"groups":[{"targetStart":0,"targetEnd":0,"sourceStart":0,"sourceEnd":1},{"targetStart":1,"targetEnd":2,"sourceStart":2,"sourceEnd":3}]}`,
     userPrompt: JSON.stringify({
       source: input.sourceSegments.map((segment) => ({ id: `S${segment.ordinal}`, text: segment.text })),
       target: input.targetSegments.map((segment) => ({ id: `T${segment.ordinal}`, text: segment.text })),
+    }),
+  };
+}
+
+export function buildCardRewriteAlignmentRepairPrompt(input: {
+  originalPrompt: { systemPrompt: string; userPrompt: string };
+  invalidOutput: string;
+  errorCode: string;
+}): { systemPrompt: string; userPrompt: string } {
+  return {
+    systemPrompt: `${input.originalPrompt.systemPrompt}\nYour previous alignment was rejected with ${input.errorCode}. Correct the mapping from the original source and target units below. Return a complete JSON result, not a patch. Use inclusive start/end boundaries, never invented or non-contiguous source indexes. Do not fill a gap between distant source mentions. At most three adjacent target sentences may share a source passage. Never alter target sentences.`,
+    userPrompt: JSON.stringify({
+      sourceAndTarget: JSON.parse(input.originalPrompt.userPrompt),
+      rejectedMatches: input.invalidOutput.slice(0, 12_000),
+      rejection: input.errorCode,
     }),
   };
 }
@@ -98,10 +122,6 @@ export function parseCardRewriteAlignmentOutput(input: {
       || Math.max(...previous.targetOrdinals) >= Math.min(...current.targetOrdinals)) {
       throw new Error("CARD_REWRITE_ALIGNMENT_NON_MONOTONIC");
     }
-    const sourceRangesOverlap = Math.min(...current.sourceOrdinals) <= Math.max(...previous.sourceOrdinals);
-    if (sourceRangesOverlap && !sameOrdinals(previous.sourceOrdinals, current.sourceOrdinals)) {
-      throw new Error("CARD_REWRITE_ALIGNMENT_PARTIAL_SOURCE_OVERLAP");
-    }
   }
   const sourceForTarget = new Map<number, number[]>();
   for (const group of groups) {
@@ -114,12 +134,30 @@ export function parseCardRewriteAlignmentOutput(input: {
     throw new Error("CARD_REWRITE_ALIGNMENT_MISSING_TARGET");
   }
   const completed = input.targetOrdinals.map((targetOrdinal) => ({
-    sourceOrdinals: sourceForTarget.get(targetOrdinal)!,
+    sourceOrdinals: [...sourceForTarget.get(targetOrdinal)!],
     targetOrdinals: [targetOrdinal],
   }));
+  // Models often use an inclusive S index as the end of one range and the
+  // start of the next. Assign that single boundary unit to one side instead
+  // of chaining otherwise separate target sentences into a giant group.
+  for (let index = 1; index < completed.length; index += 1) {
+    const previous = completed[index - 1]!;
+    const current = completed[index]!;
+    if (previous.sourceOrdinals.at(-1) !== current.sourceOrdinals[0]) continue;
+    if (previous.sourceOrdinals.length === 1 && current.sourceOrdinals.length === 1) continue;
+    if (previous.sourceOrdinals.length > 1) previous.sourceOrdinals.pop();
+    else current.sourceOrdinals.shift();
+  }
   return completed.reduce<CardRewriteAlignmentGroup[]>((result, group) => {
     const previous = result[result.length - 1];
-    if (previous && sameOrdinals(previous.sourceOrdinals, group.sourceOrdinals)) {
+    const overlaps = previous && group.sourceOrdinals[0]! <= previous.sourceOrdinals[previous.sourceOrdinals.length - 1]!;
+    if (previous && overlaps) {
+      if (previous.targetOrdinals.length >= CARD_REWRITE_ALIGNMENT_MAX_SHARED_TARGETS) {
+        throw new Error("CARD_REWRITE_ALIGNMENT_SHARED_TARGET_LIMIT");
+      }
+      const first = Math.min(previous.sourceOrdinals[0]!, group.sourceOrdinals[0]!);
+      const last = Math.max(previous.sourceOrdinals[previous.sourceOrdinals.length - 1]!, group.sourceOrdinals[group.sourceOrdinals.length - 1]!);
+      previous.sourceOrdinals = Array.from({ length: last - first + 1 }, (_, index) => first + index);
       previous.targetOrdinals.push(...group.targetOrdinals);
     } else {
       result.push({ sourceOrdinals: [...group.sourceOrdinals], targetOrdinals: [...group.targetOrdinals] });
@@ -169,10 +207,6 @@ function parseOrdinals(value: unknown, prefix: "S" | "T"): number[] {
 
 function ordinalRange(start: unknown, end: unknown): unknown {
   return start === undefined || end === undefined ? undefined : `${String(start)}-${String(end)}`;
-}
-
-function sameOrdinals(left: readonly number[], right: readonly number[]): boolean {
-  return left.length === right.length && left.every((ordinal, index) => ordinal === right[index]);
 }
 
 function trimStart(text: string, start: number, end: number): number {

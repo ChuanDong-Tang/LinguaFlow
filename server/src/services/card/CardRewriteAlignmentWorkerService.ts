@@ -3,7 +3,9 @@ import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import {
   buildCardRewriteAlignmentPrompt,
+  buildCardRewriteAlignmentRepairPrompt,
   buildCardRewriteAlignmentSourceUnits,
+  CARD_REWRITE_ALIGNMENT_MAX_SHARED_TARGETS,
   CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
   parseCardRewriteAlignmentOutput,
   type CardRewriteAlignmentResult,
@@ -39,6 +41,7 @@ export class CardRewriteAlignmentWorkerService {
     const startedAt = Date.now();
     const requestId = `card_rewrite_alignment_${job.id}:attempt:${job.attempts}`;
     let output = "";
+    let repairAttempted = false;
     let usage: Extract<ChatTextGenerationStreamEvent, { type: "done" }>["usage"];
     try {
       const source = await this.repository.loadRewriteAlignmentSource(job);
@@ -74,35 +77,59 @@ export class CardRewriteAlignmentWorkerService {
         sourceSegments: sourceUnits,
         targetSegments,
       });
-      await this.assertBackgroundCapacity();
-      const generate = () => this.aiProvider.generateChatTextStream({
-        userId: source.userId,
-        text: prompt.userPrompt,
-        languageCode: source.languageCode,
-        appLocale: "en-US",
-        promptDifficulty: "standard",
-        companionMode: "rewrite_only",
-        systemPrompt: prompt.systemPrompt,
-        rawUserPrompt: true,
-        maxOutputTokens: Math.min(2_000, Math.max(300, (sourceSegments.length + targetSegments.length) * 40)),
-      }, (event) => {
-        if (event.type === "delta") output += event.text;
-        if (event.type === "done") usage = event.usage;
-      });
-      if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, generate);
-      else await generate();
-      const groups = parseCardRewriteAlignmentOutput({
-        output,
-        sourceOrdinals: sourceUnits.map((segment) => segment.ordinal),
-        targetOrdinals: targetSegments.map((segment) => segment.ordinal),
-      });
-      this.contentSafetyService?.assertAllowed(output, "output");
-      await this.contentSafetyService?.assertAllowedRemote({
-        text: output,
-        stage: "output",
-        requestId,
-        userId: source.userId,
-      });
+      let groups: CardRewriteAlignmentResult["groups"];
+      const deterministicSingleSource = sourceUnits.length === 1 && targetSegments.length <= CARD_REWRITE_ALIGNMENT_MAX_SHARED_TARGETS;
+      if (deterministicSingleSource) {
+        groups = [{ sourceOrdinals: [0], targetOrdinals: targetSegments.map((segment) => segment.ordinal) }];
+      } else {
+        await this.assertBackgroundCapacity();
+        const generate = (activePrompt: typeof prompt) => this.aiProvider.generateChatTextStream({
+          userId: source.userId,
+          text: activePrompt.userPrompt,
+          languageCode: source.languageCode,
+          appLocale: "en-US",
+          promptDifficulty: "standard",
+          companionMode: "rewrite_only",
+          systemPrompt: activePrompt.systemPrompt,
+          rawUserPrompt: true,
+          maxOutputTokens: Math.min(2_000, Math.max(300, (sourceSegments.length + targetSegments.length) * 40)),
+        }, (event) => {
+          if (event.type === "delta") output += event.text;
+          if (event.type === "done") usage = event.usage;
+        });
+        const runGenerate = async (activePrompt: typeof prompt) => {
+          if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, () => generate(activePrompt));
+          else await generate(activePrompt);
+        };
+        await runGenerate(prompt);
+        const parse = () => parseCardRewriteAlignmentOutput({
+          output,
+          sourceOrdinals: sourceUnits.map((segment) => segment.ordinal),
+          targetOrdinals: targetSegments.map((segment) => segment.ordinal),
+        });
+        try {
+          groups = parse();
+        } catch (error) {
+          const errorCode = error instanceof Error ? error.message : "";
+          if (!errorCode.startsWith("CARD_REWRITE_ALIGNMENT_")) throw error;
+          repairAttempted = true;
+          const repairPrompt = buildCardRewriteAlignmentRepairPrompt({
+            originalPrompt: prompt,
+            invalidOutput: output,
+            errorCode,
+          });
+          output = "";
+          await runGenerate(repairPrompt);
+          groups = parse();
+        }
+        this.contentSafetyService?.assertAllowed(output, "output");
+        await this.contentSafetyService?.assertAllowedRemote({
+          text: output,
+          stage: "output",
+          requestId,
+          userId: source.userId,
+        });
+      }
       const alignment: CardRewriteAlignmentResult = {
         schemaVersion: 1,
         promptVersion: CARD_REWRITE_ALIGNMENT_PROMPT_VERSION,
@@ -125,6 +152,8 @@ export class CardRewriteAlignmentWorkerService {
         sourceSegmentCount: sourceUnits.length,
         targetSegmentCount: targetSegments.length,
         groupCount: groups.length,
+        repairAttempted,
+        deterministicSingleSource,
         outputChars: output.length,
         inputTokens: usage?.inputTokens ?? null,
         outputTokens: usage?.outputTokens ?? null,
@@ -139,6 +168,7 @@ export class CardRewriteAlignmentWorkerService {
       await this.log(job, retry.retryAt ? "retry" : "failed", error, {
         durationMs: Date.now() - startedAt,
         outputChars: output.length,
+        repairAttempted,
         nextAttemptAt: retry.retryAt?.toISOString() ?? null,
       });
     }
