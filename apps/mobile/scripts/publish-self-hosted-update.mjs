@@ -167,8 +167,10 @@ function resolveReleaseTarget(options) {
         EAS_BUILD_PROFILE: "testflight",
         EXPO_UPDATES_CHANNEL: "production",
         EXPO_PUBLIC_ENABLE_APPLE_AUTO_RENEW: "true",
+        EXPO_PUBLIC_ENABLE_APPLE_ONE_TIME_PURCHASE: "true",
         EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW: "false",
         EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW: "false",
+        EXPO_PUBLIC_ENABLE_ALIPAY_ANNUAL_PASS: "false",
       },
     },
     "production-google": {
@@ -181,6 +183,7 @@ function resolveReleaseTarget(options) {
         EXPO_PUBLIC_ENABLE_APPLE_ONE_TIME_PURCHASE: "false",
         EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW: "true",
         EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW: "false",
+        EXPO_PUBLIC_ENABLE_ALIPAY_ANNUAL_PASS: "false",
       },
     },
     "production-china": {
@@ -193,6 +196,7 @@ function resolveReleaseTarget(options) {
         EXPO_PUBLIC_ENABLE_APPLE_ONE_TIME_PURCHASE: "false",
         EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_AUTO_RENEW: "false",
         EXPO_PUBLIC_ENABLE_ALIPAY_AUTO_RENEW: "true",
+        EXPO_PUBLIC_ENABLE_ALIPAY_ANNUAL_PASS: "true",
       },
     },
   };
