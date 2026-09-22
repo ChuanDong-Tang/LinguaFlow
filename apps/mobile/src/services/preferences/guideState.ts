@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const GUIDE_INITIAL_UI_LOCALE = "initial_ui_locale_v1";
 export const GUIDE_FIRST_LEARNING_SETUP = "first_learning_setup_v1";
+export const GUIDE_ACCOUNT_ONBOARDING = "account_onboarding_v1";
 export const GUIDE_LEARNING_FLOW_HELP = "learning_flow_help_v1";
 
 const DEVICE_GUIDE_STATE_KEY = "linguaflow.guide.flags.v1";

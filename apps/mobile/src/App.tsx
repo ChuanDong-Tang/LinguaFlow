@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Animated, AppState, Image, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as AuthSession from "expo-auth-session";
 import * as Updates from "expo-updates";
@@ -19,7 +19,6 @@ import {
   setSession,
 } from "./services/auth/authStorage";
 import { clearAccountScopedStorage } from "./services/auth/accountScopedStorage";
-import { reconcileLocalInstallState } from "./services/storage/installState";
 import { ApiError, confirmBindEmail, confirmDeleteAccount, logout, prepareBindEmail, prepareDeleteAccount } from "./services/api/authApi";
 import {
   getCurrentEntitlement,
@@ -43,8 +42,10 @@ import { AboutScreen } from "./screens/AboutScreen";
 import { FloatingNoticeProvider } from "./screens/shared/FloatingNotice";
 import {
   completeGuide,
+  GUIDE_ACCOUNT_ONBOARDING,
   GUIDE_FIRST_LEARNING_SETUP,
   isGuideCompleted,
+  loadLocalGuideState,
   saveLocalGuideState,
 } from "./services/preferences/guideState";
 import {
@@ -52,7 +53,6 @@ import {
   completePreLoginOnboarding,
   isCompletePreLoginOnboardingDraft,
   loadPreLoginOnboardingState,
-  markPreLoginOnboardingSynced,
   resolvePreLoginOnboardingLaunch,
   savePreLoginOnboardingProgress,
   type PreLoginOnboardingState,
@@ -95,6 +95,7 @@ export default function App() {
   const [chatContacts, setChatContacts] = useState<ChatContact[]>([]);
   const [, bumpLanguageRevision] = useState(0);
   const [preLoginOnboarding, setPreLoginOnboarding] = useState<PreLoginOnboardingState | null>(null);
+  const [onboardingUserId, setOnboardingUserId] = useState<string | null>(null);
   const [sessionRevision, setSessionRevision] = useState(0);
   const [cardDataRevision, setCardDataRevision] = useState(0);
   const [cardDetailRequest, setCardDetailRequest] = useState<CardDetailRequest | null>(null);
@@ -170,38 +171,36 @@ export default function App() {
     async function bootstrap() {
       try {
         await Promise.all([initI18n(), preloadImages(PRELOAD_IMAGES)]);
-        const installState = await reconcileLocalInstallState();
         const savedLanguage = await getSavedLanguage();
-        let onboardingState = await loadPreLoginOnboardingState();
-        let session = await getSession();
-        if (installState.isFreshInstall && session) {
-          await clearSession();
-          await clearAuthingAccessToken();
-          await clearAccountScopedStorage();
-          session = null;
-        }
-        const onboardingLaunch = resolvePreLoginOnboardingLaunch({
-          isFreshInstall: installState.isFreshInstall,
-          state: onboardingState,
-        });
-        if (onboardingLaunch === "begin") {
-          onboardingState = await beginPreLoginOnboarding();
-        }
-        if (onboardingState?.draft.appLocale) {
-          await setLanguage(onboardingState.draft.appLocale);
-        } else if (savedLanguage) {
-          await setLanguage(savedLanguage);
-        }
-        if ((onboardingLaunch === "begin" || onboardingLaunch === "resume") && onboardingState?.status === "in_progress") {
-          if (!mounted) return;
-          setPreLoginOnboarding(onboardingState);
-          setScreen("onboarding");
-          return;
-        }
+        const session = await getSession();
+        if (savedLanguage) await setLanguage(savedLanguage);
         let preference: UserPreference | null = null;
         if (session) {
           preference = await getUserPreference().catch(() => null);
-          if (preference) await setLanguage(preference.appLocale);
+          if (!preference) {
+            const verifiedLocalState = await loadLocalGuideState(session.user.id);
+            if (!isGuideCompleted(verifiedLocalState, GUIDE_ACCOUNT_ONBOARDING)) {
+              if (!mounted) return;
+              setScreen("login");
+              Alert.alert(t("auth.login.network_failed"));
+              return;
+            }
+          }
+          if (preference && !isGuideCompleted(preference.guideState, GUIDE_ACCOUNT_ONBOARDING)) {
+            const local = await loadPreLoginOnboardingState(session.user.id);
+            const launch = resolvePreLoginOnboardingLaunch({ accountCompleted: false, state: local });
+            const onboardingState = launch === "resume" && local ? local : await beginPreLoginOnboarding(session.user.id);
+            if (onboardingState.draft.appLocale) await setLanguage(onboardingState.draft.appLocale);
+            if (!mounted) return;
+            setOnboardingUserId(session.user.id);
+            setPreLoginOnboarding(onboardingState);
+            setScreen("onboarding");
+            return;
+          }
+          if (preference) {
+            await setLanguage(preference.appLocale);
+            await saveLocalGuideState(preference.guideState, session.user.id).catch(() => undefined);
+          }
         }
         if (!mounted) return;
         setScreen(session ? "main" : "login");
@@ -218,6 +217,24 @@ export default function App() {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    if (!__DEV__) return;
+    DevSettings.addMenuItem("预览当前账号的首次引导", () => {
+      void (async () => {
+        try {
+          const session = await getSession();
+          if (!session) throw new Error("Sign in before previewing onboarding");
+          const onboardingState = await beginPreLoginOnboarding(session.user.id, { restart: true });
+          setOnboardingUserId(session.user.id);
+          setPreLoginOnboarding(onboardingState);
+          setScreen("onboarding");
+        } catch {
+          Alert.alert(t("auth.login.failed"), t("auth.login.network_failed"));
+        }
+      })();
+    });
   }, []);
 
   useEffect(() => {
@@ -381,10 +398,29 @@ export default function App() {
   async function handleLoginSuccess(): Promise<void> {
     cancelDeleteAccountFlow();
     lastMembershipReconcileAtRef.current = 0;
-    setSessionRevision((value) => value + 1);
-    setScreen("main");
-    void loadChatContacts();
-    void synchronizePostLoginPreferences();
+    try {
+      const session = await getSession();
+      if (!session) throw new Error("Missing login session");
+      const preference = await getUserPreference();
+      if (preference.userId !== session.user.id) throw new Error("Preference belongs to another account");
+      if (!isGuideCompleted(preference.guideState, GUIDE_ACCOUNT_ONBOARDING)) {
+        const local = await loadPreLoginOnboardingState(session.user.id);
+        const launch = resolvePreLoginOnboardingLaunch({ accountCompleted: false, state: local });
+        const onboardingState = launch === "resume" && local ? local : await beginPreLoginOnboarding(session.user.id);
+        setOnboardingUserId(session.user.id);
+        setPreLoginOnboarding(onboardingState);
+        setScreen("onboarding");
+        return;
+      }
+      await setLanguage(preference.appLocale);
+      await saveLocalGuideState(preference.guideState, session.user.id).catch(() => undefined);
+      setSessionRevision((value) => value + 1);
+      setScreen("main");
+      void loadChatContacts();
+      void synchronizePostLoginPreferences(preference);
+    } catch {
+      Alert.alert(t("auth.login.failed"), t("auth.login.network_failed"));
+    }
   }
 
   async function loadChatContacts(): Promise<void> {
@@ -405,30 +441,16 @@ export default function App() {
 
   async function synchronizePostLoginPreferences(preloadedPreference?: UserPreference | null): Promise<void> {
     let preference = preloadedPreference ?? await getUserPreference().catch(() => null);
-    const onboardingState = await loadPreLoginOnboardingState();
     const session = await getSession();
     const userId = preference?.userId ?? session?.user.id ?? null;
     try {
-      if (
-        onboardingState?.status === "completed" &&
-        onboardingState.pendingSync &&
-        isCompletePreLoginOnboardingDraft(onboardingState.draft)
-      ) {
-        preference = await updateUserPreference({
-          appLocale: onboardingState.draft.appLocale,
-          learningLanguage: onboardingState.draft.learningLanguage,
-          promptDifficulty: onboardingState.draft.promptDifficulty,
-          acquisitionSource: onboardingState.draft.acquisitionSource,
-          guideState: completeGuide(preference?.guideState ?? {}, GUIDE_FIRST_LEARNING_SETUP),
-        });
-        await markPreLoginOnboardingSynced();
-      } else if (preference && !isGuideCompleted(preference.guideState, GUIDE_FIRST_LEARNING_SETUP)) {
+      if (preference && !isGuideCompleted(preference.guideState, GUIDE_FIRST_LEARNING_SETUP)) {
         preference = await updateUserPreference({
           guideState: completeGuide(preference.guideState, GUIDE_FIRST_LEARNING_SETUP),
         });
       }
     } catch {
-      // Keep the completed onboarding marked pending. A later authenticated boot retries it.
+      // A later authenticated boot retries the guide-state sync.
     }
     if (preference && userId) {
       await saveLocalGuideState(preference.guideState, userId);
@@ -436,32 +458,49 @@ export default function App() {
   }
 
   function handlePreLoginOnboardingDraft(nextDraft: PreLoginOnboardingState["draft"]): void {
-    if (!preLoginOnboarding) return;
+    if (!preLoginOnboarding || !onboardingUserId) return;
     const next = { ...preLoginOnboarding, draft: nextDraft };
     setPreLoginOnboarding(next);
-    void savePreLoginOnboardingProgress(next, { draft: nextDraft });
+    void savePreLoginOnboardingProgress(onboardingUserId, next, { draft: nextDraft });
     if (nextDraft.appLocale && nextDraft.appLocale !== getLanguage()) {
       void setLanguage(nextDraft.appLocale).then(() => bumpLanguageRevision((revision) => revision + 1));
     }
   }
 
   async function continuePreLoginOnboarding(): Promise<void> {
-    if (!preLoginOnboarding) return;
+    if (!preLoginOnboarding || !onboardingUserId) return;
     if (preLoginOnboarding.step < 3) {
       const nextStep = (preLoginOnboarding.step + 1) as 1 | 2 | 3;
-      const next = await savePreLoginOnboardingProgress(preLoginOnboarding, { step: nextStep });
+      const next = await savePreLoginOnboardingProgress(onboardingUserId, preLoginOnboarding, { step: nextStep });
       setPreLoginOnboarding(next);
       return;
     }
-    const completed = await completePreLoginOnboarding(preLoginOnboarding);
-    setPreLoginOnboarding(completed);
-    setScreen("login");
+    if (!isCompletePreLoginOnboardingDraft(preLoginOnboarding.draft)) return;
+    try {
+      const session = await getSession();
+      if (session?.user.id !== onboardingUserId) throw new Error("Account changed during onboarding");
+      const preference = await getUserPreference();
+      if (preference.userId !== onboardingUserId) throw new Error("Preference belongs to another account");
+      const updated = await updateUserPreference({
+        ...preLoginOnboarding.draft,
+        guideState: completeGuide(completeGuide(preference.guideState, GUIDE_ACCOUNT_ONBOARDING), GUIDE_FIRST_LEARNING_SETUP),
+      });
+      await completePreLoginOnboarding(onboardingUserId, preLoginOnboarding).catch(() => undefined);
+      await saveLocalGuideState(updated.guideState, onboardingUserId).catch(() => undefined);
+      setOnboardingUserId(null);
+      setPreLoginOnboarding(null);
+      setSessionRevision((value) => value + 1);
+      setScreen("main");
+      void loadChatContacts();
+    } catch {
+      Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
+    }
   }
 
   async function backPreLoginOnboarding(): Promise<void> {
-    if (!preLoginOnboarding || preLoginOnboarding.step === 0) return;
+    if (!preLoginOnboarding || !onboardingUserId || preLoginOnboarding.step === 0) return;
     const previousStep = (preLoginOnboarding.step - 1) as 0 | 1 | 2;
-    const next = await savePreLoginOnboardingProgress(preLoginOnboarding, { step: previousStep });
+    const next = await savePreLoginOnboardingProgress(onboardingUserId, preLoginOnboarding, { step: previousStep });
     setPreLoginOnboarding(next);
   }
 

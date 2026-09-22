@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { environmentStorageKey } from "../storage/environmentStorageKey";
 import {
+  accountOnboardingKey,
   isCompletePreLoginOnboardingDraft,
   normalizePreLoginOnboardingState,
   resolvePreLoginOnboardingLaunch,
@@ -18,11 +19,11 @@ export {
   type PreLoginOnboardingStep,
 } from "./preLoginOnboardingState";
 
-const STORAGE_KEY = environmentStorageKey("lf_pre_login_onboarding_v1");
+const STORAGE_KEY = environmentStorageKey("lf_account_onboarding_v1");
 let writeQueue: Promise<void> = Promise.resolve();
 
-export async function loadPreLoginOnboardingState(): Promise<PreLoginOnboardingState | null> {
-  const raw = await AsyncStorage.getItem(STORAGE_KEY);
+export async function loadPreLoginOnboardingState(userId: string): Promise<PreLoginOnboardingState | null> {
+  const raw = await AsyncStorage.getItem(accountOnboardingKey(STORAGE_KEY, userId));
   if (!raw) return null;
   try {
     return normalizePreLoginOnboardingState(JSON.parse(raw));
@@ -31,9 +32,9 @@ export async function loadPreLoginOnboardingState(): Promise<PreLoginOnboardingS
   }
 }
 
-export async function beginPreLoginOnboarding(): Promise<PreLoginOnboardingState> {
-  const existing = await loadPreLoginOnboardingState();
-  if (existing) return existing;
+export async function beginPreLoginOnboarding(userId: string, options?: { restart?: boolean }): Promise<PreLoginOnboardingState> {
+  const existing = await loadPreLoginOnboardingState(userId);
+  if (existing?.status === "in_progress" && !options?.restart) return existing;
   const state: PreLoginOnboardingState = {
     version: 1,
     status: "in_progress",
@@ -42,11 +43,12 @@ export async function beginPreLoginOnboarding(): Promise<PreLoginOnboardingState
     pendingSync: false,
     completedAt: null,
   };
-  await persist(state);
+  await persist(userId, state);
   return state;
 }
 
 export async function savePreLoginOnboardingProgress(
+  userId: string,
   current: PreLoginOnboardingState,
   input: { step?: PreLoginOnboardingStep; draft?: PreLoginOnboardingDraft },
 ): Promise<PreLoginOnboardingState> {
@@ -58,11 +60,12 @@ export async function savePreLoginOnboardingProgress(
     pendingSync: false,
     completedAt: null,
   };
-  await persist(next);
+  await persist(userId, next);
   return next;
 }
 
 export async function completePreLoginOnboarding(
+  userId: string,
   current: PreLoginOnboardingState,
 ): Promise<PreLoginOnboardingState> {
   if (!isCompletePreLoginOnboardingDraft(current.draft)) {
@@ -72,21 +75,16 @@ export async function completePreLoginOnboarding(
     ...current,
     status: "completed",
     step: 3,
-    pendingSync: true,
+    pendingSync: false,
     completedAt: new Date().toISOString(),
   };
-  await persist(next);
+  await persist(userId, next);
   return next;
 }
 
-export async function markPreLoginOnboardingSynced(): Promise<void> {
-  const current = await loadPreLoginOnboardingState();
-  if (!current || current.status !== "completed" || !current.pendingSync) return;
-  await persist({ ...current, pendingSync: false });
-}
-
-async function persist(state: PreLoginOnboardingState): Promise<void> {
+async function persist(userId: string, state: PreLoginOnboardingState): Promise<void> {
   const serialized = JSON.stringify(state);
-  writeQueue = writeQueue.catch(() => undefined).then(() => AsyncStorage.setItem(STORAGE_KEY, serialized));
+  const key = accountOnboardingKey(STORAGE_KEY, userId);
+  writeQueue = writeQueue.catch(() => undefined).then(() => AsyncStorage.setItem(key, serialized));
   await writeQueue;
 }

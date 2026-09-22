@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  accountOnboardingKey,
   isCompletePreLoginOnboardingDraft,
   normalizePreLoginOnboardingState,
   resolvePreLoginOnboardingLaunch,
 } from "./preLoginOnboardingState";
+
+test("local onboarding draft is keyed to one authenticated account", () => {
+  assert.notEqual(accountOnboardingKey("onboarding", "user-a"), accountOnboardingKey("onboarding", "user-b"));
+  assert.throws(() => accountOnboardingKey("onboarding", ""));
+});
 
 test("requires all four explicit onboarding choices", () => {
   assert.equal(isCompletePreLoginOnboardingDraft({
@@ -20,11 +26,11 @@ test("requires all four explicit onboarding choices", () => {
   }), true);
 });
 
-test("shows onboarding only for a fresh install or an unfinished flow", () => {
-  assert.equal(resolvePreLoginOnboardingLaunch({ isFreshInstall: true, state: null }), "begin");
-  assert.equal(resolvePreLoginOnboardingLaunch({ isFreshInstall: false, state: null }), "skip");
+test("uses remote account completion over a stale local draft", () => {
+  assert.equal(resolvePreLoginOnboardingLaunch({ accountCompleted: false, state: null }), "begin");
+  assert.equal(resolvePreLoginOnboardingLaunch({ accountCompleted: true, state: null }), "skip");
   assert.equal(resolvePreLoginOnboardingLaunch({
-    isFreshInstall: false,
+    accountCompleted: false,
     state: {
       version: 1,
       status: "in_progress",
@@ -34,6 +40,17 @@ test("shows onboarding only for a fresh install or an unfinished flow", () => {
       completedAt: null,
     },
   }), "resume");
+  assert.equal(resolvePreLoginOnboardingLaunch({
+    accountCompleted: true,
+    state: {
+      version: 1,
+      status: "in_progress",
+      step: 2,
+      draft: {},
+      pendingSync: false,
+      completedAt: null,
+    },
+  }), "skip");
 });
 
 test("rejects a completed state with missing or invalid choices", () => {

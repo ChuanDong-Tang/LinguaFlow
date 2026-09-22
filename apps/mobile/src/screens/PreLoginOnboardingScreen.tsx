@@ -88,7 +88,7 @@ export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, o
           style={[styles.continueButton, !selected && styles.continueButtonDisabled]}
           onPress={onContinue}
         >
-          <Text style={styles.continueText}>{step === 3 ? t("onboarding.flow.to_login") : t("common.continue")}</Text>
+          <Text style={styles.continueText}>{step === 3 ? t("onboarding.flow.finish") : t("common.continue")}</Text>
           <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
         </Pressable>
       </View>

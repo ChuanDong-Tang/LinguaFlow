@@ -19,13 +19,18 @@ export type PreLoginOnboardingState = {
   completedAt: string | null;
 };
 
+export function accountOnboardingKey(prefix: string, userId: string): string {
+  if (!userId.trim()) throw new Error("An account is required for onboarding");
+  return `${prefix}.${userId}`;
+}
+
 export function resolvePreLoginOnboardingLaunch(input: {
-  isFreshInstall: boolean;
+  accountCompleted: boolean;
   state: PreLoginOnboardingState | null;
 }): "begin" | "resume" | "skip" {
+  if (input.accountCompleted) return "skip";
   if (input.state?.status === "in_progress") return "resume";
-  if (input.state?.status === "completed") return "skip";
-  return input.isFreshInstall ? "begin" : "skip";
+  return "begin";
 }
 
 export function isCompletePreLoginOnboardingDraft(
