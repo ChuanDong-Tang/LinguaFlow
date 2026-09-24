@@ -417,6 +417,7 @@ const progressPhraseDetectionWorker = new SerialCardJobWorker(
   new ProgressPhraseDetectionWorkerService(
     cardEnrichmentRepository,
     new ProgressPhraseDetectionService(cardAiProvider, resourceGovernor, usageV2Service),
+    systemEventLogRepository,
   ),
   {
     workerIdPrefix: "progress-phrase",

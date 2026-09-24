@@ -5,7 +5,7 @@ import { buildCardTopicPrompt, parseCardTopicOutput } from "@lf/core/Prompts/car
 import { CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
-import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage, safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
 import { reserveLlmTokenUsage, settleLlmTokenUsage, settleOrReleaseFailedLlmUsage } from "../usage/LlmTokenMeter.js";
 
@@ -113,13 +113,18 @@ export class CardTopicWorkerService {
         retry.retryAt,
         { preserveAttempt: retry.preserveAttempt },
       );
-      if (!retry.retryAt) await this.log(job, "failed", error, { outputChars: output.length, tokenMetered });
+      await this.log(job, retry.retryAt ? "retry" : "failed", error, {
+        outputChars: output.length,
+        tokenMetered,
+        nextAttemptAt: retry.retryAt?.toISOString() ?? null,
+        ...safeEnrichmentErrorMetadata(error),
+      });
     }
   }
 
   private async log(
     job: CardEnrichmentJobEntity,
-    status: "success" | "failed",
+    status: "success" | "retry" | "failed",
     error: unknown,
     metadata: Record<string, unknown>,
   ): Promise<void> {
@@ -128,9 +133,9 @@ export class CardTopicWorkerService {
         requestId: `card_topic_${job.id}`,
         userId: job.userId,
         module: "card",
-        event: status === "success" ? "card.topic.generated" : "card.topic.failed",
-        level: status === "success" ? "info" : "error",
-        status,
+        event: status === "success" ? "card.topic.generated" : status === "retry" ? "card.topic.retry" : "card.topic.failed",
+        level: status === "success" ? "info" : status === "retry" ? "warn" : "error",
+        status: status === "retry" ? "ignored" : status,
         errorCode: error ? resolveErrorCode(error) : null,
         errorMessage: error ? safeErrorMessage(error) : null,
         metadata: {

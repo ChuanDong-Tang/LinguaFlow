@@ -13,7 +13,7 @@ import {
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
 import { inferLearningTextLanguage } from "@lf/core/text/learningText.js";
-import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage, safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
 import { cardContentBlockVersion } from "./cardContentSegments.js";
 import { segmentLearningSentences } from "../text/learningSentenceSegmenter.js";
 
@@ -170,6 +170,7 @@ export class CardRewriteAlignmentWorkerService {
         outputChars: output.length,
         repairAttempted,
         nextAttemptAt: retry.retryAt?.toISOString() ?? null,
+        ...safeEnrichmentErrorMetadata(error),
       });
     }
   }

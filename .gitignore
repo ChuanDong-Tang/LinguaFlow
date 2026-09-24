@@ -11,11 +11,8 @@ pnpm-debug.log*
 .env
 .env.*
 
-# Local documentation remains ignored except product proposals and their index.
-/docs/*
-!/docs/README.md
-!/docs/product/
-!/docs/product/**
+# Documentation is local-only and must not enter version control.
+/docs/
 
 .vercel
 AGENTS.md

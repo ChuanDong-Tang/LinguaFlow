@@ -74,6 +74,7 @@ import {
   CARD_IMAGE_DESCRIPTION_RESULT_VERSION,
   parseCardImageDescriptionOutput,
 } from "@lf/core/Prompts/cardImageDescriptionPrompt.js";
+import { safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
 
 const PREVIEW_GRAPHEMES = 240;
 const CARD_IMAGE_AUXILIARY_PROMPT_VERSION = "card_image_auxiliary_v1";
@@ -1393,6 +1394,7 @@ export class CardService {
       provider: this.aiProvider?.providerName,
       model: this.aiProvider?.modelName,
       ...input.usageMetadata,
+      ...safeEnrichmentErrorMetadata(error),
     };
     await Promise.all([
       this.aiUsageEventRepository?.upsert({
@@ -2950,22 +2952,21 @@ function estimateTokenReservation(_prompt: string, maxOutputTokens: number): num
 
 function platformAiErrorMessage(error: unknown): string | null {
   if (!(error instanceof Error)) return null;
-  const upstream = error as Error & { status?: unknown; upstreamText?: unknown; upstreamCode?: unknown };
+  const upstream = error as Error & { code?: unknown; status?: unknown; upstreamCode?: unknown; failureKind?: unknown };
+  const isUpstreamFailure = upstream.code === "UPSTREAM_AI_ERROR";
   const parts = [
-    error.message,
+    isUpstreamFailure ? "UPSTREAM_AI_ERROR" : error.message,
     typeof upstream.status === "number" ? `HTTP ${upstream.status}` : null,
-    typeof upstream.upstreamCode === "string" ? upstream.upstreamCode : null,
-    typeof upstream.upstreamText === "string" ? sanitizeUpstreamAiError(upstream.upstreamText) : null,
+    safeProviderIdentifier(upstream.upstreamCode),
+    safeProviderIdentifier(upstream.failureKind),
   ].filter((value): value is string => Boolean(value));
   return parts.join(": ").slice(0, 500);
 }
 
-function sanitizeUpstreamAiError(value: string): string {
-  return value
-    .replace(/https?:\/\/[^\s"'\\]+/giu, "[url]")
-    .replace(/[A-Za-z0-9+/]{128,}={0,2}/gu, "[encoded-data]")
-    .replace(/\s+/gu, " ")
-    .trim();
+function safeProviderIdentifier(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized && normalized.length <= 100 && /^[A-Za-z0-9_.:-]+$/u.test(normalized) ? normalized : null;
 }
 
 function delay(ms: number): Promise<void> {

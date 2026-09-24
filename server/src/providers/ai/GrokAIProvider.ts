@@ -54,8 +54,24 @@ export class GrokAIProvider implements AIProvider {
     input: ChatTextGenerationInput,
     onEvent: (event: ChatTextGenerationStreamEvent) => Promise<void> | void
   ): Promise<void> {
+    if (!this.apiKey) {
+      throw new Error("GROK_API_KEY or OPENAI_API_KEY is required");
+    }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let timedOut = false;
+    let callbackError: unknown;
+    const emit = async (event: ChatTextGenerationStreamEvent): Promise<void> => {
+      try {
+        await onEvent(event);
+      } catch (error) {
+        callbackError = error;
+        throw error;
+      }
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.timeoutMs);
     const abortFromCaller = () => controller.abort();
     const promptProfile = getPromptProfile({
       contactCode: input.contactId,
@@ -70,10 +86,6 @@ export class GrokAIProvider implements AIProvider {
     const model = this.resolveModelName(input);
 
     try {
-      if (!this.apiKey) {
-        throw new Error("GROK_API_KEY or OPENAI_API_KEY is required");
-      }
-
       if (input.signal?.aborted) {
         controller.abort();
       } else {
@@ -117,14 +129,15 @@ export class GrokAIProvider implements AIProvider {
 
       if (!response.ok || !response.body) {
         const upstreamText = await response.text();
-        const err = new Error("UPSTREAM_AI_ERROR");
-        (err as Error & { code?: string; status?: number; upstreamText?: string }).code = "UPSTREAM_AI_ERROR";
-        (err as Error & { code?: string; status?: number; upstreamText?: string }).status = response.status;
-        (err as Error & { code?: string; status?: number; upstreamText?: string }).upstreamText = upstreamText;
-        throw err;
+        throw upstreamAIError({
+          status: response.ok ? undefined : response.status,
+          upstreamCode: extractUpstreamCode(upstreamText),
+          upstreamText,
+          failureKind: response.ok ? "stream" : "http",
+        });
       }
 
-      await onEvent({ type: "start" });
+      await emit({ type: "start" });
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -147,7 +160,7 @@ export class GrokAIProvider implements AIProvider {
             const raw = line.slice(5).trim();
             if (!raw) continue;
             if (raw === "[DONE]") {
-              await onEvent({ type: "done" });
+              await emit({ type: "done" });
               return;
             }
 
@@ -166,31 +179,87 @@ export class GrokAIProvider implements AIProvider {
             };
 
             if (json.error) {
-              const err = new Error(json.error.message ?? "UPSTREAM_AI_ERROR");
-              (err as Error & { code?: string; upstreamCode?: string }).code = "UPSTREAM_AI_ERROR";
-              (err as Error & { code?: string; upstreamCode?: string }).upstreamCode = json.error.code;
-              throw err;
+              throw upstreamAIError({
+                upstreamCode: json.error.code,
+                failureKind: "stream",
+              });
             }
 
             if (json.usage) {
               const inputTokens = json.usage.prompt_tokens ?? 0;
               const outputTokens = json.usage.completion_tokens ?? 0;
-              await onEvent({ type: "done", usage: { inputTokens, outputTokens, totalTokens: json.usage.total_tokens ?? inputTokens + outputTokens, source: "provider" } });
+              await emit({ type: "done", usage: { inputTokens, outputTokens, totalTokens: json.usage.total_tokens ?? inputTokens + outputTokens, source: "provider" } });
               return;
             }
 
             const deltaText = json.choices?.[0]?.delta?.content ?? "";
             if (deltaText) {
-              await onEvent({ type: "delta", text: deltaText });
+              await emit({ type: "delta", text: deltaText });
             }
           }
         }
       }
 
-      await onEvent({ type: "done" });
+      await emit({ type: "done" });
+    } catch (error) {
+      if (error === callbackError) throw error;
+      if (isUpstreamAIError(error)) throw error;
+      if (input.signal?.aborted && !timedOut) {
+        const aborted = new Error("AI_REQUEST_ABORTED") as Error & { code?: string; failureKind?: string };
+        aborted.code = "AI_REQUEST_ABORTED";
+        aborted.failureKind = "caller_abort";
+        throw aborted;
+      }
+      throw upstreamAIError({
+        upstreamCode: timedOut ? "AI_PROVIDER_TIMEOUT" : "AI_PROVIDER_NETWORK_ERROR",
+        failureKind: timedOut ? "timeout" : "network",
+      });
     } finally {
       input.signal?.removeEventListener("abort", abortFromCaller);
       clearTimeout(timer);
     }
   }
+}
+
+type UpstreamAIError = Error & {
+  code: "UPSTREAM_AI_ERROR";
+  status?: number;
+  upstreamCode?: string;
+  upstreamText?: string;
+  failureKind: "http" | "stream" | "timeout" | "network";
+};
+
+function upstreamAIError(input: {
+  status?: number;
+  upstreamCode?: string;
+  upstreamText?: string;
+  failureKind: UpstreamAIError["failureKind"];
+}): UpstreamAIError {
+  const error = new Error("UPSTREAM_AI_ERROR") as UpstreamAIError;
+  error.code = "UPSTREAM_AI_ERROR";
+  error.failureKind = input.failureKind;
+  if (Number.isInteger(input.status)) error.status = input.status;
+  const upstreamCode = safeUpstreamCode(input.upstreamCode);
+  if (upstreamCode) error.upstreamCode = upstreamCode;
+  if (input.upstreamText) error.upstreamText = input.upstreamText;
+  return error;
+}
+
+function isUpstreamAIError(error: unknown): error is UpstreamAIError {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "UPSTREAM_AI_ERROR");
+}
+
+function extractUpstreamCode(value: string): string | undefined {
+  try {
+    const parsed = JSON.parse(value) as { error?: { code?: unknown }; code?: unknown };
+    return safeUpstreamCode(parsed.error?.code ?? parsed.code) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function safeUpstreamCode(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized && normalized.length <= 100 && /^[A-Za-z0-9_.:-]+$/u.test(normalized) ? normalized : null;
 }

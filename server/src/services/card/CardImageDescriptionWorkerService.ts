@@ -2,7 +2,7 @@ import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnr
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { CardService } from "./CardService.js";
-import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage, safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
 import {
   CARD_IMAGE_DESCRIPTION_PROMPT_VERSION,
   CARD_IMAGE_DESCRIPTION_RESULT_VERSION,
@@ -49,11 +49,18 @@ export class CardImageDescriptionWorkerService {
         forceRegenerate: source.forceRegenerate,
       });
       await this.repository.completeJob(job);
-      await this.log(job.userId, job.id, "success", null, Date.now() - startedAt);
+      await this.log(job.userId, job.id, "success", null, Date.now() - startedAt, null);
     } catch (error) {
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, { preserveAttempt: retry.preserveAttempt });
-      await this.log(job.userId, job.id, retry.retryAt ? "retry" : "failed", error, Date.now() - startedAt);
+      await this.log(
+        job.userId,
+        job.id,
+        retry.retryAt ? "retry" : "failed",
+        error,
+        Date.now() - startedAt,
+        retry.retryAt,
+      );
     }
     return true;
   }
@@ -69,7 +76,14 @@ export class CardImageDescriptionWorkerService {
       && snapshot.requestsLastMinute < policy.globalRequestsPerMinute - 1);
   }
 
-  private async log(userId: string, jobId: string, status: "success" | "retry" | "failed", error: unknown, durationMs: number): Promise<void> {
+  private async log(
+    userId: string,
+    jobId: string,
+    status: "success" | "retry" | "failed",
+    error: unknown,
+    durationMs: number,
+    nextAttemptAt: Date | null,
+  ): Promise<void> {
     await this.logs?.create({
       requestId: `card_image_description_backfill_${jobId}`,
       userId,
@@ -79,7 +93,11 @@ export class CardImageDescriptionWorkerService {
       status: status === "retry" ? "ignored" : status,
       errorCode: error && typeof error === "object" && "code" in error ? String(error.code) : null,
       errorMessage: error instanceof Error ? error.message.slice(0, 500) : null,
-      metadata: { durationMs },
+      metadata: {
+        durationMs,
+        nextAttemptAt: nextAttemptAt?.toISOString() ?? null,
+        ...safeEnrichmentErrorMetadata(error),
+      },
     }).catch(() => undefined);
   }
 }

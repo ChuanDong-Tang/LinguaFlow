@@ -1,11 +1,13 @@
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
+import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { ProgressPhraseDetectionService } from "./ProgressPhraseDetectionService.js";
-import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage, safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
 
 export class ProgressPhraseDetectionWorkerService {
   constructor(
     private readonly repository: CardEnrichmentRepository,
     private readonly detector: ProgressPhraseDetectionService,
+    private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly options: { leaseMs?: number; maxAttempts?: number } = {},
   ) {}
 
@@ -43,7 +45,40 @@ export class ProgressPhraseDetectionWorkerService {
         retry.retryAt,
         { preserveAttempt: retry.preserveAttempt },
       );
+      await this.log(job.userId, job.id, retry.retryAt ? "retry" : "failed", error, retry.retryAt);
     }
     return true;
   }
+
+  private async log(
+    userId: string,
+    jobId: string,
+    status: "retry" | "failed",
+    error: unknown,
+    nextAttemptAt: Date | null,
+  ): Promise<void> {
+    try {
+      await this.systemEventLogRepository?.create({
+        requestId: `progress_phrase_${jobId}`,
+        userId,
+        module: "card",
+        event: status === "retry" ? "card.progress_phrase_detection.retry" : "card.progress_phrase_detection.failed",
+        level: status === "retry" ? "warn" : "error",
+        status: status === "retry" ? "ignored" : "failed",
+        errorCode: resolveErrorCode(error),
+        errorMessage: safeEnrichmentErrorMessage(error),
+        metadata: {
+          nextAttemptAt: nextAttemptAt?.toISOString() ?? null,
+          ...safeEnrichmentErrorMetadata(error),
+        },
+      });
+    } catch {
+      // Observability must not change the job state.
+    }
+  }
+}
+
+function resolveErrorCode(error: unknown): string {
+  if (typeof error === "object" && error !== null && "code" in error) return String(error.code);
+  return error instanceof Error ? error.name.toUpperCase() : "UNKNOWN";
 }
