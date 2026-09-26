@@ -269,6 +269,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       const availableSlots = Math.max(0, Math.max(1, input.maxOutstanding) - outstanding);
       if (!availableSlots) return 0;
       const scanLimit = Math.min(Math.max(1, input.limit), availableSlots);
+      const backfillInputVersionPrefix = `phrase_embedding_backfill_v1:${input.modelVersion}:`;
       const phrases = await tx.$queryRaw<Array<{ id: string; userId: string; languageCode: string; canonicalText: string }>>`
         SELECT phrase."id", phrase."userId", phrase."languageCode", phrase."canonicalText"
           FROM "phrases" AS phrase
@@ -290,6 +291,14 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
                 AND job."jobType" = 'generate_phrase_embedding'
                 AND job."status" IN ('queued', 'processing')
            )
+           AND NOT EXISTS (
+             SELECT 1 FROM "card_enrichment_jobs" AS job
+              WHERE job."userId" = phrase."userId"
+                AND job."sourceKind" = 'phrase'
+                AND job."sourceId" = phrase."id"
+                AND job."jobType" = 'generate_phrase_embedding'
+                AND left(job."inputVersion", ${backfillInputVersionPrefix.length}) = ${backfillInputVersionPrefix}
+           )
          ORDER BY phrase."createdAt" ASC, phrase."id" ASC
          LIMIT ${scanLimit}
       `;
@@ -297,7 +306,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         const inputHash = createHash("sha256")
           .update(`${phrase.languageCode}\n${phrase.canonicalText.normalize("NFKC").trim()}`)
           .digest("hex");
-        const inputVersion = `phrase_embedding_input_v1:${inputHash}`;
+        const inputVersion = `${backfillInputVersionPrefix}${inputHash}`;
         await tx.cardEnrichmentJob.upsert({
           where: {
             userId_sourceKind_sourceId_jobType_inputVersion: {
@@ -317,18 +326,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
             inputVersion,
             payload: { phraseId: phrase.id, schemaVersion: 1 },
           },
-          update: {
-            status: "queued",
-            availableAt: new Date(),
-            inputHash,
-            attempts: 0,
-            processingAt: null,
-            leaseExpiresAt: null,
-            workerId: null,
-            lastError: null,
-            completedAt: null,
-            failedAt: null,
-          },
+          update: {},
         });
       }
       return phrases.length;
