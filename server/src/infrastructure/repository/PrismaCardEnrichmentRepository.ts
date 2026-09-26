@@ -297,7 +297,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
                 AND job."sourceKind" = 'phrase'
                 AND job."sourceId" = phrase."id"
                 AND job."jobType" = 'generate_phrase_embedding'
-                AND left(job."inputVersion", ${backfillInputVersionPrefix.length}) = ${backfillInputVersionPrefix}
+                AND left(job."inputVersion", ${backfillInputVersionPrefix.length}::integer) = ${backfillInputVersionPrefix}
            )
          ORDER BY phrase."createdAt" ASC, phrase."id" ASC
          LIMIT ${scanLimit}

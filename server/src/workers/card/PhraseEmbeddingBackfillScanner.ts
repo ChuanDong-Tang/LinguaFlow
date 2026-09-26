@@ -45,6 +45,7 @@ export class PhraseEmbeddingBackfillScanner {
         },
       });
     } catch (error) {
+      console.error("[phrase-embedding-backfill-scanner] round failed", error);
       await this.logs?.create({
         module: "card",
         event: "phrase.embedding_backfill.scan_failed",

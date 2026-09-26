@@ -14,6 +14,21 @@ Read-only status:
 bash skills/linguaflow-backend-deploy/scripts/backend-status.sh
 ```
 
+Read or change the two bounded Card backfill scanners with the dedicated
+script; do not edit the production `.env` ad hoc:
+
+```bash
+bash skills/linguaflow-backend-deploy/scripts/configure-card-backfills.sh --status
+bash skills/linguaflow-backend-deploy/scripts/configure-card-backfills.sh --enable both --confirm-production
+bash skills/linguaflow-backend-deploy/scripts/configure-card-backfills.sh --disable both --confirm-production
+```
+
+Targets are `phrase`, `alignment`, or `both`. Enabling uses conservative
+defaults: phrase batches of 20 with at most 40 outstanding jobs, and alignment
+batches of 20. The script atomically updates only the allowlisted keys, creates
+a timestamped server-side backup, restarts only the Worker, and prints no
+secrets.
+
 Preview an exact rollout:
 
 ```bash
